@@ -49,7 +49,8 @@ exercises this.
 `/v1/runtime/talk` (`sessionId`, `messageId`, `text`) appends the Caretaker message and the actor's
 answer to an active session in one transaction, and returns a `private_caretaker_talk` receipt
 holding the session, both messages and the turn. Nothing reaches the scene, the scene stream or the
-journal. The message ID is an idempotency key: an exact retry answers the stored message, reply and
+journal. The message ID is an idempotency key, and the answer's ID is the message ID followed by
+`:reply`, so a client message ID ending in `:reply` is refused as a bad request: an exact retry answers the stored message, reply and
 turn, and other text under the same ID answers `409 message_id_reused`. A concurrent message that
 won the session's next sequence answers `409 conversation_busy`.
 

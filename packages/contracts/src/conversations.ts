@@ -166,6 +166,16 @@ function boundedId(value: unknown, path: string): string {
   return id;
 }
 
+/** The answer to message `x` is stored as `x:reply`, so a client message ID may not end with it. */
+const REPLY_MESSAGE_ID_SUFFIX = ":reply";
+
+function talkMessageId(value: unknown, path: string): string {
+  const id = boundedId(value, path);
+  if (id.endsWith(REPLY_MESSAGE_ID_SUFFIX))
+    throw new ContractDecodeError(path, `message ID must not end with ${REPLY_MESSAGE_ID_SUFFIX}`);
+  return id;
+}
+
 export function decodeConversationText(value: unknown, path: string): string {
   const text = string(value, path);
   if (text.trim() === "" || new TextEncoder().encode(text).length > MAX_CONVERSATION_TEXT_OCTETS)
@@ -255,7 +265,7 @@ export function decodeTalkRequest(value: unknown): TalkRequest {
   return Object.freeze({
     scope,
     sessionId: boundedId(v.sessionId, `${path}.sessionId`),
-    messageId: boundedId(v.messageId, `${path}.messageId`),
+    messageId: talkMessageId(v.messageId, `${path}.messageId`),
     text: decodeConversationText(v.text, `${path}.text`),
   });
 }

@@ -108,6 +108,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
           text: "Something else.",
         }),
       ).toEqual({ status: 409, body: { error: "message_id_reused" } });
+      // The answer to "rain-1" is stored as "rain-1:reply", so a client may not take that ID.
+      const replyId = { sessionId: rain.sessionId, messageId: "rain-1:reply", text: "Hello." };
+      expect((await post("/v1/runtime/talk", replyId)).status).toBe(400);
 
       // Public Say is a distinct command with its own receipt; it never enters a session.
       const say = await post("/v1/runtime/say", {

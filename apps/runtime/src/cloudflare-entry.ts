@@ -472,6 +472,7 @@ export const runtimeBindingManifest = {
     "AUTH_DATABASE_URL",
     "MANAGEMENT_DATABASE_URL",
     "WORLD_AUTHORIZATION_DATABASE_URL",
+    "ARTIFACT_KEYRING",
   ],
   durableObjects: {
     WORLD_DO: "WorldDO",

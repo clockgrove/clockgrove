@@ -19,3 +19,6 @@ MANAGEMENT_DATABASE_URL=
 
 # runtime/world-authorization: Generated direct PostgreSQL clockgrove_world_reader connection.
 WORLD_AUTHORIZATION_DATABASE_URL=
+
+# runtime/artifact-encryption: Artifact encryption KEKs, consumed by private conversations only.
+ARTIFACT_KEYRING=

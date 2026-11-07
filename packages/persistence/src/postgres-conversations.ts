@@ -168,7 +168,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
   ): Promise<ConversationSession> {
     const stored = await this.stored(participant, scope, sessionId);
     const artifactId = `${sessionId}:title:${crypto.randomUUID()}`;
-    await this.put(participant, stored, artifactId, title);
+    await this.put(participant, stored, artifactId, title, "conversation_busy");
     return this.update(participant, scope, sessionId, "title_artifact_id = $5", artifactId);
   }
 
@@ -213,12 +213,14 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const sequence = count + 1;
     const before = await this.session(participant, stored.row);
     const reply = respond(before, (sequence + 1) / 2);
-    // Artifacts are keyed by sequence, so a retry after a crash rewrites the same content; a lost
-    // race leaves its two artifacts unreferenced and is refused as busy.
-    const contentId = (at: number) => `${sessionId}:message:${at}`;
-    await this.put(participant, stored, contentId(sequence), request.text);
-    await this.put(participant, stored, contentId(sequence + 1), reply);
-    await this.transaction(participant, async () => {
+    // The input artifact is keyed by message ID, so an exact retry after a lost connection rewrites
+    // the same content and other text under that ID is a reuse. The reply's key is fresh: an
+    // orphaned reply never collides with a later one.
+    const inputArtifact = `${sessionId}:message:${messageId}`;
+    const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
+    await this.put(participant, stored, inputArtifact, request.text, "message_id_reused");
+    await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
+    const written = await this.transaction(participant, async () => {
       const locked = await this.client.query(
         `SELECT message_count, state FROM clockgrove.conversation_sessions
           WHERE ${SESSION_SCOPE} FOR UPDATE`,
@@ -234,15 +236,16 @@ export class PostgreSqlConversationStore implements ConversationStore {
         [scope.tenantId, sessionId, messageId],
       );
       // A concurrent retry of this message stored it first; its receipt is read below.
-      if (used.rows.length > 0) return;
+      if (used.rows.length > 0) return undefined;
       if (Number(current.message_count) !== count)
         throw new ConversationRefusedError("conversation_busy");
-      await this.client.query(
+      const messages = await this.client.query(
         `INSERT INTO clockgrove.conversation_messages (
            tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
            content_artifact_id
          ) VALUES ($1, $2, $3, $4, $5, 'caretaker', $6, NULL, $7),
-                  ($1, $2, $3, $4 + 1, $8, 'actor', $9, $10, $11)`,
+                  ($1, $2, $3, $4 + 1, $8, 'actor', $9, $10, $11)
+         RETURNING ${MESSAGE_COLUMNS}`,
         [
           scope.tenantId,
           sessionId,
@@ -250,33 +253,59 @@ export class PostgreSqlConversationStore implements ConversationStore {
           sequence,
           messageId,
           participant.personaId,
-          contentId(sequence),
+          inputArtifact,
           replyId,
           stored.row.actor_id,
           stored.row.voice_mode,
-          contentId(sequence + 1),
+          replyArtifact,
         ],
       );
-      await this.client.query(
+      const turn = await this.client.query(
         `INSERT INTO clockgrove.conversation_turns (
            tenant_id, session_id, principal_id, turn, input_sequence, output_sequence, model, state
-         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, 'scripted-fixture-v1', 'completed')`,
+         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, 'scripted-fixture-v1', 'completed')
+         RETURNING ${TURN_COLUMNS}`,
         [scope.tenantId, sessionId, participant.principalId, (sequence + 1) / 2, sequence],
       );
-      await this.client.query(
+      const session = await this.client.query(
         `UPDATE clockgrove.conversation_sessions
             SET message_count = message_count + 2, updated_at = statement_timestamp()
-          WHERE ${SESSION_SCOPE}`,
+          WHERE ${SESSION_SCOPE}
+          RETURNING ${SESSION_COLUMNS}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
+      const rows = (messages.rows as Row[]).sort((a, b) => Number(a.sequence) - Number(b.sequence));
+      return {
+        input: rows[0] as Row,
+        output: rows[1] as Row,
+        turn: turn.rows[0] as Row,
+        session: session.rows[0] as Row,
+      };
     });
-    const receipt = await this.retried(
-      participant,
-      await this.stored(participant, scope, sessionId),
-      request,
-    );
-    if (receipt === undefined) throw new ConversationRefusedError("conversation_busy");
-    return receipt;
+    if (written === undefined) {
+      const receipt = await this.retried(participant, stored, request);
+      if (receipt === undefined) throw new ConversationRefusedError("conversation_busy");
+      return receipt;
+    }
+    // The receipt is built from the rows just written and the texts already in hand: no re-read.
+    const message = (row: Row, text: string) =>
+      decodeConversationMessage({
+        sessionId: row.session_id,
+        sequence: Number(row.sequence),
+        messageId: row.message_id,
+        role: row.role,
+        authorId: row.author_id,
+        voiceMode: row.voice_mode,
+        text,
+        createdAt: row.created_at,
+      });
+    return Object.freeze({
+      type: "private_caretaker_talk" as const,
+      session: this.sessionOf(written.session, before.title),
+      message: message(written.input, request.text),
+      reply: message(written.output, reply),
+      turn: turnOf(written.turn),
+    });
   }
 
   /** The stored receipt of this message ID, or undefined when it is new. Other text is a reuse. */
@@ -361,13 +390,20 @@ export class PostgreSqlConversationStore implements ConversationStore {
     participant: ConversationParticipant,
     row: Row,
   ): Promise<ConversationSession> {
-    const voiceMode = row.voice_mode as VoiceMode;
     const titleId = row.title_artifact_id;
     const stored = {
       row,
       partitionId: decodeOpaqueId(row.partition_id, "PartitionId"),
       spaceId: decodeOpaqueId(row.space_id, "SpaceId"),
     };
+    return this.sessionOf(
+      row,
+      typeof titleId === "string" ? await this.text(participant, stored, titleId) : "",
+    );
+  }
+
+  private sessionOf(row: Row, title: string): ConversationSession {
+    const voiceMode = row.voice_mode as VoiceMode;
     return decodeConversationSession({
       sessionId: row.session_id,
       scope: {
@@ -382,7 +418,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       privacyClass: "conversation",
       voiceMode,
       disclosure: VOICE_DISCLOSURES[voiceMode],
-      title: typeof titleId === "string" ? await this.text(participant, stored, titleId) : "",
+      title,
       state: row.state,
       messageCount: Number(row.message_count),
       createdAt: row.created_at,
@@ -412,6 +448,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     stored: StoredSession,
     artifactId: string,
     text: string,
+    collision: "message_id_reused" | "conversation_busy",
   ): Promise<void> {
     try {
       await this.artifacts.put(participant, {
@@ -422,9 +459,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
         retentionClass: "durable",
       });
     } catch (error) {
-      // Another request holds this sequence with other content: it won the race.
-      if (error instanceof ArtifactConflictError)
-        throw new ConversationRefusedError("conversation_busy");
+      // This artifact ID already holds other content.
+      if (error instanceof ArtifactConflictError) throw new ConversationRefusedError(collision);
       throw error;
     }
   }

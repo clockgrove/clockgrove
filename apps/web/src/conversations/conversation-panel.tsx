@@ -110,20 +110,13 @@ export function ConversationPanel({
     if ("refused" in receipt) return refuse(receipt);
     setDraft("");
     setCurrent(receipt.session);
-    // Reload the tail so the view matches the stored transcript, including paged-over messages.
-    const page = await session.readConversation(receipt.session.sessionId);
-    if ("refused" in page) return refuse(page);
-    const all = [...page.messages];
-    let cursor = page.nextAfterSequence;
-    while (cursor !== null) {
-      const more = await session.readConversation(receipt.session.sessionId, cursor);
-      if ("refused" in more) return refuse(more);
-      all.push(...more.messages);
-      cursor = more.nextAfterSequence;
-    }
-    setMessages(all);
-    setNext(null);
-    await reload(receipt.session.sessionId);
+    // The receipt holds both new messages. Append them when the loaded tail is the end of the
+    // transcript; otherwise the next "load more" page reaches them. No transcript or list re-read.
+    if (next === null) setMessages((all) => [...all, receipt.message, receipt.reply]);
+    setSessions((all) => [
+      receipt.session,
+      ...all.filter((s) => s.sessionId !== receipt.session.sessionId),
+    ]);
   };
 
   return (

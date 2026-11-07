@@ -2,7 +2,7 @@
 
 The package root exports `createComponentRegistry`, `createDefinitionRegistry`,
 `resolveEffectiveObject`, `serializeEffectiveObject`, `createInitialComponentCatalog`,
-the nine catalog schemas/state types, and the supporting registry and definition types.
+the ten catalog schemas/state types, and the supporting registry and definition types.
 See [component composition](component-composition.md) and the
 [bounded catalog](component-catalog.md) for precise field and codec contracts.
 
@@ -34,7 +34,7 @@ The resulting complete world is validated and copied by `createWorldState`, incl
 duplicate identities and cross-object shelter references. Registry/composition refusals expose
 code, path and message; final world validation retains existing `DomainValidationError` diagnostics.
 
-This adapter accepts the nine supported version-one components; Portal projects to the optional
+This adapter accepts the ten supported version-one components; Portal projects to the optional
 `entity.portal` field ([portal component](component-catalog.md#portal-component-rw-0104)). Explicit Containment and
 Lifecycle state must agree with timeline parentage and lifecycle metadata. Legacy objects
 without those components retain their byte-identical projection; absent optional state never
