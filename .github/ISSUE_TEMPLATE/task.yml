@@ -1,0 +1,11 @@
+name: Task
+description: Track maintenance, investigation or qualification
+type: Task
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Task outcome
+      description: Describe the work and its completion criteria without including private source.
+    validations:
+      required: true

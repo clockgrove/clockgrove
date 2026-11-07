@@ -1,0 +1,74 @@
+{
+  "environment": "production",
+  "resources": {
+    "worker": "rw-production-runtime",
+    "queues": {
+      "worldReactions": {
+        "name": "rw-production-world-reactions",
+        "deadLetter": "rw-production-world-reactions-dlq"
+      },
+      "cognitiveIndexing": {
+        "name": "rw-production-cognitive-indexing",
+        "deadLetter": "rw-production-cognitive-indexing-dlq"
+      },
+      "externalEffects": {
+        "name": "rw-production-external-effects",
+        "deadLetter": "rw-production-external-effects-dlq"
+      }
+    },
+    "buckets": {
+      "artifacts": "rw-production-artifacts",
+      "assets": "rw-production-assets",
+      "backups": "rw-production-backups"
+    },
+    "hyperdrive": "rw-production-postgres",
+    "analytics": "rw-production-metrics",
+    "aiGateway": "rw-production-models",
+    "serviceToken": "rw-production-operations",
+    "turnstile": "rw-production-public",
+    "database": {
+      "project": "rw-production-postgres",
+      "branch": "rw-production-main",
+      "database": "rw-production-world",
+      "roles": {
+        "migrations": "clockgrove_migrator",
+        "runtime": "clockgrove_runtime",
+        "support": "clockgrove_support",
+        "backup": "clockgrove_backup",
+        "authentication": "clockgrove_auth_verifier",
+        "management": "clockgrove_management_reader",
+        "worldAuthorization": "clockgrove_world_reader"
+      },
+      "region": "aws-us-west-2"
+    }
+  },
+  "domains": {
+    "runtime": "production.runtime.example.org",
+    "dnsTarget": "runtime.example.org"
+  },
+  "safeIds": {
+    "cloudflareAccountId": "00000000000000000000000000000000",
+    "cloudflareZoneId": "00000000000000000000000000000000"
+  },
+  "retention": {
+    "queueSeconds": 86400,
+    "databaseSeconds": 604800,
+    "artifactDays": 30
+  },
+  "budgets": {
+    "modelMonthlyUsd": 100,
+    "requestsPerMinute": 60,
+    "databaseMinCu": 0.25,
+    "databaseMaxCu": 1
+  },
+  "compatibilityDate": "2026-10-01",
+  "modelAliases": {
+    "default": "interactive-standard",
+    "background": "background-standard"
+  },
+  "authentication": {
+    "origin": "https://production.runtime.example.org",
+    "providerEnvironment": "production",
+    "transport": "direct-postgresql"
+  }
+}

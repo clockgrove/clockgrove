@@ -1,0 +1,67 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "juniper",
+  "animationFamily": "eat",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/juniper/eat.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette juniper; family eat; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": null,
+    "archetype": "grove.raccoon-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 650,
+    "depth": 380
+  },
+  "bounds": {
+    "x": 0,
+    "y": 11,
+    "width": 32,
+    "height": 21
+  },
+  "palette": [
+    "#22232b",
+    "#2a2630",
+    "#343743",
+    "#5a5e70",
+    "#8089a0",
+    "#b9c0cb",
+    "#c9803a",
+    "#e6e9ee",
+    "#e8b26a",
+    "#f3f4f7",
+    "#ffffff"
+  ],
+  "contentHash": "7472bfe078e298eea1e204796e64581e6e550c31b479229081ace1a496f28f45",
+  "accessibilityLabel": "Juniper eating",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 856,
+    "y": 0
+  }
+}

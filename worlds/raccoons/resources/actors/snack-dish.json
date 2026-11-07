@@ -1,0 +1,1 @@
+{"archetype":{"id":"grove.food-source-kind","version":1},"capabilities":[],"id":"grove.snack-dish","overrides":[],"placement":{"coordinates":[{"$bigint":"30000"},{"$bigint":"13000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

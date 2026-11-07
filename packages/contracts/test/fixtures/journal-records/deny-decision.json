@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "authorityDecisionId": "decision-deny-1",
+  "outcome": "deny",
+  "tenantId": "tenant-a",
+  "worldId": "world-a",
+  "timelineId": "timeline-main",
+  "commandId": "command-open-2",
+  "actionId": "action-open-2",
+  "attribution": {
+    "principalId": "principal-sam",
+    "effectiveActorId": "principal-sam",
+    "causalRootActionId": "action-open-2"
+  },
+  "inputs": {
+    "principalId": "principal-sam",
+    "roles": [],
+    "grants": [],
+    "privacyCeiling": { "version": 1, "allowedCategories": ["public_scene"] }
+  },
+  "reasonCode": "missing-grant",
+  "decidedAt": "2026-09-01T10:05:00.000Z"
+}

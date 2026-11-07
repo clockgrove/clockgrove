@@ -1,0 +1,20 @@
+{
+  "name": "@clockgrove/testkit",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit --project tsconfig.json",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "vitest": "5.0.3"
+  }
+}

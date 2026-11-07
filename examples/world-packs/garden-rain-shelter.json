@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "schemaVersion": 1,
+    "packId": "clockgrove.conformance.rain-shelter",
+    "packVersion": "0.1.0",
+    "archetypes": ["garden.gardener@1", "garden.cover@1"],
+    "policy": {
+      "schemaVersion": 1,
+      "version": "rain-shelter@1",
+      "decisionIntervalMs": "60000",
+      "hungerPerInterval": 400,
+      "wetnessPerInterval": 1200,
+      "dryingPerInterval": 600,
+      "hungerWeight": 1000,
+      "shelterWeight": 2500
+    }
+  },
+  "initialState": {
+    "schemaVersion": 1,
+    "tenantId": "conformance-local",
+    "worldId": "conformance-garden",
+    "timelineId": "conformance-main",
+    "partitionId": "conformance-garden-volume",
+    "revision": "0",
+    "simulationTime": "0",
+    "weather": {
+      "rainIntensity": 0
+    },
+    "spatialFrames": [
+      {
+        "frameId": "garden-volume",
+        "version": 1,
+        "dimensions": 3,
+        "unit": {
+          "name": "centimetre",
+          "fractionalDigits": 2
+        },
+        "axes": {
+          "axes": [
+            {
+              "name": "forward",
+              "positiveDirection": "toward-gate"
+            },
+            {
+              "name": "right",
+              "positiveDirection": "toward-tool-shed"
+            },
+            {
+              "name": "up",
+              "positiveDirection": "skyward"
+            }
+          ]
+        },
+        "origin": ["100", "-200", "0"],
+        "gravity": {
+          "kind": "constant-vector",
+          "vector": ["0", "0", "-981"]
+        }
+      }
+    ],
+    "entities": [
+      {
+        "objectId": "mae",
+        "archetypeId": "garden.gardener@1",
+        "pose": {
+          "frameId": "garden-volume",
+          "frameVersion": 1,
+          "coordinates": ["0", "0", "0"]
+        },
+        "needs": {
+          "hunger": 3000,
+          "wetness": 0,
+          "integratedAt": "0",
+          "hungerRemainder": "0",
+          "wetnessRemainder": "0"
+        },
+        "spaceId": "garden"
+      },
+      {
+        "objectId": "potting-bench",
+        "archetypeId": "garden.cover@1",
+        "pose": {
+          "frameId": "garden-volume",
+          "frameVersion": 1,
+          "coordinates": ["0", "0", "0"]
+        },
+        "shelter": {
+          "rainProtection": 10000
+        },
+        "spaceId": "garden"
+      },
+      {
+        "objectId": "tool-shed-eave",
+        "archetypeId": "garden.cover@1",
+        "pose": {
+          "frameId": "garden-volume",
+          "frameVersion": 1,
+          "coordinates": ["0", "0", "0"]
+        },
+        "shelter": {
+          "rainProtection": 7500
+        },
+        "spaceId": "garden"
+      }
+    ]
+  }
+}

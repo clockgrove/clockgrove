@@ -1,0 +1,237 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790708400000,
+      "tag": "0001_wave0_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791324000000,
+      "tag": "0002_authentication_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791410400000,
+      "tag": "0003_tenant_scoped_event_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791496800000,
+      "tag": "0004_world_birth",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791583200000,
+      "tag": "0005_world_ready_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791669600000,
+      "tag": "0006_attributed_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791756000000,
+      "tag": "0007_partition_state_projection",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791842400000,
+      "tag": "0008_durable_schedules",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791928800000,
+      "tag": "0009_dispatch_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792015200000,
+      "tag": "0010_linear_journal_append",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792101600000,
+      "tag": "0011_preview_effect_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792188000000,
+      "tag": "0012_artifact_store",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792274400000,
+      "tag": "0013_partition_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792360800000,
+      "tag": "0014_indexed_event_collision_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792447200000,
+      "tag": "0015_timeline_clock_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792533600000,
+      "tag": "0016_clock_admissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792620000000,
+      "tag": "0017_world_system_principal",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792706400000,
+      "tag": "0018_bounded_clock_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792792800000,
+      "tag": "0019_clock_owner_claim_in_place",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792879200000,
+      "tag": "0020_clock_policy_event_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792965600000,
+      "tag": "0021_dispatch_claim_backlog_age",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793052000000,
+      "tag": "0022_inspector_access_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793138400000,
+      "tag": "0023_inspector_audit_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793224800000,
+      "tag": "0024_world_reaction_consumption",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793311200000,
+      "tag": "0025_durable_world_birth",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793397600000,
+      "tag": "0026_durable_catch_up",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793484000000,
+      "tag": "0027_done_schedule_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793570400000,
+      "tag": "0028_inspector_rate_limit_routed_space",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793656800000,
+      "tag": "0029_drop_incompatible_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793743200000,
+      "tag": "0030_snapshot_due_partitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793829600000,
+      "tag": "0031_runtime_operator_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793916000000,
+      "tag": "0032_observer_world_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794002400000,
+      "tag": "0033_inspector_entry_points",
+      "breakpoints": true
+    }
+  ]
+}

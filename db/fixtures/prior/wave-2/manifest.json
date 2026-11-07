@@ -1,0 +1,18 @@
+{
+  "release": "wave-2",
+  "commit": "d96ff316f9be7b632058c5ee38da92d54ae35b46",
+  "migrationHead": "0014_indexed_event_collision_check.sql",
+  "pack": "fixture",
+  "scenario": "non-raccoon-conformance",
+  "principalId": "principal-journal-parity",
+  "scope": {
+    "tenantId": "tenantid_443adfa47140780d",
+    "worldId": "worldid_b09aed54932c8f51",
+    "timelineId": "timelineid_a944a1d612944976",
+    "partitionId": "partitionid_3acf598aeb8a3d83:beacon.hall"
+  },
+  "events": 26,
+  "snapshots": 3,
+  "eventBytesDigest": "8e073066ef9ba1893114a4d22a4c215a7b02ed9dc57f9905726b96831ca5f74b",
+  "finalStateHash": "4d2c9bd4b68aeee489dfae5380353e0f458826a4b76e5ed14e37eee64d344399"
+}

@@ -1,0 +1,11 @@
+{
+  "type": "clockgrove.needs",
+  "version": 1,
+  "state": {
+    "hunger": 3000,
+    "wetness": 0,
+    "integratedAt": { "$bigint": "0" },
+    "hungerRemainder": { "$bigint": "0" },
+    "wetnessRemainder": { "$bigint": "0" }
+  }
+}

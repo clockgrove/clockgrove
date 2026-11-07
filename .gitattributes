@@ -1,0 +1,6 @@
+.gitattributes text eol=lf
+.github/actions/** text eol=lf
+.github/workflows/*.yml text eol=lf
+schemas/*.json text eol=lf
+assets/brand/clockgrove/master/clockgrove-approved-original.png filter=lfs diff=lfs merge=lfs -text
+db/fixtures/prior/*/database.sql linguist-generated=true

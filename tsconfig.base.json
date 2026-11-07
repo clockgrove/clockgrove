@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "allowJs": false,
+    "checkJs": false,
+    "declaration": true,
+    "declarationMap": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "moduleResolution": "NodeNext",
+    "noEmitOnError": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "paths": {
+      "@clockgrove/contracts": ["./packages/contracts/src/index.ts"],
+      "@clockgrove/contracts/trusted": ["./packages/contracts/src/trusted.ts"],
+      "@clockgrove/domain": ["./packages/domain/src/index.ts"],
+      "@clockgrove/kernel": ["./packages/kernel/src/index.ts"],
+      "@clockgrove/world-pack-sdk": ["./packages/world-pack-sdk/src/index.ts"],
+      "@clockgrove/simulator": ["./packages/simulator/src/index.ts"],
+      "@clockgrove/application": ["./packages/application/src/index.ts"],
+      "@clockgrove/persistence": ["./packages/persistence/src/index.ts"],
+      "@clockgrove/testkit": ["./packages/testkit/src/index.ts"],
+      "@clockgrove/assets": ["./packages/assets/src/index.ts"]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": false,
+    "strict": true,
+    "target": "ES2024",
+    "useDefineForClassFields": true,
+    "verbatimModuleSyntax": true
+  }
+}

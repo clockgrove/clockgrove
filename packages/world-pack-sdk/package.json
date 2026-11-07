@@ -1,0 +1,24 @@
+{
+  "name": "@clockgrove/world-pack-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit --project tsconfig.json",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@clockgrove/contracts": "workspace:*",
+    "@clockgrove/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.0.3"
+  }
+}

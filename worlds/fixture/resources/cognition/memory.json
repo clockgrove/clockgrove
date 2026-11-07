@@ -1,0 +1,1 @@
+{"entries":[{"actorId":"beacon.master","effectiveAt":{"$bigint":"1000"},"kind":"memory","ref":"scripted:cistern-memory","targetObjectId":"beacon.cistern","value":4000}],"schemaVersion":1,"type":"clockgrove.scripted-cognition"}

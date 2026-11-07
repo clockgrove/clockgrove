@@ -1,0 +1,18 @@
+name: Feature request
+description: Propose a capability or improvement
+type: Feature
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe what should become possible without including private source.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and boundaries
+      description: Explain how to verify the outcome and what is outside the request.
+    validations:
+      required: true

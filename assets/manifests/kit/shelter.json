@@ -1,0 +1,62 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "kit",
+  "animationFamily": "shelter",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/kit/shelter.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette juniper; family shelter; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.kit",
+    "archetype": "grove.kit-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 3,
+    "y": 18,
+    "width": 23,
+    "height": 14
+  },
+  "palette": [
+    "#2a2630",
+    "#343743",
+    "#5a5e70",
+    "#8089a0",
+    "#b9c0cb",
+    "#e6e9ee"
+  ],
+  "contentHash": "917b5b2c0b16f4938637764f93293d0015c2c4cab61511017fb177d77bf6c685",
+  "accessibilityLabel": "The kit sheltering",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 0,
+    "y": 80
+  }
+}

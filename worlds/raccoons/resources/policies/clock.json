@@ -1,0 +1,1 @@
+{"decisionIntervalMs":{"$bigint":"86400000"},"epoch":{"$bigint":"8640000000"},"simulationMillisecondsPerWallMillisecond":1,"type":"clockgrove.clock-policy","wallEpoch":"2026-01-01T00:00:00.000Z"}

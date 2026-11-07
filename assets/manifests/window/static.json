@@ -1,0 +1,61 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "window",
+  "animationFamily": "static",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/window/static.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural window; fixed palette; family static; 1 frame",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": "grove.porch",
+    "archetype": "grove.porch-kind"
+  },
+  "frames": {
+    "width": 16,
+    "height": 16,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 8,
+    "y": 15
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 1,
+    "width": 16,
+    "height": 15
+  },
+  "palette": [
+    "#6b4a30",
+    "#7a5230",
+    "#8a5e3a",
+    "#ffd66b",
+    "#ffe9a0"
+  ],
+  "contentHash": "d758bc87af69ba360ff0762e5d8bb50a8ffb1107718daac5fdb8103efb604ba7",
+  "accessibilityLabel": "A lit porch window",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 600,
+    "y": 112
+  }
+}

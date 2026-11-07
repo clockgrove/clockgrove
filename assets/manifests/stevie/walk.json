@@ -1,0 +1,65 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "stevie",
+  "animationFamily": "walk",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/stevie/walk.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette stevie; family walk; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.stevie",
+    "archetype": "grove.raccoon-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 700,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 10,
+    "width": 30,
+    "height": 22
+  },
+  "palette": [
+    "#1b1a20",
+    "#26242c",
+    "#2a2630",
+    "#3b3943",
+    "#5f6470",
+    "#8d939e",
+    "#c4c9d2",
+    "#d9dce2",
+    "#ffffff"
+  ],
+  "contentHash": "18e2532423ed96ceb12b9ec897182199cd5520e50cbd26c24fd1f1849a744ef0",
+  "accessibilityLabel": "Stevie walking",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 384,
+    "y": 112
+  }
+}

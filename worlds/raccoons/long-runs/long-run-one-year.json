@@ -1,0 +1,92 @@
+{
+  "assertions": [
+    {
+      "id": "replay-matches",
+      "kind": "path",
+      "operator": "eq",
+      "path": [
+        "replay",
+        "matches"
+      ],
+      "run": "main",
+      "value": true
+    },
+    {
+      "id": "aggregate-replay-matches",
+      "kind": "path",
+      "operator": "eq",
+      "path": [
+        "replay",
+        "matches"
+      ],
+      "run": "aggregate",
+      "value": true
+    },
+    {
+      "equivalence": "small-step-vs-aggregate",
+      "expect": true,
+      "id": "small-step-equals-aggregate",
+      "kind": "equivalence"
+    }
+  ],
+  "equivalences": [
+    {
+      "eventTypes": [
+        "environment.phase-changed",
+        "weather.transitioned",
+        "growth.stage-changed",
+        "lifecycle.stage-changed",
+        "lifecycle.born",
+        "lifecycle.died"
+      ],
+      "fields": [
+        "events",
+        "finalState"
+      ],
+      "id": "small-step-vs-aggregate",
+      "ignoreStatePaths": [
+        [
+          "revision"
+        ]
+      ],
+      "left": "main",
+      "right": "aggregate"
+    }
+  ],
+  "kind": "clockgrove.scenario",
+  "name": "long-run-one-year",
+  "pack": {
+    "id": "clockgrove.green-lake-yard",
+    "version": "1.1.0"
+  },
+  "recording": "summarised",
+  "schemaVersion": 1,
+  "steps": [
+    {
+      "key": "span",
+      "kind": "advance",
+      "mode": "live",
+      "stepMs": {
+        "$bigint": "86400000"
+      },
+      "to": {
+        "$bigint": "40176000000"
+      }
+    }
+  ],
+  "variants": [
+    {
+      "name": "aggregate",
+      "steps": [
+        {
+          "key": "span",
+          "kind": "advance",
+          "mode": "fast-forward",
+          "to": {
+            "$bigint": "40176000000"
+          }
+        }
+      ]
+    }
+  ]
+}

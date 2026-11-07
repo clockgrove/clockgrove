@@ -1,0 +1,142 @@
+[
+  {
+    "requestId": "arrival-request",
+    "state": "route_resolving",
+    "progress": {
+      "completed": 0,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "route": "/world/yard"
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "identity_resolved",
+    "progress": {
+      "completed": 1,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    }
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "membership_authorized",
+    "progress": {
+      "completed": 2,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    }
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "joining_space",
+    "progress": {
+      "completed": 3,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    }
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "snapshot_ready",
+    "progress": {
+      "completed": 4,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "projectionRevision": "9007199254740993"
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "critical_assets_ready",
+    "progress": {
+      "completed": 5,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "projectionRevision": "9007199254740993"
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "scene_ready",
+    "progress": {
+      "completed": 6,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "projectionRevision": "9007199254740993",
+    "terminal": true
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "text_ready",
+    "progress": {
+      "completed": 6,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "projectionRevision": "9007199254740993",
+    "terminal": true,
+    "reason": "assets_unavailable"
+  },
+  {
+    "requestId": "arrival-request",
+    "state": "text_ready",
+    "progress": {
+      "completed": 6,
+      "total": 6,
+      "resumeToken": "resume-yard"
+    },
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "projectionRevision": "9007199254740993",
+    "terminal": true,
+    "reason": "renderer_unavailable"
+  }
+]

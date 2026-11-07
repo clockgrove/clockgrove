@@ -1,0 +1,1 @@
+{"archetype":{"id":"grove.food-source-kind","version":1},"capabilities":[],"id":"grove.den-stash","overrides":[],"placement":{"coordinates":[{"$bigint":"8000"},{"$bigint":"22000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

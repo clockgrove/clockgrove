@@ -1,0 +1,78 @@
+name: Guarded release
+
+on:
+  workflow_run:
+    workflows: [Quality]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Exact qualified main commit for protected staging approval
+        required: true
+        type: string
+      quality_run_id:
+        description: Successful main Quality run bound to that candidate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  select:
+    # While deployment admission is held, a main push's run is skipped rather than failing in
+    # select-candidate.mjs; a manual dispatch still runs and reports the hold.
+    if: ${{ github.event_name == 'workflow_dispatch' || (vars.REPOSITORY_DEPLOYMENT_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-26.04
+    outputs:
+      candidate: ${{ steps.select.outputs.candidate }}
+      run_id: ${{ steps.select.outputs.run_id }}
+      artifact_id: ${{ steps.select.outputs.artifact_id }}
+      artifact_digest: ${{ steps.select.outputs.artifact_digest }}
+      environment: ${{ steps.select.outputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - id: select
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY_DEPLOYMENT_ENABLED: ${{ vars.REPOSITORY_DEPLOYMENT_ENABLED }}
+        run: node scripts/ci/select-candidate.mjs
+
+  development:
+    needs: select
+    if: ${{ needs.select.outputs.environment == 'development' }}
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: development
+      candidate: ${{ needs.select.outputs.candidate }}
+      quality_run_id: ${{ needs.select.outputs.run_id }}
+      artifact_id: ${{ needs.select.outputs.artifact_id }}
+    # No repository secret inheritance; the protected job reads its environment.
+
+  staging:
+    needs: select
+    if: ${{ needs.select.outputs.environment == 'staging' }}
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      candidate: ${{ needs.select.outputs.candidate }}
+      quality_run_id: ${{ needs.select.outputs.run_id }}
+      artifact_id: ${{ needs.select.outputs.artifact_id }}
+
+  production:
+    if: ${{ false }}
+    needs: select
+    environment:
+      name: production
+      url: https://github.com/${{ github.repository }}/commit/${{ needs.select.outputs.candidate }}
+    runs-on: ubuntu-26.04
+    steps:
+      - run: echo 'Production is disabled; explicit release policy and human authorization are required.'

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "provenance": "attributed",
+  "tenantId": "tenant-a",
+  "commandId": "command-open-1",
+  "requestHash": "sha256:fixture-open-1",
+  "status": "committed",
+  "target": {
+    "version": 1,
+    "tenantId": "tenant-a",
+    "worldId": "world-a",
+    "timelineId": "timeline-main",
+    "kind": "space",
+    "id": "space-yard"
+  },
+  "attribution": {
+    "principalId": "principal-alex",
+    "effectiveActorId": "persona-caretaker",
+    "causalRootActionId": "action-open-1"
+  },
+  "actionId": "action-open-1",
+  "correlationId": "correlation-open-1",
+  "causationId": "causation-open-1",
+  "expected": { "streamSequence": "4", "partitionRevision": "9", "routingEpoch": 2 },
+  "authorityDecisionId": "decision-allow-1",
+  "committedEventIds": ["event-open-1", "event-open-2"],
+  "result": { "accepted": true, "eventCount": 2 },
+  "createdAt": "2026-09-01T10:00:00.000Z",
+  "committedAt": "2026-09-01T10:00:00.500Z"
+}

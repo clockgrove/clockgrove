@@ -1,0 +1,1285 @@
+{
+  "type": "object",
+  "required": [
+    "manifestVersion",
+    "candidate",
+    "execution",
+    "versions",
+    "commands",
+    "tests",
+    "fixtureHashes",
+    "stateHashes",
+    "migrations",
+    "security",
+    "recovery",
+    "cloudQualification",
+    "deployments",
+    "focusedReview",
+    "knownRisks",
+    "waivers",
+    "artifacts",
+    "extensions",
+    "browser",
+    "wave0Checklist"
+  ],
+  "properties": {
+    "manifestVersion": {
+      "const": 1
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "commit",
+        "tree",
+        "buildDigest",
+        "clean"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "buildDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clean": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "required": [
+        "provider",
+        "runId",
+        "runAttempt"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "github-actions",
+            "local"
+          ]
+        },
+        "runId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runAttempt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "versions": {
+      "type": "object",
+      "required": [
+        "toolchain",
+        "lockfileDigest",
+        "contracts",
+        "databaseMigrations",
+        "infrastructureRevision",
+        "runtime",
+        "worldPacks",
+        "policies"
+      ],
+      "properties": {
+        "toolchain": {
+          "type": "object",
+          "required": [
+            "node",
+            "pnpm",
+            "opentofu",
+            "wrangler"
+          ],
+          "properties": {
+            "node": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pnpm": {
+              "type": "string",
+              "minLength": 1
+            },
+            "opentofu": {
+              "type": "string",
+              "minLength": 1
+            },
+            "wrangler": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "lockfileDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "contracts": {
+          "type": "object",
+          "required": [
+            "version",
+            "files"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "files": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "databaseMigrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "digest"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "infrastructureRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "runtime": {
+          "type": "object",
+          "required": [
+            "compatibility_date",
+            "compatibility_flags",
+            "migrations"
+          ]
+        },
+        "worldPacks": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "policies": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "command",
+          "status",
+          "exitCode",
+          "startedAt",
+          "completedAt",
+          "outputDigest"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^SIG[A-Z0-9]+$"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "ENOENT",
+              "EACCES",
+              "ENOEXEC",
+              "ENOBUFS",
+              "ETIMEDOUT",
+              "EINVAL",
+              "EAGAIN",
+              "EMFILE",
+              "ENFILE",
+              "ENOMEM",
+              "E2BIG",
+              "EIO",
+              "ENOTDIR",
+              "EPERM"
+            ]
+          },
+          "tree": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "usage": {
+            "type": "null",
+            "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "command",
+          "status",
+          "exitCode",
+          "startedAt",
+          "completedAt",
+          "outputDigest"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^SIG[A-Z0-9]+$"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "ENOENT",
+              "EACCES",
+              "ENOEXEC",
+              "ENOBUFS",
+              "ETIMEDOUT",
+              "EINVAL",
+              "EAGAIN",
+              "EMFILE",
+              "ENFILE",
+              "ENOMEM",
+              "E2BIG",
+              "EIO",
+              "ENOTDIR",
+              "EPERM"
+            ]
+          },
+          "tree": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "usage": {
+            "type": "null",
+            "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fixtureHashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "digest"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stateHashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "digest"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "command",
+          "status",
+          "exitCode",
+          "startedAt",
+          "completedAt",
+          "outputDigest"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^SIG[A-Z0-9]+$"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "ENOENT",
+              "EACCES",
+              "ENOEXEC",
+              "ENOBUFS",
+              "ETIMEDOUT",
+              "EINVAL",
+              "EAGAIN",
+              "EMFILE",
+              "ENFILE",
+              "ENOMEM",
+              "E2BIG",
+              "EIO",
+              "ENOTDIR",
+              "EPERM"
+            ]
+          },
+          "tree": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "usage": {
+            "type": "null",
+            "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "security": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "command",
+          "status",
+          "exitCode",
+          "startedAt",
+          "completedAt",
+          "outputDigest"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^SIG[A-Z0-9]+$"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "ENOENT",
+              "EACCES",
+              "ENOEXEC",
+              "ENOBUFS",
+              "ETIMEDOUT",
+              "EINVAL",
+              "EAGAIN",
+              "EMFILE",
+              "ENFILE",
+              "ENOMEM",
+              "E2BIG",
+              "EIO",
+              "ENOTDIR",
+              "EPERM"
+            ]
+          },
+          "tree": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "usage": {
+            "type": "null",
+            "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "missing",
+            "passed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "nativeRecovery": { "$ref": "#/properties/recovery" },
+    "cloudQualification": {
+      "type": "object",
+      "required": [
+        "status",
+        "dependencies",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "passed",
+            "failed"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "deployments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "environment",
+          "commit",
+          "buildDigest",
+          "status",
+          "phases"
+        ],
+        "properties": {
+          "environment": {
+            "enum": [
+              "development",
+              "staging",
+              "production"
+            ]
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "buildDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "stateRecovery": {
+            "type": "object",
+            "required": ["status", "evidence"],
+            "properties": {
+              "status": { "enum": ["passed", "missing"] },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+              }
+            },
+            "additionalProperties": false
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "held",
+              "unknown"
+            ]
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "commit",
+                "command",
+                "status",
+                "exitCode",
+                "startedAt",
+                "completedAt",
+                "outputDigest"
+              ],
+              "properties": {
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "command": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "status": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "unknown"
+                  ]
+                },
+                "exitCode": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "startedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "completedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outputDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "signal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^SIG[A-Z0-9]+$"
+                },
+                "errorCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    null,
+                    "ENOENT",
+                    "EACCES",
+                    "ENOEXEC",
+                    "ENOBUFS",
+                    "ETIMEDOUT",
+                    "EINVAL",
+                    "EAGAIN",
+                    "EMFILE",
+                    "ENFILE",
+                    "ENOMEM",
+                    "E2BIG",
+                    "EIO",
+                    "ENOTDIR",
+                    "EPERM"
+                  ]
+                },
+                "tree": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "usage": {
+                  "type": "null",
+                  "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "focusedReview": {
+      "type": "object",
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "const": "needs-human"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "knownRisks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "risk",
+          "owner",
+          "evidence",
+          "expiresAt"
+        ],
+        "properties": {
+          "risk": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "digest",
+          "commit",
+          "buildDigest"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "buildDigest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "extensions": {
+      "type": "object"
+    },
+    "browser": {
+      "type": "object",
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "missing",
+            "passed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "wave0Checklist": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": false,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Repository layout and dependency rules are enforced."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Toolchain and lockfile are reproducible from a clean checkout."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Canonical commands are documented and noninteractive in CI."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Branded IDs, execution context, command/event/attribution contracts are golden-tested."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Kernel seam rejects ambient I/O/time/randomness."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "3D spatial and durable-ActorProcess pressure fixtures compile and validate."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "PostgreSQL migrations and command/event transaction skeleton pass duplicate/restart tests."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Tenant isolation and provider-neutral authentication tests pass."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Worker/DO composition route is deployed and correlated."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Runtime-local state can be destroyed and rehydrated without changing canonical truth."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Model/MCP/tool ports have deterministic test adapters and no mutation authority."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Browser diagnostic shell has readiness, reconnect, renderer-neutral projection and text fallback."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "CI checks types, boundaries, contracts, migrations, security, supply chain and browser smoke tests."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "No secret/private deployment material exists in repository source."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Development/staging/production environment and release-manifest contracts are defined."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Clean Linux bootstrap and recovery qualification pass."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/checklistDisposition"
+            },
+            {
+              "properties": {
+                "item": {
+                  "const": "Wave 0 evidence manifest is accepted before Wave 1 product work begins."
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clockgrove.org/schemas/evidence-manifest.schema.json",
+  "$defs": {
+    "checklistDisposition": {
+      "type": "object",
+      "required": [
+        "item",
+        "owner",
+        "commit",
+        "tree",
+        "disposition",
+        "command",
+        "job",
+        "artifact",
+        "digest",
+        "observed",
+        "pending"
+      ],
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^W0-\\d{3}$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "disposition": {
+          "enum": [
+            "passed",
+            "pending"
+          ]
+        },
+        "command": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "job": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9-]+\\.json$"
+        },
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "observed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "pending": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

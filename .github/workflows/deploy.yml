@@ -1,0 +1,119 @@
+name: Protected candidate deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      candidate:
+        required: true
+        type: string
+      quality_run_id:
+        required: true
+        type: string
+      artifact_id:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  # Persisted-state mutations finish or recover before another candidate enters.
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    runs-on: ubuntu-26.04
+    outputs:
+      environment: ${{ steps.admit.outputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - id: admit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY_DEPLOYMENT_ENABLED: ${{ vars.REPOSITORY_DEPLOYMENT_ENABLED }}
+          ADMISSION_ENVIRONMENT: ${{ inputs.environment }}
+        run: node scripts/ci/select-candidate.mjs --admit-environment "$ADMISSION_ENVIRONMENT"
+
+  deploy:
+    needs: admit
+    if: ${{ needs.admit.outputs.environment == inputs.environment && (inputs.environment == 'development' || inputs.environment == 'staging') }}
+    # Owner issue 329 must appoint an isolated disposable runner with supported tools,
+    # external state mount and managed encryption-key identity. No default is inferred.
+    runs-on: [self-hosted, Linux, clockgrove-release]
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.environment }}
+      url: https://github.com/${{ github.repository }}/commit/${{ inputs.candidate }}
+    env:
+      DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+      DEPLOY_CANDIDATE: ${{ inputs.candidate }}
+      QUALITY_RUN_ID: ${{ inputs.quality_run_id }}
+      OWNER_SETUP_READY: ${{ vars.OWNER_SETUP_READY }}
+      ACTIVATION_PREREQUISITES_READY: ${{ vars.ACTIVATION_PREREQUISITES_READY }}
+      INDEPENDENT_REVIEWER: ${{ vars.INDEPENDENT_REVIEWER }}
+      INDEPENDENT_REVIEW_EVIDENCE_FILE: ${{ vars.INDEPENDENT_REVIEW_EVIDENCE_FILE }}
+      OWNER_ACCEPTANCE_PUBLIC_KEY_FILE: ${{ vars.OWNER_ACCEPTANCE_PUBLIC_KEY_FILE }}
+      OWNER_ACCEPTANCE_PUBLIC_KEY_DIGEST: ${{ vars.OWNER_ACCEPTANCE_PUBLIC_KEY_DIGEST }}
+      INFRA_STATE_DIRECTORY: ${{ vars.INFRA_STATE_DIRECTORY }}
+      INFRA_BACKEND_CONFIG_FILE: ${{ vars.INFRA_BACKEND_CONFIG_FILE }}
+      INFRA_ENCRYPTION_CONFIG_FILE: ${{ vars.INFRA_ENCRYPTION_CONFIG_FILE }}
+      INFRA_RECOVERY_EVIDENCE_FILE: ${{ vars.INFRA_RECOVERY_EVIDENCE_FILE }}
+      INFRA_CONFIGURATION_DIGEST: ${{ vars.INFRA_CONFIGURATION_DIGEST }}
+    steps:
+      - name: Initialize runner-local evidence directory
+        shell: bash
+        run: |
+          if [[ ! "$DEPLOY_CANDIDATE" =~ ^[a-f0-9]{40}$ ]]; then
+            echo 'invalid DEPLOY_CANDIDATE: expected exact lowercase commit SHA' >&2
+            exit 1
+          fi
+          printf 'CI_EVIDENCE_DIR=%s/release-evidence-%s\n' "$RUNNER_TEMP" "$DEPLOY_CANDIDATE" >> "$GITHUB_ENV"
+      - name: Check out the exact approved candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate }}
+          persist-credentials: false
+          lfs: true
+      - name: Verify owner-installed accepted tools
+        run: |
+          node -e 'if (process.versions.node !== "24.21.0") throw Error("Node 24.21.0 required")'
+          test "$(pnpm --version)" = '12.9.1'
+          tofu version | head -n 1 | grep -qx 'OpenTofu v1.13.1'
+          pg_config --version | grep -Eq '^PostgreSQL 18\.6( |$)'
+      - name: Install candidate dependencies without scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Download candidate-bound qualified artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          run-id: ${{ inputs.quality_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.CI_EVIDENCE_DIR }}
+          merge-multiple: true
+      # Session/Management/World reader URLs are generated from owned Neon roles in memory.
+      # They use the existing protected Wrangler secret handoff after isolation/migration checks.
+      - name: Provision, verify roles, migrate and publish before activating routing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+        run: node scripts/ci/deploy.mjs
+      - name: Retain deployment results without state or plans
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deployment-${{ inputs.environment }}-${{ inputs.candidate }}
+          path: ${{ env.CI_EVIDENCE_DIR }}/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 30

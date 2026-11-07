@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "schemaVersion": 1,
+    "packId": "clockgrove.reference.rain-shelter",
+    "packVersion": "0.1.0",
+    "archetypes": ["reference.raccoon@1", "reference.shelter@1"],
+    "policy": {
+      "schemaVersion": 1,
+      "version": "rain-shelter@1",
+      "decisionIntervalMs": "60000",
+      "hungerPerInterval": 400,
+      "wetnessPerInterval": 1200,
+      "dryingPerInterval": 600,
+      "hungerWeight": 1000,
+      "shelterWeight": 2500
+    }
+  },
+  "initialState": {
+    "schemaVersion": 1,
+    "tenantId": "reference-local",
+    "worldId": "reference-yard",
+    "timelineId": "reference-main",
+    "partitionId": "reference-yard-ground",
+    "revision": "0",
+    "simulationTime": "0",
+    "weather": {
+      "rainIntensity": 0
+    },
+    "spatialFrames": [
+      {
+        "frameId": "yard-ground",
+        "version": 1,
+        "dimensions": 2,
+        "unit": {
+          "name": "metre",
+          "fractionalDigits": 3
+        },
+        "axes": {
+          "axes": [
+            {
+              "name": "east",
+              "positiveDirection": "eastward"
+            },
+            {
+              "name": "north",
+              "positiveDirection": "northward"
+            }
+          ]
+        },
+        "origin": ["0", "0"],
+        "gravity": {
+          "kind": "constant-vector",
+          "vector": ["0", "0"]
+        }
+      }
+    ],
+    "entities": [
+      {
+        "objectId": "stevie",
+        "archetypeId": "reference.raccoon@1",
+        "pose": {
+          "frameId": "yard-ground",
+          "frameVersion": 1,
+          "coordinates": ["0", "0"]
+        },
+        "needs": {
+          "hunger": 3000,
+          "wetness": 0,
+          "integratedAt": "0",
+          "hungerRemainder": "0",
+          "wetnessRemainder": "0"
+        },
+        "spaceId": "yard"
+      },
+      {
+        "objectId": "den-mouth",
+        "archetypeId": "reference.shelter@1",
+        "pose": {
+          "frameId": "yard-ground",
+          "frameVersion": 1,
+          "coordinates": ["0", "0"]
+        },
+        "shelter": {
+          "rainProtection": 10000
+        },
+        "spaceId": "yard"
+      },
+      {
+        "objectId": "porch-step",
+        "archetypeId": "reference.shelter@1",
+        "pose": {
+          "frameId": "yard-ground",
+          "frameVersion": 1,
+          "coordinates": ["0", "0"]
+        },
+        "shelter": {
+          "rainProtection": 7500
+        },
+        "spaceId": "yard"
+      }
+    ]
+  }
+}

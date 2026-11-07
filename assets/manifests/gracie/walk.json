@@ -1,0 +1,65 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "gracie",
+  "animationFamily": "walk",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/gracie/walk.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette gracie; family walk; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.gracie",
+    "archetype": "grove.raccoon-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 650,
+    "depth": 380
+  },
+  "bounds": {
+    "x": 0,
+    "y": 10,
+    "width": 29,
+    "height": 22
+  },
+  "palette": [
+    "#1f1a18",
+    "#2a2630",
+    "#2d2623",
+    "#463830",
+    "#6e5a4c",
+    "#a08a78",
+    "#d2bfae",
+    "#e6d8ca",
+    "#ffffff"
+  ],
+  "contentHash": "396102935e6597d1346af92611cef9aa3602c1665db541750be648e82240be07",
+  "accessibilityLabel": "Gracie walking",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 728,
+    "y": 0
+  }
+}

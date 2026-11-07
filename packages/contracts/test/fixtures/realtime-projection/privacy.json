@@ -1,0 +1,26 @@
+{
+  "excluded": {
+    "privateCognition": "sentinel-private-cognition",
+    "hiddenEntity": "sentinel-hidden-entity",
+    "rawEvent": "sentinel-raw-event",
+    "secretSentinel": "sentinel-secret-value",
+    "providerIdentity": "sentinel-provider-identity",
+    "irrelevantGrant": "sentinel-irrelevant-grant"
+  },
+  "privateTalk": {
+    "type": "private_caretaker_talk",
+    "messageId": "private-message",
+    "scope": {
+      "tenantId": "tenant-scene",
+      "worldId": "world-yard",
+      "timelineId": "timeline-main",
+      "spaceId": "yard"
+    },
+    "principalId": "principal-caretaker",
+    "caretakerId": "caretaker-persona",
+    "caretakerName": "Named Caretaker",
+    "actorId": "stevie",
+    "text": "sentinel-private-cognition",
+    "sentAt": "2026-10-30T22:00:00Z"
+  }
+}

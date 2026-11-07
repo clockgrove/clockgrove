@@ -1,0 +1,141 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "rw-development-runtime",
+  "main": "../../apps/runtime/src/cloudflare-entry.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WORLD_DO",
+        "class_name": "WorldDO"
+      },
+      {
+        "name": "SPACE_DO",
+        "class_name": "SpaceDO"
+      },
+      {
+        "name": "ACTOR_AGENT_DO",
+        "class_name": "ActorAgentDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WorldDO", "SpaceDO", "ActorAgentDO"]
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "WORLD_PROVISIONING_WORKFLOW",
+      "name": "rw-development-world-provisioning-workflow",
+      "class_name": "WorldProvisioningWorkflow"
+    },
+    {
+      "binding": "WORLD_READINESS_WORKFLOW",
+      "name": "rw-development-world-readiness-workflow",
+      "class_name": "WorldReadinessWorkflow"
+    },
+    {
+      "binding": "WORLD_CATCH_UP_WORKFLOW",
+      "name": "rw-development-world-catch-up-workflow",
+      "class_name": "WorldCatchUpWorkflow"
+    },
+    {
+      "binding": "WORLD_PACK_UPGRADE_WORKFLOW",
+      "name": "rw-development-world-pack-upgrade-workflow",
+      "class_name": "WorldPackUpgradeWorkflow"
+    },
+    {
+      "binding": "INGESTION_WORKFLOW",
+      "name": "rw-development-ingestion-workflow",
+      "class_name": "IngestionWorkflow"
+    },
+    {
+      "binding": "CONSOLIDATION_WORKFLOW",
+      "name": "rw-development-consolidation-workflow",
+      "class_name": "ConsolidationWorkflow"
+    },
+    {
+      "binding": "AUTHORING_WORKFLOW",
+      "name": "rw-development-authoring-workflow",
+      "class_name": "AuthoringWorkflow"
+    },
+    {
+      "binding": "AGENT_JOB_WORKFLOW",
+      "name": "rw-development-agent-job-workflow",
+      "class_name": "AgentJobWorkflow"
+    },
+    {
+      "binding": "TRANSFER_RECOVERY_WORKFLOW",
+      "name": "rw-development-transfer-recovery-workflow",
+      "class_name": "TransferRecoveryWorkflow"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "WORLD_REACTIONS_QUEUE",
+        "queue": "rw-development-world-reactions"
+      },
+      {
+        "binding": "COGNITIVE_INDEXING_QUEUE",
+        "queue": "rw-development-cognitive-indexing"
+      },
+      {
+        "binding": "EXTERNAL_EFFECTS_QUEUE",
+        "queue": "rw-development-external-effects"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "rw-development-world-reactions",
+        "dead_letter_queue": "rw-development-world-reactions-dlq",
+        "max_retries": 3
+      },
+      {
+        "queue": "rw-development-cognitive-indexing",
+        "dead_letter_queue": "rw-development-cognitive-indexing-dlq",
+        "max_retries": 3
+      },
+      {
+        "queue": "rw-development-external-effects",
+        "dead_letter_queue": "rw-development-external-effects-dlq",
+        "max_retries": 3
+      }
+    ]
+  },
+  "vars": {
+    "WORLD_REACTIONS_QUEUE_NAME": "rw-development-world-reactions",
+    "COGNITIVE_INDEXING_QUEUE_NAME": "rw-development-cognitive-indexing",
+    "EXTERNAL_EFFECTS_QUEUE_NAME": "rw-development-external-effects",
+    "AUTH_ORIGIN": "https://development.runtime.example.org",
+    "PROVIDER_ENVIRONMENT": "development"
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "METRICS",
+      "dataset": "rw-development-metrics"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS_BUCKET",
+      "bucket_name": "rw-development-artifacts"
+    },
+    {
+      "binding": "ASSETS_BUCKET",
+      "bucket_name": "rw-development-assets"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *", "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"]
+  }
+}

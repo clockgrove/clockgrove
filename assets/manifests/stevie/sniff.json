@@ -1,0 +1,65 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "stevie",
+  "animationFamily": "sniff",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/stevie/sniff.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette stevie; family sniff; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.stevie",
+    "archetype": "grove.raccoon-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 700,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 11,
+    "width": 31,
+    "height": 21
+  },
+  "palette": [
+    "#1b1a20",
+    "#26242c",
+    "#2a2630",
+    "#3b3943",
+    "#5f6470",
+    "#8d939e",
+    "#c4c9d2",
+    "#d9dce2",
+    "#ffffff"
+  ],
+  "contentHash": "6069bc8b4444f45de8549b34966f703bd001dcc5d95cdd04c574eaba9132c15b",
+  "accessibilityLabel": "Stevie sniffing",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 256,
+    "y": 112
+  }
+}

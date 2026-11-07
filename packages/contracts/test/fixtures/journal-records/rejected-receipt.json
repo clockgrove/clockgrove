@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "provenance": "attributed",
+  "tenantId": "tenant-a",
+  "commandId": "command-open-2",
+  "requestHash": "sha256:fixture-open-2",
+  "status": "rejected",
+  "target": {
+    "version": 1,
+    "tenantId": "tenant-a",
+    "worldId": "world-a",
+    "timelineId": "timeline-main",
+    "kind": "space",
+    "id": "space-yard"
+  },
+  "attribution": {
+    "principalId": "principal-sam",
+    "effectiveActorId": "principal-sam",
+    "causalRootActionId": "action-open-2"
+  },
+  "actionId": "action-open-2",
+  "correlationId": "correlation-open-2",
+  "expected": {},
+  "authorityDecisionId": "decision-deny-1",
+  "committedEventIds": [],
+  "result": { "accepted": false, "reasonCode": "missing-grant" },
+  "createdAt": "2026-09-01T10:05:00.000Z",
+  "committedAt": "2026-09-01T10:05:00.250Z"
+}

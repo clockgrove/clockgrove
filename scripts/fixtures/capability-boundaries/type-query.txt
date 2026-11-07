@@ -1,0 +1,1 @@
+type Client = import("@modelcontextprotocol/sdk").Client;

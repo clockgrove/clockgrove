@@ -1,0 +1,86 @@
+{
+  "request": {
+    "type": "change_viewed_space",
+    "requestId": "navigation-request",
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "targetSpaceId": "room",
+    "selectedEntityId": "actor"
+  },
+  "outcomes": [
+    {
+      "requestId": "navigation-request",
+      "scope": {
+        "tenantId": "tenant",
+        "worldId": "world",
+        "timelineId": "timeline",
+        "spaceId": "room"
+      },
+      "disposition": "followed",
+      "selectedEntityId": "actor",
+      "authorized": true,
+      "projectable": true
+    },
+    {
+      "requestId": "navigation-request",
+      "scope": {
+        "tenantId": "tenant",
+        "worldId": "world",
+        "timelineId": "timeline",
+        "spaceId": "yard"
+      },
+      "disposition": "stayed_within_space",
+      "selectedEntityId": "actor",
+      "authorized": true,
+      "projectable": true
+    },
+    {
+      "requestId": "navigation-request",
+      "disposition": "permission_denied",
+      "selectedEntityId": null
+    },
+    {
+      "requestId": "navigation-request",
+      "disposition": "target_hidden",
+      "selectedEntityId": null
+    },
+    {
+      "requestId": "navigation-request",
+      "disposition": "unavailable",
+      "selectedEntityId": null
+    }
+  ],
+  "privateTalk": {
+    "type": "private_caretaker_talk",
+    "messageId": "private-message",
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "principalId": "caretaker-principal",
+    "caretakerId": "caretaker-persona",
+    "caretakerName": "Named Caretaker",
+    "actorId": "actor",
+    "text": "Private greeting",
+    "sentAt": "2026-10-30T00:00:00Z"
+  },
+  "publicSpeech": {
+    "type": "public_speech",
+    "messageId": "public-message",
+    "scope": {
+      "tenantId": "tenant",
+      "worldId": "world",
+      "timelineId": "timeline",
+      "spaceId": "yard"
+    },
+    "speakerId": "actor",
+    "text": "Public greeting",
+    "sentAt": "2026-10-30T00:00:00Z"
+  }
+}

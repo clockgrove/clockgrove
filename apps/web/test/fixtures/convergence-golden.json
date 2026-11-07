@@ -1,0 +1,300 @@
+{
+  "initial": {
+    "content": {
+      "tenantId": "tenant-scene",
+      "worldId": "world-yard",
+      "timelineId": "timeline-main",
+      "spaceId": "yard",
+      "privacyClass": "public_scene",
+      "compatibility": {
+        "projectionVersion": 1,
+        "assetManifestVersion": 1,
+        "clientVersion": 1
+      },
+      "revision": "9007199254740993",
+      "simulationTime": "9007199254740995",
+      "weather": {
+        "rainIntensity": 6000
+      },
+      "hierarchy": [
+        {
+          "spaceId": "den",
+          "label": "Den",
+          "parentSpaceId": "yard"
+        },
+        {
+          "spaceId": "yard",
+          "label": "Yard"
+        }
+      ],
+      "frames": [
+        {
+          "frameId": "yard-frame",
+          "version": 1,
+          "dimensions": 2,
+          "unit": {
+            "name": "millimetre",
+            "fractionalDigits": 0
+          },
+          "axes": {
+            "axes": [
+              {
+                "name": "x",
+                "positiveDirection": "east"
+              },
+              {
+                "name": "y",
+                "positiveDirection": "north"
+              }
+            ]
+          },
+          "origin": ["0", "0"],
+          "gravity": {
+            "kind": "constant-vector",
+            "vector": ["0", "-9800"]
+          }
+        }
+      ],
+      "entities": [
+        {
+          "objectId": "stevie",
+          "archetypeId": "raccoon",
+          "pose": {
+            "frameId": "yard-frame",
+            "frameVersion": 1,
+            "coordinates": ["-9007199254740993", "2"]
+          },
+          "presentation": {
+            "kind": "placeholder",
+            "label": "Stevie"
+          }
+        }
+      ],
+      "presentationBindings": [
+        {
+          "objectId": "stevie",
+          "assetId": "stevie-reviewed",
+          "animationFamily": "idle",
+          "accessibilityLabel": "Stevie resting"
+        }
+      ],
+      "interactions": [
+        {
+          "entityId": "stevie",
+          "mode": "cognitive",
+          "actions": [
+            { "kind": "inspect", "availability": "enabled" },
+            { "kind": "history", "availability": "enabled" },
+            { "kind": "why", "availability": "enabled" },
+            { "kind": "talk", "availability": "enabled" }
+          ]
+        }
+      ],
+      "feedCursor": "feed-7",
+      "audienceHash": "audience-yard-observer"
+    },
+    "hash": "c50e768731d6638016baf060eed8f0cc5cbe88787c62be1ad1ebbd2b6622d7a4"
+  },
+  "commit": {
+    "content": {
+      "tenantId": "tenant-scene",
+      "worldId": "world-yard",
+      "timelineId": "timeline-main",
+      "spaceId": "yard",
+      "privacyClass": "public_scene",
+      "compatibility": {
+        "projectionVersion": 1,
+        "assetManifestVersion": 1,
+        "clientVersion": 1
+      },
+      "revision": "9007199254740994",
+      "simulationTime": "9007199254740997",
+      "weather": {
+        "rainIntensity": 7000
+      },
+      "hierarchy": [
+        {
+          "spaceId": "den",
+          "label": "Den",
+          "parentSpaceId": "yard"
+        },
+        {
+          "spaceId": "porch",
+          "label": "Porch",
+          "parentSpaceId": "yard"
+        },
+        {
+          "spaceId": "yard",
+          "label": "Yard"
+        }
+      ],
+      "frames": [
+        {
+          "frameId": "yard-frame",
+          "version": 1,
+          "dimensions": 2,
+          "unit": {
+            "name": "millimetre",
+            "fractionalDigits": 0
+          },
+          "axes": {
+            "axes": [
+              {
+                "name": "x",
+                "positiveDirection": "east"
+              },
+              {
+                "name": "y",
+                "positiveDirection": "north"
+              }
+            ]
+          },
+          "origin": ["0", "0"],
+          "gravity": {
+            "kind": "constant-vector",
+            "vector": ["0", "-9800"]
+          }
+        }
+      ],
+      "entities": [
+        {
+          "objectId": "stevie",
+          "archetypeId": "raccoon",
+          "pose": {
+            "frameId": "yard-frame",
+            "frameVersion": 1,
+            "coordinates": ["-9007199254740993", "2"]
+          },
+          "presentation": {
+            "kind": "placeholder",
+            "label": "Stevie"
+          }
+        }
+      ],
+      "presentationBindings": [
+        {
+          "objectId": "stevie",
+          "assetId": "stevie-reviewed",
+          "animationFamily": "idle",
+          "accessibilityLabel": "Stevie resting"
+        }
+      ],
+      "interactions": [
+        {
+          "entityId": "stevie",
+          "mode": "cognitive",
+          "actions": [
+            { "kind": "inspect", "availability": "enabled" },
+            { "kind": "history", "availability": "enabled" },
+            { "kind": "why", "availability": "enabled" },
+            { "kind": "talk", "availability": "enabled" }
+          ]
+        }
+      ],
+      "feedCursor": "feed-8",
+      "audienceHash": "audience-yard-observer"
+    },
+    "hash": "ea9f93848cf1b6827b9a46f8366a462d6274ce65497abae18f76b60d945c3979"
+  },
+  "final": {
+    "content": {
+      "tenantId": "tenant-scene",
+      "worldId": "world-yard",
+      "timelineId": "timeline-main",
+      "spaceId": "yard",
+      "privacyClass": "public_scene",
+      "compatibility": {
+        "projectionVersion": 1,
+        "assetManifestVersion": 1,
+        "clientVersion": 1
+      },
+      "revision": "9007199254740996",
+      "simulationTime": "9007199254740997",
+      "weather": {
+        "rainIntensity": 7000
+      },
+      "hierarchy": [
+        {
+          "spaceId": "den",
+          "label": "Den",
+          "parentSpaceId": "yard"
+        },
+        {
+          "spaceId": "porch",
+          "label": "Porch",
+          "parentSpaceId": "yard"
+        },
+        {
+          "spaceId": "yard",
+          "label": "Yard"
+        }
+      ],
+      "frames": [
+        {
+          "frameId": "yard-frame",
+          "version": 1,
+          "dimensions": 2,
+          "unit": {
+            "name": "millimetre",
+            "fractionalDigits": 0
+          },
+          "axes": {
+            "axes": [
+              {
+                "name": "x",
+                "positiveDirection": "east"
+              },
+              {
+                "name": "y",
+                "positiveDirection": "north"
+              }
+            ]
+          },
+          "origin": ["0", "0"],
+          "gravity": {
+            "kind": "constant-vector",
+            "vector": ["0", "-9800"]
+          }
+        }
+      ],
+      "entities": [
+        {
+          "objectId": "stevie",
+          "archetypeId": "raccoon",
+          "pose": {
+            "frameId": "yard-frame",
+            "frameVersion": 1,
+            "coordinates": ["-9007199254740993", "2"]
+          },
+          "presentation": {
+            "kind": "placeholder",
+            "label": "Stevie"
+          }
+        }
+      ],
+      "presentationBindings": [
+        {
+          "objectId": "stevie",
+          "assetId": "stevie-reviewed",
+          "animationFamily": "idle",
+          "accessibilityLabel": "Stevie resting"
+        }
+      ],
+      "interactions": [
+        {
+          "entityId": "stevie",
+          "mode": "cognitive",
+          "actions": [
+            { "kind": "inspect", "availability": "enabled" },
+            { "kind": "history", "availability": "enabled" },
+            { "kind": "why", "availability": "enabled" },
+            { "kind": "talk", "availability": "enabled" }
+          ]
+        }
+      ],
+      "feedCursor": "feed-10",
+      "audienceHash": "audience-yard-observer"
+    },
+    "hash": "3435720e7c3e2c9e6baf14beb465f9f3280b3824bc7792101231d3e3670e8e41"
+  }
+}

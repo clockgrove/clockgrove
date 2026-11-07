@@ -1,0 +1,4 @@
+{
+  "note": "Human approvals of the Wave 4 §15.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. Approving a capture is a reviewed change by a person, never by an agent or CI.",
+  "approvals": []
+}

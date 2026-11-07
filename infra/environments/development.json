@@ -1,0 +1,74 @@
+{
+  "environment": "development",
+  "resources": {
+    "worker": "rw-development-runtime",
+    "queues": {
+      "worldReactions": {
+        "name": "rw-development-world-reactions",
+        "deadLetter": "rw-development-world-reactions-dlq"
+      },
+      "cognitiveIndexing": {
+        "name": "rw-development-cognitive-indexing",
+        "deadLetter": "rw-development-cognitive-indexing-dlq"
+      },
+      "externalEffects": {
+        "name": "rw-development-external-effects",
+        "deadLetter": "rw-development-external-effects-dlq"
+      }
+    },
+    "buckets": {
+      "artifacts": "rw-development-artifacts",
+      "assets": "rw-development-assets",
+      "backups": "rw-development-backups"
+    },
+    "hyperdrive": "rw-development-postgres",
+    "analytics": "rw-development-metrics",
+    "aiGateway": "rw-development-models",
+    "serviceToken": "rw-development-operations",
+    "turnstile": "rw-development-public",
+    "database": {
+      "project": "rw-development-postgres",
+      "branch": "rw-development-main",
+      "database": "rw-development-world",
+      "roles": {
+        "migrations": "clockgrove_migrator",
+        "runtime": "clockgrove_runtime",
+        "support": "clockgrove_support",
+        "backup": "clockgrove_backup",
+        "authentication": "clockgrove_auth_verifier",
+        "management": "clockgrove_management_reader",
+        "worldAuthorization": "clockgrove_world_reader"
+      },
+      "region": "aws-us-west-2"
+    }
+  },
+  "domains": {
+    "runtime": "development.runtime.example.org",
+    "dnsTarget": "runtime.example.org"
+  },
+  "safeIds": {
+    "cloudflareAccountId": "00000000000000000000000000000000",
+    "cloudflareZoneId": "00000000000000000000000000000000"
+  },
+  "retention": {
+    "queueSeconds": 86400,
+    "databaseSeconds": 604800,
+    "artifactDays": 30
+  },
+  "budgets": {
+    "modelMonthlyUsd": 100,
+    "requestsPerMinute": 60,
+    "databaseMinCu": 0.25,
+    "databaseMaxCu": 1
+  },
+  "compatibilityDate": "2026-10-01",
+  "modelAliases": {
+    "default": "interactive-standard",
+    "background": "background-standard"
+  },
+  "authentication": {
+    "origin": "https://development.runtime.example.org",
+    "providerEnvironment": "development",
+    "transport": "direct-postgresql"
+  }
+}

@@ -1,0 +1,1 @@
+{"archetype":{"id":"beacon.keeper-kind","version":1},"capabilities":[],"id":"beacon.master","overrides":[],"placement":{"coordinates":[{"$bigint":"10"},{"$bigint":"20"}],"space":{"id":"beacon.hall","version":1}},"traits":[]}

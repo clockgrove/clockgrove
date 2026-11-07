@@ -1,0 +1,110 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "check": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../tsconfig.base.json",
+        "$TURBO_ROOT$/examples/world-packs/**",
+        "$TURBO_ROOT$/assets/**"
+      ],
+      "outputs": [],
+      "env": ["CONTRACT_BASE_COMMIT"]
+    },
+    "test": {
+      "dependsOn": ["check"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../vitest.workspace.ts",
+        "../../scripts/ci/**",
+        "../../scripts/contracts.generated.json",
+        "../../scripts/provider-ipc.mjs",
+        "../../schemas/evidence-manifest.schema.json",
+        "../../db/migrations/**",
+        "../../db/fixtures/**",
+        "../../scripts/database/**",
+        "../../infra/**",
+        "../../apps/runtime/src/**",
+        "$TURBO_ROOT$/examples/world-packs/**",
+        "$TURBO_ROOT$/worlds/**",
+        "$TURBO_ROOT$/assets/**"
+      ],
+      "outputs": [],
+      "passThroughEnv": [
+        "CI_EVIDENCE_DIR",
+        "GITHUB_SHA",
+        "GITHUB_ACTIONS",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT"
+      ]
+    },
+    "@clockgrove/testkit#test": {
+      "dependsOn": ["check"],
+      "cache": false,
+      "outputs": []
+    },
+    "test:long-run": {
+      "dependsOn": ["check"],
+      "cache": false,
+      "outputs": [],
+      "passThroughEnv": [
+        "CI_EVIDENCE_DIR",
+        "CLOCKGROVE_WAVE2_EVIDENCE",
+        "GITHUB_SHA",
+        "GITHUB_ACTIONS",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT",
+        "TMPDIR"
+      ]
+    },
+    "test:db": {
+      "cache": false,
+      "inputs": ["$TURBO_DEFAULT$", "../../db/**", "../../scripts/database/**"],
+      "outputs": []
+    },
+    "test:replay": {
+      "cache": false,
+      "inputs": ["$TURBO_DEFAULT$", "../../tests/replay/**"]
+    },
+    "//#infra:validate": {
+      "cache": false,
+      "inputs": [
+        "infra/**",
+        "tests/infra/**",
+        "scripts/infra-validate.mjs",
+        "scripts/check-secrets.mjs",
+        "apps/runtime/src/**",
+        "vitest.workspace.ts",
+        "pnpm-lock.yaml"
+      ],
+      "outputs": []
+    },
+    "@clockgrove/kernel#test": {
+      "dependsOn": ["check"],
+      "cache": false,
+      "outputs": [],
+      "passThroughEnv": [
+        "CI_EVIDENCE_DIR",
+        "GITHUB_SHA",
+        "GITHUB_ACTIONS",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT",
+        "TMPDIR"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../vitest.workspace.ts",
+        "../../scripts/ci/**",
+        "../../scripts/contracts.generated.json",
+        "../../scripts/provider-ipc.mjs",
+        "../../schemas/evidence-manifest.schema.json",
+        "../../db/migrations/**",
+        "../../db/fixtures/**",
+        "../../scripts/database/**",
+        "../../infra/**",
+        "../../apps/runtime/src/**",
+        "$TURBO_ROOT$/examples/world-packs/**"
+      ]
+    }
+  }
+}

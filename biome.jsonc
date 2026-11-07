@@ -1,0 +1,68 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "package.json",
+      "turbo.json",
+      "tsconfig.base.json",
+      "vitest.workspace.ts",
+      "vitest.config.ts",
+      "biome.jsonc",
+      "dependency-cruiser.config.mjs",
+      "packages/**/*.{ts,tsx,mjs,json}",
+      "apps/**/*.{ts,tsx,mjs,json}",
+      "tests/**/*.{ts,tsx,mjs,json}",
+      "scripts/**/*.{ts,mjs,json}",
+      "!!**/node_modules",
+      "!!**/dist",
+      "!!**/.turbo",
+      "!!**/.wrangler",
+      "!packages/*/test/fixtures",
+      "!packages/*/test/goldens",
+      "!packages/*/test/event-fixtures",
+      "!scripts/contracts.generated.json",
+      "!scripts/ci/qualify-wave1-packets.json"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        // `!` follows indexes already checked under noUncheckedIndexedAccess; 514 sites in 83 files.
+        "noNonNullAssertion": "off",
+        // verbatimModuleSyntax makes tsc require `import type` for types; converting a class import would drop a runtime import.
+        "useImportType": "off"
+      },
+      "complexity": {
+        // Rule parsers read untrusted Record<string, unknown> fields with brackets on purpose (108 sites).
+        "useLiteralKeys": "off",
+        // Test spies count calls with `(count += 1), value` in one-line callbacks.
+        "noCommaOperator": "off"
+      },
+      "suspicious": {
+        // Tests mutate documents with `void (field = value)` callbacks.
+        "noAssignInExpressions": "off",
+        // Expression-bodied forEach callbacks call validators whose return value is ignored.
+        "useIterableCallbackReturn": "off",
+        // `let x;` assigned in try is narrowed by tsc control flow, not any.
+        "noImplicitAnyLet": "off"
+      },
+      "correctness": {
+        // `return refuse(...)` returns `never` from a void function to end the branch.
+        "noVoidTypeReturn": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
+  }
+}

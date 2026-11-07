@@ -1,0 +1,369 @@
+name: Qualification
+
+# Full gate for a frozen candidate, on a daily schedule and on manual dispatch; never a required
+# pull-request check, and nothing releases or deploys after it. It runs the canonical commands, the
+# disposal/re-bootstrap journey, pnpm test:long-run (including every committed scenario and the long
+# runs through the Journal) and Wave 0 recovery and reproduction qualification, and, in a parallel
+# job, the Wave 1 30-day and one-year runs on Node and workerd, and, in another, the Wave 3 load
+# curves. Three last jobs build the Wave 1 evidence manifest from the first two, the Wave 2
+# evidence manifest from the first and the Wave 3 evidence manifest from the first and the load
+# curves. Each job retains its evidence for as long as GitHub allows.
+on:
+  # Decision (2026-10-27): once a day, so the evidence manifests trail main by at
+  # most a day; the `stale` job skips the day when a successful run already has a manifest of
+  # main's head. 03:17 UTC
+  # avoids the top of the hour, when GitHub delays scheduled runs most.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    # Scheduled runs only: qualify main's head unless an earlier run that succeeded retained a Wave 2
+    # evidence manifest for that exact commit (until its 90-day artifact expires). A failed run's
+    # manifest does not count, so a flake or a step timeout is retried the next day; a successful
+    # run's manifest counts whatever its decision, since rerunning the same commit cannot change it.
+    # The concurrency group queues this behind a run already qualifying main, so that run has
+    # finished. A few API reads on the standard runner keep a skipped day off the paid
+    # QUALITY_RUNNER; a failed read fails this job and qualifies nothing.
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      qualify: ${{ steps.manifest.outputs.qualify }}
+    steps:
+      - name: Look for a successful run's Wave 2 evidence manifest of main's head
+        id: manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          runs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=wave2-evidence-manifest&per_page=100" \
+            --jq ".artifacts[] | select((.expired | not) and .workflow_run.head_sha == \"$COMMIT\") | .workflow_run.id")
+          found=0
+          for run in $runs; do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .conclusion)
+            printf 'run=%s conclusion=%s\n' "$run" "$conclusion"
+            if [ "$conclusion" = success ]; then found=$((found + 1)); fi
+          done
+          printf 'commit=%s Wave 2 manifests of successful runs=%s\n' "$COMMIT" "$found"
+          if [ "$found" -eq 0 ]; then echo qualify=true; else echo qualify=false; fi >>"$GITHUB_OUTPUT"
+
+  qualification:
+    needs: [stale]
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.stale.outputs.qualify == 'true') }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 120
+    steps:
+      - name: Record runner facts
+        env:
+          RUNNER_LABEL: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+          RUNNER_NAME: ${{ runner.name }}
+        run: printf 'runner=%s label=%s cpus=%s\n' "$RUNNER_NAME" "$RUNNER_LABEL" "$(nproc)"
+
+      # test:db and test:long-run also write the Wave 2 evidence, in a directory of its own so the
+      # Wave 0 evidence manifest is unchanged.
+      - name: Initialize runner-local evidence directories
+        run: |
+          printf 'CI_EVIDENCE_DIR=%s/qualification-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'CLOCKGROVE_WAVE2_EVIDENCE=%s/wave2-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Check out candidate with Git LFS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Bootstrap, dispose derived outputs and bootstrap again
+        run: node scripts/bootstrap.mjs "$CI_EVIDENCE_DIR" --dispose-derived
+
+      - name: Install pinned real browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser smoke and accessibility journey
+        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" browser node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts
+
+      - name: Build immutable candidate artifacts
+        if: ${{ always() && !cancelled() }}
+        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" build node scripts/ci/build.mjs "$CI_EVIDENCE_DIR/build"
+
+      # Measured 6.5 min wall on 4 local cores, nearly all of it the Journal parity file (6.4 min);
+      # the evidence wrapper stops the command at 30 min and still writes its receipt.
+      - name: Long-horizon simulations
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 35
+        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" test-long-run pnpm run test:long-run
+
+      # The Wave 1 long runs run in the wave1-long-runs job below; the wave1-manifest job reads
+      # this job's retained receipts.
+
+      - name: Qualify local recovery and independent builds
+        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" qualify-wave0 pnpm run qualify:wave0
+
+      - name: Generate evidence from actual CI results
+        id: evidence
+        if: ${{ always() && !cancelled() }}
+        run: node scripts/ci/evidence.mjs generate "$CI_EVIDENCE_DIR" "$CI_EVIDENCE_DIR/build"
+
+      - name: Retain qualification evidence
+        if: ${{ always() && !cancelled() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualification-evidence
+          path: ${{ runner.temp }}/qualification-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Retain Wave 2 evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave2-evidence
+          path: ${{ runner.temp }}/wave2-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  wave2-manifest:
+    # The Wave 2 evidence manifest (plan §19), built from the qualification job's retained evidence:
+    # its receipts, and test:db's per-case report and the journal long-run results (wave2-evidence). It runs even when that
+    # job failed: missing or failed evidence is recorded as such, never as passed. It does not run
+    # when a scheduled run skipped an already-qualified commit.
+    needs: [qualification]
+    if: ${{ always() && !cancelled() && needs.qualification.result != 'skipped' }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download qualification evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: qualification-evidence
+          path: ${{ runner.temp }}/qualification-evidence
+
+      - name: Download Wave 2 evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wave2-evidence
+          path: ${{ runner.temp }}/wave2-evidence
+
+      - name: Build and validate the Wave 2 evidence manifest
+        run: >-
+          pnpm run qualify:wave2
+          --qualification "$RUNNER_TEMP/qualification-evidence"
+          --wave2 "$RUNNER_TEMP/wave2-evidence"
+          --out "$RUNNER_TEMP/wave2-manifest"
+
+      - name: Retain the Wave 2 evidence manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave2-evidence-manifest
+          path: ${{ runner.temp }}/wave2-manifest
+          if-no-files-found: error
+          retention-days: 90
+
+  wave1-long-runs:
+    # The Wave 1 30-day and one-year runs of green-lake-yard@1 and test-world@1 on Node and workerd
+    # (plan §9.3, §13). A job of its own, so the year-long runs do not lengthen the canonical gate.
+    needs: [stale]
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.stale.outputs.qualify == 'true') }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 150
+    steps:
+      - name: Record runner facts
+        env:
+          RUNNER_LABEL: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+          RUNNER_NAME: ${{ runner.name }}
+        run: printf 'runner=%s label=%s cpus=%s memory=%s\n' "$RUNNER_NAME" "$RUNNER_LABEL" "$(nproc)" "$(free -b | awk '/^Mem:/ {print $2}')"
+
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Wave 1 long runs on Node and workerd
+        run: pnpm run qualify:wave1:long-runs "$RUNNER_TEMP/wave1-long-runs"
+
+      - name: Retain Wave 1 long-run evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave1-long-run-evidence
+          path: ${{ runner.temp }}/wave1-long-runs
+          if-no-files-found: error
+          retention-days: 90
+
+  wave3-load-curves:
+    # The Wave 3 hot-space and catch-up-storm load curves and where each runtime budget trips (plan
+    # §19, issue 851). A job of its own, so nothing else shares its runner while it measures. Its receipt
+    # (candidate and log digest) and wave3-load-curves.json are retained for the Wave 3 evidence
+    # manifest. Decision: 30 minutes, as the other toolchain jobs; the fixture's own bound is
+    # 10 (WALL_TIME_BOUND_MS in scripts/ci/qualify-wave3-load-curves.mjs).
+    needs: [stale]
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.stale.outputs.qualify == 'true') }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    steps:
+      - name: Record runner facts
+        env:
+          RUNNER_LABEL: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+          RUNNER_NAME: ${{ runner.name }}
+        run: printf 'runner=%s label=%s cpus=%s memory=%s\n' "$RUNNER_NAME" "$RUNNER_LABEL" "$(nproc)" "$(free -b | awk '/^Mem:/ {print $2}')"
+
+      - name: Initialize runner-local evidence directory
+        run: printf 'CI_EVIDENCE_DIR=%s/wave3-load-curve-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Wave 3 load curves through the native owner
+        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" qualify-wave3-load-curves pnpm run qualify:wave3:load-curves "$CI_EVIDENCE_DIR/load-curves"
+
+      - name: Retain Wave 3 load-curve evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave3-load-curve-evidence
+          path: ${{ runner.temp }}/wave3-load-curve-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+  wave1-manifest:
+    # The Wave 1 evidence manifest (plan §13), built from both jobs' retained evidence. It runs even
+    # when one failed: missing or failed evidence is recorded as such, never as passed. It does not
+    # run when a scheduled run skipped an already-qualified commit.
+    needs: [qualification, wave1-long-runs]
+    if: ${{ always() && !cancelled() && needs.qualification.result != 'skipped' }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out candidate with its history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download qualification evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: qualification-evidence
+          path: ${{ runner.temp }}/qualification-evidence
+
+      - name: Download Wave 1 long-run evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wave1-long-run-evidence
+          path: ${{ runner.temp }}/wave1-long-runs
+
+      - name: Build and validate the Wave 1 evidence manifest
+        run: >-
+          pnpm run qualify:wave1
+          --qualification "$RUNNER_TEMP/qualification-evidence"
+          --long-runs "$RUNNER_TEMP/wave1-long-runs"
+          --out "$RUNNER_TEMP/wave1-manifest"
+
+      - name: Retain the Wave 1 evidence manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave1-evidence-manifest
+          path: ${{ runner.temp }}/wave1-manifest
+          if-no-files-found: error
+          retention-days: 90
+
+  wave3-manifest:
+    # The Wave 3 evidence manifest (plan §23, issue 853), built from the qualification job's receipts and
+    # logs and the wave3-load-curves job's receipt and curves. It runs even when either failed:
+    # missing or failed evidence is recorded as such, never as passed, and hosted items stay pending
+    # on issue 881 and issue 693, since nothing here deploys. It does not run when a scheduled run skipped an
+    # already-qualified commit.
+    needs: [qualification, wave3-load-curves]
+    if: ${{ always() && !cancelled() && needs.qualification.result != 'skipped' }}
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download qualification evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: qualification-evidence
+          path: ${{ runner.temp }}/qualification-evidence
+
+      - name: Download Wave 3 load-curve evidence
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wave3-load-curve-evidence
+          path: ${{ runner.temp }}/wave3-load-curve-evidence
+
+      - name: Build and validate the Wave 3 evidence manifest
+        run: >-
+          pnpm run qualify:wave3
+          --qualification "$RUNNER_TEMP/qualification-evidence"
+          --load-curves "$RUNNER_TEMP/wave3-load-curve-evidence"
+          --out "$RUNNER_TEMP/wave3-manifest"
+
+      - name: Retain the Wave 3 evidence manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wave3-evidence-manifest
+          path: ${{ runner.temp }}/wave3-manifest
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,33 @@
+{
+  "kekId": "test-kek-1",
+  "kek": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "dataKey": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+  "envelope": {
+    "fields": {
+      "tenantId": "tenant-a",
+      "worldId": "world-a",
+      "timelineId": "timeline-main",
+      "partitionId": "partition-a",
+      "spaceId": "space-ü",
+      "artifactId": "snapshot-1:artifact",
+      "privacyClass": "private_cognition",
+      "mediaType": "application/json",
+      "dataKeyVersion": 1
+    },
+    "aad": "00000016636c6f636b67726f76652e61727469666163742e76310000000874656e616e742d6100000007776f726c642d610000000d74696d656c696e652d6d61696e0000000b706172746974696f6e2d610000000873706163652dc3bc00000013736e617073686f742d313a617274696661637400000011707269766174655f636f676e6974696f6e000000106170706c69636174696f6e2f6a736f6e0000000131",
+    "nonce": "0102030405060708090a0b0c",
+    "plaintext": "{\"thought\":\"the lamp is lit\"}",
+    "bytes": "010102030405060708090a0b0c94dcd9b49d4db44bcb9606381a69fe5a09bc3407807a147472ca7b54aa939d89df1c2494b993035cac18d63534"
+  },
+  "wrappedDataKey": {
+    "fields": {
+      "tenantId": "tenant-a",
+      "worldId": "world-a",
+      "privacyClass": "private_cognition",
+      "keyVersion": 1,
+      "kekId": "test-kek-1"
+    },
+    "aad": "00000011636c6f636b67726f76652e64656b2e76310000000874656e616e742d6100000007776f726c642d6100000011707269766174655f636f676e6974696f6e00000001310000000a746573742d6b656b2d31",
+    "bytes": "010d0e0f101112131415161718358c9650beeb840734157ad6783e67057c7c0ffefa9e7ca5f43c6927a203276308fd37613c49dadea6a28447450d8c15"
+  }
+}

@@ -1,0 +1,335 @@
+{
+  "description": "Wave 1 work packets (plan §7, §8): what each consumes and the main merges that delivered it, in merge order. Corrections are later fixes to an already delivered packet; they do not count for dependency order. RW-0110 also owns the wave qualification, so it stays open until that is accepted.",
+  "packets": [
+    {
+      "id": "RW-0101",
+      "consumes": [],
+      "merges": [
+        {
+          "pr": 422,
+          "commit": "64f148dfa6d6a9f3d9697dfbed1bf0492f8ceeb5"
+        },
+        {
+          "pr": 427,
+          "commit": "aa3a576cbd15973e90ed2c5bc6ddc532b75b4e21"
+        },
+        {
+          "pr": 430,
+          "commit": "ff34eab62f1fdbf0f1e0e1b8f54f0ffe3153c24d"
+        },
+        {
+          "pr": 433,
+          "commit": "7ecda3f532c257d73cd9555a93170f4dea32b966"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0102",
+      "consumes": [
+        "RW-0101"
+      ],
+      "merges": [
+        {
+          "pr": 439,
+          "commit": "9a4dcf60c16db83a7c4385b220b232b803f1a326"
+        },
+        {
+          "pr": 440,
+          "commit": "bb7ddae8b32f6958f7b54250c1e4e9d888c55e03"
+        },
+        {
+          "pr": 441,
+          "commit": "4996d075ae5f14761841e3e0b549f04f425e9286"
+        },
+        {
+          "pr": 442,
+          "commit": "d75b9777bee6405a65bad582c1b9e2af5c2c59e7"
+        },
+        {
+          "pr": 452,
+          "commit": "81cf454b9249dc49f8a04c98092639af83736f4c"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0103",
+      "consumes": [
+        "RW-0101",
+        "RW-0102"
+      ],
+      "merges": [
+        {
+          "pr": 455,
+          "commit": "0d2f3369ed2216085f9720d62068722fc853a709"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0104",
+      "consumes": [
+        "RW-0103"
+      ],
+      "merges": [
+        {
+          "pr": 462,
+          "commit": "e7a204658228bd660d61deda5e9691c4a4416bdc"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0105",
+      "consumes": [
+        "RW-0103",
+        "RW-0104"
+      ],
+      "merges": [
+        {
+          "pr": 469,
+          "commit": "e65e8ee9e5fab3544d9ab3b1d22edfcd134c144e"
+        },
+        {
+          "pr": 472,
+          "commit": "7597aacca38254d4a6399325ef989fcb07e7d82b"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0106",
+      "consumes": [
+        "RW-0101",
+        "RW-0103"
+      ],
+      "merges": [
+        {
+          "pr": 475,
+          "commit": "c531d527b65835605de8e99053bd3a96a5c1c880"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0107",
+      "consumes": [
+        "RW-0104",
+        "RW-0105",
+        "RW-0106"
+      ],
+      "merges": [
+        {
+          "pr": 478,
+          "commit": "9689fc5c91fd8d3f838ef42c803294b42f8d7361"
+        },
+        {
+          "pr": 481,
+          "commit": "566813c1f828f7389ce8e523b7a55f6ba53f108c"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0108",
+      "consumes": [
+        "RW-0105",
+        "RW-0106",
+        "RW-0107"
+      ],
+      "merges": [
+        {
+          "pr": 484,
+          "commit": "9ac2cba10b0c7f8186da8c97c8ae8b06d50a4b51"
+        },
+        {
+          "pr": 487,
+          "commit": "0e9a419f34cb9acf1ea428ff0cc731683681ae8d"
+        },
+        {
+          "pr": 494,
+          "commit": "dbd0eec74e355d6aea8c7bb2f4d5a1e02a46cc03"
+        },
+        {
+          "pr": 499,
+          "commit": "bb9cebe79668d2a9d6415857528370c30fb59198"
+        }
+      ],
+      "corrections": []
+    },
+    {
+      "id": "RW-0109",
+      "consumes": [
+        "RW-0103",
+        "RW-0106",
+        "RW-0108"
+      ],
+      "merges": [
+        {
+          "pr": 505,
+          "commit": "1c20cb15ba84edb8f2fb5fecfd9a32ad3e5f8002"
+        }
+      ],
+      "corrections": [
+        {
+          "pr": 543,
+          "commit": "01a88639803a308032bc24d61aa0a5dc86789a36"
+        }
+      ]
+    },
+    {
+      "id": "RW-0110",
+      "consumes": [
+        "RW-0101",
+        "RW-0102",
+        "RW-0103",
+        "RW-0104",
+        "RW-0105",
+        "RW-0106",
+        "RW-0107",
+        "RW-0108",
+        "RW-0109"
+      ],
+      "merges": [
+        {
+          "pr": 516,
+          "commit": "b164e60ad6b4ab34eadc2e5565d072dcfe2168e3"
+        },
+        {
+          "pr": 517,
+          "commit": "7d2da3a35e56087e1fdd6bb0a00040b6cdf1c3a5"
+        },
+        {
+          "pr": 518,
+          "commit": "2e91c623e34bcee0b446d298536a840064596f70"
+        },
+        {
+          "pr": 525,
+          "commit": "594c1a6b3ef6855da18f2a310d05146cc02f43dc"
+        },
+        {
+          "pr": 526,
+          "commit": "cd289e1e53a3859a71b9ce144e447a6694bbf855"
+        },
+        {
+          "pr": 528,
+          "commit": "28b8168e465b082c6b73c2564fd453e5f7ca7c6d"
+        },
+        {
+          "pr": 531,
+          "commit": "5fde3be17c3ffc91784f01a24e2a354fa2ad4fa3"
+        },
+        {
+          "pr": 532,
+          "commit": "dec24fd74474631ff9cc5ab8032a2b18803a02b0"
+        },
+        {
+          "pr": 533,
+          "commit": "f838803877c3046a2b33fceb5b975c7414d8ef0c"
+        },
+        {
+          "pr": 538,
+          "commit": "89c758fa917d729c3c81432af5f1e91e40ef3cdc"
+        },
+        {
+          "pr": 539,
+          "commit": "e836111c95e1c137ef392904eb96998614e53e5c"
+        },
+        {
+          "pr": 540,
+          "commit": "60d44800bf6481e1798f22295b6da9586381caa4"
+        },
+        {
+          "pr": 549,
+          "commit": "ccf6718b10a267adcaa9c8b21fff6c2eedb70b6d"
+        },
+        {
+          "pr": 550,
+          "commit": "568a3ec020d29592353488ac15fa9e22d24dc89a"
+        },
+        {
+          "pr": 551,
+          "commit": "f5b1ff2007b776458b6c045fb9743ee5115d59c1"
+        },
+        {
+          "pr": 553,
+          "commit": "439848a4b508d7ce10bec0123aeca24cb753bf5d"
+        },
+        {
+          "pr": 559,
+          "commit": "f581e5ab58768f053bcfe7ff6150634c02320c74"
+        },
+        {
+          "pr": 571,
+          "commit": "fd745b7d0cc63daffb6d55f8f65ac1813f76231f"
+        },
+        {
+          "pr": 572,
+          "commit": "b8084ca418cbc5fd4f806a32674a06751bbcc8af"
+        },
+        {
+          "pr": 573,
+          "commit": "60289fa5515a0ca4f03fdd1d8186a3adcac9a1b9"
+        },
+        {
+          "pr": 574,
+          "commit": "803c709ec158d2437ac7ea0f0c1008c5506d7d74"
+        },
+        {
+          "pr": 587,
+          "commit": "ccf8eaadacbb3e57d3b72b35929f7d420099b237"
+        },
+        {
+          "pr": 592,
+          "commit": "fe5679a2ec3c3fe10f4411a7611b4fd731aed528"
+        },
+        {
+          "pr": 596,
+          "commit": "7c766e8233815d74dec96537b8f21567d635fcb7"
+        },
+        {
+          "pr": 597,
+          "commit": "61b7ebe577c7dd3dfea6dea6fe650968072db483"
+        },
+        {
+          "pr": 598,
+          "commit": "9a6f12239b2c134ddb5e48ddf21f557851d191ff"
+        },
+        {
+          "pr": 601,
+          "commit": "40e161bb775c9b995741f681127b192b6de2437c"
+        },
+        {
+          "pr": 607,
+          "commit": "32497008ac1089c5619e551fe6414b506c606627"
+        },
+        {
+          "pr": 609,
+          "commit": "e61f98ffda8beca96cf5796d2d9c0106f922bf71"
+        },
+        {
+          "pr": 610,
+          "commit": "a0abe40c0aa3161605bc99596633a610275e7b44"
+        },
+        {
+          "pr": 611,
+          "commit": "808d7e15d66420d89c8d0a653fbffd5e4ec52abb"
+        },
+        {
+          "pr": 612,
+          "commit": "69c28832d89c182ed2ce3c42734c59cf80176ff4"
+        },
+        {
+          "pr": 615,
+          "commit": "0e9a403274bbf73c0744d46fa31d06fa1834184d"
+        },
+        {
+          "pr": 619,
+          "commit": "cb79d8ab2fb14b25ad0ae0d34f6e4428d07b55b7"
+        }
+      ],
+      "corrections": []
+    }
+  ]
+}

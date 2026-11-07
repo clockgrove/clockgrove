@@ -1,0 +1,21 @@
+# Worker secret bindings that runtimeBindingManifest declares (apps/runtime/src/cloudflare-entry.ts).
+# Names only: never write a value here. local and ci declare no secrets and need none of these.
+# Hosted environments receive them as Worker secrets set from the operator's secret manager
+# session (for example wrangler secret put <NAME> --config infra/wrangler/<environment>.json),
+# never through a .dev.vars file: Wrangler reads infra/wrangler/.dev.vars only for local
+# wrangler dev and wrangler types. Never write a hosted value into a .dev.vars file.
+# Operator and tooling names are in .env.example.
+# Generated from requiredSecrets in infra/check-configuration.mjs and the secret table of
+# docs/runbooks/infrastructure.md by scripts/check-env-examples.mjs (--write); pnpm check refuses drift.
+
+# runtime/authentication: Runtime stored-session verification.
+BETTER_AUTH_SECRET=
+
+# runtime/session-verification: Generated direct PostgreSQL clockgrove_auth_verifier connection.
+AUTH_DATABASE_URL=
+
+# runtime/management-readers: Generated direct PostgreSQL clockgrove_management_reader connection.
+MANAGEMENT_DATABASE_URL=
+
+# runtime/world-authorization: Generated direct PostgreSQL clockgrove_world_reader connection.
+WORLD_AUTHORIZATION_DATABASE_URL=

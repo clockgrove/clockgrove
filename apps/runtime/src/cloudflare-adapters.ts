@@ -1,0 +1,1337 @@
+/// <reference path="./cloudflare-adapter-types.d.ts" />
+import { DurableObject, WorkflowEntrypoint } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
+import {
+  AuthenticationRefusedError,
+  AuthorizationRefusedError,
+  type CatchUpWorkflowEnvelope,
+  catchUpWorkflowReference,
+  decodeCatchUpWorkflowEnvelope,
+  decodeLifecycleWorkflowEnvelope,
+  JournalRevisionConflictError,
+  type LifecycleWorkflowEnvelope,
+  ProvisioningCaseConflictError,
+  type ProvisioningRefusal,
+  ProvisioningStageError,
+  type ProvisionWorldRequest,
+  type RuntimeLogger,
+  recordMetric,
+  runtimeLogRecord,
+  type WorldCommandResult,
+  WorldGenesisDefectError,
+  type WorldProvisioningPorts,
+  WorldProvisioningRefusedError,
+  type WorldProvisioningStore,
+} from "@clockgrove/application";
+import {
+  ContractDecodeError,
+  decodeSceneConnectionAttachment,
+  encodeOperatorSceneMessage,
+  encodeSceneConnectionControl,
+  parseSceneClientControl,
+  SCENE_PROTOCOL,
+  SceneCompatibilityError,
+  type SceneConnectionAttachment,
+  type SceneDisconnectReason,
+  type SubjectId,
+} from "@clockgrove/contracts";
+import {
+  constructTrustedExecutionContext,
+  type TrustedExecutionContext,
+} from "@clockgrove/contracts/trusted";
+import {
+  type PostgreSqlClient,
+  PostgreSqlLifecycleWorkflowStore,
+  PostgreSqlWorldProvisioningStore,
+} from "@clockgrove/persistence";
+import { decodeResource } from "@clockgrove/world-pack-sdk";
+
+import {
+  composeRuntime,
+  type RuntimeEnvironment,
+  reconcileWorldCatchUp,
+  reconcileWorldProvisioning,
+  runtimeLogger,
+  withCommandOwner,
+  withLifecycleWorkflowClient,
+  worldReactionNotifier,
+} from "./cloudflare-entry.js";
+import { analyticsEngineMetrics } from "./cloudflare-metrics.js";
+import { INSPECT_GRANT, OBSERVE_GRANT, type OwnerRuntimeState } from "./inspector.js";
+import type { RuntimeLocalStorage } from "./local-storage.js";
+import {
+  OwnerMailbox,
+  type OwnerMailboxBounds,
+  type OwnerMailboxEntry,
+  OwnerMailboxError,
+  type OwnerMailboxRequest,
+  type OwnerMailboxState,
+  SPACE_MAILBOX_BOUNDS,
+} from "./mailbox.js";
+import { PostgreSqlSceneStreamReader } from "./observation.js";
+import {
+  OWNER_ACTIVATION_BUDGET,
+  OwnerActivation,
+  type OwnerActivationBudget,
+} from "./owner-activation.js";
+import * as owners from "./owners.js";
+import { runtimeRouteName } from "./routing.js";
+import { type SceneAuthorityFacts, sceneAuthorityFacts } from "./scene-audience.js";
+import { SCENE_JOIN_HEADER, verifySceneJoin } from "./scene-connections.js";
+import { SCENE_SOCKET_BOUNDS, SceneDelivery, sceneReads } from "./scene-delivery.js";
+import type {
+  RuntimeEpochs,
+  RuntimeInitializationDisposition,
+  RuntimeInitializationResult,
+  RuntimeInstanceId,
+  RuntimeLocalState,
+  RuntimeScope,
+} from "./types.js";
+import { RuntimeRouteKeyMismatchError } from "./types.js";
+import * as workflows from "./workflows.js";
+import {
+  assertWorldCommandContext,
+  callWorldOwner,
+  ownerLogIds,
+  type PostgreSqlCommandOwner,
+  runtimeFailureClass,
+  unwrapWorldCommandRpc,
+  type WorldCommandInput,
+  WorldOwnerFailedError,
+  worldAuthorization,
+  worldCommandGrant,
+  worldCommandRpc,
+} from "./world-commands.js";
+
+type AlarmPlan = Awaited<ReturnType<PostgreSqlCommandOwner["clockAlarmPlan"]>>;
+
+export interface DurableObjectState {
+  readonly id: { readonly name?: string; toString(): string };
+  readonly storage: {
+    get<T>(key: string): Promise<T | undefined>;
+    put<T>(key: string, value: T): Promise<void>;
+    getAlarm(): Promise<number | null>;
+    setAlarm(scheduledTime: number): Promise<void>;
+    deleteAlarm(): Promise<void>;
+    transaction<T>(
+      operation: (
+        transaction: Pick<
+          DurableObjectState["storage"],
+          "get" | "put" | "setAlarm" | "deleteAlarm"
+        >,
+      ) => Promise<T>,
+    ): Promise<T>;
+  };
+  blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T>;
+  waitUntil(promise: Promise<unknown>): void;
+  abort(reason?: string): void;
+  acceptWebSocket?(socket: WebSocket): void;
+  getWebSockets?(): WebSocket[];
+}
+
+abstract class OwnerAdapter extends DurableObject<RuntimeEnvironment> {
+  protected readonly local: RuntimeLocalStorage;
+  protected readonly instanceId: RuntimeInstanceId;
+  constructor(
+    protected readonly state: DurableObjectState,
+    protected readonly environment: RuntimeEnvironment,
+  ) {
+    super(state, environment);
+    this.instanceId = `cloudflare:${crypto.randomUUID()}` as RuntimeInstanceId;
+    this.local = {
+      read: () => state.storage.get<RuntimeLocalState>("runtime-local-state"),
+      replace: (value) => state.storage.put("runtime-local-state", value),
+    };
+  }
+  protected async assertCommandRoute(
+    kind: "world" | "space",
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    grant?: string,
+  ): Promise<void> {
+    assertWorldCommandContext(context, scope, grant);
+    const route = await runtimeRouteName(kind, scope);
+    if (this.state.id.name !== route) throw new RuntimeRouteKeyMismatchError();
+  }
+  protected get metrics() {
+    return analyticsEngineMetrics(this.environment.METRICS);
+  }
+  /** This incarnation's start, and how it found its local storage: runtime state for the inspector. */
+  protected readonly startedAt = Date.now();
+  protected initialization:
+    | { readonly disposition: RuntimeInitializationDisposition; readonly at: number }
+    | undefined;
+  /**
+   * Records how this incarnation found its local storage, once: at its first initialization, or a
+   * `SpaceDO`'s first clock-owner claim, whichever settles first. Later requests check that state
+   * again, but they are not another rehydration or reconcile.
+   */
+  protected initialized(scope: RuntimeScope, disposition: RuntimeInitializationDisposition): void {
+    if (this.initialization !== undefined) return;
+    this.initialization = { disposition, at: Date.now() };
+    recordMetric(this.metrics, {
+      name: "owner_initializations",
+      tenantId: scope.tenantId,
+      worldId: scope.worldId,
+      label: disposition,
+      value: 1,
+    });
+  }
+  /** Initializes a request's owner shell; the incarnation's first initialization is recorded. */
+  protected async initializeShell(
+    shell: { initialize(context: TrustedExecutionContext): Promise<RuntimeInitializationResult> },
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+  ): Promise<RuntimeInitializationResult> {
+    const result = await shell.initialize(context);
+    this.initialized(scope, result.disposition);
+    return result;
+  }
+  #logger: RuntimeLogger | undefined;
+  /** Composed once per isolate instance: the release and environment are fixed for its life. */
+  protected get logger(): RuntimeLogger {
+    this.#logger ??= runtimeLogger(this.environment);
+    return this.#logger;
+  }
+  protected options(scope: RuntimeScope) {
+    if (this.state.id.name === undefined) throw new Error("named runtime route required");
+    const dependencies = composeRuntime(this.environment);
+    return {
+      journal: dependencies.journal,
+      scope,
+      routeName: this.state.id.name,
+      runtimeInstanceId: this.instanceId,
+      storage: this.local,
+      canonical: dependencies.canonical,
+    };
+  }
+}
+
+export class WorldDO extends OwnerAdapter {
+  async submitWorldCommand(input: WorldCommandInput, context: TrustedExecutionContext) {
+    const ids = ownerLogIds(input.scope, context, input.command.commandId);
+    return worldCommandRpc(this.logger, ids, async () => {
+      await this.assertCommandRoute("world", input.scope, context, worldCommandGrant(input));
+      const canonical = await withCommandOwner(
+        this.environment.HYPERDRIVE?.connectionString ?? "",
+        (owner) => owner.reader.route(worldAuthorization(context), input.scope),
+      );
+      const scope = { ...input.scope, spaceId: canonical.spaceId };
+      const route = await runtimeRouteName("space", scope);
+      const result = await callWorldOwner(() =>
+        this.environment.SPACE_DO.get(
+          this.environment.SPACE_DO.idFromName(route),
+        ).submitWorldCommand({ ...input, scope }, context),
+      );
+      return unwrapWorldCommandRpc(result);
+    });
+  }
+  async resumeWorldCommand(scope: RuntimeScope, context: TrustedExecutionContext) {
+    const ids = ownerLogIds(scope, context);
+    return worldCommandRpc(this.logger, ids, async () => {
+      await this.assertCommandRoute("world", scope, context);
+      const canonical = await withCommandOwner(
+        this.environment.HYPERDRIVE?.connectionString ?? "",
+        (owner) => owner.reader.route(worldAuthorization(context), scope),
+      );
+      const canonicalScope = { ...scope, spaceId: canonical.spaceId };
+      const route = await runtimeRouteName("space", canonicalScope);
+      const result = await callWorldOwner(() =>
+        this.environment.SPACE_DO.get(
+          this.environment.SPACE_DO.idFromName(route),
+        ).resumeWorldCommand(canonicalScope, context),
+      );
+      return unwrapWorldCommandRpc(result);
+    });
+  }
+
+  async initialize(scope: RuntimeScope, context: TrustedExecutionContext) {
+    return this.state.blockConcurrencyWhile(() =>
+      this.initializeShell(new owners.WorldDO(this.options(scope)), scope, context),
+    );
+  }
+  async validateRequestEpochs(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    epochs: RuntimeEpochs,
+  ) {
+    return this.state.blockConcurrencyWhile(async () => {
+      const shell = new owners.WorldDO(this.options(scope));
+      await this.initializeShell(shell, scope, context);
+      shell.validateRequestEpochs(epochs);
+    });
+  }
+}
+type AlarmActivation = Readonly<{ id: string; policyVersion: bigint; ownerGeneration: bigint }>;
+/**
+ * The native alarm's wall time and why it was set: from the durable plan, or the recovery alarm
+ * installed before work. Kept beside the alarm, for its lateness when delivered.
+ */
+type AlarmMark = Readonly<{ at: number; label: "planned" | "recovery" }>;
+/** The catch-up an alarm hands its remaining work to, and its batch: why it stopped, and its ms. */
+type AlarmOutcome = readonly [
+  Awaited<ReturnType<PostgreSqlCommandOwner["registerCatchUp"]>>,
+  Readonly<{ label: "drained" | "refused" | "continued" | "catch-up"; ms: number }> | undefined,
+];
+/** A client request's mailbox identity: its scope, trusted trace context, command and route epoch. */
+function requestEntry(
+  kind: "command" | "resume" | "inspect",
+  scope: RuntimeScope,
+  context: TrustedExecutionContext,
+  input?: WorldCommandInput,
+): OwnerMailboxRequest {
+  return {
+    kind,
+    scope,
+    requestId: context.requestId,
+    correlationId: context.correlationId,
+    ...(input === undefined
+      ? {}
+      : { commandId: input.command.commandId, routeEpoch: input.epochs.routingEpoch }),
+  };
+}
+function catchUpEntry(envelope: CatchUpWorkflowEnvelope): OwnerMailboxRequest {
+  return { kind: "catch-up", requestId: envelope.applicationRunId };
+}
+function mailboxLogIds({ scope, correlationId, requestId, commandId }: OwnerMailboxEntry) {
+  return { ...scope, correlationId, requestId, commandId };
+}
+interface SceneReadAuthority {
+  readonly key: string;
+  readonly scope: RuntimeScope;
+  readonly context: TrustedExecutionContext;
+  readonly facts: SceneAuthorityFacts;
+}
+export class SpaceDO extends OwnerAdapter {
+  protected readonly sceneDelivery = new SceneDelivery<SceneReadAuthority>(
+    (attachment) => this.authorizeScene(attachment),
+    async (attachment, authority, from) => {
+      return this.admit({ kind: "inspect", scope: authority.scope }, authority.scope, () =>
+        this.readScene(attachment, authority, from),
+      );
+    },
+    (error) =>
+      this.logger.log(
+        runtimeLogRecord("error", "world_owner_failed", { failureClass: "internal" }, error),
+      ),
+    () => this.metrics,
+  );
+  /** One membership lookup: the current grants and ceiling, never an attachment's stale copy. */
+  protected async authorizeScene(
+    attachment: SceneConnectionAttachment,
+  ): Promise<SceneReadAuthority> {
+    const { privacyClass: _privacyClass, interest, ...scope } = attachment.audience;
+    // Attachments carry identity and scope, never a surviving authority grant.
+    const authentication = composeRuntime(this.environment).authentication;
+    const authority = await authentication.world.resolveWorld(attachment.principalId, scope);
+    if (
+      authority === undefined ||
+      authority.principalId !== attachment.principalId ||
+      authority.tenantId !== scope.tenantId ||
+      authority.worldId !== scope.worldId ||
+      authority.timelineId !== scope.timelineId ||
+      authority.spaceId !== scope.spaceId ||
+      !authority.grants.some((grant) => grant === OBSERVE_GRANT) ||
+      !authority.privacyCeiling.allowedCategories.includes("public_scene")
+    )
+      throw new AuthorizationRefusedError("scene audience refused");
+    const facts = sceneAuthorityFacts(authority.grants, authority.privacyCeiling);
+    const context = constructTrustedExecutionContext({
+      version: 1,
+      ...scope,
+      principalId: authority.principalId,
+      worldMembershipId: authority.membershipId,
+      personaId: authority.personaId,
+      roles: authority.roles,
+      grants: [OBSERVE_GRANT],
+      privacyCeiling: { version: 1, allowedCategories: ["public_scene"] },
+      correlationId: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
+      codeVersion: authentication.codeVersion,
+      protocolVersion: 1,
+    });
+    return {
+      key: JSON.stringify([scope, interest, facts]),
+      scope,
+      context,
+      facts,
+    };
+  }
+  protected async readScene(
+    attachment: SceneConnectionAttachment,
+    authority: SceneReadAuthority,
+    from: bigint | null,
+  ) {
+    return withLifecycleWorkflowClient(this.environment, (client) =>
+      new PostgreSqlSceneStreamReader(client).read(
+        { ...attachment, principalId: authority.context.principalId },
+        from,
+        authority.context,
+        authority.facts,
+      ),
+    );
+  }
+  private sceneFanout: Promise<void> | undefined;
+  private sceneDirty = false;
+  private notifyScene(): void {
+    this.sceneDirty = true;
+    if (this.sceneFanout !== undefined) return;
+    const work = (async () => {
+      while (this.sceneDirty) {
+        this.sceneDirty = false;
+        await this.fanoutScene();
+      }
+    })();
+    this.sceneFanout = work;
+    this.state.waitUntil(
+      work.finally(() => {
+        if (this.sceneFanout === work) {
+          this.sceneFanout = undefined;
+          if (this.sceneDirty) this.notifyScene();
+        }
+      }),
+    );
+  }
+  private async fanoutScene(): Promise<void> {
+    // One authority lookup per principal; one PostgreSQL read and encoding per decided audience.
+    const reads = sceneReads();
+    const sockets = this.state.getWebSockets?.() ?? [];
+    for (const socket of sockets) {
+      try {
+        await this.sceneDelivery.publish(socket, reads);
+      } catch (error) {
+        // Projection delivery cannot undo a committed command. Recovery reads PostgreSQL again.
+        this.logger.log(
+          runtimeLogRecord("error", "world_owner_failed", { failureClass: "internal" }, error),
+        );
+      }
+    }
+    // The operator lane: safe connection metadata, encoded once, sent only to operator audiences.
+    const attachments = sockets.map((socket) =>
+      decodeSceneConnectionAttachment(socket.deserializeAttachment()),
+    );
+    const first = attachments[0];
+    if (first === undefined) {
+      this.sceneDelivery.measure(reads);
+      return;
+    }
+    const { privacyClass: _privacyClass, interest: _interest, ...scope } = first.audience;
+    const wire = encodeOperatorSceneMessage({
+      protocolVersion: 1,
+      messageId: crypto.randomUUID(),
+      sentAt: new Date().toISOString(),
+      ...scope,
+      lane: "operator",
+      type: "connections",
+      payload: {
+        connections: attachments.map(
+          ({ principalId, acknowledgedRevision, connectionVersion }) => ({
+            principalId,
+            acknowledgedRevision,
+            connectionVersion,
+          }),
+        ),
+      },
+    });
+    let operators = 0;
+    for (const socket of sockets)
+      if (this.sceneDelivery.operate(socket, wire, reads)) operators += 1;
+    this.sceneDelivery.measure(reads, operators);
+  }
+  private sceneAdmission(
+    scope: { tenantId: string; worldId: string } | undefined,
+    label: "admitted" | "refused",
+  ): void {
+    if (scope === undefined) return;
+    recordMetric(this.metrics, { name: "scene_admissions", ...scope, label, value: 1 });
+  }
+  /** Internal-only route: the gateway strips all external authority before forwarding its assertion. */
+  async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname !== "/v1/projection" || request.method !== "GET")
+      return new Response(null, { status: 404 });
+    if (
+      request.headers.get("upgrade")?.toLowerCase() !== "websocket" ||
+      request.headers.get("sec-websocket-protocol") !== SCENE_PROTOCOL
+    )
+      return Response.json({ error: "incompatible_protocol" }, { status: 426 });
+    // Unverified claims have no trustworthy tenant or world, so a refusal there records nothing.
+    let known: { tenantId: string; worldId: string } | undefined;
+    try {
+      const claims = await verifySceneJoin(
+        this.environment.BETTER_AUTH_SECRET ?? "",
+        request.headers.get(SCENE_JOIN_HEADER) ?? "",
+      );
+      const { privacyClass: _privacyClass, interest: _interest, ...scope } = claims.audience;
+      known = { tenantId: scope.tenantId, worldId: scope.worldId };
+      const route = await runtimeRouteName("space", scope);
+      if (this.state.id.name !== route) throw new RuntimeRouteKeyMismatchError();
+      return await this.admit(
+        { kind: "inspect", scope, routeEpoch: claims.authorityEpoch },
+        scope,
+        async (_activation, entry) => {
+          // Reconstruct only the assertion's narrow authority, and never retain this execution context.
+          const context = constructTrustedExecutionContext({
+            version: 1,
+            ...scope,
+            principalId: claims.principalId,
+            roles: [],
+            grants: [OBSERVE_GRANT],
+            privacyCeiling: { version: 1, allowedCategories: ["public_scene"] },
+            correlationId: crypto.randomUUID(),
+            requestId: crypto.randomUUID(),
+            codeVersion: "scene-join",
+            protocolVersion: 1,
+          });
+          const canonical = await composeRuntime(this.environment).canonical.loadReadyRuntimeState(
+            context,
+            scope,
+          );
+          if (canonical.authorityEpoch !== claims.authorityEpoch) {
+            this.sceneAdmission(known, "refused");
+            return Response.json({ error: "stale_authority_epoch" }, { status: 409 });
+          }
+          if (Date.now() >= claims.expiresAt)
+            throw new AuthenticationRefusedError("expired scene join assertion");
+          // An active mailbox entry may outlive its caller. Never accept a socket after that deadline.
+          if (entry.deadlineAt !== null && Date.now() >= entry.deadlineAt)
+            throw new OwnerMailboxError(
+              "owner_mailbox_timeout",
+              this.mailboxBounds().retryAfterSeconds,
+            );
+          if (this.state.acceptWebSocket === undefined)
+            throw new Error("native hibernation API required");
+          const resident = (this.state.getWebSockets?.() ?? []).map(
+            (socket) => decodeSceneConnectionAttachment(socket.deserializeAttachment()).principalId,
+          );
+          if (
+            resident.length >= SCENE_SOCKET_BOUNDS.perSpace ||
+            resident.filter((principalId) => principalId === claims.principalId).length >=
+              SCENE_SOCKET_BOUNDS.perPrincipal
+          ) {
+            this.sceneAdmission(known, "refused");
+            return Response.json(
+              { error: "scene_connections_full" },
+              {
+                status: 503,
+                headers: { "retry-after": String(this.mailboxBounds().retryAfterSeconds) },
+              },
+            );
+          }
+          const pair = new WebSocketPair();
+          pair[1].serializeAttachment({
+            principalId: claims.principalId,
+            audience: claims.audience,
+            acknowledgedRevision: null,
+            connectionVersion: 1,
+          });
+          this.state.acceptWebSocket(pair[1]);
+          this.sceneDelivery.admitted(pair[1], claims.authorityEpoch);
+          this.sceneAdmission(known, "admitted");
+          const init = {
+            status: 101,
+            webSocket: pair[0],
+            headers: { "sec-websocket-protocol": SCENE_PROTOCOL },
+          };
+          return new Response(null, init);
+        },
+      );
+    } catch (error) {
+      if (error instanceof AuthenticationRefusedError || error instanceof AuthorizationRefusedError)
+        this.sceneAdmission(known, "refused");
+      if (error instanceof AuthenticationRefusedError)
+        return Response.json({ error: "authentication_refused" }, { status: 401 });
+      if (error instanceof OwnerMailboxError)
+        return Response.json(
+          { error: error.code },
+          { status: 503, headers: { "retry-after": String(error.retryAfterSeconds) } },
+        );
+      throw error;
+    }
+  }
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    let control;
+    try {
+      if (typeof message !== "string") throw new ContractDecodeError("control", "text required");
+      control = parseSceneClientControl(message);
+    } catch (error) {
+      if (
+        error instanceof SceneCompatibilityError &&
+        error.code === "unsupported_asset_manifest_version"
+      ) {
+        socket.send(
+          encodeSceneConnectionControl({
+            protocolVersion: 1,
+            type: "recovery",
+            reason: "asset_manifest_changed",
+          }),
+        );
+        return;
+      }
+      const reason: SceneDisconnectReason =
+        error instanceof SceneCompatibilityError
+          ? "unsupported_protocol"
+          : error instanceof ContractDecodeError
+            ? "malformed_control"
+            : "internal_error";
+      this.sceneDelivery.disconnect(socket, reason);
+      if (reason === "internal_error") throw error;
+      return;
+    }
+    try {
+      if (control.type === "resume") await this.sceneDelivery.resume(socket, control);
+      else await this.sceneDelivery.acknowledge(socket, control);
+    } catch (error) {
+      this.logger.log(
+        runtimeLogRecord(
+          "error",
+          "world_owner_failed",
+          { failureClass: runtimeFailureClass(error) ?? "internal" },
+          error,
+        ),
+      );
+      throw error;
+    }
+  }
+  webSocketClose(socket: WebSocket, code: number, reason: string): void {
+    this.sceneDelivery.forget(socket);
+    socket.close(code, reason);
+  }
+  webSocketError(socket: WebSocket): void {
+    this.sceneDelivery.disconnect(socket, "internal_error");
+  }
+
+  protected now(): bigint {
+    return BigInt(Date.now());
+  }
+  /** Named configuration with documented defaults (`OWNER_ACTIVATION_BUDGET`). */
+  protected activationBudget(): OwnerActivationBudget {
+    return OWNER_ACTIVATION_BUDGET;
+  }
+  protected catchUpEnabled(): boolean {
+    return this.environment.WORLD_CATCH_UP_WORKFLOW !== undefined;
+  }
+
+  /**
+   * One physical owner activation, shared by alarms and durable catch-up. It answers why it stopped:
+   * no admitted due work left (`drained`), a kernel refusal, or its `activationBudget()` with work
+   * possibly remaining (`continued`).
+   */
+  private async activateClock(
+    owner: PostgreSqlCommandOwner,
+    scope: RuntimeScope,
+    activation: AlarmActivation,
+    wallTime: bigint,
+    started: number,
+  ): Promise<"drained" | "refused" | "continued"> {
+    const { maxCommands, startWithinMs } = this.activationBudget();
+    for (let attempt = 0; attempt < maxCommands; attempt += 1) {
+      if (performance.now() - started >= startWithinMs) break;
+      const result = await owner.advanceClock(scope, wallTime, {
+        activationId: activation.id,
+        policyVersion: activation.policyVersion,
+        admit: attempt === 0,
+        ownerGeneration: activation.ownerGeneration,
+      });
+      this.hydrated(result.commands);
+      if (result.status === "idle") return "drained";
+      if (result.status === "refused") return "refused";
+    }
+    return "continued";
+  }
+  private async assertAlarmRoute(scope: RuntimeScope): Promise<void> {
+    const route = await runtimeRouteName("space", scope);
+    if (this.state.id.name !== route) throw new RuntimeRouteKeyMismatchError();
+  }
+  private ownerClaim: Promise<bigint> | undefined;
+  private observedGeneration: bigint | undefined;
+  /**
+   * Claims once per incarnation. The generation observed before the first attempt is kept for every
+   * retry, so a lost-response retry recovers this incarnation's claim, and an incarnation that a
+   * newer one superseded is refused at any delay. A fenced owner never claims again.
+   *
+   * The local generation tells how the incarnation found its local storage: none (`rehydrated`, a
+   * new owner or lost storage), an older generation (`reconciled`) or its own (`unchanged`).
+   */
+  private async claimAlarmGeneration(scope: RuntimeScope): Promise<bigint> {
+    if (this.ownerClaim === undefined) {
+      this.ownerClaim = this.withOwner(async (owner) => {
+        this.observedGeneration ??= await owner.clockOwnerGeneration(scope);
+        return owner.claimClockOwner(scope, this.instanceId, this.observedGeneration);
+      }).catch((error: unknown) => {
+        this.ownerClaim = undefined;
+        throw error;
+      });
+    }
+    const generation = await this.ownerClaim;
+    const disposition = await this.state.storage.transaction(async (transaction) => {
+      const current = await transaction.get<bigint>("clock-alarm-generation");
+      if (current !== undefined && current > generation)
+        throw new JournalRevisionConflictError("owner-generation", generation, current);
+      if (current !== generation) await transaction.put("clock-alarm-generation", generation);
+      return current === undefined
+        ? "rehydrated"
+        : current === generation
+          ? "unchanged"
+          : "reconciled";
+    });
+    this.initialized(scope, disposition);
+    return generation;
+  }
+  /** Installs the recovery alarm and its mark. */
+  private async retainAlarm(scope: RuntimeScope, generation: bigint): Promise<void> {
+    await this.state.storage.transaction(async (transaction) => {
+      const current = await transaction.get<bigint>("clock-alarm-generation");
+      if (current !== generation)
+        throw new JournalRevisionConflictError("owner-generation", generation, current ?? 0n);
+      await transaction.put("clock-alarm-scope", scope);
+      // Install recovery before journal work; a committed response can be lost before reconciliation.
+      // Decision (no external source): 1 s outlasts the 250 ms alarm work budget
+      // (`OWNER_ACTIVATION_BUDGET.startWithinMs`), so a healthy
+      // call reconciles over it first, and bounds a lost reconciliation to about 1 s of stalled
+      // clock. Firing early is harmless: alarm() queues behind the call and replans from PostgreSQL.
+      const at = Date.now() + 1_000;
+      await transaction.setAlarm(at);
+      await transaction.put("clock-alarm-at", { at, label: "recovery" } satisfies AlarmMark);
+    });
+  }
+  /** Maps the durable plan to the native alarm; a plan read on the caller's connection is reused. */
+  protected async reconcile(
+    scope: RuntimeScope,
+    capturedGeneration?: bigint,
+    planned?: AlarmPlan,
+    catchUpActive = false,
+  ): Promise<void> {
+    const generation = capturedGeneration ?? (await this.claimAlarmGeneration(scope));
+    const plan =
+      planned ??
+      (await this.withOwner((owner) => owner.clockAlarmPlan(scope, this.now(), generation)));
+    await this.state.storage.transaction(async (transaction) => {
+      const current = await transaction.get<bigint>("clock-alarm-generation");
+      if (current !== generation)
+        throw new JournalRevisionConflictError("owner-generation", generation, current ?? 0n);
+      if (catchUpActive || plan.nextAlarmAt === null) await transaction.deleteAlarm();
+      else {
+        await transaction.setAlarm(plan.nextAlarmAt);
+        const mark = { at: plan.nextAlarmAt, label: "planned" } satisfies AlarmMark;
+        await transaction.put("clock-alarm-at", mark);
+      }
+    });
+  }
+  async reconcileAlarm(scope: RuntimeScope): Promise<void> {
+    return this.admit({ kind: "reconcile-alarm" }, scope, async () => {
+      await this.assertAlarmRoute(scope);
+      const generation = await this.claimAlarmGeneration(scope);
+      await this.retainAlarm(scope, generation);
+      await this.reconcile(scope, generation);
+    });
+  }
+  async alarm(): Promise<void> {
+    const started = performance.now();
+    const delivered = Date.now();
+    // The delivered alarm's mark, read now: an entry this delivery queues behind may set the next
+    // alarm and its mark first. Local storage operations run in order. A failed read loses only it.
+    const due = this.state.storage.get<AlarmMark>("clock-alarm-at").catch(() => undefined);
+    return this.admit({ kind: "alarm" }, undefined, async (measured) => {
+      const scope = await this.state.storage.get<RuntimeScope>("clock-alarm-scope");
+      if (scope === undefined) return;
+      measured.scope = scope;
+      const point = { tenantId: scope.tenantId, worldId: scope.worldId };
+      await this.assertAlarmRoute(scope);
+      const generation = await this.claimAlarmGeneration(scope);
+      await this.retainAlarm(scope, generation);
+      const mark = await due;
+      if (mark !== undefined)
+        recordMetric(this.metrics, {
+          ...point,
+          name: "alarm_lateness_ms",
+          label: mark.label,
+          value: delivered - mark.at,
+        });
+      const [catchUp, batch] = await this.withOwner(async (owner): Promise<AlarmOutcome> => {
+        const wallTime = this.now();
+        const plan = await owner.clockAlarmPlan(scope, wallTime, generation);
+        if (plan.nextAlarmAt === null) return [undefined, undefined];
+        if (this.catchUpEnabled()) {
+          const current = await owner.currentCatchUp(scope, generation);
+          if (current !== undefined) return [current, undefined];
+        }
+        const previous = await this.state.storage.get<AlarmActivation | null>(
+          "clock-alarm-activation",
+        );
+        const activation =
+          previous?.policyVersion === plan.policyVersion && previous.ownerGeneration === generation
+            ? previous
+            : {
+                id: crypto.randomUUID(),
+                policyVersion: plan.policyVersion,
+                ownerGeneration: generation,
+              };
+        await this.state.storage.transaction(async (transaction) => {
+          const current = await transaction.get<bigint>("clock-alarm-generation");
+          if (current !== generation)
+            throw new JournalRevisionConflictError("owner-generation", generation, current ?? 0n);
+          await transaction.put("clock-alarm-activation", activation);
+        });
+        const batchStarted = Date.now();
+        const stopped = await this.activateClock(owner, scope, activation, wallTime, started);
+        const ms = Date.now() - batchStarted;
+        if (this.catchUpEnabled() && (await owner.catchUpPending(scope, wallTime, generation))) {
+          const registered = await owner.registerCatchUp(
+            scope,
+            generation,
+            wallTime,
+            plan.policyVersion,
+          );
+          return [registered, { label: registered === undefined ? stopped : "catch-up", ms }];
+        }
+        return [undefined, { label: stopped, ms }];
+      }, true);
+      if (batch !== undefined)
+        recordMetric(this.metrics, {
+          ...point,
+          name: "alarm_batch_ms",
+          label: batch.label,
+          value: batch.ms,
+          count: measured.advances,
+        });
+      await this.state.storage.transaction(async (transaction) => {
+        const current = await transaction.get<bigint>("clock-alarm-generation");
+        if (current !== generation)
+          throw new JournalRevisionConflictError("owner-generation", generation, current ?? 0n);
+        await transaction.put("clock-alarm-activation", null);
+      });
+      // Launch before deleting the fallback alarm. A failed launch leaves a retriable alarm.
+      if (catchUp !== undefined)
+        await reconcileWorldCatchUp(
+          this.environment,
+          catchUpWorkflowReference(catchUp),
+          generation,
+        );
+      await this.reconcile(scope, generation, undefined, catchUp !== undefined);
+    });
+  }
+  private async catchUpOwner(envelope: CatchUpWorkflowEnvelope) {
+    await this.assertAlarmRoute(envelope);
+    const accepted = await this.withOwner((owner) => owner.readCatchUp(envelope));
+    if (accepted === undefined) return undefined;
+    const generation = await this.claimAlarmGeneration(envelope);
+    return { accepted, generation };
+  }
+
+  /** Detect interrupted execution after replacement without acknowledging a new native step. */
+  async prepareCatchUp(input: CatchUpWorkflowEnvelope) {
+    const envelope = decodeCatchUpWorkflowEnvelope(input);
+    return this.admit(catchUpEntry(envelope), envelope, async () => {
+      const owner = await this.catchUpOwner(envelope);
+      if (owner === undefined) return { disposition: "superseded", replacement: false } as const;
+      // Only catchUp() rebinds the operation. A lost restart response therefore remains detectable.
+      return {
+        disposition: "ready",
+        replacement: owner.accepted.ownerGeneration !== owner.generation,
+      } as const;
+    });
+  }
+
+  /** The envelope selects accepted PostgreSQL work; it carries no authority or continuation. */
+  async catchUp(
+    input: CatchUpWorkflowEnvelope,
+  ): Promise<{ disposition: "continue" | "complete" | "superseded" }> {
+    const envelope = decodeCatchUpWorkflowEnvelope(input);
+    const started = performance.now();
+    return this.admit(catchUpEntry(envelope), envelope, async (measured, entry) => {
+      // One point per step: its disposition, or `failed` for a step its Workflow retries.
+      let label: "continue" | "complete" | "superseded" | "failed" = "failed";
+      try {
+        label = await this.catchUpStep(envelope, started);
+        return { disposition: label };
+      } finally {
+        recordMetric(this.metrics, {
+          name: "catch_up_step_ms",
+          tenantId: envelope.tenantId,
+          worldId: envelope.worldId,
+          label,
+          value: Date.now() - entry.enqueuedAt,
+          count: measured.advances,
+        });
+      }
+    });
+  }
+
+  private async catchUpStep(envelope: CatchUpWorkflowEnvelope, started: number) {
+    const captured = await this.catchUpOwner(envelope);
+    if (captured === undefined) return "superseded" as const;
+    const { accepted, generation } = captured;
+    await this.retainAlarm(envelope, generation);
+    const disposition = await this.withOwner(async (owner) => {
+      const operation = await owner.registerCatchUp(
+        envelope,
+        generation,
+        accepted.wallTime,
+        accepted.policyVersion,
+        accepted.applicationRunId,
+      );
+      if (operation === undefined || operation.applicationRunId !== envelope.applicationRunId)
+        return "superseded" as const;
+      await this.activateClock(
+        owner,
+        envelope,
+        {
+          id: `${operation.applicationRunId}:${operation.step}`,
+          policyVersion: operation.policyVersion,
+          ownerGeneration: generation,
+        },
+        operation.wallTime,
+        started,
+      );
+      const complete = !(await owner.catchUpPending(envelope, operation.wallTime, generation));
+      if (!(await owner.finishCatchUp(operation, false))) return "superseded" as const;
+      if (complete) {
+        // Keep the durable link until the next alarm is restored: interruption or local loss
+        // before this reconciliation must remain discoverable by scheduled recovery.
+        await this.reconcile(
+          envelope,
+          generation,
+          await owner.clockAlarmPlan(envelope, this.now(), generation),
+        );
+        if (!(await owner.finishCatchUp({ ...operation, step: operation.step + 1n }, true)))
+          return "superseded" as const;
+      }
+      return complete ? ("complete" as const) : ("continue" as const);
+    }, true);
+    // New policy/owner intent is fenced by the same serialized admission and generation checks.
+    if (disposition === "continue")
+      await this.reconcile(
+        envelope,
+        generation,
+        { policyVersion: accepted.policyVersion, nextAlarmAt: null },
+        true,
+      );
+    return disposition;
+  }
+
+  /** The active entry's activation, while its work runs: the mailbox runs one entry at a time. */
+  private activation: OwnerActivation | undefined;
+  /**
+   * Admits `work` as one mailbox entry (§8) and records, once it settles, its mailbox wait and
+   * service time and its resource counters (`OwnerActivation`) for `scope`, or for the scope the
+   * work sets on the activation.
+   */
+  private admit<T>(
+    request: OwnerMailboxRequest,
+    scope: RuntimeScope | undefined,
+    work: (activation: OwnerActivation, entry: OwnerMailboxEntry) => Promise<T>,
+  ): Promise<T> {
+    return this.mailbox.admit(request, async (entry) => {
+      const activation = new OwnerActivation(this.metrics, scope);
+      this.activation = activation;
+      try {
+        return await work(activation, entry);
+      } finally {
+        this.activation = undefined;
+        activation.settle(entry);
+      }
+    });
+  }
+  /**
+   * The partition owner over one connection, whose statements count toward the active entry. With
+   * `journal` its world commands record their points there too and notify world reactions.
+   */
+  private withOwner<T>(
+    operation: (owner: PostgreSqlCommandOwner) => Promise<T>,
+    journal = false,
+  ): Promise<T> {
+    return withCommandOwner(
+      this.environment.HYPERDRIVE?.connectionString ?? "",
+      operation,
+      journal ? (this.activation ?? this.metrics) : undefined,
+      journal
+        ? worldReactionNotifier(this.environment, (work) => this.state.waitUntil(work))
+        : undefined,
+      this.activation,
+    );
+  }
+
+  /** The physical lane (§8): every SpaceDO operation that touches the partition is admitted here. */
+  private readonly mailbox = new OwnerMailbox({
+    bounds: () => this.mailboxBounds(),
+    failed: (error, entry, abandoned) => {
+      // A timed-out entry's caller was already answered, so its later failure is logged here.
+      if (abandoned && !(error instanceof WorldOwnerFailedError))
+        this.logger.log(
+          runtimeLogRecord(
+            "error",
+            "world_owner_failed",
+            { ...mailboxLogIds(entry), failureClass: runtimeFailureClass(error) ?? "internal" },
+            error,
+          ),
+        );
+      this.resetIfSuperseded(error);
+    },
+    retain: (work) => this.state.waitUntil(work),
+  });
+  /** Named configuration with documented defaults (`SPACE_MAILBOX_BOUNDS`). */
+  protected mailboxBounds(): OwnerMailboxBounds {
+    return SPACE_MAILBOX_BOUNDS;
+  }
+  /** Runtime state for tests and the runtime inspector: in memory only, never canonical (§7.2). */
+  protected mailboxState(): OwnerMailboxState {
+    return this.mailbox.state();
+  }
+  /**
+   * A newer generation fenced this incarnation: a zombie or racing instance claimed after it. It
+   * must not claim again in place (issue 699: runtime replacement supersedes ownership), yet resident
+   * traffic and alarm retries would keep it alive and refused forever. So it resets: Cloudflare
+   * builds a fresh incarnation that observes and claims legitimately. The reset waits for the next
+   * macrotask, after this call's refusal has settled and reached its caller.
+   */
+  private resetIfSuperseded(error: unknown): void {
+    if (
+      error instanceof JournalRevisionConflictError &&
+      error.kind === "owner-generation" &&
+      BigInt(error.actual) > BigInt(error.expected)
+    )
+      setTimeout(() => this.state.abort("clock owner superseded by a newer generation"), 0);
+  }
+  async submitWorldCommand(input: WorldCommandInput, context: TrustedExecutionContext) {
+    const ids = ownerLogIds(input.scope, context, input.command.commandId);
+    return worldCommandRpc(this.logger, ids, async () => {
+      // Authorization precedes enqueue (§8): a refused request never occupies the lane.
+      await this.assertCommandRoute("space", input.scope, context, worldCommandGrant(input));
+      const entry = requestEntry("command", input.scope, context, input);
+      return this.admit(entry, input.scope, async () => {
+        const generation = await this.claimAlarmGeneration(input.scope);
+        await this.retainAlarm(input.scope, generation);
+        const [result, plan] = await this.withOwner(async (owner) => {
+          const result = await owner.submit(input, context, () => this.now(), generation);
+          return [result, await owner.clockAlarmPlan(input.scope, this.now(), generation)] as const;
+        }, true);
+        this.hydrated([result]);
+        await this.reconcile(input.scope, generation, plan);
+        return result;
+      });
+    });
+  }
+  async resumeWorldCommand(scope: RuntimeScope, context: TrustedExecutionContext) {
+    const ids = ownerLogIds(scope, context);
+    return worldCommandRpc(this.logger, ids, async () => {
+      await this.assertCommandRoute("space", scope, context);
+      return this.admit(requestEntry("resume", scope, context), scope, async () => {
+        const generation = await this.claimAlarmGeneration(scope);
+        await this.retainAlarm(scope, generation);
+        const [result, plan] = await this.withOwner(async (owner) => {
+          const result = await owner.resume(scope, context, generation);
+          return [result, await owner.clockAlarmPlan(scope, this.now(), generation)] as const;
+        }, true);
+        this.hydrated([result]);
+        await this.reconcile(scope, generation, plan);
+        return result;
+      });
+    });
+  }
+  async inspectWorld(scope: RuntimeScope, context: TrustedExecutionContext) {
+    await this.assertCommandRoute("space", scope, context);
+    return this.admit(requestEntry("inspect", scope, context), scope, () =>
+      this.withOwner((owner) => owner.inspect(worldAuthorization(context), scope, this.now())),
+    );
+  }
+  /** The inspector's hydration revision (`OwnerRuntimeState.hydration`): memory only, never canonical. */
+  private hydration: { readonly revision: bigint; readonly at: number } | undefined;
+  private hydrated(results: readonly (WorldCommandResult | undefined)[]): void {
+    if (results.some((result) => result?.value.status === "committed")) this.notifyScene();
+    for (const result of results) {
+      if (result?.value.status !== "committed") continue;
+      const revision = BigInt(result.value.revision);
+      // A retry's stored outcome answers an older revision; the latest one stays.
+      if (this.hydration === undefined || revision >= this.hydration.revision)
+        this.hydration = { revision, at: Date.now() };
+    }
+  }
+  /**
+   * This incarnation's own state for the runtime-state inspector: memory and local storage
+   * reads only, no PostgreSQL and no claim. It touches no partition, so it is not a mailbox entry
+   * (§8): a full or stuck mailbox stays inspectable, and the reading does not count itself.
+   */
+  async runtimeState(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+  ): Promise<OwnerRuntimeState> {
+    await this.assertCommandRoute("space", scope, context, INSPECT_GRANT);
+    const generation = await this.state.storage.get<bigint>("clock-alarm-generation");
+    const mapped = await this.state.storage.get<AlarmMark>("clock-alarm-at");
+    const scheduledAt = await this.state.storage.getAlarm();
+    const mailbox = this.mailboxState();
+    const active = mailbox.active;
+    return {
+      observedAt: Date.now(),
+      connections: (this.state.getWebSockets?.() ?? []).map((socket) => {
+        const { principalId, acknowledgedRevision, connectionVersion } =
+          decodeSceneConnectionAttachment(socket.deserializeAttachment());
+        return { principalId, acknowledgedRevision, connectionVersion };
+      }),
+      incarnation: {
+        runtimeInstanceId: this.instanceId,
+        startedAt: this.startedAt,
+        initialization: this.initialization ?? null,
+      },
+      hydration: this.hydration ?? null,
+      // The mark is written with each alarm it describes; with no alarm set it describes none.
+      alarm: {
+        generation: generation ?? null,
+        scheduledAt,
+        mapped: scheduledAt === null ? null : (mapped ?? null),
+      },
+      mailbox: {
+        depth: mailbox.depth,
+        oldestEntryAgeMs: mailbox.oldestEntryAgeMs,
+        admission: mailbox.admission,
+        active:
+          active === null
+            ? null
+            : {
+                kind: active.kind,
+                commandId: active.commandId ?? null,
+                enqueuedAt: active.enqueuedAt,
+                startedAt: active.startedAt,
+                deadlineAt: active.deadlineAt,
+              },
+      },
+    };
+  }
+
+  async initialize(scope: RuntimeScope, context: TrustedExecutionContext) {
+    return this.state.blockConcurrencyWhile(() =>
+      worldCommandRpc(this.logger, ownerLogIds(scope, context), () =>
+        this.initializeShell(this.shell(scope), scope, context),
+      ),
+    );
+  }
+  async submitNoOp(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    input: Parameters<owners.SpaceDO["submitNoOp"]>[1],
+    disposition: Parameters<owners.SpaceDO["submitNoOp"]>[2],
+  ) {
+    // A refusal is a reply, not a throw: a throw out of blockConcurrencyWhile resets the object.
+    return this.state.blockConcurrencyWhile(() =>
+      worldCommandRpc(this.logger, ownerLogIds(scope, context, input.commandId), async () => {
+        const shell = this.shell(scope);
+        await this.initializeShell(shell, scope, context);
+        return shell.submitNoOp(context, input, disposition);
+      }),
+    );
+  }
+  private shell(scope: RuntimeScope) {
+    return new owners.SpaceDO(this.options(scope));
+  }
+}
+export class ActorAgentDO extends OwnerAdapter {
+  async initialize(scope: RuntimeScope, context: TrustedExecutionContext, subjectId: SubjectId) {
+    return this.state.blockConcurrencyWhile(() =>
+      this.initializeShell(
+        new owners.ActorAgentDO({ ...this.options(scope), subjectId }),
+        scope,
+        context,
+      ),
+    );
+  }
+  async validateRequestEpochs(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    subjectId: SubjectId,
+    epochs: RuntimeEpochs,
+  ) {
+    return this.state.blockConcurrencyWhile(async () => {
+      const shell = new owners.ActorAgentDO({ ...this.options(scope), subjectId });
+      await this.initializeShell(shell, scope, context);
+      shell.validateRequestEpochs(epochs);
+    });
+  }
+}
+
+export interface WorkflowEvent {
+  readonly payload: workflows.WorkflowShellInput;
+}
+export interface WorkflowStep {
+  do<T>(name: string, callback: () => Promise<T>): Promise<T>;
+  do<T>(name: string, config: BirthWorkflowStepConfig, callback: () => Promise<T>): Promise<T>;
+}
+export interface BirthWorkflowStepConfig {
+  readonly retries: {
+    readonly limit: number;
+    readonly delay: number;
+    readonly backoff: "exponential";
+  };
+  readonly timeout: string;
+}
+// Explicitly pin Cloudflare's documented defaults, rather than inheriting future provider changes:
+// https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/
+const birthWorkflowStepConfig: BirthWorkflowStepConfig = {
+  retries: { limit: 5, delay: 10_000, backoff: "exponential" },
+  timeout: "10 minutes",
+};
+abstract class WorkflowAdapter extends WorkflowEntrypoint<
+  RuntimeEnvironment,
+  workflows.WorkflowShellInput
+> {
+  protected abstract readonly shell: {
+    run(input: workflows.WorkflowShellInput): Promise<workflows.WorkflowShellResult>;
+  };
+  override run(event: WorkflowEvent, step: WorkflowStep): Promise<workflows.WorkflowShellResult> {
+    return step.do("portable-runtime-shell", () => this.shell.run(event.payload));
+  }
+}
+/** Failures that every retry repeats: the pack's own defect, or a stage fenced by a terminal case. */
+function deterministicBirthFailure(error: unknown): error is Error {
+  return (
+    error instanceof WorldGenesisDefectError ||
+    (error instanceof ProvisioningStageError && error.status === "failed")
+  );
+}
+
+function conflictRefusal(error: ProvisioningCaseConflictError): ProvisioningRefusal {
+  return { code: "PROVISIONING_CASE_CONFLICT", path: "workflow", message: error.message };
+}
+
+abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
+  RuntimeEnvironment,
+  LifecycleWorkflowEnvelope
+> {
+  protected stepConfig(): BirthWorkflowStepConfig {
+    return birthWorkflowStepConfig;
+  }
+
+  protected createProvisioningStore(
+    client: PostgreSqlClient,
+    _envelope: LifecycleWorkflowEnvelope,
+  ): WorldProvisioningStore {
+    return new PostgreSqlWorldProvisioningStore(client);
+  }
+
+  protected withProvisioningPorts<T>(
+    operation: (ports: WorldProvisioningPorts, request: ProvisionWorldRequest) => Promise<T>,
+    envelope: LifecycleWorkflowEnvelope,
+  ): Promise<T> {
+    return withLifecycleWorkflowClient(this.env, async (client) => {
+      const request = await new PostgreSqlLifecycleWorkflowStore(client).read(envelope);
+      try {
+        return await operation(
+          {
+            store: this.createProvisioningStore(client, envelope),
+            genesis: {
+              seed: ({ artifact, source }) => workflows.seedProvisioningBirth(artifact, source),
+            },
+            decodeResource,
+          },
+          request,
+        );
+      } catch (error) {
+        // The envelope matched this run's registration, so a conflict refuses this case for good.
+        if (error instanceof ProvisioningCaseConflictError) {
+          await new PostgreSqlWorldProvisioningStore(client).recordFailure({
+            authorization: request.authorization,
+            caseId: request.caseId,
+            refusal: conflictRefusal(error),
+          });
+        }
+        throw error;
+      }
+    });
+  }
+
+  protected async execute<T>(
+    input: unknown,
+    operation: (ports: WorldProvisioningPorts, request: ProvisionWorldRequest) => Promise<T>,
+  ) {
+    const envelope = decodeLifecycleWorkflowEnvelope(input);
+    try {
+      return await this.withProvisioningPorts(operation, envelope);
+    } catch (error) {
+      if (error instanceof WorldProvisioningRefusedError) {
+        return { version: 1, disposition: "refused", refusal: error.refusal };
+      }
+      if (error instanceof ProvisioningCaseConflictError) {
+        return { version: 1, disposition: "refused", refusal: conflictRefusal(error) };
+      }
+      if (deterministicBirthFailure(error)) {
+        // Workflows fails the step without retrying it.
+        // https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/#force-a-workflow-instance-to-fail
+        throw new NonRetryableError(`${error.name}: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+}
+
+export class WorldCatchUpWorkflow extends WorkflowEntrypoint<
+  RuntimeEnvironment,
+  CatchUpWorkflowEnvelope
+> {
+  protected stepConfig(): BirthWorkflowStepConfig {
+    return birthWorkflowStepConfig;
+  }
+
+  override async run(event: { readonly payload: CatchUpWorkflowEnvelope }, step: WorkflowStep) {
+    const envelope = decodeCatchUpWorkflowEnvelope(event.payload);
+    const name = await runtimeRouteName("space", envelope);
+    // Native step history is recoverable execution state; each callback reads canonical progress.
+    for (let index = 0; ; index += 1) {
+      const result = await step.do(
+        `catch-up-owner-activation-v1-${index}`,
+        this.stepConfig(),
+        async () => {
+          const owner = this.env.SPACE_DO.get(this.env.SPACE_DO.idFromName(name));
+          if (owner.catchUp === undefined) throw new Error("physical catch-up owner required");
+          return owner.catchUp(envelope);
+        },
+      );
+      if (result.disposition !== "continue") return result;
+    }
+  }
+}
+
+export class WorldProvisioningWorkflow extends BirthWorkflowAdapter {
+  override async run(event: { readonly payload: LifecycleWorkflowEnvelope }, step: WorkflowStep) {
+    const envelope = decodeLifecycleWorkflowEnvelope(event.payload);
+    const outcome = await step.do("provision-world-to-verified-v1", this.stepConfig(), () =>
+      this.execute(envelope, async (ports, request) => {
+        await new workflows.WorldProvisioningWorkflow().run(request, ports);
+        return { version: 1, disposition: "verified" };
+      }),
+    );
+    if (outcome.disposition === "refused") return outcome;
+    const handoff = await step.do("launch-world-readiness-v1", this.stepConfig(), () =>
+      reconcileWorldProvisioning(this.env, envelope),
+    );
+    return { ...outcome, envelope, readinessInstanceId: handoff.readinessInstanceId };
+  }
+}
+
+export class WorldReadinessWorkflow extends BirthWorkflowAdapter {
+  override run(event: { readonly payload: LifecycleWorkflowEnvelope }, step: WorkflowStep) {
+    const envelope = decodeLifecycleWorkflowEnvelope(event.payload);
+    return step.do("verified-birth-to-ready-v1", this.stepConfig(), () =>
+      this.execute(envelope, async (ports, request) => {
+        const world = await new workflows.WorldReadinessWorkflow().run(request, ports);
+        return { version: 1, disposition: "ready", world };
+      }),
+    );
+  }
+}
+export class WorldPackUpgradeWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.WorldPackUpgradeWorkflow();
+}
+export class IngestionWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.IngestionWorkflow();
+}
+export class ConsolidationWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.ConsolidationWorkflow();
+}
+export class AuthoringWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.AuthoringWorkflow();
+}
+export class AgentJobWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.AgentJobWorkflow();
+}
+export class TransferRecoveryWorkflow extends WorkflowAdapter {
+  protected readonly shell = new workflows.TransferRecoveryWorkflow();
+}

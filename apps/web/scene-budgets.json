@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "budgets": {
+    "initialJsGzipBytes": {
+      "limit": 512000,
+      "measured": "build",
+      "reason": "Decision: the shell entry plus the scene chunk a yard boot loads, gzip level 9. Phaser alone is about 350 kB of the 455 kB measured at issue 809; the limit leaves about 12% headroom."
+    },
+    "assetBytes": {
+      "limit": 262144,
+      "measured": "build",
+      "reason": "Decision: every reviewed atlas image and animation manifest served from assets/reviewed. 256 KiB is about nine times the first reviewed set (28 kB), room for the rest of the wave's art."
+    },
+    "textureBytes": {
+      "limit": 16777216,
+      "measured": "browser",
+      "reason": "One 2048 x 2048 RGBA texture, the WebGL minimum maximum texture size issue 813 sizes atlases under (packages/assets/docs/pipeline.md#packing), at four bytes per pixel."
+    },
+    "firstSceneRenderMs": {
+      "limit": 2500,
+      "measured": "browser",
+      "reason": "The Web Vitals 'good' Largest Contentful Paint threshold (2.5 s), measured from renderer construction to the first drawn committed scene."
+    },
+    "frameTimeMs": {
+      "limit": 33.4,
+      "measured": "browser",
+      "reason": "Decision: the 95th-percentile unsmoothed frame interval with rain at the 30 frames per second floor of the supported laptop baseline (plan section 9.3)."
+    },
+    "entityCount": {
+      "limit": 256,
+      "measured": "browser",
+      "reason": "Decision: the most drawn entities one yard scene supports, about seventeen times the golden yard's fifteen."
+    },
+    "patchApplicationMs": {
+      "limit": 8,
+      "measured": "browser",
+      "reason": "Decision: the slowest committed snapshot or patch draw, half of a 60 frames per second frame so a commit never drops a frame on its own."
+    },
+    "reconnectMs": {
+      "limit": 3000,
+      "measured": "browser",
+      "reason": "Decision: the first reconnect delay (SCENE_RECONNECT.firstDelayMs, 1 s, apps/web/src/projection.ts) plus 2 s for the join and snapshot, from the client observing its scene socket drop to the next ready scene."
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Repository provenance inventory: every tracked file or directory that is not original Clockgrove work (reused, vendored, third-party-licensed or generated from a third-party source), with its source, license and reason. Clockgrove's own work is MIT (LICENSE). pnpm check refuses an entry whose path is not in the checkout or that lacks a source, license or reason.",
+  "dependencies": {
+    "inventory": "sbom.json",
+    "format": "CycloneDX 1.6",
+    "producer": "scripts/supply-chain.mjs",
+    "command": "pnpm run verify:supply-chain",
+    "note": "Third-party npm dependencies are inventoried from pnpm-lock.yaml, with their licenses checked against the allowlist, in the CycloneDX SBOM that the producer writes; they are not repeated here."
+  },
+  "entries": [
+    {
+      "path": "AGENTS.md",
+      "part": "the block between <!-- BEGIN:turborepo-agent-rules --> and <!-- END:turborepo-agent-rules -->",
+      "source": "turbo 2.11.7 (https://github.com/vercel/turborepo), template in crates/turborepo-cli/src/cli/agent_guidance.rs",
+      "license": "MIT",
+      "reason": "turbo writes and re-adds this agent guidance block before repository-scoped commands when it detects an AI agent; it stays committed so those runs leave no uncommitted change."
+    }
+  ]
+}

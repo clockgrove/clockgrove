@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "eventId": "event-weather-2",
+  "type": "WeatherChanged",
+  "tenantId": "tenant-a",
+  "worldId": "world-a",
+  "timelineId": "timeline-main",
+  "partitionId": "partition-weather",
+  "streamId": "stream-weather",
+  "streamSequence": "8",
+  "partitionSequence": "12",
+  "journalPosition": "30",
+  "simulationTime": "1800100",
+  "recordedAt": "2026-08-18T12:00:01.000Z",
+  "commandId": "command-weather-2",
+  "correlationId": "correlation-weather-2",
+  "causationId": "causation-weather-1",
+  "attribution": {
+    "initiatorId": "scheduler:weather",
+    "effectiveActorId": "world-a",
+    "causalRootActionId": "action-weather-2",
+    "authorityDecisionId": "authority-weather-2"
+  },
+  "policyVersions": {
+    "weather": "weather-policy@2",
+    "world": "world-policy@4"
+  },
+  "privacyClass": "public_scene",
+  "payloadHash": "sha256:052529c60927b8d5d9cc8d249b9a733c56fb3d9935f9f3d85e9f0ac63a4b11dc",
+  "payload": {
+    "from": "rain",
+    "to": "clear"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "authorityDecisionId": "decision-allow-1",
+  "outcome": "allow",
+  "tenantId": "tenant-a",
+  "worldId": "world-a",
+  "timelineId": "timeline-main",
+  "commandId": "command-open-1",
+  "actionId": "action-open-1",
+  "attribution": {
+    "principalId": "principal-alex",
+    "worldMembershipId": "world-membership-alex",
+    "personaId": "persona-caretaker",
+    "initiatorId": "human:caretaker",
+    "effectiveActorId": "persona-caretaker",
+    "causalRootActionId": "action-open-1",
+    "sessionId": "session-stevie"
+  },
+  "inputs": {
+    "principalId": "principal-alex",
+    "worldMembershipId": "world-membership-alex",
+    "personaId": "persona-caretaker",
+    "roles": ["role-caretaker"],
+    "grants": ["grant-open-gate"],
+    "privacyCeiling": { "version": 1, "allowedCategories": ["public_scene", "conversation"] }
+  },
+  "decidedAt": "2026-09-01T10:00:00.000Z"
+}

@@ -1,0 +1,1 @@
+{"archetype":{"id":"grove.kit-kind","version":1},"capabilities":[],"id":"grove.kit","lifecycle":{"bornAt":{"$bigint":"6912000000"},"generation":1,"householdId":"grove.household","parentIds":["grove.gracie","grove.stevie"]},"overrides":[],"placement":{"coordinates":[{"$bigint":"8500"},{"$bigint":"22000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

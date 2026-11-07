@@ -1,0 +1,1 @@
+{"archetype":{"id":"beacon.larder-kind","version":1},"capabilities":[],"id":"beacon.larder","overrides":[],"placement":{"coordinates":[{"$bigint":"100"},{"$bigint":"100"}],"space":{"id":"beacon.hall","version":1}},"traits":[]}

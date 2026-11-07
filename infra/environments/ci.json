@@ -1,0 +1,74 @@
+{
+  "environment": "ci",
+  "resources": {
+    "worker": "rw-ci-runtime",
+    "queues": {
+      "worldReactions": {
+        "name": "rw-ci-world-reactions",
+        "deadLetter": "rw-ci-world-reactions-dlq"
+      },
+      "cognitiveIndexing": {
+        "name": "rw-ci-cognitive-indexing",
+        "deadLetter": "rw-ci-cognitive-indexing-dlq"
+      },
+      "externalEffects": {
+        "name": "rw-ci-external-effects",
+        "deadLetter": "rw-ci-external-effects-dlq"
+      }
+    },
+    "buckets": {
+      "artifacts": "rw-ci-artifacts",
+      "assets": "rw-ci-assets",
+      "backups": "rw-ci-backups"
+    },
+    "hyperdrive": "rw-ci-postgres",
+    "analytics": "rw-ci-metrics",
+    "aiGateway": "rw-ci-models",
+    "serviceToken": "rw-ci-operations",
+    "turnstile": "rw-ci-public",
+    "database": {
+      "project": "rw-ci-postgres",
+      "branch": "rw-ci-main",
+      "database": "rw-ci-world",
+      "roles": {
+        "migrations": "clockgrove_migrator",
+        "runtime": "clockgrove_runtime",
+        "support": "clockgrove_support",
+        "backup": "clockgrove_backup",
+        "authentication": "clockgrove_auth_verifier",
+        "management": "clockgrove_management_reader",
+        "worldAuthorization": "clockgrove_world_reader"
+      },
+      "region": "aws-us-west-2"
+    }
+  },
+  "domains": {
+    "runtime": "ci.runtime.example.org",
+    "dnsTarget": "runtime.example.org"
+  },
+  "safeIds": {
+    "cloudflareAccountId": "00000000000000000000000000000000",
+    "cloudflareZoneId": "00000000000000000000000000000000"
+  },
+  "retention": {
+    "queueSeconds": 86400,
+    "databaseSeconds": 0,
+    "artifactDays": 30
+  },
+  "budgets": {
+    "modelMonthlyUsd": 0,
+    "requestsPerMinute": 60,
+    "databaseMinCu": 0.25,
+    "databaseMaxCu": 1
+  },
+  "compatibilityDate": "2026-10-01",
+  "modelAliases": {
+    "default": "fixture",
+    "background": "fixture"
+  },
+  "authentication": {
+    "origin": "https://ci.runtime.example.org",
+    "providerEnvironment": "ci",
+    "transport": "direct-postgresql"
+  }
+}

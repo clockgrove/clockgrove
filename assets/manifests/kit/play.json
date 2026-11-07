@@ -1,0 +1,65 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "kit",
+  "animationFamily": "play",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/kit/play.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette juniper; family play; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.kit",
+    "archetype": "grove.kit-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 12,
+    "width": 24,
+    "height": 20
+  },
+  "palette": [
+    "#22232b",
+    "#2a2630",
+    "#343743",
+    "#5a5e70",
+    "#8089a0",
+    "#b9c0cb",
+    "#e6e9ee",
+    "#f3f4f7",
+    "#ffffff"
+  ],
+  "contentHash": "5c52ebc09156befabbcd3483ba0164e67048cc2838af1b2f1e7183f25ceb143a",
+  "accessibilityLabel": "The kit playing",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 896,
+    "y": 48
+  }
+}

@@ -1,0 +1,1 @@
+{"archetype":{"id":"beacon.cistern-kind","version":1},"capabilities":[],"id":"beacon.cistern","overrides":[],"placement":{"coordinates":[{"$bigint":"200"},{"$bigint":"100"}],"space":{"id":"beacon.hall","version":1}},"traits":[]}

@@ -1,0 +1,82 @@
+export {
+  type Anchor,
+  type AnchorEdge,
+  type AnchorGraph,
+  distanceFloor,
+  findAnchor,
+  MAX_ANCHORS,
+  MAX_EDGES,
+  parseAnchorGraph,
+} from "./anchors.js";
+export {
+  type Interval,
+  type Rational,
+  ROOT_FRACTION_BITS,
+  segmentIntervals,
+} from "./geometry.js";
+export {
+  placeOf,
+  regionAncestors,
+  semanticHierarchyIssues,
+  validateSemanticHierarchy,
+} from "./hierarchy.js";
+export {
+  type CrossingRecord,
+  currentInside,
+  expectedCrossings,
+  isRegionCrossing,
+  MAX_WAYPOINTS,
+  MOVEMENT_STATUSES,
+  type MovementDestination,
+  type MovementLeg,
+  type MovementRecord,
+  type MovementSegment,
+  type MovementStatus,
+  movementCompletionTime,
+  movementLegs,
+  type PortalCrossingRecord,
+  type PortalStep,
+  parseDestination,
+  parseMovementRecord,
+  positionAt,
+  type RegionCrossingRecord,
+  type SpeedPolicy,
+} from "./movement.js";
+export {
+  ceilDiv,
+  FIXED_POINT_LIMIT,
+  floorDiv,
+  integerSqrt,
+  roundDiv,
+  SPATIAL_MAX_TIME,
+} from "./parse.js";
+export {
+  endpointAnchors,
+  type PortalEdge,
+  type PortalSides,
+  pendingPortalSteps,
+  portalEdges,
+  portalInTransit,
+  portalIsOpen,
+  portalSides,
+  validatePortals,
+} from "./portal.js";
+export { isArrivalExit, regionsContaining, remainsInside, sameCoordinates } from "./reduce.js";
+export {
+  MAX_POLYGON_VERTICES,
+  parseSpatialRegion,
+  polygonSignedArea2,
+  REGION_SHAPE_KINDS,
+  type RegionDwell,
+  type RegionShape,
+  regionContains,
+  type SemanticParentRef,
+  type SpatialRegion,
+  shapeBounds,
+  shapeContains,
+  shapeDimensions,
+  type Vec2,
+  type Vec3,
+  validatePolygonVertices,
+  validateSpatialRegion,
+} from "./region.js";

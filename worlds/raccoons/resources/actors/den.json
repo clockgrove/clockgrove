@@ -1,0 +1,1 @@
+{"archetype":{"id":"grove.den-kind","version":1},"capabilities":[{"id":"grove.perspective","version":1}],"id":"grove.den","overrides":[],"placement":{"coordinates":[{"$bigint":"8000"},{"$bigint":"22000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

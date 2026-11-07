@@ -1,0 +1,64 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "plant",
+  "animationFamily": "static",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/plant/static.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural plant; fixed palette; family static; 1 frame",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "object",
+    "entity": "grove.herb",
+    "archetype": "grove.herb-kind"
+  },
+  "frames": {
+    "width": 24,
+    "height": 24,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 12,
+    "y": 22
+  },
+  "footprint": {
+    "width": 500,
+    "depth": 500
+  },
+  "bounds": {
+    "x": 3,
+    "y": 2,
+    "width": 19,
+    "height": 22
+  },
+  "palette": [
+    "#2a2630",
+    "#4a3524",
+    "#4f8f3f",
+    "#69b04f",
+    "#7bc45a",
+    "#9bdc78",
+    "#b58ae0",
+    "#f4e27a"
+  ],
+  "contentHash": "96afccbd72414fb1f3121fdb5e31bc88eaae115c4ebbdaa467738ed70e199417",
+  "accessibilityLabel": "The herb patch",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 448,
+    "y": 80
+  }
+}

@@ -1,0 +1,386 @@
+/* Raccoon World UI tokens, version 1. Keep the breakpoint in sync with DESKTOP_MEDIA in yard-state.ts. */
+[data-tokens="raccoon-world-ui@1"] {
+  --rw-v1-bg: #12140e;
+  --rw-v1-panel: rgb(30 33 22 / 92%);
+  --rw-v1-panel-solid: #1e2116;
+  --rw-v1-control: #2b2f20;
+  --rw-v1-border: #8a7c4e;
+  --rw-v1-text: #ece9d8;
+  --rw-v1-text-muted: #bdb9a0;
+  --rw-v1-accent: #a8c394;
+  --rw-v1-rain: #8ec1ea;
+  --rw-v1-event: #e8b84e;
+  --rw-v1-affection: #f4958a;
+  --rw-v1-warning: #e39a62;
+  --rw-v1-error: #ff8f86;
+  --rw-v1-font: "Segoe UI", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --rw-v1-radius: 6px;
+  --rw-v1-space-1: 4px;
+  --rw-v1-space-2: 8px;
+  --rw-v1-space-3: 16px;
+  --rw-v1-hud-height: 60px;
+  --rw-v1-rail-width: 20%;
+  --rw-v1-sheet-bar: 56px;
+  --rw-v1-feed-width: min(320px, 24vw);
+
+  margin: 0;
+  background: var(--rw-v1-bg);
+  color: var(--rw-v1-text);
+  font-family: var(--rw-v1-font);
+  line-height: 1.4;
+}
+
+body {
+  margin: 0;
+  background: #12140e;
+}
+
+.rw-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.rw-shell a,
+.rw-shell button,
+.rw-shell select,
+.rw-shell input {
+  font: inherit;
+}
+
+.rw-shell button,
+.rw-shell select,
+.rw-shell input {
+  background: var(--rw-v1-control);
+  color: var(--rw-v1-text);
+  border: 1px solid var(--rw-v1-border);
+  border-radius: var(--rw-v1-radius);
+  padding: var(--rw-v1-space-1) var(--rw-v1-space-2);
+}
+
+.rw-shell button {
+  cursor: pointer;
+}
+
+.rw-shell button[aria-pressed="true"] {
+  border-color: var(--rw-v1-accent);
+  border-width: 2px;
+  color: var(--rw-v1-accent);
+}
+
+/* Long identifiers wrap, so 320 CSS px at 200% text reflows without horizontal scrolling. */
+.rw-shell {
+  overflow-wrap: anywhere;
+}
+
+.rw-shell button:disabled,
+.rw-shell button[aria-disabled="true"] {
+  color: var(--rw-v1-text-muted);
+  cursor: default;
+}
+
+.rw-shell :focus-visible {
+  outline: 3px solid var(--rw-v1-accent);
+  outline-offset: 2px;
+}
+
+.rw-shell h1,
+.rw-shell h2,
+.rw-shell h3 {
+  margin: var(--rw-v1-space-2) 0;
+}
+
+.rw-hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rw-v1-space-3);
+  padding: 0 var(--rw-v1-space-3);
+  background: var(--rw-v1-panel);
+  border-bottom: 1px solid var(--rw-v1-border);
+  box-sizing: border-box;
+}
+
+.rw-wordmark {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  color: var(--rw-v1-accent);
+  white-space: nowrap;
+}
+
+.rw-hud-start,
+.rw-hud-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rw-v1-space-3);
+  min-width: 0;
+}
+
+.rw-hud-end {
+  justify-content: flex-end;
+}
+
+.rw-hud select {
+  max-width: min(180px, 100%);
+  text-overflow: ellipsis;
+}
+
+.rw-hud nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: var(--rw-v1-space-2);
+}
+
+.rw-clock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rw-v1-space-3);
+  white-space: nowrap;
+}
+
+.rw-clock-time {
+  font-weight: 600;
+}
+
+.rw-clock [data-run-state]::before {
+  content: "\25CF  ";
+}
+
+.rw-clock [data-run-state="running"] {
+  color: var(--rw-v1-accent);
+}
+
+.rw-clock [data-run-state="paused"] {
+  color: var(--rw-v1-event);
+}
+
+.rw-clock [data-run-state="paused"]::before {
+  content: "\2759\2759  ";
+}
+
+.rw-clock [data-rain]::before {
+  content: "\2602  ";
+}
+
+.rw-clock [data-rain="true"] {
+  color: var(--rw-v1-rain);
+  border-bottom: 2px dotted var(--rw-v1-rain);
+}
+
+.rw-main {
+  position: relative;
+  padding: var(--rw-v1-space-3);
+  box-sizing: border-box;
+}
+
+.rw-canvas canvas {
+  /* Never CSS-scaled and never in a scrolling container: Phaser picks from window scroll. */
+  max-width: none;
+}
+
+.rw-main [role="alert"] {
+  color: var(--rw-v1-error);
+  border-left: 4px solid var(--rw-v1-error);
+  padding-left: var(--rw-v1-space-2);
+}
+
+.rw-rail,
+.rw-feed-dock {
+  background: var(--rw-v1-panel);
+  border: 1px solid var(--rw-v1-border);
+  box-sizing: border-box;
+  padding: var(--rw-v1-space-2);
+}
+
+.rw-feed ol {
+  list-style: none;
+  margin: var(--rw-v1-space-2) 0 0;
+  padding: 0;
+}
+
+.rw-feed li {
+  padding: var(--rw-v1-space-1) 0;
+  border-top: 1px solid var(--rw-v1-border);
+}
+
+.rw-feed .rw-panel-title {
+  display: inline-block;
+  margin: 0 var(--rw-v1-space-2) 0 0;
+  font-size: 1rem;
+}
+
+.rw-feed-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+
+.rw-feed time {
+  color: var(--rw-v1-text-muted);
+}
+
+.rw-feed-category {
+  font-weight: 600;
+  border-bottom: 2px solid currentcolor;
+}
+
+.rw-feed-category::before {
+  content: "\25C6  ";
+}
+
+.rw-feed-category[data-category="weather"] {
+  color: var(--rw-v1-rain);
+  border-bottom-style: dotted;
+}
+
+.rw-feed-category[data-category="wellbeing"] {
+  color: var(--rw-v1-affection);
+  border-bottom-style: double;
+}
+
+.rw-feed-category[data-category="resource"],
+.rw-feed-category[data-category="portal"] {
+  color: var(--rw-v1-warning);
+  border-bottom-style: dashed;
+}
+
+.rw-feed-category[data-category="routine"],
+.rw-feed-category[data-category="movement"] {
+  color: var(--rw-v1-event);
+}
+
+.rw-feed-category[data-category="growth"] {
+  color: var(--rw-v1-accent);
+}
+
+@media (min-width: 1200px) {
+  .rw-shell {
+    display: grid;
+    grid-template-rows: var(--rw-v1-hud-height) 1fr;
+    grid-template-columns: 4fr 1fr;
+    min-height: 100vh;
+  }
+
+  .rw-hud {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    /* Navigation at the left edge, the clock centered, utilities at the right edge (§4.1). */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: var(--rw-v1-hud-height);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /*
+   * The window scrolls the scene, never an inner container: Phaser maps pointers from window scroll.
+   * The feed floats in its own lower-left gutter, so it never covers the canvas or a control.
+   */
+  .rw-hud-end {
+    grid-column: 3;
+  }
+
+  .rw-main {
+    grid-row: 2;
+    grid-column: 1;
+    padding-left: calc(var(--rw-v1-feed-width) + 2 * var(--rw-v1-space-3));
+  }
+
+  .rw-rail {
+    grid-row: 2;
+    grid-column: 2;
+    position: sticky;
+    top: var(--rw-v1-hud-height);
+    align-self: start;
+    height: calc(100vh - var(--rw-v1-hud-height));
+    overflow: auto;
+    border-width: 0 0 0 1px;
+  }
+
+  .rw-feed-dock {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    width: var(--rw-v1-feed-width);
+    max-height: 40vh;
+    overflow: auto;
+    z-index: 10;
+    border-radius: var(--rw-v1-radius);
+  }
+}
+
+@media (max-width: 1199.98px) {
+  .rw-shell {
+    display: block;
+  }
+
+  .rw-hud {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-wrap: wrap;
+    padding: var(--rw-v1-space-2) var(--rw-v1-space-3);
+  }
+
+  .rw-clock {
+    flex-wrap: wrap;
+    white-space: normal;
+    gap: var(--rw-v1-space-1) var(--rw-v1-space-3);
+  }
+
+  .rw-main {
+    padding-bottom: calc(var(--rw-v1-sheet-bar) * 2 + var(--rw-v1-space-3));
+  }
+
+  .rw-rail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* A collapsed rail is exactly the sheet bar, so the feed sheet above it always clears it. */
+    min-height: var(--rw-v1-sheet-bar);
+    max-height: 60vh;
+    overflow: auto;
+    z-index: 40;
+    border-width: 1px 0 0;
+  }
+
+  .rw-feed-dock {
+    position: fixed;
+    left: 0;
+    bottom: var(--rw-v1-sheet-bar);
+    width: 100%;
+    max-height: 40vh;
+    overflow: auto;
+    z-index: 30;
+    border-width: 1px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-shell * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.rw-disclosure {
+  font-weight: 600;
+}

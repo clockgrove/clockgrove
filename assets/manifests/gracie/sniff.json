@@ -1,0 +1,65 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "gracie",
+  "animationFamily": "sniff",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/gracie/sniff.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural raccoon; palette gracie; family sniff; 4 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "grove.gracie",
+    "archetype": "grove.raccoon-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 650,
+    "depth": 380
+  },
+  "bounds": {
+    "x": 0,
+    "y": 11,
+    "width": 30,
+    "height": 21
+  },
+  "palette": [
+    "#1f1a18",
+    "#2a2630",
+    "#2d2623",
+    "#463830",
+    "#6e5a4c",
+    "#a08a78",
+    "#d2bfae",
+    "#e6d8ca",
+    "#ffffff"
+  ],
+  "contentHash": "c97be6d7de8bd8892484194c4f20d6645d43e9fc8ac146d32473b7702cc9a2d2",
+  "accessibilityLabel": "Gracie sniffing",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 600,
+    "y": 0
+  }
+}

@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "plan": "docs/waves/clockgrove-wave-3-actor-fabric-implementation-plan.md#17-failure-and-recovery-matrix",
+  "amended": "2026-10-19",
+  "rows": [
+    {
+      "row": "DO creation, eviction, restart, local migration, and deployment",
+      "case": "creation: owners initialize and hydrate from PostgreSQL on first use",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "DO creation, eviction, restart, local migration, and deployment",
+      "case": "eviction and restart: a replaced runtime, with or without its local storage, recovers the committed state",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "DO creation, eviction, restart, local migration, and deployment",
+      "case": "local migration: local state is never migrated; a record that disagrees with PostgreSQL is replaced from it",
+      "disposition": "tested",
+      "file": "apps/runtime/test/native.journey.postgres.test.ts",
+      "test": "rehydrates actual lost storage through production authentication without canonical mutation",
+      "command": "test:runtime"
+    },
+    {
+      "row": "DO creation, eviction, restart, local migration, and deployment",
+      "case": "Cloudflare eviction and deployment of a Durable Object",
+      "disposition": "pending",
+      "issue": "#881"
+    },
+    {
+      "row": "concurrent requests around awaited PostgreSQL I/O",
+      "case": "admission order spans the database await; a failed or cancelled request never strands its successor",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "timeout before and after Journal commit",
+      "case": "mailbox deadline: a waiting command is dropped unrun; a started one is answered owner_mailbox_timeout, commits, and its exact retry returns the stored receipt",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "timeout before and after Journal commit",
+      "case": "canonical connection lost before and after the journal commit of a world command",
+      "disposition": "tested",
+      "file": "apps/runtime/test/canonical-outage.postgres.test.ts",
+      "test": "fails a world command with a stable code before and after its journal commit, refuses inspection unaudited, and recovers by its alarm",
+      "command": "test:runtime"
+    },
+    {
+      "row": "hydrated cache behind/ahead/corrupt relative to PostgreSQL",
+      "case": "behind: a local projection at an older routing epoch is superseded by PostgreSQL",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "hydrated cache behind/ahead/corrupt relative to PostgreSQL",
+      "case": "ahead or corrupt: local state with a later projection revision and wrong placement, partition and stream is reconciled to PostgreSQL",
+      "disposition": "tested",
+      "file": "apps/runtime/test/native.journey.postgres.test.ts",
+      "test": "rehydrates actual lost storage through production authentication without canonical mutation",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
+      "case": "refusal and interruption around a world command, and inspection, while the canonical database is unavailable",
+      "disposition": "tested",
+      "file": "apps/runtime/test/canonical-outage.postgres.test.ts",
+      "test": "fails a world command with a stable code before and after its journal commit, refuses inspection unaudited, and recovers by its alarm",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
+      "case": "refusal and interruption during an alarm activation",
+      "disposition": "tested",
+      "file": "apps/runtime/test/canonical-outage.postgres.test.ts",
+      "test": "resumes alarm activations from the alarm after PostgreSQL fails one mid-transaction and refuses its retries, ending on the uninterrupted state",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
+      "case": "refusal and interruption during a catch-up Workflow step",
+      "disposition": "tested",
+      "file": "apps/runtime/test/canonical-outage.postgres.test.ts",
+      "test": "resumes a catch-up Workflow step by scheduled reconciliation after PostgreSQL fails it mid-transaction and refuses its retries, ending on the uninterrupted state",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
+      "case": "refusal and interruption at the authentication verifier",
+      "disposition": "tested",
+      "file": "apps/runtime/test/hyperdrive.postgres.test.ts",
+      "test": "composes fresh stored-session authentication and durable authority over isolated PostgreSQL",
+      "command": "test:db"
+    },
+    {
+      "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
+      "case": "Hyperdrive latency and pool reuse",
+      "disposition": "pending",
+      "issue": "#881"
+    },
+    {
+      "row": "stale routing epoch and namespace version",
+      "case": "stale routing epoch: refused before mutation, also when the epoch changes after hydration",
+      "disposition": "tested",
+      "file": "apps/runtime/test/world-owner.postgres.test.ts",
+      "test": "preserves journal authority, admission, fences, retries and recovery through the production Worker",
+      "command": "test:runtime"
+    },
+    {
+      "row": "stale routing epoch and namespace version",
+      "case": "namespace version: golden route vectors pin the route-name derivation",
+      "disposition": "tested",
+      "file": "apps/runtime/test/runtime.postgres.test.ts",
+      "test": "crosses Worker, runtime owner, accepted journal, recovery, and response exactly once",
+      "command": "test:db"
+    },
+    {
+      "row": "stale routing epoch and namespace version",
+      "case": "an instance under a superseded route-name version after a Cloudflare deployment",
+      "disposition": "pending",
+      "issue": "#881"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "duplicate: a redelivered alarm leaves canonical state unchanged",
+      "disposition": "tested",
+      "file": "apps/runtime/test/autonomous-parity.postgres.test.ts",
+      "test": "compares actual alarm delivery, semantic responses and state hashes with headless execution and the pure reference",
+      "command": "test:runtime"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "late: durable schedule boundaries hold regardless of delivery lateness",
+      "disposition": "tested",
+      "file": "apps/runtime/test/clock-schedule-boundaries.postgres.test.ts",
+      "test": "uses durable schedule boundaries independently of caps, admission grouping and delivery lateness",
+      "command": "test:runtime"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "stale generation: a superseded instance stays fenced and never overwrites the newer alarm",
+      "disposition": "tested",
+      "file": "apps/runtime/test/alarm-safety.test.ts",
+      "test": "fences delayed old %s; the superseded instance stays fenced and never overwrites the newer alarm",
+      "command": "test"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "crash mid-batch: commits and admissions survive an interruption before reconciliation",
+      "disposition": "tested",
+      "file": "apps/runtime/test/autonomous-recovery.postgres.test.ts",
+      "test": "retains physical commits and admissions across interruption before reconciliation",
+      "command": "test:runtime"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "catch-up overflow: due work beyond an activation escalates to the catch-up Workflow",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-catch-up.postgres.test.ts",
+      "test": "redelivers canonical commits and reconstructs progress after compatible replacement and local history loss",
+      "command": "test:runtime"
+    },
+    {
+      "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
+      "case": "catch-up overflow: a client command too far behind is refused with world_catching_up",
+      "disposition": "tested",
+      "file": "apps/runtime/test/timeline-clock.postgres.test.ts",
+      "test": "runs a client command at earned time after overdue work, and refuses when too far behind",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Queue publish failure, duplicate delivery, delayed delivery, consumer crash, poison message, and DLQ replay",
+      "case": "publish failure: retried, then failed with its error class after the attempt budget",
+      "disposition": "tested",
+      "file": "apps/runtime/test/dispatch-delivery.postgres.test.ts",
+      "test": "publisher failure retries, then ends failed with last_error_class after maxAttempts",
+      "command": "test:db"
+    },
+    {
+      "row": "Queue publish failure, duplicate delivery, delayed delivery, consumer crash, poison message, and DLQ replay",
+      "case": "crash after publish before settle: republished under the same message ID and consumed once",
+      "disposition": "tested",
+      "file": "apps/runtime/test/dispatch-delivery.postgres.test.ts",
+      "test": "crash after publish before settle: republished under the same messageId and delivered once",
+      "command": "test:db"
+    },
+    {
+      "row": "Queue publish failure, duplicate delivery, delayed delivery, consumer crash, poison message, and DLQ replay",
+      "case": "duplicate and delayed delivery, consumer crash before acknowledgement, poison siblings and dead-lettering",
+      "disposition": "tested",
+      "file": "apps/runtime/test/queue-lifecycle.postgres.test.ts",
+      "test": "publishes canonical batches, deduplicates redelivery and isolates poison siblings",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Queue publish failure, duplicate delivery, delayed delivery, consumer crash, poison message, and DLQ replay",
+      "case": "DLQ replay through an authorized runtime action, and failed-publication repair",
+      "disposition": "tested",
+      "file": "apps/runtime/test/operator-inspector.postgres.test.ts",
+      "test": "diagnoses a failed publication and a poison message, then repairs and replays them",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "step crash after its canonical commit",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-catch-up.postgres.test.ts",
+      "test": "redelivers canonical commits and reconstructs progress after compatible replacement and local history loss",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "retry: a step retried before its cursor commit readmits nothing",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-catch-up.postgres.test.ts",
+      "test": "retries a physical commit before its cursor commit without readmitting the cap or permitting a competing explicit advance",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "retries exhausted while PostgreSQL is away, recovered by scheduled reconciliation",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-catch-up.postgres.test.ts",
+      "test": "recovers an actually exhausted native Workflow by scheduled reconciliation alone after PostgreSQL returns",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "cancel: a cancelled birth stays non-ready",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-provisioning.postgres.test.ts",
+      "test": "keeps exhausted and cancelled birth non-ready and hides readiness from unauthenticated callers and tenant outsiders",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "local replacement of native execution while its canonical case is open",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-provisioning.postgres.test.ts",
+      "test": "replaces native execution while the canonical case is open and completes the same birth",
+      "command": "test:runtime"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "Cloudflare Workflow deployment compatibility",
+      "disposition": "pending",
+      "issue": "#881"
+    },
+    {
+      "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
+      "case": "result reconciliation: a late result or failure from a replaced owner's step resumes the same accepted operation",
+      "disposition": "tested",
+      "file": "apps/runtime/test/durable-catch-up.postgres.test.ts",
+      "test": "replaces an owner while its old native step holds a result or failure and resumes the same accepted operation",
+      "command": "test:runtime"
+    },
+    {
+      "row": "ActorAgentDO duplicate perception, session contention, eviction, and capability revision",
+      "case": "every case: the ActorAgentDO foundation (RW-0307) moved to its first consumer",
+      "disposition": "deferred",
+      "wave": "Wave 5"
+    },
+    {
+      "row": "transfer crash before/after each state transition",
+      "case": "every case: cross-space transfer (RW-0308) is deferred with the per-space state split",
+      "disposition": "deferred",
+      "wave": "Wave 11"
+    },
+    {
+      "row": "inspector request during degraded state",
+      "case": "causal-chain inspection while the canonical database is unavailable answers 503 inspector_unavailable, with no view and no audit row",
+      "disposition": "tested",
+      "file": "apps/runtime/test/canonical-outage.postgres.test.ts",
+      "test": "fails a world command with a stable code before and after its journal commit, refuses inspection unaudited, and recovers by its alarm",
+      "command": "test:runtime"
+    }
+  ]
+}

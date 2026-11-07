@@ -1,0 +1,1 @@
+{"archetype":{"id":"beacon.lamp-kind","version":1},"capabilities":[{"id":"beacon.speak","version":1}],"id":"beacon.lamp","overrides":[],"placement":{"coordinates":[{"$bigint":"300"},{"$bigint":"100"}],"space":{"id":"beacon.hall","version":1}},"traits":[]}

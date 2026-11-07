@@ -1,0 +1,9 @@
+Date.now()
+new Date()
+Math.random()
+process.env.SECRET
+fetch("https://example.invalid")
+new WebSocket("wss://example.invalid")
+globalThis.crypto
+localStorage.getItem("state")
+Deno.readTextFile("state.json")

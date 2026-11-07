@@ -1,0 +1,45 @@
+name: Pinned Quality toolchain
+description: Node.js, Corepack pnpm, PostgreSQL 18 with pgvector and OpenTofu, shared by Quality and qualification.
+runs:
+  using: composite
+  steps:
+  - name: Set up repository Node.js
+    uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    with:
+      node-version: 24.21.0
+      package-manager-cache: false
+
+  - name: Enable committed pnpm toolchain
+    shell: bash
+    run: corepack enable
+
+  # The pgvector build is the same for every job of a runner image. The script reuses a restored
+  # build only when its library digest matches the stamp of the pinned commit and source digest.
+  - name: Name the staged pgvector build
+    id: pgvector
+    shell: bash
+    run: |
+      printf 'key=%s-%s-%s-%s\n' "$("$GITHUB_WORKSPACE/scripts/ci/toolchain.sh" --pgvector-key)" "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" >> "$GITHUB_OUTPUT"
+      printf 'PGVECTOR_STAGE=%s/pgvector-stage\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+  - name: Restore the staged pgvector build
+    id: pgvector-cache
+    uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    with:
+      path: ${{ runner.temp }}/pgvector-stage
+      key: ${{ steps.pgvector.outputs.key }}
+
+  # Verifies the exact pinned versions and installs only what is missing or different.
+  - name: Install or verify PostgreSQL 18, pgvector and OpenTofu
+    id: install
+    shell: bash
+    run: |
+      "$GITHUB_WORKSPACE/scripts/ci/toolchain.sh" postgresql pgvector opentofu
+      if [[ -f "$PGVECTOR_STAGE/stamp" ]]; then echo 'staged=true' >> "$GITHUB_OUTPUT"; fi
+
+  - name: Save the staged pgvector build
+    if: ${{ steps.pgvector-cache.outputs.cache-hit != 'true' && steps.install.outputs.staged == 'true' }}
+    uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    with:
+      path: ${{ runner.temp }}/pgvector-stage
+      key: ${{ steps.pgvector.outputs.key }}

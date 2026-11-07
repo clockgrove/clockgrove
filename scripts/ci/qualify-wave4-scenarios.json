@@ -1,0 +1,587 @@
+{
+  "source": "docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md §15.2, §16",
+  "scenarios": [
+    {
+      "id": "S1",
+      "section": "15.2",
+      "scenario": "two observers join before/after an event and converge",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
+        },
+        {
+          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
+          "marker": "// A new transport's resume reads the already committed endpoint."
+        }
+      ],
+      "deviation": "No browser journey joins one observer before and one after an event; the reducer contract covers a late join."
+    },
+    {
+      "id": "S2",
+      "section": "15.2",
+      "scenario": "one observer has relationship-private access and the other does not",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
+        },
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// issue 810: audiences are decided on the server per principal's current authority."
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "section": "15.2",
+      "scenario": "duplicate, reordered, stale, missing, and incompatible patches",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/web/test/convergence-properties.journey.contract.test.ts",
+          "marker": "permutations, duplicates, delays and drops converge or request the exact missing interval"
+        },
+        {
+          "file": "apps/web/test/convergence-recovery.journey.contract.test.ts",
+          "marker": "bounds gaps, retires recovery and preserves discarded revision obligations"
+        },
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "marker": "// A contiguous patch moves the node; replaying it is stale and changes nothing."
+        },
+        {
+          "file": "packages/contracts/test/scene-compatibility.test.ts",
+          "marker": "rejects incompatible serialized protocol, projection, asset and client versions with visible stable codes"
+        }
+      ]
+    },
+    {
+      "id": "S4",
+      "section": "15.2",
+      "scenario": "network offline/online, token expiry, hibernation, DO restart, Worker deploy",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// Replace the entire local workerd runtime, then model the platform restoring its attachment."
+        },
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// This drops the production stream service, retaining only workerd socket attachments."
+        },
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "scene-before-redeploy"
+        },
+        {
+          "file": "apps/runtime/test/scene-admission.postgres.test.ts",
+          "marker": "// The same credential ceases to work immediately after revocation or provider expiry."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
+        }
+      ],
+      "deviation": "Local workerd equivalents only; hosted hibernation, restart and deploy are pending on issue 881. No browser offline/online or browser token-expiry step."
+    },
+    {
+      "id": "S5",
+      "section": "15.2",
+      "scenario": "world pauses/resumes/speeds up",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The HUD shows PostgreSQL's paused clock, the pack's speed and 86 400 000 ms day, and rain."
+        },
+        {
+          "file": "packages/application/test/timeline-clock.test.ts",
+          "marker": "preserves earned backlog through pause, speed changes and resume without earning paused time"
+        }
+      ],
+      "deviation": "The browser shows the paused clock and speed; pause, resume and speed-up transitions are proven below the browser."
+    },
+    {
+      "id": "S6",
+      "section": "15.2",
+      "scenario": "rain begins, puddles update, Stevie moves, event feed records, Why explains",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The feed lists PostgreSQL's public material events, newest first, at their world time."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// An event of a command with retained routine decisions opens the same command's Why from the feed."
+        },
+        {
+          "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
+          "marker": "explains why Stevie sought shelter from authorized deterministic evidence and receipts every interaction intent"
+        }
+      ],
+      "deviation": "green-lake-yard draws no puddles, and no single journey chains rain to Stevie's move."
+    },
+    {
+      "id": "S7",
+      "section": "15.2",
+      "scenario": "keyboard-only and screen-reader-equivalent interaction",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// Select: arrow keys, Home and End move between entities; Enter selects and is announced."
+        },
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// Live changes: movement, weather and material events, at most one announcement per 3 s."
+        }
+      ]
+    },
+    {
+      "id": "S8",
+      "section": "15.2",
+      "scenario": "reduced motion and high zoom/text scale",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// Reduced motion: nothing in the shell animates or transitions."
+        },
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// High zoom: 1280 px at 400% is 320 CSS px (WCAG 1.4.10), with text at 200% (WCAG 1.4.4)."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Reduced motion snaps a short committed move, and a cue draws once per dedupe key."
+        }
+      ]
+    },
+    {
+      "id": "S9",
+      "section": "15.2",
+      "scenario": "scene asset missing/corrupt/version mismatch",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while yardSkew"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The destination's placeholder presentation fails after its renderer loaded."
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+        }
+      ],
+      "deviation": "A missing atlas (404) and version mismatch are proven; a corrupt atlas or hash mismatch is not injected."
+    },
+    {
+      "id": "S10",
+      "section": "15.2",
+      "scenario": "world still provisioning, failed provisioning with retry/status, and transition to WorldReady",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/world-readiness.postgres.test.ts",
+          "marker": "refuses every non-ready lifecycle and admits the world once provisioning completes"
+        },
+        {
+          "file": "apps/runtime/test/world-readiness.postgres.test.ts",
+          "marker": "// Retrying the same case completes provisioning; the same entry and authority read now succeed."
+        }
+      ],
+      "deviation": "Runtime only; no browser journey shows the provisioning or failed-retry status."
+    },
+    {
+      "id": "S11",
+      "section": "15.2",
+      "scenario": "projection/client/asset incompatibility with explicit refresh or text fallback",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while yardSkew"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Refresh reloads the current deployment at the same route, which signs the page out."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// fails to load after snapshot_ready ends at text_ready with the semantic scene usable."
+        }
+      ]
+    },
+    {
+      "id": "S12",
+      "section": "15.2",
+      "scenario": "snapshot ready before critical assets, asset recovery, and no false scene_ready",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The renderer loads its reviewed atlas before presenting; its outcome lands first."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Signed out, the routed boot holds route_resolving; scene_ready follows the presentation."
+        }
+      ],
+      "deviation": "No false scene_ready is proven; asset recovery after a snapshot-first arrival is not."
+    },
+    {
+      "id": "S13",
+      "section": "15.2",
+      "scenario": "selected actor crosses a viewed-space boundary with each follow disposition",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
+          "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 816: viewing nested regions and following Stevie is a read through the one scene"
+        }
+      ]
+    },
+    {
+      "id": "S14",
+      "section": "15.2",
+      "scenario": "private Caretaker Talk never appears as public spatial speech, while an explicit public-speech action does",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
+          "marker": "// Talk is a scripted fixture: private talk stays private, public speech is explicit, nothing is stored."
+        },
+        {
+          "file": "packages/contracts/test/scene-privacy.test.ts",
+          "marker": "refuses every private sentinel, private talk, operator lanes and nested extensions"
+        }
+      ]
+    },
+    {
+      "id": "S15",
+      "section": "15.2",
+      "scenario": "a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Phaser or quadtree identifiers",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "marker": "// The headless consumer builds a 3D scene graph: frame groups, and nodes at frame-local x, y, z."
+        },
+        {
+          "file": "apps/web/test/boundaries.test.mjs",
+          "marker": "keeps Phaser types and its renderer out of the headless 3D adapter fixture's whole program"
+        }
+      ]
+    }
+  ],
+  "failureMatrix": [
+    {
+      "id": "F1",
+      "section": "16",
+      "scenario": "socket drop before/after snapshot",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
+        },
+        {
+          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
+          "marker": "commits before notification and fences retired transport work"
+        }
+      ],
+      "deviation": "Drop before the snapshot is proven only in the reducer contract."
+    },
+    {
+      "id": "F2",
+      "section": "16",
+      "scenario": "patch gap",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// Hide one committed event from this audience: the authorized history now has a real gap."
+        },
+        {
+          "file": "apps/web/test/convergence-recovery.journey.contract.test.ts",
+          "marker": "bounds gaps, retires recovery and preserves discarded revision obligations"
+        }
+      ]
+    },
+    {
+      "id": "F3",
+      "section": "16",
+      "scenario": "stale join assertion",
+      "coverage": "gap",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// A changed authority epoch ends a socket admitted under the old one."
+        }
+      ],
+      "deviation": "No test replays a stale join assertion; only a changed authority epoch is proven."
+    },
+    {
+      "id": "F4",
+      "section": "16",
+      "scenario": "expired token",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-admission.postgres.test.ts",
+          "marker": "// The same credential ceases to work immediately after revocation or provider expiry."
+        },
+        {
+          "file": "apps/web/test/query-state.journey.contract.test.ts",
+          "marker": "retires scope and credential lifetimes, refusal and sign-out without late interference"
+        }
+      ],
+      "deviation": "No browser journey with an expired token."
+    },
+    {
+      "id": "F5",
+      "section": "16",
+      "scenario": "audience/grant change",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
+        },
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// A narrowed ceiling forces a snapshot that keeps nothing of the prior audience."
+        }
+      ]
+    },
+    {
+      "id": "F6",
+      "section": "16",
+      "scenario": "SpaceDO hibernation",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// This drops the production stream service, retaining only workerd socket attachments."
+        }
+      ],
+      "deviation": "Local workerd only; hosted hibernation pending on issue 881."
+    },
+    {
+      "id": "F7",
+      "section": "16",
+      "scenario": "deploy",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "scene-before-redeploy"
+        }
+      ],
+      "deviation": "Local equivalent only; hosted redeploy pending on issue 881."
+    },
+    {
+      "id": "F8",
+      "section": "16",
+      "scenario": "backpressure",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// Fill the bounded ledger, then coalesce two committed revisions until an ack frees it."
+        },
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "marker": "// Pressure is retryable; with nothing applied since, the jittered delay doubles to (1 s, 2 s]."
+        }
+      ]
+    },
+    {
+      "id": "F9",
+      "section": "16",
+      "scenario": "corrupt cached metadata",
+      "coverage": "gap",
+      "evidence": [],
+      "deviation": "No test injects corrupt cached metadata."
+    },
+    {
+      "id": "F10",
+      "section": "16",
+      "scenario": "asset 404/hash failure",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The destination's placeholder presentation fails after its renderer loaded."
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+        }
+      ],
+      "deviation": "A missing atlas (404) and version mismatch are proven; a corrupt atlas or hash mismatch is not injected."
+    },
+    {
+      "id": "F11",
+      "section": "16",
+      "scenario": "React error boundary",
+      "coverage": "gap",
+      "evidence": [],
+      "deviation": "The shell has no React error boundary test."
+    },
+    {
+      "id": "F12",
+      "section": "16",
+      "scenario": "Phaser context loss",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
+        }
+      ]
+    },
+    {
+      "id": "F13",
+      "section": "16",
+      "scenario": "inspector authorization denial",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/observer-authority.postgres.test.ts",
+          "marker": "separates observation, inspection and mutation at HTTP boundaries"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// A held obsolete authorization failure cannot erase a newer entity selection."
+        }
+      ],
+      "deviation": "Server denial is proven; no inspector-denied browser step."
+    },
+    {
+      "id": "A1",
+      "section": "16",
+      "scenario": "no unauthorized entity survives in memory or UI after scope change",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
+        }
+      ]
+    },
+    {
+      "id": "A2",
+      "section": "16",
+      "scenario": "acknowledged canonical state is never rolled back by a stale message",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "marker": "// A contiguous patch moves the node; replaying it is stale and changes nothing."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// The real Phaser bridge's applyPatch applies the next contiguous patch and ignores a stale one."
+        }
+      ]
+    },
+    {
+      "id": "A3",
+      "section": "16",
+      "scenario": "reconnect status is explicit",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Reconnect: from the page observing its scene socket drop to the next ready scene."
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "marker": "// Every new scene socket is refused, then the live one drops: the shell keeps the committed"
+        }
+      ]
+    },
+    {
+      "id": "A4",
+      "section": "16",
+      "scenario": "scene can rebuild from reducer state",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
+        },
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "marker": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
+        }
+      ],
+      "deviation": "No journey rebuilds the canvas from reducer state after a loss."
+    },
+    {
+      "id": "A5",
+      "section": "16",
+      "scenario": "browser errors do not corrupt or mutate the world",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// Each click is a read: no world fact, scene socket or renderer call changes."
+        },
+        {
+          "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
+          "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
+        }
+      ],
+      "deviation": "A React error boundary failure is not exercised (F11)."
+    },
+    {
+      "id": "A6",
+      "section": "16",
+      "scenario": "operator details never appear in ordinary telemetry/UI",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/contracts/test/scene-privacy.test.ts",
+          "marker": "refuses every private sentinel, private talk, operator lanes and nested extensions"
+        },
+        {
+          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
+          "marker": "// Operator-lane messages reach only an audience with the inspection grant."
+        },
+        {
+          "file": "tests/load/realtime/fanout.journey.browser.test.mjs",
+          "marker": "// Opaque IDs and categories only: no principal, credential, payload or text reaches a point."
+        }
+      ]
+    },
+    {
+      "id": "A7",
+      "section": "16",
+      "scenario": "accessibility path remains available when WebGL is unavailable",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// WebGL unavailable with the renderer loaded: Phaser.AUTO falls back to a 2D canvas (scene_ready)."
+        },
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "// The renderer never loads, so the whole journey runs with no canvas at all (§16)."
+        }
+      ]
+    }
+  ]
+}

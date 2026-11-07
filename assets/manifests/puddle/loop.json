@@ -1,0 +1,60 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "puddle",
+  "animationFamily": "loop",
+  "source": {
+    "kind": "generated",
+    "path": "assets/source/puddle/loop.png",
+    "creator": "Clockgrove",
+    "tool": "packages/assets/scripts/generate-raccoon-world.ts"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "procedural puddle; fixed palette; family loop; 2 frames",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "kirkmarple-clockgrove",
+    "reviewedAt": "2026-11-05T17:40:00Z",
+    "notes": "First placeholder set approved against the golden scene; real art follows the issue 817 pilot."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 24,
+    "height": 12,
+    "count": 2,
+    "durationMs": 400
+  },
+  "anchor": {
+    "x": 12,
+    "y": 6
+  },
+  "footprint": {
+    "width": 1200,
+    "depth": 600
+  },
+  "bounds": {
+    "x": 1,
+    "y": 1,
+    "width": 23,
+    "height": 11
+  },
+  "palette": [
+    "#3e6f9e",
+    "#5d95c4",
+    "#7fb3dc",
+    "#a9d3f2"
+  ],
+  "contentHash": "727c7b93f29002dbd2394c0c40baacc03fc5ce81627f59d6054ad59f206cc290",
+  "accessibilityLabel": "A puddle",
+  "atlas": {
+    "atlasId": "raccoon-world",
+    "x": 472,
+    "y": 80
+  }
+}

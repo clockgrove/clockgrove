@@ -1,0 +1,33 @@
+{
+  "kind": "clockgrove.wave4-runtime-evidence",
+  "scope": "partial-scene-runtime",
+  "exitDecision": "not-qualified",
+  "localNative": {
+    "environment": "local-workerd-postgresql",
+    "source": "apps/runtime/test/scene-delivery.postgres.test.ts",
+    "hostedQualification": false
+  },
+  "cloudflareQualification": [
+    {
+      "scenario": "real-cloudflare-hibernation",
+      "status": "pending",
+      "ownerIssue": 881,
+      "blockedOn": [329, 693],
+      "evidence": null
+    },
+    {
+      "scenario": "real-cloudflare-restart",
+      "status": "pending",
+      "ownerIssue": 881,
+      "blockedOn": [329, 693],
+      "evidence": null
+    },
+    {
+      "scenario": "real-cloudflare-redeploy",
+      "status": "pending",
+      "ownerIssue": 881,
+      "blockedOn": [329, 693],
+      "evidence": null
+    }
+  ]
+}

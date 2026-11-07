@@ -1,0 +1,1 @@
+{"archetype":{"id":"grove.herb-kind","version":1},"capabilities":[],"id":"grove.herb","overrides":[],"placement":{"coordinates":[{"$bigint":"23000"},{"$bigint":"8000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

@@ -1,0 +1,25 @@
+{
+  "name": "@clockgrove/domain",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit --project tsconfig.json",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@clockgrove/contracts": "workspace:*",
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "@clockgrove/testkit": "workspace:*",
+    "vitest": "5.0.3"
+  }
+}

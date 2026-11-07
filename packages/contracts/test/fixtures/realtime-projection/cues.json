@@ -1,0 +1,51 @@
+[
+  {
+    "kind": "footstep",
+    "objectId": "stevie",
+    "reference": "cue-footstep",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-footstep"
+  },
+  {
+    "kind": "splash",
+    "objectId": "stevie",
+    "reference": "cue-splash",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-splash"
+  },
+  {
+    "kind": "particle",
+    "objectId": "stevie",
+    "reference": "cue-particle",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-particle"
+  },
+  {
+    "kind": "sound",
+    "objectId": "stevie",
+    "reference": "cue-sound",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-sound"
+  },
+  {
+    "kind": "emote",
+    "objectId": "stevie",
+    "reference": "cue-emote",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-emote"
+  },
+  {
+    "kind": "hover_hint",
+    "objectId": "stevie",
+    "reference": "cue-hover_hint",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-hover_hint"
+  },
+  {
+    "kind": "animation_transition",
+    "objectId": "stevie",
+    "reference": "cue-animation_transition",
+    "expiresAt": "2026-10-30T22:00:01Z",
+    "dedupeKey": "dedupe-animation_transition"
+  }
+]

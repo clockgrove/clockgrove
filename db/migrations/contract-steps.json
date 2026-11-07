@@ -1,0 +1,14 @@
+{
+  "0019_clock_owner_claim_in_place.sql": {
+    "sha256": "2c9e9e385cea5f94b72df436676f3f6352ce93e56a7e243caaf2de49c9695fd1",
+    "destroys": ["DROP TABLE clockgrove.clock_owner_claims"],
+    "restorePoint": "A verified backup/restore point of the clockgrove database, taken before this migration runs. It drops clockgrove.clock_owner_claims: the clock owner claim lives on the partition row (clock_owner_generation, clock_owner_id) instead.",
+    "releaseApproval": "#742"
+  },
+  "0029_drop_incompatible_snapshots.sql": {
+    "sha256": "d6b27fffd59ac35cf69440d8eed55475a3c941cbbf1208eee3b80b02703635d1",
+    "destroys": ["DELETE FROM clockgrove.snapshots"],
+    "restorePoint": "A verified backup/restore point of the clockgrove database, taken before this migration runs. It deletes every snapshot index row, all written under the kernel registry that issue 740 replaced; the journal stays the authority and replay runs from birth until new snapshots are written.",
+    "releaseApproval": "#775"
+  }
+}

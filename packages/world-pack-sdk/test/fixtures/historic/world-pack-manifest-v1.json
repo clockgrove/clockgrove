@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "historic.pack",
+  "version": "1.0.0",
+  "engineCompatibility": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "components": [{ "type": "clockgrove.needs", "version": 1 }],
+  "archetypes": [
+    {
+      "id": "historic.resident",
+      "version": 1,
+      "path": "archetypes/resident.json",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "traits": [],
+  "spaces": [],
+  "actors": [],
+  "rules": [],
+  "capabilities": [],
+  "policies": [],
+  "cognitiveSeeds": [],
+  "randomStreams": [
+    {
+      "name": "weather",
+      "algorithm": "pure-rand@8.4.2/xoroshiro128plus",
+      "algorithmVersion": 1,
+      "seed": "historic-seed",
+      "state": [-1, 5, -6, 0],
+      "draws": 0
+    }
+  ],
+  "assets": [
+    {
+      "id": "historic.badge",
+      "version": 1,
+      "path": "assets/badge.svg",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "mediaType": "image/svg+xml",
+      "byteLength": 6,
+      "license": "CC0-1.0",
+      "provenance": { "source": "historic", "method": "hand-authored", "reviewStatus": "approved" }
+    },
+    {
+      "id": "historic.banner",
+      "version": 2,
+      "path": "assets/banner.png",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "mediaType": "image/png",
+      "byteLength": 128,
+      "license": "CC-BY-4.0",
+      "provenance": { "source": "historic", "method": "generated", "reviewStatus": "pending" }
+    }
+  ],
+  "seedCommands": [],
+  "migrations": [],
+  "expectedSeedProjectionHash": "4444444444444444444444444444444444444444444444444444444444444444"
+}

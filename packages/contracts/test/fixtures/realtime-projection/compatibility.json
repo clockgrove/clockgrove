@@ -1,0 +1,22 @@
+[
+  {
+    "field": "protocolVersion",
+    "actual": 9,
+    "code": "unsupported_protocol_version"
+  },
+  {
+    "field": "projectionVersion",
+    "actual": 9,
+    "code": "unsupported_projection_version"
+  },
+  {
+    "field": "assetManifestVersion",
+    "actual": 9,
+    "code": "unsupported_asset_manifest_version"
+  },
+  {
+    "field": "clientVersion",
+    "actual": 9,
+    "code": "unsupported_client_version"
+  }
+]

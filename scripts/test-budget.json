@@ -1,0 +1,17 @@
+{
+  "testLineAllowance": 150,
+  "testLineExceptions": [
+    {
+      "file": "packages/kernel/test/rules-fuzz.test.ts",
+      "lines": 55,
+      "decision": "2026-10-27, issue 835",
+      "reason": "The rule-AST fuzz checks evaluateRules against an independent test-side interpreter written from packages/kernel/docs/rules.md and covers the whole rule grammar (design-checklist item 5, issue 728); without them planted evaluator bugs pass. The excused lines are exactly this change's overrun."
+    }
+  ],
+  "unitTestAreas": [
+    "packages/kernel/",
+    "packages/world-pack-sdk/",
+    "packages/contracts/",
+    "tests/ci/"
+  ]
+}
