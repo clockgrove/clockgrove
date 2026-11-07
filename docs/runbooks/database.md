@@ -440,6 +440,8 @@ Migration `0031_runtime_operator_actions.sql` adds what those paths need:
   exactly for the causal chain, and a seven-argument `record_inspector_access` that takes it; the
   six-argument form records a causal-chain access, for code that predates it.
 
+Migration `0035_observer_world_readiness.sql` adds the world reader's `observable_world_readiness(tenant, world, timeline, space)`, a migrator-owned SECURITY DEFINER function keyed on `app.principal_id` that answers `ready`, `provisioning`, `failed` or nothing (see the observation protocol).
+
 Migration `0033_inspector_entry_points.sql` adds the subjects `event`, `scheduled-action` and
 `client-view` to `inspector_accesses`, and an `entry_id` column that holds the event ID or the
 canonical JSON `[scheduleId, idempotencyKey]`. The column is required for those two subjects and

@@ -9,6 +9,7 @@ import type {
   SelectionCursor,
   WorldDirectory,
   WorldDirectoryEntry,
+  WorldReadiness,
   WorldStatus,
 } from "@clockgrove/contracts";
 import { type QueryKey, type QueryState, skipToken, useQuery } from "@tanstack/react-query";
@@ -202,4 +203,41 @@ export function useViewTraceQuery(session: YardSession): ViewTraceProjection {
   const queryKey = useReadKey(session, session.getViewTraceKey);
   const query = useQuery<ClientViewTrace>({ queryKey, queryFn: skipToken }, session.queries);
   return viewTraceProjection(queryKey[5], query);
+}
+/**
+ * A provisioning world's readiness is read again at this interval (decision): about one provisioning
+ * step, and at most one indexed read per waiting viewer every two seconds. A failed or unreadable
+ * world waits for Retry instead.
+ */
+export const READINESS_POLL_MS = 2000;
+export type ReadinessProjection =
+  | "checking"
+  | "ready"
+  | "provisioning"
+  | "failed"
+  | "refused"
+  | "unavailable";
+/** The routed world's readiness, while the directory does not list it; Retry reads it again. */
+export function useWorldReadinessQuery(
+  session: YardSession,
+  scope: BrowserScope | undefined,
+): { readonly readiness: ReadinessProjection; readonly retry: () => void } {
+  const signIn = useReadKey(session, session.getDirectoryKey)[2];
+  const query = useQuery<WorldReadiness>(
+    {
+      queryKey: ["living-yard", "readiness", signIn, scope],
+      queryFn: scope ? ({ signal }) => session.readWorldReadiness(scope, signal) : skipToken,
+      refetchInterval: (current) =>
+        current.state.status === "success" && current.state.data?.readiness === "provisioning"
+          ? READINESS_POLL_MS
+          : false,
+    },
+    session.queries,
+  );
+  const readiness: ReadinessProjection = query.isError
+    ? query.error instanceof ApiRefusal && query.error.status === 403
+      ? "refused"
+      : "unavailable"
+    : (query.data?.readiness ?? "checking");
+  return { readiness, retry: () => void query.refetch() };
 }

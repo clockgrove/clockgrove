@@ -3,6 +3,7 @@ import { Component, type ReactNode, useEffect, useId, useRef } from "react";
 import { measure } from "./measurements.js";
 import { SCENE_SNAPSHOT_RETRY } from "./projection.js";
 import { incompatibilityNames } from "./yard-projection.js";
+import type { ReadinessProjection } from "./yard-queries.js";
 
 const deployment = "Refresh to load the current deployment.";
 // Only a refreshed client can match a client or asset-manifest version; the others were retried.
@@ -42,6 +43,78 @@ export function CompatibilityRecovery({ code }: { readonly code: SceneCompatibil
       {refresh && (
         <button type="button" onClick={() => location.reload()}>
           Refresh
+        </button>
+      )}
+    </section>
+  );
+}
+
+const readinessScreens: Readonly<
+  Record<
+    Exclude<ReadinessProjection, "refused">,
+    { readonly title: string; readonly explanation: string; readonly alert: boolean }
+  >
+> = {
+  checking: {
+    title: "Checking world readiness",
+    explanation: "Checking whether this world is ready to observe.",
+    alert: false,
+  },
+  provisioning: {
+    title: "World provisioning",
+    explanation:
+      "This world is still being provisioned, so no scene is shown yet. The yard opens once the world is ready.",
+    alert: false,
+  },
+  failed: {
+    title: "World provisioning failed",
+    explanation:
+      "Provisioning this world failed, so no scene is shown. Retry once its provisioning has been retried.",
+    alert: true,
+  },
+  unavailable: {
+    title: "World readiness unavailable",
+    explanation:
+      "This world's readiness could not be read, so no scene is shown. Retry to read it again.",
+    alert: true,
+  },
+  ready: {
+    title: "World ready",
+    explanation: "The world is ready. Opening the yard.",
+    alert: false,
+  },
+};
+
+/**
+ * The arrival screen of a routed world the directory does not list yet: it takes focus whenever
+ * the readiness it announces changes, and offers Retry until the world is ready.
+ */
+export function ArrivalReadiness({
+  readiness,
+  retry,
+}: {
+  readonly readiness: Exclude<ReadinessProjection, "refused">;
+  readonly retry: () => void;
+}) {
+  const screen = useRef<HTMLElement>(null);
+  const heading = useId();
+  useEffect(() => {
+    if (readiness) screen.current?.focus();
+  }, [readiness]);
+  const { title, explanation, alert } = readinessScreens[readiness];
+  return (
+    <section ref={screen} tabIndex={-1} aria-labelledby={heading}>
+      <h2 id={heading}>{title}</h2>
+      {alert ? (
+        <p role="alert">{explanation}</p>
+      ) : (
+        <p role="status" aria-live="polite" aria-atomic="true">
+          {explanation}
+        </p>
+      )}
+      {readiness !== "ready" && readiness !== "checking" && (
+        <button type="button" onClick={retry}>
+          Retry
         </button>
       )}
     </section>

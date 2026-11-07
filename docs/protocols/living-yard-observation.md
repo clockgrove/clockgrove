@@ -61,6 +61,27 @@ invalid credential or an unmapped identity, decided before the body is read; 400
 database is unavailable; and 500 `inspection_failed` otherwise. A refusal carries only its code, never a scope
 or label. Each response is logged once as `scene_observation_answered`.
 
+## World readiness
+
+`POST /v1/runtime/world-readiness` tells a browser whether a world it may observe is ready, still
+provisioning, or failed provisioning, so arrival can say so instead of showing an empty yard. The
+body is the version-1 `ObservationRequest`. The Worker authenticates first, as for the directory,
+then decodes the body.
+
+The required grant is `runtime:world-observe`. The world reader calls the migrator-owned
+`clockgrove.observable_world_readiness` function (migration 0035), keyed only on the installed
+`app.principal_id`. It answers nothing unless that principal holds an unrevoked, committed
+membership for exactly the four scope IDs with the grant. Then `ready` when the world's lifecycle
+status is `ready`; nothing when it is `archived`; `failed` when the world's latest
+`clockgrove_birth.provisioning_cases` row (by `updated_at`, then `case_id`) is `failed`; otherwise
+`provisioning`.
+
+A ready world answers 200 `{"version":1,"readiness":"ready"}`. Otherwise the answer is 409
+`{"error":"world_not_ready","readiness":"provisioning"|"failed"}`. `decodeWorldReadiness` rejects
+unknown and missing fields. A missing or non-observable scope is 403 `authorization_refused`, with
+no readiness disclosed. Other refusals are the observation codes: 401, 400, 503 and 500. The read
+writes nothing and is logged once as `scene_observation_answered`.
+
 ## Observer clock and material feed
 
 `POST /v1/runtime/world-status` answers the viewed space's canonical clock and its recent material

@@ -92,6 +92,9 @@ export type RendererMeasurement =
     };
 export type RendererReport = (point: RendererMeasurement) => void;
 const ATLAS = "raccoon-world";
+/** One re-fetch of a refused atlas copy (decision): the issue says the client re-fetches, and a
+ * second refusal falls back to the text scene rather than retrying without end. */
+const ATLAS_REFETCHES = 1;
 /** 12.5 px per metre is the issue 813 golden's 80 mm per pixel, so reviewed sprites draw 1:1. */
 const PX_PER_METRE = 12.5;
 const WIDTH = 640;
@@ -172,6 +175,8 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   private night: Phaser.GameObjects.Rectangle | undefined;
   private rain: Phaser.GameObjects.TileSprite | undefined;
   private canvas: HTMLCanvasElement | undefined;
+  private destroyed = false;
+  private assetsFailed = false;
   private readonly parent: HTMLElement;
   // The scene is drawn only on a step where something visible may have changed; see `step`.
   private dirty = true;
@@ -218,25 +223,66 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       audio: { noAudio: true },
       scene: {
         preload() {
-          this.load.image(ATLAS, `/${ATLAS}.png`);
           this.load.json(`${ATLAS}.animations`, `/${ATLAS}.animations.json`);
           this.load.once("loaderror", () => {
-            owner.report({ name: "asset_cache", category: "failed", value: 1 });
-            owner.report({ name: "client_errors", category: "asset", value: 1 });
-            owner.unavailable("assets_unavailable");
+            owner.failAssets();
           });
         },
         create() {
-          owner.create(this);
+          void owner.create(this);
         },
       },
     });
   }
-  private create(stage: Phaser.Scene): void {
+  /** The final asset failure, reported once: a failed manifest also leaves `create` without one. */
+  private failAssets(): void {
+    if (this.destroyed || this.assetsFailed) return;
+    this.assetsFailed = true;
+    this.report({ name: "asset_cache", category: "failed", value: 1 });
+    this.report({ name: "client_errors", category: "asset", value: 1 });
+    this.unavailable("assets_unavailable");
+  }
+  /** Fetches the atlas image and returns its bytes only when they hash to the manifest's value. */
+  private async fetchAtlas(expected: string, init?: RequestInit): Promise<ArrayBuffer | undefined> {
+    try {
+      const response = await fetch(`/${ATLAS}.png`, init);
+      if (!response.ok) return undefined;
+      const bytes = await response.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      return hash === expected ? bytes : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  /** The atlas image is drawn only after its bytes match the manifest's `image.sha256`. */
+  private async create(stage: Phaser.Scene): Promise<void> {
     const animations = stage.cache.json.get(`${ATLAS}.animations`) as
-      | { animations: AtlasAnimation[] }
+      | { animations: AtlasAnimation[]; image?: { sha256?: unknown } }
       | undefined;
-    if (!animations || !stage.textures.exists(ATLAS)) return;
+    const expected = animations?.image?.sha256;
+    if (!animations || typeof expected !== "string" || !/^[0-9a-f]{64}$/.test(expected))
+      return this.failAssets();
+    let bytes = await this.fetchAtlas(expected);
+    for (let attempt = 0; !bytes && attempt < ATLAS_REFETCHES && !this.destroyed; attempt++) {
+      this.report({ name: "asset_cache", category: "failed", value: 1 });
+      bytes = await this.fetchAtlas(expected, { cache: "reload" });
+    }
+    if (this.destroyed) return;
+    if (!bytes) return this.failAssets();
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    stage.load.once("loaderror", () => {
+      URL.revokeObjectURL(url);
+      this.failAssets();
+    });
+    stage.load.once("complete", () => {
+      URL.revokeObjectURL(url);
+      if (!this.destroyed && stage.textures.exists(ATLAS)) this.build(stage, animations);
+    });
+    stage.load.image(ATLAS, url);
+    stage.load.start();
+  }
+  private build(stage: Phaser.Scene, animations: { animations: AtlasAnimation[] }): void {
     this.stage = stage;
     const texture = stage.textures.get(ATLAS);
     for (const animation of animations.animations) {
@@ -648,6 +694,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.invalidate();
   }
   destroy(): void {
+    this.destroyed = true;
     this.canvas?.removeEventListener("webglcontextlost", this.lost);
     for (const type of REBOUND_EVENTS)
       this.parent.removeEventListener(type, this.rebound, { capture: true });

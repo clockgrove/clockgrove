@@ -75,6 +75,7 @@ import {
   PostgreSqlViewedSpaceReader,
   PostgreSqlWorldStatusReader,
   readWorldDirectory,
+  readWorldReadiness,
 } from "./observation.js";
 import type { OwnerActivation } from "./owner-activation.js";
 import type { SpaceDO as PortableSpaceDO } from "./owners.js";
@@ -808,6 +809,13 @@ export default {
           assertReaderConnection(connection, "clockgrove_world_reader");
           return withHyperdrivePostgreSqlClient(connection, (client) =>
             readWorldDirectory(client, principalId),
+          );
+        },
+        worldReadiness: (principalId, scope) => {
+          const connection = env.WORLD_AUTHORIZATION_DATABASE_URL;
+          assertReaderConnection(connection, "clockgrove_world_reader");
+          return withHyperdrivePostgreSqlClient(connection, (client) =>
+            readWorldReadiness(client, principalId, scope),
           );
         },
         inspector: {

@@ -231,6 +231,15 @@ export async function readWorldDirectory(
   };
 }
 
+/** The scope's arrival readiness for the principal; undefined when the principal may not observe it. */
+export function readWorldReadiness(
+  client: PostgreSqlClient,
+  principalId: PrincipalId,
+  scope: BrowserScope,
+) {
+  return new PostgreSqlWorldDirectoryReader(client).readiness(principalId, scope);
+}
+
 /** The same public physical fields are used by HTTP observation and the scene stream. */
 export function livingSceneOf(scope: BrowserScope, state: WorldState): LivingScene {
   const entities = state.entities.filter((entity) => entity.spaceId === scope.spaceId);

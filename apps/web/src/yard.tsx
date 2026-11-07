@@ -4,7 +4,7 @@ import type { BrowserAuthenticationPort } from "./api.js";
 import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { clientMeasurements, measure, measurePoint } from "./measurements.js";
-import { CompatibilityRecovery } from "./recovery.js";
+import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
 import { EntityRail } from "./selection.js";
 import { browserSceneSocket } from "./socket.js";
 import {
@@ -24,6 +24,7 @@ import { sameYardScope, yardStatusText } from "./yard-projection.js";
 import {
   useDirectoryQuery,
   useViewTraceQuery,
+  useWorldReadinessQuery,
   useWorldStatusQuery,
   useYardProjection,
 } from "./yard-queries.js";
@@ -286,6 +287,14 @@ export function RaccoonWorldApp({
   useEffect(() => {
     session.open(entry);
   }, [session, entry]);
+  // A routed world the directory lacks may still be provisioning; once ready, the directory lists it.
+  const arrival = useWorldReadinessQuery(
+    session,
+    directory.status === "ready" && route?.kind === "world" && !entry ? route.scope : undefined,
+  );
+  useEffect(() => {
+    if (arrival.readiness === "ready") session.refreshDirectory();
+  }, [session, arrival.readiness]);
   const viewed = useViewedSpace((view) => view.viewed);
   const notice = useViewedSpace((view) => view.notice);
   const showViewed = useViewedSpace((view) => view.show);
@@ -424,9 +433,15 @@ export function RaccoonWorldApp({
           <p role="alert">World directory unavailable. Sign in again to retry.</p>
         )}
         {signedIn && route?.kind === "none" && <p>Choose a world from the selector.</p>}
-        {signedIn && route && route.kind !== "none" && !entry && (
-          <p role="alert">World not available.</p>
-        )}
+        {signedIn &&
+          route &&
+          route.kind !== "none" &&
+          !entry &&
+          (route.kind === "unknown" || arrival.readiness === "refused" ? (
+            <p role="alert">World not available.</p>
+          ) : (
+            <ArrivalReadiness readiness={arrival.readiness} retry={arrival.retry} />
+          ))}
         {entry && state.status === "unavailable" && (
           <button type="button" onClick={() => session.open(entry)}>
             Retry observation

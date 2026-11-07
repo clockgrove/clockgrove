@@ -249,6 +249,8 @@ export function assertProjectionContracts(sources) {
     PublicCausalEntry:
       '| { readonly kind: "command" } | { readonly kind: "event"; readonly eventId: EventId } | { readonly kind: "scheduled-action"; readonly scheduleId: string; readonly idempotencyKey: string }',
   };
+  aliases.WorldReadiness =
+    '| { readonly version: 1; readonly readiness: "ready" } | { readonly error: "world_not_ready"; readonly readiness: "provisioning" | "failed" }';
   for (const [name, expected] of Object.entries(aliases)) {
     const alias = ast.statements.find((node) => ts.isTypeAliasDeclaration(node) && node.name.text === name);
     const text = alias?.type.getText(ast).replace(/\s+/gu, " ").replaceAll("; }", " }").trim();

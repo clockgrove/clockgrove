@@ -1,4 +1,5 @@
-import { decodeWorldDirectory } from "@clockgrove/contracts";
+import type { BrowserScope } from "@clockgrove/contracts";
+import { decodeWorldDirectory, decodeWorldReadiness } from "@clockgrove/contracts";
 import { expect, it, vi } from "vitest";
 import {
   applyMigrations,
@@ -6,7 +7,7 @@ import {
   // @ts-expect-error -- repository-local JavaScript helper has no declaration file.
 } from "../../../scripts/database/lib.mjs";
 import { DeterministicTestAuthProvider, LOCAL_TEST_PRINCIPALS } from "../local/test-auth.js";
-import { readWorldDirectory } from "../src/observation.js";
+import { readWorldDirectory, readWorldReadiness } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { observationAuthenticator } from "./living-yard-fixture.js";
 import { type DatabaseFixture, truthOf, withClient } from "./world-fixture.js";
@@ -62,6 +63,13 @@ it("lists exactly the authenticated principal's observable scopes in byte order,
         withClient(
           fixture.environment,
           (client) => readWorldDirectory(client, principalId),
+          "clockgrove",
+          "clockgrove_world_reader",
+        ),
+      worldReadiness: (principalId: typeof observer, scope: BrowserScope) =>
+        withClient(
+          fixture.environment,
+          (client) => readWorldReadiness(client, principalId, scope),
           "clockgrove",
           "clockgrove_world_reader",
         ),
@@ -142,5 +150,46 @@ it("lists exactly the authenticated principal's observable scopes in byte order,
       ]);
     }
     expect(resolveWorld).not.toHaveBeenCalled();
+
+    const scope = {
+      version: 1,
+      tenantId: "tenant-d",
+      worldId: "world-a",
+      timelineId: "timeline-a",
+      spaceId: "attic",
+    };
+    const readiness = async (token = "observer") => {
+      const answer = await worker.fetch(
+        new Request("http://local.test/v1/runtime/world-readiness", {
+          method: "POST",
+          headers: { authorization: `Bearer local-${token}` },
+          body: JSON.stringify(scope),
+        }),
+      );
+      return [answer.status, await answer.json()];
+    };
+    const setStatus = (status: string) =>
+      truthOf(fixture)(
+        `UPDATE clockgrove.worlds SET lifecycle_status = '${status}' WHERE world_id = 'world-a'`,
+      );
+    expect(await readiness()).toEqual([200, { version: 1, readiness: "ready" }]);
+    expect(decodeWorldReadiness((await readiness())[1])).toEqual({
+      version: 1,
+      readiness: "ready",
+    });
+    await setStatus("provisioning");
+    expect(await readiness()).toEqual([
+      409,
+      { error: "world_not_ready", readiness: "provisioning" },
+    ]);
+    await truthOf(fixture)(
+      `INSERT INTO clockgrove_birth.provisioning_cases (tenant_id, case_id, request_hash, pack_id, pack_version,
+         content_hash, status, world_id, failure)
+       VALUES ('tenant-d', 'case-1', repeat('a', 64), 'p', '1', repeat('b', 64), 'failed', 'world-a', '{"code":"x"}')`,
+    );
+    expect(await readiness()).toEqual([409, { error: "world_not_ready", readiness: "failed" }]);
+    expect(await readiness("operator")).toEqual([403, { error: "authorization_refused" }]);
+    await setStatus("ready");
+    expect(await readiness()).toEqual([200, { version: 1, readiness: "ready" }]);
   });
 });
