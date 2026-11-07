@@ -239,6 +239,13 @@
       "when": 1794088800000,
       "tag": "0034_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794175200000,
+      "tag": "0035_observer_world_readiness",
+      "breakpoints": true
     }
   ]
 }

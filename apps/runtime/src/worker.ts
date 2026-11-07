@@ -148,6 +148,11 @@ export interface RuntimeOwnerBindings {
     request: ChangeViewedSpace,
     authorize: (scope: BrowserScope) => Promise<TrustedContext>,
   ) => Promise<FollowDisposition | null>;
+  /** The scope's arrival readiness, or undefined when the principal may not observe it. */
+  readonly worldReadiness?: (
+    principalId: PrincipalId,
+    scope: BrowserScope,
+  ) => Promise<"ready" | "provisioning" | "failed" | undefined>;
   /** The authenticated principal's observable scopes, under `runtime:world-observe` per row. */
   readonly worldDirectory?: (
     principalId: import("@clockgrove/contracts").PrincipalId,
@@ -360,6 +365,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/world-directory")
       return this.answer("scene_observation_answered", (note) =>
         this.worldDirectory(request, note),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/world-readiness")
+      return this.answer("scene_observation_answered", (note) =>
+        this.worldReadiness(request, note),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/commands")
       return this.answer("world_command_answered", (note) => this.worldCommand(request, note));
@@ -960,6 +969,31 @@ export class RuntimeWorker {
       note.authorization = "authorized";
       note.outcome = "read";
       return jsonResponse(directory);
+    } catch (error) {
+      return this.observationRefusal(note, error);
+    }
+  }
+
+  /** Whether the observer's world is ready: authentication, then the observe grant, then readiness. */
+  private async worldReadiness(request: Request, note: RequestNote): Promise<Response> {
+    try {
+      const authenticated = await this.authenticator.authenticatePrincipal(request);
+      const { version: _version, ...scope } = decodeObservationRequest(await request.json());
+      note.ids = { ...scope, ...readMetadata(authenticated.correlationHeader) };
+      const read = this.bindings.worldReadiness;
+      if (read === undefined) return refusal(note, "inspector_unavailable", 503);
+      const readiness = await read(authenticated.principalId, scope);
+      if (readiness === undefined) {
+        note.authorization = "denied";
+        return refusal(note, "authorization_refused", 403);
+      }
+      note.authorization = "authorized";
+      if (readiness === "ready") {
+        note.outcome = "read";
+        return jsonResponse({ version: 1, readiness });
+      }
+      note.outcome = "refused";
+      return jsonResponse({ error: "world_not_ready", readiness }, 409);
     } catch (error) {
       return this.observationRefusal(note, error);
     }

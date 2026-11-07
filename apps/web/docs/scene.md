@@ -31,10 +31,16 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
 - The adapter refreshes the canvas bounds when a pointer enters or presses the canvas, or the page
   scrolls. Phaser's periodic bounds poll is off, so no layout read happens between those events.
 
-The renderer reports its reviewed atlas ready, which advances boot to `critical_assets_ready`. It
-also reports when it becomes unavailable, with a reason: a reviewed-atlas load error is
-`assets_unavailable` and a lost WebGL context is `renderer_unavailable`. The shell then
-destroys the adapter and shows the text path. The reducer's committed projection is untouched.
+The renderer loads the atlas manifest, then fetches the atlas image itself and compares the
+SHA-256 of its bytes with the manifest's `image.sha256` before any use. A copy is refused when the
+fetch fails, the response is not ok or the hash differs. A refused copy is discarded, reported as
+`asset_cache` `failed`, and fetched once more with `cache: "reload"`. A second refusal reports
+another `asset_cache` `failed` and `client_errors` `asset`, and the renderer is unavailable. Only a
+verified copy is loaded (through a blob URL, revoked once loaded) and reported ready, which advances
+boot to `critical_assets_ready`. The renderer also reports when it becomes unavailable, with a
+reason: a missing, unverifiable or unloadable reviewed atlas is `assets_unavailable` and a lost
+WebGL context is `renderer_unavailable`. The shell then destroys the adapter and shows the text
+path. The reducer's committed projection is untouched.
 
 ## Isometric rules (§9.2)
 

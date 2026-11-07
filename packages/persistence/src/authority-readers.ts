@@ -6,6 +6,7 @@ import type {
   WorldAuthorizationPort,
 } from "@clockgrove/application";
 import {
+  type BrowserScope,
   decodeBrowserScope,
   decodeOpaqueId,
   decodePrivacyCeiling,
@@ -154,6 +155,24 @@ export class PostgreSqlWorldDirectoryReader {
     });
     if (scopes === undefined) throw new Error("malformed world directory");
     return scopes;
+  }
+
+  /** The scope's arrival readiness through `clockgrove.observable_world_readiness` (0035). */
+  async readiness(
+    principalId: PrincipalId,
+    scope: BrowserScope,
+  ): Promise<"ready" | "provisioning" | "failed" | undefined> {
+    const answer = await read(this.client, { "app.principal_id": principalId }, async () => {
+      const { rows } = await this.client.query(
+        "SELECT clockgrove.observable_world_readiness($1, $2, $3, $4) AS readiness",
+        [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId],
+      );
+      const value = (rows[0] as { readiness?: unknown } | undefined)?.readiness;
+      if (value === null) return null;
+      if (value === "ready" || value === "provisioning" || value === "failed") return value;
+      throw new Error("malformed world readiness");
+    });
+    return answer ?? undefined;
   }
 }
 

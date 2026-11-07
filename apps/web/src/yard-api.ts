@@ -14,6 +14,7 @@ import {
   decodeSayReceipt,
   decodeTalkReceipt,
   decodeWorldDirectory,
+  decodeWorldReadiness,
   decodeWorldStatus,
   type EntitySelection,
   type EntitySelectionRequest,
@@ -29,6 +30,7 @@ import {
   type TalkReceipt,
   type WorldDirectory,
   type WorldDirectoryEntry,
+  type WorldReadiness,
   type WorldStatus,
 } from "@clockgrove/contracts";
 import { QueryClient, QueryObserver, skipToken } from "@tanstack/react-query";
@@ -185,6 +187,55 @@ export class YardSession {
       signal,
       decodeWorldStatus,
     );
+  }
+  /**
+   * A routed world's readiness under the signed-in session. The runtime answers a world that is
+   * not ready with 409 `world_not_ready` and its provisioning state; any other refusal is kept.
+   */
+  async readWorldReadiness(scope: BrowserScope, signal: AbortSignal): Promise<WorldReadiness> {
+    const credential = this.account?.credential;
+    if (!credential) throw new ApiRefusal(401);
+    let response: Response;
+    try {
+      response = await fetch(new URL("/v1/runtime/world-readiness", this.origin), {
+        method: "POST",
+        signal,
+        cache: "no-store",
+        headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+        body: JSON.stringify({ version: 1, ...scope }),
+      });
+    } catch {
+      measure("client_errors", "query");
+      throw new ApiRefusal(503);
+    }
+    // A refusal (a world the principal may not observe, an expired session) is the arrival's
+    // answer, not a client error: it is returned unmeasured, as the directory's refusal is.
+    if (response.status !== 200 && response.status !== 409) throw new ApiRefusal(response.status);
+    try {
+      return decodeWorldReadiness(await response.json());
+    } catch {
+      measure("client_errors", "query");
+      throw new ApiRefusal(503);
+    }
+  }
+  /** Reads the directory again with the signed-in session, once a routed world became ready. */
+  refreshDirectory(): void {
+    const credential = this.account?.credential;
+    if (!credential) return;
+    void this.queries
+      .fetchQuery({
+        queryKey: this.directoryKey,
+        queryFn: ({ signal }) =>
+          this.readRuntime(
+            "/v1/runtime/world-directory",
+            credential,
+            { version: 1 },
+            signal,
+            decodeWorldDirectory,
+          ),
+      })
+      // A refusal is the directory query's displayed outcome.
+      .catch(() => undefined);
   }
   readonly getSelectionSnapshot = () =>
     selectionProjection(

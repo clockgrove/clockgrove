@@ -14,6 +14,7 @@ export default defineConfig({
     // The Wave 4 §15.1 browser suites: test:e2e, test:a11y, test:visual, test:realtime:load.
     include: [
       "tests/e2e/living-yard.journey.browser.test.mjs",
+      "tests/e2e/arrival-truth.journey.browser.test.mjs",
       "tests/accessibility/text-path.journey.browser.test.mjs",
       "tests/visual/golden-states.journey.browser.test.mjs",
       "tests/load/realtime/fanout.journey.browser.test.mjs",

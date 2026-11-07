@@ -187,6 +187,27 @@ export function decodeWorldDirectory(value: unknown): WorldDirectory {
     }),
   };
 }
+/** A world's arrival readiness for an observer (`POST /v1/runtime/world-readiness`). */
+export type WorldReadiness =
+  | { readonly version: 1; readonly readiness: "ready" }
+  | { readonly error: "world_not_ready"; readonly readiness: "provisioning" | "failed" };
+export function decodeWorldReadiness(value: unknown): WorldReadiness {
+  const v = record(value, "readiness");
+  if ("error" in v) {
+    exactKeys(v, ["error", "readiness"], [], "readiness");
+    if (
+      v.error !== "world_not_ready" ||
+      (v.readiness !== "provisioning" && v.readiness !== "failed")
+    )
+      throw new ContractDecodeError("readiness", "unsupported readiness refusal");
+    return { error: "world_not_ready", readiness: v.readiness };
+  }
+  exactKeys(v, ["version", "readiness"], [], "readiness");
+  literalVersion(v.version, 1, "readiness.version");
+  if (v.readiness !== "ready")
+    throw new ContractDecodeError("readiness.readiness", "expected ready");
+  return { version: 1, readiness: "ready" };
+}
 export function decodeBrowserScope(value: unknown): BrowserScope {
   const v = record(value, "scope");
   exactKeys(v, ["tenantId", "worldId", "timelineId", "spaceId"], [], "scope");

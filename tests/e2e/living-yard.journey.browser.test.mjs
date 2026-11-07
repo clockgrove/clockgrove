@@ -11,6 +11,7 @@ import {
   PostgreSqlViewedSpaceReader,
   PostgreSqlWorldStatusReader,
   readWorldDirectory,
+  readWorldReadiness,
 } from "../../apps/runtime/src/observation.ts";
 import { RuntimeWorker } from "../../apps/runtime/src/worker.ts";
 import { PostgreSqlCommandOwner } from "../../apps/runtime/src/world-commands.ts";
@@ -158,6 +159,7 @@ PhaserWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
             "/v1/runtime/entity",
             "/v1/runtime/why",
             "/v1/runtime/world-directory",
+            "/v1/runtime/world-readiness",
             "/v1/runtime/viewed-space",
             "/v1/runtime/world-status",
           ])
@@ -317,6 +319,13 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           withClient(
             fixture.environment,
             (requestClient) => readWorldDirectory(requestClient, principalId),
+            "clockgrove",
+            "clockgrove_world_reader",
+          ),
+        worldReadiness: (principalId, scope) =>
+          withClient(
+            fixture.environment,
+            (requestClient) => readWorldReadiness(requestClient, principalId, scope),
             "clockgrove",
             "clockgrove_world_reader",
           ),
