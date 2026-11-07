@@ -39,7 +39,7 @@ const STEP_COLUMNS = `run_id, step, kind, status, outcome_code, model, tool, com
   cost_microusd, summary, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
 /** The caller's whole browser scope: an inspect grant for one space reads only that space's runs. */
 const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4";
-/** Decision: as `guard_agent_run` (0035), four attempts for each of a session's 500 turns. */
+/** Decision: as `guard_agent_run` (0036), four attempts for each of a session's 500 turns. */
 export const MAX_SESSION_RUNS = 2000;
 
 export interface TalkRunStart {
@@ -60,7 +60,7 @@ export interface TalkRunStart {
 }
 
 /**
- * Run evidence statements (migration 0035), each run inside the caller's transaction under the
+ * Run evidence statements (migration 0036), each run inside the caller's transaction under the
  * participant's authorization. The guards in SQL hold the state machine; these only name moves.
  */
 export class PostgreSqlRunRecorder {
@@ -173,7 +173,7 @@ export class PostgreSqlRunRecorder {
 }
 
 /**
- * Reads runs for an inspector. Row visibility is the policy of 0035 (a participant's own runs, or
+ * Reads runs for an inspector. Row visibility is the policy of 0036 (a participant's own runs, or
  * any run under an `operator_evidence` ceiling); this adds the world, timeline and space scope. A
  * payload's text is read only when the ceiling holds its class and the inspector is a participant
  * of the run's session, as conversation text is (0034); metadata search never reads one.

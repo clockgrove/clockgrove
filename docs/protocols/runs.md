@@ -11,7 +11,7 @@ steps. Their producers are RW-0503 (turn fibers) and RW-0506 (capabilities).
 
 ## Runs and steps
 
-A run (`agent_runs`, migration 0035) records:
+A run (`agent_runs`, migration 0036) records:
 
 - the actor it executes for (`actorId`) and who initiated it (`principalId`, `personaId`);
 - its activation (`conversation_message`) and the session's `inputMessageId`;
@@ -111,7 +111,7 @@ they are refused here with `403 authorization_refused`.
   to 100 (default 100), newest first. It answers `{ runs }` of run metadata: no steps, no artifact
   IDs and no payload text, whatever the ceiling.
 
-Rows follow the policy of migration 0035. A session's participant writes its runs as themselves,
+Rows follow the policy of migration 0036. A session's participant writes its runs as themselves,
 and reads them. A member whose ceiling holds `operator_evidence` reads every run of the tenant, and
 the routes add the world, timeline and space scope. An inspect grant for one space walks only the
 runs of sessions opened in that space, as the causal inspector finds only commands of the requested

@@ -285,7 +285,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
   }
 
   /**
-   * Opens this attempt's run (migration 0035) with its protected model input, the exact prompt the
+   * Opens this attempt's run (migration 0036) with its protected model input, the exact prompt the
    * scripted model reads, as a `conversation` artifact. A session at its run limit is full.
    */
   private async beginRun(

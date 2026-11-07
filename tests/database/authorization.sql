@@ -1713,7 +1713,7 @@ END;
 $$;
 ROLLBACK;
 
--- Runs and steps (0035): the participant writes the runs of their own session as themselves; an
+-- Runs and steps (0036): the participant writes the runs of their own session as themselves; an
 -- inspector whose ceiling holds operator_evidence reads them but writes nothing; everyone else sees
 -- nothing. The guards admit one terminal disposition, in order, and refuse deletion.
 BEGIN;

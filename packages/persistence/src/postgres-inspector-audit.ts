@@ -16,7 +16,7 @@ export type InspectorAccessReason =
 /**
  * One inspector access. Tenant and principal come from the installed authorization only. The
  * causal chain names its command; a runtime-state access (0031), a client view (0033) and a run
- * walk or search (0035) name none; an event or scheduled-action entry (0033) names the entry it
+ * walk or search (0036) name none; an event or scheduled-action entry (0033) names the entry it
  * started from.
  */
 export type InspectorAccess = {

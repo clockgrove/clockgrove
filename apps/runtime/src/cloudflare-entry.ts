@@ -302,7 +302,7 @@ export function composeConversations(
 }
 
 /**
- * Run walks and search (0035) under the conversations' keyring: a walk decrypts a protected
+ * Run walks and search (0036) under the conversations' keyring: a walk decrypts a protected
  * payload for a reader whose ceiling holds its class. Absent without the keyring, so they fail
  * closed as `inspector_unavailable`.
  */

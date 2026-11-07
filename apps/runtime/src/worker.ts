@@ -205,7 +205,7 @@ export interface RuntimeOwnerBindings {
   readonly conversations?: ConversationStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
-  /** Run walks and metadata search, under the inspector's grant, limit and audit (0035). */
+  /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
   readonly runs?: {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
     readonly search: AuditedPort<RunSearchRequest, RunSearch>;

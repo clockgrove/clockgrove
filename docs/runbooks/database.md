@@ -570,7 +570,7 @@ schema: `conversation_sessions`, `conversation_participants`, `conversation_mess
 
 ## Run and step evidence
 
-Migration `0035_agent_runs.sql` (Wave 5 RW-0502, issue 15) holds `agent_runs` and `run_steps`.
+Migration `0036_agent_runs.sql` (Wave 5 RW-0502, issue 15) holds `agent_runs` and `run_steps`.
 See [run and step evidence](../protocols/runs.md).
 
 - **Policies:** `run_reader` admits `runtime_can_access(tenant_id, 'operator_evidence')`, or a
@@ -587,7 +587,7 @@ See [run and step evidence](../protocols/runs.md).
 - **Payloads:** `prompt_artifact_id`, `input_artifact_id` and `output_artifact_id` name
   `conversation`-class artifacts through `artifact_references_class_key`. `command_id` names a
   `command_receipts` row and `output_message_id` a message of the run's session.
-- **Audit:** 0035 adds the `agent-runs` subject to `inspector_accesses`.
+- **Audit:** 0036 adds the `agent-runs` subject to `inspector_accesses`.
 
 ## Snapshots
 
