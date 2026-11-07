@@ -246,6 +246,26 @@ export const lifecycleSchema = dataSchema(
     .readonly(),
 );
 export type LifecycleState = z.infer<typeof lifecycleSchema>;
+export const ANIMATION_FAMILIES = Object.freeze([
+  "idle",
+  "walk",
+  "sniff",
+  "eat",
+  "play",
+  "shelter",
+  "static",
+  "loop",
+] as const);
+export const presentationSchema = dataSchema(
+  z
+    .strictObject({
+      assetId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+      animationFamily: z.enum(ANIMATION_FAMILIES),
+      accessibilityLabel: name,
+    })
+    .readonly(),
+);
+export type PresentationState = z.infer<typeof presentationSchema>;
 
 /**
  * A portal endpoint names a place of the enclosing partition: an anchor or a region. `worldId`
@@ -501,6 +521,12 @@ export function createInitialComponentCatalog() {
     lifecycleSchema,
     () => [],
   );
+  const presentation = registration(
+    "clockgrove.presentation",
+    presentationSchema,
+    presentationSchema,
+    () => [],
+  );
   const portal = registration("clockgrove.portal", portalSchema, portalSchema, (value, context) =>
     portalScopeIssues(value, context, "state"),
   );
@@ -514,5 +540,6 @@ export function createInitialComponentCatalog() {
     resource,
     lifecycle,
     portal,
+    presentation,
   ] as const);
 }

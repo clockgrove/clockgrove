@@ -46,8 +46,18 @@ function registration<T>(descriptor: {
 /** The supported production registry/catalog composition root for this bounded slice. */
 export function createInitialComponentRegistry(): ComponentRegistry {
   const components = createComponentRegistry();
-  const [identity, archetype, spatial, needs, weather, containment, resource, lifecycle, portal] =
-    createInitialComponentCatalog();
+  const [
+    identity,
+    archetype,
+    spatial,
+    needs,
+    weather,
+    containment,
+    resource,
+    lifecycle,
+    portal,
+    presentation,
+  ] = createInitialComponentCatalog();
   components.register(registration(identity));
   components.register(registration(archetype));
   components.register(registration(spatial));
@@ -57,6 +67,7 @@ export function createInitialComponentRegistry(): ComponentRegistry {
   components.register(registration(resource));
   components.register(registration(lifecycle));
   components.register(registration(portal));
+  components.register(registration(presentation));
   return components;
 }
 

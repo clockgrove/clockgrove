@@ -1,7 +1,7 @@
 # Bounded component catalog
 
 The owned entrypoint `src/components/catalog/index.ts` exports
-`createInitialComponentCatalog()` and the nine production state schemas and inferred
+`createInitialComponentCatalog()` and the ten production state schemas and inferred
 state types. The factory returns an immutable tuple in the order below. Each descriptor
 has `type`, `version`, `schema`, `canonicalCodec`, `validateState`, `redact` and
 `upcasters`. Descriptors are self-contained and import no registry or resolver. Public
@@ -18,6 +18,7 @@ package re-exports and the WorldState adapter belong to the integration consumer
 | `clockgrove.resource` | 1 | `kind: "food" \| "water"`, `quantity: number` |
 | `clockgrove.lifecycle` | 1 | `status: "active" \| "retired" \| "dead"` |
 | `clockgrove.portal` | 1 | `status: "open" \| "closed"`, `endpoints`: a tuple of two places (see [Portal component](#portal-component-rw-0104)) |
+| `clockgrove.presentation` | 1 | `assetId`: kebab-case string, `animationFamily`: `idle`, `walk`, `sniff`, `eat`, `play`, `shelter`, `static` or `loop`, `accessibilityLabel: string` |
 
 All object schemas are closed, including nested references and poses. Missing required
 fields, extra fields, explicit undefined, accessors, symbols, cyclic values and non-data
@@ -84,7 +85,7 @@ pin mismatches use `identity-mismatch`; undeclared frame IDs/versions use
 `invalid-state` at `context.simulationTime`. Codec/schema parse failures throw;
 the registry consumer owns its external refusal envelope.
 
-All nine descriptors declare `privacyClass: public_scene`. `AccessPolicy` wraps the
+All ten descriptors declare `privacyClass: public_scene`. `AccessPolicy` wraps the
 existing `PrivacyCeiling` as `privacyCeiling`. `redact` returns a validated immutable
 copy only when `allowedCategories` includes `public_scene`, otherwise null. This
 includes Identity ownership; this slice has no field-level redaction. Version-one
@@ -100,8 +101,9 @@ world-pack SDK ([source and compatibility](../../world-pack-sdk/docs/source-and-
 [migrations](../../world-pack-sdk/docs/migrations.md)) and genesis in the simulator
 ([genesis](../../simulator/docs/genesis.md)). Deferred: rest, safety, social and curiosity needs and
 temperature effects (Wave 8 RW-0801, RW-0803 and RW-0804; the parent plan §7.8 Needs and Weather rows);
-cognition and presentation components (the owners the Wave 1 plan §5.2 names: Wave 6 RW-0605 to
-RW-0607, Wave 4 RW-0409). Not scheduled: SpatialTransform orientation and footprint, which the
+cognition components (the owners the Wave 1 plan §5.2 names: Wave 6 RW-0605 to RW-0607). Presentation is registered by RW-0409; its state is one presentation binding's asset, animation family and
+accessibility label, and its first consumer is the runtime's decoding of a world pack's `presentation.json`
+bindings. It is not projected into WorldState, so pack state hashes do not depend on it. Not scheduled: SpatialTransform orientation and footprint, which the
 parent plan §7.3 lists for this component. No wave plan assigns them to SpatialTransform (Wave 4 §9.2
 gives visual entities their own footprint).
 
