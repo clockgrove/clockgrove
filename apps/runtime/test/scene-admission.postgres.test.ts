@@ -231,6 +231,9 @@ describe("native authenticated hibernatable scene admission", () => {
             "SELECT p.routing_epoch::text || '|' || s.clock_owner_generation::text FROM clockgrove.timeline_partitions p JOIN clockgrove.partition_states s USING (tenant_id, timeline_id, partition_id)",
           ),
         ).toBe("7|1");
+        // §16 stale join assertion: one signed under the stale epoch 1 is refused and admits
+        // nothing; the next join is signed under the current epoch 7 and admitted.
+        await refuse(`/scene/internal?${query}`, {}, 409, "stale_authority_epoch");
         const admitted = await owner.upgrade(route, carrier);
         expect([admitted.status, admitted.headers.get("sec-websocket-protocol")]).toEqual([
           101,
