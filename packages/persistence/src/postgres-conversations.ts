@@ -1,14 +1,27 @@
 import {
   ArtifactConflictError,
   type ArtifactStore,
+  type AssembledContext,
+  assembleContext,
+  CONTEXT_HISTORY_WINDOW,
+  CONTEXT_TOKEN_BUDGET,
+  type ContextInputs,
+  type ContextSource,
   type ConversationParticipant,
   ConversationRefusedError,
   type ConversationResponder,
   type ConversationStore,
+  type DocumentProposal,
+  documentDecisions,
+  estimateTokens,
   type OpenConversation,
+  type RuntimeAuthorizationContext,
+  recordedInputs,
+  renderPrompt,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
+  type ContextManifest,
   type ConversationMessage,
   type ConversationSession,
   type ConversationTranscript,
@@ -26,11 +39,10 @@ import {
   type VoiceMode,
 } from "@clockgrove/contracts";
 import {
-  PostgreSqlRunRecorder,
-  SCRIPTED_MODEL,
-  SCRIPTED_PROMPT_VERSION,
-  type TalkRunStart,
-} from "./postgres-runs.js";
+  PostgreSqlActorDocuments,
+  PostgreSqlContextManifests,
+} from "./postgres-actor-documents.js";
+import { PostgreSqlRunRecorder, SCRIPTED_MODEL, type TalkRunStart } from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -73,12 +85,16 @@ interface StoredSession {
  */
 export class PostgreSqlConversationStore implements ConversationStore {
   private readonly runs: PostgreSqlRunRecorder;
+  private readonly documents: PostgreSqlActorDocuments;
+  private readonly manifests: PostgreSqlContextManifests;
   constructor(
     private readonly client: PostgreSqlClient,
     private readonly artifacts: ArtifactStore,
     private readonly newSessionId: () => string = () => `conversation-${crypto.randomUUID()}`,
   ) {
     this.runs = new PostgreSqlRunRecorder(client);
+    this.documents = new PostgreSqlActorDocuments(client);
+    this.manifests = new PostgreSqlContextManifests(client);
   }
 
   async open(
@@ -235,12 +251,21 @@ export class PostgreSqlConversationStore implements ConversationStore {
     // orphaned reply never collides with a later one.
     const inputArtifact = `${sessionId}:message:${messageId}`;
     await this.put(participant, stored, inputArtifact, request.text, "message_id_reused");
-    const run = await this.beginRun(participant, stored, request, count, caretakerMessages);
+    const context = await this.assemble(participant, stored, request, count);
+    const run = await this.beginRun(
+      participant,
+      stored,
+      request,
+      count,
+      caretakerMessages,
+      context,
+    );
     const { tenantId } = scope;
     let written: Awaited<ReturnType<typeof this.commitTalk>>;
     let reply: string;
     try {
-      reply = respond(before, caretakerMessages);
+      const response = respond(before, caretakerMessages, request.text);
+      reply = response.text;
       const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
       await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
       await this.transaction(participant, () =>
@@ -249,6 +274,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       written = await this.commitTalk(participant, stored, request, count, inputArtifact, {
         run,
         replyArtifact,
+        ...(response.proposal === undefined ? {} : { proposal: response.proposal }),
       });
     } catch (error) {
       if (error instanceof ConversationRefusedError)
@@ -285,8 +311,115 @@ export class PostgreSqlConversationStore implements ConversationStore {
   }
 
   /**
+   * Assembles this turn's context (migration 0037, `docs/protocols/context-assembly.md`), all as
+   * the participant, in one transaction: candidate metadata, the budget decided from it, then only
+   * the admitted documents' text in a single read.
+   */
+  private async assemble(
+    participant: ConversationParticipant,
+    stored: StoredSession,
+    request: TalkRequest,
+    count: number,
+  ): Promise<AssembledContext> {
+    const { tenantId } = request.scope;
+    const { inputs, messages, texts } = await this.transaction(participant, async () => {
+      const messages = await this.historyRows(tenantId, request.sessionId, count);
+      const inputs: ContextInputs = {
+        sessionId: request.sessionId,
+        inputMessageId: request.messageId,
+        inputRevision: count,
+        tokenBudget: CONTEXT_TOKEN_BUDGET,
+        documents: await this.documents.candidates(tenantId, request.sessionId),
+        messages: messages.map((row) => ({
+          messageId: String(row.message_id),
+          sequence: Number(row.sequence),
+          role: row.role as "caretaker" | "actor",
+        })),
+      };
+      const texts = await this.admittedTexts(tenantId, inputs, estimateTokens(request.text));
+      return { inputs, messages, texts };
+    });
+    return assembleContext(inputs, (source) =>
+      this.source(participant, stored, messages, texts, source, async () => request.text),
+    );
+  }
+
+  /**
+   * Assembles a recorded manifest's context again from its recorded inputs: its budget, the cited
+   * document versions, the session's messages up to its input revision and the stored input
+   * message. The caller reads them under its own authorization, so it must be able to read the
+   * session's text.
+   */
+  async reassemble(
+    authorization: RuntimeAuthorizationContext,
+    scope: BrowserScope,
+    manifest: ContextManifest,
+  ): Promise<string> {
+    const reader = authorization as ConversationParticipant;
+    const stored = await this.stored(reader, scope, manifest.sessionId);
+    const input = await this.text(
+      reader,
+      stored,
+      `${manifest.sessionId}:message:${manifest.inputMessageId}`,
+    );
+    const inputs = recordedInputs(manifest);
+    const { messages, texts } = await this.transaction(reader, async () => ({
+      messages: await this.historyRows(scope.tenantId, manifest.sessionId, manifest.inputRevision),
+      texts: await this.admittedTexts(scope.tenantId, inputs, estimateTokens(input)),
+    }));
+    const context = await assembleContext(inputs, (source) =>
+      this.source(reader, stored, messages, texts, source, async () => input),
+    );
+    return context.manifestHash;
+  }
+
+  /** The admitted documents' texts, keyed `documentId@version`, in one read. */
+  private admittedTexts(tenantId: string, inputs: ContextInputs, inputTokens: number) {
+    return this.documents.contents(
+      tenantId,
+      documentDecisions(inputs, inputTokens)
+        .filter(({ rule }) => rule === null)
+        .map(({ document }) => ({ documentId: document.documentId, version: document.version })),
+    );
+  }
+
+  /** The newest history-window messages at or before a revision. */
+  private async historyRows(tenantId: string, sessionId: string, revision: number) {
+    const found = await this.client.query(
+      `SELECT sequence, message_id, role, content_artifact_id FROM clockgrove.conversation_messages
+        WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3::integer - $4::integer
+          AND sequence <= $3::integer
+        ORDER BY sequence`,
+      [tenantId, sessionId, revision, CONTEXT_HISTORY_WINDOW],
+    );
+    return found.rows as Row[];
+  }
+
+  /** One admitted source's text. A source the caller cannot read fails the assembly. */
+  private async source(
+    participant: ConversationParticipant,
+    stored: StoredSession,
+    messages: readonly Row[],
+    documents: ReadonlyMap<string, string>,
+    source: ContextSource,
+    input: () => Promise<string>,
+  ): Promise<string> {
+    if (source.source === "input") return input();
+    if (source.source === "message") {
+      const row = messages.find((message) => Number(message.sequence) === source.sequence);
+      if (row === undefined) throw new Error("context message unreadable");
+      return this.text(participant, stored, String(row.content_artifact_id));
+    }
+    const text = documents.get(`${source.documentId}@${source.version}`);
+    if (text === undefined) throw new Error("context document unreadable");
+    return text;
+  }
+
+  /**
    * Opens this attempt's run (migration 0036) with its protected model input, the exact prompt the
-   * scripted model reads, as a `conversation` artifact. A session at its run limit is full.
+   * scripted model reads, as a `conversation` artifact, or `private_cognition` when it includes an
+   * actor document, and its context step and manifest (0037).
+   * A session at its run limit is full.
    */
   private async beginRun(
     participant: ConversationParticipant,
@@ -294,6 +427,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     request: TalkRequest,
     count: number,
     caretakerMessages: number,
+    context: AssembledContext,
   ): Promise<string> {
     // A full session is refused before its prompt is stored, so a refused Talk leaves no artifact.
     const full = await this.transaction(participant, () =>
@@ -302,13 +436,17 @@ export class PostgreSqlConversationStore implements ConversationStore {
     if (full) throw new ConversationRefusedError("conversation_full");
     const runId = `run-${crypto.randomUUID()}`;
     const promptArtifactId = `${request.sessionId}:prompt:${runId}`;
-    const prompt = JSON.stringify({
-      model: SCRIPTED_MODEL,
-      promptVersion: SCRIPTED_PROMPT_VERSION,
-      sessionId: request.sessionId,
-      caretakerMessages,
-      input: request.text,
-    });
+    const prompt = renderPrompt(
+      { model: SCRIPTED_MODEL, sessionId: request.sessionId, caretakerMessages },
+      context,
+    );
+    // Decision (issue 17, owner's answer 1): a prompt that includes any actor document holds
+    // private cognition, so it is stored as that class, never copied into a conversation artifact.
+    const promptPrivacyClass = context.entries.some(
+      (entry) => entry.source === "document" && entry.decision === "included",
+    )
+      ? "private_cognition"
+      : "conversation";
     await this.put(
       participant,
       stored,
@@ -316,6 +454,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       prompt,
       "conversation_busy",
       JSON_MEDIA_TYPE,
+      promptPrivacyClass,
     );
     const row = stored.row;
     const start: TalkRunStart = {
@@ -333,9 +472,33 @@ export class PostgreSqlConversationStore implements ConversationStore {
       inputRevision: count,
       caretakerMessages,
       promptArtifactId,
+      promptPrivacyClass,
+      contextSummary: `Assembled ${context.entries.filter((e) => e.decision === "included").length} of ${context.entries.length} context sources`,
+    };
+    const manifest: ContextManifest = {
+      runId,
+      sessionId: request.sessionId,
+      actorId: String(row.actor_id),
+      inputMessageId: request.messageId,
+      inputRevision: count,
+      tokenBudget: context.tokenBudget,
+      tokensUsed: context.tokensUsed,
+      manifestHash: context.manifestHash,
+      entries: context.entries,
     };
     try {
-      await this.transaction(participant, () => this.runs.beginTalk(start));
+      await this.transaction(participant, async () => {
+        await this.runs.beginTalk(start);
+        await this.manifests.record(
+          {
+            tenantId: start.tenantId,
+            worldId: start.worldId,
+            timelineId: start.timelineId,
+            spaceId: start.spaceId,
+          },
+          manifest,
+        );
+      });
     } catch (error) {
       if ((error as { code?: unknown }).code === "CG021")
         throw new ConversationRefusedError("conversation_full");
@@ -374,7 +537,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
     request: TalkRequest,
     count: number,
     inputArtifact: string,
-    attempt: { readonly run: string; readonly replyArtifact: string },
+    attempt: {
+      readonly run: string;
+      readonly replyArtifact: string;
+      readonly proposal?: DocumentProposal;
+    },
   ) {
     const { scope, sessionId, messageId } = request;
     const replyId = `${messageId}:reply`;
@@ -434,9 +601,23 @@ export class PostgreSqlConversationStore implements ConversationStore {
           RETURNING ${SESSION_COLUMNS}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
+      let step = 3;
+      if (attempt.proposal !== undefined) {
+        await closedRunRefused(
+          this.propose(participant, stored, request, attempt.run, attempt.proposal),
+        );
+        step = 4;
+      }
       // A later attempt that closed this run refuses its commit, rolling the messages back.
       await closedRunRefused(
-        this.runs.committed(scope.tenantId, sessionId, attempt.run, (sequence + 1) / 2, replyId),
+        this.runs.committed(
+          scope.tenantId,
+          sessionId,
+          attempt.run,
+          (sequence + 1) / 2,
+          replyId,
+          step,
+        ),
       );
       const rows = (messages.rows as Row[]).sort((a, b) => Number(a.sequence) - Number(b.sequence));
       return {
@@ -445,6 +626,54 @@ export class PostgreSqlConversationStore implements ConversationStore {
         turn: turn.rows[0] as Row,
         session: session.rows[0] as Row,
       };
+    });
+  }
+
+  /**
+   * The model's document proposal, as a change set of its run inside the turn's transaction: it
+   * creates the path or patches its head. A refusal is recorded as a refused change set and a failed
+   * validation step; the turn still commits.
+   */
+  private async propose(
+    participant: ConversationParticipant,
+    stored: StoredSession,
+    request: TalkRequest,
+    runId: string,
+    proposal: DocumentProposal,
+  ): Promise<void> {
+    const row = stored.row;
+    const head = await this.client.query(
+      `SELECT current_version FROM clockgrove.actor_documents
+        WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND actor_id = $4 AND path = $5`,
+      [row.tenant_id, row.world_id, row.timeline_id, row.actor_id, proposal.path],
+    );
+    const current = (head.rows[0] as Row | undefined)?.current_version;
+    const outcome = await this.documents.apply({
+      tenantId: String(row.tenant_id),
+      worldId: String(row.world_id),
+      timelineId: String(row.timeline_id),
+      actorId: String(row.actor_id),
+      changeSetId: `${runId}:documents`,
+      principalId: participant.principalId,
+      personaId: participant.personaId,
+      proposer: { kind: "model", runId, sessionId: request.sessionId },
+      operations: [
+        current === undefined
+          ? { op: "create", path: proposal.path, content: proposal.content }
+          : {
+              op: "patch",
+              path: proposal.path,
+              expectedVersion: Number(current),
+              content: proposal.content,
+            },
+      ],
+    });
+    await this.runs.validated(participant.tenantId, request.sessionId, runId, 3, {
+      refused: outcome.status === "refused" ? outcome.code : undefined,
+      summary:
+        outcome.status === "refused"
+          ? `Document proposal refused: ${outcome.code}`
+          : `Document proposal committed: ${outcome.documents.map((d) => `version ${d.version}`).join(", ")}`,
     });
   }
 
@@ -590,13 +819,29 @@ export class PostgreSqlConversationStore implements ConversationStore {
     text: string,
     collision: "message_id_reused" | "conversation_busy",
     mediaType = TEXT_MEDIA_TYPE,
+    privacyClass: "conversation" | "private_cognition" = "conversation",
   ): Promise<void> {
+    // The runtime writes a private prompt as the actor's cognition, not as the participant's
+    // reading: the participant's ceiling gains `private_cognition` for this one write only, and
+    // reading the prompt back still needs that class in the reader's own ceiling (0037).
+    const writer =
+      privacyClass === "conversation"
+        ? participant
+        : {
+            ...participant,
+            privacyCeiling: {
+              ...participant.privacyCeiling,
+              allowedCategories: [
+                ...new Set([...participant.privacyCeiling.allowedCategories, privacyClass]),
+              ],
+            },
+          };
     try {
-      await this.artifacts.put(participant, {
+      await this.artifacts.put(writer, {
         ...this.locator(stored, artifactId),
         bytes: encoder.encode(text),
         mediaType,
-        privacyClass: "conversation",
+        privacyClass,
         retentionClass: "durable",
       });
     } catch (error) {

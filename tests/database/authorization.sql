@@ -64,7 +64,7 @@ COMMIT;
 --   insert_delete   SELECT, INSERT and DELETE (clock admission receipts, retired when unreachable)
 --   participant     SELECT and INSERT, sessions also UPDATE of state, title and count, each row
 --                   only of a session the installed principal participates in (conversations,
---                   0034)
+--                   0034; actor documents and context manifests, 0037)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -104,6 +104,10 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'conversation_turns', 'participant'),
   ('clockgrove', 'agent_runs', 'participant'),
   ('clockgrove', 'run_steps', 'participant'),
+  ('clockgrove', 'actor_documents', 'participant'),
+  ('clockgrove', 'actor_document_versions', 'participant'),
+  ('clockgrove', 'document_change_sets', 'participant'),
+  ('clockgrove', 'context_manifests', 'participant'),
   ('clockgrove_management', 'principals', 'none'),
   ('clockgrove_management', 'identity_links', 'none'),
   ('clockgrove_management', 'workspace_memberships', 'none'),
@@ -254,7 +258,9 @@ BEGIN
         'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
         'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
-        'clockgrove.agent_runs', 'clockgrove.run_steps'
+        'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
+        'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
+        'clockgrove.context_manifests'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -1836,6 +1842,160 @@ BEGIN
     PERFORM pg_temp.new_step('run-1', 2);
     RAISE EXCEPTION 'step added to a finished run' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+END;
+$$;
+ROLLBACK;
+
+-- Actor documents and context manifests (0037): a model proposal never writes a protected document;
+-- a participant reads no other session's summary though the candidate function lists it; versions
+-- are immutable, sequential and hash-checked; manifests need participation or operator_evidence.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a3');
+INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a3');
+SELECT pg_temp.act_as('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-d2', 'principal-a2', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-d2', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+          'cognitive');
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-d1', 'principal-a', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-d1', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+          'cognitive');
+INSERT INTO clockgrove.agent_runs (
+  tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
+  principal_id, persona_id, activation, input_message_id, root_run_id, model, prompt_version,
+  input_revision, status, summary
+) VALUES ('tenant-a', 'run-d', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-d1',
+          'stevie', 'principal-a', 'persona-a', 'conversation_message', 'message-d', 'run-d',
+          'scripted-fixture-v1', 'v1', 0, 'running', 'attempt');
+INSERT INTO clockgrove.document_change_sets (
+  tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, status,
+  operation_count
+) VALUES ('tenant-a', 'cs-op', 'world-a', 'timeline-a', 'stevie', 'operator', 'principal-a',
+          'committed', 1);
+INSERT INTO clockgrove.document_change_sets (
+  tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, run_id,
+  session_id, status, operation_count
+) VALUES ('tenant-a', 'cs-model', 'world-a', 'timeline-a', 'stevie', 'model', 'principal-a',
+          'run-d', 'session-d1', 'committed', 1);
+INSERT INTO clockgrove.actor_documents (
+  tenant_id, document_id, world_id, timeline_id, actor_id, path, kind, write_class, session_id
+) VALUES
+  ('tenant-a', 'doc-identity', 'world-a', 'timeline-a', 'stevie', 'identity.md', 'identity', 'protected', NULL),
+  ('tenant-a', 'doc-policy', 'world-a', 'timeline-a', 'stevie', 'policy.md', 'policy', 'protected', NULL),
+  ('tenant-a', 'doc-working', 'world-a', 'timeline-a', 'stevie', 'working-context.md', 'working_context', 'actor_writable', NULL),
+  ('tenant-a', 'doc-sum-1', 'world-a', 'timeline-a', 'stevie', 'sessions/session-d1/summary.md', 'session_summary', 'actor_writable', 'session-d1'),
+  ('tenant-a', 'doc-sum-2', 'world-a', 'timeline-a', 'stevie', 'sessions/session-d2/summary.md', 'session_summary', 'actor_writable', 'session-d2');
+CREATE FUNCTION pg_temp.new_version(doc text, n integer, change text, body text, session text, hash text DEFAULT NULL)
+RETURNS void LANGUAGE sql AS $$
+  INSERT INTO clockgrove.actor_document_versions (
+    tenant_id, document_id, version, world_id, timeline_id, actor_id, session_id, state, content,
+    byte_length, source_hash, change_set_id
+  ) VALUES ('tenant-a', doc, n, 'world-a', 'timeline-a', 'stevie', session, 'active', body,
+            octet_length(body),
+            COALESCE(hash, encode(sha256(convert_to(body, 'UTF8')), 'hex')), change)
+$$;
+SELECT pg_temp.new_version('doc-identity', 1, 'cs-op', 'I am Stevie.', NULL);
+SELECT pg_temp.new_version('doc-policy', 1, 'cs-op', 'Be kind.', NULL);
+SELECT pg_temp.new_version('doc-sum-1', 1, 'cs-op', 'Talked about tea.', 'session-d1');
+SELECT pg_temp.new_version('doc-sum-2', 1, 'cs-op', 'Talked about rain.', 'session-d2');
+INSERT INTO clockgrove.context_manifests (
+  tenant_id, run_id, session_id, world_id, timeline_id, space_id, actor_id, input_message_id,
+  input_revision, token_budget, tokens_used, manifest_hash, entries
+) VALUES ('tenant-a', 'run-d', 'session-d1', 'world-a', 'timeline-a', 'space-a', 'stevie',
+          'message-d', 0, 1000, 10, repeat('a', 64), '[{"source":"input"}]');
+DO $$
+BEGIN
+  -- A model proposal cannot write a protected document, and an operator change set needs the ceiling.
+  BEGIN
+    PERFORM pg_temp.new_version('doc-policy', 2, 'cs-model', 'Be cruel.', NULL);
+    RAISE EXCEPTION 'model rewrote a protected document' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG023' THEN NULL;
+  END;
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a',
+    '{"version":1,"allowedCategories":["public_scene","conversation"]}');
+  BEGIN
+    INSERT INTO clockgrove.document_change_sets (
+      tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, status,
+      operation_count
+    ) VALUES ('tenant-a', 'cs-op-low', 'world-a', 'timeline-a', 'stevie', 'operator', 'principal-a',
+              'committed', 1);
+    RAISE EXCEPTION 'operator change set without private_cognition' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  -- A participant reads the actor's identity and policy and its own summary, not another session's.
+  IF (SELECT count(*) FROM clockgrove.actor_documents WHERE kind IN ('identity', 'policy')) <> 2
+     OR (SELECT count(*) FROM clockgrove.actor_documents WHERE document_id = 'doc-sum-1') <> 1
+     OR (SELECT count(*) FROM clockgrove.actor_documents WHERE document_id = 'doc-sum-2') <> 0
+     OR (SELECT count(*) FROM clockgrove.actor_context_candidates('tenant-a', 'session-d1')) <> 4
+     OR (SELECT count(*) FROM clockgrove.actor_context_candidates('tenant-a', 'session-d2')) <> 0 THEN
+    RAISE EXCEPTION 'participant reads wrong documents';
+  END IF;
+  -- Another session's summary is a redacted candidate: no session ID, hash or length.
+  IF (SELECT array_agg(ROW(path, session_id, source_hash, byte_length, version)::text)
+        FROM clockgrove.actor_context_candidates('tenant-a', 'session-d1') WHERE foreign_session)
+     IS DISTINCT FROM ARRAY[ROW('sessions/*/summary.md', NULL::text, NULL::text, NULL::integer, 1)::text] THEN
+    RAISE EXCEPTION 'another session''s summary metadata reaches the participant';
+  END IF;
+  -- A principal in no session of the actor reads nothing.
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a3',
+    '{"version":1,"allowedCategories":["public_scene","conversation"]}');
+  IF (SELECT count(*) FROM clockgrove.actor_documents) <> 0
+     OR (SELECT count(*) FROM clockgrove.actor_document_versions) <> 0
+     OR (SELECT count(*) FROM clockgrove.document_change_sets) <> 0
+     OR (SELECT count(*) FROM clockgrove.context_manifests) <> 0
+     OR (SELECT count(*) FROM clockgrove.actor_context_candidates('tenant-a', 'session-d1')) <> 0 THEN
+    RAISE EXCEPTION 'non-participant reads actor documents';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a2',
+    '{"version":1,"allowedCategories":["public_scene","conversation"]}');
+  IF (SELECT count(*) FROM clockgrove.context_manifests) <> 0 THEN
+    RAISE EXCEPTION 'manifest read by another session participant';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a2',
+    '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+  IF (SELECT count(*) FROM clockgrove.context_manifests) <> 1 THEN
+    RAISE EXCEPTION 'inspector cannot read the manifest';
+  END IF;
+
+  -- Versions never change, skip their head or carry a forged hash; manifests never change.
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a');
+  BEGIN
+    UPDATE clockgrove.actor_document_versions SET content = 'changed';
+    RAISE EXCEPTION 'version updated' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.actor_document_versions;
+    RAISE EXCEPTION 'version deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_version('doc-working', 2, 'cs-op', 'Skipped.', NULL);
+    RAISE EXCEPTION 'version skipped its head' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG024' THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_version('doc-identity', 2, 'cs-op', 'I am Stevie.', NULL, repeat('0', 64));
+    RAISE EXCEPTION 'version with a forged hash' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.context_manifests SET tokens_used = 0;
+    RAISE EXCEPTION 'manifest updated' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.context_manifests;
+    RAISE EXCEPTION 'manifest deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END;
 $$;

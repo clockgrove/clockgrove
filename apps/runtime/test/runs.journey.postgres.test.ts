@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { decodeConversationSession, decodeTalkReceipt, type RunWalk } from "@clockgrove/contracts";
+import { canonicalBytes } from "@clockgrove/kernel";
 import { expect, it } from "vitest";
 import {
   isNativeWorldOwnerChild,
@@ -9,6 +11,8 @@ import {
 const FILE = "apps/runtime/test/runs.journey.postgres.test.ts";
 const MEMBER = "local-reader-session";
 const INSPECTOR = "outsider-session-token";
+const parsed = (text: string | null | undefined) =>
+  text?.startsWith("{") === true ? JSON.parse(text) : (text ?? null);
 const REPLY = (n: number) =>
   `Scripted fixture reply: you have said ${n} ${n === 1 ? "thing" : "things"} to me in this conversation.`;
 
@@ -97,9 +101,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ).trim(),
       ).toBe(
         [
-          "m1:completed:-:1:model_attempt=succeeded/true,commit=succeeded/true",
-          "m2:completed:-:2:model_attempt=succeeded/true,commit=succeeded/true",
-          "m3:completed:-:3:model_attempt=succeeded/true,commit=succeeded/true",
+          "m1:completed:-:1:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
+          "m2:completed:-:2:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
+          "m3:completed:-:3:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
           "m3:superseded:retried:-:model_attempt=superseded/true",
           "m9:abandoned:stale:-:model_attempt=abandoned/true",
         ].join(" "),
@@ -116,14 +120,14 @@ it.skipIf(!isNativeWorldOwnerChild())(
           run.status,
           run.turn,
           run.rootRunId === run.runId,
-          run.prompt?.text ?? null,
+          parsed(run.prompt?.text),
           run.steps.map((step) => [
             step.kind,
             step.status,
             step.model,
             step.outputMessageId,
             step.costMicrousd,
-            step.input?.text ?? null,
+            parsed(step.input?.text),
             step.output?.text ?? null,
           ]),
         ]);
@@ -143,6 +147,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           true,
           null,
           [
+            ["context_retrieval", "succeeded", null, null, null, null, null],
             ["model_attempt", "succeeded", "scripted-fixture-v1", null, 0, null, null],
             ["commit", "succeeded", null, "m3:reply", null, null, null],
           ],
@@ -188,6 +193,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           true,
           null,
           [
+            ["context_retrieval", "succeeded", null, null, null, null, null],
             ["model_attempt", "succeeded", "scripted-fixture-v1", null, 0, null, null],
             ["commit", "succeeded", null, "m3:reply", null, null, null],
           ],
@@ -199,6 +205,68 @@ it.skipIf(!isNativeWorldOwnerChild())(
         MEMBER,
       );
       const back = answer.body as RunWalk;
+      // The exact model input: the session's history and the input, every part labelled untrusted.
+      const part = (source: string, version: number, text: string) => ({
+        trust: "untrusted",
+        source,
+        version,
+        text,
+      });
+      // The manifest hash, computed here from the contract in `docs/protocols/context-assembly.md`:
+      // SHA-256 of the canonical session, input, revision, budget and entries (history newest first,
+      // then the input), independent of the assembler.
+      const said = [
+        ["m1", "caretaker", "Find the acorns."],
+        ["m1:reply", "actor", REPLY(1)],
+        ["m2", "caretaker", "Hide them by the fence."],
+        ["m2:reply", "actor", REPLY(2)],
+        ["m3", "caretaker", "Count them tonight."],
+      ] as const;
+      const entry = ([id, role, text]: (typeof said)[number], index: number) => ({
+        source: index === 4 ? "input" : "message",
+        sourceId: id,
+        version: index + 1,
+        label: role,
+        scope: "session",
+        writeClass: null,
+        sessionId: session,
+        state: "active",
+        sourceHash: createHash("sha256").update(text).digest("hex"),
+        tokens: Math.ceil(Buffer.byteLength(text) / 4),
+        decision: "included",
+        rule: null,
+        section: "untrusted",
+        trust: "untrusted",
+        promptOrder: index + 1,
+      });
+      const entries = said.map(entry);
+      const manifestHash = createHash("sha256")
+        .update(
+          canonicalBytes({
+            sessionId: session,
+            inputMessageId: "m3",
+            inputRevision: 4,
+            tokenBudget: 4096,
+            entries: [...entries.slice(0, 4).reverse(), entries[4]],
+          }),
+        )
+        .digest("hex");
+      const prompt = {
+        model: "scripted-fixture-v1",
+        sessionId: session,
+        caretakerMessages: 3,
+        promptVersion: "context-prompt-v1",
+        manifestHash,
+        protected: [],
+        governed: [],
+        untrusted: [
+          part("caretaker", 1, "Find the acorns."),
+          part("actor", 2, REPLY(1)),
+          part("caretaker", 3, "Hide them by the fence."),
+          part("actor", 4, REPLY(2)),
+          part("caretaker", 5, "Count them tonight."),
+        ],
+      };
       expect(answer.status).toBe(200);
       expect(steps(back)).toEqual([
         [
@@ -206,29 +274,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "completed",
           3,
           true,
-          JSON.stringify({
-            model: "scripted-fixture-v1",
-            promptVersion: "scripted-prompt-v1",
-            sessionId: session,
-            caretakerMessages: 3,
-            input: "Count them tonight.",
-          }),
+          prompt,
           [
-            [
-              "model_attempt",
-              "succeeded",
-              "scripted-fixture-v1",
-              null,
-              0,
-              JSON.stringify({
-                model: "scripted-fixture-v1",
-                promptVersion: "scripted-prompt-v1",
-                sessionId: session,
-                caretakerMessages: 3,
-                input: "Count them tonight.",
-              }),
-              REPLY(3),
-            ],
+            ["context_retrieval", "succeeded", null, null, null, null, null],
+            ["model_attempt", "succeeded", "scripted-fixture-v1", null, 0, prompt, REPLY(3)],
             ["commit", "succeeded", null, "m3:reply", null, null, null],
           ],
         ],
@@ -265,7 +314,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           run.steps.map((step) => step.commandId),
         ]),
       ).toEqual([
-        ["completed-run", false, null, true, [null, null]],
+        ["completed-run", false, null, true, [null, null, null]],
         ["run-child", true, 1, true, [commandId]],
       ]);
 

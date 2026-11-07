@@ -50,11 +50,13 @@ export const MAX_RUN_SEARCH_PAGE = 100;
 
 /**
  * A protected artifact a run or step names. `text` is its exact content, present only for a
- * reader whose ceiling holds the artifact's class; otherwise it is `null` and only the ID shows.
+ * participant reader whose ceiling holds `conversation` and the artifact's class; otherwise it is
+ * `null` and only the ID and class show. A prompt that includes actor documents is
+ * `private_cognition` (`docs/protocols/context-assembly.md`).
  */
 export interface ProtectedPayload {
   readonly artifactId: string;
-  readonly privacyClass: "conversation";
+  readonly privacyClass: "conversation" | "private_cognition";
   readonly text: string | null;
 }
 

@@ -589,6 +589,30 @@ See [run and step evidence](../protocols/runs.md).
   `command_receipts` row and `output_message_id` a message of the run's session.
 - **Audit:** 0036 adds the `agent-runs` subject to `inspector_accesses`.
 
+## Actor documents and context manifests
+
+Migration `0037_actor_documents.sql` (Wave 5 RW-0505, issue 17) holds `actor_documents`,
+`actor_document_versions`, `document_change_sets` and `context_manifests`. See
+[context assembly](../protocols/context-assembly.md).
+
+- **Policies:** document rows are read and written by a `private_cognition` ceiling, or by a
+  participant of a session that addresses the actor (`runtime_actor_participant`). That participant
+  never reads another session's summary, and creates only `actor_writable` documents. Change sets
+  are written by their own principal: an operator's needs `private_cognition`, a model's comes from
+  its session's participant. They are read by their author, `private_cognition` or
+  `operator_evidence`. Manifests follow the run policy of 0036.
+- **Guards:** the path fixes the kind and the kind fixes the write class (CHECKs).
+  `guard_actor_document_version` (`SECURITY DEFINER`) admits a version only from a committed change
+  set of the same actor whose proposer may write that class, as the head plus one, and moves the
+  head. Its refusals are `CG023` (class or authority) and `CG024` (version). `guard_actor_document`
+  admits at most 256 documents per actor (`CG022`). The source hash and size are CHECKed against
+  the text. Versions and manifests are immutable, and DELETE and TRUNCATE are refused. Refused
+  change sets retire after 90 days (`retire_refused_change_sets`).
+- **Candidates:** `actor_context_candidates(tenant, session)` (`SECURITY DEFINER`) returns document
+  metadata, never text, to a participant of the session only.
+- **Audit:** 0037 adds the `context-manifest` and `actor-documents` subjects to
+  `inspector_accesses`.
+
 ## Snapshots
 
 Migration `0013_partition_snapshots.sql` (RW-0208, issue 677) constrains `snapshots`.

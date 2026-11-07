@@ -1,6 +1,7 @@
 import {
   type ConversationParticipant,
   ConversationRefusedError,
+  type ConversationResponse,
   type ConversationStore,
 } from "@clockgrove/application";
 import {
@@ -36,14 +37,23 @@ export type ConversationStores = <T>(
 /**
  * The scripted model fixture's answer (Wave 5 §17: scripted models stay deterministic fixtures). It
  * depends only on its own session, so two sessions' answers show their histories are separate.
+ *
+ * The fixture is scripted by its input: a first line `fixture:propose <path>` makes it propose the
+ * rest of the text as that document's content, the way a model returns a path it chose. The
+ * proposal is validated as any model proposal is (`docs/protocols/context-assembly.md`).
  */
 export function scriptedConversationReply(
   _session: ConversationSession,
   caretakerMessages: number,
-): string {
-  return `Scripted fixture reply: you have said ${caretakerMessages} ${
+  input: string,
+): ConversationResponse {
+  const text = `Scripted fixture reply: you have said ${caretakerMessages} ${
     caretakerMessages === 1 ? "thing" : "things"
   } to me in this conversation.`;
+  const script = /^fixture:propose (\S+)\n([\s\S]*)$/.exec(input);
+  const [, path, content] = script ?? [];
+  if (path === undefined || content === undefined) return { text };
+  return { text, proposal: { path, content } };
 }
 
 export interface ConversationCall {
