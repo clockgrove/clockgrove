@@ -36,11 +36,7 @@ export function Timeline({
   const describe = (at: number) => {
     const event = feed[at];
     if (!event) return "";
-    const name =
-      event.objectId == null
-        ? undefined
-        : scene.entities.find((entity) => entity.objectId === event.objectId)?.presentation.label;
-    return `Event ${feed.length - at} of ${feed.length}: ${CATEGORY_LABELS[event.category]}; ${name ? `${name}: ${event.text}` : event.text}; ${eventTime(event.simTimeMs, clock)}.`;
+    return `Event ${feed.length - at} of ${feed.length}: ${CATEGORY_LABELS[event.category]}; ${event.text}; ${eventTime(event.simTimeMs, clock)}.`;
   };
   // Only a step is announced: new events arriving in the feed do not re-read the event line.
   const [announcement, setAnnouncement] = useState("");

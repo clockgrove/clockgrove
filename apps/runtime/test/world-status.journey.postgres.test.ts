@@ -92,7 +92,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       await run("status-rain", "world.weather.set", { schemaVersion: 2, rainIntensity: 10000 });
       const rained = await status();
       expect(rained.feed.map(({ category, objectId, text }) => [category, objectId, text])).toEqual(
-        [["weather", null, "The weather changed."]],
+        [["weather", null, "It is raining."]],
       );
       await run(
         "status-offer",
@@ -108,15 +108,18 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       );
       await run("status-minute", "world.advance", {}, 8_640_060_000n);
       const fed = await status();
-      expect([fed.clock, fed.feed.map(({ category, objectId }) => [category, objectId])]).toEqual([
+      expect([
+        fed.clock,
+        fed.feed.map(({ category, objectId, text }) => [category, objectId, text]),
+      ]).toEqual([
         clock("paused", 1, 1n),
         [
-          ["movement", "grove.kit"],
-          ["routine", "grove.stevie"],
-          ["routine", "grove.kit"],
-          ["routine", "grove.gracie"],
-          ["resource", "grove.snack-dish"],
-          ["weather", null],
+          ["movement", "grove.kit", "grove.kit arrived."],
+          ["routine", "grove.stevie", "grove.stevie is staying put."],
+          ["routine", "grove.kit", "grove.kit is looking for shelter at grove.den."],
+          ["routine", "grove.gracie", "grove.gracie is looking for shelter at grove.den."],
+          ["resource", "grove.snack-dish", "Food was offered at grove.snack-dish."],
+          ["weather", null, "It is raining."],
         ],
       ]);
       const materialTypes = `('weather.changed','weather.transitioned','environment.phase-changed','routine.selected','needs.threshold-crossed','exposure.threshold-crossed','health.threshold-crossed','growth.stage-changed','movement.portal-crossed','movement.completed','portal.opened','portal.closed','resource.offered','resource.consumed','resource.transferred','resource.spoiled')`;
