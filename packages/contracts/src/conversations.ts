@@ -37,16 +37,23 @@ export const MAX_CONVERSATION_TITLE_CHARACTERS = 120;
 /** Decision: one read page; a client pages with `afterSequence`. */
 export const MAX_CONVERSATION_PAGE = 100;
 
-/** A private Caretaker-to-actor session: one participant, one addressed actor, its own history. */
+/** A human participant of a session: a principal and their world persona. */
+export interface ConversationSessionParticipant {
+  readonly principalId: PrincipalId;
+  readonly personaId: WorldPersonaId;
+}
+
+/**
+ * A private session with one addressed actor and its own history, scoped by its participant set
+ * (Wave 5 §6.1). A Caretaker Talk session has exactly one participant.
+ */
 export interface ConversationSession {
   readonly sessionId: string;
   /** Where the session was opened; it is read from any space of its world timeline. */
   readonly scope: BrowserScope;
   readonly actorId: ObjectId;
-  readonly participant: {
-    readonly principalId: PrincipalId;
-    readonly personaId: WorldPersonaId;
-  };
+  /** At least one, ordered by principal ID; a principal and a persona appear at most once each. */
+  readonly participants: readonly ConversationSessionParticipant[];
   readonly channel: "browser";
   readonly privacyClass: "conversation";
   readonly voiceMode: VoiceMode;
@@ -281,7 +288,7 @@ export function decodeConversationSession(
       "sessionId",
       "scope",
       "actorId",
-      "participant",
+      "participants",
       "channel",
       "privacyClass",
       "voiceMode",
@@ -295,8 +302,24 @@ export function decodeConversationSession(
     [],
     path,
   );
-  const participant = record(v.participant, `${path}.participant`);
-  exactKeys(participant, ["principalId", "personaId"], [], `${path}.participant`);
+  const participants = array(v.participants, `${path}.participants`, (item, itemPath) => {
+    const participant = record(item, itemPath);
+    exactKeys(participant, ["principalId", "personaId"], [], itemPath);
+    return Object.freeze({
+      principalId: decodeOpaqueId(
+        participant.principalId,
+        "PrincipalId",
+        `${itemPath}.principalId`,
+      ),
+      personaId: decodeOpaqueId(participant.personaId, "WorldPersonaId", `${itemPath}.personaId`),
+    });
+  });
+  if (
+    participants.length === 0 ||
+    new Set(participants.map((p) => p.principalId)).size !== participants.length ||
+    new Set(participants.map((p) => p.personaId)).size !== participants.length
+  )
+    throw new ContractDecodeError(`${path}.participants`, "expected distinct participants");
   const voiceMode = literal(v.voiceMode, VOICE_MODES, `${path}.voiceMode`);
   if (v.disclosure !== VOICE_DISCLOSURES[voiceMode])
     throw new ContractDecodeError(`${path}.disclosure`, "does not match the voice mode");
@@ -304,10 +327,7 @@ export function decodeConversationSession(
     sessionId: boundedId(v.sessionId, `${path}.sessionId`),
     scope: decodeBrowserScope(v.scope),
     actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
-    participant: Object.freeze({
-      principalId: decodeOpaqueId(participant.principalId, "PrincipalId", `${path}.principalId`),
-      personaId: decodeOpaqueId(participant.personaId, "WorldPersonaId", `${path}.personaId`),
-    }),
+    participants,
     channel: literal(v.channel, ["browser"], `${path}.channel`),
     privacyClass: literal(v.privacyClass, ["conversation"], `${path}.privacyClass`),
     voiceMode,

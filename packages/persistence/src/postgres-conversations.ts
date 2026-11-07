@@ -34,14 +34,22 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const timestamp = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS ${column}`;
+// Read from `clockgrove.conversation_sessions` unaliased (a SELECT or an UPDATE's RETURNING); the
+// participant set comes with the row, ordered by principal.
 const SESSION_COLUMNS = `session_id, tenant_id, world_id, timeline_id, partition_id, space_id,
-  principal_id, persona_id, actor_id, voice_mode, state, title_artifact_id, message_count,
-  ${timestamp("created_at")}, ${timestamp("updated_at")}`;
+  actor_id, voice_mode, state, title_artifact_id, message_count,
+  ${timestamp("created_at")}, ${timestamp("updated_at")},
+  (SELECT json_agg(json_build_object('principalId', participant.principal_id,
+                                     'personaId', participant.persona_id)
+                   ORDER BY participant.principal_id)
+     FROM clockgrove.conversation_participants AS participant
+    WHERE participant.tenant_id = conversation_sessions.tenant_id
+      AND participant.session_id = conversation_sessions.session_id) AS participants`;
 const MESSAGE_COLUMNS = `session_id, sequence, message_id, role, author_id, voice_mode,
   content_artifact_id, ${timestamp("created_at")}`;
 const TURN_COLUMNS = `session_id, turn, input_sequence, output_sequence, model, state,
   ${timestamp("created_at")}`;
-/** Same scope filter for every session read: the participant's own row of this world timeline. */
+/** Same scope filter for every session read; RLS admits only sessions the caller participates in. */
 const SESSION_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND session_id = $4";
 
 interface StoredSession {
@@ -71,26 +79,23 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const { tenantId, worldId, timelineId, spaceId } = input.scope;
     await this.transaction(participant, async () => {
       try {
+        // The participant set first: the session's policy admits only a participant's session.
+        await this.client.query(
+          `INSERT INTO clockgrove.conversation_participants (
+             tenant_id, session_id, principal_id, persona_id
+           ) VALUES ($1, $2, $3, $4)`,
+          [tenantId, sessionId, participant.principalId, participant.personaId],
+        );
         const inserted = await this.client.query(
           `INSERT INTO clockgrove.conversation_sessions (
-             tenant_id, session_id, world_id, timeline_id, partition_id, space_id, principal_id,
-             persona_id, actor_id, voice_mode
-           ) SELECT tenant_id, $5, world_id, timeline_id, partition_id, space_id, $6, $7, $8, $9
+             tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id,
+             voice_mode
+           ) SELECT tenant_id, $5, world_id, timeline_id, partition_id, space_id, $6, $7
                FROM clockgrove.timeline_partitions
               WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4
               LIMIT 1
            RETURNING session_id`,
-          [
-            tenantId,
-            worldId,
-            timelineId,
-            spaceId,
-            sessionId,
-            participant.principalId,
-            participant.personaId,
-            input.actorId,
-            input.voiceMode,
-          ],
+          [tenantId, worldId, timelineId, spaceId, sessionId, input.actorId, input.voiceMode],
         );
         if (inserted.rows.length !== 1)
           throw new ConversationRefusedError("conversation_not_found");
@@ -115,8 +120,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
         `SELECT ${SESSION_COLUMNS} FROM clockgrove.conversation_sessions
           WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND state <> 'deleted'
             AND ($4::text IS NULL OR actor_id = $4)
+            AND session_id IN (
+              SELECT participant.session_id FROM clockgrove.conversation_participants AS participant
+               WHERE participant.tenant_id = $1 AND participant.principal_id = $5)
           ORDER BY updated_at DESC, session_id`,
-        [scope.tenantId, scope.worldId, scope.timelineId, actorId ?? null],
+        [scope.tenantId, scope.worldId, scope.timelineId, actorId ?? null, participant.principalId],
       );
       return found.rows as Row[];
     });
@@ -244,7 +252,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
            tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
            content_artifact_id
          ) VALUES ($1, $2, $3, $4, $5, 'caretaker', $6, NULL, $7),
-                  ($1, $2, $3, $4 + 1, $8, 'actor', $9, $10, $11)
+                  ($1, $2, NULL, $4 + 1, $8, 'actor', $9, $10, $11)
          RETURNING ${MESSAGE_COLUMNS}`,
         [
           scope.tenantId,
@@ -413,7 +421,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
         spaceId: row.space_id,
       },
       actorId: row.actor_id,
-      participant: { principalId: row.principal_id, personaId: row.persona_id },
+      participants: row.participants,
       channel: "browser",
       privacyClass: "conversation",
       voiceMode,

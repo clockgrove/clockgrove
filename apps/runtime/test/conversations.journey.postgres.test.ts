@@ -75,10 +75,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "conversation",
         "active",
       ]);
-      expect(rain.participant).toEqual({
-        principalId: "principal-runtime",
-        personaId: "persona-runtime",
-      });
+      expect(rain.participants).toEqual([
+        { principalId: "principal-runtime", personaId: "persona-runtime" },
+      ]);
       const first = await talk(rain.sessionId, "rain-1", "Stay dry under the porch, Stevie.");
       await talk(snacks.sessionId, "snacks-1", "The compost bin has apple cores.");
       const second = await talk(rain.sessionId, "rain-2", "The storm passes by evening.");

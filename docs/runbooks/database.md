@@ -534,17 +534,26 @@ issue 329/issue 693.
 ## Conversations
 
 Migration `0034_conversations.sql` (Wave 5 RW-0501, issue 14) holds the private conversation
-schema: `conversation_sessions`, `conversation_messages` and `conversation_turns`.
+schema: `conversation_sessions`, `conversation_participants`, `conversation_messages` and
+`conversation_turns`.
 
 - **Participant scope:** each table has the `participant_isolation` policy, which is
-  `runtime_can_access(tenant_id, 'conversation')` and `principal_id = runtime_principal_id()`. A
-  member of the same tenant and world, a ceiling without `conversation`, and another tenant see no
-  row and write none.
+  `runtime_can_access(tenant_id, 'conversation')` and
+  `runtime_conversation_participant(tenant_id, session_id)`: the installed principal has a row in
+  the session's participant set. That function is migrator-owned `SECURITY DEFINER`, so the
+  policies never recurse. A member of the same tenant and world, a ceiling without
+  `conversation`, and another tenant see no row and write none.
+- **Participants:** one immutable row per human participant (principal and persona). A member
+  inserts only their own row, and only before the session row in the transaction that creates it
+  (the key to the session is deferred to commit); `guard_conversation_participant` refuses joining
+  an existing session with `CG020`. A Caretaker message names its author participant and persona
+  through a key to the participant set, and an actor answer names none. A turn names the
+  participant whose message opened it.
 - **Text is ciphertext:** a message's `content_artifact_id` and a session's `title_artifact_id`
   name `conversation`-class artifacts through `(tenant_id, artifact_id, privacy_class)`. That is
   why 0034 adds the `artifact_references_class_key` unique key. The class is always encrypted
   (0012).
-- **Immutability:** the runtime role may only insert messages and turns. Triggers refuse UPDATE,
+- **Immutability:** the runtime role may only insert participants, messages and turns. Triggers refuse UPDATE,
   DELETE and TRUNCATE with `CG006`. On a session it may update only `state`, `title_artifact_id`,
   `message_count` and `updated_at`, and it may never delete one.
 - **Guard:** `guard_conversation_session` starts every session active, empty and untitled. It

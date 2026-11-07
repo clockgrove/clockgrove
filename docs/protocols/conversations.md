@@ -19,16 +19,19 @@ observe grant and a persona. A new session and Say address only an actor (an ent
 projected in the request's space. A resource answers `409 talk_unavailable`, and an unknown or
 unprojected ID answers `409 selection_unavailable`.
 
-Rows are scoped to the participant in SQL (migration 0034). A member sees and changes only
-sessions, messages and turns that name their own principal, in their tenant, under a ceiling that
-holds `conversation`. Another member of the same world gets `404 conversation_not_found` for every
+Rows are scoped to the session's participant set in SQL (migration 0034). A member sees and
+changes only sessions they participate in, with those sessions' participants, messages and turns,
+in their tenant, under a ceiling that holds `conversation`. A member cannot join an existing
+session. Another member of the same world gets `404 conversation_not_found` for every
 session ID, just as for an unknown one. The attack suite in `tests/database/authorization.sql`
 exercises this.
 
 ## Sessions, messages and turns
 
-- A **session** is one participant (principal and persona), one addressed actor, one world
-  timeline, the `browser` channel and the `conversation` privacy class. It records the partition
+- A **session** has a participant set (`participants`: one entry per human participant, a principal
+  and their world persona), one addressed actor, one world timeline, the `browser` channel and the
+  `conversation` privacy class. A Caretaker Talk session has exactly one participant, and no route
+  adds another; a later shared session adds entries without changing the shape. It records the partition
   and space where it was opened, and it can be read from any space of its timeline. Its state is
   `active`, `archived`, `locked` (reserved) or `deleted`. `deleted` is terminal.
 - Its **voice mode** is `cognitive`, `interpreted` or `canonical` (Wave 5 §6.3), with the matching

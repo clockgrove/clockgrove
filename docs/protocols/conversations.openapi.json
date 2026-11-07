@@ -1029,7 +1029,7 @@
           "sessionId",
           "scope",
           "actorId",
-          "participant",
+          "participants",
           "channel",
           "privacyClass",
           "voiceMode",
@@ -1054,24 +1054,12 @@
             "minLength": 1,
             "maxLength": 1024
           },
-          "participant": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "principalId",
-              "personaId"
-            ],
-            "properties": {
-              "principalId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              "personaId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              }
+          "participants": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The session's human participants (principal and world persona), ordered by principal ID; each principal and persona at most once. A Caretaker Talk session has exactly one.",
+            "items": {
+              "$ref": "#/components/schemas/ConversationSessionParticipant"
             }
           },
           "channel": {
@@ -1375,6 +1363,26 @@
                 ]
               }
             }
+          }
+        }
+      },
+      "ConversationSessionParticipant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "principalId",
+          "personaId"
+        ],
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "personaId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
           }
         }
       }
