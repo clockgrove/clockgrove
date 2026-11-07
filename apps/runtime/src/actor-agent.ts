@@ -1,0 +1,230 @@
+import {
+  type ConversationParticipant,
+  type ConversationResponder,
+  ConversationRefusedError,
+  type ConversationStore,
+  type TurnFiber,
+} from "@clockgrove/application";
+import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
+import { CONVERSATION_REFUSAL_STATUS, type ConversationStores } from "./conversations.js";
+
+/**
+ * The portable half of `ActorAgentDO` (Wave 5 §7, RW-0503 with RW-0307): logical session lanes,
+ * the perception inbox, the capability revision and the recovery metadata of one actor's owner,
+ * and the turn fiber that runs each Caretaker message through its checkpointed phases. Every fact
+ * it holds is rebuilt from PostgreSQL or is presentation; the owner keeps no world truth.
+ */
+
+/** What a turn ends with: the committed receipt or a refusal. */
+export type TurnOutcome =
+  | { readonly receipt: TalkReceipt; readonly refused?: undefined }
+  | { readonly refused: ConversationRefusedError["code"]; readonly receipt?: undefined };
+
+/** An activation the owner admits (Wave 5 §5.2); only direct messages have a producer today. */
+export interface DirectMessageActivation {
+  readonly kind: "direct_message";
+  readonly sessionId: string;
+  readonly messageId: string;
+}
+
+/** Recovery metadata in the owner's local storage: rebuildable, never canonical. */
+export interface ActorAgentRecovery {
+  readonly schemaVersion: 1;
+  /** The incarnation that last initialized, and how many incarnations this owner has had. */
+  readonly incarnation: string;
+  readonly incarnations: number;
+  /** The newest capability revision announced to this actor (the RW-0506 hook). */
+  readonly capabilityRevision: number;
+  /** Turns this incarnation found open in PostgreSQL and resumed. */
+  readonly recoveredTurns: number;
+}
+
+/** The owner-specific edges of a fiber: its lease holder, connection, checkpoint hook and keep-alive. */
+export interface TurnFiberHost {
+  readonly holder: string;
+  readonly stores: ConversationStores;
+  readonly respond: ConversationResponder;
+  capabilityRevision(): number;
+  /**
+   * Called after every durable checkpoint, and inside `model_running` after the first streamed
+   * delta, with the phase just reached. The owner records it for recovery; a local fault binding
+   * may end the incarnation there.
+   */
+  checkpointed(fiber: TurnFiber, phase: string): Promise<void>;
+  /** Runs the fiber under the platform's keep-alive and interrupted-work recovery. */
+  durable<T>(fiber: TurnFiber, participant: ConversationParticipant, run: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * Decision: the inbox remembers the last 256 activations. It only short-cuts a duplicate wakeup;
+ * the fiber row's key in PostgreSQL is what makes a duplicate harmless, so forgetting is safe.
+ */
+export const PERCEPTION_INBOX_LIMIT = 256;
+
+/** Bounded, insertion-ordered dedupe of activation keys. */
+export class PerceptionInbox {
+  private readonly keys: string[];
+  constructor(keys: readonly string[] = []) {
+    this.keys = keys.slice(-PERCEPTION_INBOX_LIMIT);
+  }
+  /** Whether the activation is new; a duplicate is not admitted again. */
+  admit(activation: DirectMessageActivation): boolean {
+    const key = activationKey(activation);
+    if (this.keys.includes(key)) return false;
+    this.keys.push(key);
+    if (this.keys.length > PERCEPTION_INBOX_LIMIT) this.keys.shift();
+    return true;
+  }
+  snapshot(): readonly string[] {
+    return [...this.keys];
+  }
+}
+
+export function activationKey(activation: DirectMessageActivation): string {
+  return `${activation.kind}:${activation.sessionId}:${activation.messageId}`;
+}
+
+/**
+ * Runs turn fibers for one actor. Within the owner, an activation already running joins that run
+ * (coalescing duplicate wakeups), and a session's turns run one after another on its lane while
+ * other sessions' lanes run concurrently.
+ */
+export class TurnFibers {
+  private readonly running = new Map<string, Promise<TurnOutcome>>();
+  private readonly lanes = new Map<string, Promise<unknown>>();
+  constructor(private readonly host: TurnFiberHost) {}
+
+  /** How many fibers this incarnation is running. */
+  get active(): number {
+    return this.running.size;
+  }
+
+  /** Accepts a Caretaker message and runs its turn, streaming deltas to the first caller only. */
+  async talk(
+    participant: ConversationParticipant,
+    request: TalkRequest,
+    emit: (frame: TalkStreamFrame) => void,
+  ): Promise<TurnOutcome> {
+    const accepted = await this.store((store) => store.acceptTurn(participant, request));
+    if (accepted.receipt !== undefined) return { receipt: accepted.receipt };
+    if (accepted.fiber.phase === "accepted")
+      await this.host.checkpointed(accepted.fiber, "accepted");
+    return this.activate(participant, accepted.fiber, emit);
+  }
+
+  /** Runs, or joins, the fiber of an accepted turn. */
+  activate(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    emit: (frame: TalkStreamFrame) => void = () => undefined,
+  ): Promise<TurnOutcome> {
+    const key = activationKey({ kind: "direct_message", ...fiber });
+    const joined = this.running.get(key);
+    if (joined !== undefined) return joined;
+    const lane = this.lanes.get(fiber.sessionId) ?? Promise.resolve();
+    const run = lane
+      .catch(() => undefined)
+      .then(() => this.host.durable(fiber, participant, () => this.run(participant, fiber, emit)));
+    const settled = run.finally(() => {
+      this.running.delete(key);
+      if (this.lanes.get(fiber.sessionId) === settled) this.lanes.delete(fiber.sessionId);
+    });
+    this.running.set(key, settled);
+    this.lanes.set(fiber.sessionId, settled);
+    return settled;
+  }
+
+  /** Resumes every open turn of the participant addressed to this actor. */
+  async recover(
+    participant: ConversationParticipant,
+    scope: TurnFiber["scope"],
+    actorId: string,
+  ): Promise<number> {
+    const open = await this.store((store) => store.openTurns(participant, scope, actorId));
+    for (const fiber of open) void this.activate(participant, fiber).catch(() => undefined);
+    return open.length;
+  }
+
+  private async run(
+    participant: ConversationParticipant,
+    accepted: TurnFiber,
+    emit: (frame: TalkStreamFrame) => void,
+  ): Promise<TurnOutcome> {
+    let fiber = await this.store((store) =>
+      store.claimTurn(participant, accepted, this.host.holder, this.host.capabilityRevision()),
+    );
+    if (fiber === undefined) return this.settled(participant, accepted);
+    await this.host.checkpointed(fiber, fiber.phase);
+    try {
+      for (;;) {
+        const current: TurnFiber = fiber;
+        let next: TurnFiber | undefined;
+        switch (current.phase) {
+          case "context_pending":
+            next = await this.store((store) => store.assembleTurn(participant, current));
+            break;
+          case "context_ready":
+            next = await this.store((store) =>
+              store.advanceTurn(participant, current, "model_running"),
+            );
+            break;
+          case "model_running": {
+            const { session, caretakerMessages, input } = await this.store((store) =>
+              store.turnInput(participant, current),
+            );
+            const response = this.host.respond(session, caretakerMessages, input);
+            const words = response.text.split(/(?<= )/u);
+            for (const [index, text] of words.entries()) {
+              emit({ type: "delta", text });
+              if (index === 0) await this.host.checkpointed(current, "model_running:streaming");
+            }
+            next = await this.store((store) => store.answerTurn(participant, current, response));
+            break;
+          }
+          case "proposal_validating":
+            // A document proposal is validated where it commits, with the turn (issue 17); the
+            // scripted model proposes no world command or effect, so nothing else is refused here.
+            next = await this.store((store) =>
+              store.advanceTurn(participant, current, "committing"),
+            );
+            break;
+          case "committing":
+            next = await this.store((store) => store.commitTurn(participant, current));
+            break;
+          case "finalizing":
+            next = await this.store((store) => store.endTurn(participant, current, "completed"));
+            break;
+          default:
+            return this.settled(participant, current);
+        }
+        if (next === undefined) return this.settled(participant, current);
+        fiber = next;
+        if (fiber.phase !== "completed") await this.host.checkpointed(fiber, fiber.phase);
+      }
+    } catch (error) {
+      if (!(error instanceof ConversationRefusedError)) throw error;
+      const failing = fiber;
+      await this.store((store) => store.endTurn(participant, failing, "failed", error.code));
+      return { refused: error.code };
+    }
+  }
+
+  /** The outcome of a turn this holder no longer moves: finished, or moved on by another. */
+  private async settled(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnOutcome> {
+    const status = await this.store((store) => store.turnStatus(participant, fiber));
+    if (status.phase === "completed")
+      return { receipt: await this.store((store) => store.turnReceipt(participant, fiber)) };
+    if (status.phase === "cancelled") return { refused: "turn_cancelled" };
+    const code = status.outcomeCode;
+    if (code !== null && code in CONVERSATION_REFUSAL_STATUS)
+      return { refused: code as ConversationRefusedError["code"] };
+    return { refused: "conversation_busy" };
+  }
+
+  private store<T>(operation: (store: ConversationStore) => Promise<T>): Promise<T> {
+    return this.host.stores(operation);
+  }
+}

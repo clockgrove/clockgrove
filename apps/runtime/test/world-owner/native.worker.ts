@@ -9,6 +9,7 @@ import {
   type ProvisionWorldRequest,
   provisionWorld,
   type RuntimeMetrics,
+  type TurnFiber,
   WorldGenesisDefectError,
   type WorldProvisioningStore,
 } from "@clockgrove/application";
@@ -29,6 +30,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
+  ActorAgentDO as ProductionActorAgentDO,
   type BirthWorkflowStepConfig,
   type DurableObjectState,
   SpaceDO as ProductionSpaceDO,
@@ -203,6 +205,42 @@ interface NativeEnvironment extends RuntimeEnvironment {
   };
   readonly SPACE_DO: DurableObjectNamespace<SpaceDO>;
   readonly WORLD_DO: DurableObjectNamespace<WorldDO>;
+  readonly ACTOR_AGENT_DO: DurableObjectNamespace<ActorAgentDO>;
+}
+
+/**
+ * Turn crash injection (issue 18): the incarnation ends right after the named phase checkpoint,
+ * once per turn and phase, as an eviction or crash there would.
+ */
+export class ActorAgentDO extends ProductionActorAgentDO {
+  private held: (() => void) | undefined;
+  async injectTurnFault(phase: string | null): Promise<void> {
+    await this.objectState.storage.put("test-turn-fault", phase);
+  }
+  /** Releases a turn held by a `hold:<phase>` fault. */
+  async releaseTurn(): Promise<void> {
+    this.held?.();
+  }
+  protected override async turnCheckpointed(
+    fiber: TurnFiber,
+    phase: string,
+  ): Promise<void> {
+    const storage = this.objectState.storage;
+    const fault = await storage.get<string | null>("test-turn-fault");
+    if (fault === `hold:${phase}`) {
+      await new Promise<void>((resolve) => {
+        this.held = resolve;
+      });
+      return;
+    }
+    if (fault !== phase) return;
+    const fired = `test-turn-fault:${fiber.sessionId}:${fiber.messageId}:${phase}`;
+    if ((await storage.get<boolean>(fired)) === true) return;
+    await storage.put(fired, true);
+    // Abort drops unflushed writes: flush the marker, so the restarted incarnation passes on.
+    await (storage as unknown as { sync(): Promise<void> }).sync();
+    this.objectState.abort(`injected turn fault at ${phase}`);
+  }
 }
 
 /** World inspection adds no production scheduling or mutation path. */
@@ -922,6 +960,52 @@ export default {
       ]);
       const space = env.SPACE_DO.get(env.SPACE_DO.idFromName(name));
       return Response.json(await space.advanceClockTest(scope));
+    }
+    if (pathname === "/actor-agent") {
+      const identifying = request.clone();
+      const body = (await request.json()) as Record<string, unknown>;
+      const scope = decodeBrowserScope(body.scope);
+      const actorId = String(body.actorId);
+      const actor = env.ACTOR_AGENT_DO.get(
+        env.ACTOR_AGENT_DO.idFromName(
+          await stableRuntimeRouteName("actor-agent", [
+            scope.tenantId,
+            scope.worldId,
+            scope.timelineId,
+            actorId,
+          ]),
+        ),
+      );
+      if (body.op === "fault") return Response.json(await actor.injectTurnFault(body.phase as string | null) ?? null);
+      if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
+      if (body.op === "inspect") return Response.json(await actor.inspectAgent());
+      if (body.op === "capabilities")
+        return Response.json(await actor.reconcileCapabilities(Number(body.revision)));
+      if (body.op === "perception")
+        return Response.json(
+          await actor.receivePerception({
+            kind: "direct_message",
+            sessionId: String(body.sessionId),
+            messageId: String(body.messageId),
+          }),
+        );
+      const auth = new TrustedRuntimeRequestAuthenticator(composeRuntime(env).authentication);
+      const context = await auth.authorize(
+        await auth.identify(identifying),
+        {
+          requestId: "native-actor-process",
+          correlationId: decodeOpaqueId("native-actor-process", "CorrelationId"),
+        },
+        "runtime:world-observe",
+      );
+      return Response.json(
+        await actor.advanceProcess(scope, context, {
+          processId: String(body.processId),
+          actorId,
+          target: Number(body.target),
+          steps: Number(body.steps),
+        }),
+      );
     }
     if (pathname !== "/inspect" && pathname !== "/resume") return worker.fetch(request, env);
     try {

@@ -6,7 +6,6 @@ import {
 } from "@clockgrove/application";
 import {
   type BrowserScope,
-  type ConversationSession,
   decodeConversationArchiveRequest,
   decodeConversationDeleteRequest,
   decodeConversationListRequest,
@@ -14,8 +13,15 @@ import {
   decodeConversationTitleRequest,
   decodeCreateConversationRequest,
   decodeTalkRequest,
+  decodeTalkStreamFrame,
+  decodeTurnRequest,
   type ObjectId,
+  type TalkRequest,
+  type TalkStreamFrame,
+  type TurnRequest,
+  type TurnStatus,
 } from "@clockgrove/contracts";
+import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 
 /** The conversation routes of the HTTP API (`docs/protocols/conversations.openapi.json`). */
 export const CONVERSATION_ROUTES = [
@@ -26,6 +32,8 @@ export const CONVERSATION_ROUTES = [
   "/v1/runtime/conversations/archive",
   "/v1/runtime/conversations/delete",
   "/v1/runtime/talk",
+  "/v1/runtime/turns/status",
+  "/v1/runtime/turns/cancel",
 ] as const;
 export type ConversationRoute = (typeof CONVERSATION_ROUTES)[number];
 
@@ -56,15 +64,55 @@ export function scriptedConversationReply(
   return { text, proposal: { path, content } };
 }
 
+/** A turn owner's answer across RPC, where error classes do not survive: a value or a refusal. */
+export type TurnOwnerAnswer<T> =
+  | { readonly value: T; readonly refused?: undefined }
+  | { readonly refused: ConversationRefusedError["code"]; readonly value?: undefined };
+
+/**
+ * The actor owners that run turns (`ActorAgentDO`), addressed by the session's actor. Talk answers
+ * an NDJSON stream of `TalkStreamFrame`s that ends with the receipt or the refusal.
+ */
+export interface TurnOwners {
+  talk(
+    actorId: string,
+    participant: ConversationParticipant,
+    context: TrustedExecutionContext,
+    request: TalkRequest,
+  ): Promise<ReadableStream<Uint8Array>>;
+  status(
+    actorId: string,
+    participant: ConversationParticipant,
+    context: TrustedExecutionContext,
+    request: TurnRequest,
+  ): Promise<TurnOwnerAnswer<TurnStatus>>;
+  cancel(
+    actorId: string,
+    participant: ConversationParticipant,
+    context: TrustedExecutionContext,
+    request: TurnRequest,
+  ): Promise<TurnOwnerAnswer<TurnStatus>>;
+}
+
 export interface ConversationCall {
   /** The scope to authorize: the request's world timeline and space. */
   readonly scope: BrowserScope;
   /** The actor a new session addresses; the caller checks it is projected first. */
   readonly actorId?: ObjectId;
-  readonly run: (
+  readonly run?: (
     store: ConversationStore,
     participant: ConversationParticipant,
   ) => Promise<unknown>;
+  /** A call its session's actor owner answers: Talk, a turn's status, a cancel. */
+  readonly owner?: {
+    readonly sessionId: string;
+    readonly run: (
+      owners: TurnOwners,
+      actorId: string,
+      participant: ConversationParticipant,
+      context: TrustedExecutionContext,
+    ) => Promise<ReadableStream<Uint8Array> | TurnOwnerAnswer<TurnStatus>>;
+  };
 }
 
 /** Decodes a conversation route's body into its scope and its store operation. */
@@ -127,7 +175,26 @@ export function conversationCall(route: ConversationRoute, body: unknown): Conve
       const input = decodeTalkRequest(body);
       return {
         scope: input.scope,
-        run: (store, participant) => store.talk(participant, input, scriptedConversationReply),
+        owner: {
+          sessionId: input.sessionId,
+          run: (owners, actorId, participant, context) =>
+            owners.talk(actorId, participant, context, input),
+        },
+      };
+    }
+    case "/v1/runtime/turns/status":
+    case "/v1/runtime/turns/cancel": {
+      const input = decodeTurnRequest(body);
+      const cancel = route === "/v1/runtime/turns/cancel";
+      return {
+        scope: input.scope,
+        owner: {
+          sessionId: input.sessionId,
+          run: (owners, actorId, participant, context) =>
+            cancel
+              ? owners.cancel(actorId, participant, context, input)
+              : owners.status(actorId, participant, context, input),
+        },
       };
     }
   }
@@ -143,6 +210,36 @@ export const CONVERSATION_REFUSAL_STATUS: Readonly<
   conversation_limit_reached: 409,
   message_id_reused: 409,
   conversation_busy: 409,
+  turn_not_found: 404,
+  turn_cancelled: 409,
 };
+
+/** NDJSON framing of a streamed Talk: one frame per line. */
+export function encodeTalkFrame(frame: TalkStreamFrame): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(frame)}\n`);
+}
+
+/** Reads a streamed Talk to its last frame, the durable outcome; undefined if the stream broke. */
+export async function lastTalkFrame(
+  stream: ReadableStream<Uint8Array>,
+): Promise<TalkStreamFrame | undefined> {
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let last: TalkStreamFrame | undefined;
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      const lines = buffered.split("\n");
+      buffered = lines.pop() ?? "";
+      for (const line of lines) if (line !== "") last = decodeTalkStreamFrame(JSON.parse(line));
+    }
+  } catch {
+    return undefined;
+  }
+  return last?.type === "delta" ? undefined : last;
+}
 
 export { ConversationRefusedError };

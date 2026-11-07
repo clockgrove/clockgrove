@@ -9,7 +9,7 @@ import {
   type ContextSource,
   type ConversationParticipant,
   ConversationRefusedError,
-  type ConversationResponder,
+  type ConversationResponse,
   type ConversationStore,
   type DocumentProposal,
   documentDecisions,
@@ -18,9 +18,13 @@ import {
   type RuntimeAuthorizationContext,
   recordedInputs,
   renderPrompt,
+  type TurnAcceptance,
+  type TurnFiber,
+  type TurnInput,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
+  CANCELLABLE_TURN_PHASES,
   type ContextManifest,
   type ConversationMessage,
   type ConversationSession,
@@ -35,6 +39,10 @@ import {
   type SpaceId,
   type TalkReceipt,
   type TalkRequest,
+  TERMINAL_TURN_PHASES,
+  type TurnPhase,
+  type TurnRequest,
+  type TurnStatus,
   VOICE_DISCLOSURES,
   type VoiceMode,
 } from "@clockgrove/contracts";
@@ -230,84 +238,397 @@ export class PostgreSqlConversationStore implements ConversationStore {
     await this.update(participant, scope, sessionId, "state = $5", "deleted");
   }
 
-  async talk(
+  async acceptTurn(
     participant: ConversationParticipant,
     request: TalkRequest,
-    respond: ConversationResponder,
-  ): Promise<TalkReceipt> {
+  ): Promise<TurnAcceptance> {
     const { scope, sessionId, messageId } = request;
     const stored = await this.stored(participant, scope, sessionId);
-    const retried = await this.retried(participant, stored, request);
-    if (retried !== undefined) return retried;
-    if (stored.row.state !== "active")
-      throw new ConversationRefusedError("conversation_not_active");
-    const count = Number(stored.row.message_count);
-    if (count + 2 > 1000) throw new ConversationRefusedError("conversation_full");
-    const sequence = count + 1;
-    const caretakerMessages = (sequence + 1) / 2;
-    const before = await this.session(participant, stored.row);
-    // The input artifact is keyed by message ID, so an exact retry after a lost connection rewrites
-    // the same content and other text under that ID is a reuse. The reply's key is fresh: an
-    // orphaned reply never collides with a later one.
+    const receipt = await this.retried(participant, stored, request.messageId, request.text);
+    if (receipt !== undefined) return { receipt };
+    // The input artifact is keyed by message ID, so a duplicate delivery rewrites the same content
+    // and other text under that ID is a reuse, whether or not its turn was accepted.
     const inputArtifact = `${sessionId}:message:${messageId}`;
+    const existing = await this.fiberOf(participant, scope, sessionId, messageId);
+    if (existing === undefined) {
+      if (stored.row.state !== "active")
+        throw new ConversationRefusedError("conversation_not_active");
+      if (Number(stored.row.message_count) + 2 > 1000)
+        throw new ConversationRefusedError("conversation_full");
+    }
     await this.put(participant, stored, inputArtifact, request.text, "message_id_reused");
-    const context = await this.assemble(participant, stored, request, count);
-    const run = await this.beginRun(
-      participant,
-      stored,
-      request,
-      count,
-      caretakerMessages,
-      context,
-    );
-    const { tenantId } = scope;
-    let written: Awaited<ReturnType<typeof this.commitTalk>>;
-    let reply: string;
+    if (existing !== undefined) return { fiber: existing };
     try {
-      const response = respond(before, caretakerMessages, request.text);
-      reply = response.text;
-      const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
-      await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
-      await this.transaction(participant, () =>
-        closedRunRefused(this.runs.modelAnswered(tenantId, run, replyArtifact)),
+      const inserted = await this.transaction(participant, () =>
+        this.client.query(
+          `INSERT INTO clockgrove.conversation_turn_fibers (
+             tenant_id, session_id, message_id, world_id, timeline_id, actor_id, principal_id,
+             persona_id, input_artifact_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (tenant_id, session_id, message_id) DO NOTHING
+           RETURNING ${FIBER_COLUMNS}`,
+          [
+            scope.tenantId,
+            sessionId,
+            messageId,
+            scope.worldId,
+            scope.timelineId,
+            stored.row.actor_id,
+            participant.principalId,
+            participant.personaId,
+            inputArtifact,
+          ],
+        ),
       );
-      written = await this.commitTalk(participant, stored, request, count, inputArtifact, {
-        run,
-        replyArtifact,
-        ...(response.proposal === undefined ? {} : { proposal: response.proposal }),
-      });
+      const row = inserted.rows[0] as Row | undefined;
+      if (row !== undefined) return { fiber: fiberOf(row, scope) };
     } catch (error) {
-      if (error instanceof ConversationRefusedError)
-        await this.closeRun(participant, run, "failed", error.code);
-      else await this.closeRun(participant, run, "abandoned", "attempt_failed");
+      const code = (error as { code?: unknown }).code;
+      // Another turn of this session is open: turns are ordered within a session.
+      if (code === "23505") throw new ConversationRefusedError("conversation_busy");
+      if (code === "CG021") throw new ConversationRefusedError("conversation_full");
       throw error;
     }
-    if (written === undefined) {
-      // A concurrent attempt at this message stored it first.
-      await this.closeRun(participant, run, "superseded", "message_stored");
-      const receipt = await this.retried(participant, stored, request);
-      if (receipt === undefined) throw new ConversationRefusedError("conversation_busy");
-      return receipt;
-    }
-    // The receipt is built from the rows just written and the texts already in hand: no re-read.
-    const message = (row: Row, text: string) =>
-      decodeConversationMessage({
-        sessionId: row.session_id,
-        sequence: Number(row.sequence),
-        messageId: row.message_id,
-        role: row.role,
-        authorId: row.author_id,
-        voiceMode: row.voice_mode,
-        text,
-        createdAt: row.created_at,
+    // A concurrent delivery of the same message accepted it first.
+    const raced = await this.fiberOf(participant, scope, sessionId, messageId);
+    if (raced === undefined) throw new ConversationRefusedError("conversation_busy");
+    return { fiber: raced };
+  }
+
+  async claimTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    holder: string,
+    capabilityRevision: number,
+  ): Promise<TurnFiber | undefined> {
+    if (TERMINAL_TURN_PHASES.includes(fiber.phase)) return undefined;
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    // A turn that already committed only finalizes: it needs no new attempt.
+    const needsRun = fiber.phase !== "finalizing";
+    const start = needsRun ? await this.prepareRun(participant, stored, fiber) : undefined;
+    try {
+      return await this.transaction(participant, async () => {
+        const current = await this.lockedFiber(fiber);
+        if (current === undefined || TERMINAL_TURN_PHASES.includes(current.phase)) return undefined;
+        if (current.runId !== null)
+          await this.runs.close(fiber.scope.tenantId, current.runId, "abandoned", "owner_lost");
+        if (start !== undefined) {
+          await this.runs.beginTalk(start.run);
+          await this.manifests.record(
+            {
+              tenantId: start.run.tenantId,
+              worldId: start.run.worldId,
+              timelineId: start.run.timelineId,
+              spaceId: start.run.spaceId,
+            },
+            start.manifest,
+          );
+          // A checkpointed answer is not asked for again: this attempt commits it.
+          if (current.replyArtifactId !== null)
+            await this.runs.modelAnswered(
+              fiber.scope.tenantId,
+              start.run.runId,
+              current.replyArtifactId,
+            );
+        }
+        const claimed = await this.client.query(
+          `UPDATE clockgrove.conversation_turn_fibers
+              SET lease_epoch = lease_epoch + 1, attempt = attempt + 1, lease_holder = $4,
+                  run_id = coalesce($5, run_id), capability_revision = $6,
+                  phase = CASE phase WHEN 'accepted' THEN 'context_pending' ELSE phase END
+            WHERE ${FIBER_KEY}
+            RETURNING ${FIBER_COLUMNS}`,
+          [...fiberKey(fiber), holder, start?.run.runId ?? null, capabilityRevision],
+        );
+        return fiberOf(claimed.rows[0] as Row, fiber.scope);
       });
-    return Object.freeze({
-      type: "private_caretaker_talk" as const,
-      session: this.sessionOf(written.session, before.title),
-      message: message(written.input, request.text),
-      reply: message(written.output, reply),
-      turn: turnOf(written.turn),
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "CG021")
+        throw new ConversationRefusedError("conversation_full");
+      throw error;
+    }
+  }
+
+  async assembleTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined> {
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    const inputRevision = Number(stored.row.message_count);
+    return this.moveTurn(participant, fiber, "context_ready", { inputRevision });
+  }
+
+  async actorOf(
+    participant: ConversationParticipant,
+    scope: BrowserScope,
+    sessionId: string,
+  ): Promise<string> {
+    return String((await this.stored(participant, scope, sessionId)).row.actor_id);
+  }
+
+  advanceTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    to: TurnPhase,
+  ): Promise<TurnFiber | undefined> {
+    return this.moveTurn(participant, fiber, to);
+  }
+
+  async turnInput(participant: ConversationParticipant, fiber: TurnFiber): Promise<TurnInput> {
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    return {
+      session: await this.session(participant, stored.row),
+      caretakerMessages: ((fiber.inputRevision ?? Number(stored.row.message_count)) + 2) / 2,
+      input: await this.text(participant, stored, fiber.inputArtifactId),
+    };
+  }
+
+  async answerTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    response: ConversationResponse,
+  ): Promise<TurnFiber | undefined> {
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    // The answer's keys are fresh: an orphaned answer never collides with a later one.
+    const answer = crypto.randomUUID();
+    const replyArtifact = `${fiber.sessionId}:reply:${answer}`;
+    await this.put(participant, stored, replyArtifact, response.text, "conversation_busy");
+    // A proposal is checkpointed with the reply, so a recovered attempt commits the same one. It
+    // holds actor document content, so it is the actor's private cognition (issue 17).
+    let proposalArtifact: string | undefined;
+    if (response.proposal !== undefined) {
+      proposalArtifact = `${fiber.sessionId}:proposal:${answer}`;
+      await this.put(
+        participant,
+        stored,
+        proposalArtifact,
+        JSON.stringify({ path: response.proposal.path, content: response.proposal.content }),
+        "conversation_busy",
+        JSON_MEDIA_TYPE,
+        "private_cognition",
+      );
+    }
+    return this.fenced(() =>
+      this.transaction(participant, async () => {
+        if (fiber.runId !== null)
+          await this.runs.modelAnswered(fiber.scope.tenantId, fiber.runId, replyArtifact);
+        return this.moveTurnHere(fiber, "proposal_validating", {
+          replyArtifactId: replyArtifact,
+          ...(proposalArtifact === undefined ? {} : { proposalArtifactId: proposalArtifact }),
+        });
+      }),
+    );
+  }
+
+  async commitTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined> {
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    if (fiber.runId === null || fiber.replyArtifactId === null)
+      throw new Error("a committing turn has a run and an answer");
+    const { runId, replyArtifactId } = fiber;
+    const count = Number(stored.row.message_count);
+    const proposal =
+      fiber.proposalArtifactId === null
+        ? undefined
+        : (JSON.parse(
+            await this.text(participant, stored, fiber.proposalArtifactId, "private_cognition"),
+          ) as DocumentProposal);
+    return this.fenced(async () => {
+      const written = await this.commitTalk(
+        participant,
+        stored,
+        fiber,
+        count,
+        `${fiber.sessionId}:message:${fiber.messageId}`,
+        { run: runId, replyArtifact: replyArtifactId, ...(proposal === undefined ? {} : { proposal }) },
+        () => this.moveTurnHere(fiber, "finalizing"),
+      );
+      return written;
     });
+  }
+
+  async endTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    phase: "completed" | "failed",
+    outcomeCode?: string,
+  ): Promise<TurnFiber | undefined> {
+    return this.fenced(() =>
+      this.transaction(participant, async () => {
+        if (phase === "failed" && fiber.runId !== null)
+          await this.runs.close(
+            fiber.scope.tenantId,
+            fiber.runId,
+            "failed",
+            outcomeCode ?? "failed",
+          );
+        return this.moveTurnHere(fiber, phase, { outcomeCode: outcomeCode ?? null });
+      }),
+    );
+  }
+
+  async turnReceipt(participant: ConversationParticipant, fiber: TurnFiber): Promise<TalkReceipt> {
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    const receipt = await this.retried(participant, stored, fiber.messageId);
+    if (receipt === undefined) throw new ConversationRefusedError("turn_not_found");
+    return receipt;
+  }
+
+  async turnStatus(
+    participant: ConversationParticipant,
+    request: TurnRequest,
+  ): Promise<TurnStatus> {
+    await this.stored(participant, request.scope, request.sessionId);
+    const fiber = await this.fiberOf(
+      participant,
+      request.scope,
+      request.sessionId,
+      request.messageId,
+    );
+    if (fiber === undefined) throw new ConversationRefusedError("turn_not_found");
+    return statusOf(fiber);
+  }
+
+  async cancelTurn(
+    participant: ConversationParticipant,
+    request: TurnRequest,
+  ): Promise<TurnStatus> {
+    await this.stored(participant, request.scope, request.sessionId);
+    const key = {
+      scope: request.scope,
+      sessionId: request.sessionId,
+      messageId: request.messageId,
+    };
+    const fiber = await this.transaction(participant, async () => {
+      const current = await this.lockedFiber(key);
+      if (current === undefined) throw new ConversationRefusedError("turn_not_found");
+      if (!CANCELLABLE_TURN_PHASES.includes(current.phase)) return current;
+      if (current.runId !== null)
+        await this.runs.close(
+          request.scope.tenantId,
+          current.runId,
+          "cancelled",
+          "cancel_requested",
+        );
+      const cancelled = await this.client.query(
+        `UPDATE clockgrove.conversation_turn_fibers
+            SET phase = 'cancelled', outcome_code = 'cancel_requested', lease_holder = NULL
+          WHERE ${FIBER_KEY}
+          RETURNING ${FIBER_COLUMNS}`,
+        fiberKey(key),
+      );
+      return fiberOf(cancelled.rows[0] as Row, request.scope);
+    });
+    return statusOf(fiber);
+  }
+
+  async openTurns(
+    participant: ConversationParticipant,
+    scope: BrowserScope,
+    actorId: string,
+  ): Promise<readonly TurnFiber[]> {
+    const rows = await this.transaction(participant, async () => {
+      const found = await this.client.query(
+        `SELECT ${FIBER_COLUMNS} FROM clockgrove.conversation_turn_fibers
+          WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND actor_id = $4
+            AND principal_id = $5 AND phase NOT IN (${TERMINAL_SQL})
+          ORDER BY created_at, session_id`,
+        [scope.tenantId, scope.worldId, scope.timelineId, actorId, participant.principalId],
+      );
+      return found.rows as Row[];
+    });
+    return rows.map((row) => fiberOf(row, scope));
+  }
+
+  private async fiberOf(
+    participant: ConversationParticipant,
+    scope: BrowserScope,
+    sessionId: string,
+    messageId: string,
+  ): Promise<TurnFiber | undefined> {
+    const row = await this.transaction(participant, async () => {
+      const found = await this.client.query(
+        `SELECT ${FIBER_COLUMNS} FROM clockgrove.conversation_turn_fibers WHERE ${FIBER_KEY}`,
+        [scope.tenantId, sessionId, messageId],
+      );
+      return found.rows[0] as Row | undefined;
+    });
+    return row === undefined ? undefined : fiberOf(row, scope);
+  }
+
+  /** The fiber's current row, locked for this transaction. */
+  private async lockedFiber(fiber: {
+    readonly scope: BrowserScope;
+    readonly sessionId: string;
+    readonly messageId: string;
+  }): Promise<TurnFiber | undefined> {
+    const found = await this.client.query(
+      `SELECT ${FIBER_COLUMNS} FROM clockgrove.conversation_turn_fibers WHERE ${FIBER_KEY}
+        FOR UPDATE`,
+      fiberKey(fiber),
+    );
+    const row = found.rows[0] as Row | undefined;
+    return row === undefined ? undefined : fiberOf(row, fiber.scope);
+  }
+
+  private moveTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    to: TurnPhase,
+    changes: FiberChanges = {},
+  ): Promise<TurnFiber | undefined> {
+    return this.fenced(() =>
+      this.transaction(participant, () => this.moveTurnHere(fiber, to, changes)),
+    );
+  }
+
+  /**
+   * Moves the turn from the phase this holder last saw, under its lease epoch, inside the caller's
+   * transaction. Undefined when either moved on: a cancel, or a newer incarnation's claim.
+   */
+  private async moveTurnHere(
+    fiber: TurnFiber,
+    to: TurnPhase,
+    changes: FiberChanges = {},
+  ): Promise<TurnFiber | undefined> {
+    const terminal = TERMINAL_TURN_PHASES.includes(to);
+    const moved = await this.client.query(
+      `UPDATE clockgrove.conversation_turn_fibers
+          SET phase = $6,
+              input_revision = coalesce($7, input_revision),
+              reply_artifact_id = coalesce($8, reply_artifact_id),
+              outcome_code = coalesce($9, outcome_code),
+              lease_holder = CASE WHEN $10 THEN NULL ELSE lease_holder END,
+              proposal_artifact_id = coalesce($11, proposal_artifact_id)
+        WHERE ${FIBER_KEY} AND lease_epoch = $4 AND phase = $5
+        RETURNING ${FIBER_COLUMNS}`,
+      [
+        ...fiberKey(fiber),
+        fiber.leaseEpoch,
+        fiber.phase,
+        to,
+        changes.inputRevision ?? null,
+        changes.replyArtifactId ?? null,
+        changes.outcomeCode ?? null,
+        terminal,
+        changes.proposalArtifactId ?? null,
+      ],
+    );
+    const row = moved.rows[0] as Row | undefined;
+    return row === undefined ? undefined : fiberOf(row, fiber.scope);
+  }
+
+  /** A closed run (CG020) means a cancel or a newer claim overtook this holder: it is fenced. */
+  private async fenced<T>(move: () => Promise<T | undefined>): Promise<T | undefined> {
+    try {
+      return await move();
+    } catch (error) {
+      if (error instanceof TurnFencedError || (error as { code?: unknown }).code === "CG020")
+        return undefined;
+      throw error;
+    }
   }
 
   /**
@@ -318,7 +639,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
   private async assemble(
     participant: ConversationParticipant,
     stored: StoredSession,
-    request: TalkRequest,
+    request: TurnFiber,
+    text: string,
     count: number,
   ): Promise<AssembledContext> {
     const { tenantId } = request.scope;
@@ -336,11 +658,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
           role: row.role as "caretaker" | "actor",
         })),
       };
-      const texts = await this.admittedTexts(tenantId, inputs, estimateTokens(request.text));
+      const texts = await this.admittedTexts(tenantId, inputs, estimateTokens(text));
       return { inputs, messages, texts };
     });
     return assembleContext(inputs, (source) =>
-      this.source(participant, stored, messages, texts, source, async () => request.text),
+      this.source(participant, stored, messages, texts, source, async () => text),
     );
   }
 
@@ -416,28 +738,29 @@ export class PostgreSqlConversationStore implements ConversationStore {
   }
 
   /**
-   * Opens this attempt's run (migration 0036) with its protected model input, the exact prompt the
-   * scripted model reads, as a `conversation` artifact, or `private_cognition` when it includes an
-   * actor document, and its context step and manifest (0037).
-   * A session at its run limit is full.
+   * Prepares an attempt's run (migration 0036): it assembles the attempt's context (0037,
+   * `docs/protocols/context-assembly.md`) and stores the exact prompt the scripted model reads, as a
+   * `conversation` artifact, or `private_cognition` when it includes an actor document, with the
+   * manifest the claim records beside the run. A session at its run limit is full.
    */
-  private async beginRun(
+  private async prepareRun(
     participant: ConversationParticipant,
     stored: StoredSession,
-    request: TalkRequest,
-    count: number,
-    caretakerMessages: number,
-    context: AssembledContext,
-  ): Promise<string> {
-    // A full session is refused before its prompt is stored, so a refused Talk leaves no artifact.
+    fiber: TurnFiber,
+  ): Promise<{ readonly run: TalkRunStart; readonly manifest: ContextManifest }> {
+    // A full session is refused before its prompt is stored, so a refused attempt leaves no artifact.
     const full = await this.transaction(participant, () =>
-      this.runs.full(participant.tenantId, request.sessionId),
+      this.runs.full(participant.tenantId, fiber.sessionId),
     );
     if (full) throw new ConversationRefusedError("conversation_full");
+    const count = Number(stored.row.message_count);
+    const caretakerMessages = (count + 2) / 2;
     const runId = `run-${crypto.randomUUID()}`;
-    const promptArtifactId = `${request.sessionId}:prompt:${runId}`;
+    const promptArtifactId = `${fiber.sessionId}:prompt:${runId}`;
+    const input = await this.text(participant, stored, fiber.inputArtifactId);
+    const context = await this.assemble(participant, stored, fiber, input, count);
     const prompt = renderPrompt(
-      { model: SCRIPTED_MODEL, sessionId: request.sessionId, caretakerMessages },
+      { model: SCRIPTED_MODEL, sessionId: fiber.sessionId, caretakerMessages },
       context,
     );
     // Decision (issue 17, owner's answer 1): a prompt that includes any actor document holds
@@ -457,73 +780,37 @@ export class PostgreSqlConversationStore implements ConversationStore {
       promptPrivacyClass,
     );
     const row = stored.row;
-    const start: TalkRunStart = {
-      tenantId: String(row.tenant_id),
-      worldId: String(row.world_id),
-      timelineId: String(row.timeline_id),
-      partitionId: stored.partitionId,
-      spaceId: stored.spaceId,
-      sessionId: request.sessionId,
-      actorId: String(row.actor_id),
-      principalId: participant.principalId,
-      personaId: participant.personaId,
-      runId,
-      inputMessageId: request.messageId,
-      inputRevision: count,
-      caretakerMessages,
-      promptArtifactId,
-      promptPrivacyClass,
-      contextSummary: `Assembled ${context.entries.filter((e) => e.decision === "included").length} of ${context.entries.length} context sources`,
+    return {
+      run: {
+        tenantId: String(row.tenant_id),
+        worldId: String(row.world_id),
+        timelineId: String(row.timeline_id),
+        partitionId: stored.partitionId,
+        spaceId: stored.spaceId,
+        sessionId: fiber.sessionId,
+        actorId: String(row.actor_id),
+        principalId: fiber.principalId,
+        personaId: fiber.personaId,
+        runId,
+        inputMessageId: fiber.messageId,
+        inputRevision: count,
+        caretakerMessages,
+        promptArtifactId,
+        promptPrivacyClass,
+        contextSummary: `Assembled ${context.entries.filter((e) => e.decision === "included").length} of ${context.entries.length} context sources`,
+      },
+      manifest: {
+        runId,
+        sessionId: fiber.sessionId,
+        actorId: String(row.actor_id),
+        inputMessageId: fiber.messageId,
+        inputRevision: count,
+        tokenBudget: context.tokenBudget,
+        tokensUsed: context.tokensUsed,
+        manifestHash: context.manifestHash,
+        entries: context.entries,
+      },
     };
-    const manifest: ContextManifest = {
-      runId,
-      sessionId: request.sessionId,
-      actorId: String(row.actor_id),
-      inputMessageId: request.messageId,
-      inputRevision: count,
-      tokenBudget: context.tokenBudget,
-      tokensUsed: context.tokensUsed,
-      manifestHash: context.manifestHash,
-      entries: context.entries,
-    };
-    try {
-      await this.transaction(participant, async () => {
-        await this.runs.beginTalk(start);
-        await this.manifests.record(
-          {
-            tenantId: start.tenantId,
-            worldId: start.worldId,
-            timelineId: start.timelineId,
-            spaceId: start.spaceId,
-          },
-          manifest,
-        );
-      });
-    } catch (error) {
-      if ((error as { code?: unknown }).code === "CG021")
-        throw new ConversationRefusedError("conversation_full");
-      throw error;
-    }
-    return runId;
-  }
-
-  /**
-   * Records a disposition other than completion. When the database itself failed this may fail
-   * too; the run then stays open until the session's next attempt abandons it as stale.
-   */
-  private async closeRun(
-    participant: ConversationParticipant,
-    runId: string,
-    status: "failed" | "abandoned" | "superseded",
-    outcomeCode: string,
-  ): Promise<void> {
-    try {
-      await this.transaction(participant, () =>
-        this.runs.close(participant.tenantId, runId, status, outcomeCode),
-      );
-    } catch {
-      // The original refusal or failure is what the caller answers.
-    }
   }
 
   /**
@@ -534,7 +821,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
   private async commitTalk(
     participant: ConversationParticipant,
     stored: StoredSession,
-    request: TalkRequest,
+    request: {
+      readonly scope: BrowserScope;
+      readonly sessionId: string;
+      readonly messageId: string;
+    },
     count: number,
     inputArtifact: string,
     attempt: {
@@ -542,7 +833,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
       readonly replyArtifact: string;
       readonly proposal?: DocumentProposal;
     },
-  ) {
+    checkpoint: () => Promise<TurnFiber | undefined>,
+  ): Promise<TurnFiber | undefined> {
     const { scope, sessionId, messageId } = request;
     const replyId = `${messageId}:reply`;
     const sequence = count + 1;
@@ -562,17 +854,16 @@ export class PostgreSqlConversationStore implements ConversationStore {
           WHERE tenant_id = $1 AND session_id = $2 AND message_id = $3`,
         [scope.tenantId, sessionId, messageId],
       );
-      // A concurrent retry of this message stored it first; its receipt is read below.
+      // Only this turn commits its message, so it is already stored only if this turn moved on.
       if (used.rows.length > 0) return undefined;
       if (Number(current.message_count) !== count)
         throw new ConversationRefusedError("conversation_busy");
-      const messages = await this.client.query(
+      await this.client.query(
         `INSERT INTO clockgrove.conversation_messages (
            tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
            content_artifact_id
          ) VALUES ($1, $2, $3, $4, $5, 'caretaker', $6, NULL, $7),
-                  ($1, $2, NULL, $4 + 1, $8, 'actor', $9, $10, $11)
-         RETURNING ${MESSAGE_COLUMNS}`,
+                  ($1, $2, NULL, $4 + 1, $8, 'actor', $9, $10, $11)`,
         [
           scope.tenantId,
           sessionId,
@@ -587,45 +878,35 @@ export class PostgreSqlConversationStore implements ConversationStore {
           replyArtifact,
         ],
       );
-      const turn = await this.client.query(
+      await this.client.query(
         `INSERT INTO clockgrove.conversation_turns (
            tenant_id, session_id, principal_id, turn, input_sequence, output_sequence, model, state
-         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, 'scripted-fixture-v1', 'completed')
-         RETURNING ${TURN_COLUMNS}`,
+         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, 'scripted-fixture-v1', 'completed')`,
         [scope.tenantId, sessionId, participant.principalId, (sequence + 1) / 2, sequence],
       );
-      const session = await this.client.query(
+      await this.client.query(
         `UPDATE clockgrove.conversation_sessions
             SET message_count = message_count + 2, updated_at = statement_timestamp()
-          WHERE ${SESSION_SCOPE}
-          RETURNING ${SESSION_COLUMNS}`,
+          WHERE ${SESSION_SCOPE}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
       let step = 3;
       if (attempt.proposal !== undefined) {
-        await closedRunRefused(
-          this.propose(participant, stored, request, attempt.run, attempt.proposal),
-        );
+        await this.propose(participant, stored, request, attempt.run, attempt.proposal);
         step = 4;
       }
-      // A later attempt that closed this run refuses its commit, rolling the messages back.
-      await closedRunRefused(
-        this.runs.committed(
-          scope.tenantId,
-          sessionId,
-          attempt.run,
-          (sequence + 1) / 2,
-          replyId,
-          step,
-        ),
+      // A cancel or newer claim that closed this run refuses its commit (CG020), rolling it back.
+      await this.runs.committed(
+        scope.tenantId,
+        sessionId,
+        attempt.run,
+        (sequence + 1) / 2,
+        replyId,
+        step,
       );
-      const rows = (messages.rows as Row[]).sort((a, b) => Number(a.sequence) - Number(b.sequence));
-      return {
-        input: rows[0] as Row,
-        output: rows[1] as Row,
-        turn: turn.rows[0] as Row,
-        session: session.rows[0] as Row,
-      };
+      const moved = await checkpoint();
+      if (moved === undefined) throw new TurnFencedError();
+      return moved;
     });
   }
 
@@ -637,7 +918,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
   private async propose(
     participant: ConversationParticipant,
     stored: StoredSession,
-    request: TalkRequest,
+    request: { readonly sessionId: string },
     runId: string,
     proposal: DocumentProposal,
   ): Promise<void> {
@@ -677,12 +958,21 @@ export class PostgreSqlConversationStore implements ConversationStore {
     });
   }
 
-  /** The stored receipt of this message ID, or undefined when it is new. Other text is a reuse. */
+  /**
+   * The stored receipt of this message ID, or undefined when it is not committed. Other text than
+   * the expected text is a reuse.
+   */
   private async retried(
     participant: ConversationParticipant,
     stored: StoredSession,
-    request: TalkRequest,
+    messageId: string,
+    text?: string,
   ): Promise<TalkReceipt | undefined> {
+    const request = {
+      scope: { tenantId: String(stored.row.tenant_id) },
+      sessionId: String(stored.row.session_id),
+      messageId,
+    };
     const rows = await this.transaction(participant, async () => {
       const found = await this.client.query(
         `SELECT ${MESSAGE_COLUMNS} FROM clockgrove.conversation_messages
@@ -702,7 +992,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const [input, output] = rows.messages;
     if (input === undefined || output === undefined || rows.turn === undefined) return undefined;
     const message = await this.message(participant, stored, input);
-    if (message.text !== request.text) throw new ConversationRefusedError("message_id_reused");
+    if (text !== undefined && message.text !== text)
+      throw new ConversationRefusedError("message_id_reused");
     return Object.freeze({
       type: "private_caretaker_talk" as const,
       session: await this.session(participant, stored.row),
@@ -821,23 +1112,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
     mediaType = TEXT_MEDIA_TYPE,
     privacyClass: "conversation" | "private_cognition" = "conversation",
   ): Promise<void> {
-    // The runtime writes a private prompt as the actor's cognition, not as the participant's
+    // The runtime writes a private prompt or proposal as the actor's cognition, not as the participant's
     // reading: the participant's ceiling gains `private_cognition` for this one write only, and
     // reading the prompt back still needs that class in the reader's own ceiling (0037).
-    const writer =
-      privacyClass === "conversation"
-        ? participant
-        : {
-            ...participant,
-            privacyCeiling: {
-              ...participant.privacyCeiling,
-              allowedCategories: [
-                ...new Set([...participant.privacyCeiling.allowedCategories, privacyClass]),
-              ],
-            },
-          };
     try {
-      await this.artifacts.put(writer, {
+      await this.artifacts.put(cognition(participant, privacyClass), {
         ...this.locator(stored, artifactId),
         bytes: encoder.encode(text),
         mediaType,
@@ -851,12 +1130,20 @@ export class PostgreSqlConversationStore implements ConversationStore {
     }
   }
 
+  /**
+   * An artifact's text. A `private_cognition` artifact is the actor's, read back only by the
+   * runtime's own turn (its checkpointed proposal) under the same one-call ceiling as its write.
+   */
   private async text(
     participant: ConversationParticipant,
     stored: StoredSession,
     artifactId: string,
+    privacyClass: "conversation" | "private_cognition" = "conversation",
   ): Promise<string> {
-    const { bytes } = await this.artifacts.get(participant, this.locator(stored, artifactId));
+    const { bytes } = await this.artifacts.get(
+      cognition(participant, privacyClass),
+      this.locator(stored, artifactId),
+    );
     return decoder.decode(bytes);
   }
 
@@ -896,13 +1183,76 @@ function turnOf(row: Row): ConversationTurn {
   });
 }
 
-/** CG020: a later attempt closed this run, so it may not move on; the attempt answers busy. */
-async function closedRunRefused(move: Promise<void>): Promise<void> {
-  try {
-    await move;
-  } catch (error) {
-    if ((error as { code?: unknown }).code === "CG020")
-      throw new ConversationRefusedError("conversation_busy");
-    throw error;
-  }
+/**
+ * The participant's authorization for one artifact call of a class: `private_cognition` adds that
+ * class to its ceiling for this call only, since the runtime acts as the actor's cognition there.
+ */
+function cognition(
+  participant: ConversationParticipant,
+  privacyClass: "conversation" | "private_cognition",
+): ConversationParticipant {
+  if (privacyClass === "conversation") return participant;
+  const { allowedCategories } = participant.privacyCeiling;
+  return {
+    ...participant,
+    privacyCeiling: {
+      ...participant.privacyCeiling,
+      allowedCategories: [...new Set([...allowedCategories, privacyClass])],
+    },
+  };
+}
+
+/** The turn moved on under this holder (a cancel or a newer claim): its commit rolls back. */
+class TurnFencedError extends Error {}
+
+type FiberChanges = {
+  readonly inputRevision?: number;
+  readonly replyArtifactId?: string;
+  readonly outcomeCode?: string | null;
+  readonly proposalArtifactId?: string;
+};
+
+const FIBER_COLUMNS = `session_id, message_id, actor_id, principal_id, persona_id, phase, attempt,
+  lease_epoch, run_id, input_artifact_id, reply_artifact_id, proposal_artifact_id, input_revision,
+  outcome_code`;
+const FIBER_KEY = "tenant_id = $1 AND session_id = $2 AND message_id = $3";
+const TERMINAL_SQL = TERMINAL_TURN_PHASES.map((phase) => `'${phase}'`).join(", ");
+
+function fiberKey(fiber: {
+  readonly scope: BrowserScope;
+  readonly sessionId: string;
+  readonly messageId: string;
+}): [string, string, string] {
+  return [fiber.scope.tenantId, fiber.sessionId, fiber.messageId];
+}
+
+function fiberOf(row: Row, scope: BrowserScope): TurnFiber {
+  return Object.freeze({
+    scope,
+    sessionId: String(row.session_id),
+    messageId: String(row.message_id),
+    actorId: String(row.actor_id),
+    principalId: String(row.principal_id),
+    personaId: decodeOpaqueId(row.persona_id, "WorldPersonaId"),
+    phase: row.phase as TurnPhase,
+    attempt: Number(row.attempt),
+    leaseEpoch: Number(row.lease_epoch),
+    runId: row.run_id === null ? null : String(row.run_id),
+    inputArtifactId: String(row.input_artifact_id),
+    replyArtifactId: row.reply_artifact_id === null ? null : String(row.reply_artifact_id),
+    proposalArtifactId:
+      row.proposal_artifact_id === null ? null : String(row.proposal_artifact_id),
+    inputRevision: row.input_revision === null ? null : Number(row.input_revision),
+    outcomeCode: row.outcome_code === null ? null : String(row.outcome_code),
+  });
+}
+
+function statusOf(fiber: TurnFiber): TurnStatus {
+  return Object.freeze({
+    sessionId: fiber.sessionId,
+    messageId: fiber.messageId,
+    phase: fiber.phase,
+    attempt: fiber.attempt,
+    outcomeCode: fiber.outcomeCode,
+  });
 }
