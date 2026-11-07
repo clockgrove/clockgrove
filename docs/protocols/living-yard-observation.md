@@ -133,8 +133,8 @@ categories form a closed list:
 - `portal`: `portal.opened`, `portal.closed`;
 - `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.spoiled`.
 
-`text` is generated on read from the event's public payload, naming entities by their scene label
-(the object id); the payload itself is never exposed. When the payload lacks a field a sentence needs,
+`text` is generated on read from the event's public payload, naming each entity by its `presentation.label`
+in the space's living scene (an entity outside the scene by its object id); the payload itself is never exposed. When the payload lacks a field a sentence needs,
 `text` falls back to fixed per-type wording. Sentences, with `A` the object and `K` the capitalised
 resource kind: `weather.transitioned` "It started raining." / "The rain stopped." / "The rain changed."
 / "The weather turned."; `weather.changed` "It is raining." / "It is dry."; `environment.phase-changed`

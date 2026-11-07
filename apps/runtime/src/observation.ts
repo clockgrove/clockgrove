@@ -139,8 +139,16 @@ function kernelPayloadOf(event: StoredEvent): object | undefined {
   return typeof payload === "object" && payload !== null ? payload : undefined;
 }
 
-/** A plain sentence from the event's public payload fields; the fixed `fallback` when they lack what it needs. */
-function feedSentence(type: string, payload: object | undefined, fallback: string): string {
+/**
+ * A plain sentence from the event's public payload fields, naming each entity by `nameOf` (its
+ * scene label); the fixed `fallback` when the fields lack what it needs.
+ */
+function feedSentence(
+  type: string,
+  payload: object | undefined,
+  fallback: string,
+  nameOf: (objectId: string) => string,
+): string {
   const field = (name: string): unknown =>
     payload !== undefined && name in payload
       ? (payload as Record<string, unknown>)[name]
@@ -149,7 +157,11 @@ function feedSentence(type: string, payload: object | undefined, fallback: strin
     const value = field(name);
     return typeof value === "string" ? value : undefined;
   };
-  const who = str("objectId");
+  const named = (name: string): string | undefined => {
+    const id = str(name);
+    return id === undefined ? undefined : nameOf(id);
+  };
+  const who = named("objectId");
   const kind = str("kind");
   const Kind = kind === undefined ? undefined : kind.charAt(0).toUpperCase() + kind.slice(1);
   const entered = field("direction") === "entered";
@@ -177,7 +189,7 @@ function feedSentence(type: string, payload: object | undefined, fallback: strin
         ];
         if (actionKind === "stay") return `${who} is staying put.`;
         if (what === undefined) return undefined;
-        return `${who} is looking for ${what}${typeof targetObjectId === "string" ? ` at ${targetObjectId}` : ""}.`;
+        return `${who} is looking for ${what}${typeof targetObjectId === "string" ? ` at ${nameOf(targetObjectId)}` : ""}.`;
       }
       case "needs.threshold-crossed": {
         const word = { hunger: "hungry", thirst: "thirsty" }[str("need") ?? ""];
@@ -203,14 +215,14 @@ function feedSentence(type: string, payload: object | undefined, fallback: strin
       case "movement.completed":
         return who === undefined ? undefined : `${who} arrived.`;
       case "movement.portal-crossed":
-        return who === undefined || str("portalId") === undefined
+        return who === undefined || named("portalId") === undefined
           ? undefined
-          : `${who} went through ${str("portalId")}.`;
+          : `${who} went through ${named("portalId")}.`;
       case "portal.opened":
       case "portal.closed":
-        return str("portalId") === undefined
+        return named("portalId") === undefined
           ? undefined
-          : `${str("portalId")} ${type === "portal.opened" ? "opened" : "closed"}.`;
+          : `${named("portalId")} ${type === "portal.opened" ? "opened" : "closed"}.`;
       case "resource.offered":
         return who === undefined || Kind === undefined
           ? undefined
@@ -218,11 +230,11 @@ function feedSentence(type: string, payload: object | undefined, fallback: strin
       case "resource.consumed":
         return who === undefined || Kind === undefined ? undefined : `${Kind} at ${who} was used.`;
       case "resource.transferred":
-        return str("fromObjectId") === undefined ||
-          str("toObjectId") === undefined ||
+        return named("fromObjectId") === undefined ||
+          named("toObjectId") === undefined ||
           Kind === undefined
           ? undefined
-          : `${Kind} moved from ${str("fromObjectId")} to ${str("toObjectId")}.`;
+          : `${Kind} moved from ${named("fromObjectId")} to ${named("toObjectId")}.`;
       case "resource.spoiled":
         return who === undefined ? undefined : `Food at ${who} spoiled.`;
       default:
@@ -263,6 +275,14 @@ export class PostgreSqlWorldStatusReader {
     const { policy } = await owner.behavior(authorization, scope);
     const time = stored.document.state.simulationTime;
     const dayLength = policy.environment?.dayLengthMs;
+    // Sentences name entities exactly as the scene labels them; an entity outside it by its id.
+    const labels = new Map(
+      livingSceneOf(scope, stored.document.state).entities.map((entity) => [
+        entity.objectId as string,
+        entity.presentation.label,
+      ]),
+    );
+    const nameOf = (objectId: string): string => labels.get(objectId) ?? objectId;
     // The feed's bound is the history reader's own 100-sequence window before the covered head:
     // at most 100 items, newest first, with privacy-hidden sequences absent rather than refused.
     const recent = await new PostgreSqlObjectHistoryReader(this.client).read(
@@ -294,7 +314,7 @@ export class PostgreSqlWorldStatusReader {
             id: event.eventId,
             simTimeMs: event.simulationTime,
             kind: "material" as const,
-            text: feedSentence(event.type, kernelPayloadOf(event), material[1]),
+            text: feedSentence(event.type, kernelPayloadOf(event), material[1], nameOf),
             sourceEventIds: [event.eventId],
             category: material[0],
             objectId: concernedObjectId(event),
