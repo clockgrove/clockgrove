@@ -650,13 +650,19 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const firstEntity = first.entities[0];
         if (firstEntity === undefined) throw new Error("yard fixture has no public entity");
         expect([first.revision, first.simulationTime]).toEqual(before.split("|"));
-        const snapshot = received.find((message) => message.type === "snapshot");
+        // Playwright reports each socket frame to this process asynchronously, so a frame is read
+        // from the capture only once it has arrived there, never at a fixed point in the journey.
+        const captured = async (type) => {
+          await expect.poll(() => received.some((message) => message.type === type)).toBe(true);
+          return received.find((message) => message.type === type);
+        };
         const committedOutput = () =>
           page.evaluate(() => [
             globalThis.yardSession.queries.getQueryData(["living-yard", "projection"])?.scene,
             globalThis.yardDrawnRevision,
           ]);
         await expect.poll(committedOutput).toEqual([first, first.revision]);
+        const snapshot = await captured("snapshot");
         // Signed out, the routed boot holds route_resolving; scene_ready follows the presentation.
         const routed = routeOf(auth.scope);
         expect([
@@ -983,7 +989,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(ordinaryTime).toBe(first.simulationTime);
         await scene.getByText(`Canonical revision: ${ordinaryRevision}`, { exact: true }).waitFor();
         await scene.getByText("Rain intensity: 6000", { exact: true }).waitFor();
-        const { payload: patch } = received.find((message) => message.type === "patch");
+        const { payload: patch } = await captured("patch");
         expect([snapshot.payload.revision, patch.fromRevision, patch.toRevision]).toEqual([
           first.revision,
           first.revision,
