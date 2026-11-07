@@ -56,14 +56,14 @@ it("commits complete validated projections atomically and distinguishes input re
       ...snapshot,
       payload: {
         ...snapshot.payload,
-        compatibility: { ...snapshot.payload.compatibility, [field]: 2 },
+        compatibility: { ...snapshot.payload.compatibility, [field]: 3 },
       },
     }).toThrowError(
       expect.objectContaining({
         constructor: SceneCompatibilityError,
         code,
-        actual: 2,
-        expected: 1,
+        actual: 3,
+        expected: field === "projectionVersion" ? 2 : 1,
       }),
     );
   const defect = new Error("internal sentinel");

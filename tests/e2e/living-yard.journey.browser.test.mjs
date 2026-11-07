@@ -84,11 +84,11 @@ YardSession.prototype.replace = function (...args) {
             return {
               code: `${code}
 const yardSockets = [];
-// While a step names a version field in yardSkew, each received snapshot carries version 2.
+// While a step names a version field in yardSkew, each received snapshot carries version 3.
 globalThis.yardSkewed = (data) => {
   const message = JSON.parse(data);
   if (message.type !== "snapshot") return data;
-  (globalThis.yardSkew === "protocolVersion" ? message : message.payload.compatibility)[globalThis.yardSkew] = 2;
+  (globalThis.yardSkew === "protocolVersion" ? message : message.payload.compatibility)[globalThis.yardSkew] = 3;
   return JSON.stringify(message);
 };
 globalThis.WebSocket = class extends globalThis.WebSocket {

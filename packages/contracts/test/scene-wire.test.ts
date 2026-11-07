@@ -73,6 +73,7 @@ it("round trips literal snapshot and ordered closed patch goldens through public
         "remove_presentation",
         "upsert_interaction",
         "remove_interaction",
+        "set_effects",
         "set_feed_cursor",
         "set_compatibility",
       ]);

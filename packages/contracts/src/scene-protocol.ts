@@ -34,7 +34,13 @@ import {
 
 /** Successor freeze versions are independent of diagnostic v1 and HTTP LivingScene v1. */
 export const SCENE_PROTOCOL_VERSION = 1;
-export const SCENE_PROJECTION_VERSION = 1;
+/**
+ * Projection version 2 adds `SceneProjection.effects` and the `set_effects` patch operation, which
+ * strict version-1 decoders reject. Decoders accept the current version and the one prior version;
+ * a version-1 projection carries neither.
+ */
+export const SCENE_PROJECTION_VERSION = 2;
+export const SCENE_PRIOR_PROJECTION_VERSION = 1;
 export const SCENE_ASSET_MANIFEST_VERSION = 1;
 export const SCENE_CLIENT_VERSION = 1;
 export type SceneLane = "projection" | "transient" | "operator";
@@ -49,7 +55,9 @@ export interface SceneEnvelope<T> extends BrowserScope {
   readonly payload: T;
 }
 export interface SceneCompatibility {
-  readonly projectionVersion: 1;
+  readonly projectionVersion:
+    | typeof SCENE_PRIOR_PROJECTION_VERSION
+    | typeof SCENE_PROJECTION_VERSION;
   readonly assetManifestVersion: 1;
   readonly clientVersion: 1;
 }
@@ -80,7 +88,11 @@ export function decodeSceneCompatibility(
   // Versions are checked before shape, so a newer peer that also adds or drops fields still
   // receives its stable compatibility code. An absent version is malformed, not newer, and
   // falls through to the generic missing-field error.
-  if ("projectionVersion" in v && v.projectionVersion !== SCENE_PROJECTION_VERSION)
+  if (
+    "projectionVersion" in v &&
+    v.projectionVersion !== SCENE_PROJECTION_VERSION &&
+    v.projectionVersion !== SCENE_PRIOR_PROJECTION_VERSION
+  )
     throw new SceneCompatibilityError(
       "unsupported_projection_version",
       v.projectionVersion,
@@ -102,7 +114,11 @@ export function decodeSceneCompatibility(
       `${path}.clientVersion`,
     );
   exactKeys(v, ["projectionVersion", "assetManifestVersion", "clientVersion"], [], path);
-  return { projectionVersion: 1, assetManifestVersion: 1, clientVersion: 1 };
+  return {
+    projectionVersion: v.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION ? 1 : 2,
+    assetManifestVersion: 1,
+    clientVersion: 1,
+  };
 }
 export interface SceneAudience {
   readonly kind: "observer";
@@ -302,6 +318,8 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
     ["privateCognition", "effects"],
     path,
   );
+  if (compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION && v.effects !== undefined)
+    throw new ContractDecodeError(`${path}.effects`, "absent from projection version 1");
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
   const simulationTime = unsignedDecimal(v.simulationTime, `${path}.simulationTime`);
   const living = decodeLivingScene({
@@ -476,10 +494,26 @@ export function decodeScenePatch(value: unknown, path = "patch"): ScenePatch {
     toRevision = unsignedDecimal(v.toRevision, `${path}.toRevision`);
   if (toRevision <= fromRevision)
     throw new ContractDecodeError(`${path}.toRevision`, "revision must advance");
+  const operations = array(v.operations, `${path}.operations`, decodeScenePatchOperation);
+  // A patch built for projection version 1 cannot carry version 2's `set_effects`.
+  if (
+    operations.some(
+      (operation) =>
+        operation.op === "set_compatibility" &&
+        operation.compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION,
+    )
+  )
+    operations.forEach((operation, index) => {
+      if (operation.op === "set_effects")
+        throw new ContractDecodeError(
+          `${path}.operations[${index}].op`,
+          "absent from projection version 1",
+        );
+    });
   return {
     fromRevision,
     toRevision,
-    operations: array(v.operations, `${path}.operations`, decodeScenePatchOperation),
+    operations,
     sourceEventIds: array(v.sourceEventIds, `${path}.sourceEventIds`, (id, p) =>
       decodeOpaqueId(id, "EventId", p),
     ),
