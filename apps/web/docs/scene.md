@@ -18,8 +18,9 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
 - `emitCue(cue)` draws a short marker once per dedupe key until the cue expires. It remembers at most
   64 keys and forgets the oldest first. A cue never changes the projection. The socket does not yet
   forward cues to the shell.
-- `setSelection(id?)` and `focus(id?)` draw the selection and keyboard-focus emphasis. `focus` also
-  pans the camera when its entity is out of view. With no id, `focus` clears the focus affordance.
+- `setSelection(id?)` and `focus(id?)` draw the selection and keyboard-focus emphasis. `focus`, and
+  `setSelection` when the selected id changes, also pan the camera when the entity is out of view, so
+  choosing a feed event reveals its entity. With no id, `focus` clears the focus affordance.
   Both the optional id and the pan widen §9.1, which declares `focus(id: WorldObjectId)` only: every
   adapter, the headless 3D fixture included, must accept `focus(undefined)` as clearing focus.
 - `setReducedMotion(enabled)` follows `prefers-reduced-motion`. While it is on, moves snap,
@@ -85,6 +86,11 @@ path. The reducer's committed projection is untouched.
   none>` and `Lights: <lit roles, or off>`.
 - **Labels.** Only the selected and the hovered entity are labelled on the canvas, so labels never
   pile up. The text path lists every label.
+- **Selection.** The renderer draws it from projection data, never into art: a 2:1 ellipse at the feet
+  (32x16, 3 px stroke, 0.18 fill) with two wider glow ellipses (+8 and +16 px, alpha 0.35 and 0.15),
+  all in the `--rw-v1-accent` token, and a dark rounded pill (`--rw-v1-panel`, alpha 0.92) holding the
+  name in `--rw-v1-text`, centred above the sprite. Hover (24x12) and focus (40x20) are 1 px ellipses
+  and the hover label is plain text without a pill, so both stay lighter than selection.
 
 ## Budgets (§9.3)
 

@@ -133,6 +133,10 @@ const NIGHT_ALPHA = 0.6;
 const CUE_KEYS = 64;
 /** A cue marker lives at most this long (decision): two interpolated moves, then it fades. */
 const CUE_MS = 2 * INTERPOLATION_MS;
+/** `--rw-v1-accent` of raccoon-world-ui@1. */
+const SELECTION_SAGE = 0xa8c394;
+const PILL_PAD_X = 10;
+const PILL_PAD_Y = 4;
 const FRAME_SAMPLES = 120;
 const REBOUND_EVENTS = ["pointerdown", "pointerover"] as const;
 const labelColor = "#ffffff";
@@ -436,19 +440,24 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.invalidate();
   }
   setSelection(id?: WorldObjectId): void {
+    const changed = id !== this.selected;
     this.selected = id;
+    const drawn = id === undefined ? undefined : this.drawn.get(id);
+    if (changed && drawn) this.reveal(drawn);
     this.drawEmphasis();
   }
   focus(id?: WorldObjectId): void {
     this.focused = id;
     const drawn = id === undefined ? undefined : this.drawn.get(id);
-    const camera = this.stage?.cameras.main;
-    // Keyboard focus keeps its entity in view, within the camera's pan bounds.
-    if (drawn && camera && !camera.worldView.contains(drawn.body.x, drawn.body.y)) {
-      if (this.reducedMotion) camera.centerOn(drawn.body.x, drawn.body.y);
-      else camera.pan(drawn.body.x, drawn.body.y, INTERPOLATION_MS);
-    }
+    if (drawn) this.reveal(drawn);
     this.drawEmphasis();
+  }
+  /** Keeps an emphasized entity in view, within the camera's pan bounds. */
+  private reveal(drawn: Drawn): void {
+    const camera = this.stage?.cameras.main;
+    if (!camera || camera.worldView.contains(drawn.body.x, drawn.body.y)) return;
+    if (this.reducedMotion) camera.centerOn(drawn.body.x, drawn.body.y);
+    else camera.pan(drawn.body.x, drawn.body.y, INTERPOLATION_MS);
   }
   setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
@@ -744,43 +753,80 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     if (!stage) return;
     for (const item of this.overlay) item.destroy();
     this.overlay = [];
-    // Hover and focus are thin rings inside and outside the heavier selection ring.
-    const ring = (
-      objectId: ObjectId | undefined,
-      name: string,
-      radius: number,
-      width: number,
-      color: number,
-    ) => {
-      const drawn = objectId === undefined ? undefined : this.drawn.get(objectId);
+    // Hover and focus are 1 px ellipses at the feet; selection is a glowing ring and a pill.
+    const feet = (objectId: ObjectId | undefined) =>
+      objectId === undefined ? undefined : this.drawn.get(objectId);
+    const thin = (objectId: ObjectId | undefined, name: string, radius: number, color: number) => {
+      const drawn = feet(objectId);
       if (!drawn) return;
       this.overlay.push(
         stage.add
-          .circle(drawn.body.x, drawn.body.y, radius)
-          .setStrokeStyle(width, color)
+          .ellipse(drawn.body.x, drawn.body.y, 2 * radius, radius)
+          .setStrokeStyle(1, color)
           .setName(name)
           .setDepth(depthOf("emphasis")),
       );
     };
-    ring(this.hovered, "hover-affordance", 11, 1, 0xffffff);
-    ring(this.focused, "focus-affordance", 17, 1, 0x9fd3ff);
-    ring(this.selected, "selection-ring", 13, 3, 0x9bc27a);
-    // Only emphasized entities are labelled, so labels never pile up over the yard.
-    const label = (objectId: ObjectId | undefined, name: string, bold: boolean) => {
-      const drawn = objectId === undefined ? undefined : this.drawn.get(objectId);
-      if (!drawn) return;
+    thin(this.hovered, "hover-affordance", 12, 0xffffff);
+    thin(this.focused, "focus-affordance", 20, 0x9fd3ff);
+    const selected = feet(this.selected);
+    if (selected) {
+      const { x, y } = selected.body;
+      for (const [grow, width, alpha] of [
+        [16, 10, 0.15],
+        [8, 6, 0.35],
+      ] as const)
+        this.overlay.push(
+          stage.add
+            .ellipse(x, y, 32 + grow, (32 + grow) / 2)
+            .setStrokeStyle(width, SELECTION_SAGE, alpha)
+            .setName("selection-glow")
+            .setDepth(depthOf("emphasis")),
+        );
       this.overlay.push(
         stage.add
-          .text(drawn.body.x + 12, drawn.body.y - drawn.visual.height - 10, drawn.visual.label, {
-            color: bold ? "#c8e6a0" : labelColor,
-            fontStyle: bold ? "bold" : "",
-          })
-          .setName(name)
+          .ellipse(x, y, 32, 16, SELECTION_SAGE, 0.18)
+          .setStrokeStyle(3, SELECTION_SAGE)
+          .setName("selection-ring")
+          .setDepth(depthOf("emphasis")),
+      );
+      const text = stage.add
+        .text(x, y - selected.visual.height - 6 - PILL_PAD_Y, selected.visual.label, {
+          color: "#ece9d8",
+          fontSize: "13px",
+        })
+        .setOrigin(0.5, 1)
+        .setName("selection-label")
+        .setDepth(depthOf("emphasis", 2));
+      const width = text.width + 2 * PILL_PAD_X;
+      const height = text.height + 2 * PILL_PAD_Y;
+      const top = y - selected.visual.height - 6 - height;
+      const pill = stage.add
+        .graphics()
+        .fillStyle(0x1e2116, 0.92)
+        .fillRoundedRect(x - width / 2, top, width, height, height / 2)
+        .lineStyle(1, SELECTION_SAGE, 0.6)
+        .strokeRoundedRect(x - width / 2, top, width, height, height / 2)
+        .setName("selection-pill")
+        .setDepth(depthOf("emphasis", 1));
+      this.overlay.push(pill, text);
+    }
+    // Hovered labels are plain text, so hover stays lighter than selection.
+    const hovered = this.hovered !== this.selected ? feet(this.hovered) : undefined;
+    if (hovered)
+      this.overlay.push(
+        stage.add
+          .text(
+            hovered.body.x + 12,
+            hovered.body.y - hovered.visual.height - 10,
+            hovered.visual.label,
+            {
+              color: labelColor,
+            },
+          )
+          .setName("hover-label")
           .setDepth(depthOf("emphasis", 1)),
       );
-    };
-    label(this.selected, "selection-label", true);
-    if (this.hovered !== this.selected) label(this.hovered, "hover-label", false);
     this.invalidate();
   }
   destroy(): void {
