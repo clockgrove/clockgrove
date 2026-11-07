@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -63,30 +63,72 @@ export async function withDisposableDatabase(
   );
 }
 
+/**
+ * How clients reach the disposable cluster. `socket`: a Linux abstract Unix socket with trust
+ * authentication and no TCP listener. `loopback`: a `127.0.0.1` TCP listener with no Unix socket and
+ * SCRAM authentication by a per-run password, for sandboxes that refuse every `AF_UNIX` socket.
+ * A non-empty `CLOCKGROVE_TEST_DB_TRANSPORT` wins; otherwise Factory's local mode
+ * (`FACTORY_LOCAL=1`) selects `loopback`; otherwise `socket`.
+ */
+export function databaseTransport(environment = process.env) {
+  const explicit = environment.CLOCKGROVE_TEST_DB_TRANSPORT;
+  if (explicit === "socket" || explicit === "loopback") return explicit;
+  if (explicit !== undefined && explicit !== "")
+    throw new Error(
+      `CLOCKGROVE_TEST_DB_TRANSPORT must be "socket" or "loopback"; found ${JSON.stringify(explicit)}`,
+    );
+  return environment.FACTORY_LOCAL === "1" ? "loopback" : "socket";
+}
+
 async function createDisposableDatabase(operation, maxConnections) {
+  const transport = databaseTransport();
   const tools = await discoverPostgresTools();
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "clockgrove-postgres-"));
   const dataDirectory = path.join(temporaryRoot, "data");
-  const socketDirectory = `@clockgrove-${process.pid}-${randomUUID()}`;
+  const socketDirectory =
+    transport === "socket" ? `@clockgrove-${process.pid}-${randomUUID()}` : undefined;
+  // Loopback TCP is reachable by every local process on a shared host, so it is never trusted.
+  const password = transport === "loopback" ? randomBytes(32).toString("hex") : undefined;
   const logPath = path.join(temporaryRoot, "postgres.log");
   const port = await availablePort();
   let startAttempted = false;
   try {
-    await run(tools.initdb, [
-      "--pgdata",
-      dataDirectory,
-      "--username=clockgrove_admin",
-      "--auth-local=trust",
-      "--auth-host=reject",
-      "--encoding=UTF8",
-      "--no-locale",
-    ]);
+    if (password === undefined) {
+      await run(tools.initdb, [
+        "--pgdata",
+        dataDirectory,
+        "--username=clockgrove_admin",
+        "--auth-local=trust",
+        "--auth-host=reject",
+        "--encoding=UTF8",
+        "--no-locale",
+      ]);
+    } else {
+      // The owner-private (mkdtemp, 0700) root holds the password file only for initdb.
+      const passwordFile = path.join(temporaryRoot, "admin-password");
+      await writeFile(passwordFile, `${password}\n`, { mode: 0o600, flag: "wx" });
+      try {
+        await run(tools.initdb, [
+          "--pgdata",
+          dataDirectory,
+          "--username=clockgrove_admin",
+          `--pwfile=${passwordFile}`,
+          "--auth-local=reject",
+          "--auth-host=scram-sha-256",
+          "--encoding=UTF8",
+          "--no-locale",
+        ]);
+      } finally {
+        await rm(passwordFile, { force: true });
+      }
+    }
     const serverOptions = [
       "-F",
       "-c",
-      "listen_addresses=",
+      socketDirectory === undefined ? "listen_addresses=127.0.0.1" : "listen_addresses=",
       "-c",
-      `unix_socket_directories=${socketDirectory}`,
+      // Empty in loopback mode: any socket directory makes PostgreSQL create an AF_UNIX socket.
+      `unix_socket_directories=${socketDirectory ?? ""}`,
       "-p",
       String(port),
       ...(maxConnections === undefined ? [] : ["-c", `max_connections=${maxConnections}`]),
@@ -109,23 +151,30 @@ async function createDisposableDatabase(operation, maxConnections) {
       const serverLog = await readFile(logPath, "utf8").catch(() => "PostgreSQL wrote no log");
       throw new Error(`${error.message}\n${serverLog}`);
     }
+    // An inherited PGPASSWORD never reaches the fixture: its presence marks loopback mode.
+    const { PGPASSWORD: _inherited, ...inheritedEnvironment } = process.env;
     const environment = {
-      ...process.env,
+      ...inheritedEnvironment,
       PGDATABASE: "postgres",
-      PGHOST: socketDirectory,
+      PGHOST: socketDirectory ?? "127.0.0.1",
       PGPORT: String(port),
       PGUSER: "clockgrove_admin",
+      // Every login role shares the run's password, so role switches through PGUSER still connect.
+      ...(password === undefined ? {} : { PGPASSWORD: password }),
     };
-    await bootstrapRolesAndDatabase(tools, environment);
+    await bootstrapRolesAndDatabase(tools, environment, password);
     let active = true;
     try {
       await operation({
         tools,
         environment: { ...environment, PGDATABASE: "clockgrove" },
         temporaryRoot,
+        transport,
         socketDirectory,
         withLoopbackTransport: (callback, bridgeConnections) => {
           if (!active) throw new Error("disposable fixture is no longer active");
+          // PostgreSQL already listens on loopback TCP itself; no bridge is needed.
+          if (socketDirectory === undefined) return callback(port);
           return withOwnedPostgresWireBridge(
             `\0${socketDirectory.slice(1)}/.s.PGSQL.${port}`,
             callback,
@@ -162,7 +211,20 @@ async function createDisposableDatabase(operation, maxConnections) {
   }
 }
 
-async function bootstrapRolesAndDatabase(tools, environment) {
+async function bootstrapRolesAndDatabase(tools, environment, password) {
+  const loginRoles = [
+    "clockgrove_runtime",
+    "clockgrove_support",
+    "clockgrove_backup",
+    "clockgrove_auth_verifier",
+    "clockgrove_management_reader",
+    "clockgrove_world_reader",
+  ];
+  // Only a SCRAM verifier enters SQL, so no statement, error or log carries the password.
+  const passwords = [];
+  if (password !== undefined)
+    for (const role of loginRoles)
+      passwords.push(`ALTER ROLE ${role} PASSWORD ${literal(scramVerifier(password))};`);
   await psql(
     tools,
     environment,
@@ -175,7 +237,8 @@ async function bootstrapRolesAndDatabase(tools, environment) {
      CREATE ROLE clockgrove_auth_verifier LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
      CREATE ROLE clockgrove_management_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
      CREATE ROLE clockgrove_world_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-     GRANT clockgrove_migrator TO clockgrove_admin;`,
+     GRANT clockgrove_migrator TO clockgrove_admin;
+     ${passwords.join("\n")}`,
   );
   await psql(
     tools,
@@ -310,6 +373,17 @@ async function availablePort() {
       server.close((error) => (error ? reject(error) : resolve(address.port)));
     });
   });
+}
+
+// PostgreSQL's stored SCRAM-SHA-256 form (RFC 5802, RFC 7677); a hex password needs no SASLprep.
+function scramVerifier(password) {
+  const iterations = 4096;
+  const salt = randomBytes(16);
+  const salted = pbkdf2Sync(password, salt, iterations, 32, "sha256");
+  const clientKey = createHmac("sha256", salted).update("Client Key").digest();
+  const storedKey = createHash("sha256").update(clientKey).digest("base64");
+  const serverKey = createHmac("sha256", salted).update("Server Key").digest("base64");
+  return `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey}:${serverKey}`;
 }
 
 function literal(value) {
