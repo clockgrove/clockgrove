@@ -35,7 +35,8 @@ body {
   background: #12140e;
 }
 
-.rw-visually-hidden {
+.rw-visually-hidden,
+.rw-shell[data-canvas="true"] .rw-observation-details {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -182,6 +183,7 @@ body {
 }
 
 .rw-main {
+  min-width: 0;
   position: relative;
   padding: var(--rw-v1-space-3);
   box-sizing: border-box;
@@ -280,13 +282,18 @@ body {
     grid-column: 1 / -1;
     /* Navigation at the left edge, the clock centered, utilities at the right edge (§4.1). */
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
     position: sticky;
     top: 0;
     z-index: 20;
     height: var(--rw-v1-hud-height);
     white-space: nowrap;
-    overflow: hidden;
+  }
+
+  .rw-hud-start,
+  .rw-hud-end,
+  .rw-hud nav {
+    flex-wrap: nowrap;
   }
 
   /*
@@ -339,6 +346,10 @@ body {
     padding: var(--rw-v1-space-2) var(--rw-v1-space-3);
   }
 
+  .rw-wordmark {
+    white-space: normal;
+  }
+
   .rw-clock {
     flex-wrap: wrap;
     white-space: normal;
@@ -347,6 +358,28 @@ body {
 
   .rw-main {
     padding-bottom: calc(var(--rw-v1-sheet-bar) * 2 + var(--rw-v1-space-3));
+  }
+
+  .rw-rail,
+  .rw-feed-dock {
+    background: var(--rw-v1-panel-solid);
+  }
+
+  .rw-hud-start,
+  .rw-hud-end,
+  .rw-clock {
+    max-width: 100%;
+  }
+
+  #rw-recorded-why {
+    position: fixed;
+    inset: var(--rw-v1-space-3);
+    z-index: 50;
+    overflow: auto;
+    padding: var(--rw-v1-space-3);
+    background: var(--rw-v1-panel-solid);
+    border: 1px solid var(--rw-v1-border);
+    border-radius: var(--rw-v1-radius);
   }
 
   .rw-rail {

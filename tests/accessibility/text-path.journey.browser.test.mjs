@@ -265,6 +265,14 @@ it("completes every Wave 4 journey without the canvas", async () => {
       // Live changes: movement, weather and material events, at most one announcement per 3 s.
       await page.evaluate(() => {
         globalThis.yardLogged = [];
+        globalThis.yardObservationAnnouncements = [];
+        const observation = document.querySelector("#rw-observation-announcement");
+        let previous = observation.textContent;
+        new MutationObserver(() => {
+          if (observation.textContent === previous) return;
+          previous = observation.textContent;
+          globalThis.yardObservationAnnouncements.push([Date.now(), previous]);
+        }).observe(observation, { childList: true, characterData: true, subtree: true });
         new MutationObserver((records) => {
           for (const record of records)
             for (const node of record.addedNodes)
@@ -272,12 +280,47 @@ it("completes every Wave 4 journey without the canvas", async () => {
                 globalThis.yardLogged.push([Date.now(), node.textContent]);
         }).observe(document.querySelector('[role="log"]'), { childList: true });
       });
+      const currentObservation = async () => {
+        const committed = await read("/v1/runtime/scene", decodeLivingScene);
+        await expect
+          .poll(() => page.locator("#rw-observation-status").textContent())
+          .toContain(
+            `Observing revision ${committed.revision}. Canonical time ${committed.simulationTime}. Rain intensity ${committed.weather.rainIntensity}.`,
+          );
+        expect(await page.locator("#rw-arrival-status").textContent()).toContain(
+          `revision ${committed.revision};`,
+        );
+        expect(
+          await page
+            .locator("#rw-observation-status .rw-observation-details")
+            .evaluate((details) => details.closest('[aria-live], [role="status"]') === null),
+        ).toBe(true);
+        expect(await page.locator("#rw-observation-announcement").textContent()).not.toContain(
+          "grove.stevie",
+        );
+        expect(await page.getByText(/^Observation: /u).count()).toBe(1);
+        return committed.revision;
+      };
       await commit("text-rain", "world.weather.set", { schemaVersion: 2, rainIntensity: 1000 });
+      const rainRevision = await currentObservation();
+      await expect
+        .poll(() => page.locator("#rw-observation-announcement").textContent())
+        .toContain(`Revision ${rainRevision}.`);
       // The storm and the walk follow the first announcement, so they land in a later interval.
       await expect.poll(() => page.evaluate(() => globalThis.yardLogged.length)).toBe(1);
       await commit("text-storm", "world.weather.set", { schemaVersion: 2, rainIntensity: 2000 });
+      await currentObservation();
       await walk("text-walk", 33000n, 13000n);
+      await currentObservation();
       const latest = await revision();
+      await expect
+        .poll(() => page.locator("#rw-observation-announcement").textContent())
+        .toContain(`Revision ${latest}.`);
+      const announcements = await page.evaluate(() => globalThis.yardObservationAnnouncements);
+      expect(announcements.length).toBeGreaterThanOrEqual(2);
+      expect(announcements.slice(1).every(([at], i) => at - announcements[i][0] >= 3000)).toBe(
+        true,
+      );
       const status = await read("/v1/runtime/world-status", decodeWorldStatus);
       expect(status.revision).toBe(latest);
       const logged = async () =>
@@ -346,7 +389,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await page.evaluate(() => globalThis.yardSceneSocket.close());
       await expect.poll(() => sockets.length).toBe(2);
       await expect
-        .poll(() => page.getByRole("status").first().textContent())
+        .poll(() => page.locator("#rw-observation-status").textContent())
         .toMatch(/^Observation: ready\. Observing revision /u);
       expect(await focusedKey()).toBe("entity:grove.stevie");
 

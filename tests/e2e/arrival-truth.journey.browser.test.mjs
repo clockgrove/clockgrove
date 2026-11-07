@@ -84,6 +84,17 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
       const open = async (damagedCopies) => {
         const page = await browser.newPage();
         let served = 0;
+        // The directory may supply a display name independently of the scope's opaque id.
+        await page.route("**/v1/runtime/world-directory", async (request) => {
+          const response = await request.fetch();
+          const directory = await response.json();
+          if (Array.isArray(directory.entries))
+            directory.entries = directory.entries.map((entry) => ({
+              ...entry,
+              worldLabel: "Green Lake Yard",
+            }));
+          await request.fulfill({ response, json: directory });
+        });
         await page.route(
           (url) => url.pathname === "/raccoon-world.png",
           (request) =>
@@ -128,6 +139,9 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
       await lifecycle("ready");
       await arriving.getByText(/^Arrival: scene ready at revision \d+\.$/u).waitFor();
       expect(await arriving.locator("canvas").count()).toBe(1);
+      expect(
+        await screen(arriving, "Living scene").getByRole("heading", { level: 2 }).textContent(),
+      ).toBe("Green Lake Yard");
       expect(await counts(arriving)).toEqual([0, 1, 0]);
       await arriving.close();
 

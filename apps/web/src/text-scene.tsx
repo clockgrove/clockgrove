@@ -14,11 +14,12 @@ export function useThrottled<T>(value: T, intervalMs: number): T {
   const [shown, setShown] = useState(value);
   const last = useRef(0);
   useEffect(() => {
+    // Anchor the interval to publication, rather than scheduling a React update.
+    if (shown !== undefined) last.current = Date.now();
+  }, [shown]);
+  useEffect(() => {
     if (Object.is(value, shown)) return;
-    const commit = () => {
-      last.current = Date.now();
-      setShown(value);
-    };
+    const commit = () => setShown(value);
     const wait = last.current + intervalMs - Date.now();
     if (value === undefined || wait <= 0) return commit();
     const timer = setTimeout(commit, wait);

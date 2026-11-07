@@ -274,7 +274,9 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
           .first()
           .click();
         const why = page.getByRole("region", { name: "Recorded Why" });
-        await why.getByText(/^Recorded Why: (?!loading)/u).waitFor();
+        await why.getByText("Recorded evidence loaded.", { exact: true }).waitFor();
+        await why.getByText("Recorded command", { exact: true }).waitFor();
+        expect(await why.getAttribute("aria-busy")).toBe("false");
         await why.getByRole("button", { name: "Close Why" }).waitFor();
         return why;
       });

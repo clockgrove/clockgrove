@@ -558,10 +558,12 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await arrival.getByText("Choose a world from the selector.", { exact: true }).waitFor();
         expect([
           await bootsOf(arrival),
-          await arrival.getByRole("status").allTextContents(),
+          (await arrival.getByRole("status").allTextContents()).map((text) =>
+            text.replace(/^World arrival:/u, "Arrival:"),
+          ),
         ]).toEqual([
           [["route_resolving", "/", null, null, null, 0]],
-          ["Observation: signed out. ", "Arrival: resolving world route /."],
+          ["Scene: signed out. ", "Arrival: resolving world route /."],
         ]);
         // Every arrival mutation shows only the boot announcement as progress.
         await arrival.evaluate(() => {
@@ -570,7 +572,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             // The Places navigation notice is a status of its own, not arrival progress.
             const statuses = [
               ...document.querySelectorAll('[role="status"]:not(nav[aria-label="Places"] *)'),
-            ].map((status) => status.textContent);
+            ].map((status) => status.textContent.replace(/^World arrival:/u, "Arrival:"));
             const busy = document.querySelectorAll(
               'progress, [role="progressbar"], [aria-busy="true"]',
             ).length;
@@ -593,7 +595,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           await bootsOf(arrival),
           announced.filter(([independent]) => independent),
           announced.at(-1)[1],
-          (await arrival.getByRole("status").allTextContents())[1],
+          (await arrival.getByRole("status").allTextContents())[1].replace(
+            /^World arrival:/u,
+            "Arrival:",
+          ),
           await textScene.getByRole("listitem").getByRole("button").allTextContents(),
           await arrival.locator("canvas").count(),
           arrivalSockets,
@@ -711,7 +716,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const routed = routeOf(auth.scope);
         expect([
           await bootsOf(page),
-          (await page.getByRole("status").allTextContents())[1],
+          (await page.getByRole("status").allTextContents())[1].replace(
+            /^World arrival:/u,
+            "Arrival:",
+          ),
         ]).toEqual([
           [
             ["route_resolving", routed, null, null, null, 0],
@@ -1108,14 +1116,17 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         ]);
         await scene.getByText(`Puddles: ${effects.length - 2}`, { exact: true }).waitFor();
         await scene.getByText("Lights: lantern, window lit", { exact: true }).waitFor();
-        // The observation status follows the scene at the 3 s live-announcement bound.
+        // The visible observation and arrival agree with the committed scene.
         await expect
-          .poll(() => page.getByRole("status").first().textContent())
+          .poll(() => page.locator("#rw-observation-status").textContent())
           .toContain(
             `Observing revision ${revision}. Canonical time ${simulationTime}. Rain intensity 9000.`,
           );
-        expect(await page.getByRole("status").first().textContent()).toContain(
+        expect(await page.locator("#rw-observation-status").textContent()).toContain(
           firstEntity.objectId,
+        );
+        expect(await page.getByText(/^Arrival: scene ready at revision /u).textContent()).toBe(
+          `Arrival: scene ready at revision ${revision}.`,
         );
         // The HUD shows PostgreSQL's paused clock, the pack's speed and 86 400 000 ms day, and rain.
         const day = 86_400_000n;
@@ -1190,6 +1201,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
               mainBox[2],
             ]);
             expect(Math.abs(railBox[2] - width / 5)).toBeLessThanOrEqual(1);
+            const selector = await box("#world");
+            expect([
+              selector[0] >= 0 && selector[0] + selector[2] <= width,
+              selector[1] >= hudBox[1],
+              selector[1] + selector[3] <= hudBox[1] + hudBox[3],
+              canvasBox[1] >= hudBox[3],
+              canvasBox[1] + canvasBox[3] <= height,
+            ]).toEqual([true, true, true, true, true]);
             const clockCenter = clockBox[0] + clockBox[2] / 2;
             expect(clockCenter > width * 0.3 && clockCenter < width * 0.7).toBe(true);
             // The feed floats at the lower left, clear of the canvas.
@@ -1217,6 +1236,20 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             ]).toEqual([true, true, true, "true"]);
             // The feed sheet sits on the collapsed rail's top edge, never over it.
             expect(feedBox[1] + feedBox[3]).toBeLessThanOrEqual(railBox[1]);
+            await page.getByRole("button", { name: "Open entity rail", exact: true }).click();
+            expect(
+              await page
+                .locator(".rw-rail")
+                .evaluate((element) => getComputedStyle(element).backgroundColor),
+            ).toBe("rgb(30, 33, 22)");
+            await page.getByRole("button", { name: "Collapse entity rail", exact: true }).click();
+            await feed.getByRole("button", { name: "Open event feed", exact: true }).click();
+            expect(
+              await page
+                .locator(".rw-feed-dock")
+                .evaluate((element) => getComputedStyle(element).backgroundColor),
+            ).toBe("rgb(30, 33, 22)");
+            await feed.getByRole("button", { name: "Collapse event feed", exact: true }).click();
             // The window, not an inner container, scrolls the canvas; picking survives the scroll.
             const far = first.entities
               .map((entity) => ({ objectId: entity.objectId, ...canvasPoint(entity.objectId) }))
@@ -1290,7 +1323,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(JSON.parse(await truth(membershipGrants))).toEqual([]);
         await commit({ ...weather, commandId: "command-yard-revoked" });
         await scene.waitFor({ state: "detached" });
-        expect(await page.getByRole("status").first().textContent()).toContain(
+        expect(await page.locator("#rw-observation-status").textContent()).toContain(
           "Observation: unavailable. Authorization lost.",
         );
         expect(received.filter((message) => message.type === "disconnect").at(-1)).toEqual({
@@ -1503,6 +1536,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(whyValue.traces.status).toBe("available");
         const whyPanel = page.getByRole("region", { name: "Recorded Why", exact: true });
         await whyPanel.getByText("Recorded evidence loaded.", { exact: true }).waitFor();
+        await page.setViewportSize({ width: 390, height: 844 });
+        expect(
+          await whyPanel.evaluate((element) => [
+            getComputedStyle(element).backgroundColor,
+            element.contains(document.elementFromPoint(195, 422)),
+          ]),
+        ).toEqual(["rgb(30, 33, 22)", true]);
+        await page.setViewportSize({ width: 1280, height: 720 });
         const whyHeading = whyPanel.getByRole("heading", {
           name: "Recorded Why: browser-why-original",
           exact: true,
@@ -1846,7 +1887,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           if (retried) await new Promise((resolve) => setTimeout(resolve, 1_500));
           expect([
             await scene.count(),
-            await page.getByRole("status").allTextContents(),
+            await page.locator("#rw-observation-status, #rw-arrival-status").allTextContents(),
             await unsupported(name).getByRole("alert").textContent(),
             await unsupported(name).getByRole("button").allTextContents(),
             await unsupported(name).evaluate((screen) => screen === document.activeElement),
