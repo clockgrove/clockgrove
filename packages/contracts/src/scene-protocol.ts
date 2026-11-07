@@ -1,6 +1,7 @@
 import type {
   BrowserScope,
   LivingEntity,
+  LivingPose,
   LivingSpatialFrame,
   LivingWeather,
 } from "./browser-protocol.js";
@@ -8,6 +9,7 @@ import {
   decodeBrowserScope,
   decodeLivingEntity,
   decodeLivingFrame,
+  decodeLivingPose,
   decodeLivingScene,
   decodeLivingWeather,
 } from "./browser-protocol.js";
@@ -130,6 +132,25 @@ export interface ScenePresentationBinding {
   readonly accessibilityLabel: string;
 }
 export type SceneProjectedEntity = LivingEntity;
+/** The placed presentation effects the live yard may show; the client decides from weather and clock. */
+export type SceneEffectRole = "puddle" | "lantern" | "window";
+/** One placed effect of the installed pack's presentation, at a pose in a projected frame. */
+export interface SceneEffect {
+  readonly role: SceneEffectRole;
+  readonly assetId: string;
+  readonly animationFamily: string;
+  readonly pose: LivingPose;
+}
+export function decodeSceneEffect(value: unknown, path = "effect"): SceneEffect {
+  const v = record(value, path);
+  exactKeys(v, ["role", "assetId", "animationFamily", "pose"], [], path);
+  return {
+    role: literal(v.role, ["puddle", "lantern", "window"], `${path}.role`),
+    assetId: string(v.assetId, `${path}.assetId`),
+    animationFamily: string(v.animationFamily, `${path}.animationFamily`),
+    pose: decodeLivingPose(v.pose, `${path}.pose`),
+  };
+}
 /**
  * A projected actor's scripted belief or memory about another object: relationship-private, so it is
  * present only in an audience whose ceiling allows `private_cognition`.
@@ -187,6 +208,8 @@ export interface SceneProjection extends BrowserScope {
   readonly audienceHash: string;
   /** Absent unless the decided audience allows `private_cognition`. */
   readonly privateCognition?: readonly ScenePrivateCognition[];
+  /** Absent when the installed pack places no effect in this scene. */
+  readonly effects?: readonly SceneEffect[];
 }
 export function decodeVisibleSpace(value: unknown, path = "space"): VisibleSpace {
   const v = record(value, path);
@@ -276,7 +299,7 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
       "feedCursor",
       "audienceHash",
     ],
-    ["privateCognition"],
+    ["privateCognition", "effects"],
     path,
   );
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
@@ -330,6 +353,9 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
             `${path}.privateCognition`,
           ),
         }),
+    ...(v.effects === undefined
+      ? {}
+      : { effects: array(v.effects, `${path}.effects`, decodeSceneEffect) }),
   };
 }
 export type ScenePatchOperation =
@@ -350,7 +376,8 @@ export type ScenePatchOperation =
   | {
       readonly op: "set_private_cognition";
       readonly entries: readonly ScenePrivateCognition[];
-    };
+    }
+  | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] };
 export interface ScenePatch {
   readonly fromRevision: bigint;
   readonly toRevision: bigint;
@@ -414,6 +441,9 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
         op: v.op,
         entries: array(v.entries, `${path}.entries`, decodeScenePrivateCognition),
       };
+    case "set_effects":
+      exactKeys(v, ["op", "effects"], [], path);
+      return { op: v.op, effects: array(v.effects, `${path}.effects`, decodeSceneEffect) };
     default:
       throw new ContractDecodeError(`${path}.op`, "unknown operation");
   }

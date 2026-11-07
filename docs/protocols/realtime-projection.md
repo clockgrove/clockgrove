@@ -63,6 +63,19 @@ A family is chosen only when the reviewed atlas (`assets/reviewed`) holds that s
 if it does not, the binding's family is kept. No Wave 4 routine maps to `play`. Patches upsert a
 binding whose family changed, as they do any presentation.
 
+The runtime also places the pack's `puddle`, `lantern` and `window` presentation effects as the
+optional `SceneProjection.effects`, each a `role`, `assetId`, `animationFamily` and `pose`. They
+follow the issue 813 golden scene's rules (`packages/assets/src/scene.ts`):
+- one puddle sits at the integer midpoint of each anchor-graph edge in a projected frame;
+- a lantern or window sits at the pose of its effect's `objectId`, and only when that object is
+  projected, so no effect names a hidden one.
+
+Effects are where an effect may show, not whether it shows: the client shows puddles while the
+projected weather rains and lights at the projected clock's night (see the
+[isometric scene](../../apps/web/docs/scene.md#isometric-rules-92)). The field is absent when the
+pack places none. The patch operation `set_effects` replaces the whole list, and every successor
+patch carries it.
+
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
 fields they change; arbitrary JSON extensions and whole-entity-list replacements are excluded.

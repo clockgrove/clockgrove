@@ -68,7 +68,7 @@ export function assertBrowserSource(source, file) {
 // included), class body, export, signature or new scene file does. Each file is
 // digested by the contract-drift parse, so formatting and comments never count. After reviewing a
 // deliberate vocabulary change, set the digest to the value the failure reports.
-const SUCCESSOR_VOCABULARY_DIGEST = "2cbc83220e9fbb4e9f95766271ccbbbee179f5b4d13a13effbf3bceb3a057d31";
+const SUCCESSOR_VOCABULARY_DIGEST = "404b2d1a9a94495833d455152f21bd1973c9c9c10d9be3cd71a64ab30b3c38f8";
 export function successorVocabularyDigest(sources) {
   const files = Object.keys(sources)
     .filter((name) => /^scene-[\w-]+\.ts$/u.test(name))
