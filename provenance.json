@@ -14,6 +14,12 @@
       "source": "turbo 2.11.7 (https://github.com/vercel/turborepo), template in crates/turborepo-cli/src/cli/agent_guidance.rs",
       "license": "MIT",
       "reason": "turbo writes and re-adds this agent guidance block before repository-scoped commands when it detects an AI agent; it stays committed so those runs leave no uncommitted change."
+    },
+    {
+      "path": "docs/design/reference/raccoon-world-reference.png",
+      "source": "supplied by the owner (Kirk Marple), 2026-11-07, generated with an image model as a design reference",
+      "license": "MIT",
+      "reason": "MIT as Clockgrove work (owner decision 2026-11-07: generated assets are MIT as Clockgrove work). Purpose: visual reference only; never a runtime background (Wave 4 §4.5)."
     }
   ]
 }
