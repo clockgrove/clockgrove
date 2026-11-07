@@ -174,8 +174,10 @@ earliest queued dwell as it does to a lifecycle time, fires it, and continues; a
 arm a dwell inside it restarts there. A movement or portal command fires every object's dwells
 inside its event stream: before any of its events at a later time, and, when it moved the world
 time, at its end for those due by its final time. A command therefore never leaves a dwell due in
-the past, and `movement.scope@1` lets a remain event name an object other than the mover, since
-the event changes only revision and time. The
+the past. It does not run the utility system, so a `world.decision` due before its final time is
+moved to that time, with the matching idempotency key, and the next `world.advance` runs it first;
+no decision is left due in the past either. `movement.scope@1` lets a remain event name an object
+other than the mover, since the event changes only revision and time. The
 reducer accepts the event only for an active object that has stayed inside a declared dwell region
 for exactly one dwell since the entry its movement lineage last made, by the same rule, so replay
 validates itself. The queue check accepts these items beside one

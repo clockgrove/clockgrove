@@ -3054,13 +3054,43 @@ function movementRuntime(context: WorldContext, dwells: CommandDwells): Movement
   };
 }
 
+/**
+ * A `world.decision` that fell due while a movement or portal command moved the world time is due
+ * at the command's final time instead: the command does not run the utility system, so the next
+ * `world.advance` runs it first. Like its dwells, a command never leaves a decision due in the past.
+ */
+function deferDecisions(dwells: CommandDwells, through: SimTimeMs): void {
+  for (const item of decisionsOf(dwells.schedules)) {
+    if (item.dueAt >= through) continue;
+    const next = Object.freeze({
+      ...item,
+      dueAt: through,
+      payload: Object.freeze({ ...item.payload }),
+      idempotencyKey: `${item.id}:${through}`,
+    });
+    dwells.schedules = upsertSchedule(dwells.schedules, next);
+    dwells.mutations.push(
+      Object.freeze({
+        kind: "upsert",
+        scheduleId: next.id,
+        dueAt: next.dueAt,
+        payload: next.payload,
+        item: next,
+      }),
+    );
+  }
+}
+
 function commandOutput(
   context: WorldContext,
   dwells: CommandDwells,
 ): HandlerOutput<WorldState, WorldHandlerExtra> {
   const { state } = context;
   const through = context.workingState().simulationTime;
-  if (through > state.simulationTime) dwells.fire(through, true);
+  if (through > state.simulationTime) {
+    dwells.fire(through, true);
+    deferDecisions(dwells, through as SimTimeMs);
+  }
   const final = context.workingState();
   return {
     scheduleMutations: Object.freeze([...dwells.mutations]),
