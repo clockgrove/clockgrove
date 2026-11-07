@@ -632,21 +632,44 @@ it("observes native authorized socket updates and recovery in Chromium", async (
                 if (child.type === "Text") texts.push(child.text);
             return texts;
           });
-        // Named emphasis the renderer draws: ellipses as x, y, width, height, line width; labels as
-        // text, x, y; the pill as its fill colour and alpha under the label.
+        // Named emphasis the renderer draws: ellipses as x, y, width, height, line width; the hover
+        // label as text, x, y. The pill is measured against the selection label it holds: its centre
+        // x, its bottom edge, its width and height less the label's (the padding), its line width,
+        // fill colour and alpha, whether its corners are fully round, and whether it draws above the
+        // rings and below the label. The selection label is its text and its offset from the pill's
+        // centre.
         const emphasis = () =>
           page.evaluate(() => {
             const drawn = {};
-            for (const stage of globalThis.yardGame?.scene.getScenes(true) ?? [])
+            for (const stage of globalThis.yardGame?.scene.getScenes(true) ?? []) {
+              const named = (name) => stage.children.list.find((child) => child.name === name);
+              const [pill, label, ring] = [
+                named("selection-pill"),
+                named("selection-label"),
+                named("selection-ring"),
+              ];
               for (const child of stage.children.list)
                 if (child.name)
                   (drawn[child.name] ??= []).push(
-                    child.type === "Text"
-                      ? [child.text, child.x, child.y]
-                      : child.type === "Graphics"
-                        ? [child.defaultFillColor, child.defaultFillAlpha, child.depth % 10_000]
-                        : [child.x, child.y, child.width, child.height, child.lineWidth],
+                    child === label
+                      ? [child.text, child.x - pill?.x, child.y - pill?.y]
+                      : child === pill
+                        ? [
+                            child.x,
+                            child.y + child.height / 2,
+                            child.width - label?.width,
+                            child.height - label?.height,
+                            child.lineWidth,
+                            child.fillColor,
+                            child.fillAlpha,
+                            child.isRounded && child.radius === child.height / 2,
+                            ring?.depth < child.depth && child.depth < label?.depth,
+                          ]
+                        : child.type === "Text"
+                          ? [child.text, child.x, child.y]
+                          : [child.x, child.y, child.width, child.height, child.lineWidth],
                   );
+            }
             return drawn;
           });
         await page.getByLabel("Local session credential").fill("yard-inspect");
@@ -838,9 +861,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         );
         const pointerPosition = canvasPoint("grove.water-bowl");
         const water = worldPoint("grove.water-bowl");
-        // Only the selected entity gets a glowing sage ring at its feet and its name in a dark pill
-        // centred above its sprite: a bound sprite's pill clears its reviewed anchor height
-        // (assets/reviewed), a placeholder's sits 10 px above its feet.
+        // Only the selected entity gets a glowing sage ring at its feet and its name centred in a dark
+        // pill (10 px side and 4 px top and bottom padding) whose bottom edge sits 6 px above its
+        // sprite: a bound sprite's reviewed anchor height (assets/reviewed), a placeholder's feet.
         const { animations: strips } = JSON.parse(
           await readFile(path.join(root, "assets/reviewed/raccoon-world.animations.json"), "utf8"),
         );
@@ -851,8 +874,8 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             [x, y, 40, 20, 6],
           ],
           "selection-ring": [[x, y, 32, 16, 3]],
-          "selection-pill": [[0x1e2116, 0.92, 1]],
-          "selection-label": [[label, x, y - height - 10]],
+          "selection-pill": [[x, y - height - 6, 20, 8, 1, 0x1e2116, 0.92, true, true]],
+          "selection-label": [[label, 0, 0]],
         });
         const pointerResponse = page.waitForResponse(
           (response) => response.url().endsWith("/v1/runtime/entity") && response.status() === 200,
