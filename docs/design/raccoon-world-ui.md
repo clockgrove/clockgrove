@@ -57,7 +57,7 @@ Text and background pairs meet WCAG AA (4.5:1); axe checks them in the browser. 
 
 `.rw-shell` is a grid of at least the viewport's height: rows `60px 1fr`, columns `4fr 1fr`. The window scrolls the scene; the HUD and the rail are sticky. No inner container scrolls the canvas, because Phaser maps pointer positions from the window's scroll.
 
-- HUD (`.rw-hud`, row 1, one line): small-caps spaced wordmark and World selector at the left, the world clock (`.rw-clock`: day and time, Running or Paused, speed, weather) centered.
+- HUD (`.rw-hud`, row 1, one line): content-sized minimum tracks keep the wordmark and selector together without wrapping; small-caps spaced wordmark and World selector at the left, the world clock (`.rw-clock`: day and time, Running or Paused, speed, weather) centered.
 - Scene (`.rw-main`, about 4/5): the canvas and the complete text scene.
 - Entity rail (`.rw-rail`, about 1/5, right): the rail collapses to its toggle but keeps its column; selection is unaffected.
 - Material event feed (`.rw-feed-dock`): fixed at the lower left of the scene, in a left gutter of the scene column (`--rw-v1-feed-width`), so it never covers the canvas or a control; it scrolls past 40vh.
@@ -70,7 +70,7 @@ Each layout remembers whether its rail and feed are open: the desktop layout sta
 
 The breakpoint is 1200px. It sits below the 1280x720 laptop width that acceptance names and above tablet portrait. It is stated in `DESKTOP_MEDIA` in `apps/web/src/yard-state.ts` and in the two media queries of the CSS; change them together.
 
-Below it the shell is a block layout. The HUD sticks to the top and may wrap, keeping clock and weather visible. The rail becomes a bottom sheet, closed by default, and the feed becomes a collapsed sheet just above it. Each is opened by its own button (**Open entity rail**, **Open event feed**); opening or closing never changes the selection. The scene gets bottom padding so it scrolls past both sheets.
+Below it the shell is a block layout. The HUD sticks to the top and may wrap, keeping clock and weather visible. The rail becomes a bottom sheet, closed by default, and the feed becomes a collapsed sheet just above it. Sheets use the opaque panel token so underlying scene text cannot show through. Recorded Why opens as an opaque, scrollable panel above the sheets on narrow layouts. Each sheet is opened by its own button (**Open entity rail**, **Open event feed**); opening or closing never changes the selection. The scene gets bottom padding so it scrolls past both sheets.
 
 The Phaser canvas is never CSS-scaled, because pointer picking depends on its pixel size. When the viewport is narrower than the canvas the window scrolls horizontally; no inner container scrolls it, because Phaser refreshes its canvas bounds only on window resize and maps pointers from the window's scroll. The narrow Chromium step picks on the canvas after a horizontal scroll.
 
