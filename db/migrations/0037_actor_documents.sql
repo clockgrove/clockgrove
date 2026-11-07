@@ -328,20 +328,27 @@ CREATE TRIGGER document_change_sets_retire
 
 -- The metadata of every document of the actor a session addresses, for its participant: candidate
 -- selection decides on these fields before any text is read. Another session's summary appears
--- here, so its exclusion is recorded, while its row stays unreadable to the participant.
+-- here, so its exclusion is recorded, but redacted: `foreign_session` is set and its path, session,
+-- hash and length are withheld, so the participant learns neither that session's ID nor its text's
+-- hash or size, and its row stays unreadable to them.
 CREATE FUNCTION clockgrove.actor_context_candidates(row_tenant_id text, row_session_id text)
 RETURNS TABLE (
   document_id text, path text, kind text, write_class text, session_id text, state text,
-  version integer, source_hash text, byte_length integer
+  version integer, source_hash text, byte_length integer, foreign_session boolean
 )
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, clockgrove
 AS $$
-  SELECT document.document_id, document.path, document.kind, document.write_class,
-         document.session_id, document.state, document.current_version, head.source_hash,
-         head.byte_length
+  SELECT document.document_id,
+         CASE WHEN foreign_row THEN 'sessions/*/summary.md' ELSE document.path END,
+         document.kind, document.write_class,
+         CASE WHEN foreign_row THEN NULL ELSE document.session_id END,
+         document.state, document.current_version,
+         CASE WHEN foreign_row THEN NULL ELSE head.source_hash END,
+         CASE WHEN foreign_row THEN NULL ELSE head.byte_length END,
+         foreign_row
     FROM clockgrove.conversation_sessions AS session
     JOIN clockgrove.actor_documents AS document
       ON document.tenant_id = session.tenant_id AND document.world_id = session.world_id
@@ -349,11 +356,14 @@ AS $$
     JOIN clockgrove.actor_document_versions AS head
       ON head.tenant_id = document.tenant_id AND head.document_id = document.document_id
      AND head.version = document.current_version
+   CROSS JOIN LATERAL (
+     SELECT document.session_id IS NOT NULL AND document.session_id <> session.session_id
+   ) AS foreign_session (foreign_row)
    WHERE session.tenant_id = row_tenant_id AND session.session_id = row_session_id
      AND session.state <> 'deleted'
      AND clockgrove.has_runtime_context(row_tenant_id)
      AND clockgrove.runtime_conversation_participant(row_tenant_id, row_session_id)
-   ORDER BY document.path
+   ORDER BY foreign_row, document.path, document.document_id
 $$;
 REVOKE ALL ON FUNCTION clockgrove.actor_context_candidates(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clockgrove.actor_context_candidates(text, text) TO clockgrove_runtime;

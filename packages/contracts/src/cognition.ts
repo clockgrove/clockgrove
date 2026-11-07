@@ -165,7 +165,8 @@ export interface ContextManifestEntry {
   readonly writeClass: WriteClass | null;
   readonly sessionId: string | null;
   readonly state: "active" | "archived";
-  readonly sourceHash: string;
+  /** `null` when withheld: another session's summary is recorded without its hash. */
+  readonly sourceHash: string | null;
   readonly tokens: number;
   readonly decision: "included" | "excluded";
   readonly rule: ContextExclusionRule | null;

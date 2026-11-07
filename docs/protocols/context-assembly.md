@@ -98,17 +98,23 @@ authorization:
 
 1. **Candidates.** `actor_context_candidates(tenant, session)` returns the metadata of every
    document of the session's actor (path, kind, write class, session, state, head version, source
-   hash), and only to a participant of that session. The history candidates are the newest 16
+   hash, byte length), and only to a participant of that session. Another session's summary is
+   returned redacted, flagged `foreign_session`: its path reads `sessions/*/summary.md` and its
+   session, hash and length are `null`, so a participant learns neither that session's ID nor its
+   summary's hash or size. The history candidates are the newest 16
    messages of the session at or before its input revision. The turn's input is a candidate too.
 2. **Authorization, before any text is read.** A document is excluded `other_session_private` when
    it is another session's summary, or `document_archived` when it is archived. Its hash in the
-   manifest is the metadata's, and its text is never read.
-3. **Read.** Only the admitted sources' text is read. Document text is read under RLS, and message
-   text is decrypted from the session's artifacts.
-4. **Budget.** The input is reserved first. Then documents in kind order (identity, policy, goals,
-   working context, session summaries), then history newest first. A source that would pass the
-   budget is excluded `token_budget`. History keeps a contiguous newest suffix: after one message
-   is excluded, all older ones are too.
+   manifest is the metadata's (`null` for another session's summary), and its text is never read.
+3. **Budget.** The input is reserved first. Then documents in kind order (identity, policy, goals,
+   working context, session summaries; then path and document ID), decided from their stored byte
+   length, then history newest first. A source that would pass the budget is excluded
+   `token_budget`, and a document so excluded is never read. History keeps a contiguous newest
+   suffix: after one message is excluded, all older ones are too.
+4. **Read.** Only the admitted sources' text is read: the admitted documents in one query, in the
+   same transaction as the candidates and under RLS, and message text decrypted from the session's
+   artifacts. A document whose text does not match its candidate hash and length fails the
+   assembly.
 5. **Prompt.** The included sources go into three sections:
    - `protected`: `protected` documents only;
    - `governed`: `governed` documents;
@@ -136,12 +142,15 @@ transaction with its `context_retrieval` step (step 1). It holds metadata only:
     `version` (a document version or a message sequence);
   - `label` (a path or a role), `scope` (`actor` or `session`), `writeClass`, `sessionId` and
     `state`;
-  - `sourceHash` and `tokens`, which is 0 when the source was never read;
+  - `sourceHash` (`null` for another session's summary) and `tokens`: the estimate the budget was
+    decided on, and 0 for a source excluded before the budget;
   - `decision` (`included` or `excluded`), `rule`, `section`, `trust` and `promptOrder` (from 1,
     `null` when excluded).
 
 `manifestHash` is the SHA-256 of the canonical encoding (`@clockgrove/kernel` `canonicalBytes`) of
-the session, input message, input revision, budget and entries.
+the session, input message, input revision, budget and entries. The budget is the manifest's
+recorded `tokenBudget`, so a reassembly decides and hashes under the budget the turn ran with even
+after the default changes.
 
 `POST /v1/runtime/context/inspect` takes `runId`, or `sessionId` with `turn`. It needs
 `runtime:world-inspect` and `operator_evidence`, is audited with subject `context-manifest`, and

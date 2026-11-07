@@ -2,6 +2,7 @@ import {
   type DocumentCandidate,
   operationRefusal,
   type RuntimeAuthorizationContext,
+  tokensOfBytes,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -115,10 +116,34 @@ export class PostgreSqlActorDocuments {
       kind: row.kind as DocumentCandidate["kind"],
       writeClass: row.write_class as DocumentCandidate["writeClass"],
       sessionId: row.session_id === null ? null : String(row.session_id),
+      foreignSession: row.foreign_session === true,
       state: row.state as DocumentCandidate["state"],
       version: Number(row.version),
-      sourceHash: String(row.source_hash),
+      sourceHash: row.source_hash === null ? null : String(row.source_hash),
+      tokens: row.byte_length === null ? null : tokensOfBytes(Number(row.byte_length)),
     }));
+  }
+
+  /** The named versions' texts in one read, as RLS admits them; a hidden one is absent. */
+  async contents(
+    tenantId: string,
+    versions: readonly { readonly documentId: string; readonly version: number }[],
+  ): Promise<ReadonlyMap<string, string>> {
+    if (versions.length === 0) return new Map();
+    const found = await this.client.query(
+      `SELECT version.document_id, version.version, version.content
+         FROM clockgrove.actor_document_versions AS version
+         JOIN unnest($2::text[], $3::integer[]) AS wanted (document_id, version)
+           ON wanted.document_id = version.document_id AND wanted.version = version.version
+        WHERE version.tenant_id = $1`,
+      [tenantId, versions.map((v) => v.documentId), versions.map((v) => v.version)],
+    );
+    return new Map(
+      (found.rows as Row[]).map((row) => [
+        `${String(row.document_id)}@${Number(row.version)}`,
+        String(row.content),
+      ]),
+    );
   }
 
   /** One version's text, as RLS admits it to the caller; undefined when it is not visible. */

@@ -4,12 +4,16 @@ import {
   type AssembledContext,
   assembleContext,
   CONTEXT_HISTORY_WINDOW,
+  CONTEXT_TOKEN_BUDGET,
+  type ContextInputs,
   type ContextSource,
   type ConversationParticipant,
   ConversationRefusedError,
   type ConversationResponder,
   type ConversationStore,
   type DocumentProposal,
+  documentDecisions,
+  estimateTokens,
   type OpenConversation,
   type RuntimeAuthorizationContext,
   recordedInputs,
@@ -307,8 +311,9 @@ export class PostgreSqlConversationStore implements ConversationStore {
   }
 
   /**
-   * Assembles this turn's context (migration 0037, `docs/protocols/context-assembly.md`): candidate
-   * metadata first, then only the admitted sources' text, all as the participant.
+   * Assembles this turn's context (migration 0037, `docs/protocols/context-assembly.md`), all as
+   * the participant, in one transaction: candidate metadata, the budget decided from it, then only
+   * the admitted documents' text in a single read.
    */
   private async assemble(
     participant: ConversationParticipant,
@@ -317,30 +322,33 @@ export class PostgreSqlConversationStore implements ConversationStore {
     count: number,
   ): Promise<AssembledContext> {
     const { tenantId } = request.scope;
-    const { documents, messages } = await this.transaction(participant, async () => ({
-      documents: await this.documents.candidates(tenantId, request.sessionId),
-      messages: await this.historyRows(tenantId, request.sessionId, count),
-    }));
-    return assembleContext(
-      {
+    const { inputs, messages, texts } = await this.transaction(participant, async () => {
+      const messages = await this.historyRows(tenantId, request.sessionId, count);
+      const inputs: ContextInputs = {
         sessionId: request.sessionId,
         inputMessageId: request.messageId,
         inputRevision: count,
-        documents,
+        tokenBudget: CONTEXT_TOKEN_BUDGET,
+        documents: await this.documents.candidates(tenantId, request.sessionId),
         messages: messages.map((row) => ({
           messageId: String(row.message_id),
           sequence: Number(row.sequence),
           role: row.role as "caretaker" | "actor",
         })),
-      },
-      (source) => this.source(participant, stored, messages, source, async () => request.text),
+      };
+      const texts = await this.admittedTexts(tenantId, inputs, estimateTokens(request.text));
+      return { inputs, messages, texts };
+    });
+    return assembleContext(inputs, (source) =>
+      this.source(participant, stored, messages, texts, source, async () => request.text),
     );
   }
 
   /**
-   * Assembles a recorded manifest's context again from its recorded inputs: the cited document
-   * versions, the session's messages up to its input revision and the stored input message. The
-   * caller reads them under its own authorization, so it must be able to read the session's text.
+   * Assembles a recorded manifest's context again from its recorded inputs: its budget, the cited
+   * document versions, the session's messages up to its input revision and the stored input
+   * message. The caller reads them under its own authorization, so it must be able to read the
+   * session's text.
    */
   async reassemble(
     authorization: RuntimeAuthorizationContext,
@@ -349,16 +357,30 @@ export class PostgreSqlConversationStore implements ConversationStore {
   ): Promise<string> {
     const reader = authorization as ConversationParticipant;
     const stored = await this.stored(reader, scope, manifest.sessionId);
-    const messages = await this.transaction(reader, () =>
-      this.historyRows(scope.tenantId, manifest.sessionId, manifest.inputRevision),
+    const input = await this.text(
+      reader,
+      stored,
+      `${manifest.sessionId}:message:${manifest.inputMessageId}`,
     );
     const inputs = recordedInputs(manifest);
+    const { messages, texts } = await this.transaction(reader, async () => ({
+      messages: await this.historyRows(scope.tenantId, manifest.sessionId, manifest.inputRevision),
+      texts: await this.admittedTexts(scope.tenantId, inputs, estimateTokens(input)),
+    }));
     const context = await assembleContext(inputs, (source) =>
-      this.source(reader, stored, messages, source, () =>
-        this.text(reader, stored, `${manifest.sessionId}:message:${manifest.inputMessageId}`),
-      ),
+      this.source(reader, stored, messages, texts, source, async () => input),
     );
     return context.manifestHash;
+  }
+
+  /** The admitted documents' texts, keyed `documentId@version`, in one read. */
+  private admittedTexts(tenantId: string, inputs: ContextInputs, inputTokens: number) {
+    return this.documents.contents(
+      tenantId,
+      documentDecisions(inputs, inputTokens)
+        .filter(({ rule }) => rule === null)
+        .map(({ document }) => ({ documentId: document.documentId, version: document.version })),
+    );
   }
 
   /** The newest history-window messages at or before a revision. */
@@ -378,6 +400,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     participant: ConversationParticipant,
     stored: StoredSession,
     messages: readonly Row[],
+    documents: ReadonlyMap<string, string>,
     source: ContextSource,
     input: () => Promise<string>,
   ): Promise<string> {
@@ -387,9 +410,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       if (row === undefined) throw new Error("context message unreadable");
       return this.text(participant, stored, String(row.content_artifact_id));
     }
-    const text = await this.transaction(participant, () =>
-      this.documents.content(participant.tenantId, source.documentId, source.version),
-    );
+    const text = documents.get(`${source.documentId}@${source.version}`);
     if (text === undefined) throw new Error("context document unreadable");
     return text;
   }

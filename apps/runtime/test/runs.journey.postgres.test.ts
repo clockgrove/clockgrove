@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { decodeConversationSession, decodeTalkReceipt, type RunWalk } from "@clockgrove/contracts";
+import { canonicalBytes } from "@clockgrove/kernel";
 import { expect, it } from "vitest";
 import {
   isNativeWorldOwnerChild,
@@ -210,12 +212,51 @@ it.skipIf(!isNativeWorldOwnerChild())(
         version,
         text,
       });
+      // The manifest hash, computed here from the contract in `docs/protocols/context-assembly.md`:
+      // SHA-256 of the canonical session, input, revision, budget and entries (history newest first,
+      // then the input), independent of the assembler.
+      const said = [
+        ["m1", "caretaker", "Find the acorns."],
+        ["m1:reply", "actor", REPLY(1)],
+        ["m2", "caretaker", "Hide them by the fence."],
+        ["m2:reply", "actor", REPLY(2)],
+        ["m3", "caretaker", "Count them tonight."],
+      ] as const;
+      const entry = ([id, role, text]: (typeof said)[number], index: number) => ({
+        source: index === 4 ? "input" : "message",
+        sourceId: id,
+        version: index + 1,
+        label: role,
+        scope: "session",
+        writeClass: null,
+        sessionId: session,
+        state: "active",
+        sourceHash: createHash("sha256").update(text).digest("hex"),
+        tokens: Math.ceil(Buffer.byteLength(text) / 4),
+        decision: "included",
+        rule: null,
+        section: "untrusted",
+        trust: "untrusted",
+        promptOrder: index + 1,
+      });
+      const entries = said.map(entry);
+      const manifestHash = createHash("sha256")
+        .update(
+          canonicalBytes({
+            sessionId: session,
+            inputMessageId: "m3",
+            inputRevision: 4,
+            tokenBudget: 4096,
+            entries: [...entries.slice(0, 4).reverse(), entries[4]],
+          }),
+        )
+        .digest("hex");
       const prompt = {
         model: "scripted-fixture-v1",
         sessionId: session,
         caretakerMessages: 3,
         promptVersion: "context-prompt-v1",
-        manifestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        manifestHash,
         protected: [],
         governed: [],
         untrusted: [

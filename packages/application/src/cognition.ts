@@ -34,20 +34,32 @@ export function estimateTokens(text: string): number {
   return Math.ceil(encoder.encode(text).length / 4);
 }
 
+/** The same estimate from a stored byte length, so the budget is decided before any text is read. */
+export function tokensOfBytes(byteLength: number): number {
+  return Math.ceil(byteLength / 4);
+}
+
 export function sourceHash(text: string): string {
   return sha256Hex(encoder.encode(text));
 }
 
-/** The metadata of one actor document, as `actor_context_candidates` (0037) returns it. */
+/**
+ * The metadata of one actor document, as `actor_context_candidates` (0037) returns it. Another
+ * session's summary is `foreignSession` and redacted: its path is `sessions/*\/summary.md` and its
+ * session, hash and token estimate are withheld (`null`).
+ */
 export interface DocumentCandidate {
   readonly documentId: string;
   readonly path: string;
   readonly kind: DocumentKind;
   readonly writeClass: WriteClass;
   readonly sessionId: string | null;
+  readonly foreignSession: boolean;
   readonly state: "active" | "archived";
   readonly version: number;
-  readonly sourceHash: string;
+  readonly sourceHash: string | null;
+  /** The head version's estimated tokens, from its stored byte length. */
+  readonly tokens: number | null;
 }
 
 export interface MessageCandidate {
@@ -61,6 +73,8 @@ export interface ContextInputs {
   readonly inputMessageId: string;
   /** The session's message count: the input is message `inputRevision + 1`. */
   readonly inputRevision: number;
+  /** The budget the turn was assembled under; a reassembly uses the manifest's recorded one. */
+  readonly tokenBudget: number;
   readonly documents: readonly DocumentCandidate[];
   /** The session's messages up to the input revision, any order. */
   readonly messages: readonly MessageCandidate[];
@@ -106,10 +120,47 @@ export function documentExclusion(
   document: DocumentCandidate,
   sessionId: string,
 ): ContextExclusionRule | null {
-  if (document.sessionId !== null && document.sessionId !== sessionId)
+  if (document.foreignSession || (document.sessionId !== null && document.sessionId !== sessionId))
     return "other_session_private";
   if (document.state === "archived") return "document_archived";
   return null;
+}
+
+/** Candidate documents in prompt-candidate order: kind, then path, then document ID. */
+function ordered(documents: readonly DocumentCandidate[]): DocumentCandidate[] {
+  const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return [...documents].sort(
+    (a, b) =>
+      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+      compare(a.path, b.path) ||
+      compare(a.documentId, b.documentId),
+  );
+}
+
+export interface DocumentDecision {
+  readonly document: DocumentCandidate;
+  /** `null` admits the document into the prompt; only then is its text read. */
+  readonly rule: ContextExclusionRule | null;
+}
+
+/**
+ * Decides every document from metadata alone, after the input's tokens are reserved: the
+ * authorization rules first, then the budget from the stored length. A caller can therefore fetch
+ * exactly the admitted texts at once before assembling.
+ */
+export function documentDecisions(
+  inputs: ContextInputs,
+  inputTokens: number,
+): readonly DocumentDecision[] {
+  let used = inputTokens;
+  return ordered(inputs.documents).map((document) => {
+    const rule = documentExclusion(document, inputs.sessionId);
+    if (rule !== null) return { document, rule };
+    const tokens = document.tokens ?? 0;
+    if (used + tokens > inputs.tokenBudget) return { document, rule: "token_budget" as const };
+    used += tokens;
+    return { document, rule: null };
+  });
 }
 
 interface Draft {
@@ -131,33 +182,30 @@ export async function assembleContext(
   const drafts: Draft[] = [];
   const input = await read({ source: "input" });
   let used = estimateTokens(input);
-  const included = (tokens: number) => used + tokens <= CONTEXT_TOKEN_BUDGET;
-  const documents = [...inputs.documents].sort(
-    (a, b) =>
-      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
-      (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
-  );
-  for (const document of documents) {
+  const included = (tokens: number) => used + tokens <= inputs.tokenBudget;
+  for (const { document, rule } of documentDecisions(inputs, used)) {
     const base = {
       source: "document" as const,
       sourceId: document.documentId,
       version: document.version,
       label: document.path,
-      scope: document.sessionId === null ? ("actor" as const) : ("session" as const),
+      scope:
+        document.foreignSession || document.sessionId !== null
+          ? ("session" as const)
+          : ("actor" as const),
       writeClass: document.writeClass,
       sessionId: document.sessionId,
       state: document.state,
       trust:
         document.writeClass === "actor_writable" ? ("untrusted" as const) : ("trusted" as const),
     };
-    const rule = documentExclusion(document, inputs.sessionId);
     if (rule !== null) {
-      // Never read: the recorded hash is the candidate's own metadata.
+      // Never read: the recorded hash and estimate are the candidate's own metadata.
       drafts.push({
         entry: {
           ...base,
           sourceHash: document.sourceHash,
-          tokens: 0,
+          tokens: rule === "token_budget" ? (document.tokens ?? 0) : 0,
           decision: "excluded",
           rule,
           section: null,
@@ -173,21 +221,21 @@ export async function assembleContext(
       version: document.version,
     });
     const tokens = estimateTokens(text);
-    const fits = included(tokens);
-    if (fits) used += tokens;
+    if (tokens !== document.tokens || sourceHash(text) !== document.sourceHash)
+      throw new Error("context document differs from its candidate metadata");
+    used += tokens;
+    const section = SECTION[document.writeClass];
     drafts.push({
       entry: {
         ...base,
         sourceHash: sourceHash(text),
         tokens,
-        decision: fits ? "included" : "excluded",
-        rule: fits ? null : "token_budget",
-        section: fits ? SECTION[document.writeClass] : null,
+        decision: "included",
+        rule: null,
+        section,
       },
       text,
-      order: fits
-        ? 1 + ["protected", "governed", "untrusted"].indexOf(SECTION[document.writeClass])
-        : 0,
+      order: 1 + ["protected", "governed", "untrusted"].indexOf(section),
     });
   }
   const history = inputs.messages
@@ -253,7 +301,7 @@ export async function assembleContext(
     promptOrder: promptOrder.get(draft) ?? null,
   }));
   return {
-    tokenBudget: CONTEXT_TOKEN_BUDGET,
+    tokenBudget: inputs.tokenBudget,
     tokensUsed: used,
     manifestHash: manifestHash(inputs, entries),
     entries,
@@ -269,7 +317,7 @@ export async function assembleContext(
 
 /** SHA-256 of the canonical encoding of the revision, budget and entries. */
 export function manifestHash(
-  inputs: Pick<ContextInputs, "sessionId" | "inputMessageId" | "inputRevision">,
+  inputs: Pick<ContextInputs, "sessionId" | "inputMessageId" | "inputRevision" | "tokenBudget">,
   entries: readonly ContextManifestEntry[],
 ): string {
   return sha256Hex(
@@ -277,7 +325,7 @@ export function manifestHash(
       sessionId: inputs.sessionId,
       inputMessageId: inputs.inputMessageId,
       inputRevision: inputs.inputRevision,
-      tokenBudget: CONTEXT_TOKEN_BUDGET,
+      tokenBudget: inputs.tokenBudget,
       entries: entries.map((entry) => ({ ...entry })),
     }),
   );
@@ -287,24 +335,29 @@ export function manifestHash(
 export function recordedInputs(
   manifest: Pick<
     import("@clockgrove/contracts").ContextManifest,
-    "sessionId" | "inputMessageId" | "inputRevision" | "entries"
+    "sessionId" | "inputMessageId" | "inputRevision" | "tokenBudget" | "entries"
   >,
 ): ContextInputs {
   const documents: DocumentCandidate[] = [];
   const messages: MessageCandidate[] = [];
   for (const entry of manifest.entries) {
     if (entry.source === "document") {
-      const resolved = resolveDocumentPath(entry.label);
-      if (resolved === undefined || entry.writeClass === null) continue;
+      if (entry.writeClass === null) continue;
+      const foreignSession = entry.rule === "other_session_private";
+      const kind = foreignSession ? "session_summary" : resolveDocumentPath(entry.label)?.kind;
+      if (kind === undefined) continue;
       documents.push({
         documentId: entry.sourceId,
         path: entry.label,
-        kind: resolved.kind,
+        kind,
         writeClass: entry.writeClass,
         sessionId: entry.sessionId,
+        foreignSession,
         state: entry.state,
         version: entry.version,
         sourceHash: entry.sourceHash,
+        // An entry decided on the budget or included records the estimate it was decided on.
+        tokens: entry.rule === null || entry.rule === "token_budget" ? entry.tokens : null,
       });
     } else if (entry.source === "message")
       messages.push({
@@ -317,6 +370,7 @@ export function recordedInputs(
     sessionId: manifest.sessionId,
     inputMessageId: manifest.inputMessageId,
     inputRevision: manifest.inputRevision,
+    tokenBudget: manifest.tokenBudget,
     documents,
     messages,
   };

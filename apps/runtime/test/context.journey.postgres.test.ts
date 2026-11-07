@@ -237,8 +237,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           tokens: 2048,
           ...excluded("token_budget"),
         },
+        // Redacted: session B's ID, hash and size never reach session A's manifest.
         {
-          ...doc(`sessions/${b}/summary.md`, 1, "actor_writable", sha("B is about snacks.")),
+          ...doc("sessions/*/summary.md", 1, "actor_writable", sha("B is about snacks.")),
+          sessionId: null,
+          sourceHash: null,
           state: "active",
           tokens: 0,
           ...excluded("other_session_private"),

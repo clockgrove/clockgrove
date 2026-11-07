@@ -1938,6 +1938,12 @@ BEGIN
      OR (SELECT count(*) FROM clockgrove.actor_context_candidates('tenant-a', 'session-d2')) <> 0 THEN
     RAISE EXCEPTION 'participant reads wrong documents';
   END IF;
+  -- Another session's summary is a redacted candidate: no session ID, hash or length.
+  IF (SELECT array_agg(ROW(path, session_id, source_hash, byte_length, version)::text)
+        FROM clockgrove.actor_context_candidates('tenant-a', 'session-d1') WHERE foreign_session)
+     IS DISTINCT FROM ARRAY[ROW('sessions/*/summary.md', NULL::text, NULL::text, NULL::integer, 1)::text] THEN
+    RAISE EXCEPTION 'another session''s summary metadata reaches the participant';
+  END IF;
   -- A principal in no session of the actor reads nothing.
   PERFORM pg_temp.act_as('tenant-a', 'principal-a3',
     '{"version":1,"allowedCategories":["public_scene","conversation"]}');
