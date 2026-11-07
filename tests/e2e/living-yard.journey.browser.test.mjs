@@ -563,7 +563,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           ),
         ]).toEqual([
           [["route_resolving", "/", null, null, null, 0]],
-          ["Observation: signed out. ", "Arrival: resolving world route /."],
+          ["Scene: signed out. ", "Arrival: resolving world route /."],
         ]);
         // Every arrival mutation shows only the boot announcement as progress.
         await arrival.evaluate(() => {

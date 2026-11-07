@@ -382,10 +382,9 @@ export function RaccoonWorldApp({
       : bootStatusText(boot);
   const observationStatus = live ? `Observation: ${yardStatusText(state)}. ` : "";
   const observationAnnouncement = useThrottled(
-    observationStatus +
-      (live && scene
-        ? `Revision ${scene.revision}. Rain intensity ${scene.weather.rainIntensity}.`
-        : ""),
+    live && scene
+      ? `Scene: ${yardStatusText(state)}. Revision ${scene.revision}. Rain intensity ${scene.weather.rainIntensity}.`
+      : observationStatus.replace(/^Observation:/u, "Scene:"),
     ANNOUNCE_INTERVAL_MS,
   );
   const shell = useRef<HTMLDivElement>(null);

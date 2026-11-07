@@ -298,6 +298,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         expect(await page.locator("#rw-observation-announcement").textContent()).not.toContain(
           "grove.stevie",
         );
+        expect(await page.getByText(/^Observation: /u).count()).toBe(1);
         return committed.revision;
       };
       await commit("text-rain", "world.weather.set", { schemaVersion: 2, rainIntensity: 1000 });
