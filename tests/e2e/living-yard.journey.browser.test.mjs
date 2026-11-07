@@ -119,6 +119,17 @@ useWorldBoot.subscribe(({ boot }) => globalThis.yardBoots.push([
               code: `${code}\nglobalThis.yardMeasurements = clientMeasurements;`,
               map: null,
             };
+          // §16: while yardThrowRender is set, the yard's entity list throws as it renders.
+          if (id.split("?")[0] === path.join(root, "apps/web/src/text-scene.tsx"))
+            return {
+              code: `${code}
+const renderEntities = TextSceneEntities;
+TextSceneEntities = (props) => {
+  if (globalThis.yardThrowRender) throw new Error("injected yard component fault");
+  return renderEntities(props);
+};`,
+              map: null,
+            };
           if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
           return {
             code: `${code}
@@ -2160,6 +2171,40 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           // window's bounds listeners no longer fire.
           await released(),
         ]).toEqual([heldBefore, "ready", [false, false, false]]);
+        // §16 React error boundary: a throwing yard component leaves a focused, announced error
+        // screen, not a blank page, recorded only as client_errors:shell; Reload recovers.
+        await yard.evaluate(() => {
+          globalThis.yardThrowRender = true;
+        });
+        await yard
+          .getByRole("region", { name: "Living scene" })
+          .getByRole("listitem")
+          .getByRole("button", { pressed: false })
+          .first()
+          .click();
+        const stopped = yard.getByRole("region", { name: "Raccoon World stopped" });
+        await stopped.waitFor();
+        expect([
+          await stopped.getByRole("alert").textContent(),
+          await stopped.evaluate((section) => section === document.activeElement),
+          await yard.getByRole("region", { name: "Living scene" }).count(),
+          await yard.evaluate(
+            () =>
+              globalThis.yardMeasurements
+                .points()
+                .filter(({ name, category }) => `${name}:${category}` === "client_errors:shell")
+                .length,
+          ),
+        ]).toEqual([
+          "The view stopped after an error. The world is unchanged. Reload to observe it again.",
+          true,
+          0,
+          1,
+        ]);
+        // Reload starts a fresh client: the shell's sign-in is back, with the world route kept.
+        await stopped.getByRole("button", { name: "Reload", exact: true }).click();
+        await yard.getByLabel("Local session credential").waitFor();
+        expect(new URL(yard.url()).pathname).toBe(routeOf(auth.scope));
         await yard.context().close();
         await expect.poll(async () => (await attachments(auth.scope)).length).toBe(attached);
         // A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM.

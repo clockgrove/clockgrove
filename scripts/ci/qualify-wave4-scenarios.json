@@ -436,9 +436,13 @@
       "id": "F11",
       "section": "16",
       "scenario": "React error boundary",
-      "coverage": "gap",
-      "evidence": [],
-      "deviation": "The shell has no React error boundary test."
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// §16 React error boundary: a throwing yard component leaves a focused, announced error"
+        }
+      ]
     },
     {
       "id": "F12",
