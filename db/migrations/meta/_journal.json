@@ -232,6 +232,13 @@
       "when": 1794002400000,
       "tag": "0033_inspector_entry_points",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794088800000,
+      "tag": "0034_conversations",
+      "breakpoints": true
     }
   ]
 }

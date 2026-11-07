@@ -1,7 +1,7 @@
 # Bounded component catalog
 
 The owned entrypoint `src/components/catalog/index.ts` exports
-`createInitialComponentCatalog()` and the ten production state schemas and inferred
+`createInitialComponentCatalog()` and the eleven production state schemas and inferred
 state types. The factory returns an immutable tuple in the order below. Each descriptor
 has `type`, `version`, `schema`, `canonicalCodec`, `validateState`, `redact` and
 `upcasters`. Descriptors are self-contained and import no registry or resolver. Public
@@ -19,6 +19,7 @@ package re-exports and the WorldState adapter belong to the integration consumer
 | `clockgrove.lifecycle` | 1 | `status: "active" \| "retired" \| "dead"` |
 | `clockgrove.portal` | 1 | `status: "open" \| "closed"`, `endpoints`: a tuple of two places (see [Portal component](#portal-component-rw-0104)) |
 | `clockgrove.presentation` | 1 | `assetId`: kebab-case string, `animationFamily`: `idle`, `walk`, `sniff`, `eat`, `play`, `shelter`, `static` or `loop`, `accessibilityLabel: string` |
+| `clockgrove.conversation-mode` | 1 | `mode: "cognitive" \| "interpreted" \| "canonical"` (see [Conversation mode component](#conversation-mode-component-rw-0501)) |
 
 All object schemas are closed, including nested references and poses. Missing required
 fields, extra fields, explicit undefined, accessors, symbols, cyclic values and non-data
@@ -85,7 +86,7 @@ pin mismatches use `identity-mismatch`; undeclared frame IDs/versions use
 `invalid-state` at `context.simulationTime`. Codec/schema parse failures throw;
 the registry consumer owns its external refusal envelope.
 
-All ten descriptors declare `privacyClass: public_scene`. `AccessPolicy` wraps the
+All eleven descriptors declare `privacyClass: public_scene`. `AccessPolicy` wraps the
 existing `PrivacyCeiling` as `privacyCeiling`. `redact` returns a validated immutable
 copy only when `allowedCategories` includes `public_scene`, otherwise null. This
 includes Identity ownership; this slice has no field-level redaction. Version-one
@@ -180,3 +181,21 @@ Unknown places need the partition's anchors and regions, which the context does 
 or the endpoint itself). The adapter projects the component to the optional `entity.portal`
 field, so states without portals keep their encoding. Open/close/use and the portal navigation
 graph are in the kernel's [spatial movement](../../kernel/docs/spatial-movement.md#portals-graph-3).
+
+## Conversation mode component (RW-0501)
+
+`clockgrove.conversation-mode` version 1 is the eleventh descriptor, appended last; it keeps the closed
+schema, version-one codec, frozen output, empty frozen upcasters and `public_scene` redaction
+contracts above and has no invariants. Its state is `mode`, drawn from `VOICE_MODES` in
+`@clockgrove/contracts`, the same vocabulary as a conversation session's voice mode
+(`packages/persistence/src/postgres-conversations.ts` and the runtime conversations). The meanings
+are Wave 5 §6.3: `cognitive` is the actor's subjective communication, `interpreted` is a narrated
+interpretation where the object is not sentient, and `canonical` is an authorized explanation from
+world evidence.
+
+```json
+{"type":"clockgrove.conversation-mode","version":1,"state":{"mode":"interpreted"}}
+```
+
+The adapter accepts an object carrying it and does not project it to a `WorldEntity` field, so
+world state and hashes are unchanged; no pack declares it yet.

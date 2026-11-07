@@ -7,10 +7,9 @@ import {
   type InteractionAction,
   type InteractionAttribution,
   type InteractionSummary,
-  type ObjectId,
   type PrincipalId,
-  type TalkReceipt,
-  type TalkRequest,
+  type SayReceipt,
+  type SayRequest,
   type WorldPersonaId,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
@@ -147,40 +146,25 @@ export function influenceReceipt(
 }
 
 /**
- * The scripted Talk fixture. Nothing is stored or delivered to another observer, and the reply
- * says so: the actor has no conversation memory in Wave 4. Private talk is attributed to the
- * trusted principal and persona; public speech is a scripted line spoken by the addressed actor.
+ * Public Say: the addressed actor speaks a fixed scripted line aloud, never the caller's words
+ * (that would be control), attributed to the trusted principal and persona whose explicit action
+ * made it speak. Nothing is stored or delivered to another observer.
  */
-export function scriptedTalk(
-  request: TalkRequest,
+export function scriptedSay(
+  request: SayRequest,
   context: TrustedExecutionContext & { readonly personaId: WorldPersonaId },
   sentAt: string,
-): TalkReceipt {
-  const base = { messageId: request.messageId, scope: request.scope, text: request.text, sentAt };
-  if (request.channel === "public")
-    return {
-      channel: "public",
-      // The actor speaks a fixed scripted line, never the caller's words: that would be control.
-      speech: {
-        type: "public_speech",
-        ...base,
-        speakerId: request.actorId as ObjectId,
-        text: "Chitters aloud (scripted fixture line).",
-      },
-      attribution: { principalId: context.principalId, personaId: context.personaId },
-    };
+): SayReceipt {
   return {
-    channel: "private",
-    talk: {
-      type: "private_caretaker_talk",
-      ...base,
-      principalId: context.principalId,
-      caretakerId: context.personaId,
-      // No canonical record names a persona yet, so it is named by its identifier.
-      caretakerName: context.personaId,
-      actorId: request.actorId,
+    type: "public_say",
+    speech: {
+      type: "public_speech",
+      messageId: request.messageId,
+      scope: request.scope,
+      speakerId: request.actorId,
+      text: "Chitters aloud (scripted fixture line).",
+      sentAt,
     },
-    reply:
-      "Scripted Talk fixture: this actor has no conversation memory and will not remember this.",
+    attribution: { principalId: context.principalId, personaId: context.personaId },
   };
 }

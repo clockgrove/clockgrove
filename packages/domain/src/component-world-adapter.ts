@@ -57,6 +57,7 @@ export function createInitialComponentRegistry(): ComponentRegistry {
     lifecycle,
     portal,
     presentation,
+    conversationMode,
   ] = createInitialComponentCatalog();
   components.register(registration(identity));
   components.register(registration(archetype));
@@ -68,6 +69,7 @@ export function createInitialComponentRegistry(): ComponentRegistry {
   components.register(registration(lifecycle));
   components.register(registration(portal));
   components.register(registration(presentation));
+  components.register(registration(conversationMode));
   return components;
 }
 

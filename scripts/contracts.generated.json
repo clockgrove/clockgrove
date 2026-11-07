@@ -1,19 +1,20 @@
 {
-  "version": 20,
+  "version": 21,
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
     "asset-manifest.ts": "e64e6e4871e8450fa7a006d97270fc629902f9c3e644f159f79ae4b558a1b2e7",
     "browser-protocol.ts": "23a93cda53bd39c30e953efbe39e762ef116d52a1f56866c52b47dada6566e03",
     "conformance.ts": "f58094883f98f00ef4f023146449fe765070ff4ade92d378cc014443db83c3a4",
+    "conversations.ts": "d362bd218a73daeec3c95aa32ed88587734a581f74a6ac82a027a3ba91ff698b",
     "execution-context.ts": "8c09a549f3f403ba0a8e14be07479ec44ba3d65f3c43acf5eb8e2bdd33c03030",
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
-    "index.ts": "6805124c5bd35cfeee37f13656bf3cc07b3322a2fffd4c083ab43ed7e17583c3",
+    "index.ts": "61efc372edbfd8f325b2dc08dd22cc585ef714470f086ea368e2690d9d430455",
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
     "privacy.ts": "eee0e6d1cc4846816e590b3d4a59c46e35909831e303249b54c326e7b9bd9c28",
     "protocol.ts": "5ec8053a0e5bf99c0e3a1cf489e8a200c5f4ecf60460446437885dce7ed11464",
     "scene-arrival.ts": "d7a8b2ac7b624603d7f05813501bc530e5310384facf01a555372e87138eb83f",
     "scene-connection.ts": "4104fd7777ac0d2bd2ef84436076e263d58cb2fb0fb37ef9d02c49ff5368cec0",
-    "scene-interactions.ts": "7d77c9ceb3a5b38e26b5d59f054b88bd0eb72ddcea3803f16c4574348de51b7d",
+    "scene-interactions.ts": "3b7308f11a5801ef3631f42b6eb85a71f2a58fcbb6be182476e855fb6f893ad6",
     "scene-protocol.ts": "255c10e38e96c32aba6f318d5acac3abc6ea912dbfc48b970641a76afbee20b7",
     "trusted.ts": "38f849d80ab17c736df5e93dddd309d0e81261a84307825c72cd928208b73eaa",
     "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1"

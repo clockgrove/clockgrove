@@ -6,10 +6,10 @@ import {
   type InteractionAttribution,
   type InteractionSummary,
   type ObjectId,
-  type PrivateCaretakerTalk,
   type PublicSpeech,
 } from "@clockgrove/contracts";
 import { useId, useState } from "react";
+import { ConversationPanel } from "./conversations/conversation-panel.js";
 import { whyOpener } from "./why.js";
 import type { YardSession } from "./yard-api.js";
 import { useSelectionQuery } from "./yard-queries.js";
@@ -47,8 +47,6 @@ export function InteractionCard({
   const [note, setNote] = useState<string>();
   const [outcome, setOutcome] = useState<Outcome>();
   const [draft, setDraft] = useState("");
-  const [privateLog, setPrivateLog] = useState<readonly PrivateCaretakerTalk[]>([]);
-  const [replies, setReplies] = useState<readonly string[]>([]);
   const [speech, setSpeech] = useState<readonly PublicSpeech[]>([]);
   const [attributions, setAttributions] = useState<readonly InteractionAttribution[]>([]);
   const [talkRefusal, setTalkRefusal] = useState<string>();
@@ -76,19 +74,14 @@ export function InteractionCard({
     setOutcome("proposed");
     setOutcome(await session.influence(entityId, resource.kind));
   };
-  const talk = async (channel: "private" | "public") => {
+  const say = async () => {
     const text = draft.trim();
     if (!text) return;
     setTalkRefusal(undefined);
-    const receipt = await session.talk(entityId, channel, text);
+    const receipt = await session.say(entityId, text);
     if ("refused" in receipt) return setTalkRefusal(receipt.refused);
-    if (receipt.channel === "private") {
-      setPrivateLog((log) => [...log, receipt.talk]);
-      setReplies((all) => [...all, receipt.reply]);
-    } else {
-      setSpeech((all) => [...all, receipt.speech]);
-      setAttributions((all) => [...all, receipt.attribution]);
-    }
+    setSpeech((all) => [...all, receipt.speech]);
+    setAttributions((all) => [...all, receipt.attribution]);
     setDraft("");
   };
 
@@ -124,35 +117,25 @@ export function InteractionCard({
       )}
       {outcome && <InfluenceStages outcome={outcome} />}
       {enabled(summary, "talk") && (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void talk("private");
-          }}
-        >
-          <p>Scripted Talk fixture: this actor has no conversation memory.</p>
-          <label>
-            Message
-            <input value={draft} onChange={(event) => setDraft(event.target.value)} />
-          </label>
-          <button type="submit">Talk privately</button>
-          <button type="button" onClick={() => void talk("public")}>
-            Say publicly (scripted)
-          </button>
-          {talkRefusal && <p role="status">Talk refused: {talkRefusal}</p>}
-        </form>
+        <>
+          <ConversationPanel key={entityId} session={session} actorId={entityId} />
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void say();
+            }}
+          >
+            <label>
+              Public line
+              <input value={draft} onChange={(event) => setDraft(event.target.value)} />
+            </label>
+            <button type="submit">Say aloud</button>
+            {talkRefusal && <p role="status">Say refused: {talkRefusal}</p>}
+          </form>
+        </>
       )}
       {has("talk") && (
         <>
-          <ol aria-label="Private Caretaker talk">
-            {privateLog.map((talk, i) => (
-              <li key={talk.messageId}>
-                {talk.caretakerName}: {talk.text}
-                <br />
-                {replies[i]}
-              </li>
-            ))}
-          </ol>
           <div aria-label="Public speech" aria-live="polite" role="log">
             {speech.map((line, i) => (
               <p key={line.messageId}>

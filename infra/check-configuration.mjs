@@ -137,6 +137,7 @@ export async function checkInfrastructure(root) {
     "AUTH_DATABASE_URL",
     "MANAGEMENT_DATABASE_URL",
     "WORLD_AUTHORIZATION_DATABASE_URL",
+    "ARTIFACT_KEYRING",
   ]);
   const allQueues = [];
   for (const environment of environments) {

@@ -5,7 +5,7 @@ import {
   decodeOpaqueId,
   decodePrivacyCeiling,
   decodeRecordedWhy,
-  decodeTalkReceipt,
+  decodeSayReceipt,
   type SceneConnectionAttachment,
 } from "@clockgrove/contracts";
 import { PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
@@ -315,33 +315,34 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
         String(Number(before) + 2),
       );
 
-      // Talk is a scripted fixture: private talk stays private, public speech is explicit, nothing is stored.
-      const talk = { messageId: "talk-1", actorId: "grove.stevie", text: "Stay dry, Stevie." };
-      const [privateStatus, privateBody] = await post("talk", { ...talk, channel: "private" });
-      const privateTalk = decodeTalkReceipt(privateBody);
-      expect([
-        privateStatus,
-        privateTalk.channel === "private" && privateTalk.talk.caretakerId,
-      ]).toEqual([200, "persona-caretaker"]);
-      const publicTalk = decodeTalkReceipt((await post("talk", { ...talk, channel: "public" }))[1]);
-      expect(
-        publicTalk.channel === "public" && [publicTalk.speech.speakerId, publicTalk.speech.text],
-      ).toEqual(["grove.stevie", "Chitters aloud (scripted fixture line)."]);
-      expect(publicTalk.channel === "public" && publicTalk.attribution).toEqual({
-        principalId: authorization.principalId,
-        personaId: "persona-caretaker",
-      });
-      expect(JSON.stringify(publicTalk)).not.toContain("Stay dry");
-      // Only a projected actor talks: not a resource, nor an unknown ID.
-      expect(
-        await post("talk", { ...talk, channel: "public", actorId: "grove.water-bowl" }),
-      ).toEqual([409, { error: "talk_unavailable" }]);
-      expect(await post("talk", { ...talk, channel: "public", actorId: "grove.nobody" })).toEqual([
+      // Public Say is explicit and scripted; private Talk lives in conversation sessions, which
+      // fail closed without an artifact keyring and need the conversation category.
+      const say = { messageId: "say-1", actorId: "grove.stevie", text: "Stay dry, Stevie." };
+      const [sayStatus, sayBody] = await post("say", say);
+      const spoken = decodeSayReceipt(sayBody);
+      expect([sayStatus, spoken.speech.speakerId, spoken.speech.text, spoken.attribution]).toEqual([
+        200,
+        "grove.stevie",
+        "Chitters aloud (scripted fixture line).",
+        { principalId: authorization.principalId, personaId: "persona-caretaker" },
+      ]);
+      expect(JSON.stringify(spoken)).not.toContain("Stay dry");
+      // Only a projected actor is addressed: not a resource, nor an unknown ID.
+      expect(await post("say", { ...say, actorId: "grove.water-bowl" })).toEqual([
+        409,
+        { error: "talk_unavailable" },
+      ]);
+      expect(await post("say", { ...say, actorId: "grove.nobody" })).toEqual([
         409,
         { error: "selection_unavailable" },
       ]);
+      const open = { actorId: "grove.stevie" };
+      expect(await post("conversations/create", open)).toEqual([
+        503,
+        { error: "conversation_unavailable" },
+      ]);
       categories = ["public_scene"];
-      expect(await post("talk", { ...talk, channel: "private" })).toEqual([
+      expect(await post("conversations/create", open)).toEqual([
         403,
         { error: "authorization_refused" },
       ]);

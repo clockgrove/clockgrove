@@ -16,6 +16,7 @@ export * from "./memory-r2-bucket.js";
 export * from "./postgres-artifacts.js";
 export * from "./postgres-catch-up-workflows.js";
 export * from "./postgres-clock-admissions.js";
+export * from "./postgres-conversations.js";
 export * from "./postgres-dispatches.js";
 export * from "./postgres-inspector-audit.js";
 export * from "./postgres-journal.js";

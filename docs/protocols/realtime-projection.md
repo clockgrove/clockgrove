@@ -264,21 +264,15 @@ replays the stored receipt; a different proposal under the same intent ID answer
 `409 command_id_reused`. Membership, the prior receipt or the epochs, and readiness are read in one
 connection. Influence is a suggestion the world decides, never direct control.
 
-`POST /v1/runtime/talk` is the scripted Talk fixture on issue 805's shapes. It takes version 1, the
-scope, `messageId`, `actorId`, `channel` (`private` or `public`) and `text`, at most 1024 octets,
-and needs the observe grant, the `conversation` category and a resolved persona. The addressed
-`actorId` must be an actor (an entity with needs) projected in the request's space: a resource or
-other entity answers `409 talk_unavailable`, and an unknown or unprojected ID answers
-`409 selection_unavailable`. `private` answers
-a `PrivateCaretakerTalk` attributed to the trusted principal and persona, plus a scripted reply
-saying the actor has no conversation memory. `public` is the explicit public-speech action: a
-`PublicSpeech` in which the addressed actor speaks a fixed scripted line, never the caller's words,
-with the `attribution` (trusted principal and persona) of the caller whose explicit action made it
-speak. Nothing is stored or delivered to another observer: in Wave 4 the caller-only `PublicSpeech`
-receipt is the public-speech path (owner decision on issue 811, 2026-11-05). Spatial speech delivered to
-every observer of the space, with its own speech kind on the transient cue lane, belongs with Wave 5
-conversations. The card keeps private talk in its own log, and only explicit public speech enters
-the spatial speech region.
+Talk and Say are distinct commands with distinct receipts (Wave 5 RW-0501, issue 14).
+`POST /v1/runtime/talk` appends private Caretaker Talk to a durable conversation session and never
+reaches the scene; `POST /v1/runtime/say` is the explicit public-speech action. In its
+`PublicSpeech` the addressed actor speaks a fixed scripted line, never the caller's words, with the
+`attribution` (trusted principal and persona) of the caller whose explicit action made it speak.
+Nothing is delivered to another observer: the caller-only `PublicSpeech` receipt remains the
+public-speech path (owner decision on issue 811, 2026-11-05). See
+[private conversations](conversations.md). The card's conversation region lists the actor's
+sessions, and only explicit public speech enters the spatial speech region.
 
 ## Audience, assets and privacy
 
