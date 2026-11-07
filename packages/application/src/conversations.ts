@@ -9,6 +9,7 @@ import type {
   WorldPersonaId,
 } from "@clockgrove/contracts";
 
+import type { DocumentProposal } from "./cognition.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
 
 /** The participant a conversation call acts for: the authorized principal and their world persona. */
@@ -31,7 +32,14 @@ export interface OpenConversation {
 export type ConversationResponder = (
   session: ConversationSession,
   caretakerMessages: number,
-) => string;
+  input: string,
+) => ConversationResponse;
+
+/** The model's answer: its reply, and at most one document change it proposes (issue 17). */
+export interface ConversationResponse {
+  readonly text: string;
+  readonly proposal?: DocumentProposal;
+}
 
 /**
  * Canonical private conversations. Every call is scoped to the participant: a session of another

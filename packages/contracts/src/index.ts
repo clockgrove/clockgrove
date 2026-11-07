@@ -1,6 +1,7 @@
 export * from "./actor-address.js";
 export * from "./asset-manifest.js";
 export * from "./browser-protocol.js";
+export * from "./cognition.js";
 export * from "./conformance.js";
 export * from "./conversations.js";
 export {

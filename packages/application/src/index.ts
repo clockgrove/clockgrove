@@ -8,6 +8,7 @@ export * from "./canonical-node.js";
 export * from "./capabilities.js";
 export * from "./catch-up-workflows.js";
 export * from "./causal-inspector.js";
+export * from "./cognition.js";
 export * from "./conversations.js";
 export * from "./dispatch.js";
 export * from "./event-registry.js";

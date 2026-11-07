@@ -4,6 +4,7 @@ import type {
   JournalOutcomeReader,
   JournalPostCommitNotifier,
   RuntimeAuthorizationContext,
+  RuntimeAuthorizationDenial,
   RuntimeMetrics,
 } from "@clockgrove/application";
 import {
@@ -23,7 +24,17 @@ import {
   releaseRuntimeLogger,
   sweepDispatches,
 } from "@clockgrove/application";
-import { decodeOpaqueId, decodeQueueEnvelope, type QueueEnvelope } from "@clockgrove/contracts";
+import {
+  type BrowserScope,
+  type ContextInspectRequest,
+  type DocumentChangeRequest,
+  type DocumentReadRequest,
+  decodeOpaqueId,
+  decodeQueueEnvelope,
+  type PrincipalId,
+  type QueueEnvelope,
+} from "@clockgrove/contracts";
+import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
   PostgreSqlArtifactStore,
   PostgreSqlCatchUpWorkflowStore,
@@ -61,6 +72,7 @@ import {
   logWorldReactionSweepFailure,
 } from "./cloudflare-logs.js";
 import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflare-metrics.js";
+import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores } from "./conversations.js";
 import { withHyperdrivePostgreSqlClient } from "./hyperdrive-postgres.js";
 import {
@@ -309,9 +321,65 @@ export function composeConversations(
 export function composeRunInspector(
   env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
 ): RuntimeOwnerBindings["runs"] {
+  const session = artifactSession(env);
+  if (session === undefined) return undefined;
+  const inspector = <T>(operation: (inspector: PostgreSqlRunInspector) => Promise<T>) =>
+    session((client, artifacts) => operation(new PostgreSqlRunInspector(client, artifacts)));
+  const deny: PostgreSqlRunInspector["deny"] = (input, principalId, denial) =>
+    inspector((runs) => runs.deny(input, principalId, denial));
+  return {
+    walk: { inspect: (input, context) => inspector((runs) => runs.walk(input, context)), deny },
+    search: { inspect: (input, context) => inspector((runs) => runs.search(input, context)), deny },
+  };
+}
+
+/**
+ * Context manifests and governed actor documents (0037) under the same keyring: reassembly reads
+ * the session's protected messages. Absent without it, so they fail closed as
+ * `inspector_unavailable`.
+ */
+export function composeCognition(
+  env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+): RuntimeOwnerBindings["cognition"] {
+  const session = artifactSession(env);
+  if (session === undefined) return undefined;
+  const cognition = <T>(operation: (inspector: PostgreSqlCognitionInspector) => Promise<T>) =>
+    session((client, artifacts) => operation(new PostgreSqlCognitionInspector(client, artifacts)));
+  const port = <I extends { readonly scope: BrowserScope }, O>(
+    subject: "context-manifest" | "actor-documents",
+    inspect: (
+      inspector: PostgreSqlCognitionInspector,
+      input: I,
+      context: TrustedContext,
+    ) => Promise<O>,
+  ) => ({
+    inspect: (input: I, context: TrustedContext) =>
+      cognition((inspector) => inspect(inspector, input, context)),
+    deny: (input: I, principalId: PrincipalId, denial: RuntimeAuthorizationDenial | undefined) =>
+      cognition((inspector) => inspector.deny(input, subject, principalId, denial)),
+  });
+  return {
+    context: port("context-manifest", (inspector, input: ContextInspectRequest, context) =>
+      inspector.inspectContext(input, context),
+    ),
+    read: port("actor-documents", (inspector, input: DocumentReadRequest, context) =>
+      inspector.readDocument(input, context),
+    ),
+    change: port("actor-documents", (inspector, input: DocumentChangeRequest, context) =>
+      inspector.changeDocuments(input, context),
+    ),
+  };
+}
+
+/** One PostgreSQL connection with the artifact store under the conversations' keyring. */
+function artifactSession(
+  env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+) {
   const secret = env.ARTIFACT_KEYRING;
   if (secret === undefined) return undefined;
-  const inspector = async <T>(operation: (inspector: PostgreSqlRunInspector) => Promise<T>) => {
+  return async <T>(
+    operation: (client: PostgreSqlClient, artifacts: PostgreSqlArtifactStore) => Promise<T>,
+  ): Promise<T> => {
     let keyring = keyrings.get(secret);
     if (keyring === undefined) {
       keyring = WebCryptoKeyring.fromJson(secret);
@@ -325,14 +393,8 @@ export function composeRunInspector(
         metrics: analyticsEngineMetrics(env.METRICS),
         ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
       });
-      return operation(new PostgreSqlRunInspector(client, artifacts));
+      return operation(client, artifacts);
     });
-  };
-  const deny: PostgreSqlRunInspector["deny"] = (input, principalId, denial) =>
-    inspector((runs) => runs.deny(input, principalId, denial));
-  return {
-    walk: { inspect: (input, context) => inspector((runs) => runs.walk(input, context)), deny },
-    search: { inspect: (input, context) => inspector((runs) => runs.search(input, context)), deny },
   };
 }
 
@@ -769,6 +831,7 @@ export default {
     const connection = env.HYPERDRIVE?.connectionString ?? "";
     const conversations = composeConversations(env);
     const runs = composeRunInspector(env);
+    const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
         operation(new PostgreSqlCausalInspector(client)),
@@ -816,6 +879,7 @@ export default {
         journal: dependencies.journal,
         ...(conversations === undefined ? {} : { conversations }),
         ...(runs === undefined ? {} : { runs }),
+        ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
             new PostgreSqlViewedSpaceReader(client).change(request, authorize),

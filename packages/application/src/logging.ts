@@ -101,6 +101,8 @@ export type RuntimeResponseCode =
   | "event_not_found"
   | "schedule_not_found"
   | "run_not_found"
+  | "manifest_not_found"
+  | "document_not_found"
   | "inspection_rate_limited"
   | "world_catching_up"
   | "owner_unavailable"

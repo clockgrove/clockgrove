@@ -1,4 +1,8 @@
-import type { ArtifactStore, RuntimeAuthorizationContext } from "@clockgrove/application";
+import {
+  type ArtifactStore,
+  CONTEXT_PROMPT_VERSION,
+  type RuntimeAuthorizationContext,
+} from "@clockgrove/application";
 import {
   type BrowserScope,
   decodeOpaqueId,
@@ -16,7 +20,7 @@ type Row = Record<string, unknown>;
 
 /** The scripted model fixture's identity on its runs (Wave 5 §17). */
 export const SCRIPTED_MODEL = "scripted-fixture-v1";
-export const SCRIPTED_PROMPT_VERSION = "scripted-prompt-v1";
+export const SCRIPTED_PROMPT_VERSION = CONTEXT_PROMPT_VERSION;
 /**
  * Decision: an attempt still running 60 s after it started is abandoned when its session next
  * talks. A Talk attempt is one request whose scripted model answers in-process, so only a dead
@@ -57,6 +61,8 @@ export interface TalkRunStart {
   readonly inputRevision: number;
   readonly caretakerMessages: number;
   readonly promptArtifactId: string;
+  /** The context step's safe summary: how many candidates were included. */
+  readonly contextSummary: string;
 }
 
 /**
@@ -117,10 +123,17 @@ export class PostgreSqlRunRecorder {
         start.promptArtifactId,
       ],
     );
+    // The context was assembled before the run opened; its manifest is written with this step.
+    await this.client.query(
+      `INSERT INTO clockgrove.run_steps (
+         tenant_id, run_id, session_id, step, kind, status, summary
+       ) VALUES ($1, $2, $3, 1, 'context_retrieval', 'succeeded', $4)`,
+      [start.tenantId, start.runId, start.sessionId, start.contextSummary],
+    );
     await this.client.query(
       `INSERT INTO clockgrove.run_steps (
          tenant_id, run_id, session_id, step, kind, model, input_artifact_id, summary
-       ) VALUES ($1, $2, $3, 1, 'model_attempt', $4, $5, 'Scripted model attempt')`,
+       ) VALUES ($1, $2, $3, 2, 'model_attempt', $4, $5, 'Scripted model attempt')`,
       [start.tenantId, start.runId, start.sessionId, SCRIPTED_MODEL, start.promptArtifactId],
     );
   }
@@ -131,7 +144,7 @@ export class PostgreSqlRunRecorder {
       `UPDATE clockgrove.run_steps
           SET status = 'succeeded', output_artifact_id = $3, cost_microusd = 0,
               summary = 'Scripted model answered'
-        WHERE tenant_id = $1 AND run_id = $2 AND step = 1`,
+        WHERE tenant_id = $1 AND run_id = $2 AND step = 2`,
       [tenantId, runId, outputArtifactId],
     );
   }
@@ -143,17 +156,42 @@ export class PostgreSqlRunRecorder {
     runId: string,
     turn: number,
     replyMessageId: string,
+    step: number,
   ): Promise<void> {
     await this.client.query(
       `INSERT INTO clockgrove.run_steps (
          tenant_id, run_id, session_id, step, kind, status, output_message_id, summary
-       ) VALUES ($1, $2, $3, 2, 'commit', 'succeeded', $4, $5)`,
-      [tenantId, runId, sessionId, replyMessageId, `Committed turn ${turn}`],
+       ) VALUES ($1, $2, $3, $6, 'commit', 'succeeded', $4, $5)`,
+      [tenantId, runId, sessionId, replyMessageId, `Committed turn ${turn}`, step],
     );
     await this.client.query(
       `UPDATE clockgrove.agent_runs SET status = 'completed', turn = $3
         WHERE tenant_id = $1 AND run_id = $2`,
       [tenantId, runId, turn],
+    );
+  }
+
+  /** The model's document proposal and its validation outcome, as one ended step. */
+  async validated(
+    tenantId: string,
+    sessionId: string,
+    runId: string,
+    step: number,
+    outcome: { readonly refused: string | undefined; readonly summary: string },
+  ): Promise<void> {
+    await this.client.query(
+      `INSERT INTO clockgrove.run_steps (
+         tenant_id, run_id, session_id, step, kind, status, outcome_code, summary
+       ) VALUES ($1, $2, $3, $4, 'validation', $5, $6, $7)`,
+      [
+        tenantId,
+        runId,
+        sessionId,
+        step,
+        outcome.refused === undefined ? "succeeded" : "failed",
+        outcome.refused ?? null,
+        outcome.summary,
+      ],
     );
   }
 

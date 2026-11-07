@@ -28,7 +28,12 @@ export type InspectorAccess = {
 } & (
   | { readonly subject?: "causal-chain"; readonly commandId: string }
   | {
-      readonly subject: "runtime-state" | "client-view" | "agent-runs";
+      readonly subject:
+        | "runtime-state"
+        | "client-view"
+        | "agent-runs"
+        | "context-manifest"
+        | "actor-documents";
       readonly commandId?: undefined;
       readonly entryId?: undefined;
     }

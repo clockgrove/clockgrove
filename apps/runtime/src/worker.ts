@@ -30,10 +30,18 @@ import {
   type ChangeViewedSpace,
   type ClientViewTrace,
   CommandIdempotencyInvariantError,
+  type ContextInspection,
+  type ContextInspectRequest,
   ContractDecodeError,
+  type DocumentChangeRequest,
+  type DocumentReadRequest,
+  type DocumentVersionView,
   decodeBrowserScope,
   decodeChangeViewedSpace,
   decodeClientViewTraceRequest,
+  decodeContextInspectRequest,
+  decodeDocumentChangeRequest,
+  decodeDocumentReadRequest,
   decodeEntitySelectionRequest,
   decodeInfluenceRequest,
   decodeObservationRequest,
@@ -67,6 +75,12 @@ import {
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import type { CanonicalRuntimeStateSource } from "./canonical-state.js";
 import { consoleRuntimeLogger } from "./cloudflare-logs.js";
+import {
+  type CognitionChangeOutcome,
+  DocumentNotFoundError,
+  GOVERN_GRANT,
+  ManifestNotFoundError,
+} from "./cognition.js";
 import {
   CONVERSATION_REFUSAL_STATUS,
   CONVERSATION_ROUTES,
@@ -210,6 +224,12 @@ export interface RuntimeOwnerBindings {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
     readonly search: AuditedPort<RunSearchRequest, RunSearch>;
   };
+  /** Context manifests and governed actor documents (0037), audited like the run inspector. */
+  readonly cognition?: {
+    readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
+    readonly read: AuditedPort<DocumentReadRequest, DocumentVersionView>;
+    readonly change: AuditedPort<DocumentChangeRequest, CognitionChangeOutcome>;
+  };
   /** The audited runtime-state inspector, under the same grant, limit and audit. */
   readonly runtimeState?: AuditedPort<RuntimeStateInput, RuntimeStateView>;
   /** The audited operator actions under `runtime:world-operate`. */
@@ -293,6 +313,8 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   event_not_found: "refused",
   schedule_not_found: "refused",
   run_not_found: "refused",
+  manifest_not_found: "refused",
+  document_not_found: "refused",
   inspection_rate_limited: "refused",
   stale_epoch: "conflict",
   noop_command_conflict: "conflict",
@@ -409,6 +431,21 @@ export class RuntimeWorker {
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeRunSearchRequest, this.bindings.runs?.search),
       );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.cognitionRead(
+          request,
+          note,
+          decodeContextInspectRequest,
+          this.bindings.cognition?.context,
+        ),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/actor-documents/read")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.cognitionRead(request, note, decodeDocumentReadRequest, this.bindings.cognition?.read),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/actor-documents/change")
+      return this.answer("runtime_action_answered", (note) => this.documentChange(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/actions")
       return this.answer("runtime_action_answered", (note) => this.runtimeAction(request, note));
     if (request.method !== "POST" || url.pathname !== "/v1/runtime/no-op") {
@@ -1179,6 +1216,69 @@ export class RuntimeWorker {
             : undefined,
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "causal_chain_inspection_failed"],
+    });
+  }
+
+  /** A context manifest or document read: the run inspector's grant, codes and audit. */
+  private cognitionRead<I extends { readonly scope: RuntimeScope }, O>(
+    request: Request,
+    note: RequestNote,
+    decode: (value: unknown) => I,
+    port: AuditedPort<I, O> | undefined,
+  ): Promise<Response> {
+    return this.audited(request, note, {
+      decode,
+      invalid: "invalid_inspection_request",
+      port,
+      grant: INSPECT_GRANT,
+      seed: () => crypto.randomUUID(),
+      ids: (input) => ({ ...input.scope }),
+      answer: (output) => {
+        note.outcome = "read";
+        return jsonResponse(output);
+      },
+      refuse: (error) =>
+        error instanceof ManifestNotFoundError
+          ? refusal(note, "manifest_not_found", 404)
+          : error instanceof DocumentNotFoundError
+            ? refusal(note, "document_not_found", 404)
+            : error instanceof InspectorRateLimitedError
+              ? refusal(note, "inspection_rate_limited", 429)
+              : undefined,
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "causal_chain_inspection_failed"],
+    });
+  }
+
+  /**
+   * An operator change set under `runtime:actor-govern`. A refused change set answers 409 with its
+   * code and the operation that caused it; nothing of it was written but its refusal evidence.
+   */
+  private documentChange(request: Request, note: RequestNote): Promise<Response> {
+    return this.audited(request, note, {
+      decode: decodeDocumentChangeRequest,
+      invalid: "invalid_inspection_request",
+      port: this.bindings.cognition?.change,
+      grant: GOVERN_GRANT,
+      seed: () => crypto.randomUUID(),
+      ids: (input) => ({ ...input.scope }),
+      answer: (outcome) => {
+        if (outcome.status === "refused") {
+          note.outcome = "conflict";
+          return jsonResponse(
+            { error: outcome.code, changeSetId: outcome.changeSetId, operation: outcome.operation },
+            409,
+          );
+        }
+        note.outcome = "committed";
+        return jsonResponse(outcome);
+      },
+      refuse: (error) =>
+        error instanceof InspectorRateLimitedError
+          ? refusal(note, "inspection_rate_limited", 429)
+          : undefined,
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "runtime_action_failed"],
     });
   }
 
