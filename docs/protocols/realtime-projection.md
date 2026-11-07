@@ -45,6 +45,22 @@ and interaction summary names a distinct projected entity, so none is labelled f
 the visible hierarchy holds distinct spaces, including the projected space, whose parents are all
 in the hierarchy and lead to a root without a cycle.
 
+The runtime fills `presentationBindings` from the installed pack's `presentation.json`
+([pack presentation](shared-contracts.md#asset-manifests-and-pack-presentation)). It matches the
+pack by the id and version that the world's hydrate read already joins, and it holds the committed
+files of the shipped packs (`apps/runtime/src/scene-presentation.ts`). Each binding decodes through
+the `clockgrove.presentation` component ([component catalog](../../packages/domain/docs/component-catalog.md)).
+Only projected entities get a binding. Presentation is not world truth, so a pack without the file
+projects none and state hashes never depend on it. A bound actor whose binding family is an actor
+family (`idle`, `walk`, `sniff`, `eat`, `shelter`) carries the family of its committed activity:
+- an `active` movement is `walk`;
+- a `seek-shelter` routine is `shelter`;
+- a food or water routine with a target is `eat`, and one without a target is `sniff`;
+- otherwise the binding's own family applies.
+A family is chosen only when the reviewed atlas (`assets/reviewed`) holds that strip for the asset;
+if it does not, the binding's family is kept. No Wave 4 routine maps to `play`. Patches upsert a
+binding whose family changed, as they do any presentation.
+
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
 fields they change; arbitrary JSON extensions and whole-entity-list replacements are excluded.
