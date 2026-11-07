@@ -1,0 +1,1382 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Clockgrove private conversations",
+    "version": "1.0.0",
+    "description": "Wave 5 RW-0501 local path. Every route needs `runtime:world-observe`; every route but `say` also needs the `conversation` privacy category and a resolved world persona. Contract: docs/protocols/conversations.md."
+  },
+  "paths": {
+    "/v1/runtime/conversations/create": {
+      "post": {
+        "summary": "Open a private session with an actor",
+        "description": "The actor must be an actor (an entity with needs) projected in the request's space: otherwise `409 talk_unavailable` or `409 selection_unavailable`. `409 conversation_limit_reached` past 100 sessions that are not deleted per participant and world timeline.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "actorId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "actorId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "description": "No leading or trailing whitespace."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/list": {
+      "post": {
+        "summary": "List the participant's sessions",
+        "description": "Sessions of the world timeline that are not deleted, newest update first, optionally for one actor. Another member's sessions are never listed.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "actorId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/read": {
+      "post": {
+        "summary": "Read a page of one session's history",
+        "description": "",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "afterSequence": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationTranscript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/title": {
+      "post": {
+        "summary": "Title a session",
+        "description": "",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "title"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "description": "No leading or trailing whitespace."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/archive": {
+      "post": {
+        "summary": "Archive or unarchive a session",
+        "description": "",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "archived"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/delete": {
+      "post": {
+        "summary": "Delete a session",
+        "description": "Terminal: the session and its messages are no longer listed or readable and take no messages. Their ciphertext is retained until Wave 9 crypto-shred (db/retention.json).",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "deleted"
+                  ],
+                  "properties": {
+                    "deleted": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/talk": {
+      "post": {
+        "summary": "Private Caretaker Talk",
+        "description": "Appends the participant's message and the actor's answer (the scripted model fixture) to an active session in one turn. Never spatial speech. An exact retry of a message ID returns its stored receipt; other text under it answers `409 message_id_reused`. `409 conversation_not_active`, `conversation_full` (1,000 messages) or `conversation_busy` (a concurrent message won).",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "messageId",
+                  "text"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "At most 1024 UTF-8 octets, not blank."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TalkReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/say": {
+      "post": {
+        "summary": "Public Say",
+        "description": "The addressed actor speaks a fixed scripted line aloud, attributed to the caller. Needs no `conversation` category and is never stored in a session.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "actorId",
+                  "messageId",
+                  "text"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "actorId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "At most 1024 UTF-8 octets, not blank."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SayReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "BrowserScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "worldId",
+          "timelineId",
+          "spaceId"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "worldId": {
+            "type": "string"
+          },
+          "timelineId": {
+            "type": "string"
+          },
+          "spaceId": {
+            "type": "string"
+          }
+        }
+      },
+      "ConversationSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "scope",
+          "actorId",
+          "participant",
+          "channel",
+          "privacyClass",
+          "voiceMode",
+          "disclosure",
+          "title",
+          "state",
+          "messageCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "scope": {
+            "$ref": "#/components/schemas/BrowserScope"
+          },
+          "actorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "participant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "principalId",
+              "personaId"
+            ],
+            "properties": {
+              "principalId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "personaId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          },
+          "channel": {
+            "const": "browser"
+          },
+          "privacyClass": {
+            "const": "conversation"
+          },
+          "voiceMode": {
+            "type": "string",
+            "enum": [
+              "cognitive",
+              "interpreted",
+              "canonical"
+            ]
+          },
+          "disclosure": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived",
+              "locked",
+              "deleted"
+            ]
+          },
+          "messageCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConversationMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "sequence",
+          "messageId",
+          "role",
+          "authorId",
+          "voiceMode",
+          "text",
+          "createdAt"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "caretaker",
+              "actor"
+            ]
+          },
+          "authorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "voiceMode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "cognitive",
+                  "interpreted",
+                  "canonical"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConversationTurn": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "turn",
+          "inputSequence",
+          "outputSequence",
+          "model",
+          "state",
+          "createdAt"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "turn": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "inputSequence": {
+            "type": "integer"
+          },
+          "outputSequence": {
+            "type": "integer"
+          },
+          "model": {
+            "const": "scripted-fixture-v1"
+          },
+          "state": {
+            "const": "completed"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConversationList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessions"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationSession"
+            }
+          }
+        }
+      },
+      "ConversationTranscript": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session",
+          "messages",
+          "turns",
+          "nextAfterSequence"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/ConversationSession"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessage"
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationTurn"
+            }
+          },
+          "nextAfterSequence": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "TalkReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "session",
+          "message",
+          "reply",
+          "turn"
+        ],
+        "properties": {
+          "type": {
+            "const": "private_caretaker_talk"
+          },
+          "session": {
+            "$ref": "#/components/schemas/ConversationSession"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ConversationMessage"
+          },
+          "reply": {
+            "$ref": "#/components/schemas/ConversationMessage"
+          },
+          "turn": {
+            "$ref": "#/components/schemas/ConversationTurn"
+          }
+        }
+      },
+      "SayReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "speech",
+          "attribution"
+        ],
+        "properties": {
+          "type": {
+            "const": "public_say"
+          },
+          "speech": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "messageId",
+              "scope",
+              "speakerId",
+              "text",
+              "sentAt"
+            ],
+            "properties": {
+              "type": {
+                "const": "public_speech"
+              },
+              "messageId": {
+                "type": "string"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/BrowserScope"
+              },
+              "speakerId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "text": {
+                "type": "string"
+              },
+              "sentAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "attribution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "principalId",
+              "personaId"
+            ],
+            "properties": {
+              "principalId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "personaId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

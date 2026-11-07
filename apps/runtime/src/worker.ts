@@ -40,8 +40,8 @@ import {
   decodeOpaqueId,
   decodeRecordedWhyRequest,
   decodeRuntimeNoOpRequest,
-  decodeSceneInterest,
   decodeSayRequest,
+  decodeSceneInterest,
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
@@ -61,6 +61,14 @@ import {
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import type { CanonicalRuntimeStateSource } from "./canonical-state.js";
 import { consoleRuntimeLogger } from "./cloudflare-logs.js";
+import {
+  CONVERSATION_REFUSAL_STATUS,
+  CONVERSATION_ROUTES,
+  ConversationRefusedError,
+  type ConversationRoute,
+  type ConversationStores,
+  conversationCall,
+} from "./conversations.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -82,14 +90,6 @@ import {
   influenceReceipt,
   scriptedSay,
 } from "./interactions.js";
-import {
-  CONVERSATION_REFUSAL_STATUS,
-  CONVERSATION_ROUTES,
-  ConversationRefusedError,
-  type ConversationRoute,
-  type ConversationStores,
-  conversationCall,
-} from "./conversations.js";
 import { MemoryRuntimeLocalStorage } from "./local-storage.js";
 import { OwnerMailboxError } from "./mailbox.js";
 import { EntitySelectionUnavailableError } from "./observation.js";

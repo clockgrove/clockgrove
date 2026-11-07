@@ -128,9 +128,12 @@ inspector audit internals. See [living-yard observation](../protocols/living-yar
 `/v1/runtime/viewed-space` answers a `ChangeViewedSpace` with a follow disposition and never
 commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewed-spaces-and-follow-decisions).
 `/v1/runtime/influence` submits an interaction card's typed Influence intent as a server-built
-`resource.offer` world command under `runtime:world-command`, and `/v1/runtime/talk` answers the
-scripted Talk fixture under observation, the `conversation` category and a resolved persona. It
-stores nothing. See [interaction cards](../protocols/realtime-projection.md#interaction-cards).
+`resource.offer` world command under `runtime:world-command`. `/v1/runtime/conversations/*` and
+`/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
+category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
+answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
+nothing. See [private conversations](../protocols/conversations.md) and
+[interaction cards](../protocols/realtime-projection.md#interaction-cards).
 
 - **Scope:** only a command of the requested world, timeline and space is found. The space is the
   one the command's events were committed in, so a command without events the caller may read

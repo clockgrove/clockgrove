@@ -338,7 +338,10 @@ export function decodeConversationMessage(
   });
 }
 
-export function decodeConversationTurn(value: unknown, path = "conversationTurn"): ConversationTurn {
+export function decodeConversationTurn(
+  value: unknown,
+  path = "conversationTurn",
+): ConversationTurn {
   const v = record(value, path);
   exactKeys(
     v,

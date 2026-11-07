@@ -29,7 +29,9 @@ export const CONVERSATION_ROUTES = [
 export type ConversationRoute = (typeof CONVERSATION_ROUTES)[number];
 
 /** Runs one operation against a store over its own connection. */
-export type ConversationStores = <T>(operation: (store: ConversationStore) => Promise<T>) => Promise<T>;
+export type ConversationStores = <T>(
+  operation: (store: ConversationStore) => Promise<T>,
+) => Promise<T>;
 
 /**
  * The scripted model fixture's answer (Wave 5 §17: scripted models stay deterministic fixtures). It
@@ -49,7 +51,10 @@ export interface ConversationCall {
   readonly scope: BrowserScope;
   /** The actor a new session addresses; the caller checks it is projected first. */
   readonly actorId?: ObjectId;
-  readonly run: (store: ConversationStore, participant: ConversationParticipant) => Promise<unknown>;
+  readonly run: (
+    store: ConversationStore,
+    participant: ConversationParticipant,
+  ) => Promise<unknown>;
 }
 
 /** Decodes a conversation route's body into its scope and its store operation. */

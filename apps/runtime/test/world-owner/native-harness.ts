@@ -370,6 +370,11 @@ export async function withNativeWorldOwner(
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),
           WORLD_AUTHORIZATION_DATABASE_URL: connection("clockgrove_world_reader"),
           BETTER_AUTH_SECRET: fixtureSecret,
+          ARTIFACT_KEYRING: JSON.stringify({
+            version: 1,
+            current: "native-kek-1",
+            keys: { "native-kek-1": Buffer.alloc(32, 7).toString("base64url") },
+          }),
           AUTH_ORIGIN: "https://auth.example.test",
           PROVIDER_ENVIRONMENT: "local",
           WORLD_REACTIONS_QUEUE_NAME: "rw-production-world-reactions",

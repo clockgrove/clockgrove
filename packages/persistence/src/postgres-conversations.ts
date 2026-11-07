@@ -92,7 +92,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
             input.voiceMode,
           ],
         );
-        if (inserted.rows.length !== 1) throw new ConversationRefusedError("conversation_not_found");
+        if (inserted.rows.length !== 1)
+          throw new ConversationRefusedError("conversation_not_found");
       } catch (error) {
         if ((error as { code?: unknown }).code === "CG021")
           throw new ConversationRefusedError("conversation_limit_reached");
@@ -205,7 +206,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const stored = await this.stored(participant, scope, sessionId);
     const retried = await this.retried(participant, stored, request);
     if (retried !== undefined) return retried;
-    if (stored.row.state !== "active") throw new ConversationRefusedError("conversation_not_active");
+    if (stored.row.state !== "active")
+      throw new ConversationRefusedError("conversation_not_active");
     const count = Number(stored.row.message_count);
     if (count + 2 > 1000) throw new ConversationRefusedError("conversation_full");
     const sequence = count + 1;

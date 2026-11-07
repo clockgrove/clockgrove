@@ -26,9 +26,9 @@ import {
 import { decodeOpaqueId, decodeQueueEnvelope, type QueueEnvelope } from "@clockgrove/contracts";
 import {
   PostgreSqlArtifactStore,
-  PostgreSqlConversationStore,
   PostgreSqlCatchUpWorkflowStore,
   type PostgreSqlClient,
+  PostgreSqlConversationStore,
   PostgreSqlDispatchStore,
   PostgreSqlJournal,
   PostgreSqlJournalRangeSource,

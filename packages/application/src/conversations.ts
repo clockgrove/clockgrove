@@ -63,7 +63,11 @@ export interface ConversationStore {
     sessionId: string,
     archived: boolean,
   ): Promise<ConversationSession>;
-  delete(participant: ConversationParticipant, scope: BrowserScope, sessionId: string): Promise<void>;
+  delete(
+    participant: ConversationParticipant,
+    scope: BrowserScope,
+    sessionId: string,
+  ): Promise<void>;
   talk(
     participant: ConversationParticipant,
     request: TalkRequest,
