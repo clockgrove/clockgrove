@@ -12,8 +12,10 @@ import raccoonWorld from "../../../worlds/raccoons/presentation.json" with { typ
 
 /**
  * Presentation is outside the pack source and outside world truth: the committed `presentation.json`
- * of each shipped pack, keyed by the installed pack's id and version. Each binding is decoded through
- * the Presentation component (`clockgrove.presentation`, Wave 1 §5.2 amendment, RW-0409).
+ * of each shipped pack, keyed by pack id. A world installed at an earlier version of a shipped pack
+ * still draws that pack's shipped presentation; bindings for objects it does not project are dropped.
+ * Each binding is decoded through the Presentation component (`clockgrove.presentation`, Wave 1
+ * §5.2 amendment, RW-0409).
  */
 const PRESENTATIONS: ReadonlyMap<string, PackPresentation> = new Map(
   [raccoonWorld].map((source) => {
@@ -24,7 +26,7 @@ const PRESENTATIONS: ReadonlyMap<string, PackPresentation> = new Map(
         animationFamily: binding.animationFamily,
         accessibilityLabel: binding.accessibilityLabel,
       });
-    return [`${presentation.pack.id}@${presentation.pack.version}`, presentation] as const;
+    return [presentation.pack.id, presentation] as const;
   }),
 );
 
@@ -36,25 +38,42 @@ const DRAWABLE: ReadonlySet<string> = new Set(
 /** Families an actor's binding replaces; `static` and `loop` bindings never follow activity. */
 const ACTOR_FAMILIES: ReadonlySet<string> = new Set(["idle", "walk", "sniff", "eat", "shelter"]);
 
+/** Whether `entity` stands on `target`'s pose: where a seek's movement ends on arrival. */
+function atTarget(entity: WorldEntity, target: WorldEntity | undefined): boolean {
+  if (target === undefined) return false;
+  const [here, there] = [entity.pose, target.pose];
+  return (
+    here.frameId === there.frameId &&
+    here.frameVersion === there.frameVersion &&
+    here.coordinates.length === there.coordinates.length &&
+    here.coordinates.every((value, axis) => value === there.coordinates[axis])
+  );
+}
+
 /**
  * The family of an actor's current activity, from its committed state: moving walks, a shelter
- * routine shelters, a food or water routine with a target eats and one without forages (sniffs).
+ * routine shelters, a food or water routine eats once the actor stands at its target and otherwise
+ * forages (sniffs).
  */
-function activityFamily(entity: WorldEntity): string | undefined {
+function activityFamily(
+  entity: WorldEntity,
+  byId: ReadonlyMap<ObjectId, WorldEntity>,
+): string | undefined {
   if (entity.movement?.status === "active") return "walk";
   const action = entity.selectedAction;
   if (action === undefined || action.kind === "stay") return undefined;
   if (action.kind === "seek-shelter") return "shelter";
-  return action.targetObjectId === undefined ? "sniff" : "eat";
+  const target = action.targetObjectId === undefined ? undefined : byId.get(action.targetObjectId);
+  return atTarget(entity, target) ? "eat" : "sniff";
 }
 
 /** The installed pack's bindings for the projected entities, each actor in its activity's family. */
 export function scenePresentationBindings(
-  pack: { readonly packId?: string; readonly packVersion?: string },
+  pack: { readonly packId?: string },
   entities: readonly WorldEntity[],
   projected: ReadonlySet<ObjectId>,
 ): ScenePresentationBinding[] {
-  const presentation = PRESENTATIONS.get(`${pack.packId}@${pack.packVersion}`);
+  const presentation = pack.packId === undefined ? undefined : PRESENTATIONS.get(pack.packId);
   if (presentation === undefined) return [];
   const byId = new Map(entities.map((entity) => [entity.objectId, entity]));
   return presentation.bindings
@@ -64,7 +83,7 @@ export function scenePresentationBindings(
       const family =
         entity === undefined || !ACTOR_FAMILIES.has(binding.animationFamily)
           ? undefined
-          : activityFamily(entity);
+          : activityFamily(entity, byId);
       return family !== undefined && DRAWABLE.has(`${binding.assetId}/${family}`)
         ? { ...binding, animationFamily: family }
         : binding;
