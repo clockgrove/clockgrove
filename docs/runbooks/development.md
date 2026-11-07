@@ -113,11 +113,13 @@ dependencies must also pass pnpm's unchanged age, provenance and build controls 
 
 | Official package | Exact selection | Publication time (UTC) |
 | --- | --- | --- |
+| [@ai-sdk/anthropic](https://registry.npmjs.org/%40ai-sdk%2Fanthropic) | `4.0.97` | `2026-11-05T01:11:40.981Z` |
 | [@biomejs/biome](https://registry.npmjs.org/%40biomejs%2Fbiome) | `2.5.15` | `2026-09-30T15:23:18.673Z` |
 | [@types/node](https://registry.npmjs.org/%40types%2Fnode) | `24.19.1` | `2026-10-01T22:38:02.894Z` |
 | [@types/react](https://registry.npmjs.org/%40types%2Freact) | `19.3.0` | `2026-09-09T18:08:49.750Z` |
 | [@types/react-dom](https://registry.npmjs.org/%40types%2Freact-dom) | `19.3.0` | `2026-09-09T18:07:51.886Z` |
 | [@typescript/typescript6](https://registry.npmjs.org/%40typescript%2Ftypescript6) | `6.0.2` | `2026-07-06T18:06:47.459Z` |
+| [ai](https://registry.npmjs.org/ai) | `7.0.163` | `2026-11-05T01:12:02.967Z` |
 | [better-auth](https://registry.npmjs.org/better-auth) | `1.7.7` | `2026-09-30T21:30:55.572Z` |
 | [dependency-cruiser](https://registry.npmjs.org/dependency-cruiser) | `18.5.0` | `2026-09-30T19:18:29.691Z` |
 | [drizzle-orm](https://registry.npmjs.org/drizzle-orm) | `0.45.3` | `2026-09-21T10:06:39.969Z` |
@@ -145,6 +147,18 @@ The driver swap reconfirmed official npm metadata at `2026-10-06T10:50:38Z`:
 `pg` and `@types/pg` latest stable releases remain 8.23.1. pg supplies no TypeScript
 declarations, so `@types/pg` is a runtime development dependency. The added closure
 has no install lifecycle scripts; unrelated locked versions and toolchain policy are retained.
+
+Issue 16 added `ai` 7.0.163 and `@ai-sdk/anthropic` 4.0.97 to `packages/model-gateway`, with `zod` 4.6.6
+(already pinned) as a direct dependency. Their closure added `@ai-sdk/gateway` 4.0.136,
+`@ai-sdk/provider` 4.0.36, `@ai-sdk/provider-utils` 5.0.75, `@vercel/oidc` 3.2.0, `@workflow/serde` 4.1.0,
+and `eventsource-parser` 3.1.1. They were resolved on `2026-11-07` by `pnpm add` under
+the unchanged release-age and supply-chain policy; `ai` 7.0.164 and `@ai-sdk/anthropic` 4.0.98, published
+`2026-11-06T19:44Z` and `19:46Z`, were inside the 1440-minute window and are not selected. Registry metadata
+shows no `preinstall`, `install` or `postinstall` script in the closure.
+`@ai-sdk/provider` also declares `json-schema` 0.4.0, licensed `(AFL-2.1 OR BSD-3-Clause)`, which is outside
+the license allowlist. Only its TypeScript declarations import it (`JSONSchema7`), and no runtime module
+loads it, so the scoped override `"@ai-sdk/provider>json-schema": "-"` in `pnpm-workspace.yaml` removes it
+from the tree; the package's `skipLibCheck` covers the missing declaration.
 
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
 cutoff. Vite 8.3.2 is selected without a workspace policy exception.

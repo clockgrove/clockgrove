@@ -51,6 +51,8 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - R2 protected-artifact access, AI Gateway binding, one production model credential, and scripted model fixture exist.
 - No production model or tool is needed for routine simulation continuity.
 
+Amended (2026-11-07, issue 16): the "AI Gateway binding" is Vercel AI Gateway with the provisioned `AI_GATEWAY_API_KEY`, and the "one production model credential" is satisfied by it or by `ANTHROPIC_API_KEY` for Anthropic direct. Cloudflare AI Gateway is not required (owner decision).
+
 Amended (2026-10-19): effect intents are built in this wave, not inherited from Wave 2. Wave 2 delivers dispatch intents, and its preview gate refuses `external-effects` dispatch rows on non-live timelines; effect intents keep that guarantee.
 
 Amended (2026-10-19): Wave 3 does not deliver the `ActorAgentDO` foundation or the `external-effects` channel. This wave builds them, as their first consumer: RW-0307 (initialization, session routing, perception inbox, capability revision hook, recovery metadata) with the Agents SDK pin, and `external-effects` with its fake adapters on Wave 3's generic Queue path.
@@ -282,13 +284,13 @@ Rules:
 
 ## 10. ModelGateway
 
-Use Vercel AI SDK behind a project-owned port and Cloudflare AI Gateway for production routing/telemetry.
+Use Vercel AI SDK behind a project-owned port, with Vercel AI Gateway as the production routing layer and Anthropic direct as the same-model fallback route.
 
 ```ts
 interface ModelGateway {
-  stream(request: ModelRequest, signal: AbortSignal): Promise<ModelAttempt>;
-  generateObject<T>(request: StructuredModelRequest<T>): Promise<ModelObjectResult<T>>;
-  inspect(alias: ModelAlias): Promise<ModelRouteStatus>;
+  stream(request: ModelRequest, signal?: AbortSignal, onText?: (delta: string) => void): Promise<ModelOutcome<string>>;
+  generateObject<T>(request: StructuredModelRequest<T>, signal?: AbortSignal): Promise<ModelOutcome<T>>;
+  inspect(alias: string): ModelRouteStatus;
 }
 ```
 
@@ -302,6 +304,8 @@ Providers:
 - no silent switch that changes policy/eval identity.
 
 Record attempt identity, latency, tokens, cost, finish reason, cache/gateway metadata, and protected payload hashes.
+
+Amended (2026-11-07, issue 16): owner decision: the production alias uses the provider keys already provisioned, Anthropic directly or Vercel AI Gateway; Cloudflare AI Gateway is not required, and a gateway is the expected routing layer for generation models (#27). One AI SDK adapter (`packages/model-gateway/src/ai-sdk.ts`) serves both: `stevie.conversation` routes first to Vercel AI Gateway `anthropic/claude-opus-5.5` and falls back to Anthropic direct `claude-opus-5-5`, the same model, so policy and eval identity do not change; the fallback is recorded in the per-call accounting record. Credentials are references (`AI_GATEWAY_API_KEY`, `ANTHROPIC_API_KEY`) resolved only inside the adapter. The opt-in real-route check `CLOCKGROVE_MODEL_LIVE=1 pnpm --filter @clockgrove/model-gateway test:live` never runs in CI by default; a manual `workflow_dispatch` qualification run using a repository secret is pending owner wiring (a `.github/` change). See the [model gateway contract](../../packages/model-gateway/docs/model-gateway.md).
 
 ---
 
@@ -428,9 +432,11 @@ Exit: crashes at every phase and duplicate wakeups cannot duplicate a message, c
 
 ### RW-0504 — ModelGateway
 
-Implement AI SDK port/adapters, AI Gateway routing, aliases, structured output, scripted provider, one production alias, breakers, accounting, policy/fallback visibility, and fault fixtures.
+Implement AI SDK port/adapters, Vercel AI Gateway routing with an Anthropic direct fallback route, aliases, structured output, scripted provider, one production alias, breakers, accounting, policy/fallback visibility, and fault fixtures.
 
 Exit: deterministic provider passes CI and production-provider failures yield explicit recoverable states.
+
+Amended (2026-11-07, issue 16): routing, credentials and live-check policy are as in §10; Cloudflare AI Gateway is not required.
 
 ### RW-0505 — Authorized context assembly
 
