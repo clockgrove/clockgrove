@@ -7,6 +7,7 @@ name: Quality
 # evidence manifest, and fails unless every job passed.
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
 
@@ -68,14 +69,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # A pull request's checkout is its merge into current main, whose first parent is that main;
+      # A pull request's checkout is its merge into current main, and a merge queue's is its commit on
+      # the queue's base; either way the first parent is that base;
       # the event's base.sha can be older, and main's later changes would count as the PR's.
       - name: Record the contract base commit
         env:
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           base="$PUSH_BEFORE"
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base="$(git rev-parse --verify HEAD^1)"; fi
+          if [ "$GITHUB_EVENT_NAME" != push ]; then base="$(git rev-parse --verify HEAD^1)"; fi
           printf 'CONTRACT_BASE_COMMIT=%s\n' "$base" >> "$GITHUB_ENV"
 
       - name: Set up pinned toolchain
@@ -142,7 +144,7 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           base="$PUSH_BEFORE"
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base="$(git rev-parse --verify HEAD^1)"; fi
+          if [ "$GITHUB_EVENT_NAME" != push ]; then base="$(git rev-parse --verify HEAD^1)"; fi
           printf 'CONTRACT_BASE_COMMIT=%s\n' "$base" >> "$GITHUB_ENV"
 
       # Main pushes qualify recovery and reproduction, which need the full toolchain.
