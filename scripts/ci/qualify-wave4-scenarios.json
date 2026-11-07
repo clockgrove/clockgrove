@@ -448,7 +448,7 @@
       "id": "F10",
       "section": "16",
       "scenario": "asset 404/hash failure",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
@@ -457,9 +457,16 @@
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
           "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+        },
+        {
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// S9/F10: a corrupt copy is discarded and fetched again; the verified copy is drawn."
+        },
+        {
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// A re-fetched copy that is corrupt too is refused: the text scene, never the atlas."
         }
-      ],
-      "deviation": "A missing atlas (404) and version mismatch are proven; a corrupt atlas or hash mismatch is not injected."
+      ]
     },
     {
       "id": "F11",

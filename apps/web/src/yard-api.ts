@@ -195,19 +195,27 @@ export class YardSession {
   async readWorldReadiness(scope: BrowserScope, signal: AbortSignal): Promise<WorldReadiness> {
     const credential = this.account?.credential;
     if (!credential) throw new ApiRefusal(401);
+    let response: Response;
     try {
-      const response = await fetch(new URL("/v1/runtime/world-readiness", this.origin), {
+      response = await fetch(new URL("/v1/runtime/world-readiness", this.origin), {
         method: "POST",
         signal,
         cache: "no-store",
         headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
         body: JSON.stringify({ version: 1, ...scope }),
       });
-      if (response.status !== 200 && response.status !== 409) throw new ApiRefusal(response.status);
-      return decodeWorldReadiness(await response.json());
-    } catch (error) {
+    } catch {
       measure("client_errors", "query");
-      throw new ApiRefusal(error instanceof ApiRefusal ? error.status : 503);
+      throw new ApiRefusal(503);
+    }
+    // A refusal (a world the principal may not observe, an expired session) is the arrival's
+    // answer, not a client error: it is returned unmeasured, as the directory's refusal is.
+    if (response.status !== 200 && response.status !== 409) throw new ApiRefusal(response.status);
+    try {
+      return decodeWorldReadiness(await response.json());
+    } catch {
+      measure("client_errors", "query");
+      throw new ApiRefusal(503);
     }
   }
   /** Reads the directory again with the signed-in session, once a routed world became ready. */
