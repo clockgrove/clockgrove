@@ -323,14 +323,17 @@
       "id": "F3",
       "section": "16",
       "scenario": "stale join assertion",
-      "coverage": "gap",
+      "coverage": "full",
       "evidence": [
+        {
+          "file": "apps/runtime/test/scene-admission.postgres.test.ts",
+          "marker": "// §16 stale join assertion: one signed under the stale epoch 1 is refused and admits"
+        },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
           "marker": "// A changed authority epoch ends a socket admitted under the old one."
         }
-      ],
-      "deviation": "No test replays a stale join assertion; only a changed authority epoch is proven."
+      ]
     },
     {
       "id": "F4",
