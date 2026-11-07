@@ -13,6 +13,7 @@ export * from "./ids.js";
 export * from "./journal-records.js";
 export * from "./privacy.js";
 export * from "./protocol.js";
+export * from "./runs.js";
 export * from "./scene-arrival.js";
 export * from "./scene-connection.js";
 export * from "./scene-interactions.js";

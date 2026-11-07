@@ -25,11 +25,18 @@ import {
   VOICE_DISCLOSURES,
   type VoiceMode,
 } from "@clockgrove/contracts";
+import {
+  PostgreSqlRunRecorder,
+  SCRIPTED_MODEL,
+  SCRIPTED_PROMPT_VERSION,
+  type TalkRunStart,
+} from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
 
 const TEXT_MEDIA_TYPE = "text/plain;charset=utf-8";
+const JSON_MEDIA_TYPE = "application/json";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const timestamp = (column: string) =>
@@ -65,11 +72,14 @@ interface StoredSession {
  * store. A deleted session reads as not found.
  */
 export class PostgreSqlConversationStore implements ConversationStore {
+  private readonly runs: PostgreSqlRunRecorder;
   constructor(
     private readonly client: PostgreSqlClient,
     private readonly artifacts: ArtifactStore,
     private readonly newSessionId: () => string = () => `conversation-${crypto.randomUUID()}`,
-  ) {}
+  ) {
+    this.runs = new PostgreSqlRunRecorder(client);
+  }
 
   async open(
     participant: ConversationParticipant,
@@ -210,7 +220,6 @@ export class PostgreSqlConversationStore implements ConversationStore {
     respond: ConversationResponder,
   ): Promise<TalkReceipt> {
     const { scope, sessionId, messageId } = request;
-    const replyId = `${messageId}:reply`;
     const stored = await this.stored(participant, scope, sessionId);
     const retried = await this.retried(participant, stored, request);
     if (retried !== undefined) return retried;
@@ -219,16 +228,147 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const count = Number(stored.row.message_count);
     if (count + 2 > 1000) throw new ConversationRefusedError("conversation_full");
     const sequence = count + 1;
+    const caretakerMessages = (sequence + 1) / 2;
     const before = await this.session(participant, stored.row);
-    const reply = respond(before, (sequence + 1) / 2);
     // The input artifact is keyed by message ID, so an exact retry after a lost connection rewrites
     // the same content and other text under that ID is a reuse. The reply's key is fresh: an
     // orphaned reply never collides with a later one.
     const inputArtifact = `${sessionId}:message:${messageId}`;
-    const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
     await this.put(participant, stored, inputArtifact, request.text, "message_id_reused");
-    await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
-    const written = await this.transaction(participant, async () => {
+    const run = await this.beginRun(participant, stored, request, count, caretakerMessages);
+    const { tenantId } = scope;
+    let written: Awaited<ReturnType<typeof this.commitTalk>>;
+    let reply: string;
+    try {
+      reply = respond(before, caretakerMessages);
+      const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
+      await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
+      await this.transaction(participant, () =>
+        this.runs.modelAnswered(tenantId, run, replyArtifact),
+      );
+      written = await this.commitTalk(participant, stored, request, count, inputArtifact, {
+        run,
+        replyArtifact,
+      });
+    } catch (error) {
+      if (error instanceof ConversationRefusedError)
+        await this.closeRun(participant, run, "failed", error.code);
+      else await this.closeRun(participant, run, "abandoned", "attempt_failed");
+      throw error;
+    }
+    if (written === undefined) {
+      // A concurrent attempt at this message stored it first.
+      await this.closeRun(participant, run, "superseded", "message_stored");
+      const receipt = await this.retried(participant, stored, request);
+      if (receipt === undefined) throw new ConversationRefusedError("conversation_busy");
+      return receipt;
+    }
+    // The receipt is built from the rows just written and the texts already in hand: no re-read.
+    const message = (row: Row, text: string) =>
+      decodeConversationMessage({
+        sessionId: row.session_id,
+        sequence: Number(row.sequence),
+        messageId: row.message_id,
+        role: row.role,
+        authorId: row.author_id,
+        voiceMode: row.voice_mode,
+        text,
+        createdAt: row.created_at,
+      });
+    return Object.freeze({
+      type: "private_caretaker_talk" as const,
+      session: this.sessionOf(written.session, before.title),
+      message: message(written.input, request.text),
+      reply: message(written.output, reply),
+      turn: turnOf(written.turn),
+    });
+  }
+
+  /**
+   * Opens this attempt's run (migration 0035) with its protected model input, the exact prompt the
+   * scripted model reads, as a `conversation` artifact. A session at its run limit is full.
+   */
+  private async beginRun(
+    participant: ConversationParticipant,
+    stored: StoredSession,
+    request: TalkRequest,
+    count: number,
+    caretakerMessages: number,
+  ): Promise<string> {
+    const runId = `run-${crypto.randomUUID()}`;
+    const promptArtifactId = `${request.sessionId}:prompt:${runId}`;
+    const prompt = JSON.stringify({
+      model: SCRIPTED_MODEL,
+      promptVersion: SCRIPTED_PROMPT_VERSION,
+      sessionId: request.sessionId,
+      caretakerMessages,
+      input: request.text,
+    });
+    await this.put(participant, stored, promptArtifactId, prompt, "conversation_busy", JSON_MEDIA_TYPE);
+    const row = stored.row;
+    const start: TalkRunStart = {
+      tenantId: String(row.tenant_id),
+      worldId: String(row.world_id),
+      timelineId: String(row.timeline_id),
+      partitionId: stored.partitionId,
+      spaceId: stored.spaceId,
+      sessionId: request.sessionId,
+      actorId: String(row.actor_id),
+      principalId: participant.principalId,
+      personaId: participant.personaId,
+      runId,
+      inputMessageId: request.messageId,
+      inputRevision: count,
+      caretakerMessages,
+      promptArtifactId,
+    };
+    try {
+      await this.transaction(participant, () => this.runs.beginTalk(start));
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "CG021")
+        throw new ConversationRefusedError("conversation_full");
+      throw error;
+    }
+    return runId;
+  }
+
+  /**
+   * Records a disposition other than completion. When the database itself failed this may fail
+   * too; the run then stays open until the session's next attempt abandons it as stale.
+   */
+  private async closeRun(
+    participant: ConversationParticipant,
+    runId: string,
+    status: "failed" | "abandoned" | "superseded",
+    outcomeCode: string,
+  ): Promise<void> {
+    try {
+      await this.transaction(participant, () =>
+        this.runs.close(participant.tenantId, runId, status, outcomeCode),
+      );
+    } catch {
+      // The original refusal or failure is what the caller answers.
+    }
+  }
+
+  /**
+   * Appends the Caretaker message, the reply and the turn, and completes the run, in one
+   * transaction. Undefined when a concurrent attempt stored the message first. A run that a later
+   * attempt superseded or abandoned cannot complete, so its messages are not committed.
+   */
+  private async commitTalk(
+    participant: ConversationParticipant,
+    stored: StoredSession,
+    request: TalkRequest,
+    count: number,
+    inputArtifact: string,
+    attempt: { readonly run: string; readonly replyArtifact: string },
+  ) {
+    const { scope, sessionId, messageId } = request;
+    const replyId = `${messageId}:reply`;
+    const sequence = count + 1;
+    const replyArtifact = attempt.replyArtifact;
+    return this.transaction(participant, async () => {
       const locked = await this.client.query(
         `SELECT message_count, state FROM clockgrove.conversation_sessions
           WHERE ${SESSION_SCOPE} FOR UPDATE`,
@@ -282,6 +422,20 @@ export class PostgreSqlConversationStore implements ConversationStore {
           RETURNING ${SESSION_COLUMNS}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
+      try {
+        await this.runs.committed(
+          scope.tenantId,
+          sessionId,
+          attempt.run,
+          (sequence + 1) / 2,
+          replyId,
+        );
+      } catch (error) {
+        // CG020: a later attempt closed this run; it must not commit.
+        if ((error as { code?: unknown }).code === "CG020")
+          throw new ConversationRefusedError("conversation_busy");
+        throw error;
+      }
       const rows = (messages.rows as Row[]).sort((a, b) => Number(a.sequence) - Number(b.sequence));
       return {
         input: rows[0] as Row,
@@ -289,30 +443,6 @@ export class PostgreSqlConversationStore implements ConversationStore {
         turn: turn.rows[0] as Row,
         session: session.rows[0] as Row,
       };
-    });
-    if (written === undefined) {
-      const receipt = await this.retried(participant, stored, request);
-      if (receipt === undefined) throw new ConversationRefusedError("conversation_busy");
-      return receipt;
-    }
-    // The receipt is built from the rows just written and the texts already in hand: no re-read.
-    const message = (row: Row, text: string) =>
-      decodeConversationMessage({
-        sessionId: row.session_id,
-        sequence: Number(row.sequence),
-        messageId: row.message_id,
-        role: row.role,
-        authorId: row.author_id,
-        voiceMode: row.voice_mode,
-        text,
-        createdAt: row.created_at,
-      });
-    return Object.freeze({
-      type: "private_caretaker_talk" as const,
-      session: this.sessionOf(written.session, before.title),
-      message: message(written.input, request.text),
-      reply: message(written.output, reply),
-      turn: turnOf(written.turn),
     });
   }
 
@@ -457,12 +587,13 @@ export class PostgreSqlConversationStore implements ConversationStore {
     artifactId: string,
     text: string,
     collision: "message_id_reused" | "conversation_busy",
+    mediaType = TEXT_MEDIA_TYPE,
   ): Promise<void> {
     try {
       await this.artifacts.put(participant, {
         ...this.locator(stored, artifactId),
         bytes: encoder.encode(text),
-        mediaType: TEXT_MEDIA_TYPE,
+        mediaType,
         privacyClass: "conversation",
         retentionClass: "durable",
       });

@@ -40,6 +40,8 @@ import {
   decodeOpaqueId,
   decodeRecordedWhyRequest,
   decodeRuntimeNoOpRequest,
+  decodeRunInspectRequest,
+  decodeRunSearchRequest,
   decodeSayRequest,
   decodeSceneInterest,
   decodeWorldDirectoryRequest,
@@ -51,6 +53,10 @@ import {
   type LivingScene,
   type PrincipalId,
   type RecordedWhy,
+  type RunInspectRequest,
+  type RunSearch,
+  type RunSearchRequest,
+  type RunWalk,
   SCENE_CREDENTIAL_PREFIX,
   SCENE_PROTOCOL,
   type SceneInterest,
@@ -69,6 +75,7 @@ import {
   type ConversationStores,
   conversationCall,
 } from "./conversations.js";
+import { RunNotFoundError } from "./runs.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -198,6 +205,11 @@ export interface RuntimeOwnerBindings {
   readonly conversations?: ConversationStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
+  /** Run walks and metadata search, under the inspector's grant, limit and audit (0035). */
+  readonly runs?: {
+    readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
+    readonly search: AuditedPort<RunSearchRequest, RunSearch>;
+  };
   /** The audited runtime-state inspector, under the same grant, limit and audit. */
   readonly runtimeState?: AuditedPort<RuntimeStateInput, RuntimeStateView>;
   /** The audited operator actions under `runtime:world-operate`. */
@@ -280,6 +292,7 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   command_not_found: "refused",
   event_not_found: "refused",
   schedule_not_found: "refused",
+  run_not_found: "refused",
   inspection_rate_limited: "refused",
   stale_epoch: "conflict",
   noop_command_conflict: "conflict",
@@ -387,6 +400,14 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/runtime-state")
       return this.answer("runtime_state_inspection_answered", (note) =>
         this.runtimeState(request, note),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/runs/inspect")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeRunInspectRequest, this.bindings.runs?.walk),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/runs/search")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeRunSearchRequest, this.bindings.runs?.search),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/actions")
       return this.answer("runtime_action_answered", (note) => this.runtimeAction(request, note));
@@ -1123,6 +1144,39 @@ export class RuntimeWorker {
       },
       // An unknown ID, another tenant's and another world's entry are one answer.
       refuse: (error) => entryRefusal(note, error),
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "causal_chain_inspection_failed"],
+    });
+  }
+
+  /**
+   * A run walk or metadata search: the causal chain's grant, codes and audit. A walk that reaches
+   * no run of the scope answers 404 `run_not_found`, the same for another tenant's or world's.
+   */
+  private runRead<I extends { readonly scope: RuntimeScope }, O>(
+    request: Request,
+    note: RequestNote,
+    decode: (value: unknown) => I,
+    port: AuditedPort<I, O> | undefined,
+  ): Promise<Response> {
+    return this.audited(request, note, {
+      decode,
+      invalid: "invalid_inspection_request",
+      port,
+      grant: INSPECT_GRANT,
+      // No command names this read: its request ID is its own.
+      seed: () => crypto.randomUUID(),
+      ids: (input) => ({ ...input.scope }),
+      answer: (output) => {
+        note.outcome = "read";
+        return jsonResponse(output);
+      },
+      refuse: (error) =>
+        error instanceof RunNotFoundError
+          ? refusal(note, "run_not_found", 404)
+          : error instanceof InspectorRateLimitedError
+            ? refusal(note, "inspection_rate_limited", 429)
+            : undefined,
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "causal_chain_inspection_failed"],
     });

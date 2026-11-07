@@ -93,7 +93,8 @@ import {
 } from "./trusted-composition.js";
 import type { RuntimeScope } from "./types.js";
 import { PostgreSqlClientViewInspector } from "./view-trace.js";
-import { RuntimeWorker } from "./worker.js";
+import { PostgreSqlRunInspector } from "./runs.js";
+import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
 import { callWorldOwner, PostgreSqlCommandOwner, unwrapWorldCommandRpc } from "./world-commands.js";
 
@@ -297,6 +298,41 @@ export function composeConversations(
       });
       return operation(new PostgreSqlConversationStore(client, artifacts));
     });
+  };
+}
+
+/**
+ * Run walks and search (0035) under the conversations' keyring: a walk decrypts a protected
+ * payload for a reader whose ceiling holds its class. Absent without the keyring, so they fail
+ * closed as `inspector_unavailable`.
+ */
+export function composeRunInspector(
+  env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+): RuntimeOwnerBindings["runs"] {
+  const secret = env.ARTIFACT_KEYRING;
+  if (secret === undefined) return undefined;
+  const inspector = async <T>(operation: (inspector: PostgreSqlRunInspector) => Promise<T>) => {
+    let keyring = keyrings.get(secret);
+    if (keyring === undefined) {
+      keyring = WebCryptoKeyring.fromJson(secret);
+      keyrings.set(secret, keyring);
+    }
+    const loaded = await keyring;
+    return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) => {
+      const bucket = env.ARTIFACTS_BUCKET;
+      const artifacts = new PostgreSqlArtifactStore(client, {
+        keyring: loaded,
+        metrics: analyticsEngineMetrics(env.METRICS),
+        ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
+      });
+      return operation(new PostgreSqlRunInspector(client, artifacts));
+    });
+  };
+  const deny: PostgreSqlRunInspector["deny"] = (input, principalId, denial) =>
+    inspector((runs) => runs.deny(input, principalId, denial));
+  return {
+    walk: { inspect: (input, context) => inspector((runs) => runs.walk(input, context)), deny },
+    search: { inspect: (input, context) => inspector((runs) => runs.search(input, context)), deny },
   };
 }
 
@@ -732,6 +768,7 @@ export default {
     const dependencies = composeRuntime(env);
     const connection = env.HYPERDRIVE?.connectionString ?? "";
     const conversations = composeConversations(env);
+    const runs = composeRunInspector(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
         operation(new PostgreSqlCausalInspector(client)),
@@ -778,6 +815,7 @@ export default {
         },
         journal: dependencies.journal,
         ...(conversations === undefined ? {} : { conversations }),
+        ...(runs === undefined ? {} : { runs }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
             new PostgreSqlViewedSpaceReader(client).change(request, authorize),

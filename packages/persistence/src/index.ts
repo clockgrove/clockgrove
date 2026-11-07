@@ -19,6 +19,7 @@ export * from "./postgres-clock-admissions.js";
 export * from "./postgres-conversations.js";
 export * from "./postgres-dispatches.js";
 export * from "./postgres-inspector-audit.js";
+export * from "./postgres-runs.js";
 export * from "./postgres-journal.js";
 export * from "./postgres-journal-range.js";
 export * from "./postgres-lifecycle-workflows.js";

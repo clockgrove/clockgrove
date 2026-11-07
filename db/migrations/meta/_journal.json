@@ -246,6 +246,13 @@
       "when": 1794175200000,
       "tag": "0035_observer_world_readiness",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794261600000,
+      "tag": "0036_agent_runs",
+      "breakpoints": true
     }
   ]
 }

@@ -100,6 +100,7 @@ export type RuntimeResponseCode =
   | "command_not_found"
   | "event_not_found"
   | "schedule_not_found"
+  | "run_not_found"
   | "inspection_rate_limited"
   | "world_catching_up"
   | "owner_unavailable"
