@@ -55,7 +55,9 @@ destroys the adapter and shows the text path. The reducer's committed projection
 
   A bound entity takes its footprint and anchor from the reviewed atlas entry for its
   `assetId`/`animationFamily` (`assets/reviewed`, served by Vite). Anything else draws as a
-  placeholder marker with a 600 × 600 mm footprint.
+  placeholder marker with a 600 × 600 mm footprint. The family is the projection's: the runtime chooses
+  it from the actor's committed activity ([realtime projection](../../../docs/protocols/realtime-projection.md#snapshots-and-ordered-patches)),
+  and a changed family replaces the sprite with the new strip.
 - **Pick order.** `pickOrder` lists the entities nearest first. Drawing uses the reverse order.
   Pointer, touch and keyboard picking all resolve in this order. A pointer picks the first candidate
   within 12 px, and the entity list in the shell is in the same order. A touch tap uses a 24 px

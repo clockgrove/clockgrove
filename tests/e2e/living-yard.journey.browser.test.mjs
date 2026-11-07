@@ -208,6 +208,24 @@ function isoCentre(scene) {
   const middle = (values) => (Math.min(...values) + Math.max(...values)) / 2;
   return [middle(points.map(({ x }) => x)), middle(points.map(({ y }) => y))];
 }
+// issue 20: each raccoon's drawn atlas strip (`assetId/animationFamily`), beside its committed
+// routine and movement read from PostgreSQL.
+async function raccoonActivity(viewer, environment, authorization, scope) {
+  const drawn = await viewer.evaluate(() =>
+    Object.fromEntries([...globalThis.yardAdapter.drawn].map(([id, { key }]) => [id, key])),
+  );
+  const { document } = await withClient(environment, (client) =>
+    new PostgreSqlCommandOwner(client).reader.hydrate(authorization, scope),
+  );
+  return ["grove.gracie", "grove.kit", "grove.stevie"].map((objectId) => {
+    const entity = document.state.entities.find((candidate) => candidate.objectId === objectId);
+    return [
+      drawn[objectId],
+      entity?.selectedAction?.kind ?? null,
+      entity?.movement?.status ?? null,
+    ];
+  });
+}
 /** Nearest the south-east viewer first, then elevation, then object id; unplaced entities last. */
 function pickOrdered(scene) {
   const placed = grounded(scene)
@@ -693,6 +711,40 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           .toBe(true);
         await page.locator("canvas").waitFor();
         expect(await page.locator("canvas").count()).toBe(1);
+        // issue 20: the live yard draws the pack's bound sprites (worlds/raccoons/presentation.json);
+        // unbound entities keep a placeholder marker.
+        expect(
+          await page.evaluate(() =>
+            Object.fromEntries(
+              [...globalThis.yardAdapter.drawn]
+                .map(([id, { key, body }]) => [id, key ?? body.type])
+                .sort(([a], [b]) => (a < b ? -1 : 1)),
+            ),
+          ),
+        ).toEqual({
+          "grove.cedar": "tree/static",
+          "grove.cedar-hollow": "Arc",
+          "grove.den": "den/static",
+          "grove.den-stash": "Arc",
+          "grove.fence-gate": "Arc",
+          "grove.gracie": "gracie/idle",
+          "grove.herb": "plant/static",
+          "grove.kit": "kit/idle",
+          "grove.pantry-bin": "Arc",
+          "grove.porch": "Arc",
+          "grove.sky": "Arc",
+          "grove.snack-dish": "feeder/static",
+          "grove.stevie": "stevie/idle",
+          "grove.trash-can": "trash-can/static",
+          "grove.water-bowl": "Arc",
+        });
+        const activity = (viewer) =>
+          raccoonActivity(viewer, fixture.environment, provisioned.authorization, auth.scope);
+        expect(await activity(page)).toEqual([
+          ["gracie/idle", null, null],
+          ["kit/idle", null, null],
+          ["stevie/idle", null, null],
+        ]);
         // Only emphasized entities are labelled; the React HUD alone shows revision, time and rain.
         const labels = first.entities.map((entity) => entity.presentation.label);
         await expect.poll(visualText).toEqual([]);
@@ -719,10 +771,15 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         );
         const pointerPosition = canvasPoint("grove.water-bowl");
         const water = worldPoint("grove.water-bowl");
-        // Only the selected entity is ringed and named in bold beside its sprite.
-        const ringed = ({ x, y }, label) => ({
+        // Only the selected entity is ringed and named in bold above its sprite: a bound sprite's
+        // label clears its reviewed anchor height (assets/reviewed), a placeholder's sits at 10 px.
+        const { animations: strips } = JSON.parse(
+          await readFile(path.join(root, "assets/reviewed/raccoon-world.animations.json"), "utf8"),
+        );
+        const gracieHeight = strips.find((strip) => strip.assetId === "gracie").anchor.y;
+        const ringed = ({ x, y }, label, height = 0) => ({
           "selection-ring": [[x, y, 13, 3]],
-          "selection-label": [[label, x + 12, y - 10, "bold"]],
+          "selection-label": [[label, x + 12, y - height - 10, "bold"]],
         });
         const pointerResponse = page.waitForResponse(
           (response) => response.url().endsWith("/v1/runtime/entity") && response.status() === 200,
@@ -859,7 +916,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           0,
           "true",
         ]);
-        await expect.poll(emphasis).toEqual(ringed(worldPoint("grove.gracie"), "grove.gracie"));
+        await expect
+          .poll(emphasis)
+          .toEqual(ringed(worldPoint("grove.gracie"), "grove.gracie", gracieHeight));
         await rail.getByRole("button", { name: "Open entity rail", exact: true }).click();
         await expect.poll(railText).toEqual(railFacts);
         expect(await gracieSelected()).toBe("true");
@@ -873,7 +932,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         );
         // Keyboard focus draws its own thin outer ring on the focused entity, apart from the selection.
         await expect.poll(emphasis).toEqual({
-          ...ringed(worldPoint("grove.gracie"), "grove.gracie"),
+          ...ringed(worldPoint("grove.gracie"), "grove.gracie", gracieHeight),
           "focus-affordance": [[water.x, water.y, 17, 1]],
         });
         await page.keyboard.press("Enter");
@@ -970,6 +1029,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await scene.getByText(`Canonical revision: ${revision}`, { exact: true }).waitFor();
         await scene.getByText(`Canonical time: ${simulationTime}`, { exact: true }).waitFor();
         await scene.getByText("Rain intensity: 9000", { exact: true }).waitFor();
+        // issue 20: once it rains, the residents who chose shelter play the shelter strip.
+        await expect
+          .poll(() => activity(page))
+          .toEqual([
+            ["gracie/shelter", "seek-shelter", null],
+            ["kit/shelter", "seek-shelter", "completed"],
+            ["stevie/idle", "stay", null],
+          ]);
         // The observation status follows the scene at the 3 s live-announcement bound.
         await expect
           .poll(() => page.getByRole("status").first().textContent())
@@ -2311,6 +2378,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           },
         });
         await living.getByText(/^ Identity: grove\.stevie;.*position: 33000, 13000$/u).waitFor();
+        // issue 20: Stevie, at food after his move, plays the eat strip.
+        await expect
+          .poll(() => activity(kin.viewer))
+          .toEqual([
+            ["gracie/shelter", "seek-shelter", null],
+            ["kit/shelter", "seek-shelter", "completed"],
+            ["stevie/eat", "seek-food", "completed"],
+          ]);
         await view("snack-house", "Followed grove.stevie to snack-house.");
         expect([
           await stevie.getAttribute("aria-pressed"),

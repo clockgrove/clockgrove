@@ -119,6 +119,18 @@
           "marker": "// An event of a command with retained routine decisions opens the same command's Why from the feed."
         },
         {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 20: the live yard draws the pack's bound sprites (worlds/raccoons/presentation.json);"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 20: once it rains, the residents who chose shelter play the shelter strip."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 20: Stevie, at food after his move, plays the eat strip."
+        },
+        {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
           "marker": "explains why Stevie sought shelter from authorized deterministic evidence and receipts every interaction intent"
         }
