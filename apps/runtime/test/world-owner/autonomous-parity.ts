@@ -62,6 +62,7 @@ export async function configureAutonomousOwner(
   commandLimit: number,
   schedule: boolean,
   workflowCatchUp = false,
+  startBudget = true,
 ): Promise<void> {
   const result = await owner.request("/autonomous/configure", {
     scope: owner.scope,
@@ -69,6 +70,7 @@ export async function configureAutonomousOwner(
     commandLimit,
     schedule,
     workflowCatchUp,
+    startBudget,
   });
   if (result.status !== 200) throw new Error(`autonomous configuration status ${result.status}`);
 }

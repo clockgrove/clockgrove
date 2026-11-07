@@ -46,10 +46,12 @@ async function startNativeCatchUp(owner: NativeWorldOwner, fault: string, cap?: 
     200,
   );
   // The same 1,200,000 target as the existing native cap/continuation journey; one alarm attempt
-  // guarantees remaining due work crosses the escalation boundary.
-  await configureAutonomousOwner(owner, 1_001_100_000n, 1, true, true);
+  // guarantees remaining due work crosses the escalation boundary. Without the start budget that
+  // attempt and its cap admission always run, as does each catch-up step's one attempt: on a loaded
+  // host an alarm reaching its first attempt after `startWithinMs` escalates having admitted nothing.
+  await configureAutonomousOwner(owner, 1_001_100_000n, 1, true, true, false);
   await waitForOwnerSql(owner.sql, OPEN, "1", 1000);
-  await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+  await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
   const envelope = decodeCatchUpWorkflowEnvelope(
     JSON.parse(
       await owner.sql(
@@ -111,7 +113,7 @@ describe("native durable sleeping-world catch-up", () => {
         expect(JSON.parse(await owner.durable())).toEqual(JSON.parse(committed));
         for (const loseLocal of [false, true]) {
           await owner.replace(loseLocal);
-          await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+          await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
           await owner.reconcileDispatches();
           expect(JSON.parse(await owner.durable())).toEqual(JSON.parse(committed));
           expect(await owner.sql(FINISHED)).toBe("1200000|none|true");
@@ -123,7 +125,7 @@ describe("native durable sleeping-world catch-up", () => {
         const continuous = await startNativeCatchUp(owner, "outage");
         await waitForNativeWorkflow(owner, continuous.instanceId, "errored", "catch-up");
         await owner.replace(true);
-        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
         await owner.reconcileDispatches();
         await waitForOwnerSql(owner.sql, OPEN, "0", 1000);
         expect((await inspectNativeWorldOwner(owner)).partition.document).toEqual(recovered);
@@ -190,7 +192,7 @@ describe("native durable sleeping-world catch-up", () => {
             { timeout: 30_000 },
           )
           .toMatchObject({ held: true });
-        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
         const accepted = await owner.sql(
           "SELECT catch_up_run_id || '|' || catch_up_wall_time::text FROM clockgrove.partition_states",
         );
@@ -318,7 +320,7 @@ describe("native durable sleeping-world catch-up", () => {
           );
           const committed = (await inspectNativeWorldOwner(owner)).partition.document;
           await owner.replace(fault === "hold-error");
-          await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+          await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
           expect((await inspectNativeWorldOwner(owner)).partition.document).toEqual(committed);
           expect(await owner.sql("SELECT catch_up_run_id FROM clockgrove.partition_states")).toBe(
             envelope.applicationRunId,
@@ -357,7 +359,7 @@ describe("native durable sleeping-world catch-up", () => {
                 { timeout: 30_000 },
               )
               .toMatchObject({ held: true });
-            await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+            await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
             const type = transition === "pause" ? "PauseWorld" : "SetClockPolicy";
             const payload =
               transition === "pause"

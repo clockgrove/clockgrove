@@ -189,6 +189,11 @@ interface AlarmTestControl {
   readonly commandLimit: number;
   readonly enabled?: boolean;
   readonly workflowCatchUp?: boolean;
+  /**
+   * False lifts `startWithinMs`, so every activation starts exactly `commandLimit` attempts however
+   * long a loaded host takes to reach the first one.
+   */
+  readonly startBudget?: boolean;
 }
 interface NativeEnvironment extends RuntimeEnvironment {
   readonly PROVISIONING_ENTRY: Pick<WorldProvisioningEntrypoint, "launch">;
@@ -386,7 +391,12 @@ export class SpaceDO extends ProductionSpaceDO {
     return this.control.workflowCatchUp === true;
   }
   protected override activationBudget() {
-    return { ...super.activationBudget(), maxCommands: this.control.commandLimit };
+    const budget = super.activationBudget();
+    return {
+      maxCommands: this.control.commandLimit,
+      startWithinMs:
+        this.control.startBudget === false ? Number.POSITIVE_INFINITY : budget.startWithinMs,
+    };
   }
   private mailboxTestBounds: OwnerMailboxBounds | null = null;
   protected override mailboxBounds(): OwnerMailboxBounds {
@@ -878,6 +888,7 @@ export default {
         readonly commandLimit: number;
         readonly enabled?: boolean;
         readonly workflowCatchUp?: boolean;
+        readonly startBudget?: boolean;
         readonly schedule: boolean;
       };
       const scope = decodeBrowserScope(body.scope);
