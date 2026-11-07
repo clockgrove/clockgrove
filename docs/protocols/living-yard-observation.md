@@ -82,6 +82,13 @@ unknown and missing fields. A missing or non-observable scope is 403 `authorizat
 no readiness disclosed. Other refusals are the observation codes: 401, 400, 503 and 500. The read
 writes nothing and is logged once as `scene_observation_answered`.
 
+Readiness is its own route by decision (2026-11-07): the directory stays a list of observable, ready
+worlds, so adding unready worlds there would change its meaning for every caller and widen what a
+member can enumerate. Retry re-reads readiness and never restarts provisioning, because observation
+grants no mutation authority. The web client re-reads a provisioning world every 2,000 ms (decision:
+about one provisioning step, and at most one indexed read per waiting viewer every two seconds); a
+failed world waits for Retry.
+
 ## Observer clock and material feed
 
 `POST /v1/runtime/world-status` answers the viewed space's canonical clock and its recent material
