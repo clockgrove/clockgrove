@@ -15,6 +15,8 @@ What it shows, for agents that cannot view images:
 - Event feed: a floating dark card at the lower left. Each row is a round semantic icon (rain drop, leaf, raccoon face, heart), a plain sentence such as "It started raining." and the world time.
 - Right rail: the name "Stevie" and a close button; a large circular portrait with a leaf badge; a green status line ("Investigating the trash can"); a 2×2 grid of actions Talk, Observe, Remember and Why?; chat bubbles with times; and a "Message Stevie…" input with a send button.
 
+Stevie's identity reference is [reference/stevie-sprite-sheet.png](reference/stevie-sprite-sheet.png) (1536×1840): an owner-generated contact sheet of 57 numbered frames of Stevie in 8 columns of 192 px cells on a pale background. It fixes Stevie's look: the same painterly style as the mockup, with a consistent mask, ringed tail and fur in every frame. The rough pose groups are standing or idle facing right (frames 0–5, 22–25, 45–56), walk right (6–13), walk left (14–21), crouch and hop (26–31), head turn and look down (32–38), and sit and groom (39–44). It is a raw sheet, not a game asset: the baked background, the frame numbers and the per-cell alignment still need processing before any frame is used at runtime.
+
 ## Tokens
 
 Tokens are CSS variables on `[data-tokens="raccoon-world-ui@1"]`, the shell root. The version is `raccoon-world-ui@1` and every variable carries the `--rw-v1-` prefix. A breaking change to a value's meaning adds a new prefix and token version instead of editing these.
