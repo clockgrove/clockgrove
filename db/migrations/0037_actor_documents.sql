@@ -28,7 +28,7 @@ CREATE TABLE clockgrove.actor_documents (
   actor_id text NOT NULL CHECK (octet_length(actor_id) BETWEEN 1 AND 1024),
   path text NOT NULL CHECK (
     path IN ('identity.md', 'policy.md', 'goals.md', 'working-context.md')
-    OR path ~ '^sessions/[A-Za-z0-9._:-]{1,256}/summary\.md$'
+    OR path ~ '^sessions/[A-Za-z0-9._:-]{1,255}/summary\.md$'
   ),
   kind text NOT NULL CHECK (
     kind IN ('identity', 'policy', 'goals', 'working_context', 'session_summary')

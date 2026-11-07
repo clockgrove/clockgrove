@@ -21,9 +21,6 @@ import { type PostgreSqlClient, withClientTransaction } from "./postgres-transac
 
 type Row = Record<string, unknown>;
 
-const timestamp = (column: string) =>
-  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS ${column}`;
-
 /** Who proposes a change set: an operator, or the model of one run in its session. */
 export type DocumentProposer =
   | { readonly kind: "operator" }
@@ -152,7 +149,9 @@ export class PostgreSqlActorDocuments {
         `SELECT document.document_id, document.path, document.kind, document.write_class,
                 document.actor_id, version.version, version.state, version.source_hash,
                 version.byte_length, version.content, version.change_set_id,
-                change.proposer, change.principal_id, change.run_id, ${timestamp("version.created_at")}
+                change.proposer, change.principal_id, change.run_id,
+                to_char(version.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                  AS created_at
            FROM clockgrove.actor_documents AS document
            JOIN clockgrove.actor_document_versions AS version
              ON version.tenant_id = document.tenant_id AND version.document_id = document.document_id
@@ -222,10 +221,11 @@ export class PostgreSqlActorDocuments {
   ): Promise<DocumentVersionRef> {
     const target = resolveDocumentPath(operation.path);
     if (target === undefined) throw new Refusal("document_path_invalid", position);
+    // No row lock: the version guard (0037) locks the head and refuses a concurrent writer's stale
+    // version as CG024, a version conflict.
     const found = await this.client.query(
       `SELECT document_id, state, current_version FROM clockgrove.actor_documents
-        WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND actor_id = $4 AND path = $5
-        FOR UPDATE`,
+        WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND actor_id = $4 AND path = $5`,
       [change.tenantId, change.worldId, change.timelineId, change.actorId, operation.path],
     );
     const existing = found.rows[0] as Row | undefined;
@@ -274,8 +274,8 @@ export class PostgreSqlActorDocuments {
       `INSERT INTO clockgrove.actor_document_versions (
          tenant_id, document_id, version, world_id, timeline_id, actor_id, session_id, state,
          content, byte_length, source_hash, change_set_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, octet_length($9),
-                 encode(sha256(convert_to($9, 'UTF8')), 'hex'), $10)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text, octet_length($9::text),
+                 encode(sha256(convert_to($9::text, 'UTF8')), 'hex'), $10)
        RETURNING source_hash`,
       [
         change.tenantId,

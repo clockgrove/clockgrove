@@ -30,11 +30,15 @@ follows, or an `outputMessageId` in the session. It records usage (`inputTokens`
 and `costMicrousd` where known. `null` means unknown, not zero. It also has its protected `input`
 and `output`.
 
-A Talk attempt records two steps:
+A Talk attempt records three or four steps:
 
-1. `model_attempt`, by `scripted-fixture-v1`. Its input is the prompt artifact and its output is
+1. `context_retrieval`, written with the run and its context manifest
+   ([context assembly](context-assembly.md)).
+2. `model_attempt`, by `scripted-fixture-v1`. Its input is the prompt artifact and its output is
    the reply message's artifact. Its cost is `0` and its token usage is unknown.
-2. `commit`, which leads to the reply message (`<messageId>:reply`). It is written in the same
+3. `validation`, only when the model proposed a document change: `succeeded`, or `failed` with the
+   change set's refusal code.
+4. `commit`, which leads to the reply message (`<messageId>:reply`). It is written in the same
    transaction as the messages and the turn, so a run completes exactly when its turn commits.
 
 ## State machines
@@ -78,8 +82,8 @@ waiting for the session.
 
 ## Protected payloads
 
-The prompt (the exact JSON the scripted model reads: model, prompt version, session, Caretaker
-message count and input text) and the reply are `conversation`-class artifacts in the
+The prompt (the exact JSON the scripted model reads: the assembled context of
+[context assembly](context-assembly.md#context-assembly)) and the reply are `conversation`-class artifacts in the
 [artifact store](../runbooks/database.md#artifact-store). They are stored only as AES-256-GCM
 ciphertext, and rows name them through keys that pin the class. The prompt is
 `<sessionId>:prompt:<runId>`. The output is the reply message's own artifact, not a copy. A Talk

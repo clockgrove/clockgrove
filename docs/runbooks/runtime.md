@@ -138,6 +138,11 @@ nothing. See [private conversations](../protocols/conversations.md) and
 of those attempts under `runtime:world-inspect` and an `operator_evidence` ceiling, audited with
 subject `agent-runs`. Payload text needs the `conversation` category too. See
 [run and step evidence](../protocols/runs.md).
+`/v1/runtime/context/inspect` answers a turn's context manifest under the same grant and ceiling,
+audited with subject `context-manifest`. `/v1/runtime/actor-documents/read` (under
+`runtime:world-inspect` and `private_cognition`) and `/v1/runtime/actor-documents/change` (under
+`runtime:actor-govern` and `private_cognition`) read and govern an actor's documents, audited with
+subject `actor-documents`. See [context assembly](../protocols/context-assembly.md).
 
 - **Scope:** only a command of the requested world, timeline and space is found. The space is the
   one the command's events were committed in, so a command without events the caller may read

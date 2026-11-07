@@ -365,7 +365,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
   private async historyRows(tenantId: string, sessionId: string, revision: number) {
     const found = await this.client.query(
       `SELECT sequence, message_id, role, content_artifact_id FROM clockgrove.conversation_messages
-        WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3 - $4 AND sequence <= $3
+        WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3::integer - $4::integer
+          AND sequence <= $3::integer
         ORDER BY sequence`,
       [tenantId, sessionId, revision, CONTEXT_HISTORY_WINDOW],
     );

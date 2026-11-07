@@ -55,7 +55,7 @@ const FIXED_PATHS: Readonly<Record<string, DocumentKind>> = {
   "goals.md": "goals",
   "working-context.md": "working_context",
 };
-const SUMMARY_PATH = /^sessions\/([A-Za-z0-9._:-]{1,256})\/summary\.md$/;
+const SUMMARY_PATH = /^sessions\/([A-Za-z0-9._:-]{1,255})\/summary\.md$/;
 
 /**
  * The document a logical path names, or undefined when the path is outside the closed grammar.
