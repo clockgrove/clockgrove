@@ -1,0 +1,44 @@
+name: Factory Objective
+description: Describe a wave's product outcome for Factory to plan and build
+type: Feature
+title: "Objective: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only for new product work from a wave plan. File defects, maintenance, plan amendments, re-qualification and cleanup as plain issues instead (see AGENTS.md).
+
+        Describe the outcome in your own words: a teammate should understand what success looks like without first reading every linked document. Filing this does not start Factory; a maintainer applies the `factory:objective` label when it is ready.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What should exist or work when this Objective is complete?
+      placeholder: Explain the result as you would to a developer joining the project today.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: Completion experience
+      description: Who should be able to do what, and what should they observe?
+      placeholder: A new contributor can clone the repository, run ..., and observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: What must be true
+      description: Observable acceptance criteria, including the tests or evidence that would prove the outcome.
+      placeholder: |
+        - The supported workflow completes from a clean checkout.
+        - Existing behavior remains covered by the repository checks.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: The wave plan section and any documents, issues or constraints a planner needs.
+    validations:
+      required: false

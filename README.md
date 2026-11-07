@@ -104,4 +104,4 @@ Clockgrove is in active development. The foundation, deterministic kernel, journ
 
 ## License, contributing and security
 
-Clockgrove's code and assets are licensed under the [MIT License](LICENSE). The Clockgrove name and logo are trademarks of the project and are not licensed under MIT; you may use them to refer to Clockgrove, but not to name or brand a fork or derivative. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to contribute, and [SECURITY.md](SECURITY.md) how to report a vulnerability privately. [provenance.json](provenance.json) records the repository content that is not original Clockgrove work.
+Clockgrove is licensed under the [MIT License](LICENSE). [CONTRIBUTING.md](CONTRIBUTING.md) explains how to contribute, and [SECURITY.md](SECURITY.md) how to report a vulnerability privately. [provenance.json](provenance.json) records the repository content that is not original Clockgrove work.
