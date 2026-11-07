@@ -1,10 +1,13 @@
 import {
   decodePackPresentation,
+  type LivingPose,
+  type LivingSpatialFrame,
   type ObjectId,
   type PackPresentation,
+  type SceneEffect,
   type ScenePresentationBinding,
 } from "@clockgrove/contracts";
-import { presentationSchema, type WorldEntity } from "@clockgrove/domain";
+import { presentationSchema, type WorldEntity, type WorldState } from "@clockgrove/domain";
 import reviewedAtlas from "../../../assets/reviewed/raccoon-world.animations.json" with {
   type: "json",
 };
@@ -88,4 +91,59 @@ export function scenePresentationBindings(
         ? { ...binding, animationFamily: family }
         : binding;
     });
+}
+
+/** Floor of (a + b) / 2: the arithmetic shift floors, where bigint division truncates toward zero. */
+function midpoint(a: bigint, b: bigint): bigint {
+  return (a + b) >> 1n;
+}
+
+/**
+ * The installed pack's placed effects for the projected scene: a puddle at the midpoint of every
+ * anchor-graph edge in a projected frame, and a lantern or window at its object's pose.
+ */
+export function sceneEffects(
+  pack: { readonly packId?: string },
+  state: Pick<WorldState, "entities" | "anchorGraphs">,
+  frames: readonly LivingSpatialFrame[],
+  projected: ReadonlySet<ObjectId>,
+): SceneEffect[] {
+  const presentation = pack.packId === undefined ? undefined : PRESENTATIONS.get(pack.packId);
+  if (presentation === undefined) return [];
+  const shown = new Set(frames.map((frame) => `${frame.frameId}@${frame.version}`));
+  const byId = new Map(state.entities.map((entity) => [entity.objectId, entity]));
+  const effects: SceneEffect[] = [];
+  for (const effect of presentation.effects) {
+    const { assetId, animationFamily } = effect;
+    if (effect.role === "puddle") {
+      for (const graph of state.anchorGraphs ?? []) {
+        if (!shown.has(`${graph.frameId}@${graph.frameVersion}`)) continue;
+        const anchors = new Map(graph.anchors.map((anchor) => [anchor.anchorId, anchor]));
+        for (const edge of graph.edges) {
+          const from = anchors.get(edge.from);
+          const to = anchors.get(edge.to);
+          if (from === undefined || to === undefined) continue;
+          const pose: LivingPose = {
+            frameId: graph.frameId,
+            frameVersion: graph.frameVersion,
+            coordinates: from.coordinates.map((value, axis) =>
+              String(midpoint(value, to.coordinates[axis] as bigint)),
+            ),
+          };
+          effects.push({ role: "puddle", assetId, animationFamily, pose });
+        }
+      }
+    } else if (effect.role === "lantern" || effect.role === "window") {
+      if (effect.objectId === null || !projected.has(effect.objectId)) continue;
+      const entity = byId.get(effect.objectId);
+      if (entity === undefined) continue;
+      const pose: LivingPose = {
+        frameId: entity.pose.frameId,
+        frameVersion: entity.pose.frameVersion,
+        coordinates: entity.pose.coordinates.map(String),
+      };
+      effects.push({ role: effect.role, assetId, animationFamily, pose });
+    }
+  }
+  return effects;
 }

@@ -18,7 +18,7 @@ import { Timeline } from "./timeline.js";
 import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
 import { parseWorldRoute, worldRoutePath } from "./world-route.js";
-import { pickOrder, type WorldSceneAdapter } from "./world-scene-adapter.js";
+import { effectsText, pickOrder, type WorldSceneAdapter } from "./world-scene-adapter.js";
 import { type ViewTraceProjection, YardSession } from "./yard-api.js";
 import { sameYardScope, yardStatusText } from "./yard-projection.js";
 import {
@@ -464,6 +464,12 @@ export function RaccoonWorldApp({
             <p>Canonical revision: {scene.revision}</p>
             <p>Canonical time: {scene.simulationTime}</p>
             <p>Rain intensity: {scene.weather.rainIntensity}</p>
+            {state.projection && (
+              <>
+                <p>Puddles: {effectsText(state.projection).puddles}</p>
+                <p>Lights: {effectsText(state.projection).lights}</p>
+              </>
+            )}
             <p>
               Space summary:{" "}
               {spaceSummary(scene, shown.worldLabel, shown.spaceLabel, viewing ?? shown.spaceLabel)}

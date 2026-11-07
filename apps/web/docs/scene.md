@@ -76,7 +76,13 @@ path. The reducer's committed projection is untouched.
 - **Environment.** Night uses the issue 813 golden's rule: before 06:00 or from 18:00 of the canonical
   86 400 000 ms day. It is drawn as a black overlay at alpha 0.6, matching the golden's grass at 2/5
   brightness. While `rainIntensity` is above 0, the reviewed rain effect tiles the view, as it does
-  in the golden.
+  in the golden. The projection's `effects` are drawn as sprites from the reviewed atlas key
+  `<assetId>/<animationFamily>`, placed like entities. Puddles show while `rainIntensity` is above 0,
+  in the ground group above shadows and below standing bodies; when the rain ends they fade out over
+  400 ms, or vanish at once under reduced motion. Lantern and window lights show at night by the rule
+  above, above the night overlay and below rain. A hidden effect stops animating. Under reduced
+  motion shown effects hold frame 0. The text path states the same conditions as `Puddles: <count or
+  none>` and `Lights: <lit roles, or off>`.
 - **Labels.** Only the selected and the hovered entity are labelled on the canvas, so labels never
   pile up. The text path lists every label.
 
@@ -96,7 +102,7 @@ path. The reducer's committed projection is untouched.
 | Reconnect, from observed drop to ready | 3 000 ms | Chromium journey |
 
 The Chromium journey (`tests/e2e/living-yard.journey.browser.test.mjs`) measures the runtime budgets on the golden yard
-with rain enabled, from the adapter's `metrics`. These are local checks on the CI runner. They are
+with rain and puddles showing, from the adapter's `metrics`. These are local checks on the CI runner. They are
 not a measurement on the supported laptop baseline.
 
 Frame time is the unsmoothed interval between game steps (Phaser's `loop.rawDelta`). Phaser's own

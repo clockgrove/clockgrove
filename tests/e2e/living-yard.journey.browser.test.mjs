@@ -210,6 +210,39 @@ function isoCentre(scene) {
   const middle = (values) => (Math.min(...values) + Math.max(...values)) / 2;
   return [middle(points.map(({ x }) => x)), middle(points.map(({ y }) => y))];
 }
+// issue 21: the golden's puddle sites (packages/assets/src/scene.ts), by the test's own reading of
+// the pack's path graph: one per edge, at its integer midpoint, in isometric world pixels.
+async function puddleSites() {
+  const { anchorGraph } = JSON.parse(
+    await readFile(path.join(root, "worlds/raccoons/resources/spaces/neighborhood.json"), "utf8"),
+  );
+  const at = new Map(
+    anchorGraph.anchors.map(({ anchorId, coordinates }) => [
+      anchorId,
+      coordinates.map(({ $bigint }) => Number($bigint)),
+    ]),
+  );
+  return anchorGraph.edges
+    .map(({ from, to }) => {
+      const [x, y] = at.get(from).map((value, axis) => Math.floor((value + at.get(to)[axis]) / 2));
+      return [(x + y) / 80, (x - y) / 160];
+    })
+    .sort(([a, b], [c, d]) => a - c || b - d);
+}
+// Each drawn effect's role, place and whether it shows and animates.
+const effectState = (viewer) =>
+  viewer.evaluate(() =>
+    globalThis.yardAdapter.effects.map(({ role, sprite }) => ({
+      role,
+      at: [sprite.x, sprite.y],
+      shown: sprite.visible && sprite.alpha === 1,
+      playing: sprite.anims.isPlaying,
+    })),
+  );
+const shownRoles = async (viewer) =>
+  [...new Set((await effectState(viewer)).filter(({ shown }) => shown).map(({ role }) => role))]
+    .sort()
+    .join();
 // issue 20: each raccoon's drawn atlas strip (`assetId/animationFamily`), beside its committed
 // routine and movement read from PostgreSQL.
 async function raccoonActivity(viewer, environment, authorization, scope) {
@@ -1052,6 +1085,27 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             ["kit/shelter", "seek-shelter", "completed"],
             ["stevie/idle", "stay", null],
           ]);
+        // issue 21: under PostgreSQL's rain at its night clock, puddles lie on the paths' midpoints
+        // and the porch lantern and window are lit; the text path says the same.
+        expect(Number(BigInt(simulationTime) % 86_400_000n) < 21_600_000).toBe(true);
+        await expect.poll(() => shownRoles(page)).toBe("lantern,puddle,window");
+        const effects = await effectState(page);
+        const porch = isoPoint(first, "grove.porch");
+        expect([
+          effects
+            .filter(({ role }) => role === "puddle")
+            .map(({ at }) => at)
+            .sort(([a, b], [c, d]) => a - c || b - d),
+          effects.filter(({ role }) => role !== "puddle").map(({ role, at }) => [role, ...at]),
+        ]).toEqual([
+          await puddleSites(),
+          [
+            ["lantern", porch.x, porch.y],
+            ["window", porch.x, porch.y],
+          ],
+        ]);
+        await scene.getByText(`Puddles: ${effects.length - 2}`, { exact: true }).waitFor();
+        await scene.getByText("Lights: lantern, window lit", { exact: true }).waitFor();
         // The observation status follows the scene at the 3 s live-announcement bound.
         await expect
           .poll(() => page.getByRole("status").first().textContent())
@@ -2011,6 +2065,19 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           };
         });
         expect([animated.weather, animated.rainFrames > 1]).toEqual([[true, false], true]);
+        // issue 21: the budgets below are read while every puddle and light shows and animates; the
+        // reduced-motion viewer draws the same effects, held still.
+        const kinEffects = await effectState(kin.viewer);
+        const heldEffects = await effectState(yard);
+        expect([
+          kinEffects.length,
+          kinEffects.every(({ shown, playing }) => shown && playing),
+          heldEffects.map(({ role, shown, playing }) => [role, shown, playing]),
+        ]).toEqual([
+          (await puddleSites()).length + 2,
+          true,
+          kinEffects.map(({ role }) => [role, true, false]),
+        ]);
         const runtime = animated.metrics;
         const frames = [...runtime.frameMs].sort((a, b) => a - b);
         // §17: the animating viewer reports its frame time as frame_ms:p95 points, one per
@@ -2409,6 +2476,11 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             ["kit/shelter", "seek-shelter", "completed"],
             ["stevie/sniff", "seek-food", "completed"],
           ]);
+        // issue 21: Stevie moved while the committed rain still falls, and the puddles still lie.
+        expect([
+          await living.getByText("Rain intensity: 3000", { exact: true }).count(),
+          await shownRoles(kin.viewer),
+        ]).toEqual([1, "lantern,puddle,window"]);
         await view("snack-house", "Followed grove.stevie to snack-house.");
         expect([
           await stevie.getAttribute("aria-pressed"),
@@ -2443,6 +2515,22 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await view("den", "The request to view den failed; nothing changed.");
         expect(await stevie.getAttribute("aria-pressed")).toBe("true");
         await kin.viewer.unroute("**/v1/runtime/viewed-space");
+        // issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes
+        // 06:00 the lights go out; the text path says the same.
+        await commit({
+          ...advanceCommand(world, "command-yard-dry", 0n, null),
+          type: "world.weather.set",
+          payload: { schemaVersion: 2, rainIntensity: 0 },
+        });
+        await living.getByText("Puddles: none", { exact: true }).waitFor();
+        await expect.poll(() => shownRoles(kin.viewer)).toBe("lantern,window");
+        const night = BigInt((await durable()).split("|")[1]);
+        await commit(
+          advanceCommand(world, "command-yard-daybreak", night - (night % day) + 25_200_000n, null),
+        );
+        expect(Number(BigInt((await durable()).split("|")[1]) % day)).toBe(25_200_000);
+        await living.getByText("Lights: off", { exact: true }).waitFor();
+        await expect.poll(() => shownRoles(kin.viewer)).toBe("");
         navigationAuth.revoke();
         await view("garden", "Viewing garden is not permitted. Selection cleared.");
         await cleared();

@@ -1,7 +1,9 @@
 import {
   decodeSceneProjection,
+  type LivingPose,
   type LivingSpatialFrame,
   type ObjectId,
+  type SceneEffect,
   type ScenePatch,
   type SceneProjection,
   type SceneTransientCue,
@@ -82,23 +84,69 @@ export function pickOrder(projection: Pick<SceneProjection, "frames" | "entities
   const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
   const placed: ScenePlacement[] = [];
   for (const entity of projection.entities) {
-    const frame = frames.get(entity.pose.frameId);
-    if (!frame || frame.version !== entity.pose.frameVersion) continue;
-    const metres = METRES_PER_UNIT[frame.unit.name] ?? 1;
-    const [x = 0, y = 0, z = 0] = framePosition(frame, entity.pose.coordinates).map(
-      (value) => value * metres,
-    );
+    const at = poseMetres(frames, entity.pose);
+    if (!at) continue;
     placed.push({
       objectId: entity.objectId,
-      frame: `${frame.frameId}@${frame.version}`,
-      x,
-      y,
-      elevation: frame.dimensions === 3 ? z : 0,
+      frame: at.frame,
+      x: at.x,
+      y: at.y,
+      elevation: at.elevation,
       occlusionGroup: "standing",
-      depthKey: [OCCLUSION_GROUPS.indexOf("standing"), x - y, z, entity.objectId],
+      depthKey: [OCCLUSION_GROUPS.indexOf("standing"), at.x - at.y, at.z, entity.objectId],
     });
   }
   return placed.sort((a, b) => compareDepth(b, a));
+}
+/** A pose in metres of its frame; undefined when the pose's frame version is not in the projection. */
+export function poseMetres(
+  frames: ReadonlyMap<string, LivingSpatialFrame>,
+  pose: LivingPose,
+): { frame: string; x: number; y: number; z: number; elevation: number } | undefined {
+  const frame = frames.get(pose.frameId);
+  if (!frame || frame.version !== pose.frameVersion) return undefined;
+  const metres = METRES_PER_UNIT[frame.unit.name] ?? 1;
+  const [x = 0, y = 0, z = 0] = framePosition(frame, pose.coordinates).map(
+    (value) => value * metres,
+  );
+  return {
+    frame: `${frame.frameId}@${frame.version}`,
+    x,
+    y,
+    z,
+    elevation: frame.dimensions === 3 ? z : 0,
+  };
+}
+const DAY_MS = 86_400_000n;
+const HOUR_MS = 3_600_000n;
+/** The issue 813 golden's night rule: before 06:00 or from 18:00 of the canonical day. */
+export function isNight(simulationTime: bigint): boolean {
+  const time = simulationTime % DAY_MS;
+  return time < 6n * HOUR_MS || time >= 18n * HOUR_MS;
+}
+/** The effects shown now, decided from the committed projection alone. */
+export function shownEffects(
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+): SceneEffect[] {
+  const raining = projection.weather.rainIntensity > 0;
+  const night = isNight(projection.simulationTime);
+  return (projection.effects ?? []).filter((effect) =>
+    effect.role === "puddle" ? raining : night,
+  );
+}
+/** The text path's description of the same conditions the canvas draws. */
+export function effectsText(
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+): { puddles: string; lights: string } {
+  const shown = shownEffects(projection);
+  const puddles = shown.filter((effect) => effect.role === "puddle").length;
+  const lit = (["lantern", "window"] as const).filter((role) =>
+    shown.some((effect) => effect.role === role),
+  );
+  return {
+    puddles: puddles > 0 ? String(puddles) : "none",
+    lights: lit.length > 0 ? `${lit.join(", ")} lit` : "off",
+  };
 }
 /** Whether a committed move is drawn as interpolation or as a snap. */
 export function movement(from: ScenePlacement, to: ScenePlacement): "interpolate" | "snap" {
@@ -150,6 +198,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let feedCursor = scene.feedCursor;
   let compatibility = scene.compatibility;
   let privateCognition = scene.privateCognition;
+  let effects = scene.effects;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -197,14 +246,18 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_private_cognition":
         privateCognition = operation.entries;
         break;
+      case "set_effects":
+        effects = operation.effects;
+        break;
     }
   }
-  const { privateCognition: _previous, ...rest } = scene;
+  const { privateCognition: _previous, effects: _effects, ...rest } = scene;
   return decodeSceneProjection({
     ...rest,
     ...(privateCognition && {
       privateCognition: privateCognition.filter((entry) => entities.has(entry.actorId)),
     }),
+    ...(effects && { effects }),
     revision: patch.toRevision,
     simulationTime,
     weather,

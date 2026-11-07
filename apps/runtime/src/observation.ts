@@ -60,7 +60,7 @@ import {
   isNestedTarget,
   sceneHierarchyOf,
 } from "./scene-navigation.js";
-import { scenePresentationBindings } from "./scene-presentation.js";
+import { sceneEffects, scenePresentationBindings } from "./scene-presentation.js";
 import { assertWorldCommandContext, PostgreSqlCommandOwner } from "./world-commands.js";
 
 /** Request-owned current-state reads. This projection never copies a world document to the wire. */
@@ -353,6 +353,7 @@ export class PostgreSqlSceneStreamReader {
     const audienceHash = decision.hash;
     const projected = new Set(scene.entities.map((entity) => entity.objectId));
     const privateCognition = privateCognitionOf(stored.document.state, decision, projected);
+    const effects = sceneEffects(stored, stored.document.state, scene.frames, projected);
     const projection = decodeSceneProjection({
       tenantId: scene.tenantId,
       worldId: scene.worldId,
@@ -383,6 +384,7 @@ export class PostgreSqlSceneStreamReader {
       feedCursor: stored.coveredHeadSequence.toString(),
       audienceHash,
       ...(privateCognition === undefined ? {} : { privateCognition }),
+      ...(effects.length === 0 ? {} : { effects }),
     });
     const snapshot = { projection, patch: null, authorityEpoch: stored.routingEpoch, decision };
     if (fromRevision === null || fromRevision < 0n || fromRevision >= projection.revision)

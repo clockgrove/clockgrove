@@ -1,5 +1,6 @@
 import type {
   ObjectId,
+  SceneEffect,
   ScenePatch,
   SceneProjection,
   SceneTransientCue,
@@ -10,13 +11,16 @@ import {
   applyScenePatch,
   cyclePick,
   INTERPOLATION_MS,
+  isNight,
   movement,
   OCCLUSION_GROUPS,
   type OcclusionGroup,
   type PickCycle,
   pickOrder,
+  poseMetres,
   type SceneIntent,
   type ScenePlacement,
+  shownEffects,
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
 
@@ -58,6 +62,8 @@ export interface SceneMetrics {
   /** The latest unsmoothed frame intervals in milliseconds, at most `FRAME_SAMPLES` of them. */
   readonly frameMs: number[];
   entityCount: number;
+  /** Effect sprites (puddles, lantern and window lights) currently built. */
+  effectCount: number;
   /** Bytes the loaded textures occupy at four bytes per pixel. */
   textureBytes: number;
 }
@@ -121,8 +127,6 @@ const PLACEHOLDER_FOOTPRINT = { width: 600, depth: 600 } as const;
 const PLACEHOLDER_RADIUS = 8;
 /** Ground-shadow opacity (decision): visible on day and night grass without hiding it. */
 const SHADOW_ALPHA = 0.22;
-const DAY_MS = 86_400_000;
-const HOUR_MS = 3_600_000;
 /** The issue 813 golden draws night grass at 2/5 brightness, which a black overlay at 0.6 matches. */
 const NIGHT_ALPHA = 0.6;
 /** At most this many cue dedupe keys are remembered; the oldest is forgotten first (decision). */
@@ -152,6 +156,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     patchMs: 0,
     frameMs: [],
     entityCount: 0,
+    effectCount: 0,
     textureBytes: 0,
   };
   private projection: SceneProjection | undefined;
@@ -160,6 +165,10 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   private atlas = new Map<string, AtlasAnimation>();
   private drawn = new Map<ObjectId, Drawn>();
   private order: ObjectId[] = [];
+  /** Exposed for the browser journey. */
+  effects: { role: string; key: string; sprite: Phaser.GameObjects.Sprite; index: number }[] = [];
+  private effectsKey = "";
+  private shownSprites = new Set<Phaser.GameObjects.Sprite>();
   private handlers = new Set<(intent: SceneIntent) => void>();
   private selected: ObjectId | undefined;
   private focused: ObjectId | undefined;
@@ -314,7 +323,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       this.rain = stage.add
         .tileSprite(WIDTH / 2, HEIGHT / 2, OVERLAY.width, OVERLAY.height, ATLAS, "rain/loop/0")
         .setScrollFactor(0)
-        .setDepth(depthOf("weather", 2));
+        .setDepth(depthOf("weather", 3));
     let rainFrame = 0;
     stage.time.addEvent({
       delay: this.atlas.get("rain/loop")?.durationMs ?? 100,
@@ -444,6 +453,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
     for (const drawn of this.drawn.values()) this.animate(drawn);
+    for (const effect of this.effects) this.animateEffect(effect.sprite, effect.key);
   }
   onIntent(handler: (intent: SceneIntent) => void): () => void {
     this.handlers.add(handler);
@@ -535,6 +545,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     if (rebuilt) {
       for (const drawn of this.drawn.values()) this.release(drawn);
       this.drawn.clear();
+      this.releaseEffects();
       this.scope = scope;
       this.frameCamera(stage, placements);
     }
@@ -578,6 +589,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       drawn.shadow.setDepth(depthOf("ground", index));
     });
     this.order = placements.reverse().map((placement) => placement.objectId);
+    this.drawEffects(stage, projection);
     this.drawEnvironment(projection);
     this.drawEmphasis();
     this.metrics.entityCount = this.drawn.size;
@@ -644,9 +656,87 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   }
   /** Day/night and rain are drawn from the canonical clock and weather only (§9.2). */
   private drawEnvironment(projection: SceneProjection): void {
-    const time = Number(projection.simulationTime % BigInt(DAY_MS));
-    this.night?.setVisible(time < 6 * HOUR_MS || time >= 18 * HOUR_MS);
+    this.night?.setVisible(isNight(projection.simulationTime));
     this.rain?.setVisible(projection.weather.rainIntensity > 0);
+  }
+  /** Rebuilds the effect sprites when the effects list changes, then applies what is shown now. */
+  private drawEffects(stage: Phaser.Scene, projection: SceneProjection): void {
+    const effects = projection.effects ?? [];
+    const key = JSON.stringify(
+      effects.map((effect) => [effect.role, effect.assetId, effect.animationFamily, effect.pose]),
+    );
+    if (key !== this.effectsKey) {
+      this.releaseEffects();
+      this.effectsKey = key;
+      const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
+      effects.forEach((effect, index) => {
+        const atlasKey = `${effect.assetId}/${effect.animationFamily}`;
+        const animation = this.atlas.get(atlasKey);
+        const at = poseMetres(frames, effect.pose);
+        if (!animation || !at) return;
+        const [x, y] = iso(at);
+        const sprite = stage.add
+          .sprite(x, y, ATLAS, `${atlasKey}/0`)
+          .setOrigin(
+            animation.anchor.x / (animation.frames[0]?.width ?? 1),
+            animation.anchor.y / (animation.frames[0]?.height ?? 1),
+          )
+          .setDepth(
+            effect.role === "puddle" ? depthOf("ground", 5_000 + index) : depthOf("weather", 2),
+          )
+          .setVisible(false);
+        if (animation.frames.length > 1)
+          sprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, this.invalidate);
+        this.effects.push({ role: effect.role, key: atlasKey, sprite, index });
+      });
+    }
+    const shown = new Set(shownEffects(projection));
+    for (const item of this.effects) {
+      const sprite = item.sprite;
+      const visible = shown.has(effects[item.index] as SceneEffect);
+      const was = this.shownSprites.has(sprite);
+      if (visible === was) continue;
+      stage.tweens.killTweensOf(sprite);
+      if (visible) {
+        this.shownSprites.add(sprite);
+        sprite.setAlpha(1).setVisible(true);
+        this.animateEffect(sprite, item.key);
+      } else {
+        this.shownSprites.delete(sprite);
+        this.stopEffect(sprite, item.key);
+        if (item.role === "puddle" && was && !this.reducedMotion)
+          stage.tweens.add({
+            targets: sprite,
+            alpha: 0,
+            duration: INTERPOLATION_MS,
+            onComplete: () => sprite.setVisible(false),
+          });
+        else sprite.setVisible(false);
+      }
+    }
+    this.metrics.effectCount = this.effects.length;
+    this.invalidate();
+  }
+  private animateEffect(sprite: Phaser.GameObjects.Sprite, key: string): void {
+    if (!this.shownSprites.has(sprite)) return;
+    if (!this.stage?.anims.exists(key)) return;
+    if (this.reducedMotion) this.stopEffect(sprite, key);
+    else sprite.play(key, true);
+    this.invalidate();
+  }
+  private stopEffect(sprite: Phaser.GameObjects.Sprite, key: string): void {
+    sprite.stop().setFrame(`${key}/0`);
+    this.invalidate();
+  }
+  private releaseEffects(): void {
+    for (const { sprite } of this.effects) {
+      this.stage?.tweens.killTweensOf(sprite);
+      sprite.destroy();
+    }
+    this.effects = [];
+    this.shownSprites.clear();
+    this.effectsKey = "";
+    this.metrics.effectCount = 0;
   }
   /** Redraws only the emphasis overlay, by lookup of the emphasized sprites. */
   private drawEmphasis(): void {
@@ -702,6 +792,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     // Phaser's scene plugins release themselves on the scene's DESTROY event, which
     // `game.destroy` emits before clearing the scene's emitters, so they are not stripped here.
     if (this.game.textures.exists(ATLAS)) this.game.textures.remove(ATLAS);
+    this.releaseEffects();
     this.handlers.clear();
     this.projection = undefined;
     this.drawn.clear();

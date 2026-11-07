@@ -167,6 +167,7 @@ function expectedOperations(canonical: HydratedWorldOwner): ScenePatchOperation[
     },
     { op: "set_clock", simulationTime: state.simulationTime },
     { op: "set_weather", weather: state.weather },
+    { op: "set_effects", effects: [] },
     { op: "set_feed_cursor", feedCursor: canonical.coveredHeadSequence.toString() },
     {
       op: "set_compatibility",
