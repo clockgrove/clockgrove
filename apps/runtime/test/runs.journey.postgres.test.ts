@@ -65,23 +65,6 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await talk("m1", "Find the acorns.");
       await talk("m2", "Hide them by the fence.");
 
-      // Two attempts whose requests died: one at m3, just now, and one two minutes ago.
-      const dead = (runId: string, messageId: string, age: string) =>
-        `INSERT INTO clockgrove.agent_runs (tenant_id, run_id, world_id, timeline_id, partition_id,
-           space_id, session_id, actor_id, principal_id, persona_id, activation, input_message_id,
-           root_run_id, model, prompt_version, input_revision, summary, started_at)
-         SELECT tenant_id, '${runId}', world_id, timeline_id, partition_id, space_id, session_id,
-                actor_id, 'principal-runtime', 'persona-runtime', 'conversation_message',
-                '${messageId}', '${runId}', 'scripted-fixture-v1', 'scripted-prompt-v1', 4,
-                'Scripted reply to Caretaker message 3', now() - interval '${age}'
-           FROM clockgrove.conversation_sessions WHERE session_id = '${session}';
-         INSERT INTO clockgrove.run_steps (tenant_id, run_id, session_id, step, kind, model, summary)
-           SELECT tenant_id, '${runId}', '${session}', 1, 'model_attempt', 'scripted-fixture-v1',
-                  'Scripted model attempt'
-             FROM clockgrove.conversation_sessions WHERE session_id = '${session}';`;
-      await owner.sql(
-        dead("run-died-at-m3", "m3", "1 second") + dead("run-lost", "m9", "2 minutes"),
-      );
       const third = await talk("m3", "Count them tonight.");
       expect(third.reply.text).toBe(REPLY(3));
 
@@ -104,12 +87,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "m1:completed:-:1:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
           "m2:completed:-:2:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
           "m3:completed:-:3:context_retrieval=succeeded/true,model_attempt=succeeded/true,commit=succeeded/true",
-          "m3:superseded:retried:-:model_attempt=superseded/true",
-          "m9:abandoned:stale:-:model_attempt=abandoned/true",
         ].join(" "),
       );
 
-      // From the turn: both attempts at its input message, with the committed reply. Without the
+      // From the turn: every attempt at its input message (abandoned attempts are proved by
+      // turn-fibers.journey), with the committed reply. Without the
       // `conversation` category the inspector sees only metadata: no payload text.
       const turn = await inspect({ sessionId: session, turn: 3 });
       const completed = turn.runs.find((run) => run.status === "completed");
@@ -132,14 +114,6 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ]),
         ]);
       expect(steps(turn)).toEqual([
-        [
-          "run-died-at-m3",
-          "superseded",
-          null,
-          true,
-          null,
-          [["model_attempt", "superseded", "scripted-fixture-v1", null, null, null, null]],
-        ],
         [
           "completed-run",
           "completed",
@@ -333,8 +307,6 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "m2:completed",
           "m3:completed",
           "m3:running",
-          "m3:superseded",
-          "m9:abandoned",
         ],
         false,
       ]);

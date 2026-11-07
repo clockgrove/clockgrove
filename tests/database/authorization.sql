@@ -64,7 +64,9 @@ COMMIT;
 --   insert_delete   SELECT, INSERT and DELETE (clock admission receipts, retired when unreachable)
 --   participant     SELECT and INSERT, sessions also UPDATE of state, title and count, each row
 --                   only of a session the installed principal participates in (conversations,
---                   0034; actor documents and context manifests, 0037)
+--                   0034; actor documents and context manifests, 0037; turn fibers, 0038)
+--   process         SELECT and INSERT, processes also UPDATE of their lease, only of the installed
+--                   tenant; a segment only under the current lease epoch (actor processes, 0038)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -74,7 +76,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'participant', 'none'
+      'key_rewrap', 'participant', 'process', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -108,6 +110,9 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'actor_document_versions', 'participant'),
   ('clockgrove', 'document_change_sets', 'participant'),
   ('clockgrove', 'context_manifests', 'participant'),
+  ('clockgrove', 'conversation_turn_fibers', 'participant'),
+  ('clockgrove', 'actor_processes', 'process'),
+  ('clockgrove', 'actor_process_segments', 'process'),
   ('clockgrove_management', 'principals', 'none'),
   ('clockgrove_management', 'identity_links', 'none'),
   ('clockgrove_management', 'workspace_memberships', 'none'),
@@ -260,7 +265,8 @@ BEGIN
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
         'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
-        'clockgrove.context_manifests'
+        'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
+        'clockgrove.actor_processes', 'clockgrove.actor_process_segments'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -1996,6 +2002,99 @@ BEGIN
     DELETE FROM clockgrove.context_manifests;
     RAISE EXCEPTION 'manifest deleted' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+ROLLBACK;
+
+-- Turn fibers (0038): only the session's participant sees and writes its turns; the guard moves a
+-- phase only forward and freezes a finished turn. Actor processes: only the installed tenant, and a
+-- segment only under the process's current lease epoch.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a2');
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-f', 'principal-a', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-f', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+          'cognitive');
+INSERT INTO clockgrove.artifact_data_keys (
+  tenant_id, world_id, privacy_class, key_version, kek_id, wrapped_key
+) VALUES ('tenant-a', 'world-a', 'conversation', 1, 'kek-test', decode(repeat('c1', 61), 'hex'));
+INSERT INTO clockgrove.artifact_references (
+  tenant_id, world_id, timeline_id, partition_id, space_id, artifact_id, content_hash, media_type,
+  inline_content, byte_length, privacy_class, retention_class, encryption, data_key_version
+) SELECT 'tenant-a', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'input-f',
+         'sha256:' || encode(sha256(bytes), 'hex'), 'text/plain;charset=utf-8', bytes,
+         octet_length(bytes), 'conversation', 'durable', 'aes-256-gcm-v1', 1
+    FROM (VALUES (decode('01' || repeat('c4', 40), 'hex'))) AS sealed (bytes);
+INSERT INTO clockgrove.conversation_turn_fibers (
+  tenant_id, session_id, message_id, world_id, timeline_id, actor_id, principal_id, persona_id,
+  input_artifact_id
+) VALUES ('tenant-a', 'session-f', 'message-f', 'world-a', 'timeline-a', 'stevie', 'principal-a',
+          'persona-a', 'input-f');
+INSERT INTO clockgrove.actor_processes (
+  tenant_id, process_id, world_id, timeline_id, actor_id, objective, target
+) VALUES ('tenant-a', 'process-a', 'world-a', 'timeline-a', 'stevie', 'fixture-tally', 4);
+DO $$
+BEGIN
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a2',
+    '{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}');
+  IF (SELECT count(*) FROM clockgrove.conversation_turn_fibers) <> 0 THEN
+    RAISE EXCEPTION 'another member sees a turn';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-b', 'principal-b');
+  IF (SELECT count(*) FROM clockgrove.actor_processes) <> 0 THEN
+    RAISE EXCEPTION 'another tenant sees a process';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a');
+  UPDATE clockgrove.conversation_turn_fibers SET phase = 'context_pending', attempt = 1, lease_epoch = 1;
+  BEGIN
+    UPDATE clockgrove.conversation_turn_fibers SET phase = 'accepted';
+    RAISE EXCEPTION 'turn phase moved back' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.conversation_turn_fibers SET message_id = 'forged';
+    RAISE EXCEPTION 'turn identity changed' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  UPDATE clockgrove.conversation_turn_fibers SET phase = 'cancelled';
+  BEGIN
+    UPDATE clockgrove.conversation_turn_fibers SET phase = 'context_ready';
+    RAISE EXCEPTION 'finished turn changed' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.conversation_turn_fibers;
+    RAISE EXCEPTION 'turn deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE 'CG020' THEN NULL;
+  END;
+  UPDATE clockgrove.actor_processes SET lease_epoch = 2, lease_holder = 'owner-2';
+  BEGIN
+    INSERT INTO clockgrove.actor_process_segments (
+      tenant_id, process_id, segment, lease_epoch, lease_holder, from_checkpoint, to_checkpoint
+    ) VALUES ('tenant-a', 'process-a', 1, 1, 'owner-1', 0, 2);
+    RAISE EXCEPTION 'stale lease wrote a segment' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG022' THEN NULL;
+  END;
+  INSERT INTO clockgrove.actor_process_segments (
+    tenant_id, process_id, segment, lease_epoch, lease_holder, from_checkpoint, to_checkpoint
+  ) VALUES ('tenant-a', 'process-a', 1, 2, 'owner-2', 0, 2);
+  IF (SELECT checkpoint FROM clockgrove.actor_processes) <> 2 THEN
+    RAISE EXCEPTION 'segment did not move the checkpoint';
+  END IF;
+  BEGIN
+    UPDATE clockgrove.actor_processes SET checkpoint = 4;
+    RAISE EXCEPTION 'checkpoint moved without a segment' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.actor_processes SET lease_epoch = 1;
+    RAISE EXCEPTION 'lease epoch moved back' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
   END;
 END;
 $$;

@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import type { YardSession } from "../yard-api.js";
 
+const VOICE_PENDING = "The actor is";
 const UNTITLED = "Untitled conversation";
 
 function sessionLabel(session: ConversationSession): string {
@@ -29,6 +30,9 @@ export function ConversationPanel({
   const [draft, setDraft] = useState("");
   const [title, setTitle] = useState("");
   const [refusal, setRefusal] = useState<string>();
+  const [provisional, setProvisional] = useState("");
+  const [phase, setPhase] = useState<string>();
+  const hooks = { onProvisional: setProvisional, onPhase: setPhase };
 
   const refuse = (value: { readonly refused: string }) => {
     setRefusal(value.refused);
@@ -61,18 +65,39 @@ export function ConversationPanel({
     setCurrent(undefined);
     if (!selectedId) return;
     let live = true;
-    void session.readConversation(selectedId).then((page) => {
-      if (!live) return;
-      if ("refused" in page) return setRefusal(page.refused);
-      setCurrent(page.session);
-      setTitle(page.session.title);
-      setMessages(page.messages);
-      setNext(page.nextAfterSequence);
+    const load = () =>
+      session.readConversation(selectedId).then((page) => {
+        if (!live) return;
+        if ("refused" in page) return setRefusal(page.refused);
+        setCurrent(page.session);
+        setTitle(page.session.title);
+        setMessages(page.messages);
+        setNext(page.nextAfterSequence);
+      });
+    void load().then(async () => {
+      // A turn this browser left in flight is settled from its durable status, then re-read.
+      const resumed = await session.resumeTurn(selectedId, {
+        onProvisional: (text) => live && setProvisional(text),
+        onPhase: (value) => live && setPhase(value),
+      });
+      if (!live || !resumed) return;
+      setPhase(undefined);
+      if ("refused" in resumed) setRefusal(resumed.refused);
+      else await load();
     });
     return () => {
       live = false;
     };
   }, [session, selectedId]);
+
+  const settled = async (sessionId: string) => {
+    const page = await session.readConversation(sessionId);
+    if ("refused" in page) return refuse(page);
+    setCurrent(page.session);
+    setMessages(page.messages);
+    setNext(page.nextAfterSequence);
+    await reload(sessionId);
+  };
 
   const loadMore = async () => {
     if (!current || next === null) return;
@@ -106,9 +131,14 @@ export function ConversationPanel({
     const text = draft.trim();
     if (!current || !text) return;
     setRefusal(undefined);
-    const receipt = await session.talk(current.sessionId, text);
-    if ("refused" in receipt) return refuse(receipt);
     setDraft("");
+    const receipt = await session.talk(current.sessionId, text, hooks);
+    setPhase(undefined);
+    if ("refused" in receipt) {
+      setDraft(text);
+      return refuse(receipt);
+    }
+    if ("reloaded" in receipt) return settled(current.sessionId);
     setCurrent(receipt.session);
     // The receipt holds both new messages. Append them when the loaded tail is the end of the
     // transcript; otherwise the next "load more" page reaches them. No transcript or list re-read.
@@ -176,6 +206,14 @@ export function ConversationPanel({
               </li>
             ))}
           </ol>
+          <div aria-live="polite">
+            {phase && <p>Reply in progress ({phase.replaceAll("_", " ")})</p>}
+            {provisional && (
+              <p>
+                <em>{VOICE_PENDING} replying…</em> {provisional}
+              </p>
+            )}
+          </div>
           {next !== null && (
             <button type="button" onClick={() => void loadMore()}>
               Load more

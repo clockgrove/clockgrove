@@ -13,6 +13,8 @@ import {
   decodeRecordedWhy,
   decodeSayReceipt,
   decodeTalkReceipt,
+  decodeTalkStreamFrame,
+  decodeTurnStatus,
   decodeWorldDirectory,
   decodeWorldReadiness,
   decodeWorldStatus,
@@ -28,6 +30,7 @@ import {
   type SayReceipt,
   type SpaceId,
   type TalkReceipt,
+  TERMINAL_TURN_PHASES,
   type WorldDirectory,
   type WorldDirectoryEntry,
   type WorldReadiness,
@@ -87,7 +90,50 @@ type ConversationEndpoint =
   | "/v1/runtime/conversations/delete"
   | "/v1/runtime/conversations/list"
   | "/v1/runtime/conversations/read"
-  | "/v1/runtime/conversations/title";
+  | "/v1/runtime/conversations/title"
+  | "/v1/runtime/turns/status";
+
+const MAX_TALK_RESENDS = 3;
+
+interface PendingTurn {
+  readonly sessionId: string;
+  readonly messageId: string;
+  readonly text: string;
+}
+export type TurnSettled = { readonly reloaded: true };
+/** Presentation callbacks of a turn; provisional text is never kept as truth. */
+export interface TurnHooks {
+  readonly onProvisional?: (text: string) => void;
+  readonly onPhase?: (phase: string) => void;
+}
+
+const pendingKey = (sessionId: string) => `clockgrove.pending-turn.${sessionId}`;
+function rememberPendingTurn(sessionId: string, turn: PendingTurn): void {
+  try {
+    sessionStorage.setItem(pendingKey(sessionId), JSON.stringify(turn));
+  } catch {
+    // Storage is a convenience for reconnecting; the durable turn does not depend on it.
+  }
+}
+function forgetPendingTurn(sessionId: string): void {
+  try {
+    sessionStorage.removeItem(pendingKey(sessionId));
+  } catch {
+    // See rememberPendingTurn.
+  }
+}
+function readPendingTurn(sessionId: string): PendingTurn | undefined {
+  try {
+    const value = JSON.parse(
+      sessionStorage.getItem(pendingKey(sessionId)) ?? "null",
+    ) as Partial<PendingTurn> | null;
+    return typeof value?.messageId === "string" && typeof value.text === "string"
+      ? { sessionId, messageId: value.messageId, text: value.text }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function tryDecode<T>(decode: (value: unknown) => T, value: unknown): T | undefined {
   try {
@@ -581,19 +627,159 @@ export class YardSession {
     measure("interaction_outcome", outcomeOf(answer.status, receipt !== undefined));
     return receipt ?? { refused: answer.refused };
   }
-  /** A private message in a stored session; the answer is part of its durable transcript. */
-  async talk(sessionId: string, text: string): Promise<TalkReceipt | { readonly refused: string }> {
-    const answer = await this.postInteraction("/v1/runtime/talk", {
-      messageId: crypto.randomUUID(),
-      sessionId,
-      text,
-    });
-    const receipt =
-      answer.status === 200 && answer.body !== undefined
-        ? tryDecode(decodeTalkReceipt, answer.body)
-        : undefined;
-    measure("interaction_outcome", outcomeOf(answer.status, receipt !== undefined));
-    return receipt ?? { refused: answer.refused };
+  /**
+   * A private message in a stored session; the answer is part of its durable transcript. Streamed
+   * deltas are only shown through `hooks`; a stream that ends early is settled from the durable
+   * turn status and resumed by resending the same message ID, never from the tokens.
+   */
+  talk(
+    sessionId: string,
+    text: string,
+    hooks: TurnHooks = {},
+  ): Promise<TalkReceipt | TurnSettled | { readonly refused: string }> {
+    return this.runTurn({ sessionId, messageId: crypto.randomUUID(), text }, hooks, false);
+  }
+  /** Settles the turn this browser remembers for a session, if any (a reload mid-turn). */
+  async resumeTurn(
+    sessionId: string,
+    hooks: TurnHooks = {},
+  ): Promise<TurnSettled | { readonly refused: string } | undefined> {
+    const pending = readPendingTurn(sessionId);
+    if (!pending) return undefined;
+    const status = await this.turnStatus(sessionId, pending.messageId);
+    if ("refused" in status) {
+      if (status.refused === "turn_not_found") forgetPendingTurn(sessionId);
+      return status;
+    }
+    if (status.phase === "completed") {
+      forgetPendingTurn(sessionId);
+      return { reloaded: true };
+    }
+    if (TERMINAL_TURN_PHASES.includes(status.phase)) {
+      forgetPendingTurn(sessionId);
+      return {
+        refused: `Reply ${status.phase}${status.outcomeCode ? `: ${status.outcomeCode}` : ""}`,
+      };
+    }
+    hooks.onPhase?.(status.phase);
+    const result = await this.runTurn(pending, hooks, true);
+    return "refused" in result ? result : { reloaded: true };
+  }
+  turnStatus(sessionId: string, messageId: string) {
+    return this.conversationCall(
+      "/v1/runtime/turns/status",
+      { sessionId, messageId },
+      decodeTurnStatus,
+    );
+  }
+  private async runTurn(
+    turn: PendingTurn,
+    hooks: TurnHooks,
+    recovered: boolean,
+  ): Promise<TalkReceipt | TurnSettled | { readonly refused: string }> {
+    rememberPendingTurn(turn.sessionId, turn);
+    let resumed = recovered;
+    for (let resend = 0; resend <= MAX_TALK_RESENDS; ++resend) {
+      let provisional = "";
+      const outcome = await this.streamTalk(turn, (delta) => {
+        provisional += delta;
+        hooks.onProvisional?.(provisional);
+      });
+      hooks.onProvisional?.("");
+      if (outcome.kind !== "interrupted") {
+        forgetPendingTurn(turn.sessionId);
+        measure("interaction_outcome", outcomeOf(outcome.status, outcome.kind === "receipt"));
+        if (outcome.kind === "refused") return { refused: outcome.error };
+        return resumed ? { reloaded: true } : outcome.receipt;
+      }
+      resumed = true;
+      const status = await this.turnStatus(turn.sessionId, turn.messageId);
+      if (!("refused" in status)) {
+        hooks.onPhase?.(status.phase);
+        if (status.phase === "completed") {
+          forgetPendingTurn(turn.sessionId);
+          return { reloaded: true };
+        }
+        if (TERMINAL_TURN_PHASES.includes(status.phase)) {
+          forgetPendingTurn(turn.sessionId);
+          return { refused: status.outcomeCode ?? status.phase };
+        }
+      }
+    }
+    return { refused: "reply interrupted; it will resume when the conversation is reopened" };
+  }
+  private async streamTalk(
+    turn: PendingTurn,
+    onDelta: (text: string) => void,
+  ): Promise<
+    | { kind: "receipt"; status: number; receipt: TalkReceipt }
+    | { kind: "refused"; status: number; error: string }
+    | { kind: "interrupted" }
+  > {
+    const scope = this.getSnapshot().scope;
+    const credential = this.credential;
+    if (!scope || !credential) return { kind: "refused", status: 0, error: "not signed in" };
+    const intent = this.intent;
+    try {
+      const response = await fetch(new URL("/v1/runtime/talk", this.origin), {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          authorization: `Bearer ${credential}`,
+          "content-type": "application/json",
+          accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({ version: 1, ...scope, ...turn }),
+      });
+      if (intent === this.intent && response.status === 401)
+        this.refuseAuthorization(new ApiRefusal(401));
+      if (!response.headers.get("content-type")?.includes("application/x-ndjson")) {
+        const json: unknown = await response.json().catch(() => undefined);
+        const receipt = response.status === 200 ? tryDecode(decodeTalkReceipt, json) : undefined;
+        if (receipt) return { kind: "receipt", status: 200, receipt };
+        const error = (json as { error?: unknown } | undefined)?.error;
+        if (response.status === 503 || error === "turn_interrupted") return { kind: "interrupted" };
+        return {
+          kind: "refused",
+          status: response.status,
+          error: typeof error === "string" ? error : `status ${response.status}`,
+        };
+      }
+      const reader = response.body?.getReader();
+      if (!reader) return { kind: "interrupted" };
+      const decoder = new TextDecoder();
+      let buffered = "";
+      const read = (line: string) => {
+        const frame = tryDecode(
+          (value) => decodeTalkStreamFrame(value),
+          (() => {
+            try {
+              return JSON.parse(line) as unknown;
+            } catch {
+              return undefined;
+            }
+          })(),
+        );
+        if (frame?.type === "delta") onDelta(frame.text);
+        return frame;
+      };
+      for (;;) {
+        const { done, value } = await reader.read();
+        buffered += decoder.decode(value, { stream: !done });
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+        for (const line of lines) {
+          const frame = line.trim() ? read(line) : undefined;
+          if (frame?.type === "receipt")
+            return { kind: "receipt", status: 200, receipt: frame.receipt };
+          if (frame?.type === "refused")
+            return { kind: "refused", status: frame.status, error: frame.error };
+        }
+        if (done) return { kind: "interrupted" };
+      }
+    } catch {
+      return { kind: "interrupted" };
+    }
   }
   private async conversationCall<T>(
     endpoint: ConversationEndpoint,
