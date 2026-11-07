@@ -135,6 +135,8 @@ The supplied 1536×864 mockup establishes the desktop information hierarchy:
 
 Exact pixels may adapt, but the visual hierarchy may not invert. The yard remains the primary surface; panels support it.
 
+Amended (2026-11-07): the owner-supplied reference is committed at [docs/design/reference/raccoon-world-reference.png](../design/reference/raccoon-world-reference.png). Its actual size is 1672×941, the same composition as the 1536×864 mockup named above. It is the visual target for both composition and art style: painterly storybook realism, not pixel art. [raccoon-world-ui.md](../design/raccoon-world-ui.md#reference) describes it in words. It stays a reference only and is never a runtime background (§4.5).
+
 ### 4.2 Art direction tokens
 
 - Background chrome: near-black charcoal with warm olive undertone.
@@ -191,6 +193,8 @@ Amended (2026-11-07): the owner defers the navigation icons (journal, residents,
 ### 4.5 Never fake the world
 
 The reference image must not be used as a background with hotspots. Every actor, object, label, state, event, and interaction is produced from scene projection data and reviewed runtime assets. Static compositing is allowed only in promotional captures, never in the application path.
+
+Amended (2026-11-07): this rule covers the committed reference image [docs/design/reference/raccoon-world-reference.png](../design/reference/raccoon-world-reference.png). The application path never loads it, as a background or otherwise.
 
 ---
 

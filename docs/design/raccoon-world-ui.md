@@ -2,6 +2,21 @@
 
 Authority: the [visual and interaction contract](../waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#4-visual-and-interaction-contract) (wave plan section 4). This note records how `apps/web` composes it; if they differ, the wave plan wins. Styles are in `apps/web/src/raccoon-world.css`, markup in `apps/web/src/yard.tsx`.
 
+## Reference
+
+The owner-supplied mockup, [reference/raccoon-world-reference.png](reference/raccoon-world-reference.png) (1672×941), is the visual target for composition and art style. It is a reference only: wave plan [section 4.5](../waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#45-never-fake-the-world) forbids using it, or any static image, as a runtime background with hotspots.
+
+What it shows, for agents that cannot view images:
+
+- Camera and style: a high three-quarter isometric view of a garden at dusk. Painterly, rendered storybook realism, not pixel art: soft fur edges, wet reflective ground, warm window and lantern light against cool rain.
+- Scene, filling the area left of the rail: a house with a porch at the left, a "Raccoon Den" sign under the porch with kits peeking out; a large tree trunk at the center; a bird feeder hanging from a post; raised garden beds at the right; a stepping-stone path through puddles; a mailbox, a lantern post and a tipped trash can that a raccoon is investigating. No text dump is visible in canvas mode.
+- HUD: the spaced-caps wordmark "RACCOON WORLD" at the left, followed by six round navigation icons (deferred to Wave 8 RW-0807); "Day 12 · 4:37 PM" and a rain-cloud weather glyph centered; camera, shield and menu buttons at the right.
+- Selection: a glowing green ring on the ground around the selected raccoon, and a dark pill label with its name ("Stevie") above it.
+- Event feed: a floating dark card at the lower left. Each row is a round semantic icon (rain drop, leaf, raccoon face, heart), a plain sentence such as "It started raining." and the world time.
+- Right rail: the name "Stevie" and a close button; a large circular portrait with a leaf badge; a green status line ("Investigating the trash can"); a 2×2 grid of actions Talk, Observe, Remember and Why?; chat bubbles with times; and a "Message Stevie…" input with a send button.
+
+Stevie's identity reference is [reference/stevie-sprite-sheet.png](reference/stevie-sprite-sheet.png) (1536×1840): an owner-generated contact sheet of 57 numbered frames of Stevie in 8 columns of 192 px cells on a pale background. It fixes Stevie's look: the same painterly style as the mockup, with a consistent mask, ringed tail and fur in every frame. The rough pose groups are standing or idle facing right (frames 0–5, 22–25, 45–56), walk right (6–13), walk left (14–21), crouch and hop (26–31), head turn and look down (32–38), and sit and groom (39–44). It is a raw sheet, not a game asset: the baked background, the frame numbers and the per-cell alignment still need processing before any frame is used at runtime.
+
 ## Tokens
 
 Tokens are CSS variables on `[data-tokens="raccoon-world-ui@1"]`, the shell root. The version is `raccoon-world-ui@1` and every variable carries the `--rw-v1-` prefix. A breaking change to a value's meaning adds a new prefix and token version instead of editing these.
