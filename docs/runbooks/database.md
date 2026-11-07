@@ -8,7 +8,11 @@ artifact references are acceleration metadata; journal events remain canonical.
 
 The supported database policy is exactly PostgreSQL 18.6 with pgvector 0.8.7. The former
 pgvector 0.8.1 and 0.8.6 versions are rejected. No other PostgreSQL minor or pgvector version is
-implicitly compatible. `initdb`, `pg_ctl`, `postgres`, `psql`, `pg_config`, `pg_dump`, and `pg_restore` must be on `PATH`;
+implicitly compatible. The fixture looks for `initdb`, `pg_ctl`, `postgres`, `psql`, `pg_config`,
+`pg_dump`, and `pg_restore` on `PATH` first. A tool missing there is taken from `pg_config --bindir`,
+or from `/usr/lib/postgresql/18/bin` when `pg_config` is not on `PATH` either: PGDG's Debian/Ubuntu
+packages put `initdb`, `pg_ctl`, and `postgres` there and not on `PATH`. A missing tool's error names
+`PATH` and the fallback directory searched. Wherever it comes from,
 every PostgreSQL executable must report 18.6. Migration checks both the available default and
 installed extension versions before applying schema changes.
 

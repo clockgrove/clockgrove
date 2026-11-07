@@ -29,9 +29,33 @@ const requiredTools = [
 const supportedPostgresVersion = "18.6";
 const supportedPgvectorVersions = new Set(["0.8.7"]);
 
+// PGDG's Debian/Ubuntu packages install the server tools here, off PATH, behind /usr/bin wrappers.
+const debianPostgresBindir = "/usr/lib/postgresql/18/bin";
+
 export async function discoverPostgresTools() {
+  const pathDirectories = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  let fallback;
+  // A tool missing from PATH comes from `pg_config --bindir`, or from the Debian directory when
+  // pg_config is not on PATH either. The version check below still holds every tool to 18.6.
+  const fallbackBindir = () =>
+    (fallback ??= findExecutable("pg_config", pathDirectories).then(async (pgConfig) =>
+      pgConfig
+        ? {
+            directory: (await capture(pgConfig, ["--bindir"])).trim(),
+            source: `${pgConfig} --bindir`,
+          }
+        : { directory: debianPostgresBindir, source: "the Debian default; no pg_config on PATH" },
+    ));
+  const locate = async (tool) => {
+    const onPath = await findExecutable(tool, pathDirectories);
+    if (onPath) return onPath;
+    const { directory, source } = await fallbackBindir();
+    const found = path.isAbsolute(directory) && (await findExecutable(tool, [directory]));
+    if (!found) throw new Error(`${tool} was not found on PATH or in ${directory} (${source})`);
+    return found;
+  };
   const tools = Object.fromEntries(
-    await Promise.all(requiredTools.map(async (tool) => [tool, await findOnPath(tool)])),
+    await Promise.all(requiredTools.map(async (tool) => [tool, await locate(tool)])),
   );
   for (const tool of requiredTools) {
     const version = await capture(tools[tool], ["--version"]);
@@ -395,18 +419,17 @@ function shellWord(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-async function findOnPath(name) {
-  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
-    if (directory === "") continue;
+async function findExecutable(name, directories) {
+  for (const directory of directories) {
     const candidate = path.join(directory, name);
     try {
       await access(candidate, constants.X_OK);
       return candidate;
     } catch {
-      // Continue searching PATH.
+      // Continue with the next directory.
     }
   }
-  throw new Error(`${name} was not found on PATH`);
+  return undefined;
 }
 
 export function assertSupportedPgvectorVersion(version, source) {
