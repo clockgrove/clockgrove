@@ -134,6 +134,10 @@ category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, wi
 answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
 nothing. See [private conversations](../protocols/conversations.md) and
 [interaction cards](../protocols/realtime-projection.md#interaction-cards).
+`/v1/runtime/runs/inspect` and `/v1/runtime/runs/search` walk and search the run and step evidence
+of those attempts under `runtime:world-inspect` and an `operator_evidence` ceiling, audited with
+subject `agent-runs`. Payload text needs the `conversation` category too. See
+[run and step evidence](../protocols/runs.md).
 
 - **Scope:** only a command of the requested world, timeline and space is found. The space is the
   one the command's events were committed in, so a command without events the caller may read

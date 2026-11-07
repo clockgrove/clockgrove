@@ -23,6 +23,7 @@ export * from "./postgres-journal.js";
 export * from "./postgres-journal-range.js";
 export * from "./postgres-lifecycle-workflows.js";
 export * from "./postgres-object-history.js";
+export * from "./postgres-runs.js";
 export * from "./postgres-runtime-operations.js";
 export * from "./postgres-schedules.js";
 export * from "./postgres-snapshots.js";

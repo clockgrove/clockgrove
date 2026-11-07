@@ -568,6 +568,27 @@ schema: `conversation_sessions`, `conversation_participants`, `conversation_mess
 - **Retention:** see `db/retention.json`. Delete is a tombstone, and the ciphertext stays until
   Wave 9's crypto-shred.
 
+## Run and step evidence
+
+Migration `0036_agent_runs.sql` (Wave 5 RW-0502, issue 15) holds `agent_runs` and `run_steps`.
+See [run and step evidence](../protocols/runs.md).
+
+- **Policies:** `run_reader` admits `runtime_can_access(tenant_id, 'operator_evidence')`, or a
+  `conversation` ceiling and participation in the run's session. `run_writer` (INSERT) and
+  `run_closer` (UPDATE) admit only a participant, and a run's `principal_id` must be the installed
+  principal. An inspector reads and never writes.
+- **State machine:** `guard_agent_run` and `guard_run_step` (`SECURITY DEFINER`) start every run
+  `running`, with `root_run_id` equal to itself or to its parent's root and session. They allow a
+  run or step one change only, from `running` to a terminal status, and stamp `ended_at`. They
+  refuse completing a run with an open step, and close a run's open steps with any other
+  disposition. They number steps in order from 1 inside a running run, and admit at most 2,000 runs
+  per session (`CG021`). Other refusals are `CG020`. The runtime role may update only the
+  disposition columns. DELETE and TRUNCATE are refused.
+- **Payloads:** `prompt_artifact_id`, `input_artifact_id` and `output_artifact_id` name
+  `conversation`-class artifacts through `artifact_references_class_key`. `command_id` names a
+  `command_receipts` row and `output_message_id` a message of the run's session.
+- **Audit:** 0036 adds the `agent-runs` subject to `inspector_accesses`.
+
 ## Snapshots
 
 Migration `0013_partition_snapshots.sql` (RW-0208, issue 677) constrains `snapshots`.

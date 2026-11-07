@@ -142,8 +142,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
                 || '/' || count(*) FILTER (WHERE position(convert_to('apple cores', 'UTF8') IN inline_content) > 0)
            FROM clockgrove.artifact_references WHERE privacy_class = 'conversation'`,
       );
-      // Two titles and six messages (three turns).
-      expect(atRest.trim()).toBe("8/8/0");
+      // Two titles, six messages and the three turns' protected model prompts.
+      expect(atRest.trim()).toBe("11/11/0");
 
       // A second member of the same world sees neither conversation.
       expect(
