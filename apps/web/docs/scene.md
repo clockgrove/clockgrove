@@ -85,6 +85,16 @@ path. The reducer's committed projection is untouched.
   none>` and `Lights: <lit roles, or off>`.
 - **Labels.** Only the selected and the hovered entity are labelled on the canvas, so labels never
   pile up. The text path lists every label.
+- **Selection.** The renderer draws it from projection data, never into art (decisions, in
+  `SELECTION` and the token constants of `renderer.ts`): a 2:1 ellipse at the feet (32x16, 3 px
+  stroke, 0.18 fill) with two wider glow ellipses (40x20 with a 6 px stroke at alpha 0.35, 48x24 with a
+  10 px stroke at alpha 0.15), all in the `--rw-v1-accent` token; and a pill with fully round ends
+  filled with `--rw-v1-panel` (`rgb(30 33 22 / 92%)`, so alpha 0.92) and a 1 px `--rw-v1-accent`
+  hairline at alpha 0.6, holding the name in 13 px `--rw-v1-text` with 10 px side and 4 px top and
+  bottom padding, its bottom edge 6 px above the sprite's anchor height. The ring and pill are built
+  once per selected entity, label and sprite height, and later draws only move them. Hover (24x12) and
+  focus (40x20) are 1 px ellipses and the hover label is plain text without a pill, so both stay
+  lighter than selection.
 
 ## Budgets (§9.3)
 

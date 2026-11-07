@@ -146,11 +146,8 @@ function describeChanges(before: Observed, after: Observed): string {
   }
   if (before.feed && after.feed) {
     const known = new Set(before.feed.map((item) => item.id));
-    const label = (objectId: ObjectId | null) =>
-      current?.entities.find((entity) => entity.objectId === objectId)?.presentation.label;
     for (const item of after.feed.filter((candidate) => !known.has(candidate.id)).reverse()) {
-      const name = label(item.objectId);
-      parts.push(`Event: ${name ? `${name}: ${item.text}` : item.text}`);
+      parts.push(`Event: ${item.text}`);
     }
   }
   return parts.length === 0 ? "" : `${parts.join(". ")}.`;

@@ -60,9 +60,9 @@ Text and background pairs meet WCAG AA (4.5:1); axe checks them in the browser. 
 - HUD (`.rw-hud`, row 1, one line): content-sized minimum tracks keep the wordmark and selector together without wrapping; small-caps spaced wordmark and World selector at the left, the world clock (`.rw-clock`: day and time, Running or Paused, speed, weather) centered.
 - Scene (`.rw-main`, about 4/5): the canvas and the complete text scene.
 - Entity rail (`.rw-rail`, about 1/5, right): the rail collapses to its toggle but keeps its column; selection is unaffected.
-- Material event feed (`.rw-feed-dock`): fixed at the lower left of the scene, in a left gutter of the scene column (`--rw-v1-feed-width`), so it never covers the canvas or a control; it scrolls past 40vh.
+- Material event feed (`.rw-feed-dock`): fixed at the lower left of the scene, in a left gutter of the scene column (`--rw-v1-feed-width`), so it never covers the canvas or a control; it scrolls past 40vh. It is a floating dark card; each row is one button holding a round icon, the generated sentence and the world time.
 
-The clock and feed read the authorized world-status read; feed items that concern an entity select it and open the rail. An item whose entity is not in the viewed scene (it left, or the audience filter hides it) is inert and says "(not in view)". The read is issued for the scene's committed revision at most once a second (`STATUS_INTERVAL_MS` in `apps/web/src/yard.tsx`); while the clock's revision is behind the scene's, the clock says "updating".
+The clock and feed read the authorized world-status read; activating a feed row selects the entity it concerns, opens the rail, and opens the event's Recorded Why; the per-row trace buttons are gone. A row whose entity is not in the viewed scene (it left, or the audience filter hides it) says "(not in view)" and opens only the Recorded Why. The read is issued for the scene's committed revision at most once a second (`STATUS_INTERVAL_MS` in `apps/web/src/yard.tsx`); while the clock's revision is behind the scene's, the clock says "updating".
 
 Each layout remembers whether its rail and feed are open: the desktop layout starts with both open, the narrow one with both closed, and crossing the breakpoint restores the destination layout's last choice instead of forcing it.
 
@@ -76,7 +76,7 @@ The Phaser canvas is never CSS-scaled, because pointer picking depends on its pi
 
 ## Color never carries state alone
 
-Run state is the words Running or Paused plus a glyph; rain is the words Dry or Rain N% plus an umbrella glyph and a dotted underline for rain; feed categories show their category name plus a diamond glyph and a distinct underline style. Glyphs are decorative `::before` content.
+Run state is the words Running or Paused plus a glyph; rain is the words Dry or Rain N% plus an umbrella glyph and a dotted underline for rain; feed rows show a round icon with an accessible name: Weather raindrop, Ecology leaf, Wellbeing heart, Portal door, and for actor activity the actor's portrait named by the actor's label. Every actor portrait is the one `Portrait` component in `apps/web/src/portrait.tsx` (feed rows now, the rail portrait later): a round, sage-bordered badge whose accessible name is the actor's label. It draws the portrait asset that the actor's presentation binding references when one exists, and otherwise a monogram stand-in (the first letter of the label's last dot-separated segment), so adding portrait art is a data change. No projected presentation binding carries a portrait reference yet. Glyphs are decorative.
 
 ## Out of scope
 

@@ -352,7 +352,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await expect
         .poll(stepText)
         .toMatch(
-          `Event ${status.feed.length} of ${status.feed.length}: Movement; grove.stevie: ${status.feed[0].text}; `,
+          `Event ${status.feed.length} of ${status.feed.length}: Movement; ${status.feed[0].text}; `,
         );
       expect([status.feed[0].category, status.feed[0].objectId]).toEqual([
         "movement",

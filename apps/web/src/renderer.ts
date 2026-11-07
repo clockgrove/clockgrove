@@ -133,6 +133,29 @@ const NIGHT_ALPHA = 0.6;
 const CUE_KEYS = 64;
 /** A cue marker lives at most this long (decision): two interpolated moves, then it fades. */
 const CUE_MS = 2 * INTERPOLATION_MS;
+/** `--rw-v1-accent` of raccoon-world-ui@1: the selection ring, its glow and the pill's hairline. */
+const SELECTION_SAGE = 0xa8c394;
+/** `--rw-v1-panel` of raccoon-world-ui@1, `rgb(30 33 22 / 92%)`: the pill's fill and alpha. */
+const PILL_PANEL = 0x1e2116;
+const PILL_PANEL_ALPHA = 0.92;
+/** `--rw-v1-text` of raccoon-world-ui@1: the pill's name. */
+const PILL_TEXT = "#ece9d8";
+/** Selection ring and pill geometry, in pixels (decisions recorded in docs/scene.md, Selection). */
+const SELECTION = {
+  ringWidth: 32,
+  ringStroke: 3,
+  ringFillAlpha: 0.18,
+  /** Each glow: [extra width, stroke width, alpha]; outermost first. */
+  glows: [
+    [16, 10, 0.15],
+    [8, 6, 0.35],
+  ],
+  pillPadX: 10,
+  pillPadY: 4,
+  pillGap: 6,
+  pillHairlineAlpha: 0.6,
+  fontSize: "13px",
+} as const;
 const FRAME_SAMPLES = 120;
 const REBOUND_EVENTS = ["pointerdown", "pointerover"] as const;
 const labelColor = "#ffffff";
@@ -175,6 +198,15 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   // Pointer hover is picked by the canvas itself, so it stays renderer-local.
   private hovered: ObjectId | undefined;
   private overlay: Phaser.GameObjects.GameObject[] = [];
+  private selection:
+    | {
+        readonly key: string;
+        readonly items: readonly {
+          readonly item: Phaser.GameObjects.Components.Transform & Phaser.GameObjects.GameObject;
+          readonly dy: number;
+        }[];
+      }
+    | undefined;
   private reducedMotion = false;
   private cycle: PickCycle | undefined;
   private down: { x: number; y: number; scrollX: number; scrollY: number; moved: boolean } | null =
@@ -738,49 +770,110 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.effectsKey = "";
     this.metrics.effectCount = 0;
   }
+  /**
+   * The selection's glowing ring and named pill. They are built once per selected entity, label and
+   * sprite height and only moved on later draws, so an applied patch creates no game object or text texture.
+   */
+  private drawSelection(stage: Phaser.Scene, selected: Drawn | undefined): void {
+    const key =
+      selected === undefined
+        ? ""
+        : `${this.selected}\u0000${selected.visual.label}\u0000${selected.visual.height}`;
+    if (this.selection?.key !== key) {
+      for (const { item } of this.selection?.items ?? []) item.destroy();
+      this.selection = undefined;
+    }
+    if (selected === undefined) return;
+    if (this.selection === undefined) {
+      const at = depthOf("emphasis");
+      const items: {
+        item: Phaser.GameObjects.Components.Transform & Phaser.GameObjects.GameObject;
+        dy: number;
+      }[] = [];
+      for (const [grow, width, alpha] of SELECTION.glows)
+        items.push({
+          item: stage.add
+            .ellipse(0, 0, SELECTION.ringWidth + grow, (SELECTION.ringWidth + grow) / 2)
+            .setStrokeStyle(width, SELECTION_SAGE, alpha)
+            .setName("selection-glow")
+            .setDepth(at),
+          dy: 0,
+        });
+      items.push({
+        item: stage.add
+          .ellipse(
+            0,
+            0,
+            SELECTION.ringWidth,
+            SELECTION.ringWidth / 2,
+            SELECTION_SAGE,
+            SELECTION.ringFillAlpha,
+          )
+          .setStrokeStyle(SELECTION.ringStroke, SELECTION_SAGE)
+          .setName("selection-ring")
+          .setDepth(at),
+        dy: 0,
+      });
+      // The pill's bottom edge sits `pillGap` above the sprite; the name is centred inside it.
+      const text = stage.add
+        .text(0, 0, selected.visual.label, { color: PILL_TEXT, fontSize: SELECTION.fontSize })
+        .setOrigin(0.5, 0.5)
+        .setName("selection-label")
+        .setDepth(depthOf("emphasis", 2));
+      const width = text.width + 2 * SELECTION.pillPadX;
+      const height = text.height + 2 * SELECTION.pillPadY;
+      const centre = -selected.visual.height - SELECTION.pillGap - height / 2;
+      const pill = stage.add
+        .rectangle(0, 0, width, height, PILL_PANEL, PILL_PANEL_ALPHA)
+        .setRounded(height / 2)
+        .setStrokeStyle(1, SELECTION_SAGE, SELECTION.pillHairlineAlpha)
+        .setName("selection-pill")
+        .setDepth(depthOf("emphasis", 1));
+      items.push({ item: pill, dy: centre }, { item: text, dy: centre });
+      this.selection = { key, items };
+    }
+    const { x, y } = selected.body;
+    for (const { item, dy } of this.selection.items) item.setPosition(x, y + dy);
+  }
   /** Redraws only the emphasis overlay, by lookup of the emphasized sprites. */
   private drawEmphasis(): void {
     const stage = this.stage;
     if (!stage) return;
     for (const item of this.overlay) item.destroy();
     this.overlay = [];
-    // Hover and focus are thin rings inside and outside the heavier selection ring.
-    const ring = (
-      objectId: ObjectId | undefined,
-      name: string,
-      radius: number,
-      width: number,
-      color: number,
-    ) => {
-      const drawn = objectId === undefined ? undefined : this.drawn.get(objectId);
+    // Hover and focus are 1 px ellipses at the feet; selection is a glowing ring and a pill.
+    const feet = (objectId: ObjectId | undefined) =>
+      objectId === undefined ? undefined : this.drawn.get(objectId);
+    const thin = (objectId: ObjectId | undefined, name: string, radius: number, color: number) => {
+      const drawn = feet(objectId);
       if (!drawn) return;
       this.overlay.push(
         stage.add
-          .circle(drawn.body.x, drawn.body.y, radius)
-          .setStrokeStyle(width, color)
+          .ellipse(drawn.body.x, drawn.body.y, 2 * radius, radius)
+          .setStrokeStyle(1, color)
           .setName(name)
           .setDepth(depthOf("emphasis")),
       );
     };
-    ring(this.hovered, "hover-affordance", 11, 1, 0xffffff);
-    ring(this.focused, "focus-affordance", 17, 1, 0x9fd3ff);
-    ring(this.selected, "selection-ring", 13, 3, 0x9bc27a);
-    // Only emphasized entities are labelled, so labels never pile up over the yard.
-    const label = (objectId: ObjectId | undefined, name: string, bold: boolean) => {
-      const drawn = objectId === undefined ? undefined : this.drawn.get(objectId);
-      if (!drawn) return;
+    thin(this.hovered, "hover-affordance", 12, 0xffffff);
+    thin(this.focused, "focus-affordance", 20, 0x9fd3ff);
+    this.drawSelection(stage, feet(this.selected));
+    // Hovered labels are plain text, so hover stays lighter than selection.
+    const hovered = this.hovered !== this.selected ? feet(this.hovered) : undefined;
+    if (hovered)
       this.overlay.push(
         stage.add
-          .text(drawn.body.x + 12, drawn.body.y - drawn.visual.height - 10, drawn.visual.label, {
-            color: bold ? "#c8e6a0" : labelColor,
-            fontStyle: bold ? "bold" : "",
-          })
-          .setName(name)
+          .text(
+            hovered.body.x + 12,
+            hovered.body.y - hovered.visual.height - 10,
+            hovered.visual.label,
+            {
+              color: labelColor,
+            },
+          )
+          .setName("hover-label")
           .setDepth(depthOf("emphasis", 1)),
       );
-    };
-    label(this.selected, "selection-label", true);
-    if (this.hovered !== this.selected) label(this.hovered, "hover-label", false);
     this.invalidate();
   }
   destroy(): void {
@@ -798,6 +891,7 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.drawn.clear();
     this.order = [];
     this.overlay = [];
+    this.selection = undefined;
     this.cues = [];
     this.stage = undefined;
     this.metrics.textureBytes = 0;

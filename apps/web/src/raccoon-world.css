@@ -226,47 +226,98 @@ body {
 }
 
 .rw-feed-item {
-  display: block;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: var(--rw-v1-space-2);
   width: 100%;
+  padding: var(--rw-v1-space-1);
+  border: 0;
+  border-radius: var(--rw-v1-radius);
+  background: transparent;
+  color: var(--rw-v1-text);
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+
+.rw-feed-item:hover {
+  background: var(--rw-v1-control);
+}
+
+.rw-feed-item:focus-visible {
+  outline: 3px solid var(--rw-v1-accent);
+  outline-offset: 2px;
 }
 
 .rw-feed time {
   color: var(--rw-v1-text-muted);
+  font-size: 0.8rem;
+  text-align: right;
 }
 
-.rw-feed-category {
+.rw-feed-muted {
+  color: var(--rw-v1-text-muted);
+}
+
+.rw-feed-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--rw-v1-panel-solid);
+  border: 1px solid currentcolor;
   font-weight: 600;
-  border-bottom: 2px solid currentcolor;
+  font-size: 0.85rem;
 }
 
-.rw-feed-category::before {
-  content: "\25C6  ";
+.rw-feed-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.rw-feed-category[data-category="weather"] {
+.rw-feed-icon[data-icon="raindrop"] {
   color: var(--rw-v1-rain);
-  border-bottom-style: dotted;
 }
 
-.rw-feed-category[data-category="wellbeing"] {
+.rw-feed-icon[data-icon="leaf"] {
+  color: var(--rw-v1-accent);
+}
+
+.rw-feed-icon[data-icon="heart"] {
   color: var(--rw-v1-affection);
-  border-bottom-style: double;
 }
 
-.rw-feed-category[data-category="resource"],
-.rw-feed-category[data-category="portal"] {
-  color: var(--rw-v1-warning);
-  border-bottom-style: dashed;
-}
-
-.rw-feed-category[data-category="routine"],
-.rw-feed-category[data-category="movement"] {
+.rw-feed-icon[data-icon="door"] {
   color: var(--rw-v1-event);
 }
 
-.rw-feed-category[data-category="growth"] {
-  color: var(--rw-v1-accent);
+/* The actor portrait, wherever it appears: round, sage-bordered, art or a monogram stand-in. */
+.rw-portrait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--rw-v1-panel-solid);
+  color: var(--rw-v1-text);
+  border: 1px solid var(--rw-v1-accent);
+  font-weight: 600;
+}
+
+.rw-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 @media (min-width: 1200px) {
@@ -330,6 +381,7 @@ body {
     overflow: auto;
     z-index: 10;
     border-radius: var(--rw-v1-radius);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
   }
 }
 
