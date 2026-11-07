@@ -7,7 +7,13 @@ import { clientMeasurements, measure, measurePoint } from "./measurements.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
 import { EntityRail } from "./selection.js";
 import { browserSceneSocket } from "./socket.js";
-import { LiveChanges, spaceSummary, TextSceneEntities, useThrottled } from "./text-scene.js";
+import {
+  ANNOUNCE_INTERVAL_MS,
+  LiveChanges,
+  spaceSummary,
+  TextSceneEntities,
+  useThrottled,
+} from "./text-scene.js";
 import { Timeline } from "./timeline.js";
 import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
@@ -374,6 +380,14 @@ export function RaccoonWorldApp({
     scene && "terminal" in boot && sameYardScope(boot.scope, scene)
       ? bootStatusText({ ...boot, projectionRevision: BigInt(scene.revision) })
       : bootStatusText(boot);
+  const observationStatus = live ? `Observation: ${yardStatusText(state)}. ` : "";
+  const observationAnnouncement = useThrottled(
+    observationStatus +
+      (live && scene
+        ? `Revision ${scene.revision}. Rain intensity ${scene.weather.rainIntensity}.`
+        : ""),
+    ANNOUNCE_INTERVAL_MS,
+  );
   const shell = useRef<HTMLDivElement>(null);
   useFocusRecovery(shell);
   const viewing =
@@ -466,17 +480,27 @@ export function RaccoonWorldApp({
             Retry observation
           </button>
         )}
-        <p role="status" aria-live="polite" aria-atomic="true">
-          {live && `Observation: ${yardStatusText(state)}. `}
+        <p id="rw-observation-status">
+          {observationStatus}
           <span className="rw-observation-details">
             {live && scene
               ? `Observing revision ${scene.revision}. Canonical time ${scene.simulationTime}. Rain intensity ${scene.weather.rainIntensity}. ${scene.entities.map((entity) => `${entity.presentation.label}, ${entity.objectId}, position ${entity.pose.coordinates.join(", ")}`).join("; ")}`
               : ""}
           </span>
         </p>
-        <p role="status" aria-live="polite" aria-atomic="true">
-          {/* Recovery screens are shell states outside boot: no earlier arrival stays announced. */}
-          {!state.incompatibility && arrivalStatus}
+        <p id="rw-arrival-status">{!state.incompatibility && arrivalStatus}</p>
+        <p
+          id="rw-observation-announcement"
+          className="rw-visually-hidden"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {observationAnnouncement}
+        </p>
+        <p className="rw-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+          {/* Boot milestones announce once; current revision details remain non-live. */}
+          {!state.incompatibility && bootStatusText(boot).replace(/^Arrival:/u, "World arrival:")}
         </p>
         {state.incompatibility && <CompatibilityRecovery code={state.incompatibility} />}
         {scene && shown && (

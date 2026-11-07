@@ -558,7 +558,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await arrival.getByText("Choose a world from the selector.", { exact: true }).waitFor();
         expect([
           await bootsOf(arrival),
-          await arrival.getByRole("status").allTextContents(),
+          (await arrival.getByRole("status").allTextContents()).map((text) =>
+            text.replace(/^World arrival:/u, "Arrival:"),
+          ),
         ]).toEqual([
           [["route_resolving", "/", null, null, null, 0]],
           ["Observation: signed out. ", "Arrival: resolving world route /."],
@@ -570,7 +572,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             // The Places navigation notice is a status of its own, not arrival progress.
             const statuses = [
               ...document.querySelectorAll('[role="status"]:not(nav[aria-label="Places"] *)'),
-            ].map((status) => status.textContent);
+            ].map((status) => status.textContent.replace(/^World arrival:/u, "Arrival:"));
             const busy = document.querySelectorAll(
               'progress, [role="progressbar"], [aria-busy="true"]',
             ).length;
@@ -593,7 +595,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           await bootsOf(arrival),
           announced.filter(([independent]) => independent),
           announced.at(-1)[1],
-          (await arrival.getByRole("status").allTextContents())[1],
+          (await arrival.getByRole("status").allTextContents())[1].replace(
+            /^World arrival:/u,
+            "Arrival:",
+          ),
           await textScene.getByRole("listitem").getByRole("button").allTextContents(),
           await arrival.locator("canvas").count(),
           arrivalSockets,
@@ -711,7 +716,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const routed = routeOf(auth.scope);
         expect([
           await bootsOf(page),
-          (await page.getByRole("status").allTextContents())[1],
+          (await page.getByRole("status").allTextContents())[1].replace(
+            /^World arrival:/u,
+            "Arrival:",
+          ),
         ]).toEqual([
           [
             ["route_resolving", routed, null, null, null, 0],
@@ -1110,11 +1118,11 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await scene.getByText("Lights: lantern, window lit", { exact: true }).waitFor();
         // The visible observation and arrival agree with the committed scene.
         await expect
-          .poll(() => page.getByRole("status").first().textContent())
+          .poll(() => page.locator("#rw-observation-status").textContent())
           .toContain(
             `Observing revision ${revision}. Canonical time ${simulationTime}. Rain intensity 9000.`,
           );
-        expect(await page.getByRole("status").first().textContent()).toContain(
+        expect(await page.locator("#rw-observation-status").textContent()).toContain(
           firstEntity.objectId,
         );
         expect(await page.getByText(/^Arrival: scene ready at revision /u).textContent()).toBe(
@@ -1315,7 +1323,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(JSON.parse(await truth(membershipGrants))).toEqual([]);
         await commit({ ...weather, commandId: "command-yard-revoked" });
         await scene.waitFor({ state: "detached" });
-        expect(await page.getByRole("status").first().textContent()).toContain(
+        expect(await page.locator("#rw-observation-status").textContent()).toContain(
           "Observation: unavailable. Authorization lost.",
         );
         expect(received.filter((message) => message.type === "disconnect").at(-1)).toEqual({
@@ -1879,7 +1887,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           if (retried) await new Promise((resolve) => setTimeout(resolve, 1_500));
           expect([
             await scene.count(),
-            await page.getByRole("status").allTextContents(),
+            await page.locator("#rw-observation-status, #rw-arrival-status").allTextContents(),
             await unsupported(name).getByRole("alert").textContent(),
             await unsupported(name).getByRole("button").allTextContents(),
             await unsupported(name).evaluate((screen) => screen === document.activeElement),
