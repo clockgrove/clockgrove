@@ -379,83 +379,55 @@ export function decodeInfluenceReceipt(value: unknown): InfluenceReceipt {
 }
 
 /**
- * The scripted Talk fixture's request. `private` is Caretaker talk to the actor; `public` is the
- * explicit action that has the addressed actor speak a scripted line aloud in its space.
+ * Public Say: the explicit action that has the addressed actor speak a scripted line aloud in its
+ * space. It is distinct from private Caretaker Talk (`conversations.ts`), which is never spoken.
  */
-export interface TalkRequest {
+export interface SayRequest {
   readonly scope: BrowserScope;
   readonly messageId: string;
   readonly actorId: ObjectId;
-  readonly channel: "private" | "public";
   readonly text: string;
 }
 
-/** Bounds a fixture message, like a chat line; the fixture stores nothing. */
-const MAX_TALK_OCTETS = 1024;
+/** Bounds a Say line, like a chat line. */
+const MAX_SAY_OCTETS = 1024;
 
-export function decodeTalkRequest(value: unknown): TalkRequest {
-  const path = "talk";
+export function decodeSayRequest(value: unknown): SayRequest {
+  const path = "say";
   const v = record(value, path);
   exactKeys(
     v,
-    [
-      "version",
-      "tenantId",
-      "worldId",
-      "timelineId",
-      "spaceId",
-      "messageId",
-      "actorId",
-      "channel",
-      "text",
-    ],
+    ["version", "tenantId", "worldId", "timelineId", "spaceId", "messageId", "actorId", "text"],
     [],
     path,
   );
   if (v.version !== 1) throw new ContractDecodeError(`${path}.version`, "expected 1");
   const { tenantId, worldId, timelineId, spaceId } = v;
   const text = string(v.text, `${path}.text`);
-  if (text.trim() === "" || new TextEncoder().encode(text).length > MAX_TALK_OCTETS)
+  if (text.trim() === "" || new TextEncoder().encode(text).length > MAX_SAY_OCTETS)
     throw new ContractDecodeError(`${path}.text`, "text length out of range");
   return Object.freeze({
     scope: decodeBrowserScope({ tenantId, worldId, timelineId, spaceId }),
     messageId: boundedId(v.messageId, `${path}.messageId`),
     actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
-    channel: literal(v.channel, ["private", "public"], `${path}.channel`),
     text,
   });
 }
 
-/** The fixture's answer: the attributed message on its own contract, and a scripted reply. */
-export type TalkReceipt =
-  | {
-      readonly channel: "private";
-      readonly talk: PrivateCaretakerTalk;
-      /** Scripted text; the actor has no conversation memory in this wave. */
-      readonly reply: string;
-    }
-  | {
-      readonly channel: "public";
-      readonly speech: PublicSpeech;
-      /** The trusted principal and persona whose explicit action made the actor speak. */
-      readonly attribution: InteractionAttribution;
-    };
+/** Say's receipt: the public speech and who made the actor speak. Nothing is stored. */
+export interface SayReceipt {
+  readonly type: "public_say";
+  readonly speech: PublicSpeech;
+  /** The trusted principal and persona whose explicit action made the actor speak. */
+  readonly attribution: InteractionAttribution;
+}
 
-export function decodeTalkReceipt(value: unknown): TalkReceipt {
-  const path = "talkReceipt";
+export function decodeSayReceipt(value: unknown): SayReceipt {
+  const path = "sayReceipt";
   const v = record(value, path);
-  const channel = literal(v.channel, ["private", "public"], `${path}.channel`);
-  if (channel === "private") {
-    exactKeys(v, ["channel", "talk", "reply"], [], path);
-    return Object.freeze({
-      channel,
-      talk: decodePrivateCaretakerTalk(v.talk),
-      reply: string(v.reply, `${path}.reply`),
-    });
-  }
-  exactKeys(v, ["channel", "speech", "attribution"], [], path);
+  exactKeys(v, ["type", "speech", "attribution"], [], path);
   return Object.freeze({
-    channel,
+    type: literal(v.type, ["public_say"], `${path}.type`),
     speech: decodePublicSpeech(v.speech),
     attribution: decodeAttribution(v.attribution, `${path}.attribution`),
   });

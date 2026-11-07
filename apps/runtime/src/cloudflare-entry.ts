@@ -26,6 +26,7 @@ import {
 import { decodeOpaqueId, decodeQueueEnvelope, type QueueEnvelope } from "@clockgrove/contracts";
 import {
   PostgreSqlArtifactStore,
+  PostgreSqlConversationStore,
   PostgreSqlCatchUpWorkflowStore,
   type PostgreSqlClient,
   PostgreSqlDispatchStore,
@@ -38,6 +39,7 @@ import {
   PostgreSqlWorldOwnerReader,
   PostgreSqlWorldProvisioningStore,
   type R2BucketLike,
+  WebCryptoKeyring,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
@@ -59,6 +61,7 @@ import {
   logWorldReactionSweepFailure,
 } from "./cloudflare-logs.js";
 import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflare-metrics.js";
+import type { ConversationStores } from "./conversations.js";
 import { withHyperdrivePostgreSqlClient } from "./hyperdrive-postgres.js";
 import {
   PostgreSqlCausalInspector,
@@ -266,6 +269,36 @@ export function composeArtifactStore(
   });
 }
 
+const keyrings = new Map<string, Promise<WebCryptoKeyring>>();
+
+/**
+ * Private conversations over this invocation's connection. Their text is stored as `conversation`
+ * artifacts sealed under the environment's keyring, imported once per isolate and secret value.
+ */
+export function composeConversations(
+  env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+): ConversationStores | undefined {
+  const secret = env.ARTIFACT_KEYRING;
+  if (secret === undefined) return undefined;
+  return async (operation) => {
+    let keyring = keyrings.get(secret);
+    if (keyring === undefined) {
+      keyring = WebCryptoKeyring.fromJson(secret);
+      keyrings.set(secret, keyring);
+    }
+    const loaded = await keyring;
+    return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) => {
+      const bucket = env.ARTIFACTS_BUCKET;
+      const artifacts = new PostgreSqlArtifactStore(client, {
+        keyring: loaded,
+        metrics: analyticsEngineMetrics(env.METRICS),
+        ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
+      });
+      return operation(new PostgreSqlConversationStore(client, artifacts));
+    });
+  };
+}
+
 /** Keep the provider connection in the composition root; orchestration consumes the project port. */
 export function withLifecycleWorkflowClient<T>(
   env: RuntimeEnvironment,
@@ -390,6 +423,11 @@ export interface RuntimeEnvironment {
   readonly ARTIFACTS_BUCKET?: R2BucketBinding;
   /** `resources.buckets.assets`: content-addressed reviewed assets; the asset pipeline uploads to it and the runtime never writes it. */
   readonly ASSETS_BUCKET?: R2BucketBinding;
+  /**
+   * The versioned KEK secret `WebCryptoKeyring` reads. Conversations are stored only under it:
+   * without it every conversation route answers `503 conversation_unavailable`.
+   */
+  readonly ARTIFACT_KEYRING?: string;
   readonly WORLD_DO: DurableObjectNamespace<
     Pick<
       WorldDO,
@@ -691,6 +729,7 @@ export default {
   async fetch(request: Request, env: RuntimeEnvironment): Promise<Response> {
     const dependencies = composeRuntime(env);
     const connection = env.HYPERDRIVE?.connectionString ?? "";
+    const conversations = composeConversations(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
         operation(new PostgreSqlCausalInspector(client)),
@@ -736,6 +775,7 @@ export default {
           );
         },
         journal: dependencies.journal,
+        ...(conversations === undefined ? {} : { conversations }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
             new PostgreSqlViewedSpaceReader(client).change(request, authorize),

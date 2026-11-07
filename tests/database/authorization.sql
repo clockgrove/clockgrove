@@ -62,6 +62,8 @@ COMMIT;
 --   journal_append  SELECT and INSERT (committed events, dispatch intent, authority decisions)
 --   journal_receipt SELECT, INSERT and UPDATE along the receipt state machine (command receipts)
 --   insert_delete   SELECT, INSERT and DELETE (clock admission receipts, retired when unreachable)
+--   participant     SELECT and INSERT, sessions also UPDATE of state, title and count, each row
+--                   only for its own participant principal (conversations, 0034)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -71,7 +73,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'none'
+      'key_rewrap', 'participant', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -95,6 +97,9 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'world_memberships', 'none'),
   ('clockgrove', 'inspector_accesses', 'none'),
   ('clockgrove', 'runtime_operator_actions', 'none'),
+  ('clockgrove', 'conversation_sessions', 'participant'),
+  ('clockgrove', 'conversation_messages', 'participant'),
+  ('clockgrove', 'conversation_turns', 'participant'),
   ('clockgrove_management', 'principals', 'none'),
   ('clockgrove_management', 'identity_links', 'none'),
   ('clockgrove_management', 'workspace_memberships', 'none'),
@@ -242,7 +247,9 @@ BEGIN
       END IF;
       expected_rows := CASE WHEN table_name IN (
         'clockgrove.event_dispatches', 'clockgrove.artifact_references',
-        'clockgrove.artifact_data_keys', 'clockgrove.snapshots'
+        'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
+        'clockgrove.conversation_sessions', 'clockgrove.conversation_messages',
+        'clockgrove.conversation_turns'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -1494,6 +1501,159 @@ BEGIN
       AND catch_up_step IS NULL AND catch_up_reconcile_attempted_at IS NULL) <> 1 THEN
     RAISE EXCEPTION 'clock policy supersession retained operational linkage';
   END IF;
+END;
+$$;
+ROLLBACK;
+
+-- Conversations (0034): a session, its messages and its turn are the participant's alone. Another
+-- member of the same tenant and world, a narrower ceiling and another tenant see and change nothing;
+-- messages and turns never change; text is only a conversation-class artifact; deleted is terminal;
+-- a participant opens at most 100 live sessions per world timeline.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.artifact_data_keys (
+  tenant_id, world_id, privacy_class, key_version, kek_id, wrapped_key
+) VALUES ('tenant-a', 'world-a', 'conversation', 1, 'kek-test', decode(repeat('c1', 61), 'hex'));
+INSERT INTO clockgrove.artifact_references (
+  tenant_id, world_id, timeline_id, partition_id, space_id, artifact_id, content_hash, media_type,
+  inline_content, byte_length, privacy_class, retention_class, encryption, data_key_version
+) SELECT 'tenant-a', 'world-a', 'timeline-a', 'partition-a', 'space-a', artifact_id,
+         'sha256:' || encode(sha256(bytes), 'hex'), 'text/plain;charset=utf-8', bytes,
+         octet_length(bytes), 'conversation', 'durable', 'aes-256-gcm-v1', 1
+    FROM (VALUES ('conversation-text-1', decode('01' || repeat('c2', 40), 'hex')),
+                 ('conversation-text-2', decode('01' || repeat('c3', 40), 'hex')))
+      AS sealed (artifact_id, bytes);
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, principal_id, persona_id,
+  actor_id, voice_mode
+) VALUES ('tenant-a', 'session-a', 'world-a', 'timeline-a', 'partition-a', 'space-a',
+          'principal-a', 'persona-a', 'stevie', 'cognitive');
+INSERT INTO clockgrove.conversation_messages (
+  tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
+  content_artifact_id
+) VALUES
+  ('tenant-a', 'session-a', 'principal-a', 1, 'message-1', 'caretaker', 'persona-a', NULL,
+   'conversation-text-1'),
+  ('tenant-a', 'session-a', 'principal-a', 2, 'message-1:reply', 'actor', 'stevie', 'cognitive',
+   'conversation-text-2');
+INSERT INTO clockgrove.conversation_turns (
+  tenant_id, session_id, principal_id, turn, input_sequence, output_sequence, model, state
+) VALUES ('tenant-a', 'session-a', 'principal-a', 1, 1, 2, 'scripted-fixture-v1', 'completed');
+UPDATE clockgrove.conversation_sessions SET message_count = 2 WHERE session_id = 'session-a';
+DO $$
+DECLARE
+  context record;
+  affected bigint;
+  i integer;
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.conversation_sessions) <> 1
+     OR (SELECT count(*) FROM clockgrove.conversation_messages) <> 2
+     OR (SELECT count(*) FROM clockgrove.conversation_turns) <> 1 THEN
+    RAISE EXCEPTION 'participant does not see their own conversation';
+  END IF;
+  FOR context IN
+    SELECT * FROM (VALUES
+      ('tenant-a', 'principal-a2', '{"version":1,"allowedCategories":["public_scene","conversation"]}'),
+      ('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene"]}'),
+      ('tenant-b', 'principal-b', '{"version":1,"allowedCategories":["public_scene","conversation"]}'),
+      ('tenant-a%', 'principal-a', '{"version":1,"allowedCategories":["conversation"]}')
+    ) AS contexts (tenant_id, principal_id, ceiling)
+  LOOP
+    PERFORM pg_temp.act_as(context.tenant_id, context.principal_id, context.ceiling);
+    PERFORM set_config('attack.seen', '', true);
+    IF (SELECT count(*) FROM clockgrove.conversation_sessions WHERE pg_temp.leak(session_id)) <> 0
+       OR (SELECT count(*) FROM clockgrove.conversation_messages WHERE pg_temp.leak(message_id)) <> 0
+       OR (SELECT count(*) FROM clockgrove.conversation_turns WHERE pg_temp.leak(session_id)) <> 0
+       OR current_setting('attack.seen', true) LIKE '%session-a%'
+       OR current_setting('attack.seen', true) LIKE '%message-1%' THEN
+      RAISE EXCEPTION 'conversation leaked to %', context::text;
+    END IF;
+    UPDATE clockgrove.conversation_sessions SET state = 'deleted' WHERE session_id = 'session-a';
+    GET DIAGNOSTICS affected = ROW_COUNT;
+    IF affected <> 0 THEN
+      RAISE EXCEPTION 'conversation changed by %', context::text;
+    END IF;
+    BEGIN
+      INSERT INTO clockgrove.conversation_messages (
+        tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
+        content_artifact_id
+      ) VALUES ('tenant-a', 'session-a', 'principal-a', 3, 'forged', 'caretaker', 'persona-a',
+                NULL, 'conversation-text-1');
+      RAISE EXCEPTION 'message forged into a foreign conversation by %', context::text
+        USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege OR foreign_key_violation THEN NULL;
+    END;
+    BEGIN
+      INSERT INTO clockgrove.conversation_sessions (
+        tenant_id, session_id, world_id, timeline_id, partition_id, space_id, principal_id,
+        persona_id, actor_id, voice_mode
+      ) VALUES ('tenant-a', 'session-forged', 'world-a', 'timeline-a', 'partition-a', 'space-a',
+                'principal-a', 'persona-a', 'stevie', 'cognitive');
+      RAISE EXCEPTION 'session forged for another participant by %', context::text
+        USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege OR foreign_key_violation THEN NULL;
+    END;
+  END LOOP;
+
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a');
+  BEGIN
+    UPDATE clockgrove.conversation_messages SET author_id = 'someone' WHERE sequence = 1;
+    RAISE EXCEPTION 'conversation message changed' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.conversation_turns;
+    RAISE EXCEPTION 'conversation turn deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.conversation_sessions;
+    RAISE EXCEPTION 'conversation session deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.conversation_sessions SET principal_id = 'principal-a2';
+    RAISE EXCEPTION 'conversation moved to another participant' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  -- Text is only a conversation-class artifact: an operator-evidence artifact is refused.
+  BEGIN
+    INSERT INTO clockgrove.conversation_messages (
+      tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
+      content_artifact_id
+    ) VALUES ('tenant-a', 'session-a', 'principal-a', 3, 'message-2', 'caretaker', 'persona-a',
+              NULL, 'artifact-a-private');
+    RAISE EXCEPTION 'conversation text stored outside the conversation class' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.conversation_sessions SET message_count = 0;
+    RAISE EXCEPTION 'conversation history shrank' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  UPDATE clockgrove.conversation_sessions SET state = 'deleted';
+  BEGIN
+    UPDATE clockgrove.conversation_sessions SET state = 'active';
+    RAISE EXCEPTION 'deleted conversation restored' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  -- The deleted session no longer counts: 100 live sessions are admitted, the 101st is refused.
+  FOR i IN 1..100 LOOP
+    INSERT INTO clockgrove.conversation_sessions (
+      tenant_id, session_id, world_id, timeline_id, partition_id, space_id, principal_id,
+      persona_id, actor_id, voice_mode
+    ) VALUES ('tenant-a', 'session-' || i, 'world-a', 'timeline-a', 'partition-a', 'space-a',
+              'principal-a', 'persona-a', 'stevie', 'cognitive');
+  END LOOP;
+  BEGIN
+    INSERT INTO clockgrove.conversation_sessions (
+      tenant_id, session_id, world_id, timeline_id, partition_id, space_id, principal_id,
+      persona_id, actor_id, voice_mode
+    ) VALUES ('tenant-a', 'session-101', 'world-a', 'timeline-a', 'partition-a', 'space-a',
+              'principal-a', 'persona-a', 'stevie', 'cognitive');
+    RAISE EXCEPTION 'conversation session limit not enforced' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG021' THEN NULL;
+  END;
 END;
 $$;
 ROLLBACK;

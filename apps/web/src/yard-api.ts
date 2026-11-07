@@ -4,10 +4,14 @@ import {
   type ClientViewTraceRequest,
   type CommandId,
   decodeClientViewTrace,
+  decodeConversationList,
+  decodeConversationSession,
+  decodeConversationTranscript,
   decodeEntitySelection,
   decodeFollowDisposition,
   decodeInfluenceReceipt,
   decodeRecordedWhy,
+  decodeSayReceipt,
   decodeTalkReceipt,
   decodeWorldDirectory,
   decodeWorldStatus,
@@ -20,6 +24,7 @@ import {
   type RecordedWhy,
   type RecordedWhyEntry,
   type RecordedWhyRequest,
+  type SayReceipt,
   type SpaceId,
   type TalkReceipt,
   type WorldDirectory,
@@ -73,6 +78,14 @@ function outcomeOf(status: number, accepted: boolean): "accepted" | "refused" | 
   if (accepted) return "accepted";
   return status === 0 || status >= 500 ? "failed" : "refused";
 }
+
+type ConversationEndpoint =
+  | "/v1/runtime/conversations/archive"
+  | "/v1/runtime/conversations/create"
+  | "/v1/runtime/conversations/delete"
+  | "/v1/runtime/conversations/list"
+  | "/v1/runtime/conversations/read"
+  | "/v1/runtime/conversations/title";
 
 function tryDecode<T>(decode: (value: unknown) => T, value: unknown): T | undefined {
   try {
@@ -503,16 +516,25 @@ export class YardSession {
     if (receipt.status === "committed") this.refreshSelection();
     return receipt;
   }
-  /** Scripted Talk fixture: private Caretaker talk or an explicit public scripted line. */
-  async talk(
-    actorId: ObjectId,
-    channel: "private" | "public",
-    text: string,
-  ): Promise<TalkReceipt | { readonly refused: string }> {
-    const answer = await this.postInteraction("/v1/runtime/talk", {
+  /** An explicit public line: the only way an actor speaks aloud. */
+  async say(actorId: ObjectId, text: string): Promise<SayReceipt | { readonly refused: string }> {
+    const answer = await this.postInteraction("/v1/runtime/say", {
       messageId: crypto.randomUUID(),
       actorId,
-      channel,
+      text,
+    });
+    const receipt =
+      answer.status === 200 && answer.body !== undefined
+        ? tryDecode(decodeSayReceipt, answer.body)
+        : undefined;
+    measure("interaction_outcome", outcomeOf(answer.status, receipt !== undefined));
+    return receipt ?? { refused: answer.refused };
+  }
+  /** A private message in a stored session; the answer is part of its durable transcript. */
+  async talk(sessionId: string, text: string): Promise<TalkReceipt | { readonly refused: string }> {
+    const answer = await this.postInteraction("/v1/runtime/talk", {
+      messageId: crypto.randomUUID(),
+      sessionId,
       text,
     });
     const receipt =
@@ -522,8 +544,71 @@ export class YardSession {
     measure("interaction_outcome", outcomeOf(answer.status, receipt !== undefined));
     return receipt ?? { refused: answer.refused };
   }
+  private async conversationCall<T>(
+    endpoint: ConversationEndpoint,
+    body: object,
+    decode: (value: unknown) => T,
+  ): Promise<T | { readonly refused: string }> {
+    const answer = await this.postInteraction(endpoint, body);
+    const value =
+      answer.status === 200 && answer.body !== undefined
+        ? tryDecode(decode, answer.body)
+        : undefined;
+    return value ?? { refused: answer.refused };
+  }
+  listConversations(actorId: ObjectId) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/list",
+      { actorId },
+      decodeConversationList,
+    );
+  }
+  createConversation(actorId: ObjectId, title?: string) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/create",
+      { actorId, ...(title ? { title } : {}) },
+      decodeConversationSession,
+    );
+  }
+  readConversation(sessionId: string, afterSequence?: number) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/read",
+      { sessionId, ...(afterSequence ? { afterSequence } : {}) },
+      decodeConversationTranscript,
+    );
+  }
+  titleConversation(sessionId: string, title: string) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/title",
+      { sessionId, title },
+      decodeConversationSession,
+    );
+  }
+  archiveConversation(sessionId: string, archived: boolean) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/archive",
+      { sessionId, archived },
+      decodeConversationSession,
+    );
+  }
+  async deleteConversation(sessionId: string): Promise<true | { readonly refused: string }> {
+    const result = await this.conversationCall(
+      "/v1/runtime/conversations/delete",
+      { sessionId },
+      (value) => {
+        if ((value as { deleted?: unknown } | null)?.deleted !== true)
+          throw new Error("not deleted");
+        return true as const;
+      },
+    );
+    return result;
+  }
   private async postInteraction(
-    endpoint: "/v1/runtime/influence" | "/v1/runtime/talk",
+    endpoint:
+      | "/v1/runtime/influence"
+      | "/v1/runtime/say"
+      | "/v1/runtime/talk"
+      | ConversationEndpoint,
     body: object,
   ): Promise<{ status: number; body: unknown; refused: string }> {
     const scope = this.getSnapshot().scope;

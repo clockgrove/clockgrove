@@ -41,7 +41,7 @@ import {
   decodeRecordedWhyRequest,
   decodeRuntimeNoOpRequest,
   decodeSceneInterest,
-  decodeTalkRequest,
+  decodeSayRequest,
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
@@ -80,8 +80,16 @@ import {
   influenceCommand,
   influenceCommandId,
   influenceReceipt,
-  scriptedTalk,
+  scriptedSay,
 } from "./interactions.js";
+import {
+  CONVERSATION_REFUSAL_STATUS,
+  CONVERSATION_ROUTES,
+  ConversationRefusedError,
+  type ConversationRoute,
+  type ConversationStores,
+  conversationCall,
+} from "./conversations.js";
 import { MemoryRuntimeLocalStorage } from "./local-storage.js";
 import { OwnerMailboxError } from "./mailbox.js";
 import { EntitySelectionUnavailableError } from "./observation.js";
@@ -181,6 +189,8 @@ export interface RuntimeOwnerBindings {
   readonly inspector?: AuditedPort<CausalEntryInput, CausalEntryView> & {
     recordedWhy(input: CausalEntryInput, context: TrustedContext): Promise<RecordedWhy>;
   };
+  /** Private conversations; absent when no artifact keyring is bound, so they fail closed. */
+  readonly conversations?: ConversationStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
   /** The audited runtime-state inspector, under the same grant, limit and audit. */
@@ -355,8 +365,12 @@ export class RuntimeWorker {
       return this.answer("world_command_answered", (note) => this.worldCommand(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/influence")
       return this.answer("world_command_answered", (note) => this.influence(request, note));
-    if (request.method === "POST" && url.pathname === "/v1/runtime/talk")
-      return this.answer("scene_observation_answered", (note) => this.talk(request, note));
+    if (request.method === "POST" && isConversationRoute(url.pathname))
+      return this.answer("scene_observation_answered", (note) =>
+        this.conversation(request, note, url.pathname as ConversationRoute),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/say")
+      return this.answer("scene_observation_answered", (note) => this.say(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/causal-chain")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.causalChain(request, note),
@@ -810,16 +824,21 @@ export class RuntimeWorker {
   }
 
   /**
-   * The scripted Talk fixture under the observe grant, a `conversation` ceiling and a
-   * resolved persona, the same policy the interaction card's Talk action reports, and only to an
-   * actor projected in the request's space. It stores nothing.
+   * Private Caretaker Talk and its sessions, under the observe grant, a `conversation` ceiling and
+   * a resolved persona, the policy the interaction card's Talk action reports. A new session
+   * addresses only an actor (an entity with needs) projected in the request's space. Rows are the
+   * participant's own (migration 0034); nothing here reaches the scene.
    */
-  private async talk(request: Request, note: RequestNote): Promise<Response> {
+  private async conversation(
+    request: Request,
+    note: RequestNote,
+    route: ConversationRoute,
+  ): Promise<Response> {
     try {
       const identified = await this.authenticator.identify(request.clone());
-      const talk = decodeTalkRequest(await request.json());
+      const call = conversationCall(route, await request.json());
       const metadata = readMetadata(identified.correlationHeader);
-      note.ids = { ...talk.scope, ...metadata };
+      note.ids = { ...call.scope, ...metadata };
       const context = await this.authenticator.authorize(identified, metadata, OBSERVE_GRANT);
       const personaId = context.personaId;
       if (
@@ -828,19 +847,67 @@ export class RuntimeWorker {
       )
         throw new AuthorizationRefusedError("conversation refused");
       note.authorization = "authorized";
-      // The card's capability is enforced here too: only a projected actor (one with needs) talks.
-      const select = this.bindings.observation?.select;
-      if (select === undefined) return refusal(note, "inspector_unavailable", 503);
-      const actor = await select({ version: 1, ...talk.scope, objectId: talk.actorId }, context);
-      if (actor.physical.needs === null) {
-        note.outcome = "refused";
-        return jsonResponse({ error: "talk_unavailable" }, 409);
+      const stores = this.bindings.conversations;
+      if (stores === undefined) {
+        note.outcome = "unavailable";
+        return jsonResponse({ error: "conversation_unavailable" }, 503);
       }
+      if (call.actorId !== undefined) {
+        const refused = await this.unaddressable(call.scope, call.actorId, context, note);
+        if (refused !== undefined) return refused;
+      }
+      const answer = await stores((store) => call.run(store, { ...context, personaId }));
       note.outcome = "read";
-      return jsonResponse(scriptedTalk(talk, { ...context, personaId }, new Date().toISOString()));
+      return jsonResponse(answer);
+    } catch (error) {
+      if (error instanceof ConversationRefusedError) {
+        note.outcome = error.code === "conversation_not_found" ? "refused" : "conflict";
+        return jsonResponse({ error: error.code }, CONVERSATION_REFUSAL_STATUS[error.code]);
+      }
+      return this.observationRefusal(note, error);
+    }
+  }
+
+  /**
+   * Public Say: the addressed actor speaks a scripted line aloud, attributed to the caller whose
+   * explicit action made it speak. Distinct from Talk: it needs no `conversation` category and is
+   * never stored in a session.
+   */
+  private async say(request: Request, note: RequestNote): Promise<Response> {
+    try {
+      const identified = await this.authenticator.identify(request.clone());
+      const say = decodeSayRequest(await request.json());
+      const metadata = readMetadata(identified.correlationHeader);
+      note.ids = { ...say.scope, ...metadata };
+      const context = await this.authenticator.authorize(identified, metadata, OBSERVE_GRANT);
+      const personaId = context.personaId;
+      if (personaId === undefined) throw new AuthorizationRefusedError("say refused");
+      note.authorization = "authorized";
+      const refused = await this.unaddressable(say.scope, say.actorId, context, note);
+      if (refused !== undefined) return refused;
+      note.outcome = "read";
+      return jsonResponse(scriptedSay(say, { ...context, personaId }, new Date().toISOString()));
     } catch (error) {
       return this.observationRefusal(note, error);
     }
+  }
+
+  /** The card's capability, enforced here too: only a projected actor (one with needs) is addressed. */
+  private async unaddressable(
+    scope: BrowserScope,
+    actorId: string,
+    context: TrustedContext,
+    note: RequestNote,
+  ): Promise<Response | undefined> {
+    const select = this.bindings.observation?.select;
+    if (select === undefined) return refusal(note, "inspector_unavailable", 503);
+    const actor = await select(
+      { version: 1, ...scope, objectId: actorId } as EntitySelectionRequest,
+      context,
+    );
+    if (actor.physical.needs !== null) return undefined;
+    note.outcome = "refused";
+    return jsonResponse({ error: "talk_unavailable" }, 409);
   }
 
   /** Navigation decides what the observer sees next and changes no world fact. */
@@ -1214,6 +1281,10 @@ function readMetadata(correlationHeader: string | null) {
     requestId: crypto.randomUUID(),
     correlationId: decodeOpaqueId(correlationHeader ?? crypto.randomUUID(), "CorrelationId"),
   };
+}
+
+function isConversationRoute(path: string): path is ConversationRoute {
+  return (CONVERSATION_ROUTES as readonly string[]).includes(path);
 }
 
 function jsonResponse(

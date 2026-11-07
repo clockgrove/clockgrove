@@ -6,6 +6,7 @@ import {
   type SimTimeMs,
   type TenantId,
   type TimelineId,
+  VOICE_MODES,
   type WorldId,
 } from "@clockgrove/contracts";
 import { z } from "zod";
@@ -292,6 +293,11 @@ export const portalSchema = dataSchema(
 export type PortalState = z.infer<typeof portalSchema>;
 export type PortalEndpoint = PortalState["endpoints"][number];
 
+export const conversationModeSchema = dataSchema(
+  z.strictObject({ mode: z.enum(VOICE_MODES) }).readonly(),
+);
+export type ConversationModeState = z.infer<typeof conversationModeSchema>;
+
 /** The place id of an endpoint, whichever kind it is. */
 export function portalPlaceId(endpoint: PortalEndpoint): string {
   return endpoint.kind === "anchor" ? endpoint.anchorId : endpoint.regionId;
@@ -530,6 +536,12 @@ export function createInitialComponentCatalog() {
   const portal = registration("clockgrove.portal", portalSchema, portalSchema, (value, context) =>
     portalScopeIssues(value, context, "state"),
   );
+  const conversationMode = registration(
+    "clockgrove.conversation-mode",
+    conversationModeSchema,
+    conversationModeSchema,
+    () => [],
+  );
   return Object.freeze([
     identity,
     archetype,
@@ -541,5 +553,6 @@ export function createInitialComponentCatalog() {
     lifecycle,
     portal,
     presentation,
+    conversationMode,
   ] as const);
 }
