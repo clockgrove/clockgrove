@@ -151,10 +151,14 @@ has no install lifecycle scripts; unrelated locked versions and toolchain policy
 Issue 16 added `ai` 7.0.163 and `@ai-sdk/anthropic` 4.0.97 to `packages/model-gateway`, with `zod` 4.6.6
 (already pinned) as a direct dependency. Their closure added `@ai-sdk/gateway` 4.0.136,
 `@ai-sdk/provider` 4.0.36, `@ai-sdk/provider-utils` 5.0.75, `@vercel/oidc` 3.2.0, `@workflow/serde` 4.1.0,
-`eventsource-parser` 3.1.1 and `json-schema` 0.4.0. They were resolved on `2026-11-07` by `pnpm add` under
+and `eventsource-parser` 3.1.1. They were resolved on `2026-11-07` by `pnpm add` under
 the unchanged release-age and supply-chain policy; `ai` 7.0.164 and `@ai-sdk/anthropic` 4.0.98, published
 `2026-11-06T19:44Z` and `19:46Z`, were inside the 1440-minute window and are not selected. Registry metadata
 shows no `preinstall`, `install` or `postinstall` script in the closure.
+`@ai-sdk/provider` also declares `json-schema` 0.4.0, licensed `(AFL-2.1 OR BSD-3-Clause)`, which is outside
+the license allowlist. Only its TypeScript declarations import it (`JSONSchema7`), and no runtime module
+loads it, so the scoped override `"@ai-sdk/provider>json-schema": "-"` in `pnpm-workspace.yaml` removes it
+from the tree; the package's `skipLibCheck` covers the missing declaration.
 
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
 cutoff. Vite 8.3.2 is selected without a workspace policy exception.
