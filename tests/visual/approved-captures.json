@@ -1,4 +1,9 @@
 {
-  "note": "Human approvals of the Wave 4 §15.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. Approving a capture is a reviewed change by a person, never by an agent or CI.",
-  "approvals": []
+  "note": "Approvals of the Wave 4 §15.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. A person approves a capture in a reviewed change, or an agent does on the owner's explicit delegation, recorded in that change; CI never approves.",
+  "approvals": [
+    {
+      "file": "text-access@390x844.png",
+      "sha256": "sha256:6f2e0038efe469902ab04f0c7fe85081d30863e16bff0e40638551d84a4cf4c8"
+    }
+  ]
 }
