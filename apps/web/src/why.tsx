@@ -17,7 +17,14 @@ export function RecordedWhyPanel({ session }: { readonly session: YardSession })
   const value = why.value;
   const onClose = () => {
     session.explain(undefined);
-    whyOpener.current?.focus();
+    const opener = whyOpener.current;
+    // A breakpoint change can rebuild the rail while its recorded evidence stays open.
+    const target = opener?.isConnected
+      ? opener
+      : [...document.querySelectorAll<HTMLButtonElement>(".rw-shell button")].find(
+          (button) => button.textContent === opener?.textContent,
+        );
+    target?.focus();
   };
   return (
     <section
