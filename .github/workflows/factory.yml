@@ -31,7 +31,7 @@ env:
   FACTORY_SETUP: corepack enable && scripts/ci/toolchain.sh postgresql pgvector
   FACTORY_INSTALL: pnpm install --frozen-lockfile --ignore-scripts && scripts/ci/toolchain.sh browser # auto (from the lockfile), none, or your own command
   # pnpm check runs alone first (pnpm test reruns its turbo check tasks); the rest are independent and run together in local mode.
-  FACTORY_VALIDATION: pnpm check, parallel: pnpm test, parallel: pnpm run test:db, parallel: pnpm run test:runtime, parallel: pnpm run db:verify, parallel: pnpm run verify:docs, parallel: env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts
+  FACTORY_VALIDATION: 'pnpm check, parallel: pnpm test, parallel: pnpm run test:db, parallel: pnpm run test:runtime, parallel: pnpm run db:verify, parallel: pnpm run verify:docs, parallel: env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts' # quoted: `parallel: ` inside a plain YAML value is a mapping
   FACTORY_BUDGET_COMMAND: node scripts/check-test-budget.mjs
   FACTORY_PROTECTED_PATHS: scripts/test-budget.json
   FACTORY_CI_CHECKS: quality
