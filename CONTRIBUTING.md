@@ -15,7 +15,7 @@ Search the existing issues first, then file one with the matching form. The [del
 
 - Each issue has a native issue type: `Feature` for a product capability, `Task` for maintenance, investigation or qualification, `Bug` for a standalone defect. Labels never classify the issue.
 - Each open issue has exactly one priority label: `P0`, `P1` or `P2`.
-- An Objective is a role, not a type. The `factory:objective` label is only for new product work from a wave plan, and maintainers apply it. Leftover wave gaps, regressions, maintenance, plan amendments, re-qualification and cleanup are plain `Bug`, `Task` or `Feature` issues, done directly.
+- An Objective is a role, not a type. The Objective form and the `factory:objective` label are only for new product work from a wave plan; maintainers apply the label. Leftover wave gaps, regressions, maintenance, plan amendments, re-qualification and cleanup are plain `Bug`, `Task` or `Feature` issues, done directly.
 
 ## Pull requests
 
