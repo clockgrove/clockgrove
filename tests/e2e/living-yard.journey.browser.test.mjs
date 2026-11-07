@@ -644,7 +644,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
                     child.type === "Text"
                       ? [child.text, child.x, child.y]
                       : child.type === "Graphics"
-                        ? [child.commandBuffer[1], child.commandBuffer[2], child.depth % 10_000]
+                        ? [child.defaultFillColor, child.defaultFillAlpha, child.depth % 10_000]
                         : [child.x, child.y, child.width, child.height, child.lineWidth],
                   );
             return drawn;

@@ -802,10 +802,12 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       const height = text.height + 2 * PILL_PAD_Y;
       const top = y - selected.visual.height - 6 - height;
       const pill = stage.add
-        .graphics()
-        .fillStyle(0x1e2116, 0.92)
+        // Declared as the pill's default styles, so its fill is readable from the game object.
+        .graphics({
+          fillStyle: { color: 0x1e2116, alpha: 0.92 },
+          lineStyle: { width: 1, color: SELECTION_SAGE, alpha: 0.6 },
+        })
         .fillRoundedRect(x - width / 2, top, width, height, height / 2)
-        .lineStyle(1, SELECTION_SAGE, 0.6)
         .strokeRoundedRect(x - width / 2, top, width, height, height / 2)
         .setName("selection-pill")
         .setDepth(depthOf("emphasis", 1));
