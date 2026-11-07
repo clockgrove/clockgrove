@@ -1196,13 +1196,13 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         // Choosing an entity's event from the keyboard selects it in the scene and the rail, rings
         // and names it on the canvas, and opens the event's Recorded Why; closing it refocuses the row.
         // The runtime labels each entity by its object id.
-        const listed = (await statuses.at(-1)).feed;
-        const entityRow = listed.findIndex((item) =>
+        const feedItems = (await statuses.at(-1)).feed;
+        const entityRow = feedItems.findIndex((item) =>
           first.entities.some((entity) => entity.objectId === item.objectId),
         );
         const feedEntity = feed.locator("button.rw-feed-item").nth(entityRow);
-        const feedLabel = listed[entityRow].objectId;
-        const feedEvent = listed[entityRow].sourceEventIds[0];
+        const feedLabel = feedItems[entityRow].objectId;
+        const feedEvent = feedItems[entityRow].sourceEventIds[0];
         await feedEntity.press("Enter");
         expect(
           await scene
