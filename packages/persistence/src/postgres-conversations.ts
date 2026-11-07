@@ -304,7 +304,14 @@ export class PostgreSqlConversationStore implements ConversationStore {
       caretakerMessages,
       input: request.text,
     });
-    await this.put(participant, stored, promptArtifactId, prompt, "conversation_busy", JSON_MEDIA_TYPE);
+    await this.put(
+      participant,
+      stored,
+      promptArtifactId,
+      prompt,
+      "conversation_busy",
+      JSON_MEDIA_TYPE,
+    );
     const row = stored.row;
     const start: TalkRunStart = {
       tenantId: String(row.tenant_id),

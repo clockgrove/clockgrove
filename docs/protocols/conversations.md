@@ -46,6 +46,8 @@ exercises this.
   (`scripted-fixture-v1`) answers in the same request, deterministically and only from its own
   session: "you have said N things to me in this conversation". RW-0503 and RW-0504 replace it with
   recoverable turn fibers and the ModelGateway.
+- Every Talk attempt that reaches the model is one **run** with its steps and one terminal
+  disposition, including retried and abandoned attempts. See [run and step evidence](runs.md).
 
 ## Talk and Say
 

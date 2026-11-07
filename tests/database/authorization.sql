@@ -102,6 +102,8 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'conversation_participants', 'participant'),
   ('clockgrove', 'conversation_messages', 'participant'),
   ('clockgrove', 'conversation_turns', 'participant'),
+  ('clockgrove', 'agent_runs', 'participant'),
+  ('clockgrove', 'run_steps', 'participant'),
   ('clockgrove_management', 'principals', 'none'),
   ('clockgrove_management', 'identity_links', 'none'),
   ('clockgrove_management', 'workspace_memberships', 'none'),
@@ -251,7 +253,8 @@ BEGIN
         'clockgrove.event_dispatches', 'clockgrove.artifact_references',
         'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
         'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
-        'clockgrove.conversation_messages', 'clockgrove.conversation_turns'
+        'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
+        'clockgrove.agent_runs', 'clockgrove.run_steps'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -1705,6 +1708,134 @@ BEGIN
               'stevie', 'cognitive');
     RAISE EXCEPTION 'conversation session limit not enforced' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG021' THEN NULL;
+  END;
+END;
+$$;
+ROLLBACK;
+
+-- Runs and steps (0035): the participant writes the runs of their own session as themselves; an
+-- inspector whose ceiling holds operator_evidence reads them but writes nothing; everyone else sees
+-- nothing. The guards admit one terminal disposition, in order, and refuse deletion.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a2');
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-r', 'principal-a', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-r', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+          'cognitive');
+CREATE FUNCTION pg_temp.new_run(run text, root text, parent text, parent_step integer, st text)
+RETURNS void LANGUAGE sql AS $$
+  INSERT INTO clockgrove.agent_runs (
+    tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
+    principal_id, persona_id, activation, input_message_id, parent_run_id, parent_step, root_run_id,
+    model, prompt_version, input_revision, status, summary
+  ) VALUES ('tenant-a', run, 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-r', 'stevie',
+            'principal-a', 'persona-a', 'conversation_message', 'message-r', parent, parent_step,
+            root, 'scripted-fixture-v1', 'v1', 0, st, 'attempt')
+$$;
+CREATE FUNCTION pg_temp.new_step(run text, n integer) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO clockgrove.run_steps (tenant_id, run_id, session_id, step, kind, summary)
+  VALUES ('tenant-a', run, 'session-r', n, 'model_attempt', 'step')
+$$;
+SELECT pg_temp.new_run('run-1', 'run-1', NULL, NULL, 'running');
+SELECT pg_temp.new_step('run-1', 1);
+DO $$
+DECLARE
+  context record;
+  affected bigint;
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.agent_runs) <> 1 OR (SELECT count(*) FROM clockgrove.run_steps) <> 1 THEN
+    RAISE EXCEPTION 'participant does not see their own run';
+  END IF;
+  FOR context IN
+    SELECT * FROM (VALUES
+      ('tenant-a', 'principal-a2', '{"version":1,"allowedCategories":["public_scene","conversation"]}', 0),
+      ('tenant-b', 'principal-b', '{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}', 0),
+      ('tenant-a', 'principal-a2', '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}', 1)
+    ) AS contexts (tenant_id, principal_id, ceiling, visible)
+  LOOP
+    PERFORM pg_temp.act_as(context.tenant_id, context.principal_id, context.ceiling);
+    IF (SELECT count(*) FROM clockgrove.agent_runs) <> context.visible
+       OR (SELECT count(*) FROM clockgrove.run_steps) <> context.visible THEN
+      RAISE EXCEPTION 'runs visible wrongly to %', context::text;
+    END IF;
+    BEGIN
+      PERFORM pg_temp.new_run('run-forged', 'run-forged', NULL, NULL, 'running');
+      RAISE EXCEPTION 'run forged by %', context::text USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege OR foreign_key_violation THEN NULL;
+    END;
+    BEGIN
+      PERFORM pg_temp.new_step('run-1', 2);
+      RAISE EXCEPTION 'step forged by %', context::text USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege OR foreign_key_violation THEN NULL;
+    END;
+    UPDATE clockgrove.agent_runs SET status = 'failed', outcome_code = 'forged';
+    GET DIAGNOSTICS affected = ROW_COUNT;
+    IF affected <> 0 THEN
+      RAISE EXCEPTION 'run closed by %', context::text;
+    END IF;
+    UPDATE clockgrove.run_steps SET status = 'failed', outcome_code = 'forged';
+    GET DIAGNOSTICS affected = ROW_COUNT;
+    IF affected <> 0 THEN
+      RAISE EXCEPTION 'step closed by %', context::text;
+    END IF;
+  END LOOP;
+
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a');
+  BEGIN
+    PERFORM pg_temp.new_run('run-x', 'run-x', NULL, NULL, 'completed');
+    RAISE EXCEPTION 'run started finished' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_run('run-x', 'run-1', NULL, NULL, 'running');
+    RAISE EXCEPTION 'root-less run with a foreign root' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_step('run-1', 3);
+    RAISE EXCEPTION 'steps numbered out of order' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.agent_runs SET status = 'completed', turn = 1 WHERE run_id = 'run-1';
+    RAISE EXCEPTION 'run completed with a running step' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  -- A child run shares its parent's root and session.
+  PERFORM pg_temp.new_run('run-2', 'run-1', 'run-1', 1, 'running');
+  BEGIN
+    PERFORM pg_temp.new_run('run-3', 'run-3', 'run-1', 1, 'running');
+    RAISE EXCEPTION 'child run with another root' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.run_steps;
+    RAISE EXCEPTION 'step deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.agent_runs;
+    RAISE EXCEPTION 'run deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE 'CG020' THEN NULL;
+  END;
+  UPDATE clockgrove.agent_runs SET status = 'failed', outcome_code = 'model_error' WHERE run_id = 'run-1';
+  IF (SELECT count(*) FROM clockgrove.run_steps
+       WHERE run_id = 'run-1' AND status = 'failed' AND ended_at IS NOT NULL) <> 1 THEN
+    RAISE EXCEPTION 'failed run left its step open';
+  END IF;
+  BEGIN
+    UPDATE clockgrove.agent_runs SET status = 'cancelled' WHERE run_id = 'run-1';
+    RAISE EXCEPTION 'finished run changed' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_step('run-1', 2);
+    RAISE EXCEPTION 'step added to a finished run' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
   END;
 END;
 $$;

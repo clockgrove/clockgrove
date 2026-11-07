@@ -160,14 +160,21 @@ function boundedId(value: unknown, path: string, octets = 1024): string {
 /** Exactly one entry: `runId`, `commandId`, or `sessionId` with `turn` or `messageId`. */
 export function decodeRunInspectRequest(value: unknown): RunInspectRequest {
   const path = "inspectRuns";
-  const { v, scope } = scoped(value, path, ["runId", "commandId", "sessionId", "turn", "messageId"]);
+  const { v, scope } = scoped(value, path, [
+    "runId",
+    "commandId",
+    "sessionId",
+    "turn",
+    "messageId",
+  ]);
   const given = ["runId", "commandId", "sessionId", "turn", "messageId"].filter(
     (key) => v[key] !== undefined,
   );
   const shape = given.sort().join(",");
   let entry: RunEntry;
   if (shape === "runId") entry = { runId: boundedId(v.runId, `${path}.runId`) };
-  else if (shape === "commandId") entry = { commandId: boundedId(v.commandId, `${path}.commandId`) };
+  else if (shape === "commandId")
+    entry = { commandId: boundedId(v.commandId, `${path}.commandId`) };
   else if (shape === "sessionId,turn") {
     const turn = nonNegativeInteger(v.turn, `${path}.turn`);
     if (turn < 1 || turn > 500) throw new ContractDecodeError(`${path}.turn`, "turn out of range");

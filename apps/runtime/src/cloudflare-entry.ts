@@ -86,6 +86,7 @@ import {
   TypedQueueConsumer,
 } from "./queues.js";
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
+import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
 import {
   type RuntimeAuthenticationDependencies,
@@ -93,7 +94,6 @@ import {
 } from "./trusted-composition.js";
 import type { RuntimeScope } from "./types.js";
 import { PostgreSqlClientViewInspector } from "./view-trace.js";
-import { PostgreSqlRunInspector } from "./runs.js";
 import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
 import { callWorldOwner, PostgreSqlCommandOwner, unwrapWorldCommandRpc } from "./world-commands.js";

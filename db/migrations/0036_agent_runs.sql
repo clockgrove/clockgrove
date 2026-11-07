@@ -39,7 +39,7 @@ CREATE TABLE clockgrove.agent_runs (
     status IN ('running', 'completed', 'failed', 'cancelled', 'abandoned', 'superseded')
   ),
   outcome_code text CHECK (outcome_code ~ '^[a-z_]{1,64}$'),
-  -- The turn a completed run committed.
+  -- The conversation turn a completed run committed, if it committed one.
   turn integer CHECK (turn BETWEEN 1 AND 500),
   summary text NOT NULL CHECK (octet_length(summary) BETWEEN 1 AND 256),
   prompt_artifact_id text,
@@ -48,7 +48,7 @@ CREATE TABLE clockgrove.agent_runs (
   ended_at timestamptz,
   PRIMARY KEY (tenant_id, run_id),
   CONSTRAINT agent_runs_terminal CHECK ((status = 'running') = (ended_at IS NULL)),
-  CONSTRAINT agent_runs_turn CHECK ((status = 'completed') = (turn IS NOT NULL)),
+  CONSTRAINT agent_runs_turn CHECK (status = 'completed' OR turn IS NULL),
   CONSTRAINT agent_runs_parent CHECK ((parent_run_id IS NULL) = (parent_step IS NULL)),
   FOREIGN KEY (tenant_id, session_id)
     REFERENCES clockgrove.conversation_sessions (tenant_id, session_id),

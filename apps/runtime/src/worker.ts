@@ -39,9 +39,9 @@ import {
   decodeObservationRequest,
   decodeOpaqueId,
   decodeRecordedWhyRequest,
-  decodeRuntimeNoOpRequest,
   decodeRunInspectRequest,
   decodeRunSearchRequest,
+  decodeRuntimeNoOpRequest,
   decodeSayRequest,
   decodeSceneInterest,
   decodeWorldDirectoryRequest,
@@ -75,7 +75,6 @@ import {
   type ConversationStores,
   conversationCall,
 } from "./conversations.js";
-import { RunNotFoundError } from "./runs.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -109,6 +108,7 @@ import {
   storedNoOpOutcome,
 } from "./owners.js";
 import { runtimeRouteName } from "./routing.js";
+import { RunNotFoundError } from "./runs.js";
 import type {
   IdentifiedRuntimeRequest,
   TrustedRuntimeRequestAuthenticator,
