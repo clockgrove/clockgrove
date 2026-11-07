@@ -1,5 +1,7 @@
 # Contributing to Clockgrove
 
+Until 1.0, Clockgrove does not accept pull requests from outside contributors: the design is still changing quickly. Issues are welcome, and so are private security reports ([SECURITY.md](SECURITY.md)). The rules below are how the maintainers work, and they will apply to everyone after 1.0.
+
 Clockgrove is licensed under the [MIT License](LICENSE). Contributions are accepted under the MIT License: by opening a pull request you agree that your contribution is licensed under it, and you confirm that you have the right to license it so.
 
 ## Before you start
