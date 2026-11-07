@@ -76,7 +76,7 @@ The Phaser canvas is never CSS-scaled, because pointer picking depends on its pi
 
 ## Color never carries state alone
 
-Run state is the words Running or Paused plus a glyph; rain is the words Dry or Rain N% plus an umbrella glyph and a dotted underline for rain; feed rows show a round icon with an accessible name: Weather raindrop, Ecology leaf, Wellbeing heart, Portal door, and for actor activity the actor's portrait named by the actor's label. Until portrait art exists, a monogram (first letter of the label's last dot-separated segment) stands in for the portrait. Glyphs are decorative.
+Run state is the words Running or Paused plus a glyph; rain is the words Dry or Rain N% plus an umbrella glyph and a dotted underline for rain; feed rows show a round icon with an accessible name: Weather raindrop, Ecology leaf, Wellbeing heart, Portal door, and for actor activity the actor's portrait named by the actor's label. Every actor portrait is the one `Portrait` component in `apps/web/src/portrait.tsx` (feed rows now, the rail portrait later): a round, sage-bordered badge whose accessible name is the actor's label. It draws the portrait asset that the actor's presentation binding references when one exists, and otherwise a monogram stand-in (the first letter of the label's last dot-separated segment), so adding portrait art is a data change. No projected presentation binding carries a portrait reference yet. Glyphs are decorative.
 
 ## Out of scope
 

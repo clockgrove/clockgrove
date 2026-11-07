@@ -288,8 +288,7 @@ body {
   color: var(--rw-v1-rain);
 }
 
-.rw-feed-icon[data-icon="leaf"],
-.rw-feed-icon[data-icon="portrait"] {
+.rw-feed-icon[data-icon="leaf"] {
   color: var(--rw-v1-accent);
 }
 
@@ -301,10 +300,24 @@ body {
   color: var(--rw-v1-event);
 }
 
-.rw-feed-icon[data-icon="portrait"] {
+/* The actor portrait, wherever it appears: round, sage-bordered, art or a monogram stand-in. */
+.rw-portrait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 50%;
   background: var(--rw-v1-panel-solid);
   color: var(--rw-v1-text);
-  border-color: var(--rw-v1-accent);
+  border: 1px solid var(--rw-v1-accent);
+  font-weight: 600;
+}
+
+.rw-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 @media (min-width: 1200px) {

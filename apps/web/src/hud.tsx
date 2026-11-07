@@ -4,6 +4,7 @@ import type {
   WorldFeedCategory,
   WorldStatus,
 } from "@clockgrove/contracts";
+import { Portrait } from "./portrait.js";
 import { whyOpener } from "./why.js";
 import type { YardSession } from "./yard-api.js";
 import { useEntityRail, useFeedSheet, useYardView } from "./yard-state.js";
@@ -93,21 +94,10 @@ const GLYPHS: Readonly<Record<Exclude<FeedIconKind, "portrait">, string>> = {
   door: "M6 20V10a6 6 0 0 1 12 0v10zM12 14v2",
 };
 
-/** The portrait stand-in: the uppercase first letter of the label's last dot-separated segment. */
-function portraitMonogram(label: string): string {
-  const segment = label.split(".").pop() ?? "";
-  return (segment || label).charAt(0).toUpperCase();
-}
-
 function FeedIcon({ category, label }: { category: WorldFeedCategory; label: string }) {
   const icon = ICONS[category];
-  if (!icon) {
-    return (
-      <span className="rw-feed-icon" data-icon="portrait" role="img" aria-label={label}>
-        <span aria-hidden="true">{portraitMonogram(label)}</span>
-      </span>
-    );
-  }
+  // Actor activity shows the actor's portrait; no projected binding references portrait art yet.
+  if (!icon) return <Portrait className="rw-feed-icon" label={label} />;
   return (
     <span className="rw-feed-icon" data-icon={icon.kind} role="img" aria-label={icon.name}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
