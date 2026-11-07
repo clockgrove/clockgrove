@@ -29,16 +29,46 @@ run on every migration path.
 
 `pnpm run test:db` and `pnpm run db:verify` each create a uniquely named, owned cluster below the
 operating system's temporary directory and allocate an available local port. The data and log paths
-may therefore follow either a short or long `TMPDIR`, but clients connect through a separate,
-uniquely named Linux abstract Unix socket. That short abstract name stays below Linux's 107-byte
-socket-address limit regardless of the host temporary-directory length. The focused lifecycle
-regression starts a real server, queries it, waits for it to stop, and proves resource removal once
-with ordinary `/tmp` and once with a deliberately long `TMPDIR`; the long-path case deliberately
-fails after its query to exercise the same unconditional cleanup path.
+may therefore follow either a short or long `TMPDIR`. Clients reach the cluster through one of two
+transports. The focused lifecycle regression starts a real server, queries it, waits for it to stop,
+and proves resource removal once with ordinary `/tmp` and once with a deliberately long `TMPDIR`;
+the long-path case deliberately fails after its query to exercise the same unconditional cleanup
+path.
 
-The helper initializes trust authentication only for its disposable local socket, sets an empty
-`listen_addresses` value so it creates no TCP listener, and never discovers or contacts a
-pre-existing database. Every success or operation failure passes through `finally`: the helper
+### Fixture transport: `socket` or `loopback`
+
+The helper (`databaseTransport` in `scripts/database/lib.mjs`) picks the transport in this order:
+
+1. `CLOCKGROVE_TEST_DB_TRANSPORT`, when set and non-empty, wins. Its only values are `socket` and `loopback`; any
+   other value fails the run with an error naming the variable.
+2. Otherwise `FACTORY_LOCAL=1` selects `loopback`. Factory's local mode sets it in every child
+   process and passes commands only an allow-list of environment variables, so a workflow-level
+   switch would not reach the fixture.
+3. Otherwise `socket`. CI and ordinary local runs keep this default.
+
+`socket` (default). Clients connect through a uniquely named Linux abstract Unix socket. That short
+abstract name stays below Linux's 107-byte socket-address limit regardless of the host
+temporary-directory length. Trust authentication applies only to that socket; `listen_addresses`
+is empty, so there is no TCP listener.
+
+`loopback`. Factory's local sandboxes refuse every `AF_UNIX` socket, abstract and filesystem
+alike, with `EPERM`; the owner decided on 2026-11-07, after a security review, that the sandboxes stay
+that way and the fixture listens on loopback TCP instead. PostgreSQL listens on `127.0.0.1` at the
+allocated port with an empty `unix_socket_directories`; any socket directory makes PostgreSQL
+create a Unix socket, which the sandbox refuses. Loopback TCP is reachable by every local process
+on a shared host (CI runners, development machines outside a sandbox), so this mode trusts no
+connection: `initdb` sets `--auth-host=scram-sha-256` and `--auth-local=reject`. Each run draws
+a fresh 256-bit password from `crypto.randomBytes`. The admin password reaches `initdb` through a
+`0600` file in the run's owner-private temporary root, deleted as soon as `initdb` returns; every
+login role gets the same password as a SCRAM verifier computed in the helper, so no SQL statement,
+error or server log carries it. The fixture hands it out only as `PGPASSWORD` in its
+`environment` and in the URLs built from it (`connectionString` in
+`apps/runtime/test/world-fixture.ts`, the native harness's Hyperdrive bindings); it is never
+logged or written elsewhere. Inside a Factory sandbox the loopback listener is also confined to
+the sandbox's own network namespace.
+
+In both modes the helper never discovers or contacts a pre-existing database, and it drops an
+inherited `PGPASSWORD`. Every success or operation failure passes through `finally`: the helper
 immediately stops its owned server, waits for shutdown, and recursively removes only its unique
 cluster root. It uses no Docker service, cloud database, production credential, persistent server,
 or hard-coded PostgreSQL executable path.
@@ -149,10 +179,10 @@ and a Unix socket a termination after their last reply is not observed. That inc
 canonical state read whose `authorityEpoch` the scene-join assertion signs: the request's
 authority was already decided by confirmed reads, and the epoch is a value the server returned. Nor is one that reaches any connection
 only while it closes, after every read. Serialized JSON strings and `Uint8Array`
-bytes retain their existing meanings. The disposable test encodes a NUL-prefixed full
-abstract socket address in the URL's `host` parameter; the adapter uses pg's declared
-`stream` configuration and a real Node socket for that address. Ordinary Hyperdrive URLs
-retain default transport. The helper and its no-TCP isolation are unchanged. Better Auth
+bytes retain their existing meanings. In `socket` mode the disposable test encodes a NUL-prefixed
+full abstract socket address in the URL's `host` parameter; the adapter uses pg's declared
+`stream` configuration and a real Node socket for that address. Ordinary Hyperdrive URLs, and
+`loopback` mode's `127.0.0.1` URLs with their per-run password, retain default transport. Better Auth
 uses Kysely's built-in `PostgresDialect` with a separate request-owned pg `Pool` limited
 to one connection, destroyed in `finally`, and its own least-privilege session-storage role.
 Pool and borrowed-client errors refuse authentication, including errors observed while
@@ -770,15 +800,19 @@ lifecycle stops and removes its unique resources. Ordinary /tmp and long-TMPDIR 
 ## Native Workers fixture transport
 
 Only the active fixture returned by `withDisposableDatabase` exposes `withLoopbackTransport`.
-Its closure captures that exact freshly owned abstract PostgreSQL socket; it accepts no discovered
-host/database target. The native test's temporary loopback TCP bridge binds only `127.0.0.1` on
-an allocated port and pipes PostgreSQL wire bytes unchanged, with at most sixteen connections and
-35-second idle limits (longer than the owner's 30-second kernel bound). It synthesizes no queries,
-results, credentials or authority. A synthetic local URL password satisfies Miniflare's Hyperdrive
-configuration; the underlying disposable Unix socket retains its existing trust policy. No
-PostgreSQL TCP listener is enabled. All bridge sockets close before the server and the owned
-database shuts down, including callback failure.
-The default helper's no-TCP isolation and ordinary/long-TMPDIR lifecycle probes remain unchanged.
+In `socket` mode its closure captures that exact freshly owned abstract PostgreSQL socket; it
+accepts no discovered host/database target, and the bridge refuses any address but an owned
+`\0clockgrove-` abstract one. The native test's temporary loopback TCP bridge binds only
+`127.0.0.1` on an allocated port and pipes PostgreSQL wire bytes unchanged, with at most sixteen
+connections and 35-second idle limits (longer than the owner's 30-second kernel bound). It
+synthesizes no queries, results, credentials or authority. A synthetic local URL password
+satisfies Miniflare's Hyperdrive configuration; the underlying disposable Unix socket retains its
+existing trust policy. No PostgreSQL TCP listener is enabled. All bridge sockets close before the
+server and the owned database shuts down, including callback failure.
+In `loopback` mode there is no bridge: `withLoopbackTransport` hands the callback PostgreSQL's own
+`127.0.0.1` port, and the native harness puts the run's password in its URLs. PostgreSQL's
+`max_connections`, not the bridge's sixteen, then bounds connections, and the bridge-closure
+probes in `native.postgres.test.ts` apply to `socket` mode only.
 Native recovery compares all world, authentication and Management tables without changing the
 existing portable backup/restore receipt format or rebuilding that delivered capability.
 

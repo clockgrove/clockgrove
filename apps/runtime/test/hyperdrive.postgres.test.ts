@@ -172,7 +172,8 @@ describe("Hyperdrive PostgreSQL adapter", () => {
       );
       expect(terminated).toBe("t\n");
       // An operation-owned client that confirms, as authentication reads do, refuses the same
-      // ordering after its last query.
+      // ordering after its last query. Over loopback TCP Node reads the server's termination
+      // (57P01) before the socket closes, so the refusal keeps that SQLSTATE.
       await expect(
         withHyperdrivePostgreSqlClient(
           connection("clockgrove_world_reader"),
@@ -182,7 +183,10 @@ describe("Hyperdrive PostgreSQL adapter", () => {
           },
           { confirm: true },
         ),
-      ).rejects.toMatchObject({ message: "PostgreSQL connection failed", code: "08006" });
+      ).rejects.toMatchObject({
+        message: "PostgreSQL connection failed",
+        code: environment.PGPASSWORD === undefined ? "08006" : "57P01",
+      });
       expect(terminated).toBe("t\n");
       const principal = decodeOpaqueId("principal-runtime", "PrincipalId");
       const scope = {
@@ -206,7 +210,10 @@ describe("Hyperdrive PostgreSQL adapter", () => {
       afterCommit.mockRestore();
       expect(terminated).toBe("t\n");
       const outage = new URL(env.AUTH_DATABASE_URL!);
-      outage.searchParams.set("host", "\0clockgrove-nonexistent-owned-test-socket");
+      // An endpoint nothing listens on: a missing abstract socket, or loopback port 1.
+      if (outage.searchParams.has("host"))
+        outage.searchParams.set("host", "\0clockgrove-nonexistent-owned-test-socket");
+      else outage.port = "1";
       const unavailable = composeRuntime({ ...env, AUTH_DATABASE_URL: outage.toString() });
       expect(
         (

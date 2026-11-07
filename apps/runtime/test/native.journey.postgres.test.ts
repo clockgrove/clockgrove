@@ -56,7 +56,7 @@ describe("native Durable Object PostgreSQL recovery journey", () => {
             const fixtureSecret = "local-reader-verification".repeat(2);
             const connection = (role: string) => {
               const url = new URL(`postgres://${role}@127.0.0.1:${port}/clockgrove`);
-              url.password = fixturePassword;
+              url.password = inherited.environment.PGPASSWORD ?? fixturePassword;
               return url.toString();
             };
             const start = () => {

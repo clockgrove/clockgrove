@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { createConnection } from "node:net";
+import { createConnection, type NetConnectOpts } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ interface Fixture {
   tools: { psql: string; postgres: string };
   environment: Record<string, string>;
   temporaryRoot: string;
+  transport: "socket" | "loopback";
   withLoopbackTransport<T>(operation: (port: number) => Promise<T>): Promise<T>;
 }
 
@@ -107,6 +108,8 @@ describe("native Durable Object PostgreSQL recovery ownership", () => {
             expect(result.error, result.stderr).toBeUndefined();
             expect(result.status, result.stderr).toBe(0);
           });
+          // Loopback mode connects to PostgreSQL's own listener: there is no bridge to close.
+          if (fixture.transport === "loopback") return;
           await expectPortClosed(port);
           const failure = new Error("deliberate native bridge cleanup probe");
           await expect(
@@ -123,11 +126,16 @@ describe("native Durable Object PostgreSQL recovery ownership", () => {
         // A real stalled server query fails the callback, then stops the database
         // before removing its owned directory. Killing only psql is insufficient.
         let stalledRoot = "";
-        let stalledSocket = "";
+        let stalledSocket: NetConnectOpts = { path: "" };
         await expect(
-          withDisposableDatabase(async (fixture: Fixture & { socketDirectory: string }) => {
+          withDisposableDatabase(async (fixture: Fixture & { socketDirectory?: string }) => {
             stalledRoot = fixture.temporaryRoot;
-            stalledSocket = `\0${fixture.socketDirectory.slice(1)}/.s.PGSQL.${fixture.environment.PGPORT}`;
+            stalledSocket =
+              fixture.socketDirectory === undefined
+                ? { host: "127.0.0.1", port: Number(fixture.environment.PGPORT) }
+                : {
+                    path: `\0${fixture.socketDirectory.slice(1)}/.s.PGSQL.${fixture.environment.PGPORT}`,
+                  };
             await psqlQuery(fixture.tools, fixture.environment, "SELECT pg_sleep(60)", {
               timeoutMs: 200,
             });

@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   assertSupportedPgvectorVersion,
+  databaseTransport,
   psqlQuery,
   withDisposableDatabase,
 } from "../../scripts/database/lib.mjs";
@@ -17,6 +18,20 @@ export async function testDisposableDatabaseLifecycle() {
       assertStrict.throws(() => assertSupportedPgvectorVersion(version, source), /0\.8\.7/u);
     }
   }
+  assert(databaseTransport({}) === "socket", "socket is not the default transport");
+  assert(
+    databaseTransport({ FACTORY_LOCAL: "1" }) === "loopback",
+    "Factory local mode not loopback",
+  );
+  assert(
+    databaseTransport({ FACTORY_LOCAL: "1", CLOCKGROVE_TEST_DB_TRANSPORT: "socket" }) === "socket",
+    "the explicit transport did not win",
+  );
+  assertStrict.throws(
+    () => databaseTransport({ CLOCKGROVE_TEST_DB_TRANSPORT: "tcp" }),
+    /CLOCKGROVE_TEST_DB_TRANSPORT/u,
+  );
+  const transport = databaseTransport();
   const originalTmpdir = process.env.TMPDIR;
   // The supplied temporary root, not a fixed /tmp: sandboxes may provide only TMPDIR.
   const temporaryBase = tmpdir();
@@ -54,10 +69,20 @@ export async function testDisposableDatabaseLifecycle() {
       "long-TMPDIR cluster did not exercise a path longer than the Unix-socket limit",
     );
     assert(
-      resources[0].socketDirectory !== resources[1].socketDirectory,
-      "database sockets were reused",
+      resources[0].port !== resources[1].port ||
+        resources[0].socketDirectory !== resources[1].socketDirectory,
+      "database endpoints were reused",
     );
     for (const resource of resources) {
+      assert(resource.transport === transport, "fixture used another transport");
+      if (transport === "loopback") {
+        assert(
+          resource.socketDirectory === undefined && resource.host === "127.0.0.1",
+          "loopback database exposed a Unix socket or a non-loopback host",
+        );
+        assert(resource.password, "loopback database had no per-run password");
+        continue;
+      }
       assert(
         resource.socketDirectory.startsWith("@clockgrove-"),
         "database socket was not abstract",
@@ -75,7 +100,8 @@ export async function testDisposableDatabaseLifecycle() {
 }
 
 async function probeLifecycle(resources, failure) {
-  await withDisposableDatabase(async ({ environment, socketDirectory, temporaryRoot, tools }) => {
+  await withDisposableDatabase(async (fixture) => {
+    const { environment, socketDirectory, temporaryRoot, tools, transport } = fixture;
     const result = await psqlQuery(
       tools,
       environment,
@@ -87,6 +113,9 @@ async function probeLifecycle(resources, failure) {
     );
     resources.push({
       port: environment.PGPORT,
+      host: environment.PGHOST,
+      password: environment.PGPASSWORD !== undefined,
+      transport,
       socketDirectory,
       temporaryRoot,
     });

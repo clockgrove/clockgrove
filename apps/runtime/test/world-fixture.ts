@@ -75,6 +75,13 @@ export function connectionString(
   database = "clockgrove",
   role = "clockgrove_runtime",
 ): string {
+  // Loopback mode (scripts/database/lib.mjs) listens on 127.0.0.1 with the run's password.
+  if (environment.PGPASSWORD !== undefined) {
+    const url = new URL(`postgres://${role}@127.0.0.1:${environment.PGPORT}/${database}`);
+    url.password = environment.PGPASSWORD;
+    url.searchParams.set("sslmode", "disable");
+    return url.toString();
+  }
   const url = new URL(`postgres://${role}@localhost/${database}`);
   url.searchParams.set("host", `\0${environment.PGHOST!.slice(1)}/.s.PGSQL.${environment.PGPORT}`);
   return url.toString();

@@ -305,7 +305,7 @@ export async function withNativeWorldOwner(
   let provisioningLaunchDisabled = false;
   const connection = (role: string) => {
     const url = new URL(`postgres://${role}@127.0.0.1:${fixture.port}/clockgrove`);
-    url.password = ["local", "fixture"].join("-");
+    url.password = fixture.environment.PGPASSWORD ?? ["local", "fixture"].join("-");
     return url.toString();
   };
   const logs: string[] = [];
