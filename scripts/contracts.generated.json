@@ -19,6 +19,7 @@
     "scene-interactions.ts": "3b7308f11a5801ef3631f42b6eb85a71f2a58fcbb6be182476e855fb6f893ad6",
     "scene-protocol.ts": "c5118235b9fe37a7b2bd31a8517867c2de4770959989b159aa9a8e8967198476",
     "trusted.ts": "38f849d80ab17c736df5e93dddd309d0e81261a84307825c72cd928208b73eaa",
+    "turn-fibers.ts": "94345be3a6050acef76344763b2cb3b3d0497bd11bca1a0e543b124f8d9b09e4",
     "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1"
   }
 }

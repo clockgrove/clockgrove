@@ -36,6 +36,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
+  PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
   PostgreSqlCatchUpWorkflowStore,
   type PostgreSqlClient,
@@ -313,6 +314,16 @@ export function composeConversations(
   };
 }
 
+/** `ActorProcess` state over this invocation's connection (migration 0037). */
+export function withActorProcesses<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (processes: PostgreSqlActorProcesses) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    operation(new PostgreSqlActorProcesses(client)),
+  );
+}
+
 /** Talk turns run in the session actor's `ActorAgentDO`, over Workers RPC. */
 export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO">): TurnOwners {
   const owner = async (scope: BrowserScope, actorId: string) =>
@@ -323,7 +334,13 @@ export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO"
     );
   return {
     talk: async (actorId, participant, context, request) =>
-      (await owner(request.scope, actorId)).talk(request.scope, context, participant, actorId, request),
+      (await owner(request.scope, actorId)).talk(
+        request.scope,
+        context,
+        participant,
+        actorId,
+        request,
+      ),
     status: async (actorId, participant, context, request) =>
       (await owner(request.scope, actorId)).turnStatus(
         request.scope,

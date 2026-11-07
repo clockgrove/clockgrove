@@ -929,7 +929,8 @@ export class RuntimeWorker {
         if (refused !== undefined) return refused;
       }
       const participant = { ...context, personaId };
-      if (call.owner !== undefined) return await this.turn(request, note, call.scope, call.owner, participant, context);
+      if (call.owner !== undefined)
+        return await this.turn(request, note, call.scope, call.owner, participant, context);
       if (call.run === undefined) throw new Error("conversation call has no store operation");
       const run = call.run;
       const answer = await stores((store) => run(store, participant));

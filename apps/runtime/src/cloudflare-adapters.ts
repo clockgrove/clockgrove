@@ -1,11 +1,13 @@
 /// <reference path="./cloudflare-adapter-types.d.ts" />
 import { DurableObject, WorkflowEntrypoint } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { Agent, type FiberRecoveryContext } from "agents";
 import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
   type CatchUpWorkflowEnvelope,
+  type ConversationParticipant,
+  ConversationRefusedError,
+  type ConversationStore,
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
@@ -18,18 +20,17 @@ import {
   type RuntimeLogger,
   recordMetric,
   runtimeLogRecord,
+  type TurnFiber,
   type WorldCommandResult,
   WorldGenesisDefectError,
   type WorldProvisioningPorts,
   WorldProvisioningRefusedError,
   type WorldProvisioningStore,
-  type ConversationParticipant,
-  ConversationRefusedError,
-  type ConversationStore,
-  type TurnFiber,
 } from "@clockgrove/application";
 import {
+  type ActorProcess,
   ContractDecodeError,
+  decodeOpaqueId,
   decodeSceneConnectionAttachment,
   encodeOperatorSceneMessage,
   encodeSceneConnectionControl,
@@ -39,8 +40,6 @@ import {
   type SceneConnectionAttachment,
   type SceneDisconnectReason,
   type SubjectId,
-  type ActorProcess,
-  decodeOpaqueId,
   type TalkRequest,
   type TalkStreamFrame,
   type TurnRequest,
@@ -52,11 +51,11 @@ import {
 } from "@clockgrove/contracts/trusted";
 import {
   type PostgreSqlClient,
-  PostgreSqlActorProcesses,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
+import { Agent, type FiberRecoveryContext } from "agents";
 
 import {
   type ActorAgentRecovery,
@@ -71,6 +70,7 @@ import {
   reconcileWorldCatchUp,
   reconcileWorldProvisioning,
   runtimeLogger,
+  withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
   worldReactionNotifier,
@@ -83,7 +83,6 @@ import {
   scriptedConversationReply,
   type TurnOwnerAnswer,
 } from "./conversations.js";
-import { withHyperdrivePostgreSqlClient } from "./hyperdrive-postgres.js";
 import { INSPECT_GRANT, OBSERVE_GRANT, type OwnerRuntimeState } from "./inspector.js";
 import type { RuntimeLocalStorage } from "./local-storage.js";
 import {
@@ -1240,7 +1239,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     await this.receivePerception({ kind: "direct_message", ...request });
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
-    const write = (frame: TalkStreamFrame) => void writer.write(encodeTalkFrame(frame)).catch(() => undefined);
+    const write = (frame: TalkStreamFrame) =>
+      void writer.write(encodeTalkFrame(frame)).catch(() => undefined);
     const done = this.fibers(scope, actorId)
       .talk(participant, request, write)
       .then(async (outcome) => {
@@ -1298,8 +1298,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
    * The perception inbox: whether the activation is new to this owner. A duplicate is not admitted
    * again; the turn's key in PostgreSQL still decides, so a forgotten key is harmless.
    */
-  async receivePerception(activation: DirectMessageActivation): Promise<{ readonly admitted: boolean }> {
-    this.inbox ??= new PerceptionInbox((await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? []);
+  async receivePerception(
+    activation: DirectMessageActivation,
+  ): Promise<{ readonly admitted: boolean }> {
+    this.inbox ??= new PerceptionInbox(
+      (await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? [],
+    );
     const admitted = this.inbox.admit(activation);
     if (admitted) await this.objectState.storage.put(INBOX_KEY, this.inbox.snapshot());
     return { admitted };
@@ -1322,7 +1326,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     readonly inbox: readonly string[];
     readonly running: number;
   }> {
-    this.inbox ??= new PerceptionInbox((await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? []);
+    this.inbox ??= new PerceptionInbox(
+      (await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? [],
+    );
     return {
       recovery: await this.loadRecovery(),
       inbox: this.inbox.snapshot(),
@@ -1337,12 +1343,16 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   async advanceProcess(
     scope: RuntimeScope,
     context: TrustedExecutionContext,
-    input: { readonly processId: string; readonly actorId: string; readonly target: number; readonly steps: number },
+    input: {
+      readonly processId: string;
+      readonly actorId: string;
+      readonly target: number;
+      readonly steps: number;
+    },
   ): Promise<ActorProcess> {
     assertWorldCommandContext(context, scope);
     const authorization = worldAuthorization(context);
-    return withHyperdrivePostgreSqlClient(this.environment.HYPERDRIVE?.connectionString ?? "", async (client) => {
-      const processes = new PostgreSqlActorProcesses(client);
+    return withActorProcesses(this.environment, async (processes) => {
       await processes.start(authorization, scope, input);
       const lease = await processes.claim(authorization, input.processId, this.instanceId);
       if (lease !== undefined) {

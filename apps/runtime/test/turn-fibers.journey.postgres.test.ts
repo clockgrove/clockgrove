@@ -47,7 +47,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         const response = await fetch(new URL("/actor-agent", await owner.origin()), {
           method: "POST",
           headers: { authorization: `Bearer ${MEMBER}`, "x-correlation-id": "native-turns" },
-          body: JSON.stringify({ version: 1, ...owner.scope, scope: owner.scope, actorId: STEVIE, ...fields }),
+          body: JSON.stringify({
+            version: 1,
+            ...owner.scope,
+            scope: owner.scope,
+            actorId: STEVIE,
+            ...fields,
+          }),
         });
         const text = await response.text();
         if (response.status !== 200) throw new Error(text);
@@ -106,9 +112,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           `SELECT string_agg(message_id || '/' || role, ',' ORDER BY sequence)
              FROM clockgrove.conversation_messages WHERE session_id = '${crashed}'`,
         ),
-      ).toBe(
-        BOUNDARIES.map((_, i) => `m${i + 1}/caretaker,m${i + 1}:reply/actor`).join(","),
-      );
+      ).toBe(BOUNDARIES.map((_, i) => `m${i + 1}/caretaker,m${i + 1}:reply/actor`).join(","));
       // Abandoned attempts are recorded; a crash after the commit only finalizes.
       expect(
         await rows(
@@ -134,10 +138,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
 
       // Duplicate activations of one message coalesce into one turn, one run and one inbox entry.
       const duplicated = await open();
-      const [first, second] = await Promise.all([
-        talk(duplicated, "d1"),
-        talk(duplicated, "d1"),
-      ]);
+      const [first, second] = await Promise.all([talk(duplicated, "d1"), talk(duplicated, "d1")]);
       expect([first.status, second.status]).toEqual([200, 200]);
       expect(second.body).toEqual(first.body);
       expect(await agent({ op: "perception", sessionId: duplicated, messageId: "d1" })).toEqual({
@@ -165,7 +166,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect([left.status, right.status]).toEqual([200, 200]);
       // The participant's next call to the owner resumes the open turn from PostgreSQL.
       await expect
-        .poll(async () => (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o1" })).body)
+        .poll(
+          async () =>
+            (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o1" })).body,
+        )
         .toMatchObject({ phase: "completed", attempt: 2 });
       expect((await talk(ordered, "o2")).status).toBe(200);
 
@@ -174,9 +178,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await agent({ op: "fault", phase: "hold:proposal_validating" });
       const held = talk(cancelled, "x1");
       await expect
-        .poll(async () => (await post("/v1/runtime/turns/status", { sessionId: cancelled, messageId: "x1" })).body)
+        .poll(
+          async () =>
+            (await post("/v1/runtime/turns/status", { sessionId: cancelled, messageId: "x1" }))
+              .body,
+        )
         .toMatchObject({ phase: "proposal_validating" });
-      expect(await post("/v1/runtime/turns/cancel", { sessionId: cancelled, messageId: "x1" })).toEqual({
+      expect(
+        await post("/v1/runtime/turns/cancel", { sessionId: cancelled, messageId: "x1" }),
+      ).toEqual({
         status: 200,
         body: {
           sessionId: cancelled,
@@ -189,13 +199,16 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await agent({ op: "fault", phase: null });
       await agent({ op: "release" });
       expect(await held).toEqual({ status: 409, body: { error: "turn_cancelled" } });
-      expect(await talk(cancelled, "x1")).toEqual({ status: 409, body: { error: "turn_cancelled" } });
+      expect(await talk(cancelled, "x1")).toEqual({
+        status: 409,
+        body: { error: "turn_cancelled" },
+      });
       expect(
         (await post("/v1/runtime/turns/cancel", { sessionId: ordered, messageId: "o1" })).body,
       ).toMatchObject({ phase: "completed" });
-      expect(await post("/v1/runtime/turns/status", { sessionId: cancelled, messageId: "nope" })).toEqual(
-        { status: 404, body: { error: "turn_not_found" } },
-      );
+      expect(
+        await post("/v1/runtime/turns/status", { sessionId: cancelled, messageId: "nope" }),
+      ).toEqual({ status: 404, body: { error: "turn_not_found" } });
       expect(
         await rows(
           `SELECT string_agg(status || '/' || outcome_code, ',') FROM clockgrove.agent_runs
@@ -209,12 +222,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect((await talk(lost, "l1")).status).toBe(503);
       await owner.replace(true);
       await expect
-        .poll(async () => (await post("/v1/runtime/turns/status", { sessionId: lost, messageId: "l1" })).body)
+        .poll(
+          async () =>
+            (await post("/v1/runtime/turns/status", { sessionId: lost, messageId: "l1" })).body,
+        )
         .toMatchObject({ phase: "completed", attempt: 2 });
 
       // The capability revision hook only moves forward; the next claim records it.
-      expect(await agent({ op: "capabilities", revision: 3 })).toMatchObject({ capabilityRevision: 3 });
-      expect(await agent({ op: "capabilities", revision: 2 })).toMatchObject({ capabilityRevision: 3 });
+      expect(await agent({ op: "capabilities", revision: 3 })).toMatchObject({
+        capabilityRevision: 3,
+      });
+      expect(await agent({ op: "capabilities", revision: 2 })).toMatchObject({
+        capabilityRevision: 3,
+      });
       const revised = await open();
       expect((await talk(revised, "r1")).status).toBe(200);
       expect(

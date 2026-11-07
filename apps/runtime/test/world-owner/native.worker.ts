@@ -30,9 +30,9 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
-  ActorAgentDO as ProductionActorAgentDO,
   type BirthWorkflowStepConfig,
   type DurableObjectState,
+  ActorAgentDO as ProductionActorAgentDO,
   SpaceDO as ProductionSpaceDO,
   WorldCatchUpWorkflow as ProductionWorldCatchUpWorkflow,
   WorldDO as ProductionWorldDO,
@@ -221,10 +221,7 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   async releaseTurn(): Promise<void> {
     this.held?.();
   }
-  protected override async turnCheckpointed(
-    fiber: TurnFiber,
-    phase: string,
-  ): Promise<void> {
+  protected override async turnCheckpointed(fiber: TurnFiber, phase: string): Promise<void> {
     const storage = this.objectState.storage;
     const fault = await storage.get<string | null>("test-turn-fault");
     if (fault === `hold:${phase}`) {
@@ -976,7 +973,8 @@ export default {
           ]),
         ),
       );
-      if (body.op === "fault") return Response.json(await actor.injectTurnFault(body.phase as string | null) ?? null);
+      if (body.op === "fault")
+        return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "capabilities")

@@ -300,16 +300,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         found.map((run) => `${run.inputMessageId}:${run.status}`).sort(),
         JSON.stringify(search.body).includes("acorns") ||
           JSON.stringify(search.body).includes("artifactId"),
-      ]).toEqual([
-        200,
-        [
-          "m1:completed",
-          "m2:completed",
-          "m3:completed",
-          "m3:running",
-        ],
-        false,
-      ]);
+      ]).toEqual([200, ["m1:completed", "m2:completed", "m3:completed", "m3:running"], false]);
 
       // An unknown entry is not found. Every access is audited.
       expect(await post("/v1/runtime/runs/inspect", { runId: "run-unknown" }, INSPECTOR)).toEqual({

@@ -49,7 +49,10 @@ export class PostgreSqlActorProcesses {
     authorization: RuntimeAuthorizationContext,
     processId: string,
     holder: string,
-  ): Promise<{ readonly leaseEpoch: number; readonly checkpoint: number; readonly target: number } | undefined> {
+  ): Promise<
+    | { readonly leaseEpoch: number; readonly checkpoint: number; readonly target: number }
+    | undefined
+  > {
     return this.transaction(authorization, async () => {
       const claimed = await this.client.query(
         `UPDATE clockgrove.actor_processes

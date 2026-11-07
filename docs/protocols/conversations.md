@@ -45,20 +45,24 @@ exercises this.
   session's voice mode.
 - A **turn** joins one input message to its answer. The scripted model fixture
   (`scripted-fixture-v1`) answers in the same request, deterministically and only from its own
-  session: "you have said N things to me in this conversation". RW-0503 and RW-0504 replace it with
-  recoverable turn fibers and the ModelGateway.
+  session: "you have said N things to me in this conversation". Each turn is a recoverable fiber
+  in the actor's runtime owner ([recoverable turn fibers](conversation-fibers.md)); RW-0504
+  replaces the fixture with the ModelGateway.
 - Every Talk attempt that reaches the model is one **run** with its steps and one terminal
   disposition, including retried and abandoned attempts. See [run and step evidence](runs.md).
 
 ## Talk and Say
 
-`/v1/runtime/talk` (`sessionId`, `messageId`, `text`) appends the Caretaker message and the actor's
-answer to an active session in one transaction, and returns a `private_caretaker_talk` receipt
-holding the session, both messages and the turn. Nothing reaches the scene, the scene stream or the
-journal. The message ID is an idempotency key, and the answer's ID is the message ID followed by
-`:reply`, so a client message ID ending in `:reply` is refused as a bad request: an exact retry answers the stored message, reply and
-turn, and other text under the same ID answers `409 message_id_reused`. A concurrent message that
-won the session's next sequence answers `409 conversation_busy`.
+`/v1/runtime/talk` (`sessionId`, `messageId`, `text`) accepts the Caretaker message as a turn of
+the session's actor owner, and answers once the message and the actor's answer are appended to the
+active session together. It returns a `private_caretaker_talk` receipt holding the session, both
+messages and the turn. Nothing reaches the scene, the scene stream or the journal. The message ID is
+the turn's key, and the answer's ID is the message ID followed by `:reply`, so a client message ID
+ending in `:reply` is refused as a bad request. A retry or duplicate delivery of the same message
+joins, resumes or answers the same turn and never adds a message; other text under the same ID
+answers `409 message_id_reused`. While another turn of the session is open, a new message answers
+`409 conversation_busy`. Talk can stream its reply, and a turn can be read and cancelled: see
+[recoverable turn fibers](conversation-fibers.md).
 
 `/v1/runtime/say` (`actorId`, `messageId`, `text`) returns a `public_say` receipt. Its
 `PublicSpeech` has the actor speak a fixed scripted line, never the caller's words, attributed to

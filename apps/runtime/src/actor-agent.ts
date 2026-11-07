@@ -1,7 +1,7 @@
 import {
   type ConversationParticipant,
-  type ConversationResponder,
   ConversationRefusedError,
+  type ConversationResponder,
   type ConversationStore,
   type TurnFiber,
 } from "@clockgrove/application";
@@ -52,7 +52,11 @@ export interface TurnFiberHost {
    */
   checkpointed(fiber: TurnFiber, phase: string): Promise<void>;
   /** Runs the fiber under the platform's keep-alive and interrupted-work recovery. */
-  durable<T>(fiber: TurnFiber, participant: ConversationParticipant, run: () => Promise<T>): Promise<T>;
+  durable<T>(
+    fiber: TurnFiber,
+    participant: ConversationParticipant,
+    run: () => Promise<T>,
+  ): Promise<T>;
 }
 
 /**
