@@ -162,9 +162,7 @@ Issue 18 pins the Cloudflare Agents SDK for `ActorAgentDO`, as the implementatio
 Wave 5 plan §2 amendment require. [agents](https://registry.npmjs.org/agents) `0.33.0` was published
 at `2026-11-03T13:16:52.689Z`, past the unchanged 1440-minute cutoff on `2026-11-07`. It is the
 newest stable release and the exact selection in `apps/runtime/package.json`. Its closure has no
-install lifecycle scripts. `pnpm-workspace.yaml` removes its `postal-mime` dependency
-(`"agents@0.33.0>postal-mime": "-"`): that package is `MIT-0`, outside the license allowlist, and
-only the SDK's email channel, which the runtime never imports, uses it. Node-side Vitest configurations alias `agents` to the local fake, because
+install lifecycle scripts. Node-side Vitest configurations alias `agents` to the local fake, because
 only workerd runs the owner.
 
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
