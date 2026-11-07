@@ -1,0 +1,73 @@
+name: Wave 4 qualification
+
+# Manual dispatch only; never a required check, and nothing releases or deploys after it. It runs
+# pnpm run qualify:wave4 on the dispatched ref and retains the Wave 4 manifest with all its evidence:
+# the suite logs, the 21 §15.3 golden captures with captures.json, the axe report, Web Vitals and
+# the fanout load. Capture hashes depend on the renderer and the machine, so the captures a person
+# reviews, and the hashes tests/visual/approved-captures.json pins, come from this one runner class.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: qualify-wave4-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-wave4:
+    # Dispatch needs write access, so this always uses QUALITY_RUNNER when it is set.
+    runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+    # Decision: the eight suites each stop at 15 minutes (SUITE_TIMEOUT_MS in
+    # scripts/ci/qualify-wave4.mjs), 120 at worst, plus setup.
+    timeout-minutes: 150
+    steps:
+      - name: Record runner facts
+        env:
+          RUNNER_LABEL: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}
+          RUNNER_NAME: ${{ runner.name }}
+        run: printf 'runner=%s label=%s cpus=%s memory=%s\n' "$RUNNER_NAME" "$RUNNER_LABEL" "$(nproc)" "$(free -b | awk '/^Mem:/ {print $2}')"
+
+      # LFS content, so the asset-tree digest and the scenes match a developer checkout. The manifest
+      # reads only HEAD and the working tree, so no history is fetched.
+      - name: Check out candidate with Git LFS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up pinned toolchain
+        uses: ./.github/actions/toolchain
+
+      - name: Install the locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install pinned real browser
+        run: scripts/ci/toolchain.sh browser
+
+      # Exits 0 whenever the manifest is written, whatever the exit decision; a non-zero exit means
+      # no manifest, and fails the job after the evidence is retained.
+      - name: Qualify Wave 4
+        run: pnpm run qualify:wave4 --out "$RUNNER_TEMP/qualify-wave4"
+
+      - name: Summarise the exit decision
+        if: ${{ always() && !cancelled() }}
+        run: |
+          manifest="$RUNNER_TEMP/qualify-wave4/wave4-manifest.json"
+          if [ -f "$manifest" ]; then
+            jq -r '"exit decision: \(.exitDecision.status)", (.exitDecision.blockers[]? | "- blocker: \(tostring)")' "$manifest" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'no Wave 4 manifest was written' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Decision: 90 days, as Qualification's evidence, so a golden review and its approval commit can
+      # still be checked against the exact images after the review has taken a while.
+      - name: Retain the Wave 4 manifest and evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualify-wave4-${{ github.sha }}
+          path: ${{ runner.temp }}/qualify-wave4
+          if-no-files-found: error
+          retention-days: 90
