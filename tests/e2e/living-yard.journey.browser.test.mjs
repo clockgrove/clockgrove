@@ -632,7 +632,8 @@ it("observes native authorized socket updates and recovery in Chromium", async (
                 if (child.type === "Text") texts.push(child.text);
             return texts;
           });
-        // Named emphasis the renderer draws: rings as x, y, radius, line width; labels with style.
+        // Named emphasis the renderer draws: ellipses as x, y, width, height, line width; labels as
+        // text, x, y; the pill as its fill colour and alpha under the label.
         const emphasis = () =>
           page.evaluate(() => {
             const drawn = {};
@@ -641,14 +642,22 @@ it("observes native authorized socket updates and recovery in Chromium", async (
                 if (child.name)
                   (drawn[child.name] ??= []).push(
                     child.type === "Text"
-                      ? [child.text, child.x, child.y, child.style.fontStyle]
-                      : [child.x, child.y, child.radius, child.lineWidth],
+                      ? [child.text, child.x, child.y]
+                      : child.type === "Graphics"
+                        ? [child.commandBuffer[1], child.commandBuffer[2], child.depth % 10_000]
+                        : [child.x, child.y, child.width, child.height, child.lineWidth],
                   );
             return drawn;
           });
         await page.getByLabel("Local session credential").fill("yard-inspect");
         const sockets = [];
         const received = [];
+        // The world-status answers the browser received, newest last.
+        const statuses = [];
+        page.on("response", (response) => {
+          if (response.url().endsWith("/v1/runtime/world-status") && response.ok())
+            statuses.push(response.json());
+        });
         const sent = [];
         page.on("websocket", (socket) => {
           // A Refresh reload also opens Vite's HMR socket; only scene sockets are observed.
@@ -829,15 +838,21 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         );
         const pointerPosition = canvasPoint("grove.water-bowl");
         const water = worldPoint("grove.water-bowl");
-        // Only the selected entity is ringed and named in bold above its sprite: a bound sprite's
-        // label clears its reviewed anchor height (assets/reviewed), a placeholder's sits at 10 px.
+        // Only the selected entity gets a glowing sage ring at its feet and its name in a dark pill
+        // centred above its sprite: a bound sprite's pill clears its reviewed anchor height
+        // (assets/reviewed), a placeholder's sits 10 px above its feet.
         const { animations: strips } = JSON.parse(
           await readFile(path.join(root, "assets/reviewed/raccoon-world.animations.json"), "utf8"),
         );
         const gracieHeight = strips.find((strip) => strip.assetId === "gracie").anchor.y;
         const ringed = ({ x, y }, label, height = 0) => ({
-          "selection-ring": [[x, y, 13, 3]],
-          "selection-label": [[label, x + 12, y - height - 10, "bold"]],
+          "selection-glow": [
+            [x, y, 48, 24, 10],
+            [x, y, 40, 20, 6],
+          ],
+          "selection-ring": [[x, y, 32, 16, 3]],
+          "selection-pill": [[0x1e2116, 0.92, 1]],
+          "selection-label": [[label, x, y - height - 10]],
         });
         const pointerResponse = page.waitForResponse(
           (response) => response.url().endsWith("/v1/runtime/entity") && response.status() === 200,
@@ -912,10 +927,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           .getByText("Your world membership does not allow influencing the world.")
           .waitFor();
         await page.unroute("**/v1/runtime/entity");
-        // The pointer still rests on the picked sprite: a thin hover ring inside the selection ring.
+        // The pointer still rests on the picked sprite: a 1 px hover ring, lighter than the selection.
         await expect.poll(emphasis).toEqual({
           ...ringed(water, "grove.water-bowl"),
-          "hover-affordance": [[water.x, water.y, 11, 1]],
+          "hover-affordance": [[water.x, water.y, 24, 12, 1]],
         });
         await page.locator("canvas").hover({ position: { x: 5, y: 5 } });
         await expect.poll(emphasis).toEqual(ringed(water, "grove.water-bowl"));
@@ -991,7 +1006,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         // Keyboard focus draws its own thin outer ring on the focused entity, apart from the selection.
         await expect.poll(emphasis).toEqual({
           ...ringed(worldPoint("grove.gracie"), "grove.gracie", gracieHeight),
-          "focus-affordance": [[water.x, water.y, 17, 1]],
+          "focus-affordance": [[water.x, water.y, 40, 20, 1]],
         });
         await page.keyboard.press("Enter");
         await expect.poll(() => panel.textContent()).toBe(pointerText);
@@ -1150,10 +1165,40 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await expect
           .poll(() => feed.locator("time").allTextContents())
           .toEqual(materialTimes.map(face));
-        // Choosing an event that concerns an entity selects it in the scene and the rail.
-        const feedEntity = feed.locator("button.rw-feed-item").first();
-        const feedLabel = (await feedEntity.textContent())?.match(/^\S+ (\S+):/u)?.[1];
-        await feedEntity.click();
+        // Each row is a round icon named for its category, or the actor's portrait named for the
+        // actor, the sentence the world-status read generated from the event, and the world time.
+        const iconNames = {
+          weather: "Weather",
+          growth: "Ecology",
+          resource: "Ecology",
+          wellbeing: "Wellbeing",
+          portal: "Portal",
+        };
+        expect(
+          await feed
+            .locator("button.rw-feed-item")
+            .evaluateAll((rows) =>
+              rows.map((row) =>
+                ["[role=img]", ".rw-feed-text", "time"].map((part, index) =>
+                  index === 0
+                    ? row.querySelector(part).getAttribute("aria-label")
+                    : row.querySelector(part).textContent,
+                ),
+              ),
+            ),
+        ).toEqual(
+          (await statuses.at(-1)).feed.map((item) => [
+            iconNames[item.category] ?? item.objectId,
+            item.text,
+            face(item.simTimeMs),
+          ]),
+        );
+        // Choosing an actor's event from the keyboard selects it in the scene and the rail, rings
+        // and names it on the canvas, and opens the event's Recorded Why; closing it refocuses the row.
+        const feedEntity = feed.locator('button.rw-feed-item:has([data-icon="portrait"])').first();
+        const feedLabel = await feedEntity.getByRole("img").getAttribute("aria-label");
+        const feedEvent = await feedEntity.getAttribute("data-event-id");
+        await feedEntity.press("Enter");
         expect(
           await scene
             .getByRole("button", { name: feedLabel, exact: true })
@@ -1168,6 +1213,19 @@ it("observes native authorized socket updates and recovery in Chromium", async (
               .textContent(),
           )
           .toBe(feedLabel);
+        await expect
+          .poll(async () => {
+            const drawn = await emphasis();
+            return ["selection-ring", "selection-pill", "selection-label"].map(
+              (name) => drawn[name]?.length,
+            );
+          })
+          .toEqual([1, 1, 1]);
+        expect((await emphasis())["selection-label"][0][0]).toBe(feedLabel);
+        const rowWhy = page.getByRole("region", { name: "Recorded Why", exact: true });
+        await rowWhy.getByText(`Started from event ${feedEvent}`, { exact: true }).waitFor();
+        await rowWhy.getByRole("button", { name: "Close Why", exact: true }).click();
+        expect(await feedEntity.evaluate((row) => row === document.activeElement)).toBe(true);
         // §4.1 hierarchy at desktop, §4.4 sheets below the breakpoint, and no axe violations.
         await page.addScriptTag({ path: require.resolve("axe-core/axe.min.js") });
         const box = async (selector) => {
@@ -1742,9 +1800,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         // An event of a command with retained routine decisions opens the same command's Why from the feed.
         const openFeed = feed.getByRole("button", { name: "Open event feed", exact: true });
         if (await openFeed.isVisible()) await openFeed.click();
-        await feed
-          .getByRole("button", { name: "Trace event browser-why-original:event:28", exact: true })
-          .click();
+        await feed.locator('[data-event-id="browser-why-original:event:28"]').click();
         const eventWhy = page.getByRole("region", { name: "Recorded Why", exact: true });
         await eventWhy
           .getByRole("heading", { name: "Recorded Why: browser-why-original", exact: true })
