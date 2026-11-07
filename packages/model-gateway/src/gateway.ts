@@ -51,6 +51,14 @@ interface RouteResult {
 export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
   const now = options.now ?? Date.now;
   const aliases = new Map(options.aliases.map((alias) => [alias.alias, alias]));
+  // A missing adapter is a composition error: refuse it here, before any call reserves budget.
+  for (const alias of options.aliases) {
+    for (const route of alias.routes) {
+      if (options.adapters[route.provider] === undefined) {
+        throw new Error(`no adapter for model provider: ${route.provider}`);
+      }
+    }
+  }
   const breakers = new Map<string, RouteBreaker>();
   const breaker = (route: ModelRoute) => {
     let found = breakers.get(route.id);
@@ -86,6 +94,18 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       attribution: request.attribution,
       requestSha256,
     };
+    if (inputTokenBound(request, jsonSchema) > alias.maxInputTokens) {
+      const record: ModelCallRecord = {
+        ...base,
+        decision: "input_refused",
+        attempts: [],
+        reservedMicrousd: 0,
+        costMicrousd: 0,
+        outputSha256: null,
+      };
+      await options.accounting.record(record);
+      return { status: "failed", code: "input_too_large", retryable: false, record };
+    }
     const scope = `${request.attribution.tenantId}/${request.attribution.worldId}`;
     const reservation = options.budget.reserve(scope, costCeilingMicrousd(alias));
     if (reservation === undefined) {
@@ -105,11 +125,18 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     for (const route of alias.routes) {
       const result = await attemptRoute(alias, route, request, signal, onText, jsonSchema);
       results.push(result);
-      if (!FALLBACK_ON.has(result.attempt.outcome)) break;
+      if (!fallsBack(result.attempt)) break;
     }
     const attempts = results.map((result) => result.attempt);
-    const costMicrousd = attempts.reduce((sum, attempt) => sum + (attempt.costMicrousd ?? 0), 0);
-    options.budget.settle(reservation, costMicrousd);
+    // A route that streamed text bills its tokens even when it ended without usage: its cost is
+    // unknown, so the whole reservation stays spent.
+    const costUnknown = attempts.some(
+      (attempt) => attempt.firstByteMs !== null && attempt.costMicrousd === null,
+    );
+    const costMicrousd = costUnknown
+      ? null
+      : attempts.reduce((sum, attempt) => sum + (attempt.costMicrousd ?? 0), 0);
+    options.budget.settle(reservation, costMicrousd ?? reservation.microusd);
     const last = results[results.length - 1] as RouteResult;
     let outcome = last.attempt.outcome;
     let value: unknown = last.text;
@@ -120,7 +147,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
     const record: ModelCallRecord = {
       ...base,
-      decision: FALLBACK_ON.has(outcome)
+      decision: fallsBack(last.attempt)
         ? "exhausted"
         : results.length === 1
           ? "primary"
@@ -160,6 +187,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       routeId: route.id,
       provider: route.provider,
       model: route.model,
+      responseModel: null,
       outcome,
       httpStatus: null,
       latencyMs: now() - started,
@@ -230,16 +258,17 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         }
       }
     } catch (error) {
+      const firstByteMs = firstByteAt === null ? null : firstByteAt - started;
       if (outer?.aborted) {
-        result = { attempt: attempt("cancelled"), text, retryable: true };
+        result = { attempt: attempt("cancelled", { firstByteMs }), text, retryable: true };
       } else if (error instanceof ProviderFailure) {
         result = {
-          attempt: attempt(error.kind, { httpStatus: error.httpStatus }),
+          attempt: attempt(error.kind, { httpStatus: error.httpStatus, firstByteMs }),
           text,
           retryable: error.retryable,
         };
       } else {
-        result = { attempt: attempt("unavailable"), text, retryable: false };
+        result = { attempt: attempt("unavailable", { firstByteMs }), text, retryable: false };
       }
     } finally {
       outer?.removeEventListener("abort", abortFromOuter);
@@ -266,6 +295,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
                     outputTokens * route.priceUsdPerMTok.output,
                 ),
           reportedCostUsd: finish?.reportedCostUsd ?? null,
+          responseModel: finish?.responseModel ?? null,
           finishReason: finish?.finishReason ?? null,
         }),
         text,
@@ -294,6 +324,32 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       };
     },
   };
+}
+
+/**
+ * Falls back only when the route sent no text: once text has streamed, a second route would
+ * duplicate it, whatever ended the first.
+ */
+function fallsBack(attempt: RouteAttempt): boolean {
+  return FALLBACK_ON.has(attempt.outcome) && attempt.firstByteMs === null;
+}
+
+/**
+ * An upper bound on the request's input tokens, checked before any reservation: one token is at
+ * least one UTF-8 byte, plus a margin for message framing.
+ */
+function inputTokenBound(
+  request: ModelRequest,
+  jsonSchema: Readonly<Record<string, unknown>> | undefined,
+): number {
+  const encoder = new TextEncoder();
+  const bytes = (text: string) => encoder.encode(text).length;
+  return (
+    bytes(request.system) +
+    request.messages.reduce((sum, message) => sum + bytes(message.text) + 8, 0) +
+    (jsonSchema === undefined ? 0 : bytes(JSON.stringify(jsonSchema))) +
+    16
+  );
 }
 
 function parseStructured<T>(text: string, schema: z.ZodType<T>) {

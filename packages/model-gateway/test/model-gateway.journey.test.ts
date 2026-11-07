@@ -15,6 +15,7 @@ import {
 type Behaviour =
   | { reply: string[]; input: number; output: number }
   | { stallAfter: string[] }
+  | { overloadAfter: string[] }
   | { status: number };
 const queues: Record<string, Behaviour[]> = { primary: [], fallback: [] };
 const received: { route: string; headers: IncomingHttpHeaders; body: string }[] = [];
@@ -55,7 +56,12 @@ beforeAll(async () => {
           },
         }),
       );
-      const chunks = "reply" in behaviour ? behaviour.reply : behaviour.stallAfter;
+      const chunks =
+        "reply" in behaviour
+          ? behaviour.reply
+          : "stallAfter" in behaviour
+            ? behaviour.stallAfter
+            : behaviour.overloadAfter;
       if (chunks.length > 0) {
         response.write(
           sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
@@ -65,6 +71,11 @@ beforeAll(async () => {
         response.write(
           sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }),
         );
+      }
+      if ("overloadAfter" in behaviour) {
+        const error = { type: "overloaded_error", message: "Overloaded" };
+        response.end(sse({ type: "error", error }));
+        return;
       }
       if (!("reply" in behaviour)) return; // stall with the response open
       response.write(sse({ type: "content_block_stop", index: 0 }));
@@ -94,7 +105,11 @@ const SECRETS: Record<string, string> = {
 const attribution = { tenantId: "tenant-a", worldId: "world-a", actorId: "stevie" };
 const ask = { system: "You are Stevie.", messages: [{ role: "user" as const, text: "Hi" }] };
 
-function localGateway(records: ModelCallRecord[], credentials = SECRETS) {
+function localGateway(
+  records: ModelCallRecord[],
+  credentials = SECRETS,
+  budget = new InMemoryModelBudget(() => 1_000_000),
+) {
   const route = (name: string, credential: string) => ({
     id: `local/${name}`,
     provider: "anthropic" as const,
@@ -114,7 +129,7 @@ function localGateway(records: ModelCallRecord[], credentials = SECRETS) {
   return createModelGateway({
     aliases: [alias],
     adapters: { anthropic: new AiSdkRouteAdapter((name) => credentials[name]) },
-    budget: new InMemoryModelBudget(() => 1_000_000),
+    budget,
     accounting: { record: (record) => void records.push(record) },
   });
 }
@@ -151,6 +166,7 @@ describe("model gateway through the AI SDK adapter", () => {
         inputTokens: 12,
         outputTokens: 7,
         costMicrousd: 188,
+        responseModel: "claude-opus-5-5",
         finishReason: "stop",
       },
     ]);
@@ -168,8 +184,9 @@ describe("model gateway through the AI SDK adapter", () => {
 
   it("falls back after a timeout before first bytes, but not after first bytes", async () => {
     const records: ModelCallRecord[] = [];
-    const gateway = localGateway(records);
-    queues.primary = [{ stallAfter: [] }, { stallAfter: ["Hal"] }];
+    const budget = new InMemoryModelBudget(() => 1_000_000);
+    const gateway = localGateway(records, SECRETS, budget);
+    queues.primary = [{ stallAfter: [] }, { stallAfter: ["Hal"] }, { overloadAfter: ["Hel"] }];
     queues.fallback = [{ reply: ["Fine."], input: 5, output: 2 }];
     const before = await gateway.stream({
       alias: "stevie.local",
@@ -193,7 +210,33 @@ describe("model gateway through the AI SDK adapter", () => {
     expect(after.record.attempts.map((attempt) => attempt.outcome)).toEqual([
       "timeout_after_first_byte",
     ]);
-    expect(deltas).toEqual(["Hal"]);
+    // Tokens streamed without usage are billed but unknown, so the reservation stays spent.
+    expect(after.record.costMicrousd).toBeNull();
+    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 6_000);
+    const overloaded = await gateway.stream(
+      { alias: "stevie.local", callId: "c-3", attribution, ...ask },
+      undefined,
+      (delta) => deltas.push(delta),
+    );
+    expect(overloaded).toMatchObject({ status: "failed", code: "unavailable" });
+    expect(overloaded.record.decision).toBe("primary");
+    expect(overloaded.record.attempts).toMatchObject([{ outcome: "unavailable" }]);
+    expect(deltas).toEqual(["Hal", "Hel"]);
+  });
+
+  it("sends a JSON schema to the provider and validates its structured reply", async () => {
+    queues.primary = [{ reply: ['{"mood":', '"calm"}'], input: 9, output: 6 }];
+    received.length = 0;
+    const mood = z.object({ mood: z.enum(["calm", "curious"]) });
+    const request = { alias: "stevie.local", callId: "o-1", attribution, ...ask, schema: mood };
+    const outcome = await localGateway([]).generateObject(request);
+    expect(outcome.status === "completed" && outcome.value).toEqual({ mood: "calm" });
+    expect(received[0]?.body).toContain('"required":["mood"]');
+    const huge = { ...request, callId: "o-2", system: "é".repeat(500) };
+    const refused = await localGateway([]).generateObject(huge);
+    expect(refused).toMatchObject({ status: "failed", code: "input_too_large", retryable: false });
+    expect(refused.record).toMatchObject({ decision: "input_refused", attempts: [] });
+    expect(received).toHaveLength(1);
   });
 
   it("opens the breaker after three overloads and routes around it visibly", async () => {
@@ -250,7 +293,7 @@ describe("model gateway with the scripted provider", () => {
         priceUsdPerMTok: { input: 1, output: 1 },
       },
     ],
-    maxInputTokens: 100,
+    maxInputTokens: 1_000,
     maxOutputTokens: 10,
     timeouts: { firstByteMs: 1_000, idleMs: 1_000, totalMs: 5_000 },
   };
@@ -265,10 +308,11 @@ describe("model gateway with the scripted provider", () => {
         { kind: "http", status: 503 },
       ],
     });
+    const budget = new InMemoryModelBudget((scope) => (scope === "tenant-a/world-a" ? 2_000 : 0));
     const gateway = createModelGateway({
       aliases: [alias],
       adapters: { scripted },
-      budget: new InMemoryModelBudget((scope) => (scope === "tenant-a/world-a" ? 1_000 : 0)),
+      budget,
       accounting: { record: (record) => void records.push(record) },
     });
     const request = { alias: "stevie.scripted", attribution, ...ask, schema: mood };
@@ -286,5 +330,7 @@ describe("model gateway with the scripted provider", () => {
     expect(refused.record).toMatchObject({ decision: "budget_refused", attempts: [] });
     expect(scripted.calls).toHaveLength(3);
     expect(records.map((record) => record.callId)).toEqual(["s-1", "s-2", "s-3", "s-4"]);
+    const unwired = { aliases: [alias], adapters: {}, budget, accounting: { record: () => {} } };
+    expect(() => createModelGateway(unwired)).toThrow(/no adapter/u);
   });
 });

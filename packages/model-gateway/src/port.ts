@@ -53,6 +53,7 @@ export type ModelFailureCode =
   | "refused"
   | "invalid_output"
   | "budget_exceeded"
+  | "input_too_large"
   | "cancelled";
 
 export type ModelOutcome<T> =
@@ -80,7 +81,10 @@ export type RouteAttemptOutcome =
 export interface RouteAttempt {
   readonly routeId: string;
   readonly provider: ProviderKind;
+  /** The route's pinned model name. */
   readonly model: string;
+  /** The model the provider reported serving, when it reported one. */
+  readonly responseModel: string | null;
   readonly outcome: RouteAttemptOutcome;
   /** HTTP status when the provider answered with one. */
   readonly httpStatus: number | null;
@@ -101,11 +105,15 @@ export interface ModelCallRecord {
   readonly alias: string;
   readonly policyVersion: string;
   readonly attribution: ModelAttribution;
-  /** `primary`, `fallback` (a later route answered), `budget_refused` or `exhausted`. */
-  readonly decision: "primary" | "fallback" | "budget_refused" | "exhausted";
+  /**
+   * `primary`, `fallback` (a later route ended the call), `input_refused` (the request exceeds the
+   * alias's input bound), `budget_refused` or `exhausted`.
+   */
+  readonly decision: "primary" | "fallback" | "input_refused" | "budget_refused" | "exhausted";
   readonly attempts: readonly RouteAttempt[];
   readonly reservedMicrousd: number;
-  readonly costMicrousd: number;
+  /** `null` when a route streamed text without reporting usage; the reservation is then spent. */
+  readonly costMicrousd: number | null;
   /** SHA-256 hex of the canonical request and of the output text; the text itself is not kept. */
   readonly requestSha256: string;
   readonly outputSha256: string | null;

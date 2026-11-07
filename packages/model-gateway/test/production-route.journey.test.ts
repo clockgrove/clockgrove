@@ -33,10 +33,16 @@ describe.skipIf(!live)("production model route (live)", () => {
     });
     const answered = outcome.record.attempts.at(-1);
     expect(outcome.status, JSON.stringify(outcome.record.attempts)).toBe("completed");
-    expect(answered?.model).toMatch(/claude-opus-5[.-]5$/u);
+    // The provider-reported model, not the route's pinned name.
+    expect(answered?.responseModel).toMatch(/claude-opus-5[.-]5/u);
     expect(answered?.inputTokens).toBeGreaterThan(0);
     expect(answered?.outputTokens).toBeGreaterThan(0);
     expect(outcome.record.costMicrousd).toBeGreaterThan(0);
     expect(outcome.record.costMicrousd).toBeLessThanOrEqual(outcome.record.reservedMicrousd);
+    // Vercel AI Gateway reports its own charge: the pinned $4/$20 price must agree within 10%.
+    if (answered?.reportedCostUsd != null) {
+      const reported = answered.reportedCostUsd * 1_000_000;
+      expect(Math.abs((answered.costMicrousd ?? 0) - reported)).toBeLessThanOrEqual(reported / 10);
+    }
   });
 });

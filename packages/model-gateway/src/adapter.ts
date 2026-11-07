@@ -20,6 +20,7 @@ export type ProviderEvent =
       inputTokens: number | null;
       outputTokens: number | null;
       reportedCostUsd: number | null;
+      responseModel: string | null;
     }>;
 
 export interface RouteAdapter {

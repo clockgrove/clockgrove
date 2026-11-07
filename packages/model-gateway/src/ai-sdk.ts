@@ -62,6 +62,7 @@ export class AiSdkRouteAdapter implements RouteAdapter {
           inputTokens: part.usage.inputTokens ?? null,
           outputTokens: part.usage.outputTokens ?? null,
           reportedCostUsd: reportedCost(part.providerMetadata),
+          responseModel: part.response.modelId ?? null,
         };
       } else if (part.type === "error") {
         throw classify(part.error);

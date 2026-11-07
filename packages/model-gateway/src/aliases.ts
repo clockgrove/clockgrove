@@ -62,10 +62,12 @@ export const PRODUCTION_ALIASES: readonly ModelAliasDefinition[] = [
       },
     ],
     // Decisions: a context-assembly budget of 16k tokens and a conversational reply of 1k tokens.
+    // A reply cut at the cap completes with the attempt's finishReason "length".
     maxInputTokens: 16_000,
     maxOutputTokens: 1_024,
     // Decisions: 15 s to first text covers model thinking before the reply; 10 s of silence after
-    // text has started means a stalled stream; 60 s bounds one conversational turn.
+    // text has started means a stalled stream; 60 s bounds one route attempt, so a turn that falls
+    // back after a first-byte timeout lasts at most 15 s + 60 s.
     timeouts: { firstByteMs: 15_000, idleMs: 10_000, totalMs: 60_000 },
   },
 ];

@@ -54,6 +54,7 @@ export class ScriptedModelProvider implements RouteAdapter {
       inputTokens: step.inputTokens,
       outputTokens: step.outputTokens,
       reportedCostUsd: null,
+      responseModel: call.route.model,
     };
   }
 }
