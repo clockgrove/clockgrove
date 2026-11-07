@@ -139,6 +139,99 @@ function kernelPayloadOf(event: StoredEvent): object | undefined {
   return typeof payload === "object" && payload !== null ? payload : undefined;
 }
 
+/** A plain sentence from the event's public payload fields; the fixed `fallback` when they lack what it needs. */
+function feedSentence(type: string, payload: object | undefined, fallback: string): string {
+  const field = (name: string): unknown =>
+    payload !== undefined && name in payload
+      ? (payload as Record<string, unknown>)[name]
+      : undefined;
+  const str = (name: string): string | undefined => {
+    const value = field(name);
+    return typeof value === "string" ? value : undefined;
+  };
+  const who = str("objectId");
+  const kind = str("kind");
+  const Kind = kind === undefined ? undefined : kind.charAt(0).toUpperCase() + kind.slice(1);
+  const entered = field("direction") === "entered";
+  const sentence = ((): string | undefined => {
+    switch (type) {
+      case "weather.transitioned":
+        return {
+          began: "It started raining.",
+          ended: "The rain stopped.",
+          changed: "The rain changed.",
+          unchanged: "The weather turned.",
+        }[str("rainChange") ?? ""];
+      case "weather.changed": {
+        const rain = field("rainIntensity");
+        return typeof rain === "number" ? (rain > 0 ? "It is raining." : "It is dry.") : undefined;
+      }
+      case "environment.phase-changed":
+        return str("phase") === undefined ? undefined : `It is now ${str("phase")}.`;
+      case "routine.selected": {
+        const action = field("action");
+        if (who === undefined || typeof action !== "object" || action === null) return undefined;
+        const { kind: actionKind, targetObjectId } = action as Record<string, unknown>;
+        const what = { "seek-food": "food", "seek-water": "water", "seek-shelter": "shelter" }[
+          String(actionKind)
+        ];
+        if (actionKind === "stay") return `${who} is staying put.`;
+        if (what === undefined) return undefined;
+        return `${who} is looking for ${what}${typeof targetObjectId === "string" ? ` at ${targetObjectId}` : ""}.`;
+      }
+      case "needs.threshold-crossed": {
+        const word = { hunger: "hungry", thirst: "thirsty" }[str("need") ?? ""];
+        return who === undefined || word === undefined ? undefined : `${who} is ${word}.`;
+      }
+      case "exposure.threshold-crossed": {
+        const threshold = str("threshold");
+        if (who === undefined || (threshold !== "wet" && threshold !== "uncomfortable"))
+          return undefined;
+        if (threshold === "wet") return entered ? `${who} got wet.` : `${who} dried off.`;
+        return entered ? `${who} is uncomfortable in the weather.` : `${who} is comfortable again.`;
+      }
+      case "health.threshold-crossed":
+        return who === undefined
+          ? undefined
+          : entered
+            ? `${who}'s health is critical.`
+            : `${who} is recovering.`;
+      case "growth.stage-changed":
+        return who === undefined || str("stageName") === undefined
+          ? undefined
+          : `${who} reached its ${str("stageName")} stage.`;
+      case "movement.completed":
+        return who === undefined ? undefined : `${who} arrived.`;
+      case "movement.portal-crossed":
+        return who === undefined || str("portalId") === undefined
+          ? undefined
+          : `${who} went through ${str("portalId")}.`;
+      case "portal.opened":
+      case "portal.closed":
+        return str("portalId") === undefined
+          ? undefined
+          : `${str("portalId")} ${type === "portal.opened" ? "opened" : "closed"}.`;
+      case "resource.offered":
+        return who === undefined || Kind === undefined
+          ? undefined
+          : `${Kind} was offered at ${who}.`;
+      case "resource.consumed":
+        return who === undefined || Kind === undefined ? undefined : `${Kind} at ${who} was used.`;
+      case "resource.transferred":
+        return str("fromObjectId") === undefined ||
+          str("toObjectId") === undefined ||
+          Kind === undefined
+          ? undefined
+          : `${Kind} moved from ${str("fromObjectId")} to ${str("toObjectId")}.`;
+      case "resource.spoiled":
+        return who === undefined ? undefined : `Food at ${who} spoiled.`;
+      default:
+        return undefined;
+    }
+  })();
+  return sentence ?? fallback;
+}
+
 /** The single entity an event concerns: its actor or object, else the portal; null otherwise. */
 function concernedObjectId(event: StoredEvent): ObjectId | null {
   const payload = kernelPayloadOf(event);
@@ -201,7 +294,7 @@ export class PostgreSqlWorldStatusReader {
             id: event.eventId,
             simTimeMs: event.simulationTime,
             kind: "material" as const,
-            text: material[1],
+            text: feedSentence(event.type, kernelPayloadOf(event), material[1]),
             sourceEventIds: [event.eventId],
             category: material[0],
             objectId: concernedObjectId(event),

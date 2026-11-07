@@ -118,8 +118,8 @@ so clients never compute a calendar themselves.
 
 `feed` lists the space's material journal events, newest first. Each `WorldFeedItem` carries the
 `FeedSummary` fields (`id` and the single `sourceEventIds` entry are the journal event ID, `simTimeMs`
-its simulation time as a decimal string on the wire, `kind: "material"`, plain-words `text` fixed per
-event type), its `category`, and `objectId`: the event's object or actor, else its portal, and null
+its simulation time as a decimal string on the wire, `kind: "material"`, a plain sentence in
+`text`), its `category`, and `objectId`: the event's object or actor, else its portal, and null
 when no single entity applies (weather, phase changes and resource transfers). Items are derived on
 read from the canonical journal's public semantic events, with no stored feed. They never carry an
 event payload, attribution, principal or provider identity. The material event types and their
@@ -132,6 +132,20 @@ categories form a closed list:
 - `movement`: `movement.portal-crossed`, `movement.completed`;
 - `portal`: `portal.opened`, `portal.closed`;
 - `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.spoiled`.
+
+`text` is generated on read from the event's public payload, naming entities by their scene label
+(the object id); the payload itself is never exposed. When the payload lacks a field a sentence needs,
+`text` falls back to fixed per-type wording. Sentences, with `A` the object and `K` the capitalised
+resource kind: `weather.transitioned` "It started raining." / "The rain stopped." / "The rain changed."
+/ "The weather turned."; `weather.changed` "It is raining." / "It is dry."; `environment.phase-changed`
+"It is now {phase}."; `routine.selected` "A is staying put." / "A is looking for food|water|shelter[ at
+{target}]."; `needs.threshold-crossed` "A is hungry|thirsty."; `exposure.threshold-crossed` "A got wet." /
+"A dried off." / "A is uncomfortable in the weather." / "A is comfortable again.";
+`health.threshold-crossed` "A's health is critical." / "A is recovering."; `growth.stage-changed` "A
+reached its {stage} stage."; `movement.completed` "A arrived."; `movement.portal-crossed` "A went
+through {portal}."; `portal.opened|closed` "{portal} opened|closed."; `resource.offered` "K was offered
+at A."; `resource.consumed` "K at A was used."; `resource.transferred` "K moved from {from} to {to}.";
+`resource.spoiled` "Food at A spoiled."
 
 Every other type, including `time.advanced`, `needs.changed`, `comfort.changed`, `needs.relieved`,
 `wellbeing.integrated`, `growth.integrated`, `location.changed`, `movement.started`,
