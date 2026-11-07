@@ -2353,6 +2353,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             "street-buffer",
           ].map((region) => `View ${region}`),
         ]);
+        // issue 20: Stevie, standing on the trash can his food routine targets, plays the eat strip.
+        await expect
+          .poll(() => activity(kin.viewer))
+          .toEqual([
+            ["gracie/shelter", "seek-shelter", null],
+            ["kit/shelter", "seek-shelter", "completed"],
+            ["stevie/eat", "seek-food", null],
+          ]);
         await stevie.click();
         await view(
           "snack-house",
@@ -2378,13 +2386,13 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           },
         });
         await living.getByText(/^ Identity: grove\.stevie;.*position: 33000, 13000$/u).waitFor();
-        // issue 20: Stevie, at food after his move, plays the eat strip.
+        // issue 20: moved off the trash can his food routine targets, Stevie forages (sniffs).
         await expect
           .poll(() => activity(kin.viewer))
           .toEqual([
             ["gracie/shelter", "seek-shelter", null],
             ["kit/shelter", "seek-shelter", "completed"],
-            ["stevie/eat", "seek-food", "completed"],
+            ["stevie/sniff", "seek-food", "completed"],
           ]);
         await view("snack-house", "Followed grove.stevie to snack-house.");
         expect([

@@ -128,7 +128,11 @@
         },
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 20: Stevie, at food after his move, plays the eat strip."
+          "marker": "// issue 20: Stevie, standing on the trash can his food routine targets, plays the eat strip."
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 20: moved off the trash can his food routine targets, Stevie forages (sniffs)."
         },
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
