@@ -23,7 +23,8 @@ Rows are scoped to the session's participant set in SQL (migration 0034). A memb
 changes only sessions they participate in, with those sessions' participants, messages and turns,
 in their tenant, under a ceiling that holds `conversation`. A member cannot join an existing
 session. Another member of the same world gets `404 conversation_not_found` for every
-session ID, just as for an unknown one. The attack suite in `tests/database/authorization.sql`
+session ID, just as for an unknown one. The run inspector ([runs](runs.md)) keeps this rule: it shows a run's
+prompt and reply text only to a participant of the session, and other inspectors see metadata. The attack suite in `tests/database/authorization.sql`
 exercises this.
 
 ## Sessions, messages and turns

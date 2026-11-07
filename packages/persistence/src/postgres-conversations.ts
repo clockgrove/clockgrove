@@ -244,7 +244,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       const replyArtifact = `${sessionId}:reply:${crypto.randomUUID()}`;
       await this.put(participant, stored, replyArtifact, reply, "conversation_busy");
       await this.transaction(participant, () =>
-        this.runs.modelAnswered(tenantId, run, replyArtifact),
+        closedRunRefused(this.runs.modelAnswered(tenantId, run, replyArtifact)),
       );
       written = await this.commitTalk(participant, stored, request, count, inputArtifact, {
         run,
@@ -295,6 +295,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
     count: number,
     caretakerMessages: number,
   ): Promise<string> {
+    // A full session is refused before its prompt is stored, so a refused Talk leaves no artifact.
+    const full = await this.transaction(participant, () =>
+      this.runs.full(participant.tenantId, request.sessionId),
+    );
+    if (full) throw new ConversationRefusedError("conversation_full");
     const runId = `run-${crypto.randomUUID()}`;
     const promptArtifactId = `${request.sessionId}:prompt:${runId}`;
     const prompt = JSON.stringify({
@@ -429,20 +434,10 @@ export class PostgreSqlConversationStore implements ConversationStore {
           RETURNING ${SESSION_COLUMNS}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
-      try {
-        await this.runs.committed(
-          scope.tenantId,
-          sessionId,
-          attempt.run,
-          (sequence + 1) / 2,
-          replyId,
-        );
-      } catch (error) {
-        // CG020: a later attempt closed this run; it must not commit.
-        if ((error as { code?: unknown }).code === "CG020")
-          throw new ConversationRefusedError("conversation_busy");
-        throw error;
-      }
+      // A later attempt that closed this run refuses its commit, rolling the messages back.
+      await closedRunRefused(
+        this.runs.committed(scope.tenantId, sessionId, attempt.run, (sequence + 1) / 2, replyId),
+      );
       const rows = (messages.rows as Row[]).sort((a, b) => Number(a.sequence) - Number(b.sequence));
       return {
         input: rows[0] as Row,
@@ -654,4 +649,15 @@ function turnOf(row: Row): ConversationTurn {
     state: row.state,
     createdAt: row.created_at,
   });
+}
+
+/** CG020: a later attempt closed this run, so it may not move on; the attempt answers busy. */
+async function closedRunRefused(move: Promise<void>): Promise<void> {
+  try {
+    await move;
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "CG020")
+      throw new ConversationRefusedError("conversation_busy");
+    throw error;
+  }
 }

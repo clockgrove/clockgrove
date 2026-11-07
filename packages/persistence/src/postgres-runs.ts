@@ -37,7 +37,10 @@ const RUN_COLUMNS = `run_id, session_id, actor_id, principal_id, persona_id, act
 const STEP_COLUMNS = `run_id, step, kind, status, outcome_code, model, tool, command_id,
   output_message_id, input_artifact_id, output_artifact_id, input_tokens, output_tokens,
   cost_microusd, summary, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
-const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3";
+/** The caller's whole browser scope: an inspect grant for one space reads only that space's runs. */
+const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4";
+/** Decision: as `guard_agent_run` (0035), four attempts for each of a session's 500 turns. */
+export const MAX_SESSION_RUNS = 2000;
 
 export interface TalkRunStart {
   readonly tenantId: string;
@@ -62,6 +65,16 @@ export interface TalkRunStart {
  */
 export class PostgreSqlRunRecorder {
   constructor(private readonly client: PostgreSqlClient) {}
+
+  /** Whether the session already holds its limit of runs, checked before the prompt is stored. */
+  async full(tenantId: string, sessionId: string): Promise<boolean> {
+    const found = await this.client.query(
+      `SELECT count(*) >= $3 AS full FROM clockgrove.agent_runs
+        WHERE tenant_id = $1 AND session_id = $2`,
+      [tenantId, sessionId, MAX_SESSION_RUNS],
+    );
+    return (found.rows[0] as Row | undefined)?.full === true;
+  }
 
   /**
    * Closes the session's attempts that will never close themselves, then opens a Talk run with its
@@ -161,8 +174,9 @@ export class PostgreSqlRunRecorder {
 
 /**
  * Reads runs for an inspector. Row visibility is the policy of 0035 (a participant's own runs, or
- * any run under an `operator_evidence` ceiling); this adds the world and timeline scope. A payload's
- * text is read only when the ceiling holds its class, and metadata search never reads one.
+ * any run under an `operator_evidence` ceiling); this adds the world, timeline and space scope. A
+ * payload's text is read only when the ceiling holds its class and the inspector is a participant
+ * of the run's session, as conversation text is (0034); metadata search never reads one.
  */
 export class PostgreSqlRunReader {
   constructor(
@@ -182,12 +196,14 @@ export class PostgreSqlRunReader {
       async () => {
         const [match, values] = entryMatch(entry);
         const found = await this.client.query(
-          `SELECT ${RUN_COLUMNS} FROM clockgrove.agent_runs
+          `SELECT ${RUN_COLUMNS},
+                  clockgrove.runtime_conversation_participant(tenant_id, session_id) AS participant
+             FROM clockgrove.agent_runs
             WHERE ${RUN_SCOPE} AND root_run_id IN (
               SELECT root_run_id FROM clockgrove.agent_runs
                WHERE ${RUN_SCOPE} AND ${match})
             ORDER BY started_at, run_id LIMIT ${MAX_WALK_RUNS}`,
-          [scope.tenantId, scope.worldId, scope.timelineId, ...values],
+          [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId, ...values],
         );
         const runRows = found.rows as Row[];
         const stepRows = await this.client.query(
@@ -198,9 +214,10 @@ export class PostgreSqlRunReader {
         return { runs: runRows, steps: stepRows.rows as Row[] };
       },
     );
-    const readable = authorization.privacyCeiling.allowedCategories.includes("conversation");
+    const category = authorization.privacyCeiling.allowedCategories.includes("conversation");
     const views: RunView[] = [];
     for (const row of runs) {
+      const readable = category && row.participant === true;
       const payload = (id: unknown) => this.payload(authorization, scope, row, id, readable);
       const runSteps: RunStepView[] = [];
       for (const step of steps.filter((s) => s.run_id === row.run_id))
@@ -240,13 +257,14 @@ export class PostgreSqlRunReader {
     const rows = await withClientTransaction(this.client, { authorization }, async () => {
       const found = await this.client.query(
         `SELECT ${RUN_COLUMNS} FROM clockgrove.agent_runs
-          WHERE ${RUN_SCOPE} AND ($4::text IS NULL OR actor_id = $4)
-            AND ($5::text IS NULL OR session_id = $5) AND ($6::text IS NULL OR status = $6)
-          ORDER BY started_at DESC, run_id LIMIT $7`,
+          WHERE ${RUN_SCOPE} AND ($5::text IS NULL OR actor_id = $5)
+            AND ($6::text IS NULL OR session_id = $6) AND ($7::text IS NULL OR status = $7)
+          ORDER BY started_at DESC, run_id LIMIT $8`,
         [
           scope.tenantId,
           scope.worldId,
           scope.timelineId,
+          scope.spaceId,
           request.actorId ?? null,
           request.sessionId ?? null,
           request.status ?? null,
@@ -283,27 +301,27 @@ export class PostgreSqlRunReader {
   }
 }
 
-/** The runs an entry names directly, as a condition over `agent_runs` after `$1`–`$3`. */
+/** The runs an entry names directly, as a condition over `agent_runs` after `$1`–`$4`. */
 function entryMatch(entry: RunEntry): readonly [string, readonly unknown[]] {
-  if ("runId" in entry) return ["run_id = $4", [entry.runId]];
+  if ("runId" in entry) return ["run_id = $5", [entry.runId]];
   if ("commandId" in entry)
     return [
-      `run_id IN (SELECT run_id FROM clockgrove.run_steps WHERE tenant_id = $1 AND command_id = $4)`,
+      `run_id IN (SELECT run_id FROM clockgrove.run_steps WHERE tenant_id = $1 AND command_id = $5)`,
       [entry.commandId],
     ];
   if ("turn" in entry)
     // Every attempt at the turn's input message, whichever of them committed it.
     return [
-      `session_id = $4 AND input_message_id IN (
+      `session_id = $5 AND input_message_id IN (
          SELECT input_message_id FROM clockgrove.agent_runs
-          WHERE tenant_id = $1 AND session_id = $4 AND turn = $5)`,
+          WHERE tenant_id = $1 AND session_id = $5 AND turn = $6)`,
       [entry.sessionId, entry.turn],
     ];
   // A message is a run's input, or what one of its steps produced.
   return [
-    `session_id = $4 AND (input_message_id = $5 OR run_id IN (
+    `session_id = $5 AND (input_message_id = $6 OR run_id IN (
        SELECT run_id FROM clockgrove.run_steps
-        WHERE tenant_id = $1 AND session_id = $4 AND output_message_id = $5))`,
+        WHERE tenant_id = $1 AND session_id = $5 AND output_message_id = $6))`,
     [entry.sessionId, entry.messageId],
   ];
 }

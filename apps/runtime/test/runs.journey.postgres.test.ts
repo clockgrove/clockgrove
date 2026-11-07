@@ -164,14 +164,42 @@ it.skipIf(!isNativeWorldOwnerChild())(
         `${session}:prompt:${completed.runId}`,
       ]);
 
-      // Back from the committed reply to the run that produced it; with the category, the exact
-      // protected input and output.
+      // The talking member has no inspect grant yet.
+      expect(await post("/v1/runtime/runs/inspect", { runId: completed.runId })).toEqual({
+        status: 403,
+        body: { error: "authorization_refused" },
+      });
+
+      // Back from the committed reply to the run that produced it. Conversation text is
+      // participant-only: the outsider sees metadata even with the category, and the participant,
+      // once an inspector, sees the exact protected input and output.
       await owner.sql(
         `UPDATE clockgrove.world_memberships SET privacy_ceiling =
-           '{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}'
-          WHERE principal_id = 'principal-outsider'`,
+           '{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}';
+         UPDATE clockgrove.world_memberships SET grants = array_append(grants, 'runtime:world-inspect')
+          WHERE principal_id = 'principal-runtime'`,
       );
-      const back = await inspect({ sessionId: session, messageId: "m3:reply" });
+      const outsider = await inspect({ sessionId: session, messageId: "m3:reply" });
+      expect(steps(outsider)).toEqual([
+        [
+          "completed-run",
+          "completed",
+          3,
+          true,
+          null,
+          [
+            ["model_attempt", "succeeded", "scripted-fixture-v1", null, 0, null, null],
+            ["commit", "succeeded", null, "m3:reply", null, null, null],
+          ],
+        ],
+      ]);
+      const answer = await post(
+        "/v1/runtime/runs/inspect",
+        { sessionId: session, messageId: "m3:reply" },
+        MEMBER,
+      );
+      const back = answer.body as RunWalk;
+      expect(answer.status).toBe(200);
       expect(steps(back)).toEqual([
         [
           "completed-run",
@@ -262,11 +290,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         false,
       ]);
 
-      // The talking member has no inspect grant; an unknown entry is not found. Each is audited.
-      expect(await post("/v1/runtime/runs/inspect", { runId: completed.runId })).toEqual({
-        status: 403,
-        body: { error: "authorization_refused" },
-      });
+      // An unknown entry is not found. Every access is audited.
       expect(await post("/v1/runtime/runs/inspect", { runId: "run-unknown" }, INSPECTOR)).toEqual({
         status: 404,
         body: { error: "run_not_found" },
@@ -279,7 +303,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           )
         ).trim(),
       ).toBe(
-        "allow:served,allow:served,allow:served,allow:served,deny:runtime-grant-missing,allow:not-found",
+        "allow:served,deny:runtime-grant-missing,allow:served,allow:served,allow:served,allow:served,allow:not-found",
       );
     });
   },

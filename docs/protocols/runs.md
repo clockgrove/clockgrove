@@ -62,6 +62,7 @@ The attempt names its own disposition:
 | `superseded` | a later attempt at the same message started while this one was open | `retried` |
 | `abandoned` | an unexpected error ended the request | `attempt_failed` |
 | `abandoned` | still running 60 s after it started, when its session next talks | `stale` |
+| `running` (no disposition yet) | its request died and its session has not talked since | none |
 | `cancelled` | reserved for RW-0503 cancellation | none |
 
 Decision: 60 s. A Talk attempt is one request whose scripted model answers in-process, so only a
@@ -69,13 +70,20 @@ dead request stays open that long. A late commit of a closed run is refused and 
 `409 conversation_busy`, so a superseded or abandoned attempt never commits a message. RW-0503
 replaces this with fiber leases.
 
+Known gap until RW-0503: a stale attempt is closed only by its session's next Talk, and the close
+after a failure is best effort. An attempt whose request died in a session that never talks again
+stays `running`, and search with `status: "running"` lists it. Read a `running` run whose
+`startedAt` is more than 60 s old as dead, not live. RW-0503's leases close such attempts without
+waiting for the session.
+
 ## Protected payloads
 
 The prompt (the exact JSON the scripted model reads: model, prompt version, session, Caretaker
 message count and input text) and the reply are `conversation`-class artifacts in the
 [artifact store](../runbooks/database.md#artifact-store). They are stored only as AES-256-GCM
 ciphertext, and rows name them through keys that pin the class. The prompt is
-`<sessionId>:prompt:<runId>`. The output is the reply message's own artifact, not a copy.
+`<sessionId>:prompt:<runId>`. The output is the reply message's own artifact, not a copy. A Talk
+past the run limit is refused before its prompt is stored.
 
 ## Inspector API
 
@@ -95,7 +103,8 @@ they are refused here with `403 authorization_refused`.
   - A command reaches the run whose step proposed it.
 
   The walk shows payload `text` only when the inspector's ceiling also holds `conversation`, the
-  payloads' class. Otherwise each payload is `{ artifactId, privacyClass, text: null }`: metadata
+  payloads' class, and the inspector is a participant of the run's session. Conversation text is
+  participant-only (migration 0034), and the run walk keeps that rule. Otherwise each payload is `{ artifactId, privacyClass, text: null }`: metadata
   only. An entry that reaches no run of the world timeline, including another world's, answers
   `404 run_not_found`.
 - `/v1/runtime/runs/search` filters by `actorId`, `sessionId` and `status`, with `limit` from 1
@@ -104,7 +113,9 @@ they are refused here with `403 authorization_refused`.
 
 Rows follow the policy of migration 0035. A session's participant writes its runs as themselves,
 and reads them. A member whose ceiling holds `operator_evidence` reads every run of the tenant, and
-the routes add the world and timeline scope. Both routes need the `ARTIFACT_KEYRING` secret, and
+the routes add the world, timeline and space scope. An inspect grant for one space walks only the
+runs of sessions opened in that space, as the causal inspector finds only commands of the requested
+space. Both routes need the `ARTIFACT_KEYRING` secret, and
 answer `503 inspector_unavailable` without it.
 
 ## Limits and retention
