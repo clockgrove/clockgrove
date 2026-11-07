@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -222,6 +222,9 @@ export async function checkRepositorySecrets(root) {
   }
   for (const name of new Set(working)) {
     try {
+      // Only regular files hold content. A sandbox can stand /dev/null in for a protected path it
+      // write-protects (Claude Code's own settings files), which cannot be opened there.
+      if (!(await stat(path.join(root, name))).isFile()) continue;
       assertNoSecretValues((await readFile(path.join(root, name))).toString("utf8"), name);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
