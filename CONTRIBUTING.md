@@ -19,7 +19,7 @@ Search the existing issues first, then file one with the matching form. The [del
 
 ## Pull requests
 
-- Reference the issue the pull request resolves, for example `Fixes issue 123`, and keep the pull request to that one outcome.
+- Reference the issue the pull request resolves, for example `Fixes #123`, and keep the pull request to that one outcome.
 - Answer the six questions of [the design checklist](docs/runbooks/design-checklist.md) in the description, with `file:line` evidence.
 - Run `pnpm format`, then `pnpm check`, `pnpm test` and `pnpm run verify:docs`, plus any other command the runbooks require for the area you changed. Report the commands you ran and their results.
 - Never include credentials, secrets, personal data or private source in an issue, a pull request or a commit.
