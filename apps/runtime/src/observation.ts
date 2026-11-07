@@ -60,6 +60,7 @@ import {
   isNestedTarget,
   sceneHierarchyOf,
 } from "./scene-navigation.js";
+import { scenePresentationBindings } from "./scene-presentation.js";
 import { assertWorldCommandContext, PostgreSqlCommandOwner } from "./world-commands.js";
 
 /** Request-owned current-state reads. This projection never copies a world document to the wire. */
@@ -360,7 +361,11 @@ export class PostgreSqlSceneStreamReader {
       hierarchy: sceneHierarchyOf(scene.spaceId, stored.document.state),
       frames: scene.frames,
       entities: scene.entities,
-      presentationBindings: [],
+      presentationBindings: scenePresentationBindings(
+        stored,
+        stored.document.state.entities,
+        projected,
+      ),
       interactions: interactionsOf(
         stored.document.state,
         projected,

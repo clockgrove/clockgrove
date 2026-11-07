@@ -153,11 +153,14 @@ function decodeStoredPartitionState(
     stateHash: text(aggregate, "stateHash"),
     schedules,
   };
-  const packContentHash = aggregate.packContentHash;
+  const { packContentHash, packId, packVersion } = aggregate;
   return {
     revision: stored.revision,
     coveredHeadSequence: BigInt(text(aggregate, "coveredHeadSequence")),
     packContentHash: typeof packContentHash === "string" ? packContentHash : undefined,
+    ...(typeof packId === "string" && typeof packVersion === "string"
+      ? { packId, packVersion }
+      : {}),
     document: decodePartitionState(stored),
     schedules,
     ...(continuation === undefined

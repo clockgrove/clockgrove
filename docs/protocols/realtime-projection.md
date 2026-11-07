@@ -45,6 +45,24 @@ and interaction summary names a distinct projected entity, so none is labelled f
 the visible hierarchy holds distinct spaces, including the projected space, whose parents are all
 in the hierarchy and lead to a root without a cycle.
 
+The runtime fills `presentationBindings` from the installed pack's `presentation.json`
+([pack presentation](shared-contracts.md#asset-manifests-and-pack-presentation)). It matches the
+pack by the id that the world's hydrate read already joins, not by version: a world installed at
+an earlier version of a shipped pack draws that pack's shipped file, and a binding for an object the
+world does not project is dropped. It holds the committed files of the shipped packs (`apps/runtime/src/scene-presentation.ts`). Each binding decodes through
+the `clockgrove.presentation` component ([component catalog](../../packages/domain/docs/component-catalog.md)).
+Only projected entities get a binding. Presentation is not world truth, so a pack without the file
+projects none and state hashes never depend on it. A bound actor whose binding family is an actor
+family (`idle`, `walk`, `sniff`, `eat`, `shelter`) carries the family of its committed activity:
+- an `active` movement is `walk`;
+- a `seek-shelter` routine is `shelter`;
+- a `seek-food` or `seek-water` routine is `eat` once the actor stands on its target's pose (where
+  the seek's movement ends), and `sniff` before then or when a `seek-food` has no target;
+- otherwise the binding's own family applies.
+A family is chosen only when the reviewed atlas (`assets/reviewed`) holds that strip for the asset;
+if it does not, the binding's family is kept. No Wave 4 routine maps to `play`. Patches upsert a
+binding whose family changed, as they do any presentation.
+
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
 fields they change; arbitrary JSON extensions and whole-entity-list replacements are excluded.

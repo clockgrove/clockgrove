@@ -227,7 +227,8 @@ export class PostgreSqlWorldOwnerReader {
                 state.simulation_time::text AS "simulationTime",
                 state.document_version AS "documentVersion", state.document,
                 state.document_hash AS "documentHash", state.state_hash AS "stateHash",
-                installation.content_hash AS "packContentHash"
+                installation.content_hash AS "packContentHash",
+                installation.pack_id AS "packId", installation.pack_version AS "packVersion"
            ${ROUTE_FROM}
            JOIN clockgrove_birth.pack_installations AS installation USING (tenant_id, world_id)
           WHERE head.tenant_id = $1 AND head.world_id = $2 AND head.timeline_id = $3 AND head.space_id = $4`,
