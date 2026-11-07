@@ -1193,11 +1193,16 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             face(item.simTimeMs),
           ]),
         );
-        // Choosing an actor's event from the keyboard selects it in the scene and the rail, rings
+        // Choosing an entity's event from the keyboard selects it in the scene and the rail, rings
         // and names it on the canvas, and opens the event's Recorded Why; closing it refocuses the row.
-        const feedEntity = feed.locator('button.rw-feed-item:has([data-icon="portrait"])').first();
-        const feedLabel = await feedEntity.getByRole("img").getAttribute("aria-label");
-        const feedEvent = await feedEntity.getAttribute("data-event-id");
+        // The runtime labels each entity by its object id.
+        const listed = (await statuses.at(-1)).feed;
+        const entityRow = listed.findIndex((item) =>
+          first.entities.some((entity) => entity.objectId === item.objectId),
+        );
+        const feedEntity = feed.locator("button.rw-feed-item").nth(entityRow);
+        const feedLabel = listed[entityRow].objectId;
+        const feedEvent = listed[entityRow].sourceEventIds[0];
         await feedEntity.press("Enter");
         expect(
           await scene
