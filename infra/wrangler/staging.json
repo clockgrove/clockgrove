@@ -112,7 +112,7 @@
     "WORLD_REACTIONS_QUEUE_NAME": "rw-staging-world-reactions",
     "COGNITIVE_INDEXING_QUEUE_NAME": "rw-staging-cognitive-indexing",
     "EXTERNAL_EFFECTS_QUEUE_NAME": "rw-staging-external-effects",
-    "AUTH_ORIGIN": "https://staging.runtime.example.org",
+    "AUTH_ORIGIN": "https://staging.runtime.clockgrove.dev",
     "PROVIDER_ENVIRONMENT": "staging"
   },
   "analytics_engine_datasets": [

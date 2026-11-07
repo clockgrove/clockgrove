@@ -43,16 +43,16 @@
     }
   },
   "domains": {
-    "runtime": "staging.runtime.example.org",
-    "dnsTarget": "runtime.example.org"
+    "runtime": "staging.runtime.clockgrove.dev",
+    "dnsTarget": "runtime.clockgrove.dev"
   },
   "safeIds": {
-    "cloudflareAccountId": "00000000000000000000000000000000",
-    "cloudflareZoneId": "00000000000000000000000000000000"
+    "cloudflareAccountId": "615b168aa61f6905a475eba2eac9413d",
+    "cloudflareZoneId": "e18af0fcffa47500d76130f5a36d9cd3"
   },
   "retention": {
     "queueSeconds": 86400,
-    "databaseSeconds": 604800,
+    "databaseSeconds": 21600,
     "artifactDays": 30
   },
   "budgets": {
@@ -67,7 +67,7 @@
     "background": "background-standard"
   },
   "authentication": {
-    "origin": "https://staging.runtime.example.org",
+    "origin": "https://staging.runtime.clockgrove.dev",
     "providerEnvironment": "staging",
     "transport": "direct-postgresql"
   }
