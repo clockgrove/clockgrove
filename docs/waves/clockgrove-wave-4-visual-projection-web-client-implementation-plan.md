@@ -158,6 +158,8 @@ All tokens live in versioned CSS variables and a design-token package. Color alo
 - Simulated day, time, running/paused state, speed, and weather.
 - Capture, safety/privacy, and menu utilities.
 
+Amended (2026-11-07): the owner defers the navigation icons (journal, residents, ecology, home, tasks/authoring and settings) and the capture, safety/privacy and menu utilities to Wave 8 RW-0807, where the screens they open exist. Reason: in Wave 4 they would open nothing. The Wave 4 top HUD is the title and world selector, and the simulated day, time, run state, speed and weather.
+
 **Scene**
 
 - Fixed isometric camera, limited pan/zoom, no free rotation.
@@ -590,6 +592,8 @@ Assert:
 - browser errors do not corrupt or mutate the world;
 - operator details never appear in ordinary telemetry/UI;
 - accessibility path remains available when WebGL is unavailable.
+
+Amended (2026-11-07): the owner rules corrupt cached metadata (item F9 of `scripts/ci/qualify-wave4-scenarios.json`) not applicable to Wave 4. The web client keeps no persistent metadata cache: no IndexedDB, Web Storage or Cache Storage, and its runtime reads use `cache: "no-store"`. §3.1 allows such a cache but does not require one, so there is no cached metadata to corrupt. A later wave that adds a metadata cache takes on F9's test as its own obligation.
 
 ---
 

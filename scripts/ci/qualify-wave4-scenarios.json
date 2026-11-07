@@ -451,9 +451,9 @@
       "id": "F9",
       "section": "16",
       "scenario": "corrupt cached metadata",
-      "coverage": "gap",
+      "coverage": "not_applicable",
       "evidence": [],
-      "deviation": "No test injects corrupt cached metadata."
+      "reason": "The web client keeps no persistent metadata cache (owner decision 2026-11-07, plan §16 amendment); a later wave that adds one owns this test."
     },
     {
       "id": "F10",

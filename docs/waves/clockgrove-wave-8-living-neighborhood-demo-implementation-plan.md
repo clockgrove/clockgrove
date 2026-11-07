@@ -405,6 +405,8 @@ Produce reviewed raccoon/environment/lifecycle/weather/time/action assets, atlas
 
 Exit: the live app reaches the reference composition and mood using data-driven original assets at target performance/accessibility budgets.
 
+Amended (2026-11-07): RW-0807 inherits from Wave 4 (Wave 4 §4.3) the top HUD's navigation icons for journal, residents, ecology, home, tasks/authoring when authorized, and settings, and its capture, safety/privacy and menu utilities, which Wave 4 did not build. Each icon opens the screen this wave delivers for it.
+
 ### RW-0808 — North-star causal integration
 
 Connect rain → decision → explanation → episode/belief → teaching → consolidation → later changed choice across runtime, UI, journal, cognition, inspector, replay, branch, scripted/production/model-off routes, including the guide testimony/verification/revision journey and one supported deterministic counterfactual Why comparison.

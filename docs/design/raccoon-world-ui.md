@@ -65,4 +65,4 @@ Run state is the words Running or Paused plus a glyph; rain is the words Dry or 
 
 ## Out of scope
 
-Navigation icons, card actions, art and assets, and capture, safety and menu utilities.
+Card actions, and art and assets. The navigation icons and the capture, safety and menu utilities are deferred to Wave 8: see the [RW-0807 amendment](../waves/clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md#rw-0807--complete-visualaudio-pack-and-reference-ui-polish).
