@@ -181,7 +181,7 @@
       "id": "S9",
       "section": "15.2",
       "scenario": "scene asset missing/corrupt/version mismatch",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
@@ -194,26 +194,36 @@
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
           "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+        },
+        {
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// S9/F10: a corrupt copy is discarded and fetched again; the verified copy is drawn."
+        },
+        {
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// A re-fetched copy that is corrupt too is refused: the text scene, never the atlas."
         }
-      ],
-      "deviation": "A missing atlas (404) and version mismatch are proven; a corrupt atlas or hash mismatch is not injected."
+      ]
     },
     {
       "id": "S10",
       "section": "15.2",
       "scenario": "world still provisioning, failed provisioning with retry/status, and transition to WorldReady",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
-          "file": "apps/runtime/test/world-readiness.postgres.test.ts",
-          "marker": "refuses every non-ready lifecycle and admits the world once provisioning completes"
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// S10: a world still being born shows a focused provisioning status, never a scene."
         },
         {
-          "file": "apps/runtime/test/world-readiness.postgres.test.ts",
-          "marker": "// Retrying the same case completes provisioning; the same entry and authority read now succeed."
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// Its birth fails: the polled read turns the screen into a focused failure with Retry."
+        },
+        {
+          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
+          "marker": "// WorldReady commits: the polled read opens the yard through the ordinary arrival."
         }
-      ],
-      "deviation": "Runtime only; no browser journey shows the provisioning or failed-retry status."
+      ]
     },
     {
       "id": "S11",
