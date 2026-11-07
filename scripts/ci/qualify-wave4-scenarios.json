@@ -108,7 +108,7 @@
       "id": "S6",
       "section": "15.2",
       "scenario": "rain begins, puddles update, Stevie moves, event feed records, Why explains",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
@@ -128,6 +128,14 @@
         },
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 21: under PostgreSQL's rain at its night clock, puddles lie on the paths' midpoints"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes"
+        },
+        {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
           "marker": "// issue 20: Stevie, standing on the trash can his food routine targets, plays the eat strip."
         },
         {
@@ -135,11 +143,14 @@
           "marker": "// issue 20: moved off the trash can his food routine targets, Stevie forages (sniffs)."
         },
         {
+          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "marker": "// issue 21: Stevie moved while the committed rain still falls, and the puddles still lie."
+        },
+        {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
           "marker": "explains why Stevie sought shelter from authorized deterministic evidence and receipts every interaction intent"
         }
-      ],
-      "deviation": "green-lake-yard draws no puddles, and no single journey chains rain to Stevie's move."
+      ]
     },
     {
       "id": "S7",

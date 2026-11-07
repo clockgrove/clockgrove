@@ -316,8 +316,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         )
       ).status,
     ).toBe(200);
-    const commit = async (command) =>
-      expect((await native.submit(command, {}, "outsider-session-token")).status).toBe(200);
+    const commit = async (command) => {
+      const { status, body } = await native.submit(command, {}, "outsider-session-token");
+      expect(status, JSON.stringify(body)).toBe(200);
+    };
     const truth = truthOf(fixture);
     const membershipGrants =
       "SELECT array_to_json(ARRAY(SELECT unnest(grants) ORDER BY 1))::text FROM clockgrove.world_memberships WHERE principal_id='principal-runtime'";
@@ -2065,18 +2067,19 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           };
         });
         expect([animated.weather, animated.rainFrames > 1]).toEqual([[true, false], true]);
-        // issue 21: the budgets below are read while every puddle and light shows and animates; the
-        // reduced-motion viewer draws the same effects, held still.
+        // issue 21: the budgets below are read while every puddle and light shows, the looping ones
+        // animating (the window is one static frame); the reduced-motion viewer holds them still.
         const kinEffects = await effectState(kin.viewer);
         const heldEffects = await effectState(yard);
+        const roles = kinEffects.map(({ role }) => role);
         expect([
-          kinEffects.length,
-          kinEffects.every(({ shown, playing }) => shown && playing),
+          roles.length,
+          kinEffects.map(({ role, shown, playing }) => [role, shown, playing]),
           heldEffects.map(({ role, shown, playing }) => [role, shown, playing]),
         ]).toEqual([
           (await puddleSites()).length + 2,
-          true,
-          kinEffects.map(({ role }) => [role, true, false]),
+          roles.map((role) => [role, true, role !== "window"]),
+          roles.map((role) => [role, true, false]),
         ]);
         const runtime = animated.metrics;
         const frames = [...runtime.frameMs].sort((a, b) => a - b);
@@ -2372,6 +2375,32 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           (await kin.held()).includes("scripted:"),
           kin.frames.at(-1).includes('"type":"snapshot"'),
         ]).toEqual([0, false, true]);
+        // issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes
+        // 06:00 the lights go out; when it rains again by day, puddles form with the lights off.
+        // The text path says the same.
+        const kinScene = kin.viewer.getByRole("region", { name: "Living scene" });
+        await commit({
+          ...advanceCommand(world, "command-yard-dry", 0n, null),
+          type: "world.weather.set",
+          payload: { schemaVersion: 2, rainIntensity: 0 },
+        });
+        await kinScene.getByText("Puddles: none", { exact: true }).waitFor();
+        await expect.poll(() => shownRoles(kin.viewer)).toBe("lantern,window");
+        const night = BigInt((await durable()).split("|")[1]);
+        const daybreak = night - (night % 86_400_000n) + 25_200_000n;
+        await commit(advanceCommand(world, "command-yard-daybreak", daybreak, null));
+        expect((await durable()).split("|")[1]).toBe(daybreak.toString());
+        await kinScene.getByText("Lights: off", { exact: true }).waitFor();
+        await expect.poll(() => shownRoles(kin.viewer)).toBe("");
+        await commit({
+          ...advanceCommand(world, "command-yard-rain-again", 0n, null),
+          type: "world.weather.set",
+          payload: { schemaVersion: 2, rainIntensity: 3000 },
+        });
+        await kinScene
+          .getByText(`Puddles: ${(await puddleSites()).length}`, { exact: true })
+          .waitFor();
+        await expect.poll(() => shownRoles(kin.viewer)).toBe("puddle");
 
         // issue 816: viewing nested regions and following Stevie is a read through the one scene
         // socket; only the typed movement command moves him, and every disposition is shown.
@@ -2436,11 +2465,12 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           ].map((region) => `View ${region}`),
         ]);
         // issue 20: Stevie, standing on the trash can his food routine targets, plays the eat strip.
+        // Since the dry spell above, Gracie and the kit have left shelter for food.
         await expect
           .poll(() => activity(kin.viewer))
           .toEqual([
-            ["gracie/shelter", "seek-shelter", null],
-            ["kit/shelter", "seek-shelter", "completed"],
+            ["gracie/eat", "seek-food", null],
+            ["kit/eat", "seek-food", "completed"],
             ["stevie/eat", "seek-food", null],
           ]);
         await stevie.click();
@@ -2472,15 +2502,15 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await expect
           .poll(() => activity(kin.viewer))
           .toEqual([
-            ["gracie/shelter", "seek-shelter", null],
-            ["kit/shelter", "seek-shelter", "completed"],
+            ["gracie/eat", "seek-food", null],
+            ["kit/eat", "seek-food", "completed"],
             ["stevie/sniff", "seek-food", "completed"],
           ]);
         // issue 21: Stevie moved while the committed rain still falls, and the puddles still lie.
         expect([
           await living.getByText("Rain intensity: 3000", { exact: true }).count(),
           await shownRoles(kin.viewer),
-        ]).toEqual([1, "lantern,puddle,window"]);
+        ]).toEqual([1, "puddle"]);
         await view("snack-house", "Followed grove.stevie to snack-house.");
         expect([
           await stevie.getAttribute("aria-pressed"),
@@ -2515,22 +2545,6 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await view("den", "The request to view den failed; nothing changed.");
         expect(await stevie.getAttribute("aria-pressed")).toBe("true");
         await kin.viewer.unroute("**/v1/runtime/viewed-space");
-        // issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes
-        // 06:00 the lights go out; the text path says the same.
-        await commit({
-          ...advanceCommand(world, "command-yard-dry", 0n, null),
-          type: "world.weather.set",
-          payload: { schemaVersion: 2, rainIntensity: 0 },
-        });
-        await living.getByText("Puddles: none", { exact: true }).waitFor();
-        await expect.poll(() => shownRoles(kin.viewer)).toBe("lantern,window");
-        const night = BigInt((await durable()).split("|")[1]);
-        await commit(
-          advanceCommand(world, "command-yard-daybreak", night - (night % day) + 25_200_000n, null),
-        );
-        expect(Number(BigInt((await durable()).split("|")[1]) % day)).toBe(25_200_000);
-        await living.getByText("Lights: off", { exact: true }).waitFor();
-        await expect.poll(() => shownRoles(kin.viewer)).toBe("");
         navigationAuth.revoke();
         await view("garden", "Viewing garden is not permitted. Selection cleared.");
         await cleared();
