@@ -18,7 +18,7 @@ export const CLIENT_MEASUREMENTS = {
   interaction_outcome: ["accepted", "refused", "failed"],
   inspector_traversal: ["command", "event", "schedule", "view"],
   accessibility_mode: ["canvas", "text", "reduced_motion"],
-  client_errors: ["socket", "renderer", "asset", "context_lost", "query"],
+  client_errors: ["socket", "renderer", "asset", "context_lost", "query", "shell"],
   scene_recovery: ["gap", "reconnect", "snapshot_fallback"],
 } as const;
 
