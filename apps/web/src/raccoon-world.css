@@ -214,11 +214,6 @@ body {
   padding: 0;
 }
 
-.rw-feed {
-  border-radius: var(--rw-v1-radius);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
-}
-
 .rw-feed li {
   padding: var(--rw-v1-space-1) 0;
   border-top: 1px solid var(--rw-v1-border);
@@ -373,6 +368,7 @@ body {
     overflow: auto;
     z-index: 10;
     border-radius: var(--rw-v1-radius);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
   }
 }
 
