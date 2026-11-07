@@ -577,6 +577,8 @@ Diffs require human approval when asset or layout intent changes.
 
 Amended (2026-11-06): the §15.1 suites are package scripts (see [development.md](../runbooks/development.md)). `pnpm qualify:wave4` runs them and writes the §19 manifest. The narrow layout is 390×844. Until Wave 5 adds a cognitive actor, `green-lake-yard` has none, so the selected-actor golden state selects Stevie, whose mode disclosure is reactive. That substitution is a known deviation in the manifest. A capture counts as approved only when its SHA-256 is listed in `tests/visual/approved-captures.json`, which a person reviews and commits.
 
+Amended (2026-11-07): the owner delegated the review of the §15.3 golden captures to an agent. An agent may approve a capture in `tests/visual/approved-captures.json` on the owner's explicit delegation, recorded in the pull request that adds the approval. CI never approves a capture.
+
 ---
 
 ## 16. Failure, recovery, and security matrix
