@@ -72,9 +72,54 @@ export function eventTime(simTimeMs: bigint, clock: WorldClock | undefined): str
   return `Day ${simTimeMs / length + 1n}, ${clockFace((simTimeMs % length).toString(), clock.dayLengthMs)}`;
 }
 
+type FeedIconKind = "raindrop" | "leaf" | "heart" | "door" | "portrait";
+
+const ICONS: Readonly<
+  Record<WorldFeedCategory, { kind: Exclude<FeedIconKind, "portrait">; name: string } | undefined>
+> = {
+  weather: { kind: "raindrop", name: "Weather" },
+  growth: { kind: "leaf", name: "Ecology" },
+  resource: { kind: "leaf", name: "Ecology" },
+  wellbeing: { kind: "heart", name: "Wellbeing" },
+  portal: { kind: "door", name: "Portal" },
+  routine: undefined,
+  movement: undefined,
+};
+
+const GLYPHS: Readonly<Record<Exclude<FeedIconKind, "portrait">, string>> = {
+  raindrop: "M12 3C9 8 6 11 6 15a6 6 0 0 0 12 0c0-4-3-7-6-12z",
+  leaf: "M5 19C5 9 11 5 19 5c0 9-4 14-12 14M5 19l7-7",
+  heart: "M12 19C5 14 4 10 4 8a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 2-1 6-8 11z",
+  door: "M6 20V10a6 6 0 0 1 12 0v10zM12 14v2",
+};
+
+/** The portrait stand-in: the uppercase first letter of the label's last dot-separated segment. */
+function portraitMonogram(label: string): string {
+  const segment = label.split(".").pop() ?? "";
+  return (segment || label).charAt(0).toUpperCase();
+}
+
+function FeedIcon({ category, label }: { category: WorldFeedCategory; label: string }) {
+  const icon = ICONS[category];
+  if (!icon) {
+    return (
+      <span className="rw-feed-icon" data-icon="portrait" role="img" aria-label={label}>
+        <span aria-hidden="true">{portraitMonogram(label)}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="rw-feed-icon" data-icon={icon.kind} role="img" aria-label={icon.name}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d={GLYPHS[icon.kind]} />
+      </svg>
+    </span>
+  );
+}
+
 /**
- * Recent material events from the authorized world-status read, newest first. Choosing an event
- * that concerns one entity selects that entity and opens the entity rail.
+ * Recent material events from the authorized world-status read, newest first. A row selects the
+ * entity it concerns (when in view), opens the entity rail and opens the event's causal record.
  */
 export function MaterialFeed({
   session,
@@ -102,48 +147,35 @@ export function MaterialFeed({
         {typeof status === "object" && status.feed.length === 0 && <li>No recent events.</li>}
         {typeof status === "object" &&
           status.feed.map((item) => {
-            const label = item.objectId === null ? undefined : labelOf(item.objectId);
-            const content = (
-              <>
-                <span className="rw-feed-category" data-category={item.category}>
-                  {CATEGORY_LABELS[item.category]}
-                </span>{" "}
-                <span>{label ? `${label}: ${item.text}` : item.text}</span>{" "}
-                <time>{eventTime(item.simTimeMs, status.clock)}</time>
-              </>
-            );
             const objectId = item.objectId;
+            const label = objectId === null ? undefined : labelOf(objectId);
+            const inView = objectId !== null && label !== undefined;
             return (
               <li key={item.id}>
-                {objectId !== null && label ? (
-                  <button
-                    type="button"
-                    className="rw-feed-item"
-                    onClick={() => {
+                <button
+                  type="button"
+                  className="rw-feed-item"
+                  data-event-id={item.sourceEventIds[0]}
+                  onClick={(event) => {
+                    if (inView) {
                       select(objectId);
                       useEntityRail.getState().show();
-                    }}
-                  >
-                    {content}
-                  </button>
-                ) : (
-                  <>
-                    {content}
-                    {objectId !== null && " (entity not in view)"}
-                  </>
-                )}
-                {item.sourceEventIds.map((eventId) => (
-                  <button
-                    key={eventId}
-                    type="button"
-                    onClick={(event) => {
-                      whyOpener.current = event.currentTarget;
-                      session.explainEvent(eventId);
-                    }}
-                  >
-                    {`Trace event ${eventId}`}
-                  </button>
-                ))}
+                    }
+                    const eventId = item.sourceEventIds[0];
+                    if (eventId === undefined) return;
+                    whyOpener.current = event.currentTarget;
+                    session.explainEvent(eventId);
+                  }}
+                >
+                  <FeedIcon category={item.category} label={label ?? objectId ?? "Actor"} />
+                  <span className="rw-feed-text">
+                    {item.text}
+                    {objectId !== null && !inView && (
+                      <span className="rw-feed-muted"> (not in view)</span>
+                    )}
+                  </span>
+                  <time>{eventTime(item.simTimeMs, status.clock)}</time>
+                </button>
               </li>
             );
           })}
