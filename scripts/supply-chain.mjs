@@ -55,14 +55,52 @@ export function checkLicense(license, component) {
     typeof license === "string" && license.length > 0,
     `${component}: missing dependency license`,
   );
-  const identifiers = license
-    .replace(/[()]/gu, " ")
-    .split(/\s+/u)
-    .filter((token) => token && token !== "OR" && token !== "AND");
-  assert(
-    identifiers.length && identifiers.every((token) => allowedLicenses.has(token)),
-    `${component}: license outside allowlist: ${license}`,
-  );
+  assert(licenseAllowed(license), `${component}: license outside allowlist: ${license}`);
+}
+// Evaluates an SPDX license expression (SPDX 2.3 Annex D) against the allowlist: OR is satisfied
+// by any alternative, AND needs every operand, AND binds tighter than OR, parentheses group.
+// `X WITH exception` is refused: the allowlist names no exceptions, so none is approved. Anything
+// that does not parse (lowercase operators, unbalanced parentheses, prose) fails closed.
+function licenseAllowed(license) {
+  const tokens = license.match(/\(|\)|[^\s()]+/gu) ?? [];
+  let at = 0;
+  const or = () => {
+    let allowed = and();
+    while (tokens[at] === "OR") {
+      at += 1;
+      allowed = and() || allowed;
+    }
+    return allowed;
+  };
+  const and = () => {
+    let allowed = term();
+    while (tokens[at] === "AND") {
+      at += 1;
+      allowed = term() && allowed;
+    }
+    return allowed;
+  };
+  const term = () => {
+    const token = tokens[at++];
+    if (token === "(") {
+      const allowed = or();
+      if (tokens[at++] !== ")") throw new Error("unbalanced");
+      return allowed;
+    }
+    if (token === undefined || token === ")" || spdxOperators.includes(token))
+      throw new Error("operand expected");
+    if (tokens[at] === "WITH") {
+      at += 2;
+      if (tokens[at - 1] === undefined) throw new Error("exception expected");
+      return false;
+    }
+    return allowedLicenses.has(token);
+  };
+  try {
+    return or() && at === tokens.length;
+  } catch {
+    return false;
+  }
 }
 // The repository provenance inventory (parent plan §2.3, issue 845): every path that is not original
 // Clockgrove work, with its source, SPDX license expression and reason. Third-party npm

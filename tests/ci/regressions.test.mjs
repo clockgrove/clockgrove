@@ -1,7 +1,7 @@
 // CI guards nothing else exercises: the contract checker refuses drift, evidence never promotes an
 // unobserved or failed command to a pass, test:runtime shards run each file once and count only as
 // a complete set, Quality measures a pull request against the main it merges into, and deadlines
-// settle termination-resistant descendants.
+// settle termination-resistant descendants; the license check reads SPDX expressions.
 import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -22,6 +22,7 @@ import {
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
 import { checkContractDrift } from "../../scripts/contract-drift.mjs";
+import { checkLicense } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const run = (command, args, cwd = root) =>
@@ -239,3 +240,38 @@ it("CI deadlines settle termination-resistant descendants without promoting time
       socket.destroy();
     }
   }));
+it("license check evaluates SPDX OR, AND, precedence and WITH, and refuses garbled expressions", () => {
+  const verdict = (license) => {
+    try {
+      checkLicense(license, "component");
+      return "allowed";
+    } catch {
+      return "refused";
+    }
+  };
+  expect(
+    [
+      "(AFL-2.1 OR BSD-3-Clause)",
+      "MIT AND AFL-2.1",
+      "AFL-2.1 OR MIT AND GPL-2.0",
+      "(AFL-2.1 OR MIT) AND ISC",
+      "GPL-2.0 WITH Classpath-exception-2.0 OR MIT",
+      "MIT WITH LLVM-exception",
+      "(MIT OR ISC",
+      "MIT or ISC",
+      "MIT ISC",
+      "SEE LICENSE IN LICENSE.md",
+    ].map(verdict),
+  ).toEqual([
+    "allowed",
+    "refused",
+    "refused",
+    "allowed",
+    "allowed",
+    "refused",
+    "refused",
+    "refused",
+    "refused",
+    "refused",
+  ]);
+});
