@@ -16,6 +16,8 @@ The exact deployment authority is [`runtimeBindingManifest`](../../apps/runtime/
 
 Each `infra/environments/<environment>.json` permits only resource names, domains, documented-safe Cloudflare account/zone IDs, retention, budgets, compatibility date and model aliases. Resource names include the public provider region name and canonical database-local role names. Objects reject unknown fields at every level. Zero account/zone IDs and `example.org` domains are publication-safe placeholders; replace them with reviewed non-secret routing metadata for your installation before planning a hosted environment. Use separate account/zone ownership for isolated staging and production; avoid combining zone-wide entrypoint rulesets with unrelated applications. Resources use the full canonical environment name. Local/CI cloud resource counts are zero even when a plan is requested; ordinary local use needs no cloud credentials or OpenTofu plan.
 
+`retention.databaseSeconds` is the Neon project's `history_retention` (restore window). Staging's Neon organization is on the Free plan, which allows at most 6 hours ([Neon plans](https://neon.com/docs/introduction/plans)), so `staging.json` sets 21600; development and production keep 604800 (7 days, the Launch maximum). Raise staging back to 604800 when it moves to a paid Neon plan (Launch).
+
 Secret names and consumers are declared in `infra/environments/<environment>.secrets.json`. Local/CI declare none. Each hosted environment declares:
 
 | Name | Consumer / source |
