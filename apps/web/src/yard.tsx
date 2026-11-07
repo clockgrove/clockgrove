@@ -7,13 +7,7 @@ import { clientMeasurements, measure, measurePoint } from "./measurements.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
 import { EntityRail } from "./selection.js";
 import { browserSceneSocket } from "./socket.js";
-import {
-  ANNOUNCE_INTERVAL_MS,
-  LiveChanges,
-  spaceSummary,
-  TextSceneEntities,
-  useThrottled,
-} from "./text-scene.js";
+import { LiveChanges, spaceSummary, TextSceneEntities, useThrottled } from "./text-scene.js";
 import { Timeline } from "./timeline.js";
 import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
@@ -63,7 +57,13 @@ function presentScene(
 }
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
-function YardCanvas({ projection }: { readonly projection: SceneProjection }) {
+function YardCanvas({
+  projection,
+  availability,
+}: {
+  readonly projection: SceneProjection;
+  readonly availability: (ready: boolean) => void;
+}) {
   const element = useRef<HTMLDivElement>(null);
   // Set once the renderer's reviewed assets are ready; only then does it receive projections.
   const adapter = useRef<WorldSceneAdapter | undefined>(undefined);
@@ -95,6 +95,7 @@ function YardCanvas({ projection }: { readonly projection: SceneProjection }) {
       if (!active || !created) return;
       release();
       setUnavailable(true);
+      availability(false);
       advance({ type: "fallback", requestId, reason });
     };
     void import("./renderer.js")
@@ -106,7 +107,9 @@ function YardCanvas({ projection }: { readonly projection: SceneProjection }) {
             if (!active || created !== renderer) return;
             adapter.current = renderer;
             advance({ type: "assets", requestId });
-            if (!presentScene(adapter, latest.current, requestId)) setUnavailable(true);
+            const ready = presentScene(adapter, latest.current, requestId);
+            setUnavailable(!ready);
+            availability(ready);
           },
           lose,
           (point) => {
@@ -133,16 +136,21 @@ function YardCanvas({ projection }: { readonly projection: SceneProjection }) {
         if (!active) return;
         measure("client_errors", "renderer");
         setUnavailable(true);
+        availability(false);
         advance({ type: "fallback", requestId, reason: "renderer_unavailable" });
       });
     return () => {
       active = false;
       release();
+      availability(false);
     };
-  }, [select, advance]);
+  }, [select, advance, availability]);
   useEffect(() => {
-    if (!presentScene(adapter, projection, request.current)) setUnavailable(true);
-  }, [projection]);
+    if (!presentScene(adapter, projection, request.current)) {
+      setUnavailable(true);
+      availability(false);
+    }
+  }, [projection, availability]);
   return (
     <>
       <div ref={element} className="rw-canvas" aria-hidden="true" />
@@ -242,6 +250,7 @@ export function RaccoonWorldApp({
   const startBoot = useWorldBoot((view) => view.start);
   const advanceBoot = useWorldBoot((view) => view.advance);
   const state = useYardProjection(session);
+  const [canvasAvailable, setCanvasAvailable] = useState(false);
   // The mode the user sees: recorded once per transition into it.
   useEffect(() => {
     if (boot.state === "scene_ready") measure("accessibility_mode", "canvas");
@@ -360,15 +369,23 @@ export function RaccoonWorldApp({
   }, [scene, advanceBoot]);
   // Arrival progress is the boot announcement alone; the live status resumes once arrival ends.
   const live = "terminal" in boot || (state.status !== "connecting" && state.status !== "ready");
-  // The observation status re-reads revision, time, rain and every position at the live-announcement bound.
-  const announcedScene = useThrottled(scene, ANNOUNCE_INTERVAL_MS);
+  // Boot records arrival once; its displayed completion follows the current committed scene.
+  const arrivalStatus =
+    scene && "terminal" in boot && sameYardScope(boot.scope, scene)
+      ? bootStatusText({ ...boot, projectionRevision: BigInt(scene.revision) })
+      : bootStatusText(boot);
   const shell = useRef<HTMLDivElement>(null);
   useFocusRecovery(shell);
   const viewing =
     state.projection?.hierarchy.find((place) => place.spaceId === (viewed ?? scene?.spaceId))
       ?.label ?? shown?.spaceLabel;
   return (
-    <div ref={shell} className="rw-shell" data-tokens="raccoon-world-ui@1">
+    <div
+      ref={shell}
+      className="rw-shell"
+      data-tokens="raccoon-world-ui@1"
+      data-canvas={canvasAvailable}
+    >
       <header className="rw-hud">
         <div className="rw-hud-start">
           <h1 className="rw-wordmark">Raccoon World</h1>
@@ -411,7 +428,9 @@ export function RaccoonWorldApp({
         </div>
       </header>
       <main className="rw-main">
-        <p>Observe an authorized world. This view grants no world mutation authority.</p>
+        <p className="rw-observation-details">
+          Observe an authorized world. This view grants no world mutation authority.
+        </p>
         {!signedIn && (
           <form onSubmit={submit}>
             <label htmlFor="credential">Local session credential</label>
@@ -449,18 +468,23 @@ export function RaccoonWorldApp({
         )}
         <p role="status" aria-live="polite" aria-atomic="true">
           {live && `Observation: ${yardStatusText(state)}. `}
-          {live && scene && announcedScene
-            ? `Observing revision ${announcedScene.revision}. Canonical time ${announcedScene.simulationTime}. Rain intensity ${announcedScene.weather.rainIntensity}. ${announcedScene.entities.map((entity) => `${entity.presentation.label}, ${entity.objectId}, position ${entity.pose.coordinates.join(", ")}`).join("; ")}`
-            : ""}
+          <span className="rw-observation-details">
+            {live && scene
+              ? `Observing revision ${scene.revision}. Canonical time ${scene.simulationTime}. Rain intensity ${scene.weather.rainIntensity}. ${scene.entities.map((entity) => `${entity.presentation.label}, ${entity.objectId}, position ${entity.pose.coordinates.join(", ")}`).join("; ")}`
+              : ""}
+          </span>
         </p>
         <p role="status" aria-live="polite" aria-atomic="true">
           {/* Recovery screens are shell states outside boot: no earlier arrival stays announced. */}
-          {!state.incompatibility && bootStatusText(boot)}
+          {!state.incompatibility && arrivalStatus}
         </p>
         {state.incompatibility && <CompatibilityRecovery code={state.incompatibility} />}
         {scene && shown && (
           <section aria-label="Living scene">
             <h2>{shown.worldLabel}</h2>
+            {state.projection && (
+              <YardCanvas projection={state.projection} availability={setCanvasAvailable} />
+            )}
             <p>Canonical revision: {scene.revision}</p>
             <p>Canonical time: {scene.simulationTime}</p>
             <p>Rain intensity: {scene.weather.rainIntensity}</p>
@@ -474,7 +498,6 @@ export function RaccoonWorldApp({
               Space summary:{" "}
               {spaceSummary(scene, shown.worldLabel, shown.spaceLabel, viewing ?? shown.spaceLabel)}
             </p>
-            {state.projection && <YardCanvas projection={state.projection} />}
             <h3>Entities</h3>
             <TextSceneEntities
               scene={{ ...scene, entities: inPickOrder(scene) }}
