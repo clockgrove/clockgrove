@@ -98,6 +98,9 @@ export interface LockedPartitionState {
   readonly coveredHeadSequence: bigint;
   /** The content hash of the world's installed pack, when the world has an installation. */
   readonly packContentHash: string | undefined;
+  /** The installed pack's id and version, when the read joins its installation. */
+  readonly packId?: string;
+  readonly packVersion?: string;
   readonly document: PartitionStateDocument;
   /** The pending schedule rows the document was rebuilt from, in queue order. */
   readonly schedules: readonly EncodedScheduleItem[];
