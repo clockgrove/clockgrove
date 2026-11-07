@@ -83,9 +83,13 @@ waiting for the session.
 ## Protected payloads
 
 The prompt (the exact JSON the scripted model reads: the assembled context of
-[context assembly](context-assembly.md#context-assembly)) and the reply are `conversation`-class artifacts in the
+[context assembly](context-assembly.md#context-assembly)) and the reply are artifacts in the
 [artifact store](../runbooks/database.md#artifact-store). They are stored only as AES-256-GCM
-ciphertext, and rows name them through keys that pin the class. The prompt is
+ciphertext, and rows name them through keys that pin the class. The reply is `conversation`. The
+prompt is `conversation` unless it includes any actor document; then it is `private_cognition`,
+under that class's retention, and its text is never copied into a `conversation` artifact
+(migration 0037). The run row's `prompt_privacy_class` and the model attempt's
+`input_privacy_class` carry the class. The prompt is
 `<sessionId>:prompt:<runId>`. The output is the reply message's own artifact, not a copy. A Talk
 past the run limit is refused before its prompt is stored.
 
@@ -106,8 +110,10 @@ they are refused here with `403 authorization_refused`.
   - A message reaches the run that read it or the run that produced it.
   - A command reaches the run whose step proposed it.
 
-  The walk shows payload `text` only when the inspector's ceiling also holds `conversation`, the
-  payloads' class, and the inspector is a participant of the run's session. Conversation text is
+  The walk shows payload `text` only when the inspector is a participant of the run's session
+  whose ceiling also holds `conversation` and the payload's own class: a `private_cognition`
+  prompt needs both. A conversation-only participant still reads that turn's context manifest
+  (path, version, hash, token estimate, decision and rule of each document), never its text. Conversation text is
   participant-only (migration 0034), and the run walk keeps that rule. Otherwise each payload is `{ artifactId, privacyClass, text: null }`: metadata
   only. An entry that reaches no run of the world timeline, including another world's, answers
   `404 run_not_found`.

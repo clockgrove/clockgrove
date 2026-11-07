@@ -272,9 +272,37 @@ it.skipIf(!isNativeWorldOwnerChild())(
         manifest,
       ]);
 
-      // The exact prompt: protected policy only in the protected section, untrusted parts labelled.
-      const walk = (await post("/v1/runtime/runs/inspect", { runId: manifest.runId }, MEMBER))
-        .body as RunWalk;
+      // The prompt includes Stevie's documents, so it is private cognition: a conversation-only
+      // inspector sees its manifest above and its class here, never its text.
+      const walkOf = async () =>
+        (await post("/v1/runtime/runs/inspect", { runId: manifest.runId }, MEMBER)).body as RunWalk;
+      const hidden = await walkOf();
+      expect([
+        hidden.runs[0]?.prompt,
+        hidden.runs[0]?.steps.find((s) => s.kind === "model_attempt")?.input,
+      ]).toEqual([
+        {
+          artifactId: `${a}:prompt:${manifest.runId}`,
+          privacyClass: "private_cognition",
+          text: null,
+        },
+        {
+          artifactId: `${a}:prompt:${manifest.runId}`,
+          privacyClass: "private_cognition",
+          text: null,
+        },
+      ]);
+      expect(JSON.stringify(hidden).includes("careful raccoon")).toBe(false);
+
+      // With `private_cognition` too, the participant reads the exact prompt: protected policy only
+      // in the protected section, untrusted parts labelled.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships SET privacy_ceiling =
+           '{"version":1,"allowedCategories":["public_scene","conversation","private_cognition","operator_evidence"]}'
+          WHERE principal_id = 'principal-runtime'`,
+      );
+      const walk = await walkOf();
+      expect(walk.runs[0]?.prompt?.privacyClass).toBe("private_cognition");
       const prompt = JSON.parse(walk.runs[0]?.prompt?.text ?? "{}");
       expect([prompt.protected, prompt.governed, prompt.untrusted]).toEqual([
         [

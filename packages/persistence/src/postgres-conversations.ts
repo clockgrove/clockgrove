@@ -417,7 +417,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
 
   /**
    * Opens this attempt's run (migration 0036) with its protected model input, the exact prompt the
-   * scripted model reads, as a `conversation` artifact, and its context step and manifest (0037).
+   * scripted model reads, as a `conversation` artifact, or `private_cognition` when it includes an
+   * actor document, and its context step and manifest (0037).
    * A session at its run limit is full.
    */
   private async beginRun(
@@ -439,6 +440,13 @@ export class PostgreSqlConversationStore implements ConversationStore {
       { model: SCRIPTED_MODEL, sessionId: request.sessionId, caretakerMessages },
       context,
     );
+    // Decision (issue 17, owner's answer 1): a prompt that includes any actor document holds
+    // private cognition, so it is stored as that class, never copied into a conversation artifact.
+    const promptPrivacyClass = context.entries.some(
+      (entry) => entry.source === "document" && entry.decision === "included",
+    )
+      ? "private_cognition"
+      : "conversation";
     await this.put(
       participant,
       stored,
@@ -446,6 +454,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       prompt,
       "conversation_busy",
       JSON_MEDIA_TYPE,
+      promptPrivacyClass,
     );
     const row = stored.row;
     const start: TalkRunStart = {
@@ -463,6 +472,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       inputRevision: count,
       caretakerMessages,
       promptArtifactId,
+      promptPrivacyClass,
       contextSummary: `Assembled ${context.entries.filter((e) => e.decision === "included").length} of ${context.entries.length} context sources`,
     };
     const manifest: ContextManifest = {
@@ -809,13 +819,29 @@ export class PostgreSqlConversationStore implements ConversationStore {
     text: string,
     collision: "message_id_reused" | "conversation_busy",
     mediaType = TEXT_MEDIA_TYPE,
+    privacyClass: "conversation" | "private_cognition" = "conversation",
   ): Promise<void> {
+    // The runtime writes a private prompt as the actor's cognition, not as the participant's
+    // reading: the participant's ceiling gains `private_cognition` for this one write only, and
+    // reading the prompt back still needs that class in the reader's own ceiling (0037).
+    const writer =
+      privacyClass === "conversation"
+        ? participant
+        : {
+            ...participant,
+            privacyCeiling: {
+              ...participant.privacyCeiling,
+              allowedCategories: [
+                ...new Set([...participant.privacyCeiling.allowedCategories, privacyClass]),
+              ],
+            },
+          };
     try {
-      await this.artifacts.put(participant, {
+      await this.artifacts.put(writer, {
         ...this.locator(stored, artifactId),
         bytes: encoder.encode(text),
         mediaType,
-        privacyClass: "conversation",
+        privacyClass,
         retentionClass: "durable",
       });
     } catch (error) {

@@ -77,6 +77,9 @@ application does.
   `<runId>:documents`. The run records this as a `validation` step: `succeeded`, or `failed` with
   the refusal code. A refused proposal does not fail the turn. The scripted fixture proposes when
   the Caretaker text's first line is `fixture:propose <path>`; the rest of the text is the content.
+  That trigger lives only in the scripted provider fixture (`scriptedConversationReply`); no
+  production path parses Caretaker text into a proposal. A proposal reaches the store only as the
+  model responder's returned `proposal`.
   Wave 6 owns governed adoption of model proposals to `governed` documents.
 
 `POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (default:
@@ -128,6 +131,14 @@ The prompt, the run's protected model input, is
 `{ model, sessionId, caretakerMessages, promptVersion: "context-prompt-v1", manifestHash, protected, governed, untrusted }`.
 Each part is `{ source, version, text }`: a document path or message role, and a document version
 or message sequence.
+
+A prompt that includes any document is stored as a `private_cognition` artifact, under that
+class's retention; a prompt without one stays `conversation`. Document text is never copied into a
+`conversation` artifact. The runtime writes a private prompt as the actor's cognition, with
+`private_cognition` added to the participant's ceiling for that one write only. Reading it back
+through the [run inspector](runs.md#inspector-api) needs a session participant whose own ceiling
+holds `conversation` and `private_cognition`. A conversation-only participant reads the manifest
+below, never the text.
 
 ### The manifest
 

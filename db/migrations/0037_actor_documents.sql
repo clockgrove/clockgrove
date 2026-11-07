@@ -416,3 +416,20 @@ ALTER TABLE clockgrove.inspector_accesses
       'context-manifest', 'actor-documents'
     )
   );
+
+-- Decision (issue 17, owner's answer 1): a run prompt that includes any actor document holds
+-- private cognition, so it is stored as a `private_cognition` artifact under that class's
+-- retention, never copied into a `conversation` artifact. The run row and its model attempt stay
+-- `conversation` evidence; only the prompt artifact they name carries its own class, pinned by key.
+ALTER TABLE clockgrove.agent_runs
+  ADD COLUMN prompt_privacy_class text NOT NULL DEFAULT 'conversation'
+    CHECK (prompt_privacy_class IN ('conversation', 'private_cognition')),
+  DROP CONSTRAINT agent_runs_tenant_id_prompt_artifact_id_privacy_class_fkey,
+  ADD FOREIGN KEY (tenant_id, prompt_artifact_id, prompt_privacy_class)
+    REFERENCES clockgrove.artifact_references (tenant_id, artifact_id, privacy_class);
+ALTER TABLE clockgrove.run_steps
+  ADD COLUMN input_privacy_class text NOT NULL DEFAULT 'conversation'
+    CHECK (input_privacy_class IN ('conversation', 'private_cognition')),
+  DROP CONSTRAINT run_steps_tenant_id_input_artifact_id_privacy_class_fkey,
+  ADD FOREIGN KEY (tenant_id, input_artifact_id, input_privacy_class)
+    REFERENCES clockgrove.artifact_references (tenant_id, artifact_id, privacy_class);

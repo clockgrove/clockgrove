@@ -34,12 +34,14 @@ const timestamp = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS ${column}`;
 const RUN_COLUMNS = `run_id, session_id, actor_id, principal_id, persona_id, activation,
   input_message_id, parent_run_id, parent_step, root_run_id, model, prompt_version, input_revision,
-  status, outcome_code, turn, summary, prompt_artifact_id, partition_id, space_id,
+  status, outcome_code, turn, summary, prompt_artifact_id, prompt_privacy_class, partition_id,
+  space_id,
   ${timestamp("started_at")}, ${timestamp("ended_at")},
   (SELECT count(*) FROM clockgrove.run_steps AS step
     WHERE step.tenant_id = agent_runs.tenant_id AND step.run_id = agent_runs.run_id) AS step_count`;
 const STEP_COLUMNS = `run_id, step, kind, status, outcome_code, model, tool, command_id,
-  output_message_id, input_artifact_id, output_artifact_id, input_tokens, output_tokens,
+  output_message_id, input_artifact_id, input_privacy_class, output_artifact_id, input_tokens,
+  output_tokens,
   cost_microusd, summary, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
 /** The caller's whole browser scope: an inspect grant for one space reads only that space's runs. */
 const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4";
@@ -61,6 +63,8 @@ export interface TalkRunStart {
   readonly inputRevision: number;
   readonly caretakerMessages: number;
   readonly promptArtifactId: string;
+  /** `private_cognition` when the prompt includes any actor document (0037), else `conversation`. */
+  readonly promptPrivacyClass: ProtectedPayload["privacyClass"];
   /** The context step's safe summary: how many candidates were included. */
   readonly contextSummary: string;
 }
@@ -101,9 +105,9 @@ export class PostgreSqlRunRecorder {
       `INSERT INTO clockgrove.agent_runs (
          tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
          principal_id, persona_id, activation, input_message_id, root_run_id, model,
-         prompt_version, input_revision, summary, prompt_artifact_id
+         prompt_version, input_revision, summary, prompt_artifact_id, prompt_privacy_class
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'conversation_message', $11, $2, $12,
-                 $13, $14, $15, $16)`,
+                 $13, $14, $15, $16, $17)`,
       [
         start.tenantId,
         start.runId,
@@ -121,6 +125,7 @@ export class PostgreSqlRunRecorder {
         start.inputRevision,
         `Scripted reply to Caretaker message ${start.caretakerMessages}`,
         start.promptArtifactId,
+        start.promptPrivacyClass,
       ],
     );
     // The context was assembled before the run opened; its manifest is written with this step.
@@ -132,9 +137,17 @@ export class PostgreSqlRunRecorder {
     );
     await this.client.query(
       `INSERT INTO clockgrove.run_steps (
-         tenant_id, run_id, session_id, step, kind, model, input_artifact_id, summary
-       ) VALUES ($1, $2, $3, 2, 'model_attempt', $4, $5, 'Scripted model attempt')`,
-      [start.tenantId, start.runId, start.sessionId, SCRIPTED_MODEL, start.promptArtifactId],
+         tenant_id, run_id, session_id, step, kind, model, input_artifact_id, input_privacy_class,
+         summary
+       ) VALUES ($1, $2, $3, 2, 'model_attempt', $4, $5, $6, 'Scripted model attempt')`,
+      [
+        start.tenantId,
+        start.runId,
+        start.sessionId,
+        SCRIPTED_MODEL,
+        start.promptArtifactId,
+        start.promptPrivacyClass,
+      ],
     );
   }
 
@@ -213,8 +226,9 @@ export class PostgreSqlRunRecorder {
 /**
  * Reads runs for an inspector. Row visibility is the policy of 0036 (a participant's own runs, or
  * any run under an `operator_evidence` ceiling); this adds the world, timeline and space scope. A
- * payload's text is read only when the ceiling holds its class and the inspector is a participant
- * of the run's session, as conversation text is (0034); metadata search never reads one.
+ * payload's text is read only when the inspector is a participant of the run's session whose
+ * ceiling holds `conversation`, as conversation text is (0034), and the payload's own class (a
+ * private prompt's `private_cognition`, 0037); metadata search never reads one.
  */
 export class PostgreSqlRunReader {
   constructor(
@@ -252,11 +266,17 @@ export class PostgreSqlRunReader {
         return { runs: runRows, steps: stepRows.rows as Row[] };
       },
     );
-    const category = authorization.privacyCeiling.allowedCategories.includes("conversation");
+    const allowed = authorization.privacyCeiling.allowedCategories;
     const views: RunView[] = [];
     for (const row of runs) {
-      const readable = category && row.participant === true;
-      const payload = (id: unknown) => this.payload(authorization, scope, row, id, readable);
+      // Every payload draws on the session's conversation; a private prompt adds the actor's
+      // documents, so its text needs both classes (issue 17, owner's answer 1).
+      const readable = (privacyClass: ProtectedPayload["privacyClass"]) =>
+        row.participant === true &&
+        allowed.includes("conversation") &&
+        allowed.includes(privacyClass);
+      const payload = (id: unknown, privacyClass: unknown = "conversation") =>
+        this.payload(authorization, scope, row, id, privacyClassOf(privacyClass), readable);
       const runSteps: RunStepView[] = [];
       for (const step of steps.filter((s) => s.run_id === row.run_id))
         runSteps.push({
@@ -274,12 +294,12 @@ export class PostgreSqlRunReader {
           summary: String(step.summary),
           startedAt: String(step.started_at),
           endedAt: nullable(step.ended_at),
-          input: await payload(step.input_artifact_id),
+          input: await payload(step.input_artifact_id, step.input_privacy_class),
           output: await payload(step.output_artifact_id),
         });
       views.push({
         ...summaryOf(row),
-        prompt: await payload(row.prompt_artifact_id),
+        prompt: await payload(row.prompt_artifact_id, row.prompt_privacy_class),
         steps: runSteps,
       });
     }
@@ -319,10 +339,11 @@ export class PostgreSqlRunReader {
     scope: BrowserScope,
     run: Row,
     artifactId: unknown,
-    readable: boolean,
+    privacyClass: ProtectedPayload["privacyClass"],
+    readable: (privacyClass: ProtectedPayload["privacyClass"]) => boolean,
   ): Promise<ProtectedPayload | null> {
     if (typeof artifactId !== "string") return null;
-    if (!readable) return { artifactId, privacyClass: "conversation", text: null };
+    if (!readable(privacyClass)) return { artifactId, privacyClass, text: null };
     const { bytes } = await this.artifacts.get(authorization, {
       tenantId: scope.tenantId,
       worldId: scope.worldId,
@@ -333,10 +354,15 @@ export class PostgreSqlRunReader {
     });
     return {
       artifactId,
-      privacyClass: "conversation",
+      privacyClass,
       text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     };
   }
+}
+
+function privacyClassOf(value: unknown): ProtectedPayload["privacyClass"] {
+  if (value === "conversation" || value === "private_cognition") return value;
+  throw new Error("run payload privacy class unknown");
 }
 
 /** The runs an entry names directly, as a condition over `agent_runs` after `$1`–`$4`. */
