@@ -173,7 +173,17 @@ const passed = (name) => suites.find((suite) => suite.name === name)?.status ===
 
 // §15.2 and §16: each item's cited markers must still be in their files; its result is its suites'.
 const matrix = await json(path.join(root, "scripts/ci/qualify-wave4-scenarios.json"));
+const COVERAGE = ["full", "partial", "gap", "not_applicable"];
 const resolve = async (row) => {
+  assert(COVERAGE.includes(row.coverage), `${row.id}: unknown coverage ${row.coverage}`);
+  // An owner ruled the item out of this wave: it carries its reason and no evidence, and is no gap.
+  if (row.coverage === "not_applicable") {
+    assert(
+      typeof row.reason === "string" && row.reason !== "" && row.evidence.length === 0,
+      `${row.id}: not_applicable needs a reason and no evidence`,
+    );
+    return { ...row, status: "not_applicable" };
+  }
   const evidenceRows = [];
   for (const { file, marker } of row.evidence) {
     const source = await readFile(path.join(root, file), "utf8").catch(() => "");
@@ -274,7 +284,7 @@ const cloudflareQualification = [
 
 const deviations = [
   ...[...scenarios, ...failureMatrix]
-    .filter((row) => row.status !== "passed")
+    .filter((row) => row.status !== "passed" && row.status !== "not_applicable")
     .map((row) => ({
       id: row.id,
       item: row.scenario,
@@ -390,7 +400,13 @@ const manifest = {
   browserMatrix,
   suites,
   goldenCaptures,
-  convergenceAndFaults: { scenarios, failureMatrix },
+  convergenceAndFaults: {
+    scenarios,
+    failureMatrix,
+    notApplicable: [...scenarios, ...failureMatrix]
+      .filter(({ status }) => status === "not_applicable")
+      .map(({ id, scenario, reason }) => ({ id, item: scenario, reason })),
+  },
   accessibility: {
     report: accessibility === null ? null : "evidence/accessibility-report.json",
     axeVersion: accessibility?.axeVersion ?? null,
