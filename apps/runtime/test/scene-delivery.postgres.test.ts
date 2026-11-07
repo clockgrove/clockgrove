@@ -167,10 +167,11 @@ function expectedOperations(canonical: HydratedWorldOwner): ScenePatchOperation[
     },
     { op: "set_clock", simulationTime: state.simulationTime },
     { op: "set_weather", weather: state.weather },
+    { op: "set_effects", effects: [] },
     { op: "set_feed_cursor", feedCursor: canonical.coveredHeadSequence.toString() },
     {
       op: "set_compatibility",
-      compatibility: { projectionVersion: 1, assetManifestVersion: 1, clientVersion: 1 },
+      compatibility: { projectionVersion: 2, assetManifestVersion: 1, clientVersion: 1 },
     },
   ];
 }
@@ -295,7 +296,7 @@ describe("native recoverable bounded scene delivery", () => {
         ]);
         expect(snapshot.payload.audienceHash).toBe(expectedAudience);
         expect(snapshot.payload.compatibility).toEqual({
-          projectionVersion: 1,
+          projectionVersion: 2,
           assetManifestVersion: 1,
           clientVersion: 1,
         });

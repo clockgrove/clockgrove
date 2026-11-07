@@ -1,6 +1,7 @@
 import type {
   BrowserScope,
   LivingEntity,
+  LivingPose,
   LivingSpatialFrame,
   LivingWeather,
 } from "./browser-protocol.js";
@@ -8,6 +9,7 @@ import {
   decodeBrowserScope,
   decodeLivingEntity,
   decodeLivingFrame,
+  decodeLivingPose,
   decodeLivingScene,
   decodeLivingWeather,
 } from "./browser-protocol.js";
@@ -32,7 +34,13 @@ import {
 
 /** Successor freeze versions are independent of diagnostic v1 and HTTP LivingScene v1. */
 export const SCENE_PROTOCOL_VERSION = 1;
-export const SCENE_PROJECTION_VERSION = 1;
+/**
+ * Projection version 2 adds `SceneProjection.effects` and the `set_effects` patch operation, which
+ * strict version-1 decoders reject. Decoders accept the current version and the one prior version;
+ * a version-1 projection carries neither.
+ */
+export const SCENE_PROJECTION_VERSION = 2;
+export const SCENE_PRIOR_PROJECTION_VERSION = 1;
 export const SCENE_ASSET_MANIFEST_VERSION = 1;
 export const SCENE_CLIENT_VERSION = 1;
 export type SceneLane = "projection" | "transient" | "operator";
@@ -47,7 +55,9 @@ export interface SceneEnvelope<T> extends BrowserScope {
   readonly payload: T;
 }
 export interface SceneCompatibility {
-  readonly projectionVersion: 1;
+  readonly projectionVersion:
+    | typeof SCENE_PRIOR_PROJECTION_VERSION
+    | typeof SCENE_PROJECTION_VERSION;
   readonly assetManifestVersion: 1;
   readonly clientVersion: 1;
 }
@@ -78,7 +88,11 @@ export function decodeSceneCompatibility(
   // Versions are checked before shape, so a newer peer that also adds or drops fields still
   // receives its stable compatibility code. An absent version is malformed, not newer, and
   // falls through to the generic missing-field error.
-  if ("projectionVersion" in v && v.projectionVersion !== SCENE_PROJECTION_VERSION)
+  if (
+    "projectionVersion" in v &&
+    v.projectionVersion !== SCENE_PROJECTION_VERSION &&
+    v.projectionVersion !== SCENE_PRIOR_PROJECTION_VERSION
+  )
     throw new SceneCompatibilityError(
       "unsupported_projection_version",
       v.projectionVersion,
@@ -100,7 +114,11 @@ export function decodeSceneCompatibility(
       `${path}.clientVersion`,
     );
   exactKeys(v, ["projectionVersion", "assetManifestVersion", "clientVersion"], [], path);
-  return { projectionVersion: 1, assetManifestVersion: 1, clientVersion: 1 };
+  return {
+    projectionVersion: v.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION ? 1 : 2,
+    assetManifestVersion: 1,
+    clientVersion: 1,
+  };
 }
 export interface SceneAudience {
   readonly kind: "observer";
@@ -130,6 +148,25 @@ export interface ScenePresentationBinding {
   readonly accessibilityLabel: string;
 }
 export type SceneProjectedEntity = LivingEntity;
+/** The placed presentation effects the live yard may show; the client decides from weather and clock. */
+export type SceneEffectRole = "puddle" | "lantern" | "window";
+/** One placed effect of the installed pack's presentation, at a pose in a projected frame. */
+export interface SceneEffect {
+  readonly role: SceneEffectRole;
+  readonly assetId: string;
+  readonly animationFamily: string;
+  readonly pose: LivingPose;
+}
+export function decodeSceneEffect(value: unknown, path = "effect"): SceneEffect {
+  const v = record(value, path);
+  exactKeys(v, ["role", "assetId", "animationFamily", "pose"], [], path);
+  return {
+    role: literal(v.role, ["puddle", "lantern", "window"], `${path}.role`),
+    assetId: string(v.assetId, `${path}.assetId`),
+    animationFamily: string(v.animationFamily, `${path}.animationFamily`),
+    pose: decodeLivingPose(v.pose, `${path}.pose`),
+  };
+}
 /**
  * A projected actor's scripted belief or memory about another object: relationship-private, so it is
  * present only in an audience whose ceiling allows `private_cognition`.
@@ -187,6 +224,8 @@ export interface SceneProjection extends BrowserScope {
   readonly audienceHash: string;
   /** Absent unless the decided audience allows `private_cognition`. */
   readonly privateCognition?: readonly ScenePrivateCognition[];
+  /** Absent when the installed pack places no effect in this scene. */
+  readonly effects?: readonly SceneEffect[];
 }
 export function decodeVisibleSpace(value: unknown, path = "space"): VisibleSpace {
   const v = record(value, path);
@@ -276,9 +315,11 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
       "feedCursor",
       "audienceHash",
     ],
-    ["privateCognition"],
+    ["privateCognition", "effects"],
     path,
   );
+  if (compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION && v.effects !== undefined)
+    throw new ContractDecodeError(`${path}.effects`, "absent from projection version 1");
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
   const simulationTime = unsignedDecimal(v.simulationTime, `${path}.simulationTime`);
   const living = decodeLivingScene({
@@ -330,6 +371,9 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
             `${path}.privateCognition`,
           ),
         }),
+    ...(v.effects === undefined
+      ? {}
+      : { effects: array(v.effects, `${path}.effects`, decodeSceneEffect) }),
   };
 }
 export type ScenePatchOperation =
@@ -350,7 +394,8 @@ export type ScenePatchOperation =
   | {
       readonly op: "set_private_cognition";
       readonly entries: readonly ScenePrivateCognition[];
-    };
+    }
+  | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] };
 export interface ScenePatch {
   readonly fromRevision: bigint;
   readonly toRevision: bigint;
@@ -414,6 +459,9 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
         op: v.op,
         entries: array(v.entries, `${path}.entries`, decodeScenePrivateCognition),
       };
+    case "set_effects":
+      exactKeys(v, ["op", "effects"], [], path);
+      return { op: v.op, effects: array(v.effects, `${path}.effects`, decodeSceneEffect) };
     default:
       throw new ContractDecodeError(`${path}.op`, "unknown operation");
   }
@@ -446,10 +494,26 @@ export function decodeScenePatch(value: unknown, path = "patch"): ScenePatch {
     toRevision = unsignedDecimal(v.toRevision, `${path}.toRevision`);
   if (toRevision <= fromRevision)
     throw new ContractDecodeError(`${path}.toRevision`, "revision must advance");
+  const operations = array(v.operations, `${path}.operations`, decodeScenePatchOperation);
+  // A patch built for projection version 1 cannot carry version 2's `set_effects`.
+  if (
+    operations.some(
+      (operation) =>
+        operation.op === "set_compatibility" &&
+        operation.compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION,
+    )
+  )
+    operations.forEach((operation, index) => {
+      if (operation.op === "set_effects")
+        throw new ContractDecodeError(
+          `${path}.operations[${index}].op`,
+          "absent from projection version 1",
+        );
+    });
   return {
     fromRevision,
     toRevision,
-    operations: array(v.operations, `${path}.operations`, decodeScenePatchOperation),
+    operations,
     sourceEventIds: array(v.sourceEventIds, `${path}.sourceEventIds`, (id, p) =>
       decodeOpaqueId(id, "EventId", p),
     ),

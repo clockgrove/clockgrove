@@ -67,12 +67,13 @@ it("rejects incompatible serialized protocol, projection, asset and client versi
       } catch (error) {
         expect(error).toBeInstanceOf(SceneCompatibilityError);
         if (!(error instanceof SceneCompatibilityError)) throw error;
+        const expected = mismatch.field === "projectionVersion" ? 2 : 1;
         expect({ code: error.code, actual: error.actual, expected: error.expected }).toEqual({
           code: mismatch.code,
           actual: 9,
-          expected: 1,
+          expected,
         });
-        expect(error.message).toContain(`${mismatch.code}; actual=9; expected=1`);
+        expect(error.message).toContain(`${mismatch.code}; actual=9; expected=${expected}`);
       }
   }
   expect(() =>
@@ -107,8 +108,53 @@ it("refuses a patch declaring a newer projection version with its stable code, w
     { ...patch.payload, operations: [newer], lighting: "dusk" },
   ])
     expect(() => decodeObserverSceneMessage({ ...patch, payload })).toThrow(
-      /\.compatibility\.projectionVersion: unsupported_projection_version; actual=9; expected=1$/u,
+      /\.compatibility\.projectionVersion: unsupported_projection_version; actual=9; expected=2$/u,
     );
+});
+
+it("accepts the prior projection version 1 only without version 2's effects", async () => {
+  const [snapshot, patch] = await Promise.all(
+    ["snapshot", "patch"].map(async (name) =>
+      JSON.parse(
+        await readFile(
+          new URL(`./fixtures/realtime-projection/${name}.golden.json`, import.meta.url),
+          "utf8",
+        ),
+      ),
+    ),
+  );
+  const v1 = { projectionVersion: 1, assetManifestVersion: 1, clientVersion: 1 };
+  const { effects: _effects, ...prior } = snapshot.payload;
+  const decoded = decodeObserverSceneMessage({
+    ...snapshot,
+    payload: { ...prior, compatibility: v1 },
+  });
+  expect(decoded.type === "snapshot" && decoded.payload.compatibility).toEqual(v1);
+  expect(decoded.type === "snapshot" && decoded.payload.effects).toBeUndefined();
+  expect(() =>
+    decodeObserverSceneMessage({
+      ...snapshot,
+      payload: { ...snapshot.payload, compatibility: v1 },
+    }),
+  ).toThrow("projection.effects: absent from projection version 1");
+  const priorOperations = patch.payload.operations.map((operation: { op: string }) =>
+    operation.op === "set_compatibility" ? { ...operation, compatibility: v1 } : operation,
+  );
+  expect(() =>
+    decodeObserverSceneMessage({
+      ...patch,
+      payload: { ...patch.payload, operations: priorOperations },
+    }),
+  ).toThrow(/operations\[\d+\]\.op: absent from projection version 1$/u);
+  const withoutEffects = priorOperations.filter(
+    (operation: { op: string }) => operation.op !== "set_effects",
+  );
+  expect(
+    decodeObserverSceneMessage({
+      ...patch,
+      payload: { ...patch.payload, operations: withoutEffects },
+    }).type,
+  ).toBe("patch");
 });
 
 it("freezes strict audience and complete reviewed asset metadata", async () => {

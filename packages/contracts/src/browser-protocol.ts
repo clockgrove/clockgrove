@@ -473,11 +473,19 @@ export function decodeLivingFrame(value: unknown, path: string): LivingSpatialFr
     },
   };
 }
+export function decodeLivingPose(value: unknown, path: string): LivingPose {
+  const pose = record(value, path);
+  exactKeys(pose, ["frameId", "frameVersion", "coordinates"], [], path);
+  return {
+    frameId: decodeOpaqueId(pose.frameId, "SpatialFrameId"),
+    frameVersion: observationPositive(pose.frameVersion, `${path}.frameVersion`),
+    coordinates: observationVector(pose.coordinates, `${path}.coordinates`),
+  };
+}
 export function decodeLivingEntity(value: unknown, path: string): LivingEntity {
   const v = record(value, path);
   exactKeys(v, ["objectId", "archetypeId", "pose", "presentation"], [], path);
-  const pose = record(v.pose, `${path}.pose`);
-  exactKeys(pose, ["frameId", "frameVersion", "coordinates"], [], `${path}.pose`);
+  const pose = decodeLivingPose(v.pose, `${path}.pose`);
   const presentation = record(v.presentation, `${path}.presentation`);
   exactKeys(presentation, ["kind", "label"], [], `${path}.presentation`);
   if (presentation.kind !== "placeholder")
@@ -485,11 +493,7 @@ export function decodeLivingEntity(value: unknown, path: string): LivingEntity {
   return {
     objectId: decodeOpaqueId(v.objectId, "ObjectId"),
     archetypeId: string(v.archetypeId, `${path}.archetypeId`),
-    pose: {
-      frameId: decodeOpaqueId(pose.frameId, "SpatialFrameId"),
-      frameVersion: observationPositive(pose.frameVersion, `${path}.pose.frameVersion`),
-      coordinates: observationVector(pose.coordinates, `${path}.pose.coordinates`),
-    },
+    pose,
     presentation: {
       kind: "placeholder",
       label: string(presentation.label, `${path}.presentation.label`),
