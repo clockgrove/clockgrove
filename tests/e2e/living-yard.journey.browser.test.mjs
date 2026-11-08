@@ -2544,6 +2544,31 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           receiptsBefore,
         );
+        // With the world-command grant, the same kind of proposal commits through the ordinary
+        // Journal, and the member opens Why from the outcome line, which survives a reload.
+        await truth(
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command'] WHERE principal_id='principal-runtime'`,
+        );
+        await talker.viewer
+          .getByLabel("Message Stevie…", { exact: true })
+          .fill("fixture:offer grove.water-bowl water");
+        await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
+        await talker.viewer.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
+        expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
+          String(Number(receiptsBefore) + 1),
+        );
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await history.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
+        await history.getByRole("button", { name: "Why?", exact: true }).last().click();
+        await talker.viewer
+          .getByRole("region", { name: "Recorded Why", exact: true })
+          .waitFor({ timeout: 60_000 });
+        await truth(
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime'`,
+        );
         await talker.viewer.context().close();
         // A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM.
         await truth(

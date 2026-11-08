@@ -77,6 +77,8 @@ export interface ConversationMessage {
   readonly voiceMode: VoiceMode | null;
   readonly text: string;
   readonly createdAt: string;
+  /** On an actor reply: the world command proposed in that turn and what became of it, read from run evidence. */
+  readonly command?: TalkCommandOutcome;
 }
 
 /** One input message and its answer. The scripted fixture completes a turn in its request. */
@@ -360,7 +362,7 @@ export function decodeConversationMessage(
   exactKeys(
     v,
     ["sessionId", "sequence", "messageId", "role", "authorId", "voiceMode", "text", "createdAt"],
-    [],
+    ["command"],
     path,
   );
   const role = literal(v.role, ["caretaker", "actor"], `${path}.role`);
@@ -377,6 +379,9 @@ export function decodeConversationMessage(
     voiceMode,
     text: string(v.text, `${path}.text`),
     createdAt: utcTimestamp(v.createdAt, `${path}.createdAt`),
+    ...(v.command === undefined
+      ? {}
+      : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),
   });
 }
 

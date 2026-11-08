@@ -42,6 +42,7 @@ import {
   type ActorProcess,
   type BrowserScope,
   ContractDecodeError,
+  type ConversationSessionParticipant,
   decodeOpaqueId,
   decodeSceneConnectionAttachment,
   encodeOperatorSceneMessage,
@@ -1197,8 +1198,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   private inbox: PerceptionInbox | undefined;
   private readonly recoveredFor = new Set<string>();
   #fibers: TurnFibers | undefined;
-  /** The latest Talk request's trusted context: the member's grants bound what Stevie may do. */
-  #talkContext: TrustedExecutionContext | undefined;
+  /** Trusted contexts by principal and persona: each member's grants bound only their own turns. */
+  readonly #talkContexts = new Map<string, TrustedExecutionContext>();
+
+  #talkContext(who: { readonly principalId: string; readonly personaId: string }) {
+    return this.#talkContexts.get(`${who.principalId}:${who.personaId}`);
+  }
 
   /** The SDK's `ctx` and `env`, typed by this module's portable declarations. */
   protected get objectState(): DurableObjectState {
@@ -1478,7 +1483,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     request: TalkRequest,
   ): Promise<ReadableStream<Uint8Array>> {
     await this.ready(scope, context, actorId);
-    this.#talkContext = context;
+    this.#talkContexts.set(`${participant.principalId}:${participant.personaId}`, context);
     await this.recoverOnce(scope, participant, actorId);
     const { admitted } = await this.receivePerception({ kind: "direct_message", ...request });
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -1706,15 +1711,15 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /** Stevie's grants: the registry's, bounded by the grants of the member he is talking with. */
-  private grants(): CapabilityGrants | undefined {
-    const context = this.#talkContext;
+  private grants(participant: ConversationSessionParticipant): CapabilityGrants | undefined {
+    const context = this.#talkContext(participant);
     return context === undefined
       ? undefined
       : CAPABILITY_REGISTRY.grantsFor(context.grants.map(String));
   }
 
-  private perceive = async (scope: BrowserScope) => {
-    const context = this.#talkContext;
+  private perceive = async (scope: BrowserScope, participant: ConversationSessionParticipant) => {
+    const context = this.#talkContext(participant);
     return context === undefined ? undefined : perceiveScene(this.environment, scope, context);
   };
 
@@ -1722,11 +1727,18 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   private responder(): ConversationResponder {
     const gateway = stevieGateway(this.environment);
     if (gateway !== undefined)
-      return stevieResponder({ gateway, grants: () => this.grants(), perceive: this.perceive });
+      return stevieResponder({
+        gateway,
+        grants: (participant) => this.grants(participant),
+        perceive: this.perceive,
+      });
     return async (session, caretakerMessages, input) => {
       const reply = scriptedConversationReply(session, caretakerMessages, input);
       if (reply.command === undefined) return reply;
-      const scene = await this.perceive(session.scope);
+      const scene = await this.perceive(
+        session.scope,
+        session.participants[0] as ConversationSessionParticipant,
+      );
       return {
         ...reply,
         command: {
@@ -1748,7 +1760,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     proposal: StoredCommandProposal,
     offer: { readonly objectId: string; readonly kind: string },
   ): Promise<TurnCommandRecord> {
-    const context = this.#talkContext;
+    const context = this.#talkContext(participant);
     if (context === undefined || proposal.expectedRevision === undefined)
       throw new Error("command context unavailable");
     // Initiation is the conversation's participant; a context for anyone else never submits.
@@ -1820,7 +1832,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       actorId,
       stores: this.stores(),
       respond: this.responder(),
-      grants: () => this.grants(),
+      grants: (participant) => this.grants(participant),
       submitCommand: (participant, fiber, proposal, offer) =>
         this.submitCommand(participant, fiber, proposal, offer),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,

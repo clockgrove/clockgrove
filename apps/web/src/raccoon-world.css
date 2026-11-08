@@ -476,6 +476,12 @@ body {
   align-items: center;
 }
 
+.rw-stevie-status {
+  margin: 0;
+  text-align: center;
+  color: #2f7d46;
+}
+
 .rw-stevie-portrait {
   position: relative;
   width: 96px;

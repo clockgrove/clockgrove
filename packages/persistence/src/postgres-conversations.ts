@@ -39,6 +39,7 @@ import {
   type ObjectId,
   type PartitionId,
   type SpaceId,
+  type TalkCommandOutcome,
   type TalkReceipt,
   type TalkRequest,
   TERMINAL_TURN_PHASES,
@@ -183,7 +184,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     limit: number,
   ): Promise<ConversationTranscript> {
     const stored = await this.stored(participant, scope, sessionId);
-    const { messageRows, turnRows } = await this.transaction(participant, async () => {
+    const { messageRows, turnRows, commandRows } = await this.transaction(participant, async () => {
       const messages = await this.client.query(
         `SELECT ${MESSAGE_COLUMNS} FROM clockgrove.conversation_messages
           WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3
@@ -197,11 +198,42 @@ export class PostgreSqlConversationStore implements ConversationStore {
           ORDER BY turn`,
         [scope.tenantId, sessionId, afterSequence, limit],
       );
-      return { messageRows: messages.rows as Row[], turnRows: turns.rows as Row[] };
+      const commands = await this.client.query(
+        `SELECT run.input_message_id, step.tool, step.command_id, step.status, step.outcome_code,
+                step.summary
+           FROM clockgrove.run_steps AS step
+           JOIN clockgrove.agent_runs AS run
+             ON run.tenant_id = step.tenant_id AND run.run_id = step.run_id
+          WHERE run.tenant_id = $1 AND run.session_id = $2 AND run.status = 'completed'
+            AND step.kind = 'world_command_proposal'
+            AND run.input_message_id IN (
+              SELECT message_id FROM clockgrove.conversation_messages
+               WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3
+               ORDER BY sequence LIMIT $4)`,
+        [scope.tenantId, sessionId, afterSequence, limit],
+      );
+      return {
+        messageRows: messages.rows as Row[],
+        turnRows: turns.rows as Row[],
+        commandRows: commands.rows as Row[],
+      };
     });
+    const commandOf = new Map<string, TalkCommandOutcome>();
+    for (const row of commandRows)
+      commandOf.set(`${row.input_message_id}:reply`, {
+        capability: String(row.tool),
+        commandId: nullable(row.command_id),
+        status: row.status === "succeeded" ? "committed" : "refused",
+        code: nullable(row.outcome_code),
+        summary: String(row.summary),
+      });
     const page = messageRows.slice(0, limit);
     const messages: ConversationMessage[] = [];
-    for (const row of page) messages.push(await this.message(participant, stored, row));
+    for (const row of page) {
+      const message = await this.message(participant, stored, row);
+      const command = commandOf.get(message.messageId);
+      messages.push(command === undefined ? message : { ...message, command });
+    }
     return Object.freeze({
       session: await this.session(participant, stored.row),
       messages,

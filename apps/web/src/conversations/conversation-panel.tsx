@@ -59,6 +59,11 @@ export function ConversationPanel({
   const input = useRef<HTMLInputElement>(null);
   const [outcomes, setOutcomes] = useState<Readonly<Record<string, TalkCommandOutcome>>>({});
   const [lastCommand, setLastCommand] = useState<string>();
+  const publicAction = selected?.objectId === actorId ? selected.history.actions[0] : undefined;
+  const statusLine =
+    publicAction === undefined
+      ? `${name} has done nothing public lately`
+      : `Last public action: ${publicAction.type.replaceAll(/[._]/g, " ")}`;
   const closeRail = useEntityRail((rail) => rail.toggle);
   const [sessions, setSessions] = useState<readonly ConversationSession[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -80,7 +85,7 @@ export function ConversationPanel({
   };
   const railAction = (kind: InteractionActionKind, opener: HTMLElement) => {
     if (kind === "talk") input.current?.focus();
-    else if (kind === "why" && lastCommand) openWhy(lastCommand, opener);
+    else if (kind === "why" && whyCommand) openWhy(whyCommand, opener);
     else onAction?.(kind, opener);
   };
 
@@ -212,8 +217,13 @@ export function ConversationPanel({
     ]);
   };
 
+  // A reloaded transcript carries each turn's outcome from run evidence; this session's receipts add to it.
+  const outcomeOf = (message: ConversationMessage) =>
+    outcomes[message.messageId] ?? message.command;
+  const whyCommand =
+    lastCommand ?? messages.findLast((m) => m.command?.commandId)?.command?.commandId ?? undefined;
   const shown = RAIL_ACTIONS.filter(([kind]) =>
-    kind === "why" ? lastCommand !== undefined || enabledAction(kind) : enabledAction(kind),
+    kind === "why" ? whyCommand !== undefined || enabledAction(kind) : enabledAction(kind),
   );
   return (
     <section className="rw-stevie" aria-label="Private conversation">
@@ -235,6 +245,7 @@ export function ConversationPanel({
           </svg>
         </span>
       </div>
+      <p className="rw-stevie-status">{statusLine}</p>
       {shown.length > 0 && (
         <div className="rw-stevie-actions">
           {shown.map(([kind, text]) => (
@@ -304,7 +315,7 @@ export function ConversationPanel({
         <ol className="rw-chat" aria-label="Conversation history">
           {messages.map((message) => {
             const mine = message.role === "caretaker";
-            const outcome = outcomes[message.messageId];
+            const outcome = outcomeOf(message);
             return (
               <li key={message.messageId} className="rw-bubble" data-from={mine ? "you" : "actor"}>
                 {!mine && <Portrait label={name} className="rw-bubble-avatar" />}

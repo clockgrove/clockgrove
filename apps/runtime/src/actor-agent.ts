@@ -56,7 +56,7 @@ export interface TurnFiberHost {
    * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
    * the attempt so the client's retry carries one.
    */
-  grants?(): CapabilityGrants | undefined;
+  grants?(participant: ConversationParticipant): CapabilityGrants | undefined;
   /** Submits an authorized world command through the ordinary world-command path. */
   submitCommand?(
     participant: ConversationParticipant,
@@ -322,7 +322,7 @@ export class TurnFibers {
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
   ): Promise<TurnCommandRecord> {
-    const grants = this.host.grants?.();
+    const grants = this.host.grants?.(participant);
     if (grants === undefined || this.host.submitCommand === undefined)
       throw new Error("capability context unavailable");
     const decision = grants.authorize(proposal);

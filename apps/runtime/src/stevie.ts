@@ -8,6 +8,7 @@ import type {
 import {
   type BrowserScope,
   type CommandEnvelope,
+  type ConversationSessionParticipant,
   decodeOpaqueId,
   type LivingScene,
 } from "@clockgrove/contracts";
@@ -28,7 +29,7 @@ import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js"
 export const STEVIE_ALIAS = "stevie.pilot";
 /** Recorded on a turn answered by the production route; the fixture records its own name. */
 export const STEVIE_MODEL_NAME = "claude-opus-5.5";
-/** Decision (issue 19 rubric): the whole pilot spends at most $5, held per world by the gateway ledger. */
+/** Decision (issue 19 rubric): the pilot's $5 cap. The ledger is in memory, so this guards one isolate only; the runbook tracks the true total by hand. */
 const PILOT_BUDGET_MICROUSD = 5_000_000;
 /** At most this many entities are described to the model, so the perception digest stays bounded. */
 const SCENE_DIGEST_ENTITIES = 24;
@@ -76,8 +77,11 @@ export function stevieSystem(grants: CapabilityGrants, scene: StevieScene | unde
 
 export interface StevieModelDeps {
   readonly gateway: ModelGateway;
-  readonly grants: () => CapabilityGrants | undefined;
-  readonly perceive: (scope: BrowserScope) => Promise<StevieScene | undefined>;
+  readonly grants: (participant: ConversationSessionParticipant) => CapabilityGrants | undefined;
+  readonly perceive: (
+    scope: BrowserScope,
+    participant: ConversationSessionParticipant,
+  ) => Promise<StevieScene | undefined>;
 }
 
 function usageOf(record: ModelCallRecord): ModelUsage {
@@ -92,9 +96,11 @@ function usageOf(record: ModelCallRecord): ModelUsage {
 /** The production responder: one structured model call per turn, through the pilot alias. */
 export function stevieResponder(deps: StevieModelDeps): ConversationResponder {
   return async (session, caretakerMessages, input, prompt): Promise<ConversationResponse> => {
-    const grants = deps.grants();
-    if (grants === undefined) throw new Error("capability context unavailable");
-    const scene = await deps.perceive(session.scope).catch(() => undefined);
+    const participant = session.participants[0];
+    const grants = participant === undefined ? undefined : deps.grants(participant);
+    if (participant === undefined || grants === undefined)
+      throw new Error("capability context unavailable");
+    const scene = await deps.perceive(session.scope, participant).catch(() => undefined);
     const outcome = await deps.gateway.generateObject({
       alias: STEVIE_ALIAS,
       callId: `${session.sessionId}:${caretakerMessages}:${crypto.randomUUID()}`,
