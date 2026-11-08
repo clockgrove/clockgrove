@@ -391,6 +391,13 @@ const captureGoldenStates = async (backend) => {
                   ...adapter.effects.map(({ sprite }) => sprite),
                   ...adapter.reflections.filter((mirror) => mirror.userData.source.userData.key),
                 ].every((mesh) => mesh.material.map === adapter.atlasTexture),
+                reflectionBlending: adapter.reflections.map((mirror) => [
+                  mirror.material.transparent,
+                  mirror.material.opacity,
+                  adapter.effects
+                    .filter(({ role }) => role === "puddle")
+                    .every(({ sprite }) => sprite.renderOrder < mirror.renderOrder),
+                ]),
                 reflectionUvs: adapter.reflections.every((mirror) =>
                   mirror.geometry
                     .getAttribute("uv")
@@ -430,6 +437,10 @@ const captureGoldenStates = async (backend) => {
             expect(pixels.canvasSize).toEqual([640, 400]);
             expect(pixels.renderSize).toEqual(tier === "low" ? [320, 200] : [640, 400]);
             expect([pixels.atlasShared, pixels.reflectionUvs]).toEqual([true, true]);
+            expect(pixels.reflectionBlending.length > 0).toBe(tier === "high");
+            expect(pixels.reflectionBlending).toEqual(
+              pixels.reflectionBlending.map(() => [true, 0.22, true]),
+            );
             expect(pixels.litMaterials).toEqual([
               tier === "low" ? "MeshLambertNodeMaterial" : "MeshStandardNodeMaterial",
             ]);

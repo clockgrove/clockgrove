@@ -953,6 +953,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     for (const drawn of this.drawn.values()) {
       const mirror = new THREE.Mesh(drawn.body.geometry.clone(), drawn.body.material.clone());
       mirror.userData.ownsTexture = false;
+      mirror.material.transparent = true;
       mirror.material.opacity = 0.22;
       mirror.material.depthWrite = false;
       mirror.material.stencilWrite = true;
