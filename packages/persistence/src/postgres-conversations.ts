@@ -18,7 +18,9 @@ import {
   type RuntimeAuthorizationContext,
   recordedInputs,
   renderPrompt,
+  type StoredCommandProposal,
   type TurnAcceptance,
+  type TurnCommandRecord,
   type TurnFiber,
   type TurnInput,
 } from "@clockgrove/application";
@@ -57,6 +59,10 @@ type Row = Record<string, unknown>;
 
 const TEXT_MEDIA_TYPE = "text/plain;charset=utf-8";
 const JSON_MEDIA_TYPE = "application/json";
+/** A command proposal's artifact ID carries this infix; a document proposal's does not. */
+const COMMAND_ARTIFACT_INFIX = ":command:";
+const isCommandArtifact = (artifactId: string) => artifactId.includes(COMMAND_ARTIFACT_INFIX);
+const nullable = (value: unknown) => (value === null || value === undefined ? null : String(value));
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const timestamp = (column: string) =>
@@ -99,6 +105,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     private readonly client: PostgreSqlClient,
     private readonly artifacts: ArtifactStore,
     private readonly newSessionId: () => string = () => `conversation-${crypto.randomUUID()}`,
+    /** The model name turns and runs record: the fixture's, or the route alias answering. */
+    private readonly model: string = SCRIPTED_MODEL,
   ) {
     this.runs = new PostgreSqlRunRecorder(client);
     this.documents = new PostgreSqlActorDocuments(client);
@@ -376,10 +384,29 @@ export class PostgreSqlConversationStore implements ConversationStore {
 
   async turnInput(participant: ConversationParticipant, fiber: TurnFiber): Promise<TurnInput> {
     const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    const prompt = await this.transaction(participant, async () => {
+      const found = await this.client.query(
+        `SELECT prompt_artifact_id, prompt_privacy_class FROM clockgrove.agent_runs
+          WHERE tenant_id = $1 AND run_id = $2`,
+        [fiber.scope.tenantId, fiber.runId],
+      );
+      return found.rows[0] as Row | undefined;
+    });
     return {
       session: await this.session(participant, stored.row),
       caretakerMessages: ((fiber.inputRevision ?? Number(stored.row.message_count)) + 2) / 2,
       input: await this.text(participant, stored, fiber.inputArtifactId),
+      prompt:
+        prompt === undefined
+          ? ""
+          : await this.text(
+              participant,
+              stored,
+              String(prompt.prompt_artifact_id),
+              prompt.prompt_privacy_class === "private_cognition"
+                ? "private_cognition"
+                : "conversation",
+            ),
     };
   }
 
@@ -408,14 +435,64 @@ export class PostgreSqlConversationStore implements ConversationStore {
         "private_cognition",
       );
     }
+    // A capability call is checkpointed the same way, its issue time fixed so a retry rebuilds the
+    // same command bytes. A response carries one proposal kind: a document wins a tie.
+    if (proposalArtifact === undefined && response.command !== undefined) {
+      proposalArtifact = `${fiber.sessionId}${COMMAND_ARTIFACT_INFIX}${answer}`;
+      await this.put(
+        participant,
+        stored,
+        proposalArtifact,
+        JSON.stringify({ ...response.command, issuedAt: new Date().toISOString() }),
+        "conversation_busy",
+        JSON_MEDIA_TYPE,
+        "private_cognition",
+      );
+    }
     return this.fenced(() =>
       this.transaction(participant, async () => {
         if (fiber.runId !== null)
-          await this.runs.modelAnswered(fiber.scope.tenantId, fiber.runId, replyArtifact);
+          await this.runs.modelAnswered(
+            fiber.scope.tenantId,
+            fiber.runId,
+            replyArtifact,
+            response.usage,
+          );
         return this.moveTurnHere(fiber, "proposal_validating", {
           replyArtifactId: replyArtifact,
           ...(proposalArtifact === undefined ? {} : { proposalArtifactId: proposalArtifact }),
         });
+      }),
+    );
+  }
+
+  async commandProposal(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<StoredCommandProposal | undefined> {
+    if (fiber.proposalArtifactId === null || !isCommandArtifact(fiber.proposalArtifactId))
+      return undefined;
+    const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
+    return JSON.parse(
+      await this.text(participant, stored, fiber.proposalArtifactId, "private_cognition"),
+    ) as StoredCommandProposal;
+  }
+
+  async recordCommand(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    record: TurnCommandRecord,
+  ): Promise<TurnFiber | undefined> {
+    return this.fenced(() =>
+      this.transaction(participant, async () => {
+        if (fiber.runId !== null)
+          await this.runs.commandProposed(
+            fiber.scope.tenantId,
+            fiber.sessionId,
+            fiber.runId,
+            record,
+          );
+        return this.moveTurnHere(fiber, "committing");
       }),
     );
   }
@@ -430,7 +507,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const { runId, replyArtifactId } = fiber;
     const count = Number(stored.row.message_count);
     const proposal =
-      fiber.proposalArtifactId === null
+      fiber.proposalArtifactId === null || isCommandArtifact(fiber.proposalArtifactId)
         ? undefined
         : (JSON.parse(
             await this.text(participant, stored, fiber.proposalArtifactId, "private_cognition"),
@@ -773,7 +850,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const input = await this.text(participant, stored, fiber.inputArtifactId);
     const context = await this.assemble(participant, stored, fiber, input, count);
     const prompt = renderPrompt(
-      { model: SCRIPTED_MODEL, sessionId: fiber.sessionId, caretakerMessages },
+      { model: this.model, sessionId: fiber.sessionId, caretakerMessages },
       context,
     );
     // Decision (issue 17, owner's answer 1): a prompt that includes any actor document holds
@@ -805,6 +882,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
         principalId: fiber.principalId,
         personaId: fiber.personaId,
         runId,
+        model: this.model,
         inputMessageId: fiber.messageId,
         inputRevision: count,
         caretakerMessages,
@@ -894,8 +972,15 @@ export class PostgreSqlConversationStore implements ConversationStore {
       await this.client.query(
         `INSERT INTO clockgrove.conversation_turns (
            tenant_id, session_id, principal_id, turn, input_sequence, output_sequence, model, state
-         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, 'scripted-fixture-v1', 'completed')`,
-        [scope.tenantId, sessionId, participant.principalId, (sequence + 1) / 2, sequence],
+         ) VALUES ($1, $2, $3, $4, $5, $5 + 1, $6, 'completed')`,
+        [
+          scope.tenantId,
+          sessionId,
+          participant.principalId,
+          (sequence + 1) / 2,
+          sequence,
+          this.model,
+        ],
       );
       await this.client.query(
         `UPDATE clockgrove.conversation_sessions
@@ -903,11 +988,13 @@ export class PostgreSqlConversationStore implements ConversationStore {
           WHERE ${SESSION_SCOPE}`,
         [scope.tenantId, scope.worldId, scope.timelineId, sessionId],
       );
-      let step = 3;
-      if (attempt.proposal !== undefined) {
+      if (attempt.proposal !== undefined)
         await this.propose(participant, stored, request, attempt.run, attempt.proposal);
-        step = 4;
-      }
+      const steps = await this.client.query(
+        `SELECT max(step) AS last FROM clockgrove.run_steps WHERE tenant_id = $1 AND run_id = $2`,
+        [scope.tenantId, attempt.run],
+      );
+      const step = Number((steps.rows[0] as Row).last) + 1;
       // A cancel or newer claim that closed this run refuses its commit (CG020), rolling it back.
       await this.runs.committed(
         scope.tenantId,
@@ -1000,7 +1087,20 @@ export class PostgreSqlConversationStore implements ConversationStore {
              WHERE tenant_id = $1 AND session_id = $2 AND message_id = $3)`,
         [request.scope.tenantId, request.sessionId, request.messageId],
       );
-      return { messages: found.rows as Row[], turn: turn.rows[0] as Row | undefined };
+      const command = await this.client.query(
+        `SELECT step.tool, step.command_id, step.status, step.outcome_code, step.summary
+           FROM clockgrove.run_steps AS step
+           JOIN clockgrove.agent_runs AS run
+             ON run.tenant_id = step.tenant_id AND run.run_id = step.run_id
+          WHERE run.tenant_id = $1 AND run.session_id = $2 AND run.input_message_id = $3
+            AND run.status = 'completed' AND step.kind = 'world_command_proposal'`,
+        [request.scope.tenantId, request.sessionId, request.messageId],
+      );
+      return {
+        messages: found.rows as Row[],
+        turn: turn.rows[0] as Row | undefined,
+        command: command.rows[0] as Row | undefined,
+      };
     });
     const [input, output] = rows.messages;
     if (input === undefined || output === undefined || rows.turn === undefined) return undefined;
@@ -1013,6 +1113,18 @@ export class PostgreSqlConversationStore implements ConversationStore {
       message,
       reply: await this.message(participant, stored, output),
       turn: turnOf(rows.turn),
+      ...(rows.command === undefined
+        ? {}
+        : {
+            command: {
+              capability: String(rows.command.tool),
+              commandId: nullable(rows.command.command_id),
+              status:
+                rows.command.status === "succeeded" ? ("committed" as const) : ("refused" as const),
+              code: nullable(rows.command.outcome_code),
+              summary: String(rows.command.summary),
+            },
+          }),
     });
   }
 

@@ -1,7 +1,9 @@
 import {
   type ArtifactStore,
   CONTEXT_PROMPT_VERSION,
+  type ModelUsage,
   type RuntimeAuthorizationContext,
+  type TurnCommandRecord,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -43,6 +45,8 @@ const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND spa
 export const MAX_SESSION_RUNS = 2000;
 
 export interface TalkRunStart {
+  /** The model the run records: the fixture, or the route alias answering. */
+  readonly model: string;
   readonly tenantId: string;
   readonly worldId: string;
   readonly timelineId: string;
@@ -104,10 +108,10 @@ export class PostgreSqlRunRecorder {
         start.principalId,
         start.personaId,
         start.inputMessageId,
-        SCRIPTED_MODEL,
+        start.model,
         SCRIPTED_PROMPT_VERSION,
         start.inputRevision,
-        `Scripted reply to Caretaker message ${start.caretakerMessages}`,
+        `Reply to Caretaker message ${start.caretakerMessages}`,
         start.promptArtifactId,
         start.promptPrivacyClass,
       ],
@@ -123,12 +127,12 @@ export class PostgreSqlRunRecorder {
       `INSERT INTO clockgrove.run_steps (
          tenant_id, run_id, session_id, step, kind, model, input_artifact_id, input_privacy_class,
          summary
-       ) VALUES ($1, $2, $3, 2, 'model_attempt', $4, $5, $6, 'Scripted model attempt')`,
+       ) VALUES ($1, $2, $3, 2, 'model_attempt', $4, $5, $6, 'Model attempt')`,
       [
         start.tenantId,
         start.runId,
         start.sessionId,
-        SCRIPTED_MODEL,
+        start.model,
         start.promptArtifactId,
         start.promptPrivacyClass,
       ],
@@ -136,13 +140,59 @@ export class PostgreSqlRunRecorder {
   }
 
   /** The model answered: its output is the reply artifact. The fixture is free and counts no tokens. */
-  async modelAnswered(tenantId: string, runId: string, outputArtifactId: string): Promise<void> {
+  async modelAnswered(
+    tenantId: string,
+    runId: string,
+    outputArtifactId: string,
+    usage: ModelUsage = { inputTokens: 0, outputTokens: 0, costMicrousd: 0 },
+  ): Promise<void> {
     await this.client.query(
       `UPDATE clockgrove.run_steps
-          SET status = 'succeeded', output_artifact_id = $3, cost_microusd = 0,
-              summary = 'Scripted model answered'
+          SET status = 'succeeded', output_artifact_id = $3, cost_microusd = $4,
+              input_tokens = $5, output_tokens = $6, summary = 'Model answered'
         WHERE tenant_id = $1 AND run_id = $2 AND step = 2`,
-      [tenantId, runId, outputArtifactId],
+      [
+        tenantId,
+        runId,
+        outputArtifactId,
+        usage.costMicrousd,
+        usage.inputTokens,
+        usage.outputTokens,
+      ],
+    );
+  }
+
+  /**
+   * The model's capability call and what became of it, as one ended step: `commandId` names the
+   * receipt the ordinary validator and Journal wrote (a committed or a rejected one), and a call the
+   * registry refused names none.
+   */
+  async commandProposed(
+    tenantId: string,
+    sessionId: string,
+    runId: string,
+    record: TurnCommandRecord,
+  ): Promise<void> {
+    const next = await this.client.query(
+      `SELECT coalesce(max(step), 0) + 1 AS next FROM clockgrove.run_steps
+        WHERE tenant_id = $1 AND run_id = $2`,
+      [tenantId, runId],
+    );
+    await this.client.query(
+      `INSERT INTO clockgrove.run_steps (
+         tenant_id, run_id, session_id, step, kind, status, outcome_code, tool, command_id, summary
+       ) VALUES ($1, $2, $3, $4, 'world_command_proposal', $5, $6, $7, $8, $9)`,
+      [
+        tenantId,
+        runId,
+        sessionId,
+        Number((next.rows[0] as Row).next),
+        record.status === "committed" ? "succeeded" : "failed",
+        record.code,
+        record.capability,
+        record.commandId,
+        record.summary.slice(0, 256),
+      ],
     );
   }
 

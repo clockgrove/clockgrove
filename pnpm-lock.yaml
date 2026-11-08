@@ -223,6 +223,9 @@ importers:
       '@clockgrove/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@clockgrove/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/model-gateway
       '@clockgrove/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence

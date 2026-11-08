@@ -158,6 +158,10 @@ shows no `preinstall`, `install` or `postinstall` script in the closure.
 `@ai-sdk/provider` also declares `json-schema` 0.4.0, licensed `(AFL-2.1 OR BSD-3-Clause)`. The supply-chain
 check reads an SPDX `OR` as any one alternative, and BSD-3-Clause is allowed, so the package stays in the tree.
 
+Issue 19 makes `apps/runtime` depend on `@clockgrove/model-gateway` (workspace link, no new external package):
+the actor owner builds the gateway and Stevie's responder (`apps/runtime/src/stevie.ts`) from it. The runtime reads
+`ANTHROPIC_API_KEY` and `AI_GATEWAY_API_KEY` from its environment; without either it answers from the scripted fixture.
+
 Issue 18 pins the Cloudflare Agents SDK for `ActorAgentDO`, as the implementation plan §10.1 and the
 Wave 5 plan §2 amendment require. [agents](https://registry.npmjs.org/agents) `0.33.0` was published
 at `2026-11-03T13:16:52.689Z`, past the unchanged 1440-minute cutoff on `2026-11-07`. It is the

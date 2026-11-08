@@ -101,6 +101,7 @@ import {
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
+import { describeScene, type StevieScene } from "./stevie.js";
 import {
   type RuntimeAuthenticationDependencies,
   TrustedRuntimeRequestAuthenticator,
@@ -292,6 +293,7 @@ const keyrings = new Map<string, Promise<WebCryptoKeyring>>();
  */
 export function composeConversations(
   env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+  model?: string,
 ): ConversationStores | undefined {
   const secret = env.ARTIFACT_KEYRING;
   if (secret === undefined) return undefined;
@@ -309,9 +311,23 @@ export function composeConversations(
         metrics: analyticsEngineMetrics(env.METRICS),
         ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
       });
-      return operation(new PostgreSqlConversationStore(client, artifacts));
+      return operation(new PostgreSqlConversationStore(client, artifacts, undefined, model));
     });
   };
+}
+
+/** What Stevie perceives: the member's authorized public scene, read over this invocation's connection. */
+export function perceiveScene(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  scope: BrowserScope,
+  context: TrustedContext,
+): Promise<StevieScene> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
+    const { scene, stored } = await new PostgreSqlLivingSceneReader(
+      new PostgreSqlWorldOwnerReader(client),
+    ).observeCanonical(scope, context);
+    return describeScene(scene, stored.document.state);
+  });
 }
 
 /** `ActorProcess` state over this invocation's connection (migration 0038). */
@@ -574,6 +590,9 @@ export interface RuntimeEnvironment {
    * without it every conversation route answers `503 conversation_unavailable`.
    */
   readonly ARTIFACT_KEYRING?: string;
+  /** The production model route's keys (Stevie); without either, Stevie answers from the scripted fixture. */
+  readonly ANTHROPIC_API_KEY?: string;
+  readonly AI_GATEWAY_API_KEY?: string;
   readonly WORLD_DO: DurableObjectNamespace<
     Pick<
       WorldDO,

@@ -469,3 +469,115 @@ body {
 .rw-disclosure {
   font-weight: 600;
 }
+
+.rw-stevie-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rw-stevie-portrait {
+  position: relative;
+  width: 96px;
+  margin: var(--rw-v1-space-2) auto;
+}
+
+.rw-stevie-avatar {
+  width: 96px;
+  height: 96px;
+  font-size: 2.5rem;
+}
+
+.rw-voice-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--rw-v1-panel-solid);
+  border: 1px solid var(--rw-v1-accent);
+  color: var(--rw-v1-accent);
+}
+
+.rw-voice-badge svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+}
+
+.rw-stevie-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--rw-v1-space-2);
+}
+
+.rw-chat {
+  list-style: none;
+  margin: var(--rw-v1-space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rw-v1-space-2);
+  overflow-wrap: anywhere;
+}
+
+.rw-bubble {
+  display: flex;
+  gap: var(--rw-v1-space-1);
+  max-width: 90%;
+}
+
+.rw-bubble > div {
+  background: var(--rw-v1-control);
+  border-radius: var(--rw-v1-radius);
+  padding: var(--rw-v1-space-1) var(--rw-v1-space-2);
+}
+
+.rw-bubble[data-from="you"] {
+  align-self: flex-end;
+}
+
+.rw-bubble[data-from="you"] > div {
+  background: var(--rw-v1-panel-solid);
+  border: 1px solid var(--rw-v1-accent);
+  text-align: right;
+}
+
+.rw-bubble p {
+  margin: 0;
+}
+
+.rw-bubble time {
+  color: var(--rw-v1-text-muted);
+  font-size: 0.8em;
+}
+
+.rw-bubble-avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  font-size: 0.8rem;
+}
+
+.rw-outcome[data-status="refused"] {
+  color: var(--rw-v1-warning);
+}
+
+.rw-stevie-send {
+  display: flex;
+  gap: var(--rw-v1-space-1);
+  position: sticky;
+  bottom: 0;
+  background: var(--rw-v1-panel-solid);
+}
+
+.rw-stevie-send input {
+  flex: 1;
+  min-width: 0;
+}

@@ -31,15 +31,19 @@ follows, or an `outputMessageId` in the session. It records usage (`inputTokens`
 and `costMicrousd` where known. `null` means unknown, not zero. It also has its protected `input`
 and `output`.
 
-A Talk attempt records three or four steps (a resumed attempt's model step succeeds with the
+A Talk attempt records three to five steps (a resumed attempt's model step succeeds with the
 answer its turn already checkpointed):
 
 1. `context_retrieval`, written with the run and its context manifest
    ([context assembly](context-assembly.md)).
-2. `model_attempt`, by `scripted-fixture-v1`. Its input is the prompt artifact and its output is
-   the reply message's artifact. Its cost is `0` and its token usage is unknown.
+2. `model_attempt`, by the model that answered: `scripted-fixture-v1`, or the production route's
+   model name. Its input is the prompt artifact and its output is the reply message's artifact.
+   The fixture costs `0` with unknown tokens; a route records the gateway's tokens and cost.
 3. `validation`, only when the model proposed a document change: `succeeded`, or `failed` with the
    change set's refusal code.
+   `world_command_proposal`, only when the model proposed a capability call: `succeeded` when the
+   world committed the command, else `failed` with the refusal code. `tool` is the capability and
+   `command_id` the stored receipt, null when the grants refused it before the world.
 4. `commit`, which leads to the reply message (`<messageId>:reply`). It is written in the same
    transaction as the messages and the turn, so a run completes exactly when its turn commits.
 

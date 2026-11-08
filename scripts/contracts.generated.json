@@ -1,12 +1,12 @@
 {
-  "version": 27,
+  "version": 28,
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
     "asset-manifest.ts": "e64e6e4871e8450fa7a006d97270fc629902f9c3e644f159f79ae4b558a1b2e7",
     "browser-protocol.ts": "10feb095897784241168a0d747a56ac79ec8cae9ad9c5c21280fb4d57e912e5f",
     "cognition.ts": "c5b2361398760b18215b2795297dd13cb2e1f8a51b3e9a7834c8948b7517848b",
     "conformance.ts": "f58094883f98f00ef4f023146449fe765070ff4ade92d378cc014443db83c3a4",
-    "conversations.ts": "d362bd218a73daeec3c95aa32ed88587734a581f74a6ac82a027a3ba91ff698b",
+    "conversations.ts": "c4e36decb851d2f92ebc4c7d8ac6f0f268e01f91e236ec73ef3d57feca326c26",
     "execution-context.ts": "8c09a549f3f403ba0a8e14be07479ec44ba3d65f3c43acf5eb8e2bdd33c03030",
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
     "index.ts": "fc6c80756616d2351b52a8eff9e7729e672a6668c025f3cd8f664d97d36b54e4",

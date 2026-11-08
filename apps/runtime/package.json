@@ -24,6 +24,7 @@
     "@clockgrove/contracts": "workspace:*",
     "@clockgrove/domain": "workspace:*",
     "@clockgrove/kernel": "workspace:*",
+    "@clockgrove/model-gateway": "workspace:*",
     "@clockgrove/persistence": "workspace:*",
     "@clockgrove/simulator": "workspace:*",
     "@clockgrove/world-pack-sdk": "workspace:*",

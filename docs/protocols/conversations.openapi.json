@@ -1463,7 +1463,8 @@
             "type": "integer"
           },
           "model": {
-            "const": "scripted-fixture-v1"
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
           },
           "state": {
             "const": "completed"
@@ -1552,6 +1553,9 @@
           },
           "turn": {
             "$ref": "#/components/schemas/ConversationTurn"
+          },
+          "command": {
+            "$ref": "#/components/schemas/TalkCommandOutcome"
           }
         }
       },
@@ -1751,6 +1755,43 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "TalkCommandOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability",
+          "commandId",
+          "status",
+          "code",
+          "summary"
+        ],
+        "properties": {
+          "capability": {
+            "type": "string"
+          },
+          "commandId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "committed",
+              "refused"
+            ]
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
           }
         }
       }

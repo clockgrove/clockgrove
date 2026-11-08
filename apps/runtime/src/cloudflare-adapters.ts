@@ -4,9 +4,12 @@ import { NonRetryableError } from "cloudflare:workflows";
 import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
+  CAPABILITY_REGISTRY,
+  type CapabilityGrants,
   type CatchUpWorkflowEnvelope,
   type ConversationParticipant,
   ConversationRefusedError,
+  type ConversationResponder,
   type ConversationStore,
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
@@ -20,6 +23,8 @@ import {
   type RuntimeLogger,
   recordMetric,
   runtimeLogRecord,
+  type StoredCommandProposal,
+  type TurnCommandRecord,
   type TurnFiber,
   type WorldCommandResult,
   WorldGenesisDefectError,
@@ -29,6 +34,7 @@ import {
 } from "@clockgrove/application";
 import {
   type ActorProcess,
+  type BrowserScope,
   ContractDecodeError,
   decodeOpaqueId,
   decodeSceneConnectionAttachment,
@@ -66,6 +72,7 @@ import {
 import {
   composeConversations,
   composeRuntime,
+  perceiveScene,
   type RuntimeEnvironment,
   reconcileWorldCatchUp,
   reconcileWorldProvisioning,
@@ -105,6 +112,13 @@ import { runtimeRouteName } from "./routing.js";
 import { type SceneAuthorityFacts, sceneAuthorityFacts } from "./scene-audience.js";
 import { SCENE_JOIN_HEADER, verifySceneJoin } from "./scene-connections.js";
 import { SCENE_SOCKET_BOUNDS, SceneDelivery, sceneReads } from "./scene-delivery.js";
+import {
+  STEVIE_MODEL_NAME,
+  stevieCommandId,
+  stevieGateway,
+  stevieOfferCommand,
+  stevieResponder,
+} from "./stevie.js";
 import type {
   RuntimeEpochs,
   RuntimeInitializationDisposition,
@@ -1175,6 +1189,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   private inbox: PerceptionInbox | undefined;
   private readonly recoveredFor = new Set<string>();
   #fibers: TurnFibers | undefined;
+  /** The latest Talk request's trusted context: the member's grants bound what Stevie may do. */
+  #talkContext: TrustedExecutionContext | undefined;
 
   /** The SDK's `ctx` and `env`, typed by this module's portable declarations. */
   protected get objectState(): DurableObjectState {
@@ -1235,6 +1251,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     request: TalkRequest,
   ): Promise<ReadableStream<Uint8Array>> {
     await this.ready(scope, context, actorId);
+    this.#talkContext = context;
     await this.recoverOnce(scope, participant, actorId);
     const { admitted } = await this.receivePerception({ kind: "direct_message", ...request });
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -1453,9 +1470,115 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   private stores(): ConversationStores {
-    const stores = composeConversations(this.environment);
+    const stores = composeConversations(
+      this.environment,
+      stevieGateway(this.environment) === undefined ? undefined : STEVIE_MODEL_NAME,
+    );
     if (stores === undefined) throw new Error("conversation keyring required");
     return stores;
+  }
+
+  /** Stevie's grants: the registry's, bounded by the grants of the member he is talking with. */
+  private grants(): CapabilityGrants | undefined {
+    const context = this.#talkContext;
+    return context === undefined
+      ? undefined
+      : CAPABILITY_REGISTRY.grantsFor(context.grants.map(String));
+  }
+
+  private perceive = async (scope: BrowserScope) => {
+    const context = this.#talkContext;
+    return context === undefined ? undefined : perceiveScene(this.environment, scope, context);
+  };
+
+  /** The production route when a key is bound, else the scripted fixture; both perceive the yard. */
+  private responder(): ConversationResponder {
+    const gateway = stevieGateway(this.environment);
+    if (gateway !== undefined)
+      return stevieResponder({ gateway, grants: () => this.grants(), perceive: this.perceive });
+    return async (session, caretakerMessages, input) => {
+      const reply = scriptedConversationReply(session, caretakerMessages, input);
+      if (reply.command === undefined) return reply;
+      const scene = await this.perceive(session.scope);
+      return {
+        ...reply,
+        command: {
+          ...reply.command,
+          ...(scene === undefined ? {} : { expectedRevision: scene.revision }),
+        },
+      };
+    };
+  }
+
+  /**
+   * Submits Stevie's authorized proposal as an ordinary `resource.offer`, sealed with the member's
+   * principal, membership and persona like the member's own Influence. The world decides it; the
+   * outcome is returned as the turn's recorded command step.
+   */
+  private async submitCommand(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    offer: { readonly objectId: string; readonly kind: string },
+  ): Promise<TurnCommandRecord> {
+    const context = this.#talkContext;
+    if (context === undefined || proposal.expectedRevision === undefined)
+      throw new Error("command context unavailable");
+    const scope = {
+      tenantId: fiber.scope.tenantId,
+      worldId: fiber.scope.worldId,
+      timelineId: fiber.scope.timelineId,
+      spaceId: fiber.scope.spaceId,
+    } as RuntimeScope;
+    const commandId = decodeOpaqueId(
+      stevieCommandId(participant.principalId, fiber.sessionId, fiber.messageId),
+      "CommandId",
+    );
+    const expectedRevision = proposal.expectedRevision;
+    const metadata = {
+      correlationId: `${fiber.sessionId}:${fiber.messageId}`,
+      requestId: commandId,
+    };
+    const prepared = await withCommandOwner(
+      this.environment.HYPERDRIVE?.connectionString ?? "",
+      (owner) =>
+        owner.prepareBuilt(scope, participant.principalId, commandId, (fields) =>
+          stevieOfferCommand(scope, fiber.actorId, commandId, offer, expectedRevision, {
+            epochs: fields.epochs,
+            context: fields.context ?? metadata,
+            issuedAt: fields.issuedAt ?? proposal.issuedAt,
+          }),
+        ),
+    );
+    if (!prepared.tenantMember) throw new Error("command context unavailable");
+    let result = prepared.stored;
+    if (result === undefined) {
+      if (!prepared.ready || prepared.input === undefined) throw new Error("world not ready");
+      const input = prepared.input;
+      const route = await runtimeRouteName("world", input.scope);
+      result = unwrapWorldCommandRpc(
+        await callWorldOwner(() =>
+          this.environment.WORLD_DO.get(
+            this.environment.WORLD_DO.idFromName(route),
+          ).submitWorldCommand(input, context),
+        ),
+      );
+    }
+    const value = result.value;
+    const committed = value.status === "committed";
+    const code = committed
+      ? null
+      : (value.status === "denied" ? value.reasonCode : value.refusal.code)
+          .toLowerCase()
+          .replace(/[^a-z]+/gu, "_")
+          .slice(0, 64);
+    return {
+      capability: proposal.capability,
+      commandId: result.commandId,
+      status: committed ? "committed" : "refused",
+      code,
+      summary: committed ? "World command committed" : `World command refused: ${code}`,
+    };
   }
 
   private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
@@ -1463,7 +1586,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       holder: this.instanceId,
       actorId,
       stores: this.stores(),
-      respond: scriptedConversationReply,
+      respond: this.responder(),
+      grants: () => this.grants(),
+      submitCommand: (participant, fiber, proposal, offer) =>
+        this.submitCommand(participant, fiber, proposal, offer),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       durable: (fiber, participant, run) =>

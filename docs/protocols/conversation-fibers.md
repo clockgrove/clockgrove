@@ -53,8 +53,13 @@ Its phase is its checkpoint. The phases do this:
 - `model_running`: streams and stores the answer as a protected artifact. A document proposal
   (issue 17) is stored beside it as a `private_cognition` artifact (`proposal_artifact_id`), so a
   recovered attempt commits the same proposal. This checkpoint is the `proposal_validating` move.
-- `proposal_validating`: the scripted model proposes no command or effect. A document proposal is
-  validated where it commits.
+- `proposal_validating`: a document proposal is validated where it commits. A command proposal
+  (issue 19) is stored beside the answer as a `private_cognition` artifact with its issue time and
+  perceived revision, and is decided here: the actor's grants ([capabilities](capabilities.md))
+  refuse it, or the owner submits the ordinary world command. Either way the outcome is recorded as
+  the run's `world_command_proposal` step with the move to `committing`, so a recovered attempt does
+  not decide it twice; a retry replays the stored command receipt. A recovered owner without the
+  member's trusted context abandons the attempt, and the client's retry carries one.
 - `committing`: appends the Caretaker message, the reply, the conversation turn, any document
   change set and the run's commit step, and moves the fiber to `finalizing`, all in one
   transaction. The runtime reads the checkpointed proposal back under the same one-call
