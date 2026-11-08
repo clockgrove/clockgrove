@@ -42,6 +42,8 @@ export interface ActorAgentRecovery {
 /** The owner-specific edges of a fiber: its lease holder, connection, checkpoint hook and keep-alive. */
 export interface TurnFiberHost {
   readonly holder: string;
+  /** The actor this owner serves. */
+  readonly actorId: string;
   readonly stores: ConversationStores;
   readonly respond: ConversationResponder;
   capabilityRevision(): number;
@@ -65,6 +67,13 @@ export interface TurnFiberHost {
  * PostgreSQL is what makes any duplicate harmless, so forgetting an entry is safe.
  */
 export const PERCEPTION_INBOX_LIMIT = 256;
+
+/**
+ * Decision: a new message resumes and waits for its session's abandoned turn at most 3 times
+ * before answering busy. Each round claims the turn under a new attempt; one normally settles it,
+ * and a turn that fails three resumptions in a row is not one a waiting message should hide.
+ */
+const RESUME_ROUNDS = 3;
 
 /** Bounded, insertion-ordered dedupe of activation keys. */
 export class PerceptionInbox {
@@ -99,8 +108,8 @@ export class TurnFibers {
   private readonly lanes = new Map<string, Promise<unknown>>();
   /** Acceptances in flight, by activation key: a duplicate joins one before its run exists. */
   private readonly accepting = new Map<string, Promise<TurnOutcome>>();
-  /** Turns this owner resumed after a crash, by session. */
-  private readonly recovering = new Map<string, Promise<TurnOutcome>>();
+  /** Activations a live Talk request is waiting on, by activation key. */
+  private readonly live = new Set<string>();
   constructor(private readonly host: TurnFiberHost) {}
 
   /** How many fibers this incarnation is running. */
@@ -140,25 +149,37 @@ export class TurnFibers {
     request: TalkRequest,
     emit: (frame: TalkStreamFrame) => void,
   ): Promise<TurnOutcome> {
-    let accepted: Awaited<ReturnType<ConversationStore["acceptTurn"]>>;
-    try {
-      accepted = await this.store((store) => store.acceptTurn(participant, request));
-    } catch (error) {
-      // A turn this owner is resuming after a crash still holds the session: the new message waits
-      // for it, then takes its turn, instead of being refused for a request that already died.
-      const resuming = this.recovering.get(request.sessionId);
-      if (
-        !(error instanceof ConversationRefusedError && error.code === "conversation_busy") ||
-        resuming === undefined
-      )
-        throw error;
-      await resuming.catch(() => undefined);
-      accepted = await this.store((store) => store.acceptTurn(participant, request));
+    let accepted: Awaited<ReturnType<ConversationStore["acceptTurn"]>> | undefined;
+    for (let round = 0; accepted === undefined; ++round) {
+      try {
+        accepted = await this.store((store) => store.acceptTurn(participant, request));
+      } catch (error) {
+        if (!(error instanceof ConversationRefusedError && error.code === "conversation_busy"))
+          throw error;
+        // The session's open turn decides. One a live request is running here keeps the session
+        // busy. One whose request died (its owner was lost) is resumed or joined here, and the new
+        // message waits for it, then follows it, instead of being refused.
+        const open = (
+          await this.store((store) =>
+            store.openTurns(participant, request.scope, this.host.actorId),
+          )
+        ).find((fiber) => fiber.sessionId === request.sessionId);
+        if (round >= RESUME_ROUNDS) throw error;
+        if (open === undefined) continue;
+        if (this.live.has(activationKey({ kind: "direct_message", ...open }))) throw error;
+        await this.activate(participant, open).catch(() => undefined);
+      }
     }
     if (accepted.receipt !== undefined) return { receipt: accepted.receipt };
     if (accepted.fiber.phase === "accepted")
       await this.host.checkpointed(accepted.fiber, "accepted");
-    return this.activate(participant, accepted.fiber, emit);
+    const key = activationKey({ kind: "direct_message", ...accepted.fiber });
+    this.live.add(key);
+    try {
+      return await this.activate(participant, accepted.fiber, emit);
+    } finally {
+      this.live.delete(key);
+    }
   }
 
   /** Runs, or joins, the fiber of an accepted turn. */
@@ -190,16 +211,7 @@ export class TurnFibers {
     actorId: string,
   ): Promise<number> {
     const open = await this.store((store) => store.openTurns(participant, scope, actorId));
-    for (const fiber of open) {
-      const resumed = this.activate(participant, fiber);
-      this.recovering.set(fiber.sessionId, resumed);
-      void resumed
-        .finally(() => {
-          if (this.recovering.get(fiber.sessionId) === resumed)
-            this.recovering.delete(fiber.sessionId);
-        })
-        .catch(() => undefined);
-    }
+    for (const fiber of open) void this.activate(participant, fiber).catch(() => undefined);
     return open.length;
   }
 

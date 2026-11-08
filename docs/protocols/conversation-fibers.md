@@ -96,9 +96,12 @@ turn at once. These paths resume a turn:
 - A Talk retry with the same message ID, which joins the running fiber or resumes it.
 
 Within one incarnation, an activation that is already running joins that run instead of starting
-another. A new message of a session whose turn this owner is resuming after a crash waits for that
-turn to settle, then takes its turn, so a member's next message after a dead request is not
-refused. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
+another. A new message of a session with an open turn reads that turn from PostgreSQL. If a live
+Talk request is running it in this owner, the message answers `409 conversation_busy`. Otherwise
+its request died with a lost owner: the message resumes (or joins) that turn, waits for it to
+settle, then takes its turn, so a member's next message after a dead request is not refused.
+Decision: at most 3 resumptions before answering busy, since each one claims the turn under a new
+attempt and one normally settles it. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
 whose accepted message started the turn.
 
 ## Streaming, status and cancel

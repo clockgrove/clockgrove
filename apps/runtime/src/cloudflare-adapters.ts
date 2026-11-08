@@ -1461,6 +1461,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
     this.#fibers ??= new TurnFibers({
       holder: this.instanceId,
+      actorId,
       stores: this.stores(),
       respond: scriptedConversationReply,
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
