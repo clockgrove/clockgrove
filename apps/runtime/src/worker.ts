@@ -916,8 +916,9 @@ export class RuntimeWorker {
     route: ActivationRoute,
   ): Promise<Response> {
     try {
-      const identified = await this.authenticator.identify(request.clone());
+      const principal = await this.authenticator.authenticatePrincipal(request.clone());
       const call = activationCall(route, await request.json());
+      const identified = { ...principal, scope: call.scope, commandId: undefined };
       const metadata = readMetadata(identified.correlationHeader);
       note.ids = { ...call.scope, ...metadata };
       const context = await this.authenticator.authorize(
