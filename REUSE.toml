@@ -1,0 +1,30 @@
+# REUSE 3.3 licence metadata (https://reuse.software/spec-3.3/), checked by `reuse lint` in
+# .github/workflows/reuse.yml. When annotations overlap, the last match wins, so the list runs
+# from the whole repository to specific files. Every annotation overrides in-file text, so prose
+# that quotes a copyright line is not read as one. Third-party files are listed in
+# provenance.json; each gets its own annotation here with the same licence.
+version = 1
+
+# Code, documentation and configuration: Clockgrove's own work.
+[[annotations]]
+precedence = "override"
+path = "**"
+SPDX-FileCopyrightText = "2026 Clockgrove"
+SPDX-License-Identifier = "MIT"
+
+# Generated and authored media (brand, sprites, goldens, design references, world packs):
+# MIT as Clockgrove work, owner decision 2026-11-07. Generated reference images are listed
+# in provenance.json with the same licence.
+[[annotations]]
+precedence = "override"
+path = ["assets/**", "docs/design/reference/**", "worlds/**"]
+SPDX-FileCopyrightText = "2026 Clockgrove"
+SPDX-License-Identifier = "MIT"
+
+# provenance.json: the turbo agent-guidance block in AGENTS.md comes from turbo
+# (https://github.com/vercel/turborepo), MIT, Copyright (c) 2026 Vercel, Inc.
+[[annotations]]
+precedence = "override"
+path = "AGENTS.md"
+SPDX-FileCopyrightText = ["2026 Clockgrove", "2026 Vercel, Inc"]
+SPDX-License-Identifier = "MIT"

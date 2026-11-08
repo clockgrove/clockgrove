@@ -1,0 +1,30 @@
+name: REUSE
+
+# Licence metadata gate: every file must have a licence and copyright under REUSE 3.3, which the
+# root REUSE.toml assigns by path. Not a share of Quality: it reads only the checkout, needs no
+# toolchain or LFS content, and finishes in seconds.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+concurrency:
+  group: reuse-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  reuse:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint REUSE compliance
+        uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
