@@ -73,6 +73,13 @@ import {
   type WorldStatus,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
+import {
+  ACTIVATION_ROUTES,
+  type ActivationOwners,
+  type ActivationRoute,
+  activationCall,
+  activationRefusal,
+} from "./activation-routes.js";
 import type { CanonicalRuntimeStateSource } from "./canonical-state.js";
 import { consoleRuntimeLogger } from "./cloudflare-logs.js";
 import {
@@ -222,6 +229,7 @@ export interface RuntimeOwnerBindings {
   readonly conversations?: ConversationStores;
   /** The actor owners that run Talk turns (`ActorAgentDO`); absent, Talk fails closed too. */
   readonly turns?: TurnOwners;
+  readonly activations?: ActivationOwners;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
@@ -414,6 +422,13 @@ export class RuntimeWorker {
       return this.answer("world_command_answered", (note) => this.worldCommand(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/influence")
       return this.answer("world_command_answered", (note) => this.influence(request, note));
+    if (
+      request.method === "POST" &&
+      (ACTIVATION_ROUTES as readonly string[]).includes(url.pathname)
+    )
+      return this.answer("scene_observation_answered", (note) =>
+        this.activation(request, note, url.pathname as ActivationRoute),
+      );
     if (request.method === "POST" && isConversationRoute(url.pathname))
       return this.answer("scene_observation_answered", (note) =>
         this.conversation(request, note, url.pathname as ConversationRoute),
@@ -891,6 +906,54 @@ export class RuntimeWorker {
       note.outcome = "read";
       return jsonResponse(scene);
     } catch (error) {
+      return this.observationRefusal(note, error);
+    }
+  }
+
+  private async activation(
+    request: Request,
+    note: RequestNote,
+    route: ActivationRoute,
+  ): Promise<Response> {
+    try {
+      const principal = await this.authenticator.authenticatePrincipal(request.clone());
+      const call = activationCall(route, await request.json());
+      const identified = { ...principal, scope: call.scope, commandId: undefined };
+      const metadata = readMetadata(identified.correlationHeader);
+      note.ids = { ...call.scope, ...metadata };
+      const context = await this.authenticator.authorize(
+        identified,
+        metadata,
+        route === "/v1/runtime/activations/inspect" ? OBSERVE_GRANT : "runtime:world-command",
+      );
+      if (
+        context.tenantId !== call.scope.tenantId ||
+        context.worldId !== call.scope.worldId ||
+        context.timelineId !== call.scope.timelineId ||
+        context.spaceId !== call.scope.spaceId ||
+        !context.privacyCeiling.allowedCategories.includes("conversation") ||
+        context.personaId === undefined
+      )
+        throw new AuthorizationRefusedError("activation refused");
+      note.authorization = "authorized";
+      const owners = this.bindings.activations;
+      if (owners === undefined) {
+        note.outcome = "unavailable";
+        return jsonResponse({ error: "conversation_unavailable" }, 503);
+      }
+      const refused = await this.unaddressable(call.scope, call.actorId, context, note);
+      if (refused !== undefined) return refused;
+      const result = await call.run(owners, context, { ...context, personaId: context.personaId });
+      note.outcome = "read";
+      return jsonResponse(result);
+    } catch (error) {
+      const refused = activationRefusal(error);
+      if (refused !== undefined) {
+        note.outcome = "refused";
+        return jsonResponse({ error: refused.error }, refused.status);
+      }
+      if (error instanceof ConversationRefusedError)
+        return jsonResponse({ error: error.code }, CONVERSATION_REFUSAL_STATUS[error.code]);
       return this.observationRefusal(note, error);
     }
   }
