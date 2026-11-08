@@ -275,3 +275,51 @@ it("license check evaluates SPDX OR, AND, precedence and WITH, and refuses garbl
     "refused",
   ]);
 });
+
+it("falls back to the pinned OpenTofu asset and rejects corrupt download bytes", async () => {
+  const source = await readFile(new URL("../../scripts/ci/toolchain.sh", import.meta.url), "utf8");
+  const definitions = source.slice(
+    0,
+    source.indexOf("if [[ \"${1:-}\" == '--pgvector-key' ]]; then"),
+  );
+  const directory = await mkdtemp(path.join(os.tmpdir(), "clockgrove-toolchain-test-"));
+  try {
+    const definitionsFile = path.join(directory, "definitions.sh");
+    await writeFile(definitionsFile, definitions);
+    // Fake-only transport: reliably induce the upstream 504 without downloading or installing.
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `source "$TOOLCHAIN_DEFINITIONS"
+curl() {
+  printf 'transfer %s\\n' "$*"
+  if [[ "$*" != *'/releases/assets/'* ]]; then return 22; fi
+  while [[ "$1" != '--output' ]]; do shift; done
+  printf 'corrupt archive' > "$2"
+}
+unzip() { printf 'UNEXPECTED_UNZIP\\n'; return 1; }
+as_root() { printf 'UNEXPECTED_INSTALL\\n'; return 1; }
+install_opentofu
+`,
+      ],
+      {
+        env: { ...process.env, TMPDIR: directory, TOOLCHAIN_DEFINITIONS: definitionsFile },
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout.match(/^transfer /gmu)).toHaveLength(2);
+    expect(result.stdout).toContain("/releases/download/v1.13.1/tofu_1.13.1_linux_amd64.zip");
+    expect(result.stdout).toContain("--header Accept: application/octet-stream");
+    expect(result.stdout).toContain(
+      "https://api.github.com/repos/opentofu/opentofu/releases/assets/603708334",
+    );
+    expect(result.stderr).toContain("computed checksum did NOT match");
+    expect(result.stdout).not.toContain("UNEXPECTED_");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
