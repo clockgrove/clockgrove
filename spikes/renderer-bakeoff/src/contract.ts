@@ -23,10 +23,23 @@ export interface TierFeatures {
   readonly wind: boolean;
   /** Rain streaks drawn at full rain intensity; scaled by the projection's rain intensity. */
   readonly rainParticles: number;
+  /**
+   * `half` is half of `full`'s strength, at the same full resolution and the same threshold
+   * (`BLOOM_THRESHOLD`), in every candidate: each multiplies its engine's full strength by `BLOOM_SCALE`.
+   */
   readonly bloom: "off" | "half" | "full";
   /** Mirrored reflections of the lit scene in puddles. */
   readonly reflections: boolean;
 }
+/** Scene brightness above which every candidate's bloom picks a pixel up, on each engine's 0–1 scale. */
+export const BLOOM_THRESHOLD = 0.75;
+/** What each bloom setting multiplies the engine's full bloom strength by; resolution never changes. */
+export const BLOOM_SCALE: Readonly<Record<TierFeatures["bloom"], number>> = {
+  off: 0,
+  half: 0.5,
+  full: 1,
+};
+
 export const TIER_FEATURES: Readonly<Record<QualityTier, TierFeatures>> = {
   low: {
     normalMaps: true,

@@ -29,7 +29,7 @@ const SOURCES = {
 /** Renderer strings of software rasterisers: their numbers prove correctness, never performance. */
 const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|software|microsoft basic render/iu;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json" };
-/** Decision: 20 minutes covers 3 candidates × 6 runs × 160 frames at SwiftShader's ~0.3 s a frame. */
+/** Decision: 20 minutes covers 3 candidates × 6 runs × 190 frames at SwiftShader's ~0.3 s a frame. */
 const DEFAULT_TIMEOUT_MS = 1_200_000;
 
 /**
@@ -75,6 +75,7 @@ async function servePage(options, launch) {
   if (options.frames) query.set("frames", String(options.frames));
   if (options.rafFrames) query.set("rafFrames", String(options.rafFrames));
   if (options.warmup) query.set("warmup", String(options.warmup));
+  if (options.panFrames) query.set("panFrames", String(options.panFrames));
   let timer;
   let launched;
   try {
@@ -162,7 +163,7 @@ async function codeLines(files) {
  * One measurement: either serve the page and open it with `launch`, or read `fromDom`; then write
  * results.json, the screenshots and report.html into `out`. Resolves with the record.
  * @param {{ out: string, label?: string, fromDom?: string, launch?: (url: string) => Promise<Launched>,
- *   candidates?: string, frames?: number | string, rafFrames?: number | string, warmup?: number | string,
+ *   candidates?: string, frames?: number | string, rafFrames?: number | string, warmup?: number | string, panFrames?: number | string,
  *   host?: string, timeoutMs?: number | string }} options
  */
 export async function measure(options) {
@@ -186,11 +187,19 @@ export async function measure(options) {
     const renderer = candidate.description?.rendererString ?? "";
     candidate.host = host;
     candidate.browser = { userAgent: record.device.userAgent, executable };
-    candidate.performance =
-      Boolean(renderer) && !SOFTWARE.test(renderer) && !record.page.clock.suspect;
-    candidate.performanceNote = candidate.performance
-      ? "hardware renderer, real clock"
-      : `not a performance number: ${renderer ? (SOFTWARE.test(renderer) ? "software renderer" : "suspect clock") : "no renderer"}`;
+    // A dumped DOM comes from --virtual-time-budget, whose clock is virtual: never performance.
+    const why = !renderer
+      ? "no renderer"
+      : SOFTWARE.test(renderer)
+        ? "software renderer"
+        : options.fromDom
+          ? "dumped DOM (virtual clock)"
+          : record.page.clock.suspect
+            ? "suspect clock"
+            : null;
+    candidate.performance = why === null;
+    candidate.performanceNote =
+      why === null ? "hardware renderer, real clock" : `not a performance number: ${why}`;
     candidate.bundle = {
       candidate: bundles[candidate.candidate] ?? null,
       sharedHarness: bundles.harness ?? null,
@@ -223,7 +232,7 @@ export async function measure(options) {
       const runs = c.runs
         .map(
           (r) =>
-            `<tr><td>${r.state}</td><td>${r.tier}</td><td>${r.frameMs.p50}</td><td>${r.frameMs.p95}</td><td>${r.rafIntervalMs?.p50 ?? "none"}</td></tr>`,
+            `<tr><td>${r.state}</td><td>${r.tier}</td><td>${r.frameMs.p50}</td><td>${r.frameMs.p95}</td><td>${r.panFrameMs?.p50 ?? "none"}</td><td>${r.panFrameMs?.p95 ?? "none"}</td><td>${r.rafIntervalMs?.p50 ?? "none"}</td></tr>`,
         )
         .join("");
       const shots = Object.entries(c.screenshots)
@@ -234,7 +243,7 @@ export async function measure(options) {
   <p>${escapeHtml(c.description?.api ?? "no api")} · ${escapeHtml(c.description?.rendererString ?? c.error ?? "")} · ${escapeHtml(c.performanceNote)}</p>
   <p>bundle ${c.bundle.candidate?.gzipBytes ?? "?"} B gzip · ${c.codeLines ?? "?"} code lines · est. GPU ${c.description?.estimatedGpuBytes ?? "?"} B</p>
   <div class="row"><figure><img src="${mockup}"><figcaption>reference mockup</figcaption></figure>${shots}</div>
-  <table><tr><th>state</th><th>tier</th><th>frame p50 ms</th><th>frame p95 ms</th><th>rAF p50 ms</th></tr>${runs}</table></section>`;
+  <table><tr><th>state</th><th>tier</th><th>frame p50 ms</th><th>frame p95 ms</th><th>pan p50 ms</th><th>pan p95 ms</th><th>rAF p50 ms</th></tr>${runs}</table></section>`;
     })
     .join("\n");
   await writeFile(
@@ -271,6 +280,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
       frames: { type: "string" },
       "raf-frames": { type: "string" },
       warmup: { type: "string" },
+      "pan-frames": { type: "string" },
       label: { type: "string", default: "" },
       host: { type: "string", default: "127.0.0.1" },
       "timeout-ms": { type: "string", default: String(DEFAULT_TIMEOUT_MS) },
@@ -291,6 +301,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     frames: values.frames,
     rafFrames: values["raf-frames"],
     warmup: values.warmup,
+    panFrames: values["pan-frames"],
     host: values.host,
     timeoutMs: values["timeout-ms"],
   });

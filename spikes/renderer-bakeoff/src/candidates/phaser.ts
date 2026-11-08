@@ -10,6 +10,8 @@ import Phaser from "phaser";
 import { applyScenePatch } from "../../../../apps/web/src/world-scene-adapter.js";
 import {
   type BakeoffAdapter,
+  BLOOM_SCALE,
+  BLOOM_THRESHOLD,
   type CameraState,
   type CandidateDescription,
   type CandidateOptions,
@@ -286,7 +288,7 @@ class PhaserBakeoff implements BakeoffAdapter {
     this.addTexture("rain-streak", streak, null, [[0, 28]]);
     // Bloom is built once at full strength; tiers switch it off or halve it.
     this.bloom = Phaser.Actions.AddEffectBloom(scene.cameras.main, {
-      threshold: 0.55,
+      threshold: BLOOM_THRESHOLD,
       blurRadius: 2,
       blurSteps: 4,
       blurQuality: 0,
@@ -622,7 +624,7 @@ class PhaserBakeoff implements BakeoffAdapter {
     const bloom = this.bloom;
     if (bloom) {
       bloom.parallelFilters.active = f.bloom !== "off";
-      bloom.parallelFilters.blend.amount = f.bloom === "half" ? 0.5 : 1;
+      bloom.parallelFilters.blend.amount = BLOOM_SCALE[f.bloom];
     }
   }
 
@@ -856,8 +858,15 @@ class PhaserBakeoff implements BakeoffAdapter {
       rendererString: read(info?.UNMASKED_RENDERER_WEBGL, gl?.RENDERER ?? 0),
       vendorString: read(info?.UNMASKED_VENDOR_WEBGL, gl?.VENDOR ?? 0),
       webgpuAdapter: null,
-      // Texture uploads plus an estimate of the camera filter targets (scene, bright pass, blur).
-      estimatedGpuBytes: this.textureBytes + this.options.width * this.options.height * 4 * 3,
+      // Counted as three counts: texture uploads, the canvas's colour + depth/stencil buffer, and the
+      // bloom targets only while bloom is on. Bloom is an estimate of Phaser's internals (scene, bright
+      // pass, blur at RGBA8), as three's is of its own, so the bloom share is not like-for-like.
+      estimatedGpuBytes:
+        this.textureBytes +
+        this.options.width * this.options.height * 8 +
+        (TIER_FEATURES[this.tier].bloom === "off"
+          ? 0
+          : this.options.width * this.options.height * 4 * 3),
       features,
       notes: LOOK_FEATURES.flatMap((feature) => {
         const note = notes[feature];

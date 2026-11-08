@@ -13,8 +13,11 @@ import type { AssetId } from "./materials.js";
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
-/** Dusk in rain: 17:45 of day 1, before the 18:00 night rule lights the lantern and window. */
-export const DUSK_TIME = DAY + 17.75 * HOUR;
+/**
+ * Dusk in rain: 18:15 of day 1, just after the 18:00 night rule (`isNight`) lights the lantern and the
+ * window, as the reference mockup's dusk in rain shows them lit.
+ */
+export const DUSK_TIME = DAY + 18.25 * HOUR;
 /** Night: 22:00 of day 1, lighter rain. */
 export const NIGHT_TIME = DAY + 22 * HOUR;
 export const DUSK_RAIN = 8_000;
@@ -225,9 +228,15 @@ const LIGHT_STYLE: Readonly<
   window: { color: [1.0, 0.78, 0.45], intensity: 1.6, range: 4.5, flicker: 0 },
 };
 
+/** The spike's own sky rule: a dusk sky until 20:00, a night sky from then until 06:00. */
+const DARK_FROM_HOUR = 20;
+
 export function lightRigOf(projection: SceneProjection): LightRig {
   const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
-  const night = isNight(projection.simulationTime);
+  // Lanterns and windows follow the product's night rule (from 18:00, through shownEffects); the sky
+  // stays a dusk sky until DARK_FROM_HOUR, so dusk in rain is lit as the reference mockup shows it.
+  const hour = Number(projection.simulationTime % BigInt(DAY)) / HOUR;
+  const night = isNight(projection.simulationTime) && (hour >= DARK_FROM_HOUR || hour < 6);
   const rain = projection.weather.rainIntensity / 10_000;
   const lights: PointLightSpec[] = [];
   const puddles: Puddle[] = [];

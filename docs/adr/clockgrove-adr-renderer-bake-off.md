@@ -43,26 +43,32 @@ The levels below are what each adapter reports in `describe()`. **Native** means
 
 What the table means:
 
-- **Phaser 4** can light normal-mapped sprites and bloom them, and its filters and shader objects can add effects that cover the whole canvas. It can't give specular or roughness response, an emissive channel, light falloff over real 3D positions, or per-object fog depth. Each of these is a separate layer or a screen-space shader, and the spike already carries five of them. That is the ceiling the issue suspected. The spike also warps the ground and the wall into canvas textures for each camera, so a camera change costs Phaser a re-bake that Three.js doesn't pay. In the measured sequence that is two frames of 120, below the p95.
+- **Phaser 4** can light normal-mapped sprites and bloom them, and its filters and shader objects can add effects that cover the whole canvas. It can't give specular or roughness response, an emissive channel, light falloff over real 3D positions, or per-object fog depth. Each of these is a separate layer or a screen-space shader, and the spike already carries five of them. That is the ceiling the issue suspected. The spike also warps the ground and the wall into canvas textures for each camera, so a camera change costs Phaser a re-bake and texture upload that Three.js doesn't pay. Every timed frame starts before the camera is set, so the re-bake is measured: in the stepped sequence it lands in two frames of 120 (`frameMs`), and in the continuous pan (`panFrameMs`) it lands in every frame. Compare the pan p50/p95 to see what scrolling costs each candidate.
 - **Three.js** gets normal, roughness and emissive maps, physical point lights, per-pixel fog and bloom from the engine. Wetness, wind, rain and reflections are still the spike's own work, as in Phaser, but they sit on a physically based base. The WebGPU entry runs the same scene code. Its post-processing is node-based (TSL) rather than `EffectComposer`, so the post stack is written twice.
 
 ## Measurements
 
 The measurement page and script are described in the spike's [README](../../spikes/renderer-bakeoff/README.md#measuring). Every record carries its host, browser user agent and renderer string. A software rasteriser (SwiftShader, llvmpipe) is marked `performance: false` and is never reported as performance.
 
+Each frame is timed from the camera change to GPU completion. Completion is `gl.finish()` plus a 1-pixel `readPixels` on WebGL2 (phaser, three-webgl2 and three-webgpu's WebGL2 fallback) and `queue.onSubmittedWorkDone()` on WebGPU. The fences differ in cost, so a WebGPU number and a WebGL2 number differ by that sync as well as by the API. Every number is serialised CPU+GPU latency per frame, not the frame rate a pipelined loop reaches. Frame times come only from the served page: a dumped DOM (`--virtual-time-budget`) runs on a virtual clock, so its numbers are never marked as performance.
+
+The tiers do the same work in every candidate. `half` bloom is half of the full strength, at full resolution and the same threshold (`BLOOM_SCALE`, `BLOOM_THRESHOLD`). The dusk-in-rain state is 18:15, after the product's 18:00 night rule lights the lantern and the window, as in the mockup's dusk. The sky stays a dusk sky until 20:00.
+
 Bundle sizes and code lines come from `node spikes/renderer-bakeoff/scripts/build.mjs` (Vite 8.3.4) at this record's commit. They depend on no host.
 
 | Measure | phaser | three-webgl2 | three-webgpu |
 | --- | --- | --- | --- |
-| Bundle (minified, gzip level 9), including the shared inputs | 1,415,654 B (367,817 B gzip) | 797,162 B (201,738 B gzip) | 1,152,580 B (312,972 B gzip) |
-| Adapter code lines (non-blank, non-comment) | 817 | 638 shared + 47 entry | 638 shared + 33 entry |
+| Bundle (minified, gzip level 9), including the shared inputs | 1,415,827 B (367,900 B gzip) | 797,225 B (201,792 B gzip) | 1,152,627 B (313,009 B gzip) |
+| Adapter code lines (non-blank, non-comment) | 824 | 639 shared + 45 entry | 639 shared + 32 entry |
 | Frame time p50/p95, mid-range GPU (RTX 2060 SUPER, WebGL2 in WSL2 Chromium) | pending: maintainer step | pending: maintainer step | pending: maintainer step |
 | Frame time p50/p95, RTX 2060 SUPER, Windows Edge | pending: maintainer step | pending: maintainer step | pending: maintainer step (WebGPU) |
 | Frame time p50/p95, integrated GPU | missing: needs a real device | missing | missing |
 | Frame time p50/p95, phone | missing: needs a real device | missing | missing |
-| GPU memory | each candidate's own estimate of texture and render-target bytes, in `results.json` (browsers expose no GPU memory API) | same | same |
+| GPU memory | estimate in `results.json`: texture uploads, the canvas's colour and depth/stencil, and bloom targets while bloom is on (browsers expose no GPU memory API) | same items | same items |
 | WebGL2 | yes | yes | fallback backend |
 | WebGPU | no | no | yes, where the browser offers it |
+
+The GPU memory figures count the same items, and the texture and canvas bytes compare directly. The bloom share is each candidate's own estimate of its engine's internal targets, three RGBA8 full-canvas targets for Phaser and a half-float mip chain for three, so the totals compare only roughly.
 
 Every candidate implements the three quality tiers of `TIER_FEATURES` and freezes rain, wind and flicker under reduced motion. The CI journey checks reduced motion on every candidate by stepping the page clock itself.
 

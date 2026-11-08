@@ -3,8 +3,8 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { registerCandidate } from "../contract.js";
-import { createThreeAdapter, type ThreeBackend } from "./three.js";
+import { BLOOM_SCALE, BLOOM_THRESHOLD, registerCandidate } from "../contract.js";
+import { createThreeAdapter, THREE_BLOOM_STRENGTH, type ThreeBackend } from "./three.js";
 
 const backend: ThreeBackend = {
   candidate: "three-webgl2",
@@ -26,15 +26,13 @@ const backend: ThreeBackend = {
     });
     const composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    const full = mode === "full";
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(width, height),
-      full ? 0.9 : 0.6,
+      THREE_BLOOM_STRENGTH * BLOOM_SCALE[mode],
       0.4,
-      0.75,
+      BLOOM_THRESHOLD,
     );
     composer.addPass(bloom);
-    if (!full) bloom.setSize(width / 2, height / 2);
     composer.addPass(new OutputPass());
     return {
       render: () => composer.render(0),

@@ -23,6 +23,8 @@ const FRAMES = Number(params.get("frames") ?? 120);
 const WARMUP = Number(params.get("warmup") ?? 10);
 /** Frames timed by requestAnimationFrame cadence, after the GPU-completion frames. */
 const RAF_FRAMES = Number(params.get("rafFrames") ?? 30);
+/** Frames of a continuous pan, a new camera every frame, timed with the camera change included. */
+const PAN_FRAMES = Number(params.get("panFrames") ?? 30);
 /** Canvas size in CSS pixels at device pixel ratio 1: half of 1080p (plan, design note 6). */
 const WIDTH = 960;
 const HEIGHT = 540;
@@ -72,8 +74,10 @@ interface Run {
   readonly state: LightingState;
   readonly tier: QualityTier;
   readonly warmupFrames: number;
-  /** Render start to GPU completion, per frame, in milliseconds. */
+  /** Camera set to GPU completion, per frame, in milliseconds; the camera holds or steps along CAMERA_PATH. */
   readonly frameMs: Stats;
+  /** The same, while the camera pans continuously (a new camera every frame, as a scrolling player sees). */
+  readonly panFrameMs: Stats;
   /** Interval between requestAnimationFrame callbacks while rendering each frame (vsync-capped). */
   readonly rafIntervalMs: Stats | null;
 }
@@ -159,6 +163,24 @@ async function createAdapter(name: string, host: HTMLElement): Promise<BakeoffAd
   return factory({ host, width: WIDTH, height: HEIGHT });
 }
 
+/** The pan from the first to the second CAMERA_PATH point, at `f` in [0, 1]. */
+function panCamera(f: number) {
+  const from = CAMERA_PATH[0] ?? SCREENSHOT_CAMERA;
+  const to = CAMERA_PATH[1] ?? SCREENSHOT_CAMERA;
+  const mix = (a: number, b: number) => a + (b - a) * f;
+  return {
+    panX: mix(from.panX, to.panX),
+    panY: mix(from.panY, to.panY),
+    zoom: mix(from.zoom, to.zoom),
+  };
+}
+
+/**
+ * Timed frames that took no time at all. A frame finished on the GPU always takes some time, so any
+ * zero-duration frame means the clock did not run during it (a virtual clock, --virtual-time-budget).
+ */
+let zeroFrames = 0;
+
 async function measureCandidate(name: string): Promise<CandidateResult> {
   const result: CandidateResult = { candidate: name, runs: [], screenshots: {} };
   const host = document.createElement("div");
@@ -185,15 +207,24 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
           adapter.setCamera(CAMERA_PATH[0] ?? SCREENSHOT_CAMERA);
           await adapter.renderFrame(clock.advance(FRAME_MS));
         }
+        // Each timed frame starts before setCamera, so a candidate that re-bakes on a camera change pays it.
         const frameMs: number[] = [];
         for (let i = 0; i < FRAMES; i++) {
+          const t0 = performance.now();
           adapter.setCamera(
             CAMERA_PATH[Math.floor((i * CAMERA_PATH.length) / FRAMES)] ?? SCREENSHOT_CAMERA,
           );
-          const t0 = performance.now();
           await adapter.renderFrame(clock.advance(FRAME_MS));
           frameMs.push(performance.now() - t0);
         }
+        const panFrameMs: number[] = [];
+        for (let i = 0; i < PAN_FRAMES; i++) {
+          const t0 = performance.now();
+          adapter.setCamera(panCamera(i / Math.max(1, PAN_FRAMES - 1)));
+          await adapter.renderFrame(clock.advance(FRAME_MS));
+          panFrameMs.push(performance.now() - t0);
+        }
+        zeroFrames += [...frameMs, ...panFrameMs].filter((ms) => ms <= 0).length;
         const rafIntervalMs: number[] = [];
         let last = await nextFrame();
         for (let i = 0; i < RAF_FRAMES; i++) {
@@ -207,6 +238,7 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
           tier,
           warmupFrames: WARMUP,
           frameMs: stats(frameMs),
+          panFrameMs: stats(panFrameMs),
           rafIntervalMs: rafIntervalMs.every(Number.isFinite) ? stats(rafIntervalMs) : null,
         });
         adapter.setCamera(SCREENSHOT_CAMERA);
@@ -290,8 +322,10 @@ async function main() {
       frames: FRAMES,
       warmupFrames: WARMUP,
       rafFrames: RAF_FRAMES,
-      // A virtual clock (--virtual-time-budget) can freeze performance.now() during synchronous work.
-      clock: { elapsedMs: Math.round(elapsed), suspect: elapsed < 1 },
+      panFrames: PAN_FRAMES,
+      // A virtual clock (--virtual-time-budget) freezes performance.now() during synchronous work, so its
+      // frames time as zero even when timers and script loads have moved the clock on between them.
+      clock: { elapsedMs: Math.round(elapsed), zeroFrames, suspect: elapsed < 1 || zeroFrames > 0 },
     },
     device,
     candidates,

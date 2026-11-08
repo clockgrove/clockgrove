@@ -12,9 +12,9 @@ integrates the winner.
 Every candidate reads the same inputs, in `src/inputs/`:
 
 - `scene.ts` holds the committed projection: Stevie, a lantern post and a shrub in front of the house wall, a
-  lantern and a window light, and two puddles. The snapshot is dusk in rain (17:45). The `TO_NIGHT` patch
-  (22:00, lighter rain) arrives through `applyPatch`, so the existing night rule lights the lantern and the
-  window. The file also holds the shared light rig, the camera path and `isoProject`, which is the camera
+  lantern and a window light, and two puddles. The snapshot is dusk in rain (18:15), just after the product's
+  18:00 night rule lights the lantern and the window, as the reference mockup shows them at dusk; the sky
+  stays a dusk sky until 20:00. The `TO_NIGHT` patch (22:00, lighter rain) arrives through `applyPatch`. The file also holds the shared light rig, the camera path and `isoProject`, which is the camera
   every candidate reproduces.
 - `materials.ts` holds synthetic placeholder maps for every asset: albedo, normal (derived from height),
   height, emissive, roughness/wetness and wind. They are generated deterministically in code, so no image
@@ -28,17 +28,21 @@ WebGPU is missing. Each candidate reports in `describe()` what it actually used.
 ## Quality tiers and the sequence
 
 `TIER_FEATURES` in `src/contract.ts` defines the tiers. **low** has lighting, normal maps and fog.
-**medium** adds emissive, wetness, wind, 400 rain streaks and half-strength bloom. **high** adds puddle
+**medium** adds emissive, wetness, wind, 400 rain streaks and half-strength bloom (half of full's
+strength at full resolution and the same threshold, `BLOOM_SCALE` and `BLOOM_THRESHOLD`, in every candidate). **high** adds puddle
 reflections, 1,200 rain streaks and full bloom. Rain counts are scaled by the projection's rain
 intensity. These are spike decisions, sized so the high tier is visibly heavier.
 
 The page (`src/harness.ts`) draws a 960×540 canvas at device pixel ratio 1. For each candidate it
 runs both lighting states and all three tiers. Each run has 10 warm-up frames, then 120 frames timed
-from the start of the render to GPU completion, panned along `CAMERA_PATH`, then 30
-requestAnimationFrame intervals. It then takes one screenshot at the fixed screenshot camera and time.
+from the camera change to GPU completion, stepped along `CAMERA_PATH`, then 30 frames of a continuous
+pan (`panFrameMs`, a new camera every frame, so a candidate that re-bakes per camera pays it every
+frame), then 30 requestAnimationFrame intervals. GPU completion is `gl.finish()` plus a 1-pixel
+`readPixels` on WebGL2 and `queue.onSubmittedWorkDone()` on WebGPU: serialised CPU+GPU latency per
+frame, not the frame rate of a pipelined loop. It then takes one screenshot at the fixed screenshot camera and time.
 Last, it checks reduced motion: two frames 1 s apart on the page's own clock must be identical with
 it on and differ with it off. Candidates never read wall time; every frame is drawn at the page
-clock's time, which only the page or a test driving it moves. Query parameters `candidates`, `frames`, `warmup` and `rafFrames` shorten a run.
+clock's time, which only the page or a test driving it moves. Query parameters `candidates`, `frames`, `warmup`, `panFrames` and `rafFrames` shorten a run.
 
 ## Measuring
 
@@ -66,8 +70,10 @@ A run whose renderer string names SwiftShader, llvmpipe or another software rast
 
 The page also runs from a `file://` URL and writes the same record into
 `<script id="bakeoff-result">`. To extract it from a dumped DOM, run
-`measure.mjs --from-dom <dump.html> --out <dir>`. Under `--virtual-time-budget`, timers are virtual,
-so the record flags a suspect clock. Prefer the served page wherever the browser can reach it.
+`measure.mjs --from-dom <dump.html> --out <dir>`. Under `--virtual-time-budget`, the clock is virtual
+(synchronous frames time as zero while timers move it on), so a dumped DOM's numbers are never marked
+performance, and the page also flags any zero-duration frame as a suspect clock. Take performance numbers
+from the served page.
 
 ### Maintainer GPU step (outside the sandbox)
 
@@ -76,11 +82,12 @@ These steps run on the owner's machine. The results are posted on issue 67 and a
 - **WebGL2 in WSL2 Chromium:** run
   `GALLIUM_DRIVER=d3d12 LD_LIBRARY_PATH=/usr/lib/wsl/lib node spikes/renderer-bakeoff/scripts/measure.mjs --browser <chromium> --browser-arg=--use-gl=angle --browser-arg=--use-angle=gl --browser-arg=--ignore-gpu-blocklist --out <dir> --label "RTX 2060 SUPER, WSL2"`.
   The renderer string must read `ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 2060 SUPER), …)`.
-- **WebGPU and WebGL2 in Windows Edge:** copy `dist/` to a Windows path. Either point `--browser` at
+- **WebGPU and WebGL2 in Windows Edge:** copy `dist/` to a Windows path. For frame times, point `--browser` at
   `msedge.exe` with `--browser-arg=--enable-unsafe-webgpu` and a Windows `--browser-arg=--user-data-dir=C:\…`
-  (WSL2 forwards Windows `localhost` to the script's server), or run
+  (WSL2 forwards Windows `localhost` to the script's server). The `file://` route,
   `msedge.exe --headless=new --enable-unsafe-webgpu --virtual-time-budget=<ms> --dump-dom "file:///C:/…/index.html" > dump.html`
-  and then `measure.mjs --from-dom dump.html`.
+  and then `measure.mjs --from-dom dump.html`, gives the adapter info, screenshots and correctness only: its
+  virtual clock makes the frame times not performance.
 - The phone and the integrated GPU stay listed as missing in `results.json` until someone measures them on real
   devices.
 

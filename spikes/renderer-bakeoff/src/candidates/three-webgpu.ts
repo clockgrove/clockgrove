@@ -1,8 +1,8 @@
 import { bloom } from "three/examples/jsm/tsl/display/BloomNode.js";
 import { pass } from "three/tsl";
 import * as THREE from "three/webgpu";
-import { registerCandidate } from "../contract.js";
-import { createThreeAdapter, type ThreeBackend } from "./three.js";
+import { BLOOM_SCALE, BLOOM_THRESHOLD, registerCandidate } from "../contract.js";
+import { createThreeAdapter, THREE_BLOOM_STRENGTH, type ThreeBackend } from "./three.js";
 
 const backend: ThreeBackend = {
   candidate: "three-webgpu",
@@ -20,8 +20,7 @@ const backend: ThreeBackend = {
     // drew nothing on the WebGL2 backend (CI, SwiftShader).
     const scenePass = pass(scene, camera, { stencilBuffer: true });
     const color = scenePass.getTextureNode("output");
-    const bloomNode = bloom(color, mode === "full" ? 0.9 : 0.6, 0.4, 0.75);
-    bloomNode.setResolutionScale(mode === "full" ? 1 : 0.5);
+    const bloomNode = bloom(color, THREE_BLOOM_STRENGTH * BLOOM_SCALE[mode], 0.4, BLOOM_THRESHOLD);
     // RenderPipeline replaced PostProcessing in r183.
     const pipeline = new THREE.RenderPipeline(renderer);
     pipeline.outputNode = color.add(bloomNode);

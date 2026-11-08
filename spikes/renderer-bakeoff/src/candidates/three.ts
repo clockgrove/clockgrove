@@ -35,6 +35,9 @@ type Any = any;
 type SceneProjection = Parameters<typeof applyScenePatch>[0];
 
 /** A bloom pipeline that draws the scene to the canvas. */
+/** three's full bloom strength, the same on both backends; tiers scale it by BLOOM_SCALE. */
+export const THREE_BLOOM_STRENGTH = 0.9;
+
 export interface ThreePost {
   render(): void | Promise<void>;
   dispose(): void;
@@ -91,7 +94,7 @@ function bloomBytes(mode: "off" | "half" | "full", width: number, height: number
   if (mode === "off") return 0;
   const pixels = width * height;
   const scene = pixels * (8 + 4) * 2;
-  const mips = (mode === "half" ? 0.25 : 1) * pixels * 8 * 2 * (4 / 3) * 2;
+  const mips = pixels * 8 * 2 * (4 / 3) * 2;
   return scene + mips;
 }
 

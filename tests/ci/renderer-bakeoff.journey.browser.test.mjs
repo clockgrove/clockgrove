@@ -59,6 +59,7 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
       frames: 6,
       warmup: 1,
       rafFrames: 2,
+      panFrames: 2,
       timeoutMs: 540_000,
       launch: async (url) => {
         const tab = await browser.newPage();
@@ -121,7 +122,12 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
         error: candidate.error ?? motion.error ?? null,
         runs: candidate.runs.map((r) => `${r.state}/${r.tier}`),
         frameFieldsAreNumbers: candidate.runs.every(
-          (r) => isNumber(r.frameMs.p50) && isNumber(r.frameMs.p95) && r.frameMs.count === 6,
+          (r) =>
+            isNumber(r.frameMs.p50) &&
+            isNumber(r.frameMs.p95) &&
+            r.frameMs.count === 6 &&
+            isNumber(r.panFrameMs.p95) &&
+            r.panFrameMs.count === 2,
         ),
         rendererRecorded: typeof renderer === "string" && renderer.length > 0,
         softwareIsNeverPerformance: SOFTWARE.test(renderer ?? "")
