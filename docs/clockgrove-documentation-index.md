@@ -49,6 +49,8 @@ The independent `clockgrove/skills` package provides product and engineering gui
 
 Agents start from the documentation map in [`../AGENTS.md`](../AGENTS.md); package and subsystem contracts live under each package's docs directory.
 
+How Clockgrove discloses AI-made content to players is in [`docs/policy/ai-content-disclosure.md`](policy/ai-content-disclosure.md).
+
 For contributor workflow (required tools, acceptance commands, workspace and runtime composition facts), see [`docs/runbooks/development.md`](runbooks/development.md). For W0-008 environment manifests, credential-free infrastructure validation, named secrets and authorized planning/applying, see [`docs/runbooks/infrastructure.md`](runbooks/infrastructure.md).
 
 ---
