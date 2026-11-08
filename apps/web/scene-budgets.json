@@ -14,7 +14,7 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "Decision: retain 16 MiB. Account unique Texture identities across atlas, effects, reflections and generated RGBA8 labels (one shared atlas with per-mesh frame UVs), conservative full-resolution RGBA16F + depth/stencil renderer output, full-resolution PassNode RGBA16F + depth/stencil, BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
+      "reason": "Decision: retain 16 MiB. Account unique Texture identities across atlas, effects, reflections and generated RGBA8 labels (one shared atlas with per-mesh frame UVs), conservative full-resolution RGBA16F + depth/stencil renderer output, tier-scaled PassNode RGBA16F + depth/stencil (320x200 low; 640x400 medium/high), BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
     },
     "firstSceneRenderMs": {
       "limit": 2500,

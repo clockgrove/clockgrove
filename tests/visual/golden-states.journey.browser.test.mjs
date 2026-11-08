@@ -367,6 +367,23 @@ const captureGoldenStates = async (backend) => {
                 lights: adapter.scene.children.filter((child) => child.isPointLight).length,
                 backend: adapter.backend,
                 textureBytes: adapter.metrics.textureBytes,
+                renderSize: [
+                  adapter.scenePass.renderTarget.width,
+                  adapter.scenePass.renderTarget.height,
+                ],
+                canvasSize: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+                litMaterials: [
+                  ...new Set(
+                    [
+                      adapter.ground,
+                      ...[...adapter.drawn.values()].map(({ body }) => body),
+                      ...adapter.effects.map(({ sprite }) => sprite),
+                    ].map((mesh) => mesh.material.type),
+                  ),
+                ],
+                puddleRoughness: adapter.effects
+                  .filter(({ role }) => role === "puddle")
+                  .map(({ sprite }) => sprite.material.roughness ?? null),
                 atlasShared: [
                   ...[...adapter.drawn.values()]
                     .filter((drawn) => drawn.key)
@@ -410,7 +427,15 @@ const captureGoldenStates = async (backend) => {
             else expect(pixels.adapter.renderer).toMatch(/SwiftShader/i);
             expect(pixels.meanLuminance).toBeGreaterThan(0);
             expect(pixels.textureBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+            expect(pixels.canvasSize).toEqual([640, 400]);
+            expect(pixels.renderSize).toEqual(tier === "low" ? [320, 200] : [640, 400]);
             expect([pixels.atlasShared, pixels.reflectionUvs]).toEqual([true, true]);
+            expect(pixels.litMaterials).toEqual([
+              tier === "low" ? "MeshLambertNodeMaterial" : "MeshStandardNodeMaterial",
+            ]);
+            expect(pixels.puddleRoughness).toEqual(
+              pixels.puddleRoughness.map(() => (tier === "low" ? null : 0.08)),
+            );
             expect([pixels.api, pixels.clipped, pixels.lights]).toEqual([
               true,
               0,

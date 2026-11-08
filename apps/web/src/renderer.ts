@@ -43,10 +43,8 @@ interface Visual {
   readonly height: number;
   readonly label: string;
 }
-type SurfaceMaterial =
-  | THREE.MeshStandardNodeMaterial
-  | THREE.MeshBasicNodeMaterial
-  | THREE.LineBasicNodeMaterial;
+type LitMaterial = THREE.MeshStandardNodeMaterial | THREE.MeshLambertNodeMaterial;
+type SurfaceMaterial = LitMaterial | THREE.MeshBasicNodeMaterial | THREE.LineBasicNodeMaterial;
 type Native =
   | THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>
   | THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
@@ -91,9 +89,30 @@ export type RendererReport = (point: RendererMeasurement) => void;
 export type QualityTier = "low" | "medium" | "high";
 /** Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
-  low: { rain: 0, bloomScale: 0, bloomStrength: 0, reflections: false, wind: false },
-  medium: { rain: 64, bloomScale: 0.5, bloomStrength: 0.08, reflections: false, wind: true },
-  high: { rain: 192, bloomScale: 1, bloomStrength: 0.12, reflections: true, wind: true },
+  low: {
+    renderScale: 0.5,
+    rain: 0,
+    bloomScale: 0,
+    bloomStrength: 0,
+    reflections: false,
+    wind: false,
+  },
+  medium: {
+    renderScale: 1,
+    rain: 64,
+    bloomScale: 0.5,
+    bloomStrength: 0.08,
+    reflections: false,
+    wind: true,
+  },
+  high: {
+    renderScale: 1,
+    rain: 192,
+    bloomScale: 1,
+    bloomStrength: 0.12,
+    reflections: true,
+    wind: true,
+  },
 } as const;
 /** Decision: warm sources stay below 0.45 linear luminance; ACES exposure 1 and modest bloom retain hue. */
 export const EMISSIVE_LUMINANCE = { min: 0, max: 0.45 } as const;
@@ -203,7 +222,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private night = false;
   private lights: THREE.PointLight[] = [];
   private ambient!: THREE.AmbientLight;
-  private ground!: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardNodeMaterial>;
+  private ground!: THREE.Mesh<THREE.PlaneGeometry, LitMaterial>;
   private reflections: Native[] = [];
   private effectFades = new Map<Native, { readonly start: number; readonly alpha: number }>();
   private readonly lost = (event: Event) => {
@@ -317,7 +336,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.scene.add(sky);
       this.ground = new THREE.Mesh(
         new THREE.PlaneGeometry(10000, 10000),
-        new THREE.MeshStandardNodeMaterial({ color: 0x3f6b3a, roughness: 1 }),
+        this.litMaterial({ color: 0x3f6b3a, roughness: 1 }),
       );
       this.ground.position.z = -100;
       this.scene.add(this.ground);
@@ -533,15 +552,40 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    this.scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh) || object.userData.source) return;
+      const previous = object.material;
+      if (
+        !(
+          previous instanceof THREE.MeshStandardNodeMaterial ||
+          previous instanceof THREE.MeshLambertNodeMaterial
+        ) ||
+        previous instanceof THREE.MeshLambertNodeMaterial === (tier === "low")
+      )
+        return;
+      const next =
+        tier === "low"
+          ? new THREE.MeshLambertNodeMaterial().copy(previous)
+          : new THREE.MeshStandardNodeMaterial().copy(previous);
+      if (next instanceof THREE.MeshStandardNodeMaterial)
+        next.roughness = object.name === "puddle" ? 0.08 : 1;
+      object.material = next;
+      previous.dispose();
+    });
     this.disposePost();
     const quality = SCENE_QUALITY[tier];
+    this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
+    // Low tier shades one quarter of the fragments, then composites to the unchanged logical canvas.
+    this.scenePass.setResolutionScale(quality.renderScale);
+    const color = this.scenePass.getTextureNode("output");
     if (quality.bloomScale > 0) {
-      this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
-      const color = this.scenePass.getTextureNode("output");
       this.bloom = bloom(color, quality.bloomStrength, 0.2, 0.8);
       this.bloom.setResolutionScale(quality.bloomScale);
-      this.composer = new THREE.RenderPipeline(this.renderer, color.add(this.bloom));
     }
+    this.composer = new THREE.RenderPipeline(
+      this.renderer,
+      this.bloom ? color.add(this.bloom) : color,
+    );
     this.rebuildRain();
     if (this.projection) this.drawEnvironment(this.projection);
     this.rebuildReflections();
@@ -612,11 +656,25 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       label,
     };
   }
+  // Low tier omits the Standard BRDF's GGX/Fresnel work; both node materials retain projected lights and fog.
+  private litMaterial(parameters: {
+    color?: number;
+    map?: THREE.Texture;
+    transparent?: boolean;
+    alphaTest?: number;
+    depthWrite?: boolean;
+    roughness?: number;
+  }): LitMaterial {
+    const { roughness = 1, ...common } = parameters;
+    return this.tier === "low"
+      ? new THREE.MeshLambertNodeMaterial(common)
+      : new THREE.MeshStandardNodeMaterial({ ...common, roughness });
+  }
   private sprite(key: string, name = ""): Native {
     const animation = this.atlas.get(key);
     const frame = animation?.frames[0];
     if (!animation || !frame || !this.atlasTexture) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
-    const material = new THREE.MeshStandardNodeMaterial({
+    const material = this.litMaterial({
       map: this.atlasTexture,
       transparent: true,
       alphaTest: 0.05,
@@ -670,7 +728,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       ? this.sprite(key, String(visual.placement.objectId))
       : new THREE.Mesh(
           new THREE.CircleGeometry(8, 32),
-          new THREE.MeshStandardNodeMaterial({ color: 0xe3ce8b, roughness: 1 }),
+          this.litMaterial({ color: 0xe3ce8b, roughness: 1 }),
         );
     body.position.set(x, -y, 0);
     shadow.position.set(x, -y, -40);
@@ -780,8 +838,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.scene.background.set(this.night ? 0x192b20 : 0x3f6b3a);
     if (this.scene.fog instanceof THREE.Fog)
       this.scene.fog.color.set(this.night ? 0x25334c : 0x43534b);
-    this.ground.material.roughness =
-      projection.weather.rainIntensity > 0 && this.tier !== "low" ? 0.45 : 1;
+    if (this.ground.material instanceof THREE.MeshStandardNodeMaterial)
+      this.ground.material.roughness = projection.weather.rainIntensity > 0 ? 0.45 : 1;
     this.rain.visible = projection.weather.rainIntensity > 0;
     let lightCount = 0;
     const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
@@ -820,11 +878,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         sprite.renderOrder = effect.role === "puddle" ? 5000 + index : 20000 + index;
         sprite.visible = false;
         if (effect.role !== "puddle") {
-          (sprite.material as THREE.MeshStandardNodeMaterial).emissive.set(0xffb966);
-          (sprite.material as THREE.MeshStandardNodeMaterial).emissiveIntensity =
-            EMISSIVE_LUMINANCE.max;
+          (sprite.material as LitMaterial).emissive.set(0xffb966);
+          (sprite.material as LitMaterial).emissiveIntensity = EMISSIVE_LUMINANCE.max;
         } else {
-          (sprite.material as THREE.MeshStandardNodeMaterial).roughness = 0.08;
+          if (sprite.material instanceof THREE.MeshStandardNodeMaterial)
+            sprite.material.roughness = 0.08;
           sprite.material.stencilWrite = true;
           sprite.material.stencilRef = 1;
           sprite.material.stencilFunc = THREE.AlwaysStencilFunc;
@@ -1273,11 +1331,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.
     bytes += WIDTH * HEIGHT * 12;
-    const scale = SCENE_QUALITY[this.tier].bloomScale;
+    const quality = SCENE_QUALITY[this.tier];
+    bytes +=
+      Math.floor(WIDTH * quality.renderScale) * Math.floor(HEIGHT * quality.renderScale) * 12;
+    const scale = quality.bloomScale;
     if (scale > 0) {
-      // r187 PassNode is full resolution; BloomNode has a bright target and two five-level
-      // RGBA16F chains, starting at bloomScale (not half of bloomScale).
-      bytes += WIDTH * HEIGHT * 12;
+      // BloomNode has a bright target and two five-level RGBA16F chains, starting at bloomScale.
       let width = Math.floor(WIDTH * scale),
         height = Math.floor(HEIGHT * scale);
       bytes += width * height * 8;

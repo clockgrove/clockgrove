@@ -117,13 +117,18 @@ architecture/description; WebGL2 uses its debug renderer identity. Otherwise mem
 chooses medium and the remaining capable devices choose high. These thresholds are local decisions to bound target
 allocation and shader work, rather than measured device-class performance promises.
 
-| Tier | Rain particle cap | Bloom | Wind | Puddle reflections |
-| --- | ---: | --- | --- | --- |
-| low | 0 | off | off | off |
-| medium | 64 | half-size targets, strength 0.08 | on | off |
-| high | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
+| Tier | Scene target / lighting | Rain particle cap | Bloom | Wind | Puddle reflections |
+| --- | --- | ---: | --- | --- | --- |
+| low | 320×200, Lambert diffuse | 0 | off | off | off |
+| medium | 640×400, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
+| high | 640×400, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
 
-All tiers retain lit geometry and fog. Bloom radius is 0.2 and threshold 0.8. These tuning values
+All tiers retain projection-driven lights, emissive, lit geometry and fog. Low uses Lambert node
+materials to avoid Standard's GGX/Fresnel specular work, and a half-resolution TSL scene pass to
+shade 75% fewer scene fragments on software/limited devices. This is a local budget policy, not a
+change to the 640×400 output canvas, logical camera, picking coordinates or text path. Medium and
+high retain full-resolution PBR and wet specular. Tier changes preserve common material state,
+dispose replaced materials and restore puddle roughness when returning to PBR. Bloom radius is 0.2 and threshold 0.8. These tuning values
 are renderer decisions for restrained glow, replacing the bake-off's over-strong bloom. Reflections
 are a bounded visual approximation, not a physically complete reflection pass. After 120 frame
 intervals, p95 above the 33.4 ms frame budget downgrades one tier; there is no automatic upgrade
@@ -173,7 +178,7 @@ SwiftShader proves correctness and is never performance evidence. Hardware WebGP
 ANGLE D3D11 and ANGLE GL over D3D12 require real-GPU maintainer validation, including the fallback
 framebuffer behavior identified in the spike. Product GPU-complete timing remains a maintainer step.
 Multisampling is off. Texture accounting conservatively includes the renderer output
-RGBA16F/depth-stencil target, a full-resolution scene pass, the scaled bright target and both
+RGBA16F/depth-stencil target, the tier-scaled scene pass, the scaled bright target and both
 five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
 WebGPU device loss follows the same text fallback as WebGL context loss.
 
