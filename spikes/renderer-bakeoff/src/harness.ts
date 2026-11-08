@@ -26,10 +26,27 @@ const RAF_FRAMES = Number(params.get("rafFrames") ?? 30);
 /** Canvas size in CSS pixels at device pixel ratio 1: half of 1080p (plan, design note 6). */
 const WIDTH = 960;
 const HEIGHT = 540;
-/** Animation times for screenshots and the reduced-motion check; fixed so every candidate matches. */
+/** Animation time of every screenshot and of the reduced-motion check; fixed so every candidate matches. */
 const SCREENSHOT_TIME_MS = 1_250;
-const SECOND_TIME_MS = 2_350;
+/** How far the reduced-motion check advances the clock between its two captures. */
+const MOTION_STEP_MS = 1_000;
 const FRAME_MS = 1_000 / 60;
+
+/**
+ * The page's injectable animation clock. Candidates never read wall time: every frame is drawn at
+ * `clock.now`, which only the page (or a test driving it) moves, so captures are reproducible.
+ */
+class PageClock {
+  now = 0;
+  set(ms: number): number {
+    this.now = ms;
+    return ms;
+  }
+  advance(ms: number): number {
+    this.now += ms;
+    return this.now;
+  }
+}
 
 interface Stats {
   readonly count: number;
@@ -68,12 +85,7 @@ interface CandidateResult {
   runs: Run[];
   /** `<state>/<tier>` → PNG data URL, all at SCREENSHOT_CAMERA and SCREENSHOT_TIME_MS. */
   screenshots: Record<string, string>;
-  reducedMotion?: {
-    /** Two frames at different animation times are identical with reduced motion on. */
-    readonly frozen: boolean;
-    /** The same two frames differ with reduced motion off (the scene does animate). */
-    readonly animatesWhenOff: boolean;
-  };
+  reducedMotion?: MotionCheck;
   jsHeapUsedBytes?: number | null;
   error?: string;
 }
@@ -100,6 +112,43 @@ const heapUsed = () =>
   (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ??
   null;
 
+interface MotionCheck {
+  /** How far the clock moved between the two captures of each pair. */
+  readonly stepMs: number;
+  /** The two captures are identical with reduced motion on. */
+  readonly frozen: boolean;
+  /** The two captures differ with reduced motion off (the scene does animate). */
+  readonly animatesWhenOff: boolean;
+}
+
+/** Draws at the clock's current time and returns the capture of that frame. */
+async function frameAt(adapter: BakeoffAdapter, clock: PageClock): Promise<string> {
+  await adapter.renderFrame(clock.now);
+  return adapter.capture();
+}
+
+/** Reduced motion, on the current lighting state, tier and camera: two captures a fixed step apart. */
+async function motionCheck(adapter: BakeoffAdapter, clock: PageClock): Promise<MotionCheck> {
+  const pair = async (reduced: boolean) => {
+    adapter.setReducedMotion(reduced);
+    clock.set(SCREENSHOT_TIME_MS);
+    const first = await frameAt(adapter, clock);
+    clock.advance(MOTION_STEP_MS);
+    return first === (await frameAt(adapter, clock));
+  };
+  const identicalOff = await pair(false);
+  const identicalOn = await pair(true);
+  adapter.setReducedMotion(false);
+  return { stepMs: MOTION_STEP_MS, frozen: identicalOn, animatesWhenOff: !identicalOff };
+}
+
+async function createAdapter(name: string, host: HTMLElement): Promise<BakeoffAdapter> {
+  if (!window.bakeoffCandidates?.[name]) await loadScript(`./${name}.js`);
+  const factory = window.bakeoffCandidates?.[name];
+  if (!factory) throw new Error(`${name}.js registered no candidate named ${name}`);
+  return factory({ host, width: WIDTH, height: HEIGHT });
+}
+
 async function measureCandidate(name: string): Promise<CandidateResult> {
   const result: CandidateResult = { candidate: name, runs: [], screenshots: {} };
   const host = document.createElement("div");
@@ -109,17 +158,14 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
   let adapter: BakeoffAdapter | undefined;
   try {
     let started = performance.now();
-    await loadScript(`./${name}.js`);
+    adapter = await createAdapter(name, host);
     result.loadMs = performance.now() - started;
-    const factory = window.bakeoffCandidates?.[name];
-    if (!factory) throw new Error(`${name}.js registered no candidate named ${name}`);
-    adapter = factory({ host, width: WIDTH, height: HEIGHT });
     started = performance.now();
     await adapter.init();
     result.initMs = performance.now() - started;
     adapter.setReducedMotion(false);
     adapter.loadSnapshot(SNAPSHOT);
-    let time = 0;
+    const clock = new PageClock();
     for (const state of LIGHTING_STATES) {
       // The lighting change arrives as a committed patch through the adapter contract.
       if (state === "night") adapter.applyPatch(TO_NIGHT);
@@ -127,7 +173,7 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
         adapter.setQuality(tier);
         for (let i = 0; i < WARMUP; i++) {
           adapter.setCamera(CAMERA_PATH[0] ?? SCREENSHOT_CAMERA);
-          await adapter.renderFrame((time += FRAME_MS));
+          await adapter.renderFrame(clock.advance(FRAME_MS));
         }
         const frameMs: number[] = [];
         for (let i = 0; i < FRAMES; i++) {
@@ -135,13 +181,13 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
             CAMERA_PATH[Math.floor((i * CAMERA_PATH.length) / FRAMES)] ?? SCREENSHOT_CAMERA,
           );
           const t0 = performance.now();
-          await adapter.renderFrame((time += FRAME_MS));
+          await adapter.renderFrame(clock.advance(FRAME_MS));
           frameMs.push(performance.now() - t0);
         }
         const rafIntervalMs: number[] = [];
         let last = await nextFrame();
         for (let i = 0; i < RAF_FRAMES; i++) {
-          await adapter.renderFrame((time += FRAME_MS));
+          await adapter.renderFrame(clock.advance(FRAME_MS));
           const now = await nextFrame();
           rafIntervalMs.push(now - last);
           last = now;
@@ -154,21 +200,14 @@ async function measureCandidate(name: string): Promise<CandidateResult> {
           rafIntervalMs: rafIntervalMs.every(Number.isFinite) ? stats(rafIntervalMs) : null,
         });
         adapter.setCamera(SCREENSHOT_CAMERA);
-        await adapter.renderFrame(SCREENSHOT_TIME_MS);
-        result.screenshots[`${state}/${tier}`] = adapter.capture();
+        const measured = clock.now;
+        clock.set(SCREENSHOT_TIME_MS);
+        result.screenshots[`${state}/${tier}`] = await frameAt(adapter, clock);
+        clock.set(measured);
       }
     }
     // Reduced motion, at night on the high tier (everything that moves is on).
-    await adapter.renderFrame(SECOND_TIME_MS);
-    const moving = adapter.capture();
-    adapter.setReducedMotion(true);
-    await adapter.renderFrame(SCREENSHOT_TIME_MS);
-    const still = adapter.capture();
-    await adapter.renderFrame(SECOND_TIME_MS);
-    result.reducedMotion = {
-      frozen: adapter.capture() === still,
-      animatesWhenOff: moving !== result.screenshots["night/high"],
-    };
+    result.reducedMotion = await motionCheck(adapter, clock);
     result.description = adapter.describe();
     result.jsHeapUsedBytes = heapUsed();
   } catch (error) {
@@ -261,15 +300,81 @@ function setStatus(text: string) {
   if (status) status.textContent = text;
 }
 
-main().catch(async (error: unknown) => {
-  const json = JSON.stringify({
-    schema: "clockgrove.renderer-bakeoff/1",
-    fatal: error instanceof Error ? error.message : String(error),
+/**
+ * `?drive=1`: the page runs no sequence and instead exposes `window.bakeoffDrive`, so a test can open one
+ * candidate in a fixed lighting state and tier, step the page clock itself and compare captures.
+ */
+interface Drive {
+  open(name: string, state: LightingState, tier: QualityTier): Promise<void>;
+  setReducedMotion(enabled: boolean): void;
+  /** Sets the clock to an absolute animation time and returns the capture drawn at it. */
+  frameAt(ms: number): Promise<string>;
+  /** Advances the clock by `ms` and returns the capture drawn at the new time. */
+  step(ms: number): Promise<string>;
+  describe(): CandidateDescription;
+  close(): void;
+}
+declare global {
+  interface Window {
+    bakeoffDrive?: Drive;
+  }
+}
+function exposeDrive(): void {
+  const clock = new PageClock();
+  let adapter: BakeoffAdapter | undefined;
+  let host: HTMLElement | undefined;
+  const open = () => {
+    if (!adapter) throw new Error("bakeoffDrive: open() a candidate first");
+    return adapter;
+  };
+  window.bakeoffDrive = {
+    async open(name, state, tier) {
+      this.close();
+      host = document.createElement("div");
+      host.className = "stage";
+      host.dataset.candidate = name;
+      document.getElementById("stages")?.append(host);
+      adapter = await createAdapter(name, host);
+      await adapter.init();
+      adapter.setReducedMotion(false);
+      adapter.loadSnapshot(SNAPSHOT);
+      if (state === "night") adapter.applyPatch(TO_NIGHT);
+      adapter.setQuality(tier);
+      adapter.setCamera(SCREENSHOT_CAMERA);
+      clock.set(SCREENSHOT_TIME_MS);
+    },
+    setReducedMotion: (enabled) => open().setReducedMotion(enabled),
+    frameAt: (ms) => {
+      clock.set(ms);
+      return frameAt(open(), clock);
+    },
+    step: (ms) => {
+      clock.advance(ms);
+      return frameAt(open(), clock);
+    },
+    describe: () => open().describe(),
+    close() {
+      adapter?.destroy();
+      adapter = undefined;
+      host?.remove();
+      host = undefined;
+    },
+  };
+  document.body.dataset.state = "ready";
+  setStatus("drive");
+}
+
+if (params.get("drive") === "1") exposeDrive();
+else
+  main().catch(async (error: unknown) => {
+    const json = JSON.stringify({
+      schema: "clockgrove.renderer-bakeoff/1",
+      fatal: error instanceof Error ? error.message : String(error),
+    });
+    const out = document.getElementById("bakeoff-result");
+    if (out) out.textContent = json;
+    const report = params.get("report");
+    if (report) await fetch(report, { method: "POST", body: json }).catch(() => undefined);
+    document.body.dataset.state = "done";
+    setStatus("failed");
   });
-  const out = document.getElementById("bakeoff-result");
-  if (out) out.textContent = json;
-  const report = params.get("report");
-  if (report) await fetch(report, { method: "POST", body: json }).catch(() => undefined);
-  document.body.dataset.state = "done";
-  setStatus("failed");
-});

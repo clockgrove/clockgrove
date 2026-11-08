@@ -36,8 +36,9 @@ The page (`src/harness.ts`) draws a 960×540 canvas at device pixel ratio 1. For
 runs both lighting states and all three tiers. Each run has 10 warm-up frames, then 120 frames timed
 from the start of the render to GPU completion, panned along `CAMERA_PATH`, then 30
 requestAnimationFrame intervals. It then takes one screenshot at the fixed screenshot camera and time.
-Last, it checks reduced motion: two frames at different times must be identical with it on and differ
-with it off. Query parameters `candidates`, `frames`, `warmup` and `rafFrames` shorten a run.
+Last, it checks reduced motion: two frames 1 s apart on the page's own clock must be identical with
+it on and differ with it off. Candidates never read wall time; every frame is drawn at the page
+clock's time, which only the page or a test driving it moves. Query parameters `candidates`, `frames`, `warmup` and `rafFrames` shorten a run.
 
 ## Measuring
 
@@ -55,7 +56,11 @@ clock, and receives the JSON record by POST. It writes:
 - `report.html`, which puts the high-tier screenshots beside the
   [reference mockup](../../docs/design/reference/raccoon-world-reference.png).
 
-On a Linux host that forbids unprivileged user namespaces, such as CI's Ubuntu 24.04 runners, add `--browser-arg=--no-sandbox`, as Playwright does there. It also records bundle sizes (bytes and gzip, from `dist/bundles.json`) and each adapter's code lines.
+A browser that cannot start fails the script with its own error (the spawn error or its stderr). On a
+Linux host that forbids unprivileged user namespaces, add `--browser-arg=--no-sandbox`. The script also
+exports `measure({ out, launch, … })`, whose `launch(url)` opens the page. The CI journey passes one
+that opens it in the repository's pinned Playwright Chromium (`scripts/ci/toolchain.sh browser`),
+launched by `chromium.launch` as the other browser journeys launch it. It also records bundle sizes (bytes and gzip, from `dist/bundles.json`) and each adapter's code lines.
 A run whose renderer string names SwiftShader, llvmpipe or another software rasteriser is marked
 `performance: false`. Such numbers prove correctness only and are never reported as performance.
 
@@ -82,5 +87,10 @@ These steps run on the owner's machine. The results are posted on issue 67 and a
 ## Checks
 
 `pnpm check` type-checks and builds the spike. `tests/ci/renderer-bakeoff.journey.browser.test.mjs`
-runs the build, the served-page measurement and the `file://` dumped-DOM path under SwiftShader in CI's
-browser share.
+runs in CI's browser share under SwiftShader and asserts only what is deterministic there: every
+candidate builds and renders the fixed slice, the record has the declared shape (timings and renderer
+strings are recorded, not asserted), screenshots are non-empty 960×540 PNGs, and reduced motion holds.
+For the last, it opens `index.html?drive=1` from `file://`. In that mode the page runs no sequence and
+exposes `window.bakeoffDrive` (`open`, `setReducedMotion`, and `frameAt` and `step`, which return
+the frame's capture), so the test steps the page clock by a fixed amount and compares two captures: identical with
+reduced motion on, different with it off. It also checks the dumped-DOM path from `file://`.
