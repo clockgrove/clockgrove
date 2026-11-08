@@ -12,7 +12,9 @@ const spike = path.resolve("spikes/renderer-bakeoff");
 const CANDIDATES = ["phaser", "three-webgl2", "three-webgpu"];
 const STATES = ["dusk-rain", "night"];
 const TIERS = ["low", "medium", "high"];
-const SWIFTSHADER = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+// Ubuntu 24.04 runners forbid unprivileged user namespaces, so Chromium's sandbox cannot start there;
+// Playwright's own launches pass --no-sandbox for the same reason (its chromiumSandbox default).
+const SWIFTSHADER = ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
 // A uniformly filled 960×540 PNG deflates to a few kilobytes; a drawn, textured yard is far larger.
 const DRAWN_PNG_BYTES = 20_000;
 

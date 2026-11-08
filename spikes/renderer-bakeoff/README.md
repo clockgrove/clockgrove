@@ -55,7 +55,7 @@ clock, and receives the JSON record by POST. It writes:
 - `report.html`, which puts the high-tier screenshots beside the
   [reference mockup](../../docs/design/reference/raccoon-world-reference.png).
 
-It also records bundle sizes (bytes and gzip, from `dist/bundles.json`) and each adapter's code lines.
+On a Linux host that forbids unprivileged user namespaces, such as CI's Ubuntu 24.04 runners, add `--browser-arg=--no-sandbox`, as Playwright does there. It also records bundle sizes (bytes and gzip, from `dist/bundles.json`) and each adapter's code lines.
 A run whose renderer string names SwiftShader, llvmpipe or another software rasteriser is marked
 `performance: false`. Such numbers prove correctness only and are never reported as performance.
 
