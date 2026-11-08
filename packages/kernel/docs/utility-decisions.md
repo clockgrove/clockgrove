@@ -201,3 +201,7 @@ Death from health is built by the lifecycle layer ([lifecycle](lifecycle.md), ca
 - Temperature effects on comfort: Wave 8 RW-0804 ("Environment and ecology depth").
 - Perception of the new events: Wave 6 RW-0605 (none is in `PERCEIVABLE_EVENT_TYPES`).
 - Mobility policy: Wave 11 §7 ("Object mobility and personal inventory").
+
+**Decision points.** A policy may also declare `decisionPoints` ([domain contract](../../domain/docs/utility.md#decision-points)).
+The kernel never reads them: they select among the planning requests above, in the application layer, and the
+kernel's decision is unchanged by them.

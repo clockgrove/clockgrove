@@ -58,3 +58,26 @@ object (`...conditions[i]`), an unknown, repeated or out-of-order kind (`...cond
 `maxMargin` that is missing, not a bigint or out of range (`...conditions[i].maxMargin`). The kernel reports
 these as `invalid-input` under `pack.pack.`. `decodeWorldScenario` reads the declaration with `maxMargin` as a
 decimal string. The kernel owns the planning request it describes ([utility decisions](../../kernel/docs/utility-decisions.md)).
+
+## Decision points
+
+`UtilityPolicy.decisionPoints` (`DecisionPointsDeclaration`, issue 92) declares where the decision-model tier of
+the [decision ladder](../../../docs/adr/clockgrove-adr-actor-decision-ladder.md) runs in shadow mode. It is optional and
+requires `ambiguity`; without it the policy keeps its encoding and hash and no shadow tier runs. It is
+`{schemaVersion: 1, points}`, with one to `MAX_DECISION_POINTS` (8) points sorted by unique `id`. A point is
+`{id, trigger, candidates, features, modelAlias, confidenceThreshold, budget, fallback}`:
+
+- `id` is a lowercase identifier of at most 64 characters (`routine.close-call`).
+- `trigger` is `{kind: "score-margin", maxMargin}` (a bigint from 0 to `FIXED_POINT_LIMIT`; fires on a planning
+  request whose margin is at most it) or `{kind: "declared-ambiguity"}` (fires on any planning request the
+  `ambiguity` declaration raised). `DECISION_TRIGGER_KINDS` is the closed set.
+- `candidates` is always `"kernel-valid"`: the model chooses among the kernel's eligible candidates and never adds one.
+- `features` are the feature names shown to the model, sorted and unique, at most 16.
+- `modelAlias` names a configured model alias; the model is configuration, never pack or code.
+- `confidenceThreshold` is an integer from 0 to 10000 basis points; a lower-confidence answer abstains.
+- `budget` is `{maxCalls, maxMicrousd}` per run.
+- `fallback` is always `"utility-top-pick"`: the choice utility already took.
+
+`validateUtilityPolicy` refuses a malformed declaration with `UtilityValidationError` at
+`policy.utility.decisionPoints` or below. `decodeWorldScenario` and the pack decoder read `maxMargin` as a decimal
+string. The application owns the runner ([decision shadow](../../../docs/protocols/decision-shadow.md)).

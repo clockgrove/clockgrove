@@ -7,7 +7,7 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 ## Documentation map
 
 - `packages/contracts`: [shared contracts](docs/protocols/shared-contracts.md).
-- `packages/application`: [capability registry and grants](docs/protocols/capabilities.md).
+- `packages/application`: [capability registry and grants](docs/protocols/capabilities.md), [decision shadow](docs/protocols/decision-shadow.md).
 - `packages/assets`: [asset pipeline](packages/assets/docs/pipeline.md).
 - `packages/domain`: [spatial](packages/domain/docs/spatial.md), [environment](packages/domain/docs/environment.md), [ecology](packages/domain/docs/ecology.md), [wellbeing](packages/domain/docs/wellbeing.md), [utility](packages/domain/docs/utility.md), [lifecycle](packages/domain/docs/lifecycle.md), [rules](packages/domain/docs/rules.md), [components](packages/domain/docs/components.md), [component catalog](packages/domain/docs/component-catalog.md), [component composition](packages/domain/docs/component-composition.md).
 - `packages/kernel`: [random streams](packages/kernel/docs/random-streams.md), [evidence](packages/kernel/docs/evidence.md), [executor](packages/kernel/docs/executor.md), [containment](packages/kernel/docs/containment.md), [spatial movement](packages/kernel/docs/spatial-movement.md), [perception](packages/kernel/docs/perception.md), [scheduler](packages/kernel/docs/scheduler.md), [environment](packages/kernel/docs/environment.md), [ecology](packages/kernel/docs/ecology.md), [wellbeing](packages/kernel/docs/wellbeing.md), [utility decisions](packages/kernel/docs/utility-decisions.md), [lifecycle](packages/kernel/docs/lifecycle.md), [rules](packages/kernel/docs/rules.md).
