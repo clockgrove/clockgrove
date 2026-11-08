@@ -1,6 +1,8 @@
-# Isometric scene
+# Lit isometric scene
 
-This is the contract for the Raccoon World canvas (`src/renderer.ts`) and its bridge (`src/world-scene-adapter.ts`). It follows
+This is the contract for the Raccoon World Three.js WebGPURenderer canvas (`src/renderer.ts`) and its bridge
+(`src/world-scene-adapter.ts`). The accepted [renderer ADR](../../../docs/adr/clockgrove-adr-renderer-bake-off.md)
+supersedes the initial Phaser implementation in
 [Wave 4 plan §9](../../../docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#9-phaser-scene-implementation).
 
 ## Adapter
@@ -26,10 +28,10 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
   animations hold frame 0, rain does not animate, focus pans are immediate and cues do not drift.
 - `onIntent(handler)` receives `{ type: "select", objectId }` intents. Intents only select. The
   canvas never mutates the world.
-- `destroy()` removes the canvas listeners and the context-loss listener, clears the intent handlers,
-  removes the atlas texture and destroys the game.
+- `destroy()` removes canvas/context listeners, cancels the animation frame, clears intent handlers,
+  and disposes scene geometries, materials, textures, postprocessing targets and renderer resources.
 - The adapter refreshes the canvas bounds when a pointer enters or presses the canvas, or the page
-  scrolls. Phaser's periodic bounds poll is off, so no layout read happens between those events.
+  scrolls. Pointer moves do not trigger repeated layout reads.
 
 The renderer loads the atlas manifest, then fetches the atlas image itself and compares the
 SHA-256 of its bytes with the manifest's `image.sha256` before any use. A copy is refused when the
@@ -73,16 +75,13 @@ path. The reducer's committed projection is untouched.
   the longest green-lake-yard path edge (14.2 m, `den-mouth` to `tree-base` in
   `worlds/raccoons/resources/spaces/neighborhood.json`), so a one-edge step interpolates. A longer move, or a
   change of frame, snaps. There is no physics engine.
-- **Environment.** Night uses the issue 813 golden's rule: before 06:00 or from 18:00 of the canonical
-  86 400 000 ms day. It is drawn as a black overlay at alpha 0.6, matching the golden's grass at 2/5
-  brightness. While `rainIntensity` is above 0, the reviewed rain effect tiles the view, as it does
-  in the golden. The projection's `effects` are drawn as sprites from the reviewed atlas key
-  `<assetId>/<animationFamily>`, placed like entities. Puddles show while `rainIntensity` is above 0,
-  in the ground group above shadows and below standing bodies; when the rain ends they fade out over
-  400 ms, or vanish at once under reduced motion. Lantern and window lights show at night by the rule
-  above, above the night overlay and below rain. A hidden effect stops animating. Under reduced
-  motion shown effects hold frame 0. The text path states the same conditions as `Puddles: <count or
-  none>` and `Lights: <lit roles, or off>`.
+- **Environment.** Lighting and weather read only the committed projection, never painted highlights
+  in the art. Night remains before 06:00 or from 18:00 of the canonical 86 400 000 ms day.
+  Projection `effects` bind reviewed `<assetId>/<animationFamily>` strips and poses. Puddles show
+  while `rainIntensity` is above zero, above shadows and below standing bodies; when rain ends they
+  fade over 400 ms, or vanish immediately under reduced motion. Lantern and window sources light
+  at night. Hidden effects stop animating; reduced motion holds shown effects at frame 0.
+  The text path states the same conditions as `Puddles: <count or none>` and `Lights: <lit roles, or off>`.
 - **Labels.** Only the selected and the hovered entity are labelled on the canvas, so labels never
   pile up. The text path lists every label.
 - **Selection.** The renderer draws it from projection data, never into art (decisions, in
@@ -95,6 +94,56 @@ path. The reducer's committed projection is untouched.
   once per selected entity, label and sprite height, and later draws only move them. Hover (24x12) and
   focus (40x20) are 1 px ellipses and the hover label is plain text without a pill, so both stay
   lighter than selection.
+
+## Materials, lighting and quality
+
+`WorldSceneAdapter` remains renderer-neutral: no Three.js types enter the presentation or projection
+contract. The product uses `WebGPURenderer` (`three/webgpu`) and an orthographic 3D scene. It selects
+WebGPU where available and automatically falls back to WebGL2. Materials are node materials and
+post-processing uses TSL (`three/tsl`) so both backends compile the same shader graphs; raw GLSL
+`ShaderMaterial` and `onBeforeCompile` patches are excluded. Quads are the present visual geometry,
+so future 3D meshes can reuse the adapter, materials and lights.
+
+Material channels belong to the presentation contract. Until issue 66 supplies normal, height,
+emissive, roughness/wetness and wind maps, the current reviewed atlas binding is flat albedo.
+Missing channels use neutral defaults, rather than extracting a normal, height, emissive mask or
+light source from the art's brightness. Light activation and poses come from projection effects;
+clock/weather patches change the light rig without changing world state or rereading art.
+
+The live canvas is 640×400 at DPR 1. Quality selection is conservative: software renderers
+(SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
+or device memory below 4 GiB choose low. WebGPU software detection reads the device adapter
+architecture/description; WebGL2 uses its debug renderer identity. Otherwise memory below 8 GiB
+chooses medium and the remaining capable devices choose high. These thresholds are local decisions to bound target
+allocation and shader work, rather than measured device-class performance promises.
+
+| Tier | Scene target / lighting | Rain particle cap | Bloom | Wind | Puddle reflections |
+| --- | --- | ---: | --- | --- | --- |
+| low | 320×200, Lambert diffuse | 0 | off | off | off |
+| medium | 640×400, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
+| high | 640×400, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
+
+All tiers retain projection-driven lights, emissive, lit geometry and fog. Low uses Lambert node
+materials to avoid Standard's GGX/Fresnel specular work, and a half-resolution TSL scene pass to
+shade 75% fewer scene fragments on software/limited devices. This is a local budget policy, not a
+change to the 640×400 output canvas, logical camera, picking coordinates or text path. Medium and
+high retain full-resolution PBR and wet specular. Tier changes preserve common material state,
+dispose replaced materials and restore puddle roughness when returning to PBR. Bloom radius is 0.2 and threshold 0.8. These tuning values
+are renderer decisions for restrained glow, replacing the bake-off's over-strong bloom. Reflections
+are a bounded visual approximation, not a physically complete reflection pass. After 120 frame
+intervals, p95 above the 33.4 ms frame budget downgrades one tier; there is no automatic upgrade
+loop. Reduced motion freezes animation independently of tier. Tier policy is local presentation
+state and never writes a projection or runtime command.
+
+Bloom and tone grading are separate from source emission. Warm sources use `0xffb966` with
+emissive intensity 0.45 and a declared linear luminance range of 0–0.45 before grading
+(`EMISSIVE_LUMINANCE`); ACES tone mapping uses exposure 1. The bound is a tuning decision, not a
+physical photometric claim. Lantern/window light must retain its color instead of becoming white. Every tier requires a golden comparison, including tiers
+without bloom. Run captures through `pnpm run qualify:wave4` and retain its evidence; a spike
+screenshot or an unrun golden is not product qualification. ANGLE D3D11 and ANGLE GL over D3D12
+are the required hardware targets. Their working bake-off paths are evidence for the selection,
+not revalidation of the integrated adapter. CI's SwiftShader path supplies product correctness
+evidence when its journey runs; physical GPU timing is reserved for the maintainer step.
 
 ## Budgets (§9.3)
 
@@ -112,16 +161,34 @@ path. The reducer's committed projection is untouched.
 | Reconnect, from observed drop to ready | 3 000 ms | Chromium journey |
 
 The Chromium journey (`tests/e2e/living-yard.journey.browser.test.mjs`) measures the runtime budgets on the golden yard
-with rain and puddles showing, from the adapter's `metrics`. These are local checks on the CI runner. They are
+with rain and puddles showing, from the adapter's `metrics`. The settled cadence window starts after the
+additional viewer's first render, so its initial shader compilation is accounted for by the separate
+first-render budget. These are local checks on the CI runner. They are
 not a measurement on the supported laptop baseline.
 
-Frame time is the unsmoothed interval between game steps (Phaser's `loop.rawDelta`). Phaser's own
-delta averages ten frames and clamps slow ones, so it can report 16.7 ms while the page draws at
-12 frames per second. The adapter draws the scene only on a step where something visible may have
-changed: a committed draw, an emphasis change, a cue, a rain or sprite animation frame, a running
-tween, or a camera scroll or zoom. Other steps still run Phaser's update (input, timers, tweens and
-animations), and the canvas keeps its last frame. WebGL multisampling is off.
+Frame time is the unsmoothed interval between animation-frame callbacks, bounded to the latest
+120 samples. It measures visible cadence, not GPU-complete latency. The bake-off's reference
+GPU-complete numbers are separately sourced in `scene-budgets.json`: on the RTX 2060 SUPER at
+960×540 DPR 1, high-tier Three.js WebGL2 spike camera pans measured p50/p95 1.8/2.0 ms under Windows
+Edge/ANGLE D3D11. The WSL2 ANGLE GL-over-D3D12 path also rendered successfully. These are
+spike measurements; product measurements on the owner's box remain a maintainer step after merge.
+CI runs both WebGPU and forced WebGL2 under SwiftShader and records the actual backend and
+adapter with each check.
+SwiftShader proves correctness and is never performance evidence. Hardware WebGPU,
+ANGLE D3D11 and ANGLE GL over D3D12 require real-GPU maintainer validation, including the fallback
+framebuffer behavior identified in the spike. Product GPU-complete timing remains a maintainer step.
+Multisampling is off. Texture accounting conservatively includes the renderer output
+RGBA16F/depth-stencil target, the tier-scaled scene pass, the scaled bright target and both
+five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
+WebGPU device loss follows the same text fallback as WebGL context loss.
 
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
 and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
+
+Atlas animation uses per-mesh UVs on one shared atlas Texture. Three r187's WebGPURenderer allocates
+GPU storage per Texture identity on both backends, so cloning textures that share an image would
+duplicate atlas storage. Reflections borrow their source texture and copy animated frame UVs; they
+dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts
+unique material-map Texture identities across the whole scene, including effects, reflections and
+generated labels, plus the conservative render-target allocations above.

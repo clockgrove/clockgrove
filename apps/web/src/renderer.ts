@@ -1,20 +1,19 @@
 import type {
   ObjectId,
-  SceneEffect,
   ScenePatch,
   SceneProjection,
   SceneTransientCue,
   WorldObjectId,
 } from "@clockgrove/contracts";
-import Phaser from "phaser";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
+import { pass } from "three/tsl";
+import * as THREE from "three/webgpu";
 import {
   applyScenePatch,
   cyclePick,
   INTERPOLATION_MS,
   isNight,
   movement,
-  OCCLUSION_GROUPS,
-  type OcclusionGroup,
   type PickCycle,
   pickOrder,
   poseMetres,
@@ -24,7 +23,6 @@ import {
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
 
-/** One reviewed animation strip of the issue 813 atlas (`assets/reviewed/<atlasId>.animations.json`). */
 interface AtlasAnimation {
   readonly assetId: string;
   readonly animationFamily: string;
@@ -38,40 +36,32 @@ interface AtlasAnimation {
   }[];
   readonly durationMs: number | null;
 }
-/** The explicit visual geometry of one drawn entity (§9.2). */
 interface Visual {
   readonly placement: ScenePlacement;
-  /** Footprint on the ground in millimetres, east by north. */
   readonly footprint: { readonly width: number; readonly depth: number };
-  /** The frame pixel that stands on the pose; a placeholder stands on its marker's centre. */
   readonly anchor: { readonly x: number; readonly y: number };
   readonly height: number;
   readonly label: string;
 }
+type LitMaterial = THREE.MeshStandardNodeMaterial | THREE.MeshLambertNodeMaterial;
+type SurfaceMaterial = LitMaterial | THREE.MeshBasicNodeMaterial | THREE.LineBasicNodeMaterial;
+type Native =
+  | THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>
+  | THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
 interface Drawn {
   visual: Visual;
-  readonly body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc;
-  readonly shadow: Phaser.GameObjects.Ellipse;
-  key: string | undefined;
+  readonly body: Native;
+  readonly shadow: Native;
+  readonly key: string | undefined;
 }
 export interface SceneMetrics {
-  /** Milliseconds from construction to the first drawn committed scene. */
   firstRenderMs: number | undefined;
-  /** The slowest committed snapshot or patch application, in milliseconds. */
   patchMs: number;
-  /** The latest unsmoothed frame intervals in milliseconds, at most `FRAME_SAMPLES` of them. */
   readonly frameMs: number[];
   entityCount: number;
-  /** Effect sprites (puddles, lantern and window lights) currently built. */
   effectCount: number;
-  /** Bytes the loaded textures occupy at four bytes per pixel. */
   textureBytes: number;
 }
-/**
- * What the renderer reports about itself. The shell supplies the sink: the renderer's imports are
- * limited by the web boundary check, so these are structural copies of the client measurement
- * categories.
- */
 export type RendererMeasurement =
   | {
       readonly name: "scene_apply_ms";
@@ -88,7 +78,6 @@ export type RendererMeasurement =
       readonly name: "asset_cache";
       readonly category: "loaded" | "failed";
       readonly value: number;
-      /** The atlas content hash, which is also the world pack's presentation identity. */
       readonly assetHash?: string;
     }
   | {
@@ -97,83 +86,73 @@ export type RendererMeasurement =
       readonly value: number;
     };
 export type RendererReport = (point: RendererMeasurement) => void;
-const ATLAS = "raccoon-world";
-/** One re-fetch of a refused atlas copy (decision): the issue says the client re-fetches, and a
- * second refusal falls back to the text scene rather than retrying without end. */
-const ATLAS_REFETCHES = 1;
-/** 12.5 px per metre is the issue 813 golden's 80 mm per pixel, so reviewed sprites draw 1:1. */
-const PX_PER_METRE = 12.5;
-const WIDTH = 640;
-const HEIGHT = 400;
-/** Zoom stays within this range (decision): far enough to see the yard, near enough to read a kit. */
-const ZOOM = { min: 0.75, max: 2 } as const;
-/** The camera may pan this far, in world pixels, beyond the projected entities (decision): about
- * twice the 80 px reviewed kit sprite, so an edge entity can be brought to the view's middle. */
-/**
- * Screen overlays (night, rain) are scroll-fixed, but the camera still zooms them about the view's
- * centre, so they are centred and sized to cover the view at the smallest zoom.
- */
-const OVERLAY = { width: WIDTH / ZOOM.min, height: HEIGHT / ZOOM.min } as const;
-const PAN_MARGIN_PX = 160;
-/** A pointer moving further than this while down pans instead of picking (decision). */
-const DRAG_PX = 4;
-/** Pick radius for a mouse, and the enlarged one for touch, in CSS pixels at zoom 1 (decision:
- * §4.4 asks for an enlarged touch target without a figure; 24 px is about a fingertip at 96 dpi,
- * and the mouse radius is half of it). */
-const PICK_PX = { mouse: 12, touch: 24 } as const;
-/** Placeholder footprint in millimetres (decision): about a raccoon's length. */
-const PLACEHOLDER_FOOTPRINT = { width: 600, depth: 600 } as const;
-/** Placeholder marker radius in pixels (decision); its anchor is the circle's centre. */
-const PLACEHOLDER_RADIUS = 8;
-/** Ground-shadow opacity (decision): visible on day and night grass without hiding it. */
-const SHADOW_ALPHA = 0.22;
-/** The issue 813 golden draws night grass at 2/5 brightness, which a black overlay at 0.6 matches. */
-const NIGHT_ALPHA = 0.6;
-/** At most this many cue dedupe keys are remembered; the oldest is forgotten first (decision). */
-const CUE_KEYS = 64;
-/** A cue marker lives at most this long (decision): two interpolated moves, then it fades. */
-const CUE_MS = 2 * INTERPOLATION_MS;
-/** `--rw-v1-accent` of raccoon-world-ui@1: the selection ring, its glow and the pill's hairline. */
-const SELECTION_SAGE = 0xa8c394;
-/** `--rw-v1-panel` of raccoon-world-ui@1, `rgb(30 33 22 / 92%)`: the pill's fill and alpha. */
-const PILL_PANEL = 0x1e2116;
-const PILL_PANEL_ALPHA = 0.92;
-/** `--rw-v1-text` of raccoon-world-ui@1: the pill's name. */
-const PILL_TEXT = "#ece9d8";
-/** Selection ring and pill geometry, in pixels (decisions recorded in docs/scene.md, Selection). */
-const SELECTION = {
-  ringWidth: 32,
-  ringStroke: 3,
-  ringFillAlpha: 0.18,
-  /** Each glow: [extra width, stroke width, alpha]; outermost first. */
-  glows: [
-    [16, 10, 0.15],
-    [8, 6, 0.35],
-  ],
-  pillPadX: 10,
-  pillPadY: 4,
-  pillGap: 6,
-  pillHairlineAlpha: 0.6,
-  fontSize: "13px",
+export type QualityTier = "low" | "medium" | "high";
+/** Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
+export const SCENE_QUALITY = {
+  low: {
+    renderScale: 0.5,
+    rain: 0,
+    bloomScale: 0,
+    bloomStrength: 0,
+    reflections: false,
+    wind: false,
+  },
+  medium: {
+    renderScale: 1,
+    rain: 64,
+    bloomScale: 0.5,
+    bloomStrength: 0.08,
+    reflections: false,
+    wind: true,
+  },
+  high: {
+    renderScale: 1,
+    rain: 192,
+    bloomScale: 1,
+    bloomStrength: 0.12,
+    reflections: true,
+    wind: true,
+  },
 } as const;
-const FRAME_SAMPLES = 120;
+/** Decision: warm sources stay below 0.45 linear luminance; ACES exposure 1 and modest bloom retain hue. */
+export const EMISSIVE_LUMINANCE = { min: 0, max: 0.45 } as const;
+const ATLAS = "raccoon-world";
+const WIDTH = 640,
+  HEIGHT = 400;
+const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
+const ZOOM = { min: 0.75, max: 2 } as const;
+const PAN_MARGIN_PX = 160; // Existing Wave 4 camera contract: twice the reviewed kit sprite.
+const DRAG_PX = 4,
+  PICK_PX = { mouse: 12, touch: 24 }; // docs/scene.md interaction decisions.
+const CUE_KEYS = 64,
+  CUE_MS = 2 * INTERPOLATION_MS;
+const FRAME_SAMPLES = 120; // #67 uses 120 measured frames; telemetry stays bounded.
+const FRAME_BUDGET_MS = 33.4; // scene-budgets.json's supported 30 fps floor.
+const ATLAS_REFETCHES = 1; // One cache-bypassing retry, then the text path.
+const SAGE = 0xa8c394,
+  PANEL = 0x1e2116,
+  TEXT = "#ece9d8";
 const REBOUND_EVENTS = ["pointerdown", "pointerover"] as const;
-const labelColor = "#ffffff";
-const depthOf = (group: OcclusionGroup, index = 0) =>
-  OCCLUSION_GROUPS.indexOf(group) * 10_000 + index;
-
-/** Isometric 2:1 screen position in world pixels: east runs down-right, north up-right. */
-function iso(placement: Pick<ScenePlacement, "x" | "y" | "elevation">): [number, number] {
-  return [
-    (placement.x + placement.y) * PX_PER_METRE,
-    ((placement.x - placement.y) * PX_PER_METRE) / 2 - placement.elevation * PX_PER_METRE,
-  ];
+const iso = (at: Pick<ScenePlacement, "x" | "y" | "elevation">): [number, number] => [
+  (at.x + at.y) * PX_PER_METRE,
+  ((at.x - at.y) * PX_PER_METRE) / 2 - at.elevation * PX_PER_METRE,
+];
+interface Motion {
+  readonly fromX: number;
+  readonly fromY: number;
+  readonly x: number;
+  readonly y: number;
+  readonly start: number;
+}
+interface Cue {
+  readonly mesh: Native;
+  readonly end: number;
+  readonly start: number;
+  readonly y: number;
 }
 
-/** The Phaser isometric yard (Wave 4 plan §9); it reads committed projections and emits intents. */
-export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
-  private readonly game: Phaser.Game;
-  private readonly started = performance.now();
+/** Lit quads in an orthographic 3D scene; canonical projection data alone determines the light rig. */
+export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   readonly metrics: SceneMetrics = {
     firstRenderMs: undefined,
     patchMs: 0,
@@ -182,100 +161,256 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     effectCount: 0,
     textureBytes: 0,
   };
+  private readonly started = performance.now();
+  private readonly parent: HTMLElement;
+  private readonly ready: () => void;
+  private readonly unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void;
+  private readonly report: RendererReport;
+  private renderer!: THREE.WebGPURenderer;
+  private scene!: THREE.Scene;
+  private camera!: THREE.OrthographicCamera;
+  private canvas: HTMLCanvasElement | undefined;
+  private atlasTexture: THREE.Texture<HTMLImageElement> | undefined;
+  private composer: THREE.RenderPipeline | undefined;
+  private scenePass: ReturnType<typeof pass> | undefined;
+  private bloom: ReturnType<typeof bloom> | undefined;
+  private initialized = false;
+  get backend(): "initializing" | "webgpu" | "webgl2" {
+    if (!this.initialized) return "initializing";
+    return "isWebGPUBackend" in this.renderer.backend ? "webgpu" : "webgl2";
+  }
   private projection: SceneProjection | undefined;
   private scope: string | undefined;
-  private stage: Phaser.Scene | undefined;
   private atlas = new Map<string, AtlasAnimation>();
   private drawn = new Map<ObjectId, Drawn>();
   private order: ObjectId[] = [];
-  /** Exposed for the browser journey. */
-  effects: { role: string; key: string; sprite: Phaser.GameObjects.Sprite; index: number }[] = [];
+  effects: { role: string; key: string; sprite: Native; index: number }[] = [];
   private effectsKey = "";
-  private shownSprites = new Set<Phaser.GameObjects.Sprite>();
   private handlers = new Set<(intent: SceneIntent) => void>();
   private selected: ObjectId | undefined;
   private focused: ObjectId | undefined;
-  // Pointer hover is picked by the canvas itself, so it stays renderer-local.
   private hovered: ObjectId | undefined;
-  private overlay: Phaser.GameObjects.GameObject[] = [];
+  private overlay: Native[] = [];
   private selection:
     | {
         readonly key: string;
-        readonly items: readonly {
-          readonly item: Phaser.GameObjects.Components.Transform & Phaser.GameObjects.GameObject;
-          readonly dy: number;
-        }[];
+        readonly items: readonly { readonly item: Native; readonly dy: number }[];
       }
     | undefined;
   private reducedMotion = false;
   private cycle: PickCycle | undefined;
-  private down: { x: number; y: number; scrollX: number; scrollY: number; moved: boolean } | null =
-    null;
-  private cues: string[] = [];
-  private framesSinceReport = 0;
-  private night: Phaser.GameObjects.Rectangle | undefined;
-  private rain: Phaser.GameObjects.TileSprite | undefined;
-  private canvas: HTMLCanvasElement | undefined;
+  private down: { x: number; y: number; cx: number; cy: number; moved: boolean } | undefined;
+  private cueKeys: string[] = [];
+  private cues: Cue[] = [];
+  private motions = new Map<Native, Motion>();
+  private focusMotion: Motion | undefined;
+  private bounds = {
+    x: -WIDTH / 1.5,
+    y: -HEIGHT / 1.5,
+    width: WIDTH / 0.75,
+    height: HEIGHT / 0.75,
+  };
+  private rect: DOMRect | undefined;
   private destroyed = false;
   private assetsFailed = false;
-  private readonly parent: HTMLElement;
-  // The scene is drawn only on a step where something visible may have changed; see `step`.
   private dirty = true;
-  private view = "";
-  private readonly invalidate = () => {
-    this.dirty = true;
-  };
-  // The shell's layout can move the canvas after boot, so pointer mapping refreshes the canvas
-  // bounds when a pointer enters the canvas or presses on it, or the page scrolls; not on every
-  // pointer move, since each refresh is a layout read.
-  private readonly rebound = () => this.game.scale.updateBounds();
+  private frame = 0;
+  private previousTime: number | undefined;
+  private framesSinceReport = 0;
+  private tier: QualityTier = "low";
+  private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
+  private night = false;
+  private lights: THREE.PointLight[] = [];
+  private ambient!: THREE.AmbientLight;
+  private ground!: THREE.Mesh<THREE.PlaneGeometry, LitMaterial>;
+  private reflections: Native[] = [];
+  private effectFades = new Map<Native, { readonly start: number; readonly alpha: number }>();
   private readonly lost = (event: Event) => {
     event.preventDefault();
+    if (this.destroyed) return;
     this.report({ name: "client_errors", category: "context_lost", value: 1 });
     this.unavailable("renderer_unavailable");
   };
+  private readonly rebound = () => this.refreshBounds();
+  private readonly pointerdown = (event: PointerEvent) => {
+    this.refreshBounds();
+    const [x, y] = this.pointer(event);
+    this.down = { x, y, cx: this.camera.position.x, cy: -this.camera.position.y, moved: false };
+    this.canvas?.setPointerCapture(event.pointerId);
+  };
+  private readonly pointermove = (event: PointerEvent) => {
+    const [x, y] = this.pointer(event);
+    if (this.down) {
+      const dx = x - this.down.x,
+        dy = y - this.down.y;
+      if (this.down.moved || Math.hypot(dx, dy) > DRAG_PX) {
+        this.down.moved = true;
+        this.focusMotion = undefined;
+        this.setCamera({
+          x: this.down.cx - dx / this.camera.zoom,
+          y: this.down.cy - dy / this.camera.zoom,
+          zoom: this.camera.zoom,
+        });
+      }
+      return;
+    }
+    if (event.pointerType === "touch") return;
+    const hovered = this.candidates(x, y, false)[0];
+    if (hovered !== this.hovered) {
+      this.hovered = hovered;
+      this.drawEmphasis();
+    }
+  };
+  private readonly pointerup = (event: PointerEvent) => {
+    const down = this.down;
+    this.down = undefined;
+    if (this.canvas?.hasPointerCapture(event.pointerId))
+      this.canvas.releasePointerCapture(event.pointerId);
+    if (down?.moved) return;
+    const [x, y] = this.pointer(event);
+    const touch = event.pointerType === "touch";
+    const candidates = this.candidates(x, y, touch);
+    if (touch) this.cycle = cyclePick(this.cycle, [x, y], candidates);
+    const picked = candidates[touch ? (this.cycle?.index ?? 0) : 0];
+    if (picked !== undefined)
+      for (const handler of this.handlers) handler({ type: "select", objectId: picked });
+  };
+  private readonly pointercancel = () => {
+    this.down = undefined;
+  };
+  private readonly pointerleave = () => {
+    if (!this.down && this.hovered !== undefined) {
+      this.hovered = undefined;
+      this.drawEmphasis();
+    }
+  };
+  private readonly wheel = (event: WheelEvent) => {
+    event.preventDefault();
+    this.setCamera({
+      x: this.camera.position.x,
+      y: -this.camera.position.y,
+      zoom: this.camera.zoom * (event.deltaY > 0 ? 0.9 : 1.1),
+    });
+  };
   constructor(
     parent: HTMLElement,
-    /** Called once the reviewed atlas is ready, so the shell can advance boot. */
-    private readonly ready: () => void,
-    /** Called when the renderer can no longer draw: context loss or missing reviewed assets. */
-    private readonly unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void,
-    private readonly report: RendererReport = () => {},
+    ready: () => void,
+    unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void,
+    report: RendererReport = () => {},
   ) {
-    const owner = this;
     this.parent = parent;
-    for (const type of REBOUND_EVENTS)
-      parent.addEventListener(type, this.rebound, { capture: true });
-    // Scrolling moves the canvas under a resting pointer without a new pointerover.
-    globalThis.addEventListener("scroll", this.rebound, { capture: true, passive: true });
-    this.game = new Phaser.Game({
-      type: Phaser.AUTO,
-      parent,
-      width: WIDTH,
-      height: HEIGHT,
-      backgroundColor: "#3f6b3a",
-      // The adapter refreshes the canvas bounds itself (see `rebound`), so Phaser's 500 ms bounds
-      // poll is off: on a scrolled page its position check compares a page offset with a viewport
-      // offset, never matches, and reads layout on every poll, including after a context loss.
-      scale: { resizeInterval: Number.POSITIVE_INFINITY },
-      // No multisampled drawing buffer (decision): reviewed sprites draw 1:1, and on a software
-      // WebGL context the per-frame multisample resolve about doubled the cost of a rain frame.
-      render: { antialiasGL: false },
-      audio: { noAudio: true },
-      scene: {
-        preload() {
-          this.load.json(`${ATLAS}.animations`, `/${ATLAS}.animations.json`);
-          this.load.once("loaderror", () => {
-            owner.failAssets();
-          });
-        },
-        create() {
-          void owner.create(this);
-        },
-      },
-    });
+    this.ready = ready;
+    this.unavailable = unavailable;
+    this.report = report;
+    try {
+      const canvas = document.createElement("canvas");
+      this.renderer = new THREE.WebGPURenderer({
+        canvas,
+        antialias: false,
+        alpha: false,
+        stencil: true,
+      });
+      this.renderer.onDeviceLost = () => this.lost(new Event("devicelost"));
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(WIDTH, HEIGHT);
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1;
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(0x3f6b3a);
+      // Decision: camera distance 1000 lies inside 900–1800 fog, a subtle 11% veil on standing quads.
+      this.scene.fog = new THREE.Fog(0x43534b, 900, 1800);
+      this.camera = new THREE.OrthographicCamera(
+        -WIDTH / 2,
+        WIDTH / 2,
+        HEIGHT / 2,
+        -HEIGHT / 2,
+        0.1,
+        3000,
+      );
+      this.camera.position.set(0, 0, 1000);
+      this.ambient = new THREE.AmbientLight(0xffffff, Math.PI);
+      this.scene.add(this.ambient);
+      const sky = new THREE.DirectionalLight(0xcbdcff, 0.25 * Math.PI);
+      sky.position.set(-200, 400, 500);
+      this.scene.add(sky);
+      this.ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(10000, 10000),
+        this.litMaterial({ color: 0x3f6b3a, roughness: 1 }),
+      );
+      this.ground.position.z = -100;
+      this.scene.add(this.ground);
+      this.canvas = canvas;
+      parent.appendChild(canvas);
+      canvas.style.touchAction = "none";
+      canvas.addEventListener("webglcontextlost", this.lost);
+      canvas.addEventListener("pointerdown", this.pointerdown);
+      canvas.addEventListener("pointermove", this.pointermove);
+      canvas.addEventListener("pointerup", this.pointerup);
+      canvas.addEventListener("pointercancel", this.pointercancel);
+      canvas.addEventListener("pointerleave", this.pointerleave);
+      canvas.addEventListener("wheel", this.wheel, { passive: false });
+      for (const event of REBOUND_EVENTS)
+        parent.addEventListener(event, this.rebound, { capture: true });
+      globalThis.addEventListener("scroll", this.rebound, { capture: true, passive: true });
+      this.refreshBounds();
+      void this.initialize();
+    } catch {
+      queueMicrotask(() => {
+        if (!this.destroyed) this.unavailable("renderer_unavailable");
+      });
+    }
   }
-  /** The final asset failure, reported once: a failed manifest also leaves `create` without one. */
+  private async initialize(): Promise<void> {
+    try {
+      await this.renderer.init();
+      if (this.destroyed) return;
+      this.initialized = true;
+      const context =
+        this.backend === "webgl2"
+          ? (this.renderer.getContext() as WebGL2RenderingContext)
+          : undefined;
+      const enoughTargets = context
+        ? context.getParameter(context.MAX_TEXTURE_SIZE) >= 4096 &&
+          Boolean(context.getExtension("EXT_color_buffer_float"))
+        : true;
+      const rendererInfo = context?.getExtension("WEBGL_debug_renderer_info");
+      const device = (
+        this.renderer.backend as {
+          device?: { adapterInfo?: { architecture?: string; description?: string } };
+        }
+      ).device;
+      const software = /SwiftShader|llvmpipe|software/i.test(
+        context && rendererInfo
+          ? String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL))
+          : `${device?.adapterInfo?.architecture ?? ""} ${device?.adapterInfo?.description ?? ""}`,
+      );
+      const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+      this.setQuality(
+        !enoughTargets || software || (memory !== undefined && memory < 4)
+          ? "low"
+          : memory !== undefined && memory < 8
+            ? "medium"
+            : "high",
+      );
+      this.frame = requestAnimationFrame(this.step);
+      await this.create();
+    } catch {
+      if (!this.destroyed) this.unavailable("renderer_unavailable");
+    }
+  }
+  private refreshBounds(): void {
+    this.rect = this.canvas?.getBoundingClientRect();
+  }
+  private pointer(event: PointerEvent): [number, number] {
+    const rect = this.rect;
+    return rect?.width && rect.height
+      ? [
+          ((event.clientX - rect.left) * WIDTH) / rect.width,
+          ((event.clientY - rect.top) * HEIGHT) / rect.height,
+        ]
+      : [0, 0];
+  }
   private failAssets(): void {
     if (this.destroyed || this.assetsFailed) return;
     this.assetsFailed = true;
@@ -283,153 +418,77 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.report({ name: "client_errors", category: "asset", value: 1 });
     this.unavailable("assets_unavailable");
   }
-  /** Fetches the atlas image and returns its bytes only when they hash to the manifest's value. */
   private async fetchAtlas(expected: string, init?: RequestInit): Promise<ArrayBuffer | undefined> {
     try {
       const response = await fetch(`/${ATLAS}.png`, init);
-      if (!response.ok) return undefined;
+      if (!response.ok) return;
       const bytes = await response.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", bytes);
       const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
       return hash === expected ? bytes : undefined;
     } catch {
-      return undefined;
+      return;
     }
   }
-  /** The atlas image is drawn only after its bytes match the manifest's `image.sha256`. */
-  private async create(stage: Phaser.Scene): Promise<void> {
-    const animations = stage.cache.json.get(`${ATLAS}.animations`) as
-      | { animations: AtlasAnimation[]; image?: { sha256?: unknown } }
-      | undefined;
-    const expected = animations?.image?.sha256;
-    if (!animations || typeof expected !== "string" || !/^[0-9a-f]{64}$/.test(expected))
-      return this.failAssets();
-    let bytes = await this.fetchAtlas(expected);
-    for (let attempt = 0; !bytes && attempt < ATLAS_REFETCHES && !this.destroyed; attempt++) {
-      this.report({ name: "asset_cache", category: "failed", value: 1 });
-      bytes = await this.fetchAtlas(expected, { cache: "reload" });
-    }
-    if (this.destroyed) return;
-    if (!bytes) return this.failAssets();
-    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-    stage.load.once("loaderror", () => {
-      URL.revokeObjectURL(url);
-      this.failAssets();
-    });
-    stage.load.once("complete", () => {
-      URL.revokeObjectURL(url);
-      if (!this.destroyed && stage.textures.exists(ATLAS)) this.build(stage, animations);
-    });
-    stage.load.image(ATLAS, url);
-    stage.load.start();
-  }
-  private build(stage: Phaser.Scene, animations: { animations: AtlasAnimation[] }): void {
-    this.stage = stage;
-    const texture = stage.textures.get(ATLAS);
-    for (const animation of animations.animations) {
-      const key = `${animation.assetId}/${animation.animationFamily}`;
-      this.atlas.set(key, animation);
-      animation.frames.forEach((frame, index) =>
-        texture.add(`${key}/${index}`, 0, frame.x, frame.y, frame.width, frame.height),
-      );
-      if (animation.frames.length > 1)
-        stage.anims.create({
-          key,
-          frames: animation.frames.map((_, index) => ({ key: ATLAS, frame: `${key}/${index}` })),
-          frameRate: 1000 / (animation.durationMs ?? 250),
-          repeat: -1,
-        });
-    }
-    const source = texture.getSourceImage() as { width: number; height: number };
-    this.metrics.textureBytes = source.width * source.height * 4;
-    void this.announceAtlas(animations, this.metrics.textureBytes);
-    this.canvas = this.game.canvas;
-    this.canvas.addEventListener("webglcontextlost", this.lost);
-    const camera = stage.cameras.main;
-    camera.setZoom(1);
-    this.night = stage.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, OVERLAY.width, OVERLAY.height, 0x000000, NIGHT_ALPHA)
-      .setScrollFactor(0)
-      .setDepth(depthOf("weather", 1));
-    if (this.atlas.has("rain/loop"))
-      this.rain = stage.add
-        .tileSprite(WIDTH / 2, HEIGHT / 2, OVERLAY.width, OVERLAY.height, ATLAS, "rain/loop/0")
-        .setScrollFactor(0)
-        .setDepth(depthOf("weather", 3));
-    let rainFrame = 0;
-    stage.time.addEvent({
-      delay: this.atlas.get("rain/loop")?.durationMs ?? 100,
-      loop: true,
-      callback: () => {
-        if (this.reducedMotion || !this.rain) return;
-        rainFrame = (rainFrame + 1) % (this.atlas.get("rain/loop")?.frames.length ?? 1);
-        this.rain.setFrame(`rain/loop/${rainFrame}`);
-        this.invalidate();
-      },
-    });
-    stage.input.on("pointermove", (pointer: Phaser.Input.Pointer) => this.pointerMove(pointer));
-    stage.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      const { scrollX, scrollY } = stage.cameras.main;
-      this.down = { x: pointer.x, y: pointer.y, scrollX, scrollY, moved: false };
-    });
-    stage.input.on("pointerup", (pointer: Phaser.Input.Pointer) => this.pointerUp(pointer));
-    stage.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) => {
-      const next = camera.zoom * (dy > 0 ? 0.9 : 1.1);
-      camera.setZoom(Math.min(ZOOM.max, Math.max(ZOOM.min, next)));
-    });
-    stage.events.on("postupdate", () => {
-      // The raw interval: Phaser's smoothed delta averages ten frames and clamps slow ones.
-      this.metrics.frameMs.push(this.game.loop.rawDelta);
-      if (this.metrics.frameMs.length > FRAME_SAMPLES) this.metrics.frameMs.shift();
-      if (++this.framesSinceReport >= FRAME_SAMPLES) {
-        this.framesSinceReport = 0;
-        const sorted = [...this.metrics.frameMs].sort((a, b) => a - b);
-        this.report({
-          name: "frame_ms",
-          category: "p95",
-          value: sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0,
-        });
-      }
-    });
-    this.game.loop.callback = (time, delta) => this.step(time, delta);
-    this.ready();
-    this.draw();
-  }
-  /**
-   * One game step: Phaser's update always runs (input, timers, tweens, animations), but the scene
-   * is drawn only when something visible may have changed since the last draw. A WebGL canvas
-   * keeps showing its last drawn frame, so an unchanged yard costs no fill: with rain, the
-   * full-view rain layer changes ten times a second rather than on every frame.
-   */
-  private step(time: number, delta: number): void {
-    const game = this.game;
-    game.headlessStep(time, delta);
-    const stage = this.stage;
-    const renderer = game.renderer;
-    if (!stage || game.isPaused || ("contextLost" in renderer && renderer.contextLost)) return;
-    const camera = stage.cameras.main;
-    const view = `${camera.scrollX},${camera.scrollY},${camera.zoom}`;
-    if (!this.dirty && view === this.view && stage.tweens.getTweens().length === 0) return;
-    this.dirty = false;
-    this.view = view;
-    renderer.preRender();
-    game.scene.render(renderer);
-    renderer.postRender();
-  }
-  /** The atlas's content hash is the world pack's presentation identity for every later point. */
-  private async announceAtlas(atlas: unknown, bytes: number): Promise<void> {
+  private async create(): Promise<void> {
     try {
-      const data = new TextEncoder().encode(JSON.stringify(atlas));
-      const digest = await crypto.subtle.digest("SHA-256", data);
+      const response = await fetch(`/${ATLAS}.animations.json`);
+      if (!response.ok) return this.failAssets();
+      const manifest = (await response.json()) as {
+        animations: AtlasAnimation[];
+        image?: { sha256?: unknown };
+      };
+      const expected = manifest.image?.sha256;
+      if (
+        !Array.isArray(manifest.animations) ||
+        typeof expected !== "string" ||
+        !/^[0-9a-f]{64}$/.test(expected)
+      )
+        return this.failAssets();
+      let bytes = await this.fetchAtlas(expected);
+      for (let attempt = 0; !bytes && attempt < ATLAS_REFETCHES && !this.destroyed; attempt++) {
+        this.report({ name: "asset_cache", category: "failed", value: 1 });
+        bytes = await this.fetchAtlas(expected, { cache: "reload" });
+      }
+      if (this.destroyed) return;
+      if (!bytes) return this.failAssets();
+      const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+      const image = new Image();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = reject;
+          image.src = url;
+        });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      if (this.destroyed) return;
+      this.atlasTexture = new THREE.Texture(image);
+      this.atlasTexture.colorSpace = THREE.SRGBColorSpace;
+      this.atlasTexture.magFilter = THREE.NearestFilter;
+      this.atlasTexture.minFilter = THREE.LinearFilter;
+      this.atlasTexture.generateMipmaps = false;
+      this.atlasTexture.needsUpdate = true;
+      for (const animation of manifest.animations)
+        this.atlas.set(`${animation.assetId}/${animation.animationFamily}`, animation);
+      this.updateTextureBytes();
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(JSON.stringify(manifest)),
+      );
+      if (this.destroyed) return;
       const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
       this.report({
         name: "asset_cache",
         category: "loaded",
-        value: bytes,
+        value: image.width * image.height * 4,
         assetHash: `sha256:${hash}`,
       });
+      this.ready();
+      this.draw();
     } catch {
-      this.report({ name: "asset_cache", category: "loaded", value: bytes });
+      this.failAssets();
     }
   }
   loadSnapshot(snapshot: SceneProjection, kind: "snapshot" | "patch" = "snapshot"): void {
@@ -437,35 +496,12 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
     this.draw(kind);
   }
   applyPatch(patch: ScenePatch): void {
-    const current = this.projection;
-    // Recovery is the reducer's: an adapter applies only the next contiguous committed patch.
-    if (!current || patch.fromRevision !== current.revision) return;
-    this.loadSnapshot(applyScenePatch(current, patch), "patch");
+    if (!this.projection || patch.fromRevision !== this.projection.revision) return;
+    this.loadSnapshot(applyScenePatch(this.projection, patch), "patch");
   }
-  emitCue(cue: SceneTransientCue): void {
-    const stage = this.stage;
-    const drawn = this.drawn.get(cue.objectId);
-    if (!stage || !drawn)
-      return void this.report({ name: "dropped_cues", category: "unknown_entity", value: 1 });
-    if (this.cues.includes(cue.dedupeKey))
-      return void this.report({ name: "dropped_cues", category: "duplicate", value: 1 });
-    const remaining = Date.parse(cue.expiresAt) - Date.now();
-    if (!(remaining > 0))
-      return void this.report({ name: "dropped_cues", category: "expired", value: 1 });
-    this.cues.push(cue.dedupeKey);
-    if (this.cues.length > CUE_KEYS) this.cues.shift();
-    const marker = stage.add
-      .circle(drawn.body.x, drawn.body.y - drawn.visual.height, 4, 0xffe9a8)
-      .setName("cue")
-      .setDepth(depthOf("emphasis", 9));
-    const lifetime = Math.min(remaining, CUE_MS);
-    if (!this.reducedMotion)
-      stage.tweens.add({ targets: marker, y: marker.y - 12, alpha: 0, duration: lifetime });
-    stage.time.delayedCall(lifetime, () => {
-      marker.destroy();
-      this.invalidate();
-    });
-    this.invalidate();
+  onIntent(handler: (intent: SceneIntent) => void): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
   }
   setSelection(id?: WorldObjectId): void {
     this.selected = id;
@@ -474,99 +510,234 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
   focus(id?: WorldObjectId): void {
     this.focused = id;
     const drawn = id === undefined ? undefined : this.drawn.get(id);
-    const camera = this.stage?.cameras.main;
-    // Keyboard focus keeps its entity in view, within the camera's pan bounds.
-    if (drawn && camera && !camera.worldView.contains(drawn.body.x, drawn.body.y)) {
-      if (this.reducedMotion) camera.centerOn(drawn.body.x, drawn.body.y);
-      else camera.pan(drawn.body.x, drawn.body.y, INTERPOLATION_MS);
+    if (drawn) {
+      const x = drawn.body.position.x,
+        y = -drawn.body.position.y;
+      if (
+        Math.abs(x - this.camera.position.x) > WIDTH / (2 * this.camera.zoom) ||
+        Math.abs(y + this.camera.position.y) > HEIGHT / (2 * this.camera.zoom)
+      ) {
+        if (this.reducedMotion) this.setCamera({ x, y, zoom: this.camera.zoom });
+        else
+          this.focusMotion = {
+            fromX: this.camera.position.x,
+            fromY: -this.camera.position.y,
+            x,
+            y,
+            start: performance.now(),
+          };
+      }
     }
     this.drawEmphasis();
   }
   setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
-    for (const drawn of this.drawn.values()) this.animate(drawn);
-    for (const effect of this.effects) this.animateEffect(effect.sprite, effect.key);
-  }
-  onIntent(handler: (intent: SceneIntent) => void): () => void {
-    this.handlers.add(handler);
-    return () => this.handlers.delete(handler);
-  }
-  private intend(objectId: ObjectId): void {
-    for (const handler of this.handlers) handler({ type: "select", objectId });
-  }
-  /** Candidates under a canvas point, in pick order. */
-  private candidates(pointer: Phaser.Input.Pointer): ObjectId[] {
-    const camera = this.stage?.cameras.main;
-    if (!camera) return [];
-    const at = camera.getWorldPoint(pointer.x, pointer.y);
-    const radius = (pointer.wasTouch ? PICK_PX.touch : PICK_PX.mouse) / camera.zoom;
-    return this.order.filter((objectId) => {
-      const drawn = this.drawn.get(objectId);
-      if (!drawn) return false;
-      const centre = drawn.body.y - drawn.visual.height / 2;
-      const reach = Math.max(radius, drawn.visual.height / 2);
-      return Math.hypot(at.x - drawn.body.x, at.y - centre) <= reach;
-    });
-  }
-  private pointerMove(pointer: Phaser.Input.Pointer): void {
-    const camera = this.stage?.cameras.main;
-    const down = this.down;
-    if (camera && down && pointer.isDown) {
-      const dx = pointer.x - down.x;
-      const dy = pointer.y - down.y;
-      if (down.moved || Math.hypot(dx, dy) > DRAG_PX) {
-        down.moved = true;
-        camera.setScroll(down.scrollX - dx / camera.zoom, down.scrollY - dy / camera.zoom);
+    if (enabled) {
+      for (const [mesh, motion] of this.motions)
+        mesh.position.set(motion.x, motion.y, mesh.position.z);
+      this.motions.clear();
+      if (this.focusMotion)
+        this.setCamera({ x: this.focusMotion.x, y: this.focusMotion.y, zoom: this.camera.zoom });
+      this.focusMotion = undefined;
+      for (const cue of this.cues) {
+        cue.mesh.position.y = cue.y;
+        cue.mesh.material.opacity = 1;
       }
-      return;
     }
-    if (pointer.wasTouch) return;
-    const hovered = this.candidates(pointer)[0];
-    if (hovered === this.hovered) return;
-    this.hovered = hovered;
+    this.animate(0);
     this.drawEmphasis();
+    this.dirty = true;
   }
-  private pointerUp(pointer: Phaser.Input.Pointer): void {
-    const down = this.down;
-    this.down = null;
-    if (down?.moved) return;
-    const candidates = this.candidates(pointer);
-    if (!pointer.wasTouch) {
-      const picked = candidates[0];
-      if (picked !== undefined) this.intend(picked);
-      return;
+  /** Tiers are renderer-local policy; no world or material contract changes when budget drops. */
+  setQuality(tier: QualityTier): void {
+    if (!(tier in SCENE_QUALITY) || !this.renderer) return;
+    this.tier = tier;
+    this.scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh) || object.userData.source) return;
+      const previous = object.material;
+      if (
+        !(
+          previous instanceof THREE.MeshStandardNodeMaterial ||
+          previous instanceof THREE.MeshLambertNodeMaterial
+        ) ||
+        previous instanceof THREE.MeshLambertNodeMaterial === (tier === "low")
+      )
+        return;
+      const next =
+        tier === "low"
+          ? new THREE.MeshLambertNodeMaterial().copy(previous)
+          : new THREE.MeshStandardNodeMaterial().copy(previous);
+      if (next instanceof THREE.MeshStandardNodeMaterial)
+        next.roughness = object.name === "puddle" ? 0.08 : 1;
+      object.material = next;
+      previous.dispose();
+    });
+    this.disposePost();
+    const quality = SCENE_QUALITY[tier];
+    this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
+    // Low tier shades one quarter of the fragments, then composites to the unchanged logical canvas.
+    this.scenePass.setResolutionScale(quality.renderScale);
+    const color = this.scenePass.getTextureNode("output");
+    if (quality.bloomScale > 0) {
+      this.bloom = bloom(color, quality.bloomStrength, 0.2, 0.8);
+      this.bloom.setResolutionScale(quality.bloomScale);
     }
-    // Touch cycles deterministically through overlapping sprites on repeated taps (§4.4).
-    this.cycle = cyclePick(this.cycle, [pointer.x, pointer.y], candidates);
-    const picked = candidates[this.cycle.index];
-    if (picked !== undefined) this.intend(picked);
+    this.composer = new THREE.RenderPipeline(
+      this.renderer,
+      this.bloom ? color.add(this.bloom) : color,
+    );
+    this.rebuildRain();
+    if (this.projection) this.drawEnvironment(this.projection);
+    this.rebuildReflections();
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
+  private disposePost(): void {
+    if (!this.composer) return;
+    this.bloom?.dispose();
+    this.scenePass?.dispose();
+    this.scenePass = undefined;
+    this.composer.dispose();
+    this.composer = undefined;
+    this.bloom = undefined;
+  }
+  setCamera({ x, y, zoom }: { x: number; y: number; zoom: number }): void {
+    if (!this.camera) return;
+    zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, zoom));
+    const halfX = WIDTH / (2 * zoom),
+      halfY = HEIGHT / (2 * zoom);
+    x = Math.max(this.bounds.x + halfX, Math.min(this.bounds.x + this.bounds.width - halfX, x));
+    y = Math.max(this.bounds.y + halfY, Math.min(this.bounds.y + this.bounds.height - halfY, y));
+    this.camera.position.set(x, -y, 1000);
+    this.camera.zoom = zoom;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    this.dirty = true;
+  }
+  private frameCamera(placements: readonly ScenePlacement[]): void {
+    const points = placements.map(iso),
+      xs = points.map(([x]) => x),
+      ys = points.map(([, y]) => y);
+    const [minX, maxX, minY, maxY] = points.length
+      ? [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+      : [0, 0, 0, 0];
+    const cx = ((minX ?? 0) + (maxX ?? 0)) / 2,
+      cy = ((minY ?? 0) + (maxY ?? 0)) / 2;
+    const width = Math.max((maxX ?? 0) - (minX ?? 0) + 2 * PAN_MARGIN_PX, WIDTH / ZOOM.min);
+    const height = Math.max((maxY ?? 0) - (minY ?? 0) + 2 * PAN_MARGIN_PX, HEIGHT / ZOOM.min);
+    this.bounds = { x: cx - width / 2, y: cy - height / 2, width, height };
+    this.setCamera({ x: cx, y: cy, zoom: 1 });
+  }
+  private candidates(x: number, y: number, touch: boolean): ObjectId[] {
+    const wx = this.camera.position.x + (x - WIDTH / 2) / this.camera.zoom;
+    const wy = -this.camera.position.y + (y - HEIGHT / 2) / this.camera.zoom;
+    const radius = (touch ? PICK_PX.touch : PICK_PX.mouse) / this.camera.zoom;
+    return this.order.filter((id) => {
+      const drawn = this.drawn.get(id);
+      if (!drawn) return false;
+      return (
+        Math.hypot(
+          wx - drawn.body.position.x,
+          wy + drawn.body.position.y + drawn.visual.height / 2,
+        ) <= Math.max(radius, drawn.visual.height / 2)
+      );
+    });
   }
   private visual(placement: ScenePlacement, key: string | undefined): Visual {
     const label =
       this.projection?.entities.find((entity) => entity.objectId === placement.objectId)
         ?.presentation.label ?? placement.objectId;
     const animation = key === undefined ? undefined : this.atlas.get(key);
-    // An unbound entity, or one bound to an asset this atlas lacks, draws as a placeholder marker.
-    if (!animation)
-      return {
-        placement,
-        footprint: PLACEHOLDER_FOOTPRINT,
-        anchor: { x: PLACEHOLDER_RADIUS, y: PLACEHOLDER_RADIUS },
-        height: 0,
-        label,
-      };
     return {
       placement,
-      footprint: animation.footprint,
-      anchor: animation.anchor,
-      height: animation.anchor.y,
+      footprint: animation?.footprint ?? { width: 600, depth: 600 },
+      anchor: animation?.anchor ?? { x: 8, y: 8 },
+      height: animation?.anchor.y ?? 0,
       label,
     };
   }
+  // Low tier omits the Standard BRDF's GGX/Fresnel work; both node materials retain projected lights and fog.
+  private litMaterial(parameters: {
+    color?: number;
+    map?: THREE.Texture;
+    transparent?: boolean;
+    alphaTest?: number;
+    depthWrite?: boolean;
+    roughness?: number;
+  }): LitMaterial {
+    const { roughness = 1, ...common } = parameters;
+    return this.tier === "low"
+      ? new THREE.MeshLambertNodeMaterial(common)
+      : new THREE.MeshStandardNodeMaterial({ ...common, roughness });
+  }
+  private sprite(key: string, name = ""): Native {
+    const animation = this.atlas.get(key);
+    const frame = animation?.frames[0];
+    if (!animation || !frame || !this.atlasTexture) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
+    const material = this.litMaterial({
+      map: this.atlasTexture,
+      transparent: true,
+      alphaTest: 0.05,
+      roughness: 1,
+      depthWrite: false,
+    });
+    const geometry = new THREE.PlaneGeometry(frame.width, frame.height, 4, 4);
+    geometry.translate(
+      frame.width / 2 - animation.anchor.x,
+      animation.anchor.y - frame.height / 2,
+      0,
+    );
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = name;
+    mesh.frustumCulled = false;
+    mesh.userData = {
+      key,
+      frame: -1,
+      playing: false,
+      width: frame.width,
+      height: frame.height,
+      base: new Float32Array(geometry.getAttribute("position").array),
+      baseUv: new Float32Array(geometry.getAttribute("uv").array),
+    };
+    this.setFrame(mesh, 0);
+    return mesh;
+  }
+  private setFrame(mesh: Native, index: number): boolean {
+    if (mesh.userData.frame === index) return false;
+    const animation = this.atlas.get(mesh.userData.key);
+    const frame = animation?.frames[index];
+    if (!frame || !this.atlasTexture) return false;
+    const uv = mesh.geometry.getAttribute("uv");
+    const base = mesh.userData.baseUv as Float32Array | undefined;
+    if (!uv || !base) return false;
+    const image = this.atlasTexture.image;
+    for (let i = 0; i < uv.count; i++)
+      uv.setXY(
+        i,
+        (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width,
+        1 - (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height,
+      );
+    uv.needsUpdate = true;
+    mesh.userData.frame = index;
+    return true;
+  }
+  private spawn(visual: Visual, x: number, y: number, key: string | undefined): Drawn {
+    const span = ((visual.footprint.width + visual.footprint.depth) / 1000) * PX_PER_METRE;
+    const shadow = this.ellipse(span, span / 2, 0x000000, 0.22, "shadow");
+    const body = key
+      ? this.sprite(key, String(visual.placement.objectId))
+      : new THREE.Mesh(
+          new THREE.CircleGeometry(8, 32),
+          this.litMaterial({ color: 0xe3ce8b, roughness: 1 }),
+        );
+    body.position.set(x, -y, 0);
+    shadow.position.set(x, -y, -40);
+    this.scene.add(body, shadow);
+    return { visual, body, shadow, key };
+  }
   private draw(kind: "snapshot" | "patch" = "snapshot"): void {
-    const stage = this.stage;
     const projection = this.projection;
-    if (!stage || !projection) return;
+    if (!this.atlasTexture || !projection || this.destroyed) return;
     const started = performance.now();
     const scope = `${projection.tenantId}/${projection.worldId}/${projection.timelineId}/${projection.spaceId}`;
     const placements = pickOrder(projection);
@@ -579,120 +750,116 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       this.drawn.clear();
       this.releaseEffects();
       this.scope = scope;
-      this.frameCamera(stage, placements);
+      this.frameCamera(placements);
     }
-    const present = new Set(placements.map((placement) => placement.objectId));
-    for (const [objectId, drawn] of this.drawn)
-      if (!present.has(objectId)) {
+    const present = new Set(placements.map((at) => at.objectId));
+    for (const [id, drawn] of this.drawn)
+      if (!present.has(id)) {
         this.release(drawn);
-        this.drawn.delete(objectId);
+        this.drawn.delete(id);
       }
-    // Drawing runs back to front, the reverse of pick order.
-    placements.reverse().forEach((placement, index) => {
+    [...placements].reverse().forEach((placement, index) => {
       const binding = bindings.get(placement.objectId);
       const bound = binding && `${binding.assetId}/${binding.animationFamily}`;
-      const key = bound !== undefined && this.atlas.has(bound) ? bound : undefined;
-      const visual = this.visual(placement, key);
-      const [x, y] = iso(placement);
+      const key = bound && this.atlas.has(bound) ? bound : undefined;
+      const visual = this.visual(placement, key),
+        [x, y] = iso(placement);
       let drawn = this.drawn.get(placement.objectId);
       if (drawn && drawn.key !== key) {
         this.release(drawn);
         drawn = undefined;
       }
       if (!drawn) {
-        drawn = this.spawn(stage, visual, x, y, key);
+        drawn = this.spawn(visual, x, y, key);
         this.drawn.set(placement.objectId, drawn);
       } else {
-        const kind = movement(drawn.visual.placement, placement);
-        stage.tweens.killTweensOf([drawn.body, drawn.shadow]);
-        if (kind === "snap" || this.reducedMotion) {
-          drawn.body.setPosition(x, y);
-          drawn.shadow.setPosition(x, y);
-        } else
-          stage.tweens.add({
-            targets: [drawn.body, drawn.shadow],
-            x,
-            y,
-            duration: INTERPOLATION_MS,
-          });
+        const move = movement(drawn.visual.placement, placement);
+        for (const mesh of [drawn.body, drawn.shadow]) {
+          const motion = this.motions.get(mesh);
+          if (
+            move === "snap" ||
+            this.reducedMotion ||
+            (mesh.position.x === x && mesh.position.y === -y)
+          ) {
+            this.motions.delete(mesh);
+            mesh.position.set(x, -y, mesh.position.z);
+          } else if (motion?.x !== x || motion.y !== -y) {
+            this.motions.set(mesh, {
+              fromX: mesh.position.x,
+              fromY: mesh.position.y,
+              x,
+              y: -y,
+              start: performance.now(),
+            });
+          }
+        }
         drawn.visual = visual;
       }
-      drawn.body.setDepth(depthOf(placement.occlusionGroup, 2 * index + 1));
-      drawn.shadow.setDepth(depthOf("ground", index));
+      drawn.body.userData.wind = /(?:shrub|foliage|tree)/u.test(binding?.assetId ?? "");
+      drawn.body.renderOrder = 10000 + index;
+      drawn.body.position.z = index * 0.01;
+      drawn.shadow.renderOrder = index;
     });
-    this.order = placements.reverse().map((placement) => placement.objectId);
-    this.drawEffects(stage, projection);
+    this.order = placements.map((at) => at.objectId);
+    this.drawEffects(projection);
     this.drawEnvironment(projection);
     this.drawEmphasis();
+    this.rebuildReflections();
     this.metrics.entityCount = this.drawn.size;
-    this.invalidate();
-    // A scope's first draw is the first render; later draws apply committed changes.
+    this.updateTextureBytes();
+    this.dirty = true;
     if (!rebuilt)
       this.metrics.patchMs = Math.max(this.metrics.patchMs, performance.now() - started);
     this.report({ name: "scene_apply_ms", category: kind, value: performance.now() - started });
-    this.metrics.firstRenderMs ??= performance.now() - this.started;
-  }
-  /** Centres the fixed camera on the projected entities and bounds its pan around them. */
-  private frameCamera(stage: Phaser.Scene, placements: readonly ScenePlacement[]): void {
-    const points = placements.map(iso);
-    const xs = points.map(([x]) => x);
-    const ys = points.map(([, y]) => y);
-    const [minX, maxX, minY, maxY] = xs.length
-      ? [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-      : [0, 0, 0, 0];
-    const centre = [(minX + maxX) / 2, (minY + maxY) / 2] as const;
-    const width = Math.max(maxX - minX + 2 * PAN_MARGIN_PX, WIDTH / ZOOM.min);
-    const height = Math.max(maxY - minY + 2 * PAN_MARGIN_PX, HEIGHT / ZOOM.min);
-    const camera = stage.cameras.main;
-    camera.setZoom(1);
-    camera.setBounds(centre[0] - width / 2, centre[1] - height / 2, width, height);
-    camera.centerOn(centre[0], centre[1]);
-  }
-  private spawn(
-    stage: Phaser.Scene,
-    visual: Visual,
-    x: number,
-    y: number,
-    key: string | undefined,
-  ): Drawn {
-    const { width, depth } = visual.footprint;
-    const span = ((width + depth) / 1000) * PX_PER_METRE;
-    const shadow = stage.add.ellipse(x, y, span, span / 2, 0x000000, SHADOW_ALPHA);
-    const animation = key === undefined ? undefined : this.atlas.get(key);
-    const body = animation
-      ? stage.add
-          .sprite(x, y, ATLAS, `${key}/0`)
-          .setOrigin(
-            animation.anchor.x / (animation.frames[0]?.width ?? 1),
-            animation.anchor.y / (animation.frames[0]?.height ?? 1),
-          )
-      : stage.add.circle(x, y, PLACEHOLDER_RADIUS, 0xe3ce8b);
-    const drawn: Drawn = { visual, body, shadow, key };
-    // A playing animation needs a draw only when its frame changes.
-    if (animation) body.on(Phaser.Animations.Events.ANIMATION_UPDATE, this.invalidate);
-    this.animate(drawn);
-    return drawn;
-  }
-  private animate(drawn: Drawn): void {
-    const stage = this.stage;
-    if (!stage || !drawn.key || !stage.anims.exists(drawn.key)) return;
-    if (!(drawn.body instanceof Phaser.GameObjects.Sprite)) return;
-    if (this.reducedMotion) drawn.body.stop().setFrame(`${drawn.key}/0`);
-    else drawn.body.play(drawn.key, true);
-    this.invalidate();
   }
   private release(drawn: Drawn): void {
-    this.stage?.tweens.killTweensOf([drawn.body, drawn.shadow]);
-    drawn.body.destroy();
-    drawn.shadow.destroy();
+    this.motions.delete(drawn.body);
+    this.motions.delete(drawn.shadow);
+    this.remove(drawn.body);
+    this.remove(drawn.shadow);
   }
-  /** Day/night and rain are drawn from the canonical clock and weather only (§9.2). */
+  private remove(mesh: Native): void {
+    mesh.removeFromParent();
+    mesh.geometry?.dispose();
+    if (
+      mesh.material?.map &&
+      mesh.material.map !== this.atlasTexture &&
+      mesh.userData.ownsTexture !== false
+    )
+      mesh.material.map.dispose();
+    mesh.material?.dispose();
+  }
   private drawEnvironment(projection: SceneProjection): void {
-    this.night?.setVisible(isNight(projection.simulationTime));
-    this.rain?.setVisible(projection.weather.rainIntensity > 0);
+    this.night = isNight(projection.simulationTime);
+    this.scene.userData.night = this.night;
+    this.ambient.intensity = Math.PI * (this.night ? 0.4 : 1);
+    this.ambient.color.set(this.night ? 0x9caeca : 0xffffff);
+    if (this.scene.background instanceof THREE.Color)
+      this.scene.background.set(this.night ? 0x192b20 : 0x3f6b3a);
+    if (this.scene.fog instanceof THREE.Fog)
+      this.scene.fog.color.set(this.night ? 0x25334c : 0x43534b);
+    if (this.ground.material instanceof THREE.MeshStandardNodeMaterial)
+      this.ground.material.roughness = projection.weather.rainIntensity > 0 ? 0.45 : 1;
+    this.rain.visible = projection.weather.rainIntensity > 0;
+    let lightCount = 0;
+    const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
+    for (const effect of shownEffects(projection)) {
+      if (effect.role === "puddle") continue;
+      const at = poseMetres(frames, effect.pose);
+      if (!at) continue;
+      const [x, y] = iso(at);
+      // Decision: 1500 candela at a 35 px offset warms nearby quads; 180 px bounds each source.
+      let light = this.lights[lightCount++];
+      if (!light) {
+        light = new THREE.PointLight(0xffb966, 1500, 180, 2);
+        this.lights.push(light);
+        this.scene.add(light);
+      }
+      light.position.set(x, -y + 12, 35);
+    }
+    while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();
   }
-  /** Rebuilds the effect sprites when the effects list changes, then applies what is shown now. */
-  private drawEffects(stage: Phaser.Scene, projection: SceneProjection): void {
+  private drawEffects(projection: SceneProjection): void {
     const effects = projection.effects ?? [];
     const key = JSON.stringify(
       effects.map((effect) => [effect.role, effect.assetId, effect.animationFamily, effect.pose]),
@@ -702,199 +869,526 @@ export class PhaserWorldSceneAdapter implements WorldSceneAdapter {
       this.effectsKey = key;
       const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
       effects.forEach((effect, index) => {
-        const atlasKey = `${effect.assetId}/${effect.animationFamily}`;
-        const animation = this.atlas.get(atlasKey);
-        const at = poseMetres(frames, effect.pose);
-        if (!animation || !at) return;
-        const [x, y] = iso(at);
-        const sprite = stage.add
-          .sprite(x, y, ATLAS, `${atlasKey}/0`)
-          .setOrigin(
-            animation.anchor.x / (animation.frames[0]?.width ?? 1),
-            animation.anchor.y / (animation.frames[0]?.height ?? 1),
-          )
-          .setDepth(
-            effect.role === "puddle" ? depthOf("ground", 5_000 + index) : depthOf("weather", 2),
-          )
-          .setVisible(false);
-        if (animation.frames.length > 1)
-          sprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, this.invalidate);
-        this.effects.push({ role: effect.role, key: atlasKey, sprite, index });
+        const key = `${effect.assetId}/${effect.animationFamily}`,
+          at = poseMetres(frames, effect.pose);
+        if (!this.atlas.has(key) || !at) return;
+        const [x, y] = iso(at),
+          sprite = this.sprite(key, effect.role);
+        sprite.position.set(x, -y, effect.role === "puddle" ? -20 : 10);
+        sprite.renderOrder = effect.role === "puddle" ? 5000 + index : 20000 + index;
+        sprite.visible = false;
+        if (effect.role !== "puddle") {
+          (sprite.material as LitMaterial).emissive.set(0xffb966);
+          (sprite.material as LitMaterial).emissiveIntensity = EMISSIVE_LUMINANCE.max;
+        } else {
+          if (sprite.material instanceof THREE.MeshStandardNodeMaterial)
+            sprite.material.roughness = 0.08;
+          sprite.material.stencilWrite = true;
+          sprite.material.stencilRef = 1;
+          sprite.material.stencilFunc = THREE.AlwaysStencilFunc;
+          sprite.material.stencilZPass = THREE.ReplaceStencilOp;
+        }
+        this.scene.add(sprite);
+        this.effects.push({ role: effect.role, key, sprite, index });
       });
     }
     const shown = new Set(shownEffects(projection));
     for (const item of this.effects) {
-      const sprite = item.sprite;
-      const visible = shown.has(effects[item.index] as SceneEffect);
-      const was = this.shownSprites.has(sprite);
-      if (visible === was) continue;
-      stage.tweens.killTweensOf(sprite);
+      const visible = shown.has(
+        effects[item.index] as NonNullable<SceneProjection["effects"]>[number],
+      );
+      const was = item.sprite.visible && !this.effectFades.has(item.sprite);
       if (visible) {
-        this.shownSprites.add(sprite);
-        sprite.setAlpha(1).setVisible(true);
-        this.animateEffect(sprite, item.key);
-      } else {
-        this.shownSprites.delete(sprite);
-        this.stopEffect(sprite, item.key);
-        if (item.role === "puddle" && was && !this.reducedMotion)
-          stage.tweens.add({
-            targets: sprite,
-            alpha: 0,
-            duration: INTERPOLATION_MS,
-            onComplete: () => sprite.setVisible(false),
-          });
-        else sprite.setVisible(false);
-      }
+        this.effectFades.delete(item.sprite);
+        item.sprite.visible = true;
+        item.sprite.material.opacity = 1;
+      } else if (was && item.role === "puddle" && !this.reducedMotion)
+        this.effectFades.set(item.sprite, {
+          start: performance.now(),
+          alpha: item.sprite.material.opacity,
+        });
+      else if (!this.effectFades.has(item.sprite)) item.sprite.visible = false;
+      item.sprite.userData.playing =
+        visible && !this.reducedMotion && (this.atlas.get(item.key)?.frames.length ?? 0) > 1;
     }
     this.metrics.effectCount = this.effects.length;
-    this.invalidate();
-  }
-  private animateEffect(sprite: Phaser.GameObjects.Sprite, key: string): void {
-    if (!this.shownSprites.has(sprite)) return;
-    if (!this.stage?.anims.exists(key)) return;
-    if (this.reducedMotion) this.stopEffect(sprite, key);
-    else sprite.play(key, true);
-    this.invalidate();
-  }
-  private stopEffect(sprite: Phaser.GameObjects.Sprite, key: string): void {
-    sprite.stop().setFrame(`${key}/0`);
-    this.invalidate();
   }
   private releaseEffects(): void {
-    for (const { sprite } of this.effects) {
-      this.stage?.tweens.killTweensOf(sprite);
-      sprite.destroy();
-    }
+    for (const { sprite } of this.effects) this.remove(sprite);
     this.effects = [];
-    this.shownSprites.clear();
     this.effectsKey = "";
+    this.effectFades.clear();
     this.metrics.effectCount = 0;
   }
-  /**
-   * The selection's glowing ring and named pill. They are built once per selected entity, label and
-   * sprite height and only moved on later draws, so an applied patch creates no game object or text texture.
-   */
-  private drawSelection(stage: Phaser.Scene, selected: Drawn | undefined): void {
-    const key =
-      selected === undefined
-        ? ""
-        : `${this.selected}\u0000${selected.visual.label}\u0000${selected.visual.height}`;
-    if (this.selection?.key !== key) {
-      for (const { item } of this.selection?.items ?? []) item.destroy();
+  private rebuildRain(): void {
+    if (this.rain) this.remove(this.rain);
+    const count = SCENE_QUALITY[this.tier].rain;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+    const material = new THREE.LineBasicNodeMaterial({
+      color: 0xa5bed7,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      toneMapped: false,
+    });
+    this.rain = new THREE.LineSegments(geometry, material);
+    this.rain.name = "rain";
+    this.rain.renderOrder = 30000;
+    this.rain.frustumCulled = false;
+    this.rain.visible = (this.projection?.weather.rainIntensity ?? 0) > 0;
+    this.scene.add(this.rain);
+  }
+  private rebuildReflections(): void {
+    for (const mirror of this.reflections) this.remove(mirror);
+    this.reflections = [];
+    if (
+      !SCENE_QUALITY[this.tier].reflections ||
+      !this.projection ||
+      !shownEffects(this.projection).some((effect) => effect.role === "puddle")
+    )
+      return;
+    for (const drawn of this.drawn.values()) {
+      const mirror = new THREE.Mesh(drawn.body.geometry.clone(), drawn.body.material.clone());
+      mirror.userData.ownsTexture = false;
+      mirror.material.transparent = true;
+      mirror.material.opacity = 0.22;
+      mirror.material.depthWrite = false;
+      mirror.material.stencilWrite = true;
+      mirror.material.stencilRef = 1;
+      mirror.material.stencilFunc = THREE.EqualStencilFunc;
+      mirror.material.stencilFail = THREE.KeepStencilOp;
+      mirror.material.stencilZFail = THREE.KeepStencilOp;
+      mirror.material.stencilZPass = THREE.KeepStencilOp;
+      mirror.scale.y = -0.5;
+      mirror.renderOrder = 9000;
+      mirror.userData.source = drawn.body;
+      mirror.position.copy(drawn.body.position);
+      mirror.position.z = -10;
+      this.scene.add(mirror);
+      this.reflections.push(mirror);
+    }
+  }
+  private ellipse(
+    width: number,
+    height: number,
+    color: number,
+    alpha: number,
+    name: string,
+    stroke = 0,
+    fillAlpha = alpha,
+  ): Native {
+    const pad = stroke + 2,
+      scale = 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil((width + 2 * pad) * scale);
+    canvas.height = Math.ceil((height + 2 * pad) * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas labels unavailable");
+    ctx.scale(scale, scale);
+    ctx.beginPath();
+    ctx.ellipse(width / 2 + pad, height / 2 + pad, width / 2, height / 2, 0, 0, Math.PI * 2);
+    const hex = `#${color.toString(16).padStart(6, "0")}`;
+    if (fillAlpha > 0) {
+      ctx.globalAlpha = fillAlpha;
+      ctx.fillStyle = hex;
+      ctx.fill();
+    }
+    if (stroke > 0) {
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = hex;
+      ctx.lineWidth = stroke;
+      ctx.stroke();
+    }
+    const mesh = this.canvasMesh(canvas, width + 2 * pad, height + 2 * pad, name);
+    mesh.userData = {
+      width,
+      height,
+      lineWidth: stroke,
+      fillColor: color,
+      fillAlpha,
+      strokeAlpha: alpha,
+    };
+    return mesh;
+  }
+  private canvasMesh(
+    canvas: HTMLCanvasElement,
+    width: number,
+    height: number,
+    name: string,
+  ): Native {
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicNodeMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        toneMapped: false,
+        fog: false,
+      }),
+    );
+    mesh.name = name;
+    mesh.renderOrder = 40000;
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+  private label(text: string, pill: boolean, panelOnly = false): Native {
+    const canvas = document.createElement("canvas"),
+      ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas labels unavailable");
+    ctx.font = "13px sans-serif";
+    const textWidth = Math.ceil(ctx.measureText(text).width),
+      textHeight = 16;
+    const width = textWidth + (pill ? 20 : 0),
+      height = textHeight + (pill ? 8 : 0);
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+    ctx.scale(2, 2);
+    ctx.font = "13px sans-serif";
+    if (pill) {
+      ctx.beginPath();
+      ctx.roundRect(0.5, 0.5, width - 1, height - 1, height / 2);
+      ctx.fillStyle = "rgb(30 33 22 / 92%)";
+      ctx.fill();
+      ctx.strokeStyle = "rgb(168 195 148 / 60%)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    if (!panelOnly) {
+      ctx.fillStyle = TEXT;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, width / 2, height / 2);
+    }
+    const mesh = this.canvasMesh(canvas, width, height, pill ? "selection-pill" : "hover-label");
+    mesh.userData = {
+      width,
+      height,
+      ...(panelOnly ? {} : { text }),
+      textWidth,
+      textHeight,
+      fillColor: PANEL,
+      fillAlpha: 0.92,
+      lineWidth: 1,
+      strokeAlpha: 0.6,
+      radius: height / 2,
+      isRounded: pill,
+    };
+    return mesh;
+  }
+  private drawEmphasis(): void {
+    if (!this.scene) return;
+    for (const mesh of this.overlay) this.remove(mesh);
+    this.overlay = [];
+    const feet = (id: ObjectId | undefined) => (id === undefined ? undefined : this.drawn.get(id));
+    for (const [id, name, width, color] of [
+      [this.hovered, "hover-affordance", 24, 0xffffff],
+      [this.focused, "focus-affordance", 40, 0x9fd3ff],
+    ] as const) {
+      const drawn = feet(id);
+      if (!drawn) continue;
+      const mesh = this.ellipse(width, width / 2, color, 1, name, 1, 0);
+      mesh.position.copy(drawn.body.position);
+      mesh.position.z = 30;
+      this.scene.add(mesh);
+      this.overlay.push(mesh);
+    }
+    const selected = feet(this.selected);
+    const key = selected
+      ? `${this.selected}\u0000${selected.visual.label}\u0000${selected.visual.height}`
+      : "";
+    if (key !== this.selection?.key) {
+      for (const { item } of this.selection?.items ?? []) this.remove(item);
       this.selection = undefined;
     }
-    if (selected === undefined) return;
-    if (this.selection === undefined) {
-      const at = depthOf("emphasis");
-      const items: {
-        item: Phaser.GameObjects.Components.Transform & Phaser.GameObjects.GameObject;
-        dy: number;
-      }[] = [];
-      for (const [grow, width, alpha] of SELECTION.glows)
-        items.push({
-          item: stage.add
-            .ellipse(0, 0, SELECTION.ringWidth + grow, (SELECTION.ringWidth + grow) / 2)
-            .setStrokeStyle(width, SELECTION_SAGE, alpha)
-            .setName("selection-glow")
-            .setDepth(at),
-          dy: 0,
-        });
-      items.push({
-        item: stage.add
-          .ellipse(
-            0,
-            0,
-            SELECTION.ringWidth,
-            SELECTION.ringWidth / 2,
-            SELECTION_SAGE,
-            SELECTION.ringFillAlpha,
-          )
-          .setStrokeStyle(SELECTION.ringStroke, SELECTION_SAGE)
-          .setName("selection-ring")
-          .setDepth(at),
-        dy: 0,
-      });
-      // The pill's bottom edge sits `pillGap` above the sprite; the name is centred inside it.
-      const text = stage.add
-        .text(0, 0, selected.visual.label, { color: PILL_TEXT, fontSize: SELECTION.fontSize })
-        .setOrigin(0.5, 0.5)
-        .setName("selection-label")
-        .setDepth(depthOf("emphasis", 2));
-      const width = text.width + 2 * SELECTION.pillPadX;
-      const height = text.height + 2 * SELECTION.pillPadY;
-      const centre = -selected.visual.height - SELECTION.pillGap - height / 2;
-      const pill = stage.add
-        .rectangle(0, 0, width, height, PILL_PANEL, PILL_PANEL_ALPHA)
-        .setRounded(height / 2)
-        .setStrokeStyle(1, SELECTION_SAGE, SELECTION.pillHairlineAlpha)
-        .setName("selection-pill")
-        .setDepth(depthOf("emphasis", 1));
-      items.push({ item: pill, dy: centre }, { item: text, dy: centre });
-      this.selection = { key, items };
+    if (selected) {
+      if (!this.selection) {
+        const items = [
+          { item: this.ellipse(48, 24, SAGE, 0.15, "selection-glow", 10, 0), dy: 0 },
+          { item: this.ellipse(40, 20, SAGE, 0.35, "selection-glow", 6, 0), dy: 0 },
+          { item: this.ellipse(32, 16, SAGE, 1, "selection-ring", 3, 0.18), dy: 0 },
+        ];
+        const pill = this.label(selected.visual.label, true, true);
+        const label = this.label(selected.visual.label, false);
+        label.name = "selection-label";
+        pill.renderOrder = 40001;
+        label.renderOrder = 40002;
+        const dy = -selected.visual.height - 6 - pill.userData.height / 2;
+        items.push({ item: pill, dy }, { item: label, dy });
+        this.selection = { key, items };
+        for (const { item } of items) this.scene.add(item);
+      }
+      this.moveSelection(selected);
     }
-    const { x, y } = selected.body;
-    for (const { item, dy } of this.selection.items) item.setPosition(x, y + dy);
-  }
-  /** Redraws only the emphasis overlay, by lookup of the emphasized sprites. */
-  private drawEmphasis(): void {
-    const stage = this.stage;
-    if (!stage) return;
-    for (const item of this.overlay) item.destroy();
-    this.overlay = [];
-    // Hover and focus are 1 px ellipses at the feet; selection is a glowing ring and a pill.
-    const feet = (objectId: ObjectId | undefined) =>
-      objectId === undefined ? undefined : this.drawn.get(objectId);
-    const thin = (objectId: ObjectId | undefined, name: string, radius: number, color: number) => {
-      const drawn = feet(objectId);
-      if (!drawn) return;
-      this.overlay.push(
-        stage.add
-          .ellipse(drawn.body.x, drawn.body.y, 2 * radius, radius)
-          .setStrokeStyle(1, color)
-          .setName(name)
-          .setDepth(depthOf("emphasis")),
-      );
-    };
-    thin(this.hovered, "hover-affordance", 12, 0xffffff);
-    thin(this.focused, "focus-affordance", 20, 0x9fd3ff);
-    this.drawSelection(stage, feet(this.selected));
-    // Hovered labels are plain text, so hover stays lighter than selection.
     const hovered = this.hovered !== this.selected ? feet(this.hovered) : undefined;
-    if (hovered)
-      this.overlay.push(
-        stage.add
-          .text(
-            hovered.body.x + 12,
-            hovered.body.y - hovered.visual.height - 10,
-            hovered.visual.label,
-            {
-              color: labelColor,
-            },
-          )
-          .setName("hover-label")
-          .setDepth(depthOf("emphasis", 1)),
+    if (hovered) {
+      const mesh = this.label(hovered.visual.label, false);
+      mesh.position.set(
+        hovered.body.position.x + 12 + mesh.userData.width / 2,
+        hovered.body.position.y + hovered.visual.height + 10 - mesh.userData.height / 2,
+        30,
       );
-    this.invalidate();
+      this.scene.add(mesh);
+      this.overlay.push(mesh);
+    }
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
+  private moveSelection(selected: Drawn): void {
+    for (const { item, dy } of this.selection?.items ?? [])
+      item.position.set(selected.body.position.x, selected.body.position.y - dy, 30);
+  }
+  emitCue(cue: SceneTransientCue): void {
+    const drawn = this.drawn.get(cue.objectId);
+    if (!drawn || !this.scene)
+      return void this.report({ name: "dropped_cues", category: "unknown_entity", value: 1 });
+    if (this.cueKeys.includes(cue.dedupeKey))
+      return void this.report({ name: "dropped_cues", category: "duplicate", value: 1 });
+    const remaining = Date.parse(cue.expiresAt) - Date.now();
+    if (!(remaining > 0))
+      return void this.report({ name: "dropped_cues", category: "expired", value: 1 });
+    this.cueKeys.push(cue.dedupeKey);
+    if (this.cueKeys.length > CUE_KEYS) this.cueKeys.shift();
+    const mesh = this.ellipse(8, 8, 0xffe9a8, 1, "cue");
+    mesh.position.set(drawn.body.position.x, drawn.body.position.y + drawn.visual.height, 40);
+    const now = performance.now();
+    this.cues.push({
+      mesh,
+      start: now,
+      end: now + Math.min(remaining, CUE_MS),
+      y: mesh.position.y,
+    });
+    this.scene.add(mesh);
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
+  private animate(time: number): boolean {
+    let changed = false;
+    const t = this.reducedMotion ? 0 : time;
+    for (const drawn of this.drawn.values()) {
+      if (!drawn.key) continue;
+      const animation = this.atlas.get(drawn.key);
+      const count = animation?.frames.length ?? 1;
+      const index = Math.floor(t / (animation?.durationMs ?? 250)) % count;
+      drawn.body.userData.playing = !this.reducedMotion && count > 1;
+      changed = this.setFrame(drawn.body, index) || changed;
+      // Today's bindings identify foliage explicitly; absent #66 wind maps use a gentle uniform weight.
+      const wind = SCENE_QUALITY[this.tier].wind && drawn.body.userData.wind;
+      if (!wind && drawn.body.userData.base && drawn.body.userData.swayed) {
+        drawn.body.geometry.getAttribute("position").array.set(drawn.body.userData.base);
+        drawn.body.geometry.getAttribute("position").needsUpdate = true;
+        drawn.body.userData.swayed = false;
+        changed = true;
+      }
+      if (wind) {
+        const position = drawn.body.geometry.getAttribute("position"),
+          base = drawn.body.userData.base;
+        if (base) {
+          for (let i = 0; i < position.count; i++) {
+            const y = base[i * 3 + 1] ?? 0;
+            position.array[i * 3] =
+              (base[i * 3] ?? 0) + Math.sin(t / 450 + y / 12) * Math.max(0, y) * 0.025;
+          }
+          position.needsUpdate = true;
+          drawn.body.userData.swayed = true;
+          changed = !this.reducedMotion || changed;
+        }
+      }
+    }
+    for (const { key, sprite } of this.effects) {
+      if (!sprite.visible) continue;
+      const animation = this.atlas.get(key);
+      const count = animation?.frames.length ?? 1;
+      sprite.userData.playing = !this.reducedMotion && !this.effectFades.has(sprite) && count > 1;
+      changed =
+        this.setFrame(
+          sprite,
+          sprite.userData.playing ? Math.floor(t / (animation?.durationMs ?? 250)) % count : 0,
+        ) || changed;
+    }
+    if (this.rain?.visible && SCENE_QUALITY[this.tier].rain > 0) {
+      const array = this.rain.geometry.getAttribute("position").array as Float32Array;
+      const width = WIDTH / this.camera.zoom,
+        height = HEIGHT / this.camera.zoom;
+      for (let i = 0; i < array.length / 6; i++) {
+        const x = this.camera.position.x + (((i * 73.17) % width) - width / 2);
+        const y = this.camera.position.y + height / 2 - ((i * 41.71 + t * 0.2) % height);
+        array.set([x, y, 50, x - 2, y + 9, 50], i * 6);
+      }
+      this.rain.geometry.getAttribute("position").needsUpdate = true;
+      changed = !this.reducedMotion || changed;
+    }
+    for (const mirror of this.reflections) {
+      const source = mirror.userData.source;
+      mirror.position.set(source.position.x, source.position.y, -10);
+      if (mirror.userData.frame !== source.userData.frame) {
+        const uv = mirror.geometry.getAttribute("uv");
+        uv.array.set(source.geometry.getAttribute("uv").array);
+        uv.needsUpdate = true;
+        mirror.userData.frame = source.userData.frame;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  private readonly step = (frameTime: number) => {
+    if (this.destroyed) return;
+    this.frame = requestAnimationFrame(this.step);
+    if (!this.initialized || !this.atlasTexture || !this.projection) return;
+    const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
+    this.previousTime = frameTime;
+    if (delta > 0) {
+      this.metrics.frameMs.push(delta);
+      if (this.metrics.frameMs.length > FRAME_SAMPLES) this.metrics.frameMs.shift();
+      if (++this.framesSinceReport >= FRAME_SAMPLES) {
+        this.framesSinceReport = 0;
+        const sorted = [...this.metrics.frameMs].sort((a, b) => a - b),
+          p95 = sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0;
+        this.report({ name: "frame_ms", category: "p95", value: p95 });
+        if (
+          p95 > FRAME_BUDGET_MS &&
+          !this.reducedMotion &&
+          document.visibilityState === "visible" &&
+          this.tier !== "low"
+        )
+          this.setQuality(this.tier === "high" ? "medium" : "low");
+      }
+    }
+    // rAF timestamps precede callback execution; GPU work can delay them past a motion's start.
+    const time = performance.now();
+    let changed = this.dirty;
+    for (const [mesh, motion] of this.motions) {
+      const progress = Math.min(1, (time - motion.start) / INTERPOLATION_MS);
+      mesh.position.x = motion.fromX + (motion.x - motion.fromX) * progress;
+      mesh.position.y = motion.fromY + (motion.y - motion.fromY) * progress;
+      if (progress >= 1) this.motions.delete(mesh);
+      changed = true;
+    }
+    if (this.focusMotion) {
+      const motion = this.focusMotion,
+        progress = Math.min(1, (time - motion.start) / INTERPOLATION_MS);
+      this.setCamera({
+        x: motion.fromX + (motion.x - motion.fromX) * progress,
+        y: motion.fromY + (motion.y - motion.fromY) * progress,
+        zoom: this.camera.zoom,
+      });
+      if (progress >= 1) this.focusMotion = undefined;
+      changed = true;
+    }
+    for (const [sprite, fade] of this.effectFades) {
+      const progress = this.reducedMotion ? 1 : Math.min(1, (time - fade.start) / INTERPOLATION_MS);
+      sprite.material.opacity = fade.alpha * (1 - progress);
+      if (progress >= 1) {
+        sprite.visible = false;
+        this.effectFades.delete(sprite);
+      }
+      changed = true;
+    }
+    for (const cue of this.cues) {
+      if (time >= cue.end) {
+        this.remove(cue.mesh);
+        changed = true;
+      } else if (!this.reducedMotion) {
+        const progress = (time - cue.start) / (cue.end - cue.start);
+        cue.mesh.position.y = cue.y + progress * 12;
+        cue.mesh.material.opacity = 1 - progress;
+        changed = true;
+      }
+    }
+    const cueCount = this.cues.length;
+    this.cues = this.cues.filter((cue) => time < cue.end);
+    if (cueCount !== this.cues.length) this.updateTextureBytes();
+    changed = this.animate(time) || changed;
+    const selected = this.selected === undefined ? undefined : this.drawn.get(this.selected);
+    if (selected) this.moveSelection(selected);
+    if (changed) {
+      if (this.composer) this.composer.render();
+      else this.renderer.render(this.scene, this.camera);
+      this.dirty = false;
+      this.metrics.firstRenderMs ??= performance.now() - this.started;
+    }
+  };
+  private updateTextureBytes(): void {
+    // WebGPURenderer allocates by Texture identity on both backends, not by shared image source.
+    const textures = new Set<THREE.Texture>();
+    if (this.atlasTexture) textures.add(this.atlasTexture);
+    this.scene?.traverse((object) => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
+      const texture = (object as Native).material.map;
+      if (texture) textures.add(texture);
+    });
+    let bytes = 0;
+    for (const texture of textures) {
+      const image = texture.image as { width: number; height: number } | undefined;
+      if (image) bytes += image.width * image.height * 4;
+    }
+    // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
+    // Conservatively include it even when RenderPipeline handles output conversion itself.
+    bytes += WIDTH * HEIGHT * 12;
+    const quality = SCENE_QUALITY[this.tier];
+    bytes +=
+      Math.floor(WIDTH * quality.renderScale) * Math.floor(HEIGHT * quality.renderScale) * 12;
+    const scale = quality.bloomScale;
+    if (scale > 0) {
+      // BloomNode has a bright target and two five-level RGBA16F chains, starting at bloomScale.
+      let width = Math.floor(WIDTH * scale),
+        height = Math.floor(HEIGHT * scale);
+      bytes += width * height * 8;
+      for (let level = 0; level < 5; level++) {
+        bytes += width * height * 16;
+        width = Math.floor(width / 2);
+        height = Math.floor(height / 2);
+      }
+    }
+    this.metrics.textureBytes = bytes;
   }
   destroy(): void {
+    if (this.destroyed) return;
     this.destroyed = true;
+    cancelAnimationFrame(this.frame);
     this.canvas?.removeEventListener("webglcontextlost", this.lost);
-    for (const type of REBOUND_EVENTS)
-      this.parent.removeEventListener(type, this.rebound, { capture: true });
+    this.canvas?.removeEventListener("pointerdown", this.pointerdown);
+    this.canvas?.removeEventListener("pointermove", this.pointermove);
+    this.canvas?.removeEventListener("pointerup", this.pointerup);
+    this.canvas?.removeEventListener("pointercancel", this.pointercancel);
+    this.canvas?.removeEventListener("pointerleave", this.pointerleave);
+    this.canvas?.removeEventListener("wheel", this.wheel);
+    for (const event of REBOUND_EVENTS)
+      this.parent.removeEventListener(event, this.rebound, { capture: true });
     globalThis.removeEventListener("scroll", this.rebound, { capture: true });
-    // Phaser's scene plugins release themselves on the scene's DESTROY event, which
-    // `game.destroy` emits before clearing the scene's emitters, so they are not stripped here.
-    if (this.game.textures.exists(ATLAS)) this.game.textures.remove(ATLAS);
-    this.releaseEffects();
+    this.disposePost();
+    if (this.scene)
+      for (const mesh of [...this.scene.children]) {
+        if (mesh instanceof THREE.Mesh || mesh instanceof THREE.LineSegments)
+          this.remove(mesh as Native);
+        else this.scene.remove(mesh);
+      }
+    this.atlasTexture?.dispose();
+    this.atlasTexture = undefined;
+    this.canvas?.remove();
+    // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
+    void this.renderer?.dispose().catch(() => {});
     this.handlers.clear();
-    this.projection = undefined;
     this.drawn.clear();
-    this.order = [];
+    this.atlas.clear();
+    this.effects = [];
     this.overlay = [];
     this.selection = undefined;
+    this.projection = undefined;
+    this.order = [];
+    this.cueKeys = [];
     this.cues = [];
-    this.stage = undefined;
+    this.motions.clear();
+    this.effectFades.clear();
+    this.lights = [];
+    this.reflections = [];
     this.metrics.textureBytes = 0;
-    this.game.destroy(true);
   }
 }

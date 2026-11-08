@@ -273,6 +273,13 @@ describe("production world-reactions native Queue lifecycle", () => {
         );
         expect(await advance("queue-exhausted", 840_000n)).toBe(200);
         expect(await advance("queue-internal", 960_000n)).toBe(200);
+        // Commands do not await the hint sweep. Read expected transport metadata only after
+        // publication has claimed both rows; attempts is still zero before that claim.
+        await waitForOwnerSql(
+          sql,
+          "SELECT count(*) FROM clockgrove.event_dispatches WHERE dispatch_id IN ('queue-exhausted:dispatch:world-reactions','queue-internal:dispatch:world-reactions') AND status='delivered' AND attempts=1",
+          "2",
+        );
         const exhausted = await carrier("queue-exhausted");
         const internal = await carrier("queue-internal");
         for (let attempt = 0; attempt < 100; attempt++) {

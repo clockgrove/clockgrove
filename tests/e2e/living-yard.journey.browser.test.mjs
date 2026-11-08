@@ -48,6 +48,9 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
+const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
+  ? [process.env.CLOCKGROVE_RENDERER_PROOF]
+  : ["webgpu", "webgl2"];
 function createWorkerServer(worker, nativeOrigin) {
   return createServer({
     root: path.join(root, "apps/web"),
@@ -139,17 +142,16 @@ TextSceneEntities = (props) => {
             };
           if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
           return {
-            code: `${code}
-const { loadSnapshot: originalPresent, draw: originalDraw } = PhaserWorldSceneAdapter.prototype;
-PhaserWorldSceneAdapter.prototype.draw = function (...args) {
+            code: `${process.env.CLOCKGROVE_RENDERER_PROOF === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}
+const { loadSnapshot: originalPresent, draw: originalDraw } = ThreeWorldSceneAdapter.prototype;
+ThreeWorldSceneAdapter.prototype.draw = function (...args) {
   originalDraw.apply(this, args);
-  if (this.stage && this.projection) globalThis.yardDrawnRevision = String(this.projection.revision);
+  if (this.scene && this.projection) globalThis.yardDrawnRevision = String(this.projection.revision);
 };
 globalThis.yardRendererHookRegistered = true;
 globalThis.yardRendererPresentInvoked = false;
-PhaserWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
+ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
   globalThis.yardRendererPresentInvoked = true;
-  globalThis.yardGame = this.game;
   globalThis.yardAdapter = this;
   if (globalThis.yardFailPresent) throw new Error("presentation assets unavailable");
   originalPresent.apply(this, args);
@@ -240,9 +242,9 @@ const effectState = (viewer) =>
   viewer.evaluate(() =>
     globalThis.yardAdapter.effects.map(({ role, sprite }) => ({
       role,
-      at: [sprite.x, sprite.y],
-      shown: sprite.visible && sprite.alpha === 1,
-      playing: sprite.anims.isPlaying,
+      at: [sprite.position.x, -sprite.position.y],
+      shown: sprite.visible && sprite.material.opacity === 1,
+      playing: sprite.userData.playing,
     })),
   );
 const shownRoles = async (viewer) =>
@@ -278,28 +280,39 @@ function pickOrdered(scene) {
   return [...placed, ...scene.entities.filter((entity) => !placed.includes(entity))];
 }
 
-it("observes native authorized socket updates and recovery in Chromium", async () => {
+const observeYard = async (backend) => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess("tests/e2e/living-yard.journey.browser.test.mjs", "raccoons", {
-      vitestConfig: "tests/ci/vitest.browser.config.ts",
-      // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
-      // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
-      // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
-      // exceeded that, so 330 s stays within the test's 360 s timeout.
-      timeoutMs: 330_000,
-      inheritOutput: true,
-      prepare: async (fixture) => {
-        await truthOf(fixture)(
-          `INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id) SELECT DISTINCT tenant_id,'principal-outsider' FROM clockgrove.world_memberships;
+    const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
+    process.env.CLOCKGROVE_RENDERER_PROOF = backend;
+    try {
+      await runNativeWorldOwnerProcess(
+        "tests/e2e/living-yard.journey.browser.test.mjs",
+        "raccoons",
+        {
+          vitestConfig: "tests/ci/vitest.browser.config.ts",
+          // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
+          // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
+          // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
+          // exceeded that, so 330 s stays within the test's 360 s timeout.
+          timeoutMs: 330_000,
+          inheritOutput: true,
+          prepare: async (fixture) => {
+            await truthOf(fixture)(
+              `INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id) SELECT DISTINCT tenant_id,'principal-outsider' FROM clockgrove.world_memberships;
           INSERT INTO clockgrove.world_memberships
           (tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
           SELECT tenant_id,world_id,timeline_id,space_id,'principal-outsider','membership-browser-operator','persona-browser-operator',roles,
           ARRAY['runtime:world-command','runtime:world-clock'],privacy_ceiling,committed_at FROM clockgrove.world_memberships;
           UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime';
           UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
-        );
-      },
-    });
+            );
+          },
+        },
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CLOCKGROVE_RENDERER_PROOF;
+      else process.env.CLOCKGROVE_RENDERER_PROOF = previous;
+    }
     return;
   }
   await withNativeWorldOwner(async (native) => {
@@ -422,7 +435,17 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       try {
         await server.listen();
         const address = server.httpServer.address();
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({
+          headless: true,
+          args: [
+            "--enable-unsafe-webgpu",
+            "--enable-unsafe-swiftshader",
+            "--use-webgpu-adapter=swiftshader",
+            "--use-angle=swiftshader",
+            "--enable-features=Vulkan",
+            "--use-vulkan=swiftshader",
+          ],
+        });
         const page = await browser.newPage();
         page.on("console", (message) => observerTelemetry.push(message.text()));
         page.on("pageerror", (error) => observerTelemetry.push(error.message));
@@ -633,11 +656,11 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await page.getByRole("heading", { name: "Raccoon World", level: 1 }).waitFor();
         const visualText = () =>
           page.evaluate(() => {
-            const texts = [];
-            for (const stage of globalThis.yardGame?.scene.getScenes(true) ?? [])
-              for (const child of stage.children.list)
-                if (child.type === "Text") texts.push(child.text);
-            return texts;
+            return (
+              globalThis.yardAdapter?.scene.children
+                .filter((child) => typeof child.userData.text === "string")
+                .map((child) => child.userData.text) ?? []
+            );
           });
         // Named emphasis the renderer draws: ellipses as x, y, width, height, line width; the hover
         // label as text, x, y. The pill is measured against the selection label it holds: its centre
@@ -648,34 +671,36 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const emphasis = () =>
           page.evaluate(() => {
             const drawn = {};
-            for (const stage of globalThis.yardGame?.scene.getScenes(true) ?? []) {
-              const named = (name) => stage.children.list.find((child) => child.name === name);
-              const [pill, label, ring] = [
-                named("selection-pill"),
-                named("selection-label"),
-                named("selection-ring"),
-              ];
-              for (const child of stage.children.list)
-                if (child.name)
-                  (drawn[child.name] ??= []).push(
-                    child === label
-                      ? [child.text, child.x - pill?.x, child.y - pill?.y]
-                      : child === pill
-                        ? [
-                            child.x,
-                            child.y + child.height / 2,
-                            child.width - label?.width,
-                            child.height - label?.height,
-                            child.lineWidth,
-                            child.fillColor,
-                            child.fillAlpha,
-                            child.isRounded && child.radius === child.height / 2,
-                            ring?.depth < child.depth && child.depth < label?.depth,
-                          ]
-                        : child.type === "Text"
-                          ? [child.text, child.x, child.y]
-                          : [child.x, child.y, child.width, child.height, child.lineWidth],
-                  );
+            const children = globalThis.yardAdapter?.scene.children ?? [];
+            const named = (name) => children.find((child) => child.name === name);
+            const [pill, label, ring] = [
+              named("selection-pill"),
+              named("selection-label"),
+              named("selection-ring"),
+            ];
+            for (const child of children) {
+              if (!/^(?:selection-|hover-|focus-affordance$)/u.test(child.name)) continue;
+              const { position, userData: data } = child;
+              (drawn[child.name] ??= []).push(
+                child === label
+                  ? [data.text, position.x - pill.position.x, -position.y + pill.position.y]
+                  : child === pill
+                    ? [
+                        position.x,
+                        -position.y + data.height / 2,
+                        data.width - label.userData.width,
+                        data.height - label.userData.height,
+                        data.lineWidth,
+                        data.fillColor,
+                        data.fillAlpha,
+                        data.isRounded && data.radius === data.height / 2,
+                        ring.renderOrder < child.renderOrder &&
+                          child.renderOrder < label.renderOrder,
+                      ]
+                    : typeof data.text === "string"
+                      ? [data.text, position.x - data.width / 2, -position.y - data.height / 2]
+                      : [position.x, -position.y, data.width, data.height, data.lineWidth],
+              );
             }
             return drawn;
           });
@@ -814,26 +839,26 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           await page.evaluate(() =>
             Object.fromEntries(
               [...globalThis.yardAdapter.drawn]
-                .map(([id, { key, body }]) => [id, key ?? body.type])
+                .map(([id, { key, body }]) => [id, key ?? body.geometry.type])
                 .sort(([a], [b]) => (a < b ? -1 : 1)),
             ),
           ),
         ).toEqual({
           "grove.cedar": "tree/static",
-          "grove.cedar-hollow": "Arc",
+          "grove.cedar-hollow": "CircleGeometry",
           "grove.den": "den/static",
-          "grove.den-stash": "Arc",
-          "grove.fence-gate": "Arc",
+          "grove.den-stash": "CircleGeometry",
+          "grove.fence-gate": "CircleGeometry",
           "grove.gracie": "gracie/idle",
           "grove.herb": "plant/static",
           "grove.kit": "kit/idle",
-          "grove.pantry-bin": "Arc",
-          "grove.porch": "Arc",
-          "grove.sky": "Arc",
+          "grove.pantry-bin": "CircleGeometry",
+          "grove.porch": "CircleGeometry",
+          "grove.sky": "CircleGeometry",
           "grove.snack-dish": "feeder/static",
           "grove.stevie": "stevie/idle",
           "grove.trash-can": "trash-can/static",
-          "grove.water-bowl": "Arc",
+          "grove.water-bowl": "CircleGeometry",
         });
         const activity = (viewer) =>
           raccoonActivity(viewer, fixture.environment, provisioned.authorization, auth.scope);
@@ -2134,7 +2159,12 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const touch = await observe("yard-inspect", { hasTouch: true, reducedMotion: "reduce" });
         const yard = touch.viewer;
         await expect
-          .poll(() => yard.evaluate(() => globalThis.yardAdapter?.stage?.scene.key))
+          .poll(() => yard.evaluate(() => globalThis.yardAdapter?.atlasTexture !== undefined))
+          .toBeTruthy();
+        await expect
+          .poll(() =>
+            yard.evaluate(() => globalThis.yardAdapter?.metrics.firstRenderMs !== undefined),
+          )
           .toBeTruthy();
         const golden = JSON.parse(await touch.held()).scene;
         expect(golden.weather.rainIntensity).toBeGreaterThan(0);
@@ -2150,21 +2180,42 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const drawnState = () =>
           yard.evaluate(() => {
             const adapter = globalThis.yardAdapter;
-            const camera = adapter.stage.cameras.main;
-            const bounds = camera.getBounds();
-            const view = camera.worldView;
+            const camera = adapter.camera;
+            const bounds = adapter.bounds;
+            const view = {
+              left: camera.position.x + camera.left / camera.zoom,
+              right: camera.position.x + camera.right / camera.zoom,
+              top: -camera.position.y - camera.top / camera.zoom,
+              bottom: -camera.position.y - camera.bottom / camera.zoom,
+            };
             return {
+              backend: adapter.backend,
+              architecture: adapter.renderer.backend.device?.adapterInfo.architecture,
+              renderer:
+                adapter.backend === "webgl2"
+                  ? adapter.renderer
+                      .getContext()
+                      .getParameter(
+                        adapter.renderer.getContext().getExtension("WEBGL_debug_renderer_info")
+                          .UNMASKED_RENDERER_WEBGL,
+                      )
+                  : adapter.renderer.backend.device.adapterInfo.description,
               byDepth: [...adapter.drawn]
-                .sort(([, a], [, b]) => b.body.depth - a.body.depth)
+                .sort(([, a], [, b]) => b.body.renderOrder - a.body.renderOrder)
                 .map(([objectId]) => objectId),
-              camera: [camera.rotation, camera.zoom],
-              bounds: [bounds.centerX, bounds.centerY, bounds.width, bounds.height],
+              camera: [camera.rotation.z, camera.zoom],
+              bounds: [
+                bounds.x + bounds.width / 2,
+                bounds.y + bounds.height / 2,
+                bounds.width,
+                bounds.height,
+              ],
               inside:
-                view.left >= bounds.left - 0.01 &&
-                view.right <= bounds.right + 0.01 &&
-                view.top >= bounds.top - 0.01 &&
-                view.bottom <= bounds.bottom + 0.01,
-              weather: [adapter.night.visible, adapter.rain.visible],
+                view.left >= bounds.x - 0.01 &&
+                view.right <= bounds.x + bounds.width + 0.01 &&
+                view.top >= bounds.y - 0.01 &&
+                view.bottom <= bounds.y + bounds.height + 0.01,
+              weather: [adapter.scene.userData.night, adapter.rain.visible],
               reducedMotion: adapter.reducedMotion,
               metrics: adapter.metrics,
             };
@@ -2176,6 +2227,16 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const extent = (values) => Math.max(...values) - Math.min(...values);
         const timeOfDay = Number(BigInt(golden.simulationTime) % 86_400_000n);
         const state = await drawnState();
+        expect(state.backend).toBe(backend);
+        if (backend === "webgpu") expect(state.architecture).toBe("swiftshader");
+        else expect(state.renderer).toMatch(/SwiftShader/i);
+        process.stdout.write(
+          `Renderer correctness: ${JSON.stringify({
+            backend: state.backend,
+            architecture: state.architecture,
+            renderer: state.renderer,
+          })}\n`,
+        );
         // Drawn front to back in pick order, under a fixed unrotated camera framed on the yard.
         expect([state.byDepth, state.camera, state.bounds, state.inside, state.weather]).toEqual([
           placed.map((entity) => entity.objectId),
@@ -2249,7 +2310,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           patchApplicationMs: runtime.patchMs,
           reconnectMs,
         };
-        console.log(`scene runtime budgets measured: ${JSON.stringify(measured)}`);
+        process.stdout.write(
+          `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured })}\n`,
+        );
         expect([runtime.entityCount, frames.length > 0]).toEqual([placed.length, true]);
         for (const [name, value] of Object.entries(measured))
           expect([name, value <= budgets[name].limit]).toEqual([name, true]);
@@ -2257,16 +2320,17 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const mouse = kin.viewer;
         const camera = () =>
           mouse.evaluate(() => {
-            const view = globalThis.yardAdapter.stage.cameras.main;
-            const [bounds, seen] = [view.getBounds(), view.worldView];
+            const adapter = globalThis.yardAdapter;
+            const view = adapter.camera;
+            const bounds = adapter.bounds;
             return [
-              view.rotation,
+              view.rotation.z,
               view.zoom,
-              seen.left >= bounds.left - 0.01 &&
-                seen.right <= bounds.right + 0.01 &&
-                seen.top >= bounds.top - 0.01 &&
-                seen.bottom <= bounds.bottom + 0.01,
-              view.scrollX,
+              view.position.x + view.left / view.zoom >= bounds.x - 0.01 &&
+                view.position.x + view.right / view.zoom <= bounds.x + bounds.width + 0.01 &&
+                -view.position.y - view.top / view.zoom >= bounds.y - 0.01 &&
+                -view.position.y - view.bottom / view.zoom <= bounds.y + bounds.height + 0.01,
+              view.position.x + view.left / view.zoom,
             ];
           });
         await mouse.locator("canvas").scrollIntoViewIfNeeded();
@@ -2290,9 +2354,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect((await drawnState()).reducedMotion).toBe(true);
         // Touch taps on overlapping sprites cycle through them in pick order (§4.4), at zoom 1.
         await yard.evaluate((centre) => {
-          const camera = globalThis.yardAdapter.stage.cameras.main;
-          camera.setZoom(1);
-          camera.centerOn(...centre);
+          const camera = globalThis.yardAdapter.camera;
+          camera.zoom = 1;
+          camera.position.set(centre[0], -centre[1], camera.position.z);
+          camera.updateProjectionMatrix();
         }, isoCentre(golden));
         await yard.locator("canvas").scrollIntoViewIfNeeded();
         const touchBox = await yard.locator("canvas").boundingBox();
@@ -2327,7 +2392,7 @@ it("observes native authorized socket updates and recovery in Chromium", async (
               ),
             },
           };
-          // The real Phaser bridge's applyPatch applies the next contiguous patch and ignores a stale one.
+          // The real Three.js bridge's applyPatch applies the next contiguous patch and ignores a stale one.
           const patch = {
             fromRevision: committed.revision,
             toRevision: committed.revision + 1n,
@@ -2335,15 +2400,15 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             sourceEventIds: [],
             audienceHash: committed.audienceHash,
           };
-          const before = adapter.drawn.get(entity.objectId).body.x;
+          const before = adapter.drawn.get(entity.objectId).body.position.x;
           adapter.applyPatch(patch);
-          const patchedX = adapter.drawn.get(entity.objectId).body.x;
+          const patchedX = adapter.drawn.get(entity.objectId).body.position.x;
           adapter.applyPatch({ ...patch, operations: [{ op: "upsert_entity", entity }] });
           const offset = (x) => Math.round((x - before) * 1000) / 1000;
           const patched = [
             String(adapter.projection.revision) === String(committed.revision + 1n),
             offset(patchedX),
-            offset(adapter.drawn.get(entity.objectId).body.x),
+            offset(adapter.drawn.get(entity.objectId).body.position.x),
           ];
           const cue = {
             kind: "emote",
@@ -2357,8 +2422,8 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           const body = adapter.drawn.get(entity.objectId).body;
           const result = [
             patched,
-            adapter.stage.tweens.getTweensOf(body).length,
-            adapter.stage.children.list.filter((child) => child.name === "cue").length,
+            Number(adapter.motions.has(body)),
+            adapter.scene.children.filter((child) => child.name === "cue").length,
           ];
           adapter.loadSnapshot(committed);
           return result;
@@ -2395,17 +2460,27 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             ],
           });
           const body = adapter.drawn.get(entity.objectId).body;
-          const start = body.x;
+          const start = body.position.x;
           adapter.loadSnapshot(shifted(1));
-          const tweening = [adapter.stage.tweens.getTweensOf(body).length, body.x];
+          const tweening = [Number(adapter.motions.has(body)), body.position.x];
+          const motion = adapter.motions.get(body);
+          const lights = [...adapter.lights];
+          adapter.loadSnapshot(shifted(1));
+          const retained = [
+            adapter.motions.get(body) === motion,
+            adapter.lights.length === lights.length &&
+              adapter.lights.every((light, index) => light === lights[index]),
+          ];
           await new Promise((resolve) => setTimeout(resolve, 600));
-          const settled = body.x;
+          const settled = body.position.x;
           adapter.loadSnapshot(shifted(21));
-          const snapped = [adapter.stage.tweens.getTweensOf(body).length, body.x];
+          const snapped = [Number(adapter.motions.has(body)), body.position.x];
           adapter.loadSnapshot(committed);
-          return [start, tweening, settled, snapped];
+          return [start, tweening, settled, snapped, retained];
         });
-        const [start, [tweens, during], settled, [snapTweens, snapped]] = interpolated;
+        const [start, [tweens, during], settled, [snapTweens, snapped], retainedMotionAndLights] =
+          interpolated;
+        expect(retainedMotionAndLights).toEqual([true, true]);
         expect([tweens, during < settled, settled - start, snapTweens, snapped - start]).toEqual([
           1,
           true,
@@ -2422,18 +2497,17 @@ it("observes native authorized socket updates and recovery in Chromium", async (
               parent.dispatchEvent(new PointerEvent(type, { bubbles: true }));
             globalThis.dispatchEvent(new Event("scroll"));
             return [
-              globalThis.yardTextures.exists("raccoon-world"),
+              globalThis.yardAdapter.atlasTexture !== undefined,
               parent.contains(globalThis.yardCanvas),
               globalThis.yardBoundsReads > 0,
             ];
           });
         await yard.evaluate(() => {
-          const game = globalThis.yardGame;
-          globalThis.yardTextures = game.textures;
-          globalThis.yardCanvas = game.canvas;
+          const adapter = globalThis.yardAdapter;
+          globalThis.yardCanvas = adapter.renderer.domElement;
           globalThis.yardBoundsReads = 0;
-          const update = game.scale.updateBounds.bind(game.scale);
-          game.scale.updateBounds = () => {
+          const update = adapter.refreshBounds.bind(adapter);
+          adapter.refreshBounds = () => {
             globalThis.yardBoundsReads += 1;
             update();
           };
@@ -2442,7 +2516,18 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(await released()).toEqual([true, true, true]);
         await yard.evaluate(() => {
           globalThis.yardBoundsReads = 0;
-          globalThis.yardGame.renderer.gl.getExtension("WEBGL_lose_context").loseContext();
+          const adapter = globalThis.yardAdapter;
+          if (adapter.backend === "webgpu") {
+            // Fake-only device-loss notification: device.destroy() is intentionally ignored by Three.
+            adapter.renderer.onDeviceLost({
+              api: "WebGPU",
+              message: "injected device loss",
+              reason: "unknown",
+              originalEvent: null,
+            });
+          } else {
+            adapter.renderer.getContext().getExtension("WEBGL_lose_context").loseContext();
+          }
         });
         await yard
           .getByText("Canvas unavailable. The complete scene is available below.", { exact: true })
@@ -2457,15 +2542,21 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         ]).toEqual([heldBefore, "ready", [false, false, false]]);
         // §16 React error boundary: a throwing yard component leaves a focused, announced error
         // screen, not a blank page, recorded only as client_errors:shell; Reload recovers.
-        await yard.evaluate(() => {
-          globalThis.yardThrowRender = true;
-        });
-        await yard
+        const failingEntity = yard
           .getByRole("region", { name: "Living scene" })
           .getByRole("listitem")
           .getByRole("button", { pressed: false })
-          .first()
-          .click();
+          .first();
+        await failingEntity.evaluate((button) => {
+          button.addEventListener(
+            "click",
+            () => {
+              globalThis.yardThrowRender = true;
+            },
+            { capture: true, once: true },
+          );
+        });
+        await failingEntity.click();
         const stopped = yard.getByRole("region", { name: "Raccoon World stopped" });
         await stopped.waitFor();
         expect([
@@ -2780,4 +2871,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       }
     });
   });
-}, 360_000);
+};
+it.each(BACKENDS)(
+  "observes native authorized socket updates and recovery in Chromium (%s)",
+  observeYard,
+  360_000,
+);

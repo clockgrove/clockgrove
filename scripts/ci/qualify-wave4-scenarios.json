@@ -317,7 +317,7 @@
         },
         {
           "file": "apps/web/test/boundaries.test.mjs",
-          "marker": "keeps Phaser types and its renderer out of the headless 3D adapter fixture's whole program"
+          "marker": "keeps renderer SDK types and its renderer out of the headless 3D adapter fixture's whole program"
         }
       ]
     }
@@ -494,7 +494,7 @@
     {
       "id": "F12",
       "section": "16",
-      "scenario": "Phaser context loss",
+      "scenario": "WebGL2 context loss",
       "coverage": "full",
       "evidence": [
         {
@@ -544,7 +544,7 @@
         },
         {
           "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// The real Phaser bridge's applyPatch applies the next contiguous patch and ignores a stale one."
+          "marker": "// The real Three.js bridge's applyPatch applies the next contiguous patch and ignores a stale one."
         }
       ]
     },
@@ -626,7 +626,7 @@
       "evidence": [
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// WebGL unavailable with the renderer loaded: Phaser.AUTO falls back to a 2D canvas (scene_ready)."
+          "marker": "// WebGL2 unavailable with the renderer loaded: the complete text scene remains ready."
         },
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",

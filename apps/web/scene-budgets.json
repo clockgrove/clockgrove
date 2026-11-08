@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "budgets": {
     "initialJsGzipBytes": {
       "limit": 512000,
       "measured": "build",
-      "reason": "Decision: the shell entry plus the scene chunk a yard boot loads, gzip level 9. Phaser alone is about 350 kB of the 455 kB measured at issue 809; the limit leaves about 12% headroom."
+      "reason": "Decision: retain the 512000 B total entry-plus-scene gzip ceiling while replacing Phaser. The Three.js WebGL2 spike measured 201792 B gzip including fixture inputs (renderer ADR); product bytes are measured by tools/scene-budget.mjs, not inferred from the spike."
     },
     "assetBytes": {
       "limit": 262144,
@@ -14,7 +14,7 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "One 2048 x 2048 RGBA texture, the WebGL minimum maximum texture size issue 813 sizes atlases under (packages/assets/docs/pipeline.md#packing), at four bytes per pixel."
+      "reason": "Decision: retain 16 MiB. Account unique Texture identities across atlas, effects, reflections and generated RGBA8 labels (one shared atlas with per-mesh frame UVs), conservative full-resolution RGBA16F + depth/stencil renderer output, tier-scaled PassNode RGBA16F + depth/stencil (320x200 low; 640x400 medium/high), BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
     },
     "firstSceneRenderMs": {
       "limit": 2500,
@@ -24,7 +24,7 @@
     "frameTimeMs": {
       "limit": 33.4,
       "measured": "browser",
-      "reason": "Decision: the 95th-percentile unsmoothed frame interval with rain at the 30 frames per second floor of the supported laptop baseline (plan section 9.3)."
+      "reason": "Decision: retain the p95 unsmoothed requestAnimationFrame interval ceiling at the 30 fps laptop floor (Wave 4 section 9.3). This cadence check is distinct from GPU-complete pan latency: the #67 RTX 2060 SUPER high-tier Three.js WebGL2 spike measured p50/p95 1.8/2.0 ms at 960x540 DPR1; product timing is a post-merge maintainer step."
     },
     "entityCount": {
       "limit": 256,
@@ -40,6 +40,87 @@
       "limit": 3000,
       "measured": "browser",
       "reason": "Decision: the first reconnect delay (SCENE_RECONNECT.firstDelayMs, 1 s, apps/web/src/projection.ts) plus 2 s for the join and snapshot, from the client observing its scene socket drop to the next ready scene."
+    }
+  },
+  "referenceMeasurements": {
+    "source": "https://github.com/clockgrove/clockgrove/issues/67#issuecomment-6716384072",
+    "backend": "WebGLRenderer WebGL2 spike (not WebGPURenderer)",
+    "scope": "Renderer bake-off spike; not measurements of the product adapter. Product GPU-complete pan timing remains the maintainer step after merge.",
+    "date": "2026-11-07",
+    "gpu": "NVIDIA GeForce RTX 2060 SUPER (8 GB)",
+    "viewport": {
+      "width": 960,
+      "height": 540,
+      "dpr": 1
+    },
+    "warmupFrames": 10,
+    "measuredFrames": 120,
+    "windowsEdgeAngleD3D11": {
+      "highPanGpuCompleteMs": {
+        "p50": 1.8,
+        "p95": 2.0
+      },
+      "highStaticGpuCompleteMs": {
+        "p50": 1.8,
+        "p95": 2.0
+      },
+      "lowPanGpuCompleteMs": {
+        "p50": 0.5,
+        "p95": 0.7
+      }
+    },
+    "wsl2ChromiumAngleGlOverD3D12": {
+      "lowStaticAndPanApproximateMs": 1.4,
+      "caveat": "Suspect-clock flag from failed peer candidates; maintainer reports real clock and working Three.js WebGL2."
+    },
+    "missing": ["integrated GPU", "phone"]
+  },
+  "productCorrectnessMeasurements": {
+    "candidate": "d0f73a91d2c82107b90cbe714f1dc8a80d668fdf",
+    "source": "timeout 3600 taskset -c 0-3 pnpm run qualify:wave4; evidence/visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
+    "captureReportSha256": "sha256:f1db8ef8a4402e598f6c3090820f1b704e37a119d98f096b38d749b4a394799c",
+    "performance": false,
+    "initialJsGzipBytes": 343650,
+    "assetBytes": 28255,
+    "buildSource": "pnpm --filter @clockgrove/web check; tools/scene-budget.mjs",
+    "maxTierTextureBytes": {
+      "low": 4797540,
+      "medium": 8977380,
+      "high": 14605540
+    },
+    "scope": "Software correctness and accounted allocation: four-core qualification plus one-core WebGPU stress. Low uses Lambert and a half-resolution scene pass into the unchanged canvas. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike.",
+    "runtimeBudgetSource": "qualify:wave4 evidence/test-e2e.log; four-core CPU affinity, both SwiftShader backends; unsmoothed rAF cadence, not GPU-complete latency",
+    "runtimeBudgetLogSha256": "sha256:6ca9ad5a6de8cf68657f2712d4ea079751ce0762683c9c6099f2498f32ee0f9b",
+    "runtimeBudgetChecks": [
+      {
+        "backend": "webgpu",
+        "textureBytes": 4797540,
+        "firstSceneRenderMs": 142.39999997615814,
+        "frameTimeMs": 16.799999999999727,
+        "entityCount": 15,
+        "patchApplicationMs": 0.2999999523162842,
+        "reconnectMs": 904.1999999284744
+      },
+      {
+        "backend": "webgl2",
+        "textureBytes": 4797540,
+        "firstSceneRenderMs": 162.19999992847443,
+        "frameTimeMs": 16.700000000000273,
+        "entityCount": 15,
+        "patchApplicationMs": 0.8999999761581421,
+        "reconnectMs": 1054.5
+      }
+    ],
+    "oneCoreWebgpuSource": "timeout 600 taskset -c 0 env CI=true CLOCKGROVE_RENDERER_PROOF=webgpu node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts tests/e2e/living-yard.journey.browser.test.mjs; renderer source matches 190ff17",
+    "oneCoreWebgpuLogSha256": "sha256:a4cf0485870afc30e08c392a0dab2794d538a5bc2cc292215db297c06a136735",
+    "oneCoreWebgpuBudgetCheck": {
+      "backend": "webgpu",
+      "textureBytes": 4797540,
+      "firstSceneRenderMs": 870.6000000238419,
+      "frameTimeMs": 16.700000000000728,
+      "entityCount": 15,
+      "patchApplicationMs": 0.20000004768371582,
+      "reconnectMs": 956.7999999523163
     }
   }
 }

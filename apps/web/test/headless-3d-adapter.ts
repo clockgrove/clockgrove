@@ -41,9 +41,9 @@ export interface Headless3DNode {
 }
 /**
  * The headless 3D adapter fixture (Wave 4 plan §3.1): a second renderer consumer that builds a 3D
- * scene graph from the renderer-neutral scene, without canvas or Phaser. Scenes pass through the
+ * scene graph from the renderer-neutral scene, without canvas or a renderer SDK. Scenes pass through the
  * projection reducer, so an older revision never replaces a newer one, and picking a node emits the
- * same selection intent as the Phaser path.
+ * same selection intent as the live WebGL2 path.
  */
 export class Headless3DAdapter implements WorldSceneAdapter {
   revision: bigint | undefined;

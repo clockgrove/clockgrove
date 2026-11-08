@@ -66,8 +66,8 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | `docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md` | 1.0 | Accepted | Substantial sequential workstreams, Objective checkpoints/readiness, proportionate qualification and comparison rules |
 | `docs/adr/clockgrove-adr-field-guides-and-counterfactual-why.md` | 1.0 | Accepted | Resident-authored evolving knowledge, governed sharing/testimony, and bounded deterministic counterfactual Why |
 | `docs/adr/clockgrove-adr-actor-decision-ladder.md` | 1.0 | Accepted | Actor decision ladder: reflex, utility, compiled policy, bounded decision model, LLM; decision points in actor policy, models propose never commit, journal replay, deterministic fallback, distillation into compiled policy, dreaming steps as decision points |
-| `docs/adr/clockgrove-adr-renderer-bake-off.md` | 0.1 | Draft | None until accepted: renderer bake-off evidence for the owner's pick of the lit 2.5D browser renderer (issue 67); §20.4 Phaser 4 stays current |
 | `docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md` | 0.4 | Draft | None until accepted: 3D Stevie spike evidence for the owner's pick of real-time 3D, 2D sheets or 3D rendered to sprites for characters (issue 77) |
+| `docs/adr/clockgrove-adr-renderer-bake-off.md` | 1.0 | Accepted | Three.js WebGPURenderer with automatic WebGL2 fallback and TSL; supersedes Phaser rendering in architecture §20 and PRD stack rows (issues 67, 74) |
 
 
 ---
@@ -80,7 +80,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 1 | `clockgrove-wave-1-world-kernel-implementation-plan.md` | 1.6 | Deterministic kernel, immutable world packs/genesis and renderer-neutral spatial/index contracts |
 | 2 | `clockgrove-wave-2-journal-replay-implementation-plan.md` | 1.7 | PostgreSQL journal, world lifecycle, replay and attribution persistence |
 | 3 | `clockgrove-wave-3-actor-fabric-implementation-plan.md` | 1.11 | Cloudflare actor fabric, runtime coordinator, perpetual scheduling and provisioning |
-| 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality React/Phaser projection, readiness/navigation and full-3D adapter compatibility |
+| 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality React/Three.js projection, readiness/navigation and full-3D adapter compatibility |
 | 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.9 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
 | 6 | `clockgrove-wave-6-context-memory-learning-implementation-plan.md` | 1.7 | Memory, relationships, governed cognitive documents, bounded compiled-policy learning, field guides and provenance |
 | 7 | `clockgrove-wave-7-rules-timelines-authoring-implementation-plan.md` | 1.8 | Rules, preview timelines, bounded counterfactual Why, previewed pack upgrades and reusable exports |
@@ -139,7 +139,7 @@ External tools such as `clockgrove/factory` may plan and deliver work through Gi
 - Effective mobility inherits world → space → role/persona → archetype → instance, narrow-only and deny-wins. Mobility and use capabilities are independent.
 - Logical actor identity does not imply a resident process, model call or Durable Object.
 - One million logical actors per world is a qualification target; active, visible and cognitive work remains bounded.
-- Initial loose-quadtree indexing, Phaser rendering and bounded reactive runs are implementations behind durable spatial, scene and `ActorProcess` contracts.
+- Initial loose-quadtree indexing, Three.js rendering and bounded reactive runs are implementations behind durable spatial, scene and `ActorProcess` contracts.
 - Future 3D and selectively long-running agent capabilities are protected by conformance seams rather than prebuilt machinery.
 - All payment/customer/invoice/refund/dispute/tax integration is Management-only. Worlds do not require separate payment-provider customers, subscriptions or meters.
 - Factory cognition and Clockgrove runtime cognition are separate systems and data planes.

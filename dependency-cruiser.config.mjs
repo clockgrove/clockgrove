@@ -71,11 +71,11 @@ export const forbidden = [
     name: "renderer-libraries-confined-to-web",
     severity: "error",
     comment:
-      "Runtime and shared packages never import React or Phaser (Wave 4 plan §5); they belong to apps/web.",
+      "Runtime and shared packages never import React or renderer SDKs (Wave 4 plan §5); they belong to apps/web.",
     from: {
       path: "^(?:apps/runtime|packages)/|^tests/dependency-boundaries/forbidden-renderer-libraries\\.ts$",
     },
-    to: { path: "(?:^|node_modules/)(?:@types/)?(?:react|react-dom|phaser)(?:/|$)" },
+    to: { path: "(?:^|node_modules/)(?:@types/)?(?:react|react-dom|phaser|three)(?:/|$)" },
   },
   {
     name: "no-production-to-testkit",

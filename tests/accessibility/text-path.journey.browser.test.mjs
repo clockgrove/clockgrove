@@ -100,29 +100,32 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await server.listen();
       browser = await chromium.launch({
         headless: true,
-        args: ["--disable-webgl", "--disable-webgl2"],
+        args: ["--disable-webgl", "--disable-webgl2", "--disable-blink-features=WebGPU"],
       });
       const { port } = server.httpServer.address();
-      // WebGL unavailable with the renderer loaded: Phaser.AUTO falls back to a 2D canvas (scene_ready).
+      // WebGL2 unavailable with the renderer loaded: the complete text scene remains ready.
       const probe = await browser.newPage();
+      const rendererErrors = [];
+      probe.on("pageerror", (error) => rendererErrors.push(error.message));
       await probe.goto(`http://127.0.0.1:${port}/`);
       await probe.getByLabel("Local session credential").fill("yard-inspect");
       await probe.getByRole("button", { name: "Sign in", exact: true }).click();
       await probe
         .getByLabel("World", { exact: true })
         .selectOption({ label: `${scope.worldId} / ${scope.spaceId}` });
-      await probe.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+      await probe.getByText(/^Arrival: text scene ready at revision /u).waitFor();
       expect([
         await probe.getByText(/^Arrival: /u).textContent(),
         await probe.evaluate(() => document.createElement("canvas").getContext("webgl") === null),
         await probe.locator("canvas").count(),
         await probe.getByRole("region", { name: "Living scene" }).count(),
       ]).toEqual([
-        `Arrival: scene ready at revision ${(await read("/v1/runtime/scene", decodeLivingScene)).revision}.`,
+        `Arrival: text scene ready at revision ${(await read("/v1/runtime/scene", decodeLivingScene)).revision}; renderer unavailable.`,
         true,
-        1,
+        0,
         1,
       ]);
+      expect(rendererErrors).toEqual([]);
       await probe.close();
       const page = await browser.newPage({ reducedMotion: "reduce" });
       await page.addInitScript(() => {
