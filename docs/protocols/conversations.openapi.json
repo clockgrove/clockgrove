@@ -717,7 +717,7 @@
     "/v1/runtime/talk": {
       "post": {
         "summary": "Private Caretaker Talk",
-        "description": "Appends the participant's message and the actor's answer (the scripted model fixture) to an active session in one turn. Never spatial speech. An exact retry of a message ID returns its stored receipt; other text under it answers `409 message_id_reused`. `409 conversation_not_active`, `conversation_full` (1,000 messages) or `conversation_busy` (a concurrent message won).",
+        "description": "Accepts the participant's message as a recoverable turn in the session actor's owner (`ActorAgentDO`) and answers when it commits: the message and the actor's answer (the scripted model fixture) are appended together. Never spatial speech. The message ID is the turn's key: a retry or duplicate delivery joins, resumes or returns the same turn and never adds a message; other text under it answers `409 message_id_reused`. `409 conversation_busy` while another turn of the session is open, `conversation_not_active`, `conversation_full` (1,000 messages), or `turn_cancelled`. With `Accept: application/x-ndjson` the answer streams `TalkStreamFrame` lines: disposable `delta` tokens, then one `receipt` or `refused` frame. `503 turn_interrupted` (or a stream without a final frame) means the owner failed mid-turn: resend the same message ID.",
         "security": [
           {
             "bearer": []
@@ -784,6 +784,11 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TalkReceipt"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/TalkStreamFrame"
                 }
               }
             }
@@ -965,6 +970,266 @@
             }
           },
           "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/turns/status": {
+      "post": {
+        "summary": "A turn's durable status",
+        "description": "What a reconnecting client reads instead of streamed tokens. Reading it also lets the actor's owner resume the participant's open turns.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "messageId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`turn_not_found` or `conversation_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/turns/cancel": {
+      "post": {
+        "summary": "Cancel a turn",
+        "description": "Cancels a turn that has not started committing: it commits no message and its run ends `cancelled`. A turn already committing or finished answers its status unchanged.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "messageId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`turn_not_found` or `conversation_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Refused: `{\"error\": code}`.",
             "content": {
               "application/json": {
@@ -1383,6 +1648,109 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 1024
+          }
+        }
+      },
+      "TalkStreamFrame": {
+        "description": "One NDJSON line of a streamed Talk.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "delta"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "receipt"
+            ],
+            "properties": {
+              "type": {
+                "const": "receipt"
+              },
+              "receipt": {
+                "$ref": "#/components/schemas/TalkReceipt"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "status",
+              "error"
+            ],
+            "properties": {
+              "type": {
+                "const": "refused"
+              },
+              "status": {
+                "type": "integer"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "TurnStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "messageId",
+          "phase",
+          "attempt",
+          "outcomeCode"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "accepted",
+              "context_pending",
+              "context_ready",
+              "model_running",
+              "proposal_validating",
+              "committing",
+              "finalizing",
+              "completed",
+              "rejected",
+              "cancelled",
+              "failed",
+              "abandoned"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Owner claims so far; each opened one run."
+          },
+          "outcomeCode": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

@@ -15,6 +15,7 @@ const allowedLicenses = new Set([
   "BSD-3-Clause",
   "ISC",
   "0BSD",
+  "MIT-0",
   "CC0-1.0",
   "CC-BY-4.0",
   "Python-2.0",

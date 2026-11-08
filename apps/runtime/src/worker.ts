@@ -84,10 +84,13 @@ import {
 import {
   CONVERSATION_REFUSAL_STATUS,
   CONVERSATION_ROUTES,
+  type ConversationCall,
   ConversationRefusedError,
   type ConversationRoute,
   type ConversationStores,
   conversationCall,
+  lastTalkFrame,
+  type TurnOwners,
 } from "./conversations.js";
 import {
   type CausalEntryInput,
@@ -217,6 +220,8 @@ export interface RuntimeOwnerBindings {
   };
   /** Private conversations; absent when no artifact keyring is bound, so they fail closed. */
   readonly conversations?: ConversationStores;
+  /** The actor owners that run Talk turns (`ActorAgentDO`); absent, Talk fails closed too. */
+  readonly turns?: TurnOwners;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
@@ -923,7 +928,12 @@ export class RuntimeWorker {
         const refused = await this.unaddressable(call.scope, call.actorId, context, note);
         if (refused !== undefined) return refused;
       }
-      const answer = await stores((store) => call.run(store, { ...context, personaId }));
+      const participant = { ...context, personaId };
+      if (call.owner !== undefined)
+        return await this.turn(request, note, call.scope, call.owner, participant, context);
+      if (call.run === undefined) throw new Error("conversation call has no store operation");
+      const run = call.run;
+      const answer = await stores((store) => run(store, participant));
       note.outcome = "read";
       return jsonResponse(answer);
     } catch (error) {
@@ -933,6 +943,59 @@ export class RuntimeWorker {
       }
       return this.observationRefusal(note, error);
     }
+  }
+
+  /**
+   * A call its session's actor owner answers. Talk streams NDJSON when the client asks for it with
+   * `Accept: application/x-ndjson`; otherwise it answers the stream's last frame as JSON. An owner
+   * lost before the outcome (its stream ends early, or the platform reports the object reset or
+   * disconnected) answers `503 turn_interrupted`: the turn is durable, so the same message ID
+   * resumes it. Every other owner error falls through to the route's error mapping.
+   */
+  private async turn(
+    request: Request,
+    note: RequestNote,
+    scope: BrowserScope,
+    owner: NonNullable<ConversationCall["owner"]>,
+    participant: Parameters<NonNullable<ConversationCall["run"]>>[1],
+    context: TrustedContext,
+  ): Promise<Response> {
+    const owners = this.bindings.turns;
+    const stores = this.bindings.conversations;
+    if (owners === undefined || stores === undefined) {
+      note.outcome = "unavailable";
+      return jsonResponse({ error: "conversation_unavailable" }, 503);
+    }
+    const actorId = await stores((store) => store.actorOf(participant, scope, owner.sessionId));
+    let answer: Awaited<ReturnType<typeof owner.run>>;
+    try {
+      answer = await owner.run(owners, actorId, participant, context);
+    } catch (error) {
+      // Only a lost owner (reset, evicted or disconnected) interrupts the turn; any other failure
+      // keeps the route's own error mapping.
+      if (!ownerInterrupted(error)) throw error;
+      note.outcome = "unavailable";
+      return jsonResponse({ error: "turn_interrupted" }, 503);
+    }
+    if (answer instanceof ReadableStream) {
+      note.outcome = "read";
+      if (request.headers.get("accept")?.includes("application/x-ndjson"))
+        return new Response(answer, { headers: { "content-type": "application/x-ndjson" } });
+      const last = await lastTalkFrame(answer);
+      if (last === undefined || last.type === "delta") {
+        note.outcome = "unavailable";
+        return jsonResponse({ error: "turn_interrupted" }, 503);
+      }
+      if (last.type === "receipt") return jsonResponse(last.receipt);
+      note.outcome = "conflict";
+      return jsonResponse({ error: last.error }, last.status);
+    }
+    if (answer.refused !== undefined) {
+      note.outcome = answer.refused.endsWith("not_found") ? "refused" : "conflict";
+      return jsonResponse({ error: answer.refused }, CONVERSATION_REFUSAL_STATUS[answer.refused]);
+    }
+    note.outcome = "read";
+    return jsonResponse(answer.value);
   }
 
   /**
@@ -1519,4 +1582,14 @@ function worldResult(
 
 function worldResultStatus(result: WorldCommandResult): number {
   return result.outcome === "committed" ? 200 : result.value.status === "denied" ? 403 : 409;
+}
+
+/**
+ * Whether a Durable Object call failed because its object was lost, not because it refused: the
+ * platform marks such errors `retryable` (disconnected) or `durableObjectReset` (reset or aborted).
+ */
+function ownerInterrupted(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const marks = error as { readonly retryable?: unknown; readonly durableObjectReset?: unknown };
+  return marks.retryable === true || marks.durableObjectReset === true;
 }

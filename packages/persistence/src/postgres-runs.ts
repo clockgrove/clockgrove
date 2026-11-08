@@ -21,12 +21,6 @@ type Row = Record<string, unknown>;
 /** The scripted model fixture's identity on its runs (Wave 5 §17). */
 export const SCRIPTED_MODEL = "scripted-fixture-v1";
 export const SCRIPTED_PROMPT_VERSION = CONTEXT_PROMPT_VERSION;
-/**
- * Decision: an attempt still running 60 s after it started is abandoned when its session next
- * talks. A Talk attempt is one request whose scripted model answers in-process, so only a dead
- * request leaves one open that long. RW-0503's turn fibers replace this with leases.
- */
-export const STALE_RUN_SECONDS = 60;
 /** Decision: a walk returns at most this many runs, as one conversation read page. */
 const MAX_WALK_RUNS = 100;
 
@@ -87,20 +81,10 @@ export class PostgreSqlRunRecorder {
   }
 
   /**
-   * Closes the session's attempts that will never close themselves, then opens a Talk run with its
-   * running model attempt. An open attempt at the same message is superseded by this retry; any
-   * other still running after `STALE_RUN_SECONDS` is abandoned.
+   * Opens a Talk run with its running model attempt. The turn fiber that claims it (0038) closes
+   * its previous attempt first, so no attempt is left open.
    */
   async beginTalk(start: TalkRunStart): Promise<void> {
-    await this.client.query(
-      `UPDATE clockgrove.agent_runs
-          SET status = CASE WHEN input_message_id = $3 THEN 'superseded' ELSE 'abandoned' END,
-              outcome_code = CASE WHEN input_message_id = $3 THEN 'retried' ELSE 'stale' END
-        WHERE tenant_id = $1 AND session_id = $2 AND status = 'running'
-          AND (input_message_id = $3
-               OR started_at < statement_timestamp() - make_interval(secs => $4))`,
-      [start.tenantId, start.sessionId, start.inputMessageId, STALE_RUN_SECONDS],
-    );
     await this.client.query(
       `INSERT INTO clockgrove.agent_runs (
          tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,

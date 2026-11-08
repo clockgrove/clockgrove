@@ -5,6 +5,9 @@ import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
   type CatchUpWorkflowEnvelope,
+  type ConversationParticipant,
+  ConversationRefusedError,
+  type ConversationStore,
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
@@ -17,6 +20,7 @@ import {
   type RuntimeLogger,
   recordMetric,
   runtimeLogRecord,
+  type TurnFiber,
   type WorldCommandResult,
   WorldGenesisDefectError,
   type WorldProvisioningPorts,
@@ -24,7 +28,9 @@ import {
   type WorldProvisioningStore,
 } from "@clockgrove/application";
 import {
+  type ActorProcess,
   ContractDecodeError,
+  decodeOpaqueId,
   decodeSceneConnectionAttachment,
   encodeOperatorSceneMessage,
   encodeSceneConnectionControl,
@@ -34,6 +40,10 @@ import {
   type SceneConnectionAttachment,
   type SceneDisconnectReason,
   type SubjectId,
+  type TalkRequest,
+  type TalkStreamFrame,
+  type TurnRequest,
+  type TurnStatus,
 } from "@clockgrove/contracts";
 import {
   constructTrustedExecutionContext,
@@ -45,18 +55,34 @@ import {
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
+import { Agent, type FiberRecoveryContext } from "agents";
 
 import {
+  type ActorAgentRecovery,
+  type DirectMessageActivation,
+  PerceptionInbox,
+  TurnFibers,
+} from "./actor-agent.js";
+import {
+  composeConversations,
   composeRuntime,
   type RuntimeEnvironment,
   reconcileWorldCatchUp,
   reconcileWorldProvisioning,
   runtimeLogger,
+  withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
   worldReactionNotifier,
 } from "./cloudflare-entry.js";
 import { analyticsEngineMetrics } from "./cloudflare-metrics.js";
+import {
+  CONVERSATION_REFUSAL_STATUS,
+  type ConversationStores,
+  encodeTalkFrame,
+  scriptedConversationReply,
+  type TurnOwnerAnswer,
+} from "./conversations.js";
 import { INSPECT_GRANT, OBSERVE_GRANT, type OwnerRuntimeState } from "./inspector.js";
 import type { RuntimeLocalStorage } from "./local-storage.js";
 import {
@@ -1124,27 +1150,335 @@ export class SpaceDO extends OwnerAdapter {
     return new owners.SpaceDO(this.options(scope));
   }
 }
-export class ActorAgentDO extends OwnerAdapter {
-  async initialize(scope: RuntimeScope, context: TrustedExecutionContext, subjectId: SubjectId) {
-    return this.state.blockConcurrencyWhile(() =>
-      this.initializeShell(
-        new owners.ActorAgentDO({ ...this.options(scope), subjectId }),
-        scope,
-        context,
-      ),
-    );
+/** Where one actor's turn fiber is, for the Agents SDK's interrupted-work recovery. */
+interface TurnFiberSnapshot {
+  readonly participant: ConversationParticipant;
+  readonly scope: RuntimeScope;
+  readonly actorId: string;
+  readonly sessionId: string;
+  readonly messageId: string;
+}
+
+const RECOVERY_KEY = "actor-agent-recovery";
+const INBOX_KEY = "actor-agent-inbox";
+
+/**
+ * The per-actor cognitive owner (Wave 5 §7, RW-0503 with RW-0307), on the pinned Agents SDK. It runs
+ * each Caretaker message as a turn fiber checkpointed in PostgreSQL, streams its reply, and resumes
+ * open turns after eviction: through the SDK's fiber recovery when its local storage survives, and
+ * from PostgreSQL at the participant's next call when it does not. Local storage holds only the
+ * runtime state, the inbox, recovery metadata and the SDK's fiber rows, all rebuildable.
+ */
+export class ActorAgentDO extends Agent<RuntimeEnvironment> {
+  protected readonly instanceId = `cloudflare:${crypto.randomUUID()}` as RuntimeInstanceId;
+  private recovery: ActorAgentRecovery | undefined;
+  private inbox: PerceptionInbox | undefined;
+  private readonly recoveredFor = new Set<string>();
+  #fibers: TurnFibers | undefined;
+
+  /** The SDK's `ctx` and `env`, typed by this module's portable declarations. */
+  protected get objectState(): DurableObjectState {
+    return (this as unknown as { readonly ctx: DurableObjectState }).ctx;
   }
+  private get environment(): RuntimeEnvironment {
+    return (this as unknown as { readonly env: RuntimeEnvironment }).env;
+  }
+
+  private get local(): RuntimeLocalStorage {
+    return {
+      read: () => this.objectState.storage.get<RuntimeLocalState>("runtime-local-state"),
+      replace: (value) => this.objectState.storage.put("runtime-local-state", value),
+    };
+  }
+
+  private shell(scope: RuntimeScope, subjectId: SubjectId) {
+    const route = this.objectState.id.name;
+    if (route === undefined) throw new Error("named runtime route required");
+    const dependencies = composeRuntime(this.environment);
+    return new owners.ActorAgentDO({
+      scope,
+      routeName: route,
+      runtimeInstanceId: this.instanceId,
+      storage: this.local,
+      canonical: dependencies.canonical,
+      subjectId,
+    });
+  }
+
+  async initialize(scope: RuntimeScope, context: TrustedExecutionContext, subjectId: SubjectId) {
+    return this.objectState.blockConcurrencyWhile(async () => {
+      const result = await this.shell(scope, subjectId).initialize(context);
+      await this.loadRecovery();
+      return result;
+    });
+  }
+
   async validateRequestEpochs(
     scope: RuntimeScope,
     context: TrustedExecutionContext,
     subjectId: SubjectId,
     epochs: RuntimeEpochs,
   ) {
-    return this.state.blockConcurrencyWhile(async () => {
-      const shell = new owners.ActorAgentDO({ ...this.options(scope), subjectId });
-      await this.initializeShell(shell, scope, context);
+    return this.objectState.blockConcurrencyWhile(async () => {
+      const shell = this.shell(scope, subjectId);
+      await shell.initialize(context);
       shell.validateRequestEpochs(epochs);
     });
+  }
+
+  /** Talk: accepts the message as a turn and answers its NDJSON stream of `TalkStreamFrame`s. */
+  async talk(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    request: TalkRequest,
+  ): Promise<ReadableStream<Uint8Array>> {
+    await this.ready(scope, context, actorId);
+    await this.recoverOnce(scope, participant, actorId);
+    const { admitted } = await this.receivePerception({ kind: "direct_message", ...request });
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const write = (frame: TalkStreamFrame) =>
+      void writer.write(encodeTalkFrame(frame)).catch(() => undefined);
+    const done = this.fibers(scope, actorId)
+      .talk(participant, request, write, admitted)
+      .then(async (outcome) => {
+        write(
+          outcome.receipt !== undefined
+            ? { type: "receipt", receipt: outcome.receipt }
+            : {
+                type: "refused",
+                status: CONVERSATION_REFUSAL_STATUS[outcome.refused],
+                error: outcome.refused,
+              },
+        );
+        await writer.close();
+      })
+      .catch(async (error: unknown) => {
+        if (error instanceof ConversationRefusedError) {
+          write({
+            type: "refused",
+            status: CONVERSATION_REFUSAL_STATUS[error.code],
+            error: error.code,
+          });
+          await writer.close();
+        } else await writer.abort(error);
+      });
+    this.objectState.waitUntil(done);
+    return readable;
+  }
+
+  /** A turn's durable status; reading it also resumes the turn if this owner is not running it. */
+  async turnStatus(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    request: TurnRequest,
+  ): Promise<TurnOwnerAnswer<TurnStatus>> {
+    return this.answer(scope, context, participant, actorId, (store) =>
+      store.turnStatus(participant, request),
+    );
+  }
+
+  async cancelTurn(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    request: TurnRequest,
+  ): Promise<TurnOwnerAnswer<TurnStatus>> {
+    return this.answer(scope, context, participant, actorId, (store) =>
+      store.cancelTurn(participant, request),
+    );
+  }
+
+  /**
+   * The perception inbox: whether the activation is new to this owner. A duplicate is not admitted
+   * again; the turn's key in PostgreSQL still decides, so a forgotten key is harmless.
+   */
+  async receivePerception(
+    activation: DirectMessageActivation,
+  ): Promise<{ readonly admitted: boolean }> {
+    this.inbox ??= new PerceptionInbox(
+      (await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? [],
+    );
+    const admitted = this.inbox.admit(activation);
+    if (admitted) await this.objectState.storage.put(INBOX_KEY, this.inbox.snapshot());
+    return { admitted };
+  }
+
+  /**
+   * The capability revision hook (RW-0506 will announce grant changes here). The revision only
+   * moves forward; each later claim of a turn records the revision it ran under.
+   */
+  async reconcileCapabilities(revision: number): Promise<ActorAgentRecovery> {
+    const recovery = await this.loadRecovery();
+    if (revision > recovery.capabilityRevision)
+      await this.saveRecovery({ ...recovery, capabilityRevision: revision });
+    return this.loadRecovery();
+  }
+
+  /** The owner's rebuildable state, for inspection. */
+  async inspectAgent(): Promise<{
+    readonly recovery: ActorAgentRecovery;
+    readonly inbox: readonly string[];
+    readonly running: number;
+  }> {
+    this.inbox ??= new PerceptionInbox(
+      (await this.objectState.storage.get<string[]>(INBOX_KEY)) ?? [],
+    );
+    return {
+      recovery: await this.loadRecovery(),
+      inbox: this.inbox.snapshot(),
+      running: this.#fibers?.active ?? 0,
+    };
+  }
+
+  /**
+   * One bounded segment of an `ActorProcess`: a new lease epoch, then one checkpoint at most `steps`
+   * further. The process ID is stable across segments and incarnations.
+   */
+  async advanceProcess(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    input: {
+      readonly processId: string;
+      readonly actorId: string;
+      readonly target: number;
+      readonly steps: number;
+    },
+  ): Promise<ActorProcess> {
+    assertWorldCommandContext(context, scope);
+    const authorization = worldAuthorization(context);
+    return withActorProcesses(this.environment, async (processes) => {
+      await processes.start(authorization, scope, input);
+      const lease = await processes.claim(authorization, input.processId, this.instanceId);
+      if (lease !== undefined) {
+        const next = Math.min(lease.target, lease.checkpoint + input.steps);
+        await processes.segment(
+          authorization,
+          input.processId,
+          { leaseEpoch: lease.leaseEpoch, holder: this.instanceId },
+          lease.checkpoint,
+          next,
+        );
+      }
+      return processes.read(authorization, input.processId);
+    });
+  }
+
+  /** The SDK found a turn fiber this owner's last incarnation did not finish: resume its turns. */
+  override async onFiberRecovered(context: FiberRecoveryContext): Promise<void> {
+    const snapshot = context.snapshot as TurnFiberSnapshot | null;
+    if (!context.name.startsWith("turn:") || snapshot === null) return;
+    await this.fibers(snapshot.scope, snapshot.actorId).recover(
+      snapshot.participant,
+      snapshot.scope,
+      snapshot.actorId,
+    );
+  }
+
+  /**
+   * Called after each durable checkpoint of a turn. Production records nothing more: the checkpoint
+   * is already in PostgreSQL. The native test owner ends its incarnation here to inject a crash.
+   */
+  protected async turnCheckpointed(_fiber: TurnFiber, _phase: string): Promise<void> {}
+
+  private async answer(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    operation: (store: ConversationStore) => Promise<TurnStatus>,
+  ): Promise<TurnOwnerAnswer<TurnStatus>> {
+    await this.ready(scope, context, actorId);
+    try {
+      return { value: await this.stores()(operation) };
+    } catch (error) {
+      if (error instanceof ConversationRefusedError) return { refused: error.code };
+      throw error;
+    } finally {
+      // After the answer, so a cancel stops the turn before this owner would resume it.
+      await this.recoverOnce(scope, participant, actorId);
+    }
+  }
+
+  /** Initializes this incarnation once: its route, canonical readiness and recovery metadata. */
+  private async ready(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    actorId: string,
+  ): Promise<void> {
+    if (this.recovery?.incarnation !== this.instanceId)
+      await this.initialize(scope, context, decodeOpaqueId(actorId, "SubjectId"));
+  }
+
+  /**
+   * Resumes the participant's open turns with this actor, once an incarnation: what an owner that
+   * lost its local storage, and so the SDK's fiber rows, still owes.
+   */
+  private async recoverOnce(
+    scope: RuntimeScope,
+    participant: ConversationParticipant,
+    actorId: string,
+  ): Promise<void> {
+    const key = `${participant.tenantId}:${participant.principalId}`;
+    if (this.recoveredFor.has(key)) return;
+    this.recoveredFor.add(key);
+    const recovered = await this.fibers(scope, actorId).recover(participant, scope, actorId);
+    if (recovered > 0) {
+      const recovery = await this.loadRecovery();
+      await this.saveRecovery({ ...recovery, recoveredTurns: recovery.recoveredTurns + recovered });
+    }
+  }
+
+  private async loadRecovery(): Promise<ActorAgentRecovery> {
+    if (this.recovery?.incarnation === this.instanceId) return this.recovery;
+    const stored = await this.objectState.storage.get<ActorAgentRecovery>(RECOVERY_KEY);
+    await this.saveRecovery({
+      schemaVersion: 1,
+      incarnation: this.instanceId,
+      incarnations: (stored?.incarnations ?? 0) + 1,
+      capabilityRevision: stored?.capabilityRevision ?? 0,
+      recoveredTurns: 0,
+    });
+    return this.recovery as unknown as ActorAgentRecovery;
+  }
+
+  private async saveRecovery(recovery: ActorAgentRecovery): Promise<void> {
+    this.recovery = recovery;
+    await this.objectState.storage.put(RECOVERY_KEY, recovery);
+  }
+
+  private stores(): ConversationStores {
+    const stores = composeConversations(this.environment);
+    if (stores === undefined) throw new Error("conversation keyring required");
+    return stores;
+  }
+
+  private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
+    this.#fibers ??= new TurnFibers({
+      holder: this.instanceId,
+      actorId,
+      stores: this.stores(),
+      respond: scriptedConversationReply,
+      capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
+      checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
+      durable: (fiber, participant, run) =>
+        this.runFiber(`turn:${fiber.sessionId}:${fiber.messageId}`, async (fiberContext) => {
+          fiberContext.stash({
+            participant,
+            scope,
+            actorId,
+            sessionId: fiber.sessionId,
+            messageId: fiber.messageId,
+          } satisfies TurnFiberSnapshot);
+          return run();
+        }),
+    });
+    return this.#fibers;
   }
 }
 

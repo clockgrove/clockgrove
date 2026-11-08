@@ -36,6 +36,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
+  PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
   PostgreSqlCatchUpWorkflowStore,
   type PostgreSqlClient,
@@ -73,7 +74,7 @@ import {
 } from "./cloudflare-logs.js";
 import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflare-metrics.js";
 import { PostgreSqlCognitionInspector } from "./cognition.js";
-import type { ConversationStores } from "./conversations.js";
+import type { ConversationStores, TurnOwners } from "./conversations.js";
 import { withHyperdrivePostgreSqlClient } from "./hyperdrive-postgres.js";
 import {
   PostgreSqlCausalInspector,
@@ -313,6 +314,52 @@ export function composeConversations(
   };
 }
 
+/** `ActorProcess` state over this invocation's connection (migration 0038). */
+export function withActorProcesses<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (processes: PostgreSqlActorProcesses) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    operation(new PostgreSqlActorProcesses(client)),
+  );
+}
+
+/** Talk turns run in the session actor's `ActorAgentDO`, over Workers RPC. */
+export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO">): TurnOwners {
+  const owner = async (scope: BrowserScope, actorId: string) =>
+    env.ACTOR_AGENT_DO.get(
+      env.ACTOR_AGENT_DO.idFromName(
+        await runtimeRouteName("actor-agent", scope, decodeOpaqueId(actorId, "SubjectId")),
+      ),
+    );
+  return {
+    talk: async (actorId, participant, context, request) =>
+      (await owner(request.scope, actorId)).talk(
+        request.scope,
+        context,
+        participant,
+        actorId,
+        request,
+      ),
+    status: async (actorId, participant, context, request) =>
+      (await owner(request.scope, actorId)).turnStatus(
+        request.scope,
+        context,
+        participant,
+        actorId,
+        request,
+      ),
+    cancel: async (actorId, participant, context, request) =>
+      (await owner(request.scope, actorId)).cancelTurn(
+        request.scope,
+        context,
+        participant,
+        actorId,
+        request,
+      ),
+  };
+}
+
 /**
  * Run walks and search (0036) under the conversations' keyring: a walk decrypts a protected
  * payload for a reader whose ceiling holds its class. Absent without the keyring, so they fail
@@ -541,7 +588,18 @@ export interface RuntimeEnvironment {
       Partial<Pick<SpaceDO, "catchUp" | "prepareCatchUp" | "runtimeState" | "fetch">>
   >;
   readonly ACTOR_AGENT_DO: DurableObjectNamespace<
-    Pick<ActorAgentDO, "initialize" | "validateRequestEpochs">
+    Pick<
+      ActorAgentDO,
+      | "initialize"
+      | "validateRequestEpochs"
+      | "talk"
+      | "turnStatus"
+      | "cancelTurn"
+      | "receivePerception"
+      | "reconcileCapabilities"
+      | "inspectAgent"
+      | "advanceProcess"
+    >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;
   readonly COGNITIVE_INDEXING_QUEUE: QueueBinding;
@@ -877,7 +935,7 @@ export default {
           );
         },
         journal: dependencies.journal,
-        ...(conversations === undefined ? {} : { conversations }),
+        ...(conversations === undefined ? {} : { conversations, turns: composeTurnOwners(env) }),
         ...(runs === undefined ? {} : { runs }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>

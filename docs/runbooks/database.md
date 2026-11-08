@@ -647,6 +647,27 @@ Migration `0037_actor_documents.sql` (Wave 5 RW-0505, issue 17) holds `actor_doc
 - **Audit:** 0037 adds the `context-manifest` and `actor-documents` subjects to
   `inspector_accesses`.
 
+## Turn fibers and actor processes
+
+Migration `0038_turn_fibers.sql` (Wave 5 RW-0503, issue 18) holds `conversation_turn_fibers`,
+`actor_processes` and `actor_process_segments`. See
+[recoverable turn fibers](../protocols/conversation-fibers.md).
+
+- **Policies:** a turn fiber has the participant policy of a session's turns (0034): only a
+  participant under a `conversation` ceiling sees or writes it, as themselves. Processes and
+  segments have tenant isolation (`has_runtime_context`).
+- **State machine:** `guard_turn_fiber` starts every turn `accepted` at attempt and lease epoch 0,
+  moves its phase only forward in §7.1 order, freezes a terminal turn and a checkpointed answer,
+  and lets the lease epoch only grow, with each claim one attempt. It admits at most 1,000 turns a
+  session (`CG021`). A unique partial index allows one open turn a session. The runtime role may
+  update only the checkpoint columns.
+- **Processes:** `guard_actor_process` keeps a process's lease epoch, checkpoint and segment count
+  from decreasing and gives a completed process no new lease. `append_actor_process_segment` admits
+  a segment only under the process's current lease epoch and holder (`CG022` otherwise), only from
+  its checkpoint, and moves the checkpoint (at most 64 segments). The runtime role may update only
+  a process's lease. Segments never change.
+- DELETE and TRUNCATE are refused on all three. Retention: see `db/retention.json`.
+
 ## Snapshots
 
 Migration `0013_partition_snapshots.sql` (RW-0208, issue 677) constrains `snapshots`.

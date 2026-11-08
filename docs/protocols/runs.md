@@ -6,8 +6,9 @@ one terminal disposition. Raw model input and output are protected artifacts. Me
 raw text. An inspector walks from a conversation turn to what it committed and back.
 
 Today every run is a Caretaker Talk attempt ([private conversations](conversations.md)), answered by
-the scripted model fixture. The schema and the walk already take tool, approval and world-command
-steps. Their producers are RW-0503 (turn fibers) and RW-0506 (capabilities).
+the scripted model fixture, inside a recoverable turn fiber ([turn fibers](conversation-fibers.md)):
+each claim of a turn by its owner is one run. The schema and the walk already take tool, approval
+and world-command steps. Their producer is RW-0506 (capabilities).
 
 ## Runs and steps
 
@@ -30,7 +31,8 @@ follows, or an `outputMessageId` in the session. It records usage (`inputTokens`
 and `costMicrousd` where known. `null` means unknown, not zero. It also has its protected `input`
 and `output`.
 
-A Talk attempt records three or four steps:
+A Talk attempt records three or four steps (a resumed attempt's model step succeeds with the
+answer its turn already checkpointed):
 
 1. `context_retrieval`, written with the run and its context manifest
    ([context assembly](context-assembly.md)).
@@ -61,24 +63,24 @@ The attempt names its own disposition:
 | Disposition | When | `outcomeCode` |
 | --- | --- | --- |
 | `completed` | its turn committed | none |
-| `failed` | a refusal after the run opened, such as a concurrent message winning the sequence | the refusal code, e.g. `conversation_busy` |
-| `superseded` | a concurrent attempt at the same message stored it first | `message_stored` |
-| `superseded` | a later attempt at the same message started while this one was open | `retried` |
-| `abandoned` | an unexpected error ended the request | `attempt_failed` |
-| `abandoned` | still running 60 s after it started, when its session next talks | `stale` |
-| `running` (no disposition yet) | its request died and its session has not talked since | none |
-| `cancelled` | reserved for RW-0503 cancellation | none |
+| `failed` | a refusal after the run opened, such as the session closing before the commit | the refusal code |
+| `abandoned` | an unexpected error ended the attempt; its turn stays open for the next claim | `attempt_failed` |
+| `abandoned` | a later claim of its turn found it open: its owner incarnation was evicted or crashed | `owner_lost` |
+| `cancelled` | its turn was cancelled before committing | `cancel_requested` |
+| `superseded` | reserved; no producer since turn fibers | none |
+| `running` (no disposition yet) | its turn has not been claimed again since its owner was lost | none |
 
-Decision: 60 s. A Talk attempt is one request whose scripted model answers in-process, so only a
-dead request stays open that long. A late commit of a closed run is refused and rolled back with
-`409 conversation_busy`, so a superseded or abandoned attempt never commits a message. RW-0503
-replaces this with fiber leases.
+Turn fibers replace the earlier `superseded/retried`, `superseded/message_stored` and
+`abandoned/stale` dispositions: a retry of the same message joins or resumes its turn instead of
+starting a competing attempt, and a lost owner's attempt is closed by the next claim
+(`owner_lost`) instead of by a 60 s timeout.
 
-Known gap until RW-0503: a stale attempt is closed only by its session's next Talk, and the close
-after a failure is best effort. An attempt whose request died in a session that never talks again
-stays `running`, and search with `status: "running"` lists it. Read a `running` run whose
-`startedAt` is more than 60 s old as dead, not live. RW-0503's leases close such attempts without
-waiting for the session.
+A late commit of a closed run is refused (`CG020`) and rolls back with its messages, so an abandoned
+or cancelled attempt never commits a message. A claim after the turn committed opens no new run.
+
+Known gap: a run whose owner lost its local storage stays `running` until its turn is resumed: by
+the participant's next call to the actor, or a retry of the same message
+([turn fibers](conversation-fibers.md#known-gaps)).
 
 ## Protected payloads
 

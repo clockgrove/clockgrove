@@ -55,7 +55,13 @@ function createWorkerServer(worker, nativeOrigin) {
     server: {
       host: "127.0.0.1",
       port: 0,
-      proxy: { "/v1/projection": { target: nativeOrigin, ws: true } },
+      proxy: {
+        "/v1/projection": { target: nativeOrigin, ws: true },
+        // Talk's durable turns run in the native owner's actor Durable Objects.
+        "/v1/runtime/talk": nativeOrigin,
+        "/v1/runtime/turns": nativeOrigin,
+        "/v1/runtime/conversations": nativeOrigin,
+      },
     },
     plugins: [
       {
@@ -2484,6 +2490,48 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(new URL(yard.url()).pathname).toBe(routeOf(auth.scope));
         await yard.context().close();
         await expect.poll(async () => (await attachments(auth.scope)).length).toBe(attached);
+        // issue 18: a reload mid-conversation reconnects to the durable transcript, with no
+        // duplicate message; whatever was streamed is never what is shown.
+        await truth(
+          `UPDATE clockgrove.world_memberships SET privacy_ceiling='{"version":1,"allowedCategories":["public_scene","conversation"]}' WHERE principal_id='principal-runtime'`,
+        );
+        const talker = await observe("yard-inspect");
+        const history = talker.viewer.getByRole("list", { name: "Conversation history" });
+        const openTalk = async () => {
+          await talker.viewer
+            .getByRole("button", { name: "grove.stevie", exact: true })
+            .press("Enter");
+          await talker.viewer.getByRole("button", { name: "Talk", exact: true }).click();
+        };
+        // The native owner holds the turn after its first streamed delta, so the reload lands
+        // mid-turn: the tab's pending message is settled from /v1/runtime/turns/status and resent
+        // with the same message ID, which joins the held turn rather than starting another.
+        const stevieOwner = async (fields) => {
+          const { status, body } = await native.request(
+            "/actor-agent",
+            { scope: auth.scope, actorId: "grove.stevie", ...fields },
+            "yard-inspect",
+          );
+          if (status !== 200) throw new Error(JSON.stringify(body));
+        };
+        await stevieOwner({ op: "fault", phase: "hold:model_running:streaming" });
+        await openTalk();
+        await talker.viewer.getByRole("button", { name: "New conversation", exact: true }).click();
+        await talker.viewer.getByLabel("Message", { exact: true }).fill("hello Stevie");
+        await talker.viewer.getByRole("button", { name: "Talk privately", exact: true }).click();
+        await talker.viewer.getByText("The actor is replying…").waitFor({ timeout: 60_000 });
+        expect(await history.getByText(/Scripted fixture reply/u).count()).toBe(0);
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await talker.viewer.getByText(/^Reply in progress/u).waitFor({ timeout: 60_000 });
+        await stevieOwner({ op: "fault", phase: null });
+        await stevieOwner({ op: "release" });
+        await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
+        expect(await history.getByText("hello Stevie").count()).toBe(1);
+        expect(await history.getByRole("listitem").count()).toBe(2);
+        await talker.viewer.context().close();
         // A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM.
         await truth(
           `UPDATE clockgrove.world_memberships SET privacy_ceiling='{"version":1,"allowedCategories":["public_scene"]}' WHERE principal_id='principal-runtime'`,

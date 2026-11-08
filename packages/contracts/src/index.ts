@@ -19,4 +19,5 @@ export * from "./scene-arrival.js";
 export * from "./scene-connection.js";
 export * from "./scene-interactions.js";
 export * from "./scene-protocol.js";
+export * from "./turn-fibers.js";
 export { ContractDecodeError, exactKeys, nonNegativeInteger, record } from "./validation.js";

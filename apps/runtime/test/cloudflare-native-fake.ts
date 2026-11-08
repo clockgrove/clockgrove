@@ -14,3 +14,5 @@ export class WorkflowEntrypoint {
 export class NonRetryableError extends Error {
   override readonly name = "NonRetryableError";
 }
+/** The Agents SDK's `Agent` base: node-side tests construct no actor owner. */
+export class Agent extends DurableObject {}

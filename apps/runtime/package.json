@@ -27,6 +27,7 @@
     "@clockgrove/persistence": "workspace:*",
     "@clockgrove/simulator": "workspace:*",
     "@clockgrove/world-pack-sdk": "workspace:*",
+    "agents": "0.33.0",
     "better-auth": "1.7.7",
     "kysely": "0.29.6",
     "pg": "8.23.1"

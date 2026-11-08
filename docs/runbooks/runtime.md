@@ -132,7 +132,9 @@ commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewe
 `/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
 category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
 answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
-nothing. See [private conversations](../protocols/conversations.md) and
+nothing. Talk turns, `/v1/runtime/turns/status` and `/v1/runtime/turns/cancel` run in the session
+actor's `ActorAgentDO`; see [recoverable turn fibers](../protocols/conversation-fibers.md),
+[private conversations](../protocols/conversations.md) and
 [interaction cards](../protocols/realtime-projection.md#interaction-cards).
 `/v1/runtime/runs/inspect` and `/v1/runtime/runs/search` walk and search the run and step evidence
 of those attempts under `runtime:world-inspect` and an `operator_evidence` ceiling, audited with
