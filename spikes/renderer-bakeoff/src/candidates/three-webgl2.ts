@@ -6,7 +6,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { BLOOM_SCALE, BLOOM_THRESHOLD, registerCandidate } from "../contract.js";
 import { createThreeAdapter, THREE_BLOOM_STRENGTH, type ThreeBackend } from "./three.js";
 
-const backend: ThreeBackend = {
+export const webgl2Backend: ThreeBackend = {
   candidate: "three-webgl2",
   THREE,
   async createRenderer() {
@@ -45,4 +45,4 @@ const backend: ThreeBackend = {
   },
 };
 
-registerCandidate("three-webgl2", (options) => createThreeAdapter(options, backend));
+registerCandidate("three-webgl2", (options) => createThreeAdapter(options, webgl2Backend));

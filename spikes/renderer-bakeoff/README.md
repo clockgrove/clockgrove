@@ -101,3 +101,67 @@ For the last, it opens `index.html?drive=1` from `file://`. In that mode the pag
 exposes `window.bakeoffDrive` (`open`, `setReducedMotion`, and `frameAt` and `step`, which return
 the frame's capture), so the test steps the page clock by a fixed amount and compares two captures: identical with
 reduced motion on, different with it off. It also checks the dumped-DOM path from `file://`.
+
+## 3D Stevie (issue 77)
+
+A second page, `stevie.html` (bundle `stevie`, `src/stevie/`), draws Stevie three ways in this same lit slice through
+the WebGL2 Three.js adapter. Each arm adds its characters through `createThreeAdapter`'s optional `ThreeExtras`
+hook, so every arm shares one light rig, one fog, one bloom and output pass, and one camera. The draft decision record is the
+[character rendering ADR](../../docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md).
+
+- **3d** (`model.ts`): a rigged Stevie playing `idle` and `walk` clips, with `MeshToonMaterial` (a three-step ramp)
+  and an inverted-hull outline. If `media/stevie.glb` exists, the page loads it, re-shades it the same way and
+  matches its clips by name. Otherwise it builds the **procedural stand-in**: 18 joints, two-bone skin weights and
+  texture-only fur. No image-to-3D service was reachable from the sandbox.
+- **2d** (`sheet.ts`): frames cropped from
+  [`stevie-sprite-sheet.png`](../../docs/design/reference/stevie-sprite-sheet.png). The grid is 8 columns of 192×230 cells,
+  with the frame label removed:
+  - idle is frames 0–5, walk right is 6–13 and walk left is 14–21;
+  - alpha is keyed from each cell's corner colour;
+  - the normal map is the Sobel gradient of a blurred-alpha dome mixed with luminance;
+  - the edge is a 1-pixel dark line.
+- **3d-sprites** (`bake.ts`): the 3d arm's model and clips, rendered offline from the scene camera's direction into
+  192 px cells (0.9 m). Each cell has albedo, view-space normal and depth. The frames are placed as camera-facing toon quads with the exact normal map.
+
+Shots, at the high tier in both lighting states:
+
+- five headings (`three-quarter`, `right`, `back`, `left`, `front`) under the one fixed camera;
+- an 8-frame walk and a 4-frame idle;
+- a cohesion shot of Stevie, Juniper (a tint) and a kit (0.6 scale) on the lit path.
+
+Close shots are 360×360 crops around Stevie. The cohesion shot is the full 960×540 canvas.
+
+```sh
+node spikes/renderer-bakeoff/scripts/build.mjs
+node spikes/renderer-bakeoff/scripts/stevie.mjs --browser <chromium-family exe> [--browser-arg=<flag>]... \
+  --out <dir outside git> --label "<host description>"
+```
+
+`stevie.mjs` serves the page, the identity sheet (`/sheet.png`) and anything in the git-ignored `media/`
+(`/media/<name>`). It writes these files into `--out`:
+
+- every shot as a PNG;
+- the sprite and sheet atlases;
+- `results.json`, with the model metrics, the preparation step times, frame times, the renderer string, and the
+  sha256 of every input, output and generated file, joined to `media/provenance.json`;
+- `report.html`, which shows each arm beside the reference mockup.
+
+A software renderer's times are marked `performance: false`. No media is committed.
+
+### Maintainer steps for issue 77 (outside the sandbox)
+
+- **GPU frame times and the screenshots to judge:** run `stevie.mjs` with the GPU flags from the bake-off's
+  maintainer step above, and post the report's numbers and stills on issue 77 with the host label.
+- **A generated model:** this needs an image-to-3D and auto-rig service, which is an open Question on the PR.
+  1. Reserve the cost against the $10 cap before each call.
+  2. Generate from the identity sheet (or one frame of it).
+  3. Auto-rig it as a quadruped, with `idle` and `walk` clips.
+  4. Save the result as `media/stevie.glb`.
+  5. Record each file's model, provider, parameters, cost and step minutes in
+     `media/provenance.json` as `{ "files": { "stevie.glb": { "model", "provider", "parameters", "costUsd", "steps": [{ "step", "minutes" }] } } }`.
+  6. Rerun `stevie.mjs`.
+- **Assetforge sheet import:** run clockgrove/assetforge's sheet import on the identity sheet. Compare its frames
+  with the spike's plain crop (`atlas-sheet-albedo.png` in the output), and post the result.
+
+CI (`tests/ci/stevie-3d.journey.browser.test.mjs`, SwiftShader) checks only that the page builds and renders. Every arm
+must render every declared shot in both states, at the declared PNG size, with matching recorded hashes.

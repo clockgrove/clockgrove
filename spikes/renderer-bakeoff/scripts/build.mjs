@@ -13,6 +13,8 @@ export const BUNDLES = {
   phaser: "src/candidates/phaser.ts",
   "three-webgl2": "src/candidates/three-webgl2.ts",
   "three-webgpu": "src/candidates/three-webgpu.ts",
+  // Issue 77: the 3D Stevie comparison page (stevie.html).
+  stevie: "src/stevie/page.ts",
 };
 
 // BAKEOFF_ONLY=<name> builds one bundle, for a focused check while working on one candidate.
@@ -45,5 +47,6 @@ for (const [name, entry] of Object.entries(BUNDLES)) {
   sizes[name] = { bytes: bytes.length, gzipBytes: gzipSync(bytes, { level: 9 }).length };
 }
 if (!only) await copyFile(`${root}index.html`, `${dist}/index.html`);
+if (!only) await copyFile(`${root}stevie.html`, `${dist}/stevie.html`);
 if (!only) await writeFile(`${dist}/bundles.json`, `${JSON.stringify(sizes, null, 2)}\n`);
 console.log(JSON.stringify(sizes));

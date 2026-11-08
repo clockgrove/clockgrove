@@ -22,6 +22,8 @@ export default defineConfig({
       "tests/ci/dev-yard.journey.browser.test.mjs",
       // Issue 67: the renderer bake-off measurement page and script, under SwiftShader.
       "tests/ci/renderer-bakeoff.journey.browser.test.mjs",
+      // Issue 77: the 3D Stevie spike's comparison page and report script, under SwiftShader.
+      "tests/ci/stevie-3d.journey.browser.test.mjs",
     ],
     // Journeys run one at a time, so neither one's measured deadline shares the host with the other.
     fileParallelism: false,

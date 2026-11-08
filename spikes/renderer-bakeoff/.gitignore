@@ -1,3 +1,5 @@
 /node_modules/
 /dist/
 /.turbo/
+# Issue 77: generated models and their provenance (never committed; the report records hashes).
+/media/

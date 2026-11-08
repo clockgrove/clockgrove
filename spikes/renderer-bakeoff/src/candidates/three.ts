@@ -42,6 +42,19 @@ export interface ThreePost {
   render(): void | Promise<void>;
   dispose(): void;
 }
+/**
+ * Optional additions to the lit scene (issue 77's character page): objects added after every rebuild,
+ * animated every frame from the same animation time, under the same lights, fog and post pass.
+ */
+export interface ThreeExtras {
+  /** Projection objects whose placeholder sprite is not drawn (the extras draw them instead). */
+  readonly omit: readonly string[];
+  /** Called after each rebuild with the fresh scene; returns nothing, adds its own objects. */
+  build(context: { THREE: Any; scene: Any; renderer: Any; camera: Any; rig: LightRig }): void;
+  /** Called every frame before drawing, with seconds of animation time (0 under reduced motion). */
+  animate(t: number): void;
+}
+
 export interface ThreeBackend {
   readonly candidate: string;
   readonly THREE: Any;
@@ -101,6 +114,7 @@ function bloomBytes(mode: "off" | "half" | "full", width: number, height: number
 export function createThreeAdapter(
   options: CandidateOptions,
   backend: ThreeBackend,
+  extras?: ThreeExtras,
 ): BakeoffAdapter {
   const T = backend.THREE;
   const { width, height } = options;
@@ -445,8 +459,10 @@ export function createThreeAdapter(
     addLights(current);
     addEnvironment(current);
     const facingQuat = facing();
-    for (const placement of spritesOf(projection)) addSprite(placement, current, facingQuat);
+    for (const placement of spritesOf(projection))
+      if (!extras?.omit.includes(placement.objectId)) addSprite(placement, current, facingQuat);
     addRain(current);
+    extras?.build({ THREE: T, scene, renderer, camera, rig: current });
     syncPost();
   }
 
@@ -616,6 +632,7 @@ export function createThreeAdapter(
       const t = reduced ? 0 : timeMs / 1000;
       updateCamera();
       animate(t);
+      extras?.animate(t);
       const pending = post ? post.render() : renderer.render(scene, camera);
       if (pending && typeof pending.then === "function") await pending;
       await finish();
