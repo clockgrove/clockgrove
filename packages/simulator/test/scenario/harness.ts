@@ -1,11 +1,11 @@
 import { buildWorldPack, NAMED_RANDOM_ALGORITHM } from "@clockgrove/world-pack-sdk";
 import { createSimulatorPackPorts, runScenario } from "../../src/index.js";
-import { type Json, sha256Hex } from "../fixtures/lamp-yard.js";
+import { type Json, sha256Hex } from "../fixtures/lamp-hall.js";
 import {
-  buildSectionYardSource,
+  buildSectionHallSource,
   SECTION_EPOCH,
-  type SectionYardOptions,
-} from "../fixtures/section-yard.js";
+  type SectionHallOptions,
+} from "../fixtures/section-hall.js";
 
 export const ports = { sha256: sha256Hex };
 export { SECTION_EPOCH };
@@ -41,14 +41,14 @@ const rule = (id: string, trigger: Json, rain: bigint): Json => ({
   budget: { maxFanout: 2, maxDepth: 3, cooldownMs: 5n },
 });
 
-export interface YardOptions {
+export interface HallOptions {
   readonly rules?: boolean;
-  readonly edit?: SectionYardOptions["edit"];
+  readonly edit?: SectionHallOptions["edit"];
 }
 
-/** The section yard with the lifecycle random stream the kernel requires, and optionally two rules. */
-export async function yard(options: YardOptions = {}) {
-  const source = await buildSectionYardSource({
+/** The section hall with the lifecycle random stream the kernel requires, and optionally two rules. */
+export async function hall(options: HallOptions = {}) {
+  const source = await buildSectionHallSource({
     edit: (context) => {
       (context.manifest.randomStreams as Json[]).push({
         name: "lifecycle",
@@ -60,18 +60,18 @@ export async function yard(options: YardOptions = {}) {
       });
       if (options.rules === true) {
         context.docs["rules/on-routine.json"] = rule(
-          "yard.on-routine",
+          "hall.on-routine",
           { kind: "event", eventType: "routine.selected", eventVersion: 1 },
           1000n,
         );
         context.docs["rules/every-two.json"] = rule(
-          "yard.every-two",
+          "hall.every-two",
           { kind: "schedule", everyMs: 120000n, offsetMs: 0n },
           2000n,
         );
         (context.manifest.rules as Json[]).push(
-          { id: "yard.on-routine", version: 1, path: "rules/on-routine.json" },
-          { id: "yard.every-two", version: 1, path: "rules/every-two.json" },
+          { id: "hall.on-routine", version: 1, path: "rules/on-routine.json" },
+          { id: "hall.every-two", version: 1, path: "rules/every-two.json" },
         );
       }
       options.edit?.(context);
@@ -82,7 +82,7 @@ export async function yard(options: YardOptions = {}) {
   return { source, artifact: built.value.artifact };
 }
 
-export const PACK = { id: "fixture.section-yard", version: "1.0.0" };
+export const PACK = { id: "fixture.section-hall", version: "1.0.0" };
 
 export const advance = (
   key: string,
@@ -109,7 +109,7 @@ export function scenario(extra: Record<string, unknown> = {}): Json {
   return {
     kind: "clockgrove.scenario",
     schemaVersion: 1,
-    name: "yard-day",
+    name: "hall-day",
     pack: { ...PACK },
     steps: [advance("span", SECTION_EPOCH + 240000n, "live", 60000n)],
     ...extra,

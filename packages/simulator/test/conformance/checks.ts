@@ -7,7 +7,7 @@ import {
 } from "@clockgrove/world-pack-sdk";
 import { packPorts, ports } from "../../cli/ports.js";
 import { previewSeedProjection, seedGenesis, verifyGenesisBundle } from "../../src/index.js";
-import { type FixtureSource, reorderSource, sha256Hex } from "../fixtures/lamp-yard.js";
+import { type FixtureSource, reorderSource, sha256Hex } from "../fixtures/lamp-hall.js";
 import { CHECKS, type ConformanceProblem, failCheck, throwIfProblems } from "./failure.js";
 import { bytesEqual } from "./golden.js";
 import type { LoadedPack } from "./pack-source.js";

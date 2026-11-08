@@ -2,14 +2,14 @@ import { buildWorldPack } from "@clockgrove/world-pack-sdk";
 import { describe, expect, it } from "vitest";
 import { createSimulatorPackPorts, seedGenesis } from "../src/index.js";
 import {
-  buildLampYardSource,
+  buildLampHallSource,
   type FixtureOptions,
   type FixtureSource,
   type Json,
   reorderSource,
   sha256Hex,
-} from "./fixtures/lamp-yard.js";
-import { buildSectionYardSource, type SectionYardOptions } from "./fixtures/section-yard.js";
+} from "./fixtures/lamp-hall.js";
+import { buildSectionHallSource, type SectionHallOptions } from "./fixtures/section-hall.js";
 
 // Pack conformance seeds and verifies every committed pack. This file keeps what no committed pack
 // reaches: seeding a reordered source byte-identically and the published seedGenesis refusal codes.
@@ -29,17 +29,17 @@ async function refusal(input: unknown) {
 }
 
 const lamp = async (options: FixtureOptions) =>
-  refusal(await prepared(await buildLampYardSource(options)));
-const section = async (edit: NonNullable<SectionYardOptions["edit"]>) =>
-  refusal(await prepared(await buildSectionYardSource({ edit })));
+  refusal(await prepared(await buildLampHallSource(options)));
+const section = async (edit: NonNullable<SectionHallOptions["edit"]>) =>
+  refusal(await prepared(await buildSectionHallSource({ edit })));
 const firstSeed = (docs: Record<string, unknown>): Json => docs["cognition/first.json"] as Json;
 
 describe("seedGenesis", () => {
   it("seeds a reordered source (manifest lists, cognitive seeds, resources) into identical bytes", async () => {
-    const { source, artifact } = await prepared(await buildSectionYardSource());
+    const { source, artifact } = await prepared(await buildSectionHallSource());
     const original = await seedGenesis({ artifact, source }, ports);
     const reordered = await seedGenesis(
-      { artifact, source: reorderSource(await buildSectionYardSource()) },
+      { artifact, source: reorderSource(await buildSectionHallSource()) },
       ports,
     );
     if (!original.ok || !reordered.ok) throw new Error("seeding refused");
@@ -47,7 +47,7 @@ describe("seedGenesis", () => {
   });
 
   it("refuses with the published codes and paths", async () => {
-    const { source, artifact } = await prepared(await buildLampYardSource());
+    const { source, artifact } = await prepared(await buildLampHallSource());
     expect(await refusal(null)).toEqual({ code: "MALFORMED_INPUT", path: "input" });
     expect(await refusal({ artifact, source, extra: 1 })).toEqual({
       code: "UNKNOWN_FIELD",
@@ -72,7 +72,7 @@ describe("seedGenesis", () => {
                 objectId: "lamp.crate",
                 archetypeId: "missing.archetype@1",
                 spatial: {
-                  spaceId: "lamp.yard",
+                  spaceId: "lamp.hall",
                   pose: { frameId: "frame-ground", frameVersion: 1, coordinates: [0n, 0n] },
                 },
                 containment: { kind: "object", capacity: 2 },
@@ -115,7 +115,7 @@ describe("seedGenesis", () => {
   });
 
   it("refuses a function value in a seed payload without executing it", async () => {
-    const { source, artifact } = await prepared(await buildLampYardSource());
+    const { source, artifact } = await prepared(await buildLampHallSource());
     let called = false;
     const hostile = structuredClone(source.manifest);
     hostile.seedCommands[0].payload.hook = () => {

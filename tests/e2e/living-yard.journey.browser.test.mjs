@@ -2624,6 +2624,39 @@ const observeYard = async (backend) => {
         await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
         expect(await history.getByText("hello Stevie").count()).toBe(1);
         expect(await history.getByRole("listitem").count()).toBe(2);
+        const pendingSession = await talker.viewer
+          .getByRole("region", { name: "Private conversation", exact: true })
+          .getByRole("combobox")
+          .inputValue();
+        // A saved send can survive a reload before the owner has accepted its turn.
+        expect(
+          await talker.viewer.evaluate(async (sessionId) => {
+            const messageId = crypto.randomUUID();
+            sessionStorage.setItem(
+              `clockgrove.pending-turn.${sessionId}`,
+              JSON.stringify({ sessionId, messageId, text: "hello before acceptance" }),
+            );
+            return globalThis.yardSession.turnStatus(sessionId, messageId);
+          }, pendingSession),
+        ).toEqual({ refused: "turn_not_found" });
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await history.getByText("hello before acceptance", { exact: true }).waitFor({
+          timeout: 60_000,
+        });
+        expect(await history.getByText("hello before acceptance", { exact: true }).count()).toBe(1);
+        expect(await history.getByRole("listitem").count()).toBe(4);
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await history.getByText("hello before acceptance", { exact: true }).waitFor({
+          timeout: 60_000,
+        });
+        expect(await history.getByText("hello before acceptance", { exact: true }).count()).toBe(1);
+        expect(await history.getByRole("listitem").count()).toBe(4);
         // issue 19: this member holds no world-command grant, so Stevie's proposal is refused
         // before the world with a visible reason, and no command receipt is added.
         const receiptsBefore = await truth("SELECT count(*) FROM clockgrove.command_receipts");

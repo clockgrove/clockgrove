@@ -42,10 +42,10 @@ import { readPackDirectory, sdkSource } from "../../../packages/simulator/cli/pa
 import { REPO_ROOT } from "../../../packages/simulator/cli/repo.js";
 import { behaviorPackOf } from "../../../packages/simulator/src/genesis.js";
 import {
-  buildLampYardSource,
+  buildLampHallSource,
   EXPECTED_SEED_PROJECTION_HASHES,
   sha256Hex,
-} from "../../../packages/simulator/test/fixtures/lamp-yard.js";
+} from "../../../packages/simulator/test/fixtures/lamp-hall.js";
 import {
   psqlQuery,
   withDisposableDatabase,
@@ -200,12 +200,12 @@ export async function packWorld(source: PackSource) {
   return { source, artifact, birth, genesis, behavior: behaviorPackOf(validated.value, artifact) };
 }
 
-/** The lamp-yard fixture pack source at `version`, projecting to its committed hash unless overridden. */
+/** The lamp-hall fixture pack source at `version`, projecting to its committed hash unless overridden. */
 export function lampSource(
   version = "1.0.0",
   expectedSeedProjectionHash?: string,
 ): Promise<PackSource> {
-  return buildLampYardSource({
+  return buildLampHallSource({
     version,
     expectedSeedProjectionHash:
       expectedSeedProjectionHash ?? EXPECTED_SEED_PROJECTION_HASHES[version] ?? "",
@@ -215,7 +215,7 @@ export function lampSource(
 /** A shipped pack name or absolute external pack directory with its behavior. */
 export async function testWorld(name = "fixture") {
   const world = await packWorld(
-    name === "lamp-yard"
+    name === "lamp-hall"
       ? await lampSource()
       : (sdkSource(await readPackDirectory(resolve(REPO_ROOT, "worlds", name))) as PackSource),
   );

@@ -152,6 +152,6 @@ with a reason) or bundle hash is missing.
 ## Negative controls
 
 `negative-controls.test.ts` runs the same checks against temporary pack directories written from the
-section-yard simulator fixture (`fixture-pack.ts`) and requires each planted defect to fail with a message
+section-hall simulator fixture (`fixture-pack.ts`) and requires each planted defect to fail with a message
 naming the pack and the check: a mismatched golden, a missing golden, and an engine source that uses a
 pack identity or a reference-world name.

@@ -662,8 +662,10 @@ export class SceneSession {
     if (!pending) return undefined;
     const status = await this.turnStatus(sessionId, pending.messageId);
     if ("refused" in status) {
-      if (status.refused === "turn_not_found") forgetPendingTurn(sessionId);
-      return status;
+      if (status.refused !== "turn_not_found") return status;
+      // Status can overtake the initial send before its durable turn is accepted.
+      const result = await this.runTurn(pending, hooks, true);
+      return "refused" in result ? result : { reloaded: true };
     }
     if (status.phase === "completed") {
       forgetPendingTurn(sessionId);

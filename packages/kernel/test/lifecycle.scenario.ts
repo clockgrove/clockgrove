@@ -172,8 +172,8 @@ export const FOUNDERS_SPEC: LifecycleSpec = {
   ...DRY,
   ...BASE_RATES,
   actors: [
-    ["a-raccoon", null],
-    ["b-raccoon", null],
+    ["a-resident", null],
+    ["b-resident", null],
   ],
   wellbeing: CALM,
   lifecycle: BASE_LIFECYCLE,
@@ -187,8 +187,8 @@ const withLifecycle = (spec: LifecycleSpec, over: Partial<LifecycleValues>): Lif
 /** One adult founder (age 2000 at time 0) that always conceives when eligible. */
 export const SURE_SPEC: LifecycleSpec = {
   ...FOUNDERS_SPEC,
-  actors: [["a-raccoon", null]],
-  founderBornAt: { "a-raccoon": -2000 },
+  actors: [["a-resident", null]],
+  founderBornAt: { "a-resident": -2000 },
   lifecycle: { ...BASE_LIFECYCLE, conceptionChance: 10000 },
 };
 export const SURE_HORIZON = 12000n;
@@ -202,10 +202,10 @@ export const NO_CO_PARENT_SPEC = withLifecycle(SURE_SPEC, { coParent: "required"
 export const PAIR_SPEC: LifecycleSpec = {
   ...SURE_SPEC,
   actors: [
-    ["a-raccoon", null],
-    ["b-raccoon", null],
+    ["a-resident", null],
+    ["b-resident", null],
   ],
-  founderBornAt: { "a-raccoon": -2000, "b-raccoon": -2500 },
+  founderBornAt: { "a-resident": -2000, "b-resident": -2500 },
   lifecycle: { ...BASE_LIFECYCLE, conceptionChance: 10000, coParent: "required" },
 };
 /** Spring (0..2000) allows conception, summer (2000..4000) does not; chance 0 keeps births away. */
@@ -229,7 +229,7 @@ export const SICK_SPEC: LifecycleSpec = {
 /** Critical health, health death and lifespan death all land at 1 ms. */
 export const COINCIDE_SPEC: LifecycleSpec = {
   ...SURE_SPEC,
-  founderBornAt: { "a-raccoon": -11999 },
+  founderBornAt: { "a-resident": -11999 },
   wellbeing: { ...CALM, healthLossPerInterval: 10000 },
   initial: [{ hunger: 10000, wetness: 0, thirst: 0, health: 5003 }],
   lifecycle: { ...BASE_LIFECYCLE, conceptionChance: 10000, deathHealth: 4995 },
@@ -243,12 +243,16 @@ export const HOUSEHOLD_SPEC: LifecycleSpec = {
   ...DRY,
   ...BASE_RATES,
   actors: [
-    ["a-raccoon", null],
-    ["b-raccoon", null],
-    ["c-raccoon", null],
+    ["a-resident", null],
+    ["b-resident", null],
+    ["c-resident", null],
   ],
-  founderBornAt: { "a-raccoon": -2000, "c-raccoon": -2000 },
-  founderHousehold: { "a-raccoon": "den-east", "b-raccoon": "den-east", "c-raccoon": "den-west" },
+  founderBornAt: { "a-resident": -2000, "c-resident": -2000 },
+  founderHousehold: {
+    "a-resident": "den-east",
+    "b-resident": "den-east",
+    "c-resident": "den-west",
+  },
   wellbeing: { ...CALM, healthLossPerInterval: 3000 },
   initial: [
     { hunger: 3000, wetness: 0, thirst: 0, health: 10000 },

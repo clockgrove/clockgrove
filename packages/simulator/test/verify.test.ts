@@ -3,7 +3,7 @@ import { buildWorldPack } from "@clockgrove/world-pack-sdk";
 import { describe, expect, it } from "vitest";
 import { decodeCanonicalBytes } from "../src/canonical-decode.js";
 import { createSimulatorPackPorts, seedGenesis, verifyGenesisBundle } from "../src/index.js";
-import { buildLampYardSource, sha256Hex } from "./fixtures/lamp-yard.js";
+import { buildLampHallSource, sha256Hex } from "./fixtures/lamp-hall.js";
 
 // Conformance verifies the untampered bundle of every committed pack. This file keeps the tamper
 // property: every bundle field is bound by bundleHash and by a fresh re-seeding, and bundle bytes must
@@ -13,7 +13,7 @@ const ports = { sha256: sha256Hex };
 type Rec = Record<string, unknown>;
 
 async function fixture() {
-  const source = await buildLampYardSource();
+  const source = await buildLampHallSource();
   const built = await buildWorldPack(source, createSimulatorPackPorts(ports));
   if (!built.ok) throw new Error(`fixture build failed: ${JSON.stringify(built.error)}`);
   const seeded = await seedGenesis({ artifact: built.value.artifact, source }, ports);

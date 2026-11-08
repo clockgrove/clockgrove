@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { encodeResource } from "@clockgrove/world-pack-sdk";
 import { runScenario } from "../../src/index.js";
-import type { Json } from "../fixtures/lamp-yard.js";
-import { advance, ports, SECTION_EPOCH, scenario, yard } from "../scenario/harness.js";
+import type { Json } from "../fixtures/lamp-hall.js";
+import { advance, hall, ports, SECTION_EPOCH, scenario } from "../scenario/harness.js";
 
 export type GoldenMode = "match" | "mismatch" | "missing";
 
@@ -15,7 +15,7 @@ export interface FixturePackOptions {
   readonly bare?: boolean;
 }
 
-export const FIXTURE_SCENARIO = "yard-day";
+export const FIXTURE_SCENARIO = "hall-day";
 
 /** The scenario document committed by the fixture pack. */
 export function fixtureScenario(options: FixturePackOptions = {}): Json {
@@ -39,7 +39,7 @@ export function fixtureScenario(options: FixturePackOptions = {}): Json {
 }
 
 /**
- * Writes the section-yard simulator fixture, extended with a rule pair and a stationary
+ * Writes the section-hall simulator fixture, extended with a rule pair and a stationary
  * `embodied-dialogue` object, as a pack directory in the documented layout under `root/<name>`.
  */
 export async function writeFixturePack(
@@ -47,7 +47,7 @@ export async function writeFixturePack(
   name: string,
   options: FixturePackOptions = {},
 ): Promise<string> {
-  const { source, artifact } = await yard(
+  const { source, artifact } = await hall(
     options.bare === true
       ? {}
       : {

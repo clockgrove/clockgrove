@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runScenario, SCENARIO_LIMITS, seedGenesis } from "../../src/index.js";
-import { advance, ports, run, SECTION_EPOCH, scenario, yard } from "./harness.js";
+import { advance, hall, ports, run, SECTION_EPOCH, scenario } from "./harness.js";
 
 // The committed goldens run runScenario end to end (variants, equivalence, retry, restart, perception,
 // assertions). This file keeps the published refusal codes and the defect/refusal split no golden reaches.
@@ -13,7 +13,7 @@ const refusalOf = async (input: { artifact: unknown; source: unknown; scenario: 
 
 describe("runScenario refusals", () => {
   it("refuses malformed input with the published codes and paths", async () => {
-    const { source, artifact } = await yard();
+    const { source, artifact } = await hall();
     const good = scenario() as Record<string, any>;
     const { name: _name, ...nameless } = good;
     const cases: [string, string, unknown][] = [
@@ -55,7 +55,7 @@ describe("runScenario refusals", () => {
   });
 
   it("refuses steps for a pack without a behaviour policy", async () => {
-    const { source, artifact } = await yard({
+    const { source, artifact } = await hall({
       edit: ({ docs, manifest }) => {
         delete docs["policies/behavior.json"];
         for (const path of Object.keys(docs)) if (path.startsWith("cognition/")) delete docs[path];
@@ -72,7 +72,7 @@ describe("runScenario refusals", () => {
   });
 
   it("passes seedGenesis refusals through and rethrows defects, told apart by the defect flag", async () => {
-    const { source, artifact } = await yard();
+    const { source, artifact } = await hall();
     const broken = { ...(artifact as object), contentHash: "0".repeat(64) };
     const refused = await seedGenesis({ artifact: broken, source }, ports);
     if (refused.ok) throw new Error("expected seedGenesis to refuse the broken artifact");
