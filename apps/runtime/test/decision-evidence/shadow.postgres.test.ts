@@ -1,5 +1,4 @@
 import {
-  type DecisionShadowRecord,
   decisionShadowDeclarations,
   decisionShadowReport,
   JOURNAL_EVENT_REGISTRY,
@@ -8,6 +7,7 @@ import {
   VerifiedJournal,
 } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
+import { validateUtilityPolicy } from "@clockgrove/domain";
 import { planningRequestFor } from "@clockgrove/kernel";
 import {
   createModelGateway,
@@ -48,6 +48,18 @@ const decisionPoints = {
   ],
 } as const;
 
+/** The pack's own utility policy extended with the declarations, run through the pack validator. */
+function declaredFromPack(packPolicy: {
+  readonly utility?: unknown;
+  readonly wellbeing?: unknown;
+}) {
+  const utility = { ...(packPolicy.utility as object), ambiguity, decisionPoints };
+  validateUtilityPolicy(utility, packPolicy.wellbeing as never);
+  const declared = decisionShadowDeclarations(utility);
+  if (declared === undefined) throw new Error("expected declarations");
+  return declared;
+}
+
 describe("decision-model shadow tier over PostgreSQL and the native owner", () => {
   it.skipIf(isNativeWorldOwnerChild())(
     "owns the native runtime and PostgreSQL",
@@ -72,8 +84,7 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
             trace: draft.decision as never,
           }));
         expect((await owner.submit(command)).status).toBe(200);
-        const policy = decisionShadowDeclarations({ ambiguity, decisionPoints } as never);
-        if (policy === undefined) throw new Error("expected declarations");
+        const policy = declaredFromPack(world.behavior.policy);
 
         // Script: the first decision agrees with utility confidently, the second disagrees and is low confidence.
         const requests = subjects.map((subject) =>
@@ -98,6 +109,16 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
             {
               kind: "answer",
               answer: { type: "choice", label: utility[0] ?? "", confidence: 0.8 },
+              costUsd: 0.000028,
+            },
+            {
+              kind: "answer",
+              answer: { type: "choice", label: other[1] ?? "", confidence: 0.55 },
+              costUsd: 0.000028,
+            },
+            {
+              kind: "answer",
+              answer: { type: "choice", label: "cant_tell", confidence: 0.9 },
               costUsd: 0.000028,
             },
             {
@@ -141,7 +162,7 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           declarations: policy,
           decider: shadow,
         });
-        expect(records.map((record) => record.shadow.status)).toEqual(["picked", "abstained"]);
+        expect(records.map((record) => record.shadow.status)).toEqual(["picked", "low-confidence"]);
         expect(records.map((record) => record.utilityChoice)).toEqual(utility);
         expect(records[1]?.shadow.choice).toBe(other[1]);
         expect(records[0]).toMatchObject({
@@ -191,27 +212,41 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
         expect(calls).toBe(callsBefore);
         expect((await inspectNativeWorldOwner(owner)).partition.document).toEqual(state);
 
-        // The report flags a repeated low-confidence signature separately for human review.
-        const repeated: DecisionShadowRecord = {
-          ...(records[1] as DecisionShadowRecord),
-          requestId: "planning_repeat",
-        };
-        const report = decisionShadowReport([...records, repeated]);
+        // A second real run over the same committed decisions repeats each real signature; the
+        // model abstains with the reserved option on the first and stays low-confidence on the second.
+        const again = await runDecisionShadow({ subjects, declarations: policy, decider: shadow });
+        expect(again.map((record) => record.shadow.status)).toEqual([
+          "cant-tell",
+          "low-confidence",
+        ]);
+        expect(again.map((record) => record.signature)).toEqual(
+          records.map((record) => record.signature),
+        );
+        const report = decisionShadowReport([...records, ...again]);
         expect(report.points[0]).toMatchObject({
-          decisions: 3,
+          decisions: 4,
           answered: 3,
           agreed: 1,
-          abstained: 2,
+          lowConfidence: 2,
+          cantTell: 1,
         });
-        expect(report.review).toEqual([
-          {
-            signature: records[1]?.signature,
-            pointId: "routine.close-call",
-            repeats: 2,
-            lowConfidence: 2,
-            disagreements: 2,
-          },
-        ]);
+        expect(report.review).toHaveLength(2);
+        expect(report.review.find((row) => row.signature === records[0]?.signature)).toEqual({
+          signature: records[0]?.signature,
+          pointId: "routine.close-call",
+          repeats: 2,
+          lowConfidence: 0,
+          cantTell: 1,
+          disagreements: 0,
+        });
+        expect(report.review.find((row) => row.signature === records[1]?.signature)).toEqual({
+          signature: records[1]?.signature,
+          pointId: "routine.close-call",
+          repeats: 2,
+          lowConfidence: 2,
+          cantTell: 0,
+          disagreements: 2,
+        });
       });
     },
     210_000,

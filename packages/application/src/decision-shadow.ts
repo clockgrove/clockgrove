@@ -77,7 +77,15 @@ export interface ShadowSubject {
   readonly trace: DecisionTrace;
 }
 
-export type ShadowStatus = "picked" | "abstained" | "failed" | "over-budget";
+/**
+ * `cant-tell`: the model chose the reserved `cant_tell` option. `low-confidence`: it answered a
+ * candidate below the point's threshold (or reported none). The two are kept apart so the
+ * threshold can be calibrated from data.
+ */
+export type ShadowStatus = "picked" | "cant-tell" | "low-confidence" | "failed" | "over-budget";
+
+/** The reserved option offered at every decision point; kernel candidate keys always hold a colon. */
+export const CANT_TELL_OPTION = "cant_tell";
 
 export interface ShadowCandidate {
   readonly key: string;
@@ -105,7 +113,7 @@ export interface DecisionShadowRecord {
   readonly utilityChoice: string;
   readonly shadow: Readonly<{
     status: ShadowStatus;
-    /** The model's label for `picked` and `abstained`; null otherwise. */
+    /** The model's label for `picked`, `low-confidence` and `cant-tell`; null otherwise. */
     choice: string | null;
     /** Probability of the answer in basis points (0..10000), null when the model reported none. */
     confidenceBp: number | null;
@@ -188,7 +196,7 @@ function describe(candidate: ShadowCandidate): string {
  * Runs the shadow tier over committed decisions. Pure of the world: it reads traces and calls the
  * decider, never writing physical state. Without a decider (models off) it returns nothing, so the
  * world runs exactly as without the tier. Per-point budgets count calls and spend within one run.
- * Failures, refusals, low confidence and exhausted budgets each record an abstention to the
+ * Failures, `cant_tell`, low confidence and exhausted budgets each fall back to the
  * deterministic fallback, which is always the utility choice already taken.
  */
 export async function runDecisionShadow(input: {
@@ -247,9 +255,10 @@ export async function runDecisionShadow(input: {
       continue;
     }
     spent.calls += 1;
-    const options = Object.fromEntries(
-      candidates.map((candidate) => [candidate.key, describe(candidate)]),
-    );
+    const options = {
+      ...Object.fromEntries(candidates.map((candidate) => [candidate.key, describe(candidate)])),
+      [CANT_TELL_OPTION]: "none of the candidates can be preferred; defer to the default choice",
+    };
     const outcome = await decider.pick({
       alias: point.modelAlias,
       callId: `${request.requestId}:${request.objectId}:${request.simulationTime}:${point.id}`,
@@ -272,6 +281,7 @@ export async function runDecisionShadow(input: {
       continue;
     }
     const known = Object.hasOwn(options, outcome.label);
+    const cantTell = outcome.label === CANT_TELL_OPTION;
     const confidenceBp =
       outcome.confidence === null ? null : Math.round(outcome.confidence * 10_000);
     const low = confidenceBp === null || confidenceBp < point.confidenceThreshold;
@@ -285,10 +295,10 @@ export async function runDecisionShadow(input: {
             detail: "unknown-label",
           }
         : {
-            status: low ? "abstained" : "picked",
+            status: cantTell ? "cant-tell" : low ? "low-confidence" : "picked",
             choice: outcome.label,
             confidenceBp,
-            detail: low ? "below-confidence-threshold" : null,
+            detail: !cantTell && low ? "below-confidence-threshold" : null,
           },
       ...accounting,
     } as DecisionShadowRecord);
@@ -426,12 +436,15 @@ export async function journalDecisionShadow(
 export interface DecisionShadowPointReport {
   readonly pointId: string;
   readonly decisions: number;
-  /** Records with a model answer (picked or abstained). */
+  /** Records with a candidate answer (picked or low-confidence); `cant-tell` is not an answer. */
   readonly answered: number;
   readonly agreed: number;
   /** `agreed / answered`, or null with no answers. */
   readonly agreementRate: number | null;
-  readonly abstained: number;
+  /** Candidate answers below the point's confidence threshold. */
+  readonly lowConfidence: number;
+  /** The model chose the reserved `cant_tell` option. */
+  readonly cantTell: number;
   readonly failed: number;
   readonly overBudget: number;
   readonly costMicrousd: number;
@@ -444,6 +457,7 @@ export interface DecisionShadowReview {
   readonly pointId: string;
   readonly repeats: number;
   readonly lowConfidence: number;
+  readonly cantTell: number;
   readonly disagreements: number;
 }
 
@@ -453,7 +467,7 @@ export interface DecisionShadowReport {
   /** Answers that differ from the utility choice, with their candidates, in record order. */
   readonly differing: readonly DecisionShadowRecord[];
   /**
-   * Signatures seen at least twice whose answers were low-confidence or disagreeing, listed
+   * Signatures seen at least twice whose answers were low-confidence, `cant_tell` or disagreeing, listed
    * apart from the rates for human review.
    */
   readonly review: readonly DecisionShadowReview[];
@@ -462,7 +476,7 @@ export interface DecisionShadowReport {
 const EXAMPLE_LIMIT = 10;
 
 const answered = (record: DecisionShadowRecord): boolean =>
-  record.shadow.status === "picked" || record.shadow.status === "abstained";
+  record.shadow.status === "picked" || record.shadow.status === "low-confidence";
 const disagrees = (record: DecisionShadowRecord): boolean =>
   answered(record) && record.shadow.choice !== record.utilityChoice;
 
@@ -487,7 +501,8 @@ export function decisionShadowReport(
         answered: answers.length,
         agreed,
         agreementRate: answers.length === 0 ? null : agreed / answers.length,
-        abstained: rows.filter((row) => row.shadow.status === "abstained").length,
+        lowConfidence: rows.filter((row) => row.shadow.status === "low-confidence").length,
+        cantTell: rows.filter((row) => row.shadow.status === "cant-tell").length,
         failed: rows.filter((row) => row.shadow.status === "failed").length,
         overBudget: rows.filter((row) => row.shadow.status === "over-budget").length,
         costMicrousd: rows.reduce((sum, row) => sum + (row.costMicrousd ?? 0), 0),
@@ -507,14 +522,16 @@ export function decisionShadowReport(
     bySignature.set(record.signature, [...(bySignature.get(record.signature) ?? []), record]);
   const review: DecisionShadowReview[] = [];
   for (const [signature, rows] of bySignature) {
-    const lowConfidence = rows.filter((row) => row.shadow.status === "abstained").length;
+    const lowConfidence = rows.filter((row) => row.shadow.status === "low-confidence").length;
+    const cantTell = rows.filter((row) => row.shadow.status === "cant-tell").length;
     const disagreements = rows.filter(disagrees).length;
-    if (rows.length >= 2 && (lowConfidence > 0 || disagreements > 0))
+    if (rows.length >= 2 && (lowConfidence > 0 || cantTell > 0 || disagreements > 0))
       review.push({
         signature,
         pointId: rows[0]?.pointId ?? "",
         repeats: rows.length,
         lowConfidence,
+        cantTell,
         disagreements,
       });
   }
