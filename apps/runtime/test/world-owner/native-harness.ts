@@ -288,12 +288,13 @@ export async function withNativeWorldOwner(
     throw new Error("run this journey through runNativeWorldOwnerProcess");
   const fixture = JSON.parse(inherited) as NativeFixture;
   const presentationSource = JSON.parse(
-    await readFile(path.join(REPO_ROOT, "worlds", fixture.packName, "runtime.json"), "utf8").catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return "{}";
-        throw error;
-      },
-    ),
+    await readFile(
+      path.resolve(REPO_ROOT, "worlds", fixture.packName, "runtime.json"),
+      "utf8",
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "{}";
+      throw error;
+    }),
   );
   const worldBindings = {
     WORLD_PRESENTATION: JSON.stringify(presentationSource.presentations ?? []),

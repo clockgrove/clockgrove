@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolve } from "node:path";
 
 import type {
   ProvisioningArtifact,
@@ -212,12 +212,12 @@ export function lampSource(
   });
 }
 
-/** A shipped pack (`worlds/<name>`) with its behavior. */
+/** A shipped pack name or absolute external pack directory with its behavior. */
 export async function testWorld(name = "fixture") {
   const world = await packWorld(
     name === "lamp-yard"
       ? await lampSource()
-      : (sdkSource(await readPackDirectory(join(REPO_ROOT, "worlds", name))) as PackSource),
+      : (sdkSource(await readPackDirectory(resolve(REPO_ROOT, "worlds", name))) as PackSource),
   );
   if (world.behavior === null) throw new Error(`worlds/${name} has no behavior policy`);
   return { ...world, behavior: world.behavior };
