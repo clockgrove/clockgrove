@@ -2555,7 +2555,13 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           .fill("fixture:offer grove.water-bowl water");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
         const outcomes = history.locator(".rw-outcome");
-        await expect.poll(() => outcomes.count(), { timeout: 60_000 }).toBe(2);
+        await outcomes
+          .nth(1)
+          .waitFor({ timeout: 60_000 })
+          .catch(async (error) => {
+            const rail = talker.viewer.getByRole("region", { name: "Private conversation" });
+            throw new Error(`no outcome line: ${await rail.innerText()}`, { cause: error });
+          });
         expect(await outcomes.last().textContent()).toMatch(/proposal committed/iu);
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           String(Number(receiptsBefore) + 1),
