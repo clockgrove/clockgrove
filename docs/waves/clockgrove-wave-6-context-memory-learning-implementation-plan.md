@@ -292,6 +292,8 @@ Requirements:
 
 “Dreaming” is a product label for bounded consolidation/reflection, not permission to invent canonical events.
 
+Amended (2026-11-07): under the [actor decision ladder](../adr/clockgrove-adr-actor-decision-ladder.md) (§6), most consolidation steps are policy-declared decision points answered by a bounded decision model: episode keep or decay (Score), clustering (Choice of theme), evidence against a belief (Choice of supports, contradicts or unrelated, with the belief-update maths staying deterministic), relationship shift (Choice of warmer, cooler or unchanged, applied by deterministic policy), surprise or unresolved goal (Boolean or Score) and whether a repeated behaviour is worth a skill (Boolean). The LLM writes only summaries and `SKILL.md` drafts and repairs genuinely contradictory memories, following the PRD §10.4 routing rule (cheapest qualified route for low-consequence classification, salience and memory-candidate selection; no routing LLM). Dreaming is also where journaled decision-model choices are distilled into compiled policy (§12.2 amendment). Each decision point has a deterministic fallback, its answer is journaled like every other output, the scripted-model re-run and recorded-output replay above still hold, and the requirements above are unchanged.
+
 ---
 
 ### 11.1 Resident-authored field guides
@@ -331,6 +333,8 @@ Implement the PRD Section 7.5 bounded policy contract:
 Semantic cognitive documents, artifacts, bindings and evaluations are private canonical cognition. Runtime evaluators and retrieval caches are reconstructible. RW-0609 owns bounded learning/policy implementation; RW-0610 owns behavioral/control, replay, privacy, invalidation and inspector qualification.
 
 Stable learned policy must alter a later decision without a model call; unfamiliar or invalidated inputs must return to the governed cognition path. General reusable code generation remains deferred research.
+
+Amended (2026-11-07): under the [actor decision ladder](../adr/clockgrove-adr-actor-decision-ladder.md), journaled decision-model choices with their features are also compiler sources: the compiler may distill a stable pattern of them into deterministic compiled policy, so repeat decisions stop costing a model call. Distilled policy is governed like any other compiled policy above (source citation, governed adoption, invalidation, abstention and shadow comparison). The novelty check that returns inputs to cognition may itself be a policy-declared decision point, with a deterministic fallback of returning to cognition. The checklist and acceptance above are unchanged.
 
 ---
 

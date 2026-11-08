@@ -133,6 +133,8 @@ Each cognitive/interpreted subject resolves a versioned policy containing:
 
 Policy is protected configuration loaded through application authorization. Retrieved content cannot alter it.
 
+Amended (2026-11-07): under the [actor decision ladder](../adr/clockgrove-adr-actor-decision-ladder.md), actor policy also declares decision points as pack data: the trigger (score margin, policy-declared ambiguity or a gate such as wake triage), the candidate source (always the kernel's valid candidates), the features shown, the model alias, a confidence threshold, a budget and a deterministic fallback. A decision point sits between compiled policy and model escalation, so the "policy checks and compiled routines run before model escalation" order of §5.2 still holds. Its answer is cognitive evidence; it proposes and never commits. The first decision point runs in shadow mode (issue 92).
+
 ### 5.2 Activation reasons
 
 ```ts
@@ -306,6 +308,8 @@ Providers:
 Record attempt identity, latency, tokens, cost, finish reason, cache/gateway metadata, and protected payload hashes.
 
 Amended (2026-11-07, issue 16): owner decision: the production alias uses the provider keys already provisioned, Anthropic directly or Vercel AI Gateway; Cloudflare AI Gateway is not required, and a gateway is the expected routing layer for generation models (#27). One AI SDK adapter (`packages/model-gateway/src/ai-sdk.ts`) serves both: `stevie.conversation` routes first to Vercel AI Gateway `anthropic/claude-opus-5.5` and falls back to Anthropic direct `claude-opus-5-5`, the same model, so policy and eval identity do not change; the fallback is recorded in the per-call accounting record. Credentials are references (`AI_GATEWAY_API_KEY`, `ANTHROPIC_API_KEY`) resolved only inside the adapter. The opt-in real-route check `CLOCKGROVE_MODEL_LIVE=1 pnpm --filter @clockgrove/model-gateway test:live` never runs in CI by default; a manual `workflow_dispatch` qualification run using a repository secret is pending owner wiring (a `.github/` change). See the [model gateway contract](../../packages/model-gateway/docs/model-gateway.md).
+
+Amended (2026-11-07): under the [actor decision ladder](../adr/clockgrove-adr-actor-decision-ladder.md), `ModelGateway` gains `decide`: a bounded Choice, Score or Boolean request over options the caller supplies, for example through Vercel AI Gateway's decisions endpoint. Its alias is configuration like every other alias, a scripted decider serves CI and evals, and every call records the alias, model, latency, cost, label and confidence. An unavailable, timed-out or over-budget call returns an explicit outcome so the decision point takes its deterministic fallback. `stream`, `generateObject` and `inspect` are unchanged.
 
 ---
 

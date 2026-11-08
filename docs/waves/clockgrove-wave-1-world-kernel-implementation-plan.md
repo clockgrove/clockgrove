@@ -330,6 +330,8 @@ Routine choice order is:
 
 Every material choice records candidate actions, exclusions, fixed-point features, perception/belief/memory references, random draws, policy versions, selected action, and later outcome-link slots. Wave 1 may use scripted cognition references but must produce the final decision-trace shape.
 
+Amended (2026-11-07): the owner adopts the [actor decision ladder](../adr/clockgrove-adr-actor-decision-ladder.md). A planning request on policy-declared ambiguity may first go to a decision point that the actor's policy declares: a decision model picks one of the kernel's own valid candidates, and the request's deterministic fallback (utility's top pick) applies whenever the model abstains, falls below its confidence threshold, exceeds its budget or is unavailable. The answer is journaled as cognitive evidence, any resulting command passes the ordinary validator and Journal, and replay reads the journal without calling a model. Steps 1 and 2 above stay deterministic. The first decision point runs in shadow mode (issue 92). This order and this checklist are otherwise unchanged.
+
 ### 5.8 Rule primitives
 
 Wave 1 implements only pure bounded rule primitives:
