@@ -185,6 +185,24 @@ validates itself. The queue check accepts these items beside one
 The raccoon pack's `street-dwell` scenario covers an object that dwells, one that leaves first and
 one that re-enters, with equal events under live and fast-forward progression.
 
+## World time a move passes
+
+A movement or portal command that moves the world time also applies every environment and ecology
+time it passes, inside its own events: day/night phase changes, weather transitions (with every
+actor and plant integrated first), spoilage, appearance and plant stage changes. They come from a
+run of the phase, weather and ecology systems over the command's span and are emitted by the same
+group emitter `world.advance` uses, so each lands at its exact time, before the command's own
+events at that time, and live stepping and fast-forward stay identical. The actors' exposure and
+wellbeing crossings, routine movers, lifecycle and decisions stay with `world.advance`. The event
+authority of every moving command (`movement.start`, `movement.interrupt`, `movement.replan`,
+`portal.use`) allows these events (`environment.phase-changed`, `weather.transitioned`,
+`needs.changed`, `wellbeing.integrated`, `growth.integrated`, `growth.stage-changed`,
+`resource.spoiled`, `resource.appeared`), and `movement.scope@1` lets them name other objects and
+change their needs or resource, and the weather. The raccoon pack's `boundary-walk` scenario moves
+Stevie across dusk (`movement.start`), dawn with spoilage and appearance (`movement.interrupt`), the
+end of a rain segment (`movement.replan`) and a herb stage change (`portal.use`), live and
+fast-forward, with equal final states.
+
 Perception and audiences are built ([Perception and audiences](perception.md), RW-0105b).
 
 Deferred (not part of RW-0105a): portal and dwell rule triggers (Wave 7 RW-0701, whose plan §5.1
