@@ -7,8 +7,8 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
-import { useYardProjection } from "../src/yard-queries.js";
-import { useWhyView, useYardView } from "../src/yard-state.js";
+import { useSceneStateProjection } from "../src/scene-queries.js";
+import { useSceneView, useWhyView } from "../src/scene-state.js";
 import { sceneSession, selectionOf } from "./scene-socket-fixture.js";
 
 const scope = decodeBrowserScope({
@@ -72,16 +72,16 @@ it("makes committed projection and entity query state authoritative, refreshing 
   const { queries } = session;
   const committed = session.getSnapshot();
   expect(committed.scene).toEqual(scene);
-  expect([Object.keys(useYardView.getState()), Object.keys(useWhyView.getState())]).toEqual([
+  expect([Object.keys(useSceneView.getState()), Object.keys(useWhyView.getState())]).toEqual([
     ["selected", "select"],
     ["commandId", "explain"],
   ]);
   const updated = { ...committed, scene: { ...scene, revision: "11" } };
-  queries.setQueryData(["living-yard", "projection"], updated);
+  queries.setQueryData(["living-scene", "projection"], updated);
   const Projection = () =>
-    createElement("output", null, useYardProjection(session).scene?.revision);
+    createElement("output", null, useSceneStateProjection(session).scene?.revision);
   expect(renderToStaticMarkup(createElement(Projection))).toBe("<output>11</output>");
-  queries.setQueryData(["living-yard", "projection"], committed);
+  queries.setQueryData(["living-scene", "projection"], committed);
   const pending = beginReply(() => session.select(first.objectId));
   expect(queries.getQueryState(session.getSelectionKey())?.status).toBe("pending");
   expect(session.getSelectionSnapshot().status).toBe("loading");
@@ -137,7 +137,7 @@ it("keeps Why query evidence and failures authoritative across close and history
   session.explain(undefined);
   await closed(why);
   expect(session.getWhySnapshot().status).toBe("none");
-  expect(queries.getQueryCache().findAll({ queryKey: ["living-yard", "why"] })).toEqual([]);
+  expect(queries.getQueryCache().findAll({ queryKey: ["living-scene", "why"] })).toEqual([]);
   const obsolete = beginReply(() => session.explain(why.commandId));
   await reply(first, () => session.earlierActions());
   await reply(new Response(null, { status: 429 }), () => session.explain(why.commandId));
@@ -212,7 +212,7 @@ it("retires scope and credential lifetimes, refusal and sign-out without late in
       "none",
       "none",
     ]);
-    expect(keys()).toEqual([["living-yard", "projection"]]);
+    expect(keys()).toEqual([["living-scene", "projection"]]);
   }
   session.replace("observer", scope);
   await fixture.deliver(scene);
@@ -220,5 +220,5 @@ it("retires scope and credential lifetimes, refusal and sign-out without late in
   session.replace(undefined, undefined);
   await late(first);
   expect(view()).toEqual([undefined, "none", "none"]);
-  expect(keys()).toEqual([["living-yard", "projection"]]);
+  expect(keys()).toEqual([["living-scene", "projection"]]);
 });

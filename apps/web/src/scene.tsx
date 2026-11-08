@@ -5,7 +5,26 @@ import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { clientMeasurements, measure, measurePoint } from "./measurements.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
+import { SceneSession, type ViewTraceProjection } from "./scene-api.js";
+import { sameSceneScope, sceneStatusText } from "./scene-projection.js";
+import {
+  useDirectoryQuery,
+  useSceneStateProjection,
+  useViewTraceQuery,
+  useWorldReadinessQuery,
+  useWorldStatusQuery,
+} from "./scene-queries.js";
+import {
+  followEmphasis,
+  useEntityFocus,
+  useEntityRail,
+  useSceneView,
+  useViewedSpace,
+  useWorldBoot,
+  useWorldChoice,
+} from "./scene-state.js";
 import { EntityRail } from "./selection.js";
+import { worldShell } from "./shell.js";
 import { browserSceneSocket } from "./socket.js";
 import {
   ANNOUNCE_INTERVAL_MS,
@@ -19,24 +38,6 @@ import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
 import { parseWorldRoute, worldRoutePath } from "./world-route.js";
 import { effectsText, pickOrder, type WorldSceneAdapter } from "./world-scene-adapter.js";
-import { type ViewTraceProjection, YardSession } from "./yard-api.js";
-import { sameYardScope, yardStatusText } from "./yard-projection.js";
-import {
-  useDirectoryQuery,
-  useViewTraceQuery,
-  useWorldReadinessQuery,
-  useWorldStatusQuery,
-  useYardProjection,
-} from "./yard-queries.js";
-import {
-  followEmphasis,
-  useEntityFocus,
-  useEntityRail,
-  useViewedSpace,
-  useWorldBoot,
-  useWorldChoice,
-  useYardView,
-} from "./yard-state.js";
 
 /** The world-status read follows the scene's revision at most once per interval, per browser. */
 const STATUS_INTERVAL_MS = 1000;
@@ -63,7 +64,7 @@ function presentScene(
 }
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
-function YardCanvas({
+function SceneCanvas({
   projection,
   availability,
 }: {
@@ -77,7 +78,7 @@ function YardCanvas({
   const latest = useRef(projection);
   latest.current = projection;
   const [unavailable, setUnavailable] = useState(false);
-  const select = useYardView((state) => state.select);
+  const select = useSceneView((state) => state.select);
   const advance = useWorldBoot((state) => state.advance);
   useEffect(() => {
     let active = true;
@@ -230,7 +231,7 @@ function ClientViewTracePanel({
   );
 }
 
-export function RaccoonWorldApp({
+export function WorldApp({
   origin = location.origin,
   authentication,
 }: {
@@ -239,23 +240,23 @@ export function RaccoonWorldApp({
 }) {
   const [session] = useState(
     () =>
-      new YardSession(
+      new SceneSession(
         origin,
-        () => useYardView.getState().select(undefined),
+        () => useSceneView.getState().select(undefined),
         (scope, credential) => {
           // The session opens the one scene socket only after the previous observation retired.
           useWorldBoot.getState().advance({ type: "join", scope });
           return browserSceneSocket(scope, credential, origin);
         },
         authentication,
-        (objectId) => useYardView.getState().select(objectId),
+        (objectId) => useSceneView.getState().select(objectId),
         () => useViewedSpace.getState().reset(),
       ),
   );
   const boot = useWorldBoot((view) => view.boot);
   const startBoot = useWorldBoot((view) => view.start);
   const advanceBoot = useWorldBoot((view) => view.advance);
-  const state = useYardProjection(session);
+  const state = useSceneStateProjection(session);
   const [canvasAvailable, setCanvasAvailable] = useState(false);
   // The mode the user sees: recorded once per transition into it.
   useEffect(() => {
@@ -270,12 +271,12 @@ export function RaccoonWorldApp({
   const path = useWorldChoice((choice) => choice.path);
   const show = useWorldChoice((choice) => choice.show);
   const [credential, setCredential] = useState("");
-  const selected = useYardView((view) => view.selected);
-  const select = useYardView((view) => view.select);
+  const selected = useSceneView((view) => view.selected);
+  const select = useSceneView((view) => view.select);
   const focused = useEntityFocus((view) => view.focused);
   const focus = useEntityFocus((view) => view.focus);
   useEffect(() => {
-    const unsubscribe = useYardView.subscribe((view) => session.select(view.selected));
+    const unsubscribe = useSceneView.subscribe((view) => session.select(view.selected));
     return () => {
       unsubscribe();
       session.signOut();
@@ -291,7 +292,7 @@ export function RaccoonWorldApp({
   // Only a directory entry is ever observed, so a route the directory lacks opens no scene.
   const entry =
     route?.kind === "world"
-      ? directory.entries.find((candidate) => sameYardScope(candidate, route.scope))
+      ? directory.entries.find((candidate) => sameSceneScope(candidate, route.scope))
       : undefined;
   // A route or directory change starts the next boot before observation is replaced; without a
   // listed scope it stays at route_resolving.
@@ -353,7 +354,7 @@ export function RaccoonWorldApp({
   }
   const signedIn = directory.status === "ready";
   const scene = state.scene;
-  const shown = scene && directory.entries.find((candidate) => sameYardScope(candidate, scene));
+  const shown = scene && directory.entries.find((candidate) => sameSceneScope(candidate, scene));
   const status = useWorldStatusQuery(
     session,
     state.scope,
@@ -377,13 +378,13 @@ export function RaccoonWorldApp({
   const live = "terminal" in boot || (state.status !== "connecting" && state.status !== "ready");
   // Boot records arrival once; its displayed completion follows the current committed scene.
   const arrivalStatus =
-    scene && "terminal" in boot && sameYardScope(boot.scope, scene)
+    scene && "terminal" in boot && sameSceneScope(boot.scope, scene)
       ? bootStatusText({ ...boot, projectionRevision: BigInt(scene.revision) })
       : bootStatusText(boot);
-  const observationStatus = live ? `Observation: ${yardStatusText(state)}. ` : "";
+  const observationStatus = live ? `Observation: ${sceneStatusText(state)}. ` : "";
   const observationAnnouncement = useThrottled(
     live && scene
-      ? `Scene: ${yardStatusText(state)}. Revision ${scene.revision}. Rain intensity ${scene.weather.rainIntensity}.`
+      ? `Scene: ${sceneStatusText(state)}. Revision ${scene.revision}. Rain intensity ${scene.weather.rainIntensity}.`
       : observationStatus.replace(/^Observation:/u, "Scene:"),
     ANNOUNCE_INTERVAL_MS,
   );
@@ -396,22 +397,23 @@ export function RaccoonWorldApp({
     <div
       ref={shell}
       className="rw-shell"
-      data-tokens="raccoon-world-ui@1"
+      data-tokens="world-shell@1"
+      style={worldShell.tokens}
       data-canvas={canvasAvailable}
     >
       <header className="rw-hud">
         <div className="rw-hud-start">
-          <h1 className="rw-wordmark">Raccoon World</h1>
+          <h1 className="rw-wordmark">{worldShell.wordmark}</h1>
           {signedIn && (
             <nav aria-label="World selector">
-              <label htmlFor="world">World</label>
+              <label htmlFor="world">{worldShell.copy.worldLabel}</label>
               <select
                 id="world"
                 value={entry ? worldRoutePath(entry) : ""}
                 onChange={(event) => choose(event.target.value)}
               >
                 <option value="" disabled>
-                  Choose a world
+                  {worldShell.copy.chooseWorld}
                 </option>
                 {directory.entries.map((candidate) => (
                   <option key={worldRoutePath(candidate)} value={worldRoutePath(candidate)}>
@@ -506,7 +508,7 @@ export function RaccoonWorldApp({
           <section aria-label="Living scene">
             <h2>{shown.worldLabel}</h2>
             {state.projection && (
-              <YardCanvas projection={state.projection} availability={setCanvasAvailable} />
+              <SceneCanvas projection={state.projection} availability={setCanvasAvailable} />
             )}
             <p>Canonical revision: {scene.revision}</p>
             <p>Canonical time: {scene.simulationTime}</p>

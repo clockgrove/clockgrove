@@ -47,6 +47,7 @@ import {
 } from "../../packages/persistence/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
 const require = createRequire(import.meta.url);
 const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
   ? [process.env.CLOCKGROVE_RENDERER_PROOF]
@@ -70,11 +71,11 @@ function createWorkerServer(worker, nativeOrigin) {
       {
         name: "local-worker-http-surface",
         transform(code, id) {
-          if (id.split("?")[0] === path.join(root, "apps/web/src/yard-api.ts"))
+          if (id.split("?")[0] === path.join(root, "apps/web/src/scene-api.ts"))
             return {
               code: `${code}
-const replaceYard = YardSession.prototype.replace;
-YardSession.prototype.replace = function (...args) {
+const replaceYard = SceneSession.prototype.replace;
+SceneSession.prototype.replace = function (...args) {
   if (globalThis.yardSession !== this) {
     globalThis.yardTransitions = [];
     this.queries.getQueryCache().subscribe(({ type, query }) => {
@@ -89,7 +90,7 @@ YardSession.prototype.replace = function (...args) {
               map: null,
             };
           // Records each boot value in wire form with the presented revision and open scene sockets.
-          if (id.split("?")[0] === path.join(root, "apps/web/src/yard-state.ts"))
+          if (id.split("?")[0] === path.join(root, "apps/web/src/scene-state.ts"))
             return {
               code: `${code}
 const yardSockets = [];
@@ -455,7 +456,7 @@ const observeYard = async (backend) => {
             const selection = session.getSelectionSnapshot();
             const why = session.getWhySnapshot();
             return [
-              session.queries.getQueryData(["living-yard", "projection"])?.scene,
+              session.queries.getQueryData(["living-scene", "projection"])?.scene,
               selection.objectId,
               selection.value,
               why.commandId,
@@ -771,7 +772,7 @@ const observeYard = async (backend) => {
         };
         const committedOutput = () =>
           page.evaluate(() => [
-            globalThis.yardSession.queries.getQueryData(["living-yard", "projection"])?.scene,
+            globalThis.yardSession.queries.getQueryData(["living-scene", "projection"])?.scene,
             globalThis.yardDrawnRevision,
           ]);
         await expect.poll(committedOutput).toEqual([first, first.revision]);
@@ -2124,7 +2125,7 @@ const observeYard = async (backend) => {
           const held = () =>
             viewer.evaluate(() =>
               JSON.stringify(
-                globalThis.yardSession.queries.getQueryData(["living-yard", "projection"]),
+                globalThis.yardSession.queries.getQueryData(["living-scene", "projection"]),
                 (_key, value) => (typeof value === "bigint" ? value.toString() : value),
               ),
             );
@@ -2751,7 +2752,7 @@ const observeYard = async (backend) => {
                 session.getSelectionSnapshot(),
                 session.queries
                   .getQueryCache()
-                  .findAll({ queryKey: ["living-yard", "entity"] })
+                  .findAll({ queryKey: ["living-scene", "entity"] })
                   .filter((query) => query.state.data !== undefined).length,
               ];
             }),
@@ -2767,7 +2768,7 @@ const observeYard = async (backend) => {
             "den",
             "garden",
             "green-lake-neighborhood",
-            "living-yard",
+            "living-scene",
             "porch",
             "snack-house",
             "street-buffer",
@@ -2826,7 +2827,7 @@ const observeYard = async (backend) => {
           await places.getByText("Viewing: snack-house").count(),
         ]).toEqual(["true", 1]);
         await view(
-          "living-yard",
+          "living-scene",
           "grove.stevie is not within living-yard; the view stayed on snack-house.",
         );
         // Refusals the yard's topology cannot produce here are the runtime's own answers, replayed.

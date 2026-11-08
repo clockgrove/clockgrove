@@ -8,6 +8,15 @@ import type {
   SceneTransientCue,
 } from "@clockgrove/contracts";
 import {
+  emptyScene,
+  livingSceneOf,
+  reduceSceneState,
+  type SceneMaterial,
+  type SceneStateProjection,
+  sameSceneScope,
+  scenePresentations,
+} from "../src/scene-projection.js";
+import {
   applyScenePatch,
   framePosition,
   type SceneEmphasis,
@@ -15,15 +24,6 @@ import {
   type Unsubscribe,
   type WorldSceneAdapter,
 } from "../src/world-scene-adapter.js";
-import {
-  emptyYard,
-  livingSceneOf,
-  reduceYard,
-  type SceneMaterial,
-  sameYardScope,
-  scenePresentations,
-  type YardProjection,
-} from "../src/yard-projection.js";
 
 /** One scene-graph group per spatial frame version, keyed `frameId@version`. */
 export interface Headless3DGroup {
@@ -56,7 +56,7 @@ export class Headless3DAdapter implements WorldSceneAdapter {
   cues: string[] = [];
   reducedMotion = false;
   private emphasis: SceneEmphasis = this.emphasized;
-  private projection: YardProjection = emptyYard;
+  private projection: SceneStateProjection = emptyScene;
   private committed: SceneProjection | undefined;
   private handlers = new Set<(intent: SceneIntent) => void>();
   get scene(): LivingScene | undefined {
@@ -66,13 +66,13 @@ export class Headless3DAdapter implements WorldSceneAdapter {
     const scene = livingSceneOf(snapshot);
     const { tenantId, worldId, timelineId, spaceId } = scene;
     let next = this.projection;
-    if (!next.scope || !sameYardScope(next.scope, scene))
-      next = reduceYard(next, {
+    if (!next.scope || !sameSceneScope(next.scope, scene))
+      next = reduceSceneState(next, {
         type: "replace",
         intent: next.intent + 1,
         scope: { tenantId, worldId, timelineId, spaceId },
       });
-    next = reduceYard(next, { type: "snapshot", intent: next.intent, scene });
+    next = reduceSceneState(next, { type: "snapshot", intent: next.intent, scene });
     if (next.scene === scene) {
       this.committed = snapshot;
       this.bindings = snapshot.presentationBindings;
@@ -138,7 +138,7 @@ export class Headless3DAdapter implements WorldSceneAdapter {
   destroy(): void {
     this.revision = undefined;
     this.bindings = [];
-    this.projection = emptyYard;
+    this.projection = emptyScene;
     this.committed = undefined;
     this.groups = new Map();
     this.nodes = new Map();

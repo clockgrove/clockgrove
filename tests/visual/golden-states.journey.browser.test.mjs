@@ -120,6 +120,7 @@ const captureGoldenStates = async (backend) => {
         : path.join(process.env.CLOCKGROVE_WAVE4_EVIDENCE, "visual");
     const out = backend === "webgpu" ? evidenceRoot : path.join(evidenceRoot, "webgl2");
     await mkdir(out, { recursive: true });
+    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),

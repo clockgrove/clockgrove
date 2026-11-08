@@ -10,10 +10,10 @@ import {
 } from "@clockgrove/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Portrait } from "../portrait.js";
+import type { SceneSession } from "../scene-api.js";
+import { useSelectionQuery } from "../scene-queries.js";
+import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
-import type { YardSession } from "../yard-api.js";
-import { useSelectionQuery } from "../yard-queries.js";
-import { useEntityRail } from "../yard-state.js";
 
 const RAIL_ACTIONS = [
   ["talk", "Talk"],
@@ -46,7 +46,7 @@ export function ConversationPanel({
   summary,
   onAction,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly actorId: ObjectId;
   /** When given, the rail's Talk / Observe / Remember / Why? grid is drawn from its actions. */
   readonly summary?: InteractionSummary | undefined;
@@ -226,15 +226,15 @@ export function ConversationPanel({
     kind === "why" ? whyCommand !== undefined || enabledAction(kind) : enabledAction(kind),
   );
   return (
-    <section className="rw-stevie" aria-label="Private conversation">
-      <header className="rw-stevie-head">
+    <section className="rw-actor" aria-label="Private conversation">
+      <header className="rw-actor-head">
         <h2>{name}</h2>
         <button type="button" aria-label="Close conversation" onClick={closeRail}>
           ×
         </button>
       </header>
-      <div className="rw-stevie-portrait">
-        <Portrait label={name} className="rw-stevie-avatar" />
+      <div className="rw-actor-portrait">
+        <Portrait label={name} className="rw-actor-avatar" />
         <span
           className="rw-voice-badge"
           role="img"
@@ -245,9 +245,9 @@ export function ConversationPanel({
           </svg>
         </span>
       </div>
-      <p className="rw-stevie-status">{statusLine}</p>
+      <p className="rw-actor-status">{statusLine}</p>
       {shown.length > 0 && (
-        <div className="rw-stevie-actions">
+        <div className="rw-actor-actions">
           {shown.map(([kind, text]) => (
             <button
               key={kind}
@@ -361,7 +361,7 @@ export function ConversationPanel({
         )}
         {(!current || current.state === "active") && (
           <form
-            className="rw-stevie-send"
+            className="rw-actor-send"
             onSubmit={(event) => {
               event.preventDefault();
               void send();

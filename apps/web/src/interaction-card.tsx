@@ -10,9 +10,9 @@ import {
 } from "@clockgrove/contracts";
 import { useId, useState } from "react";
 import { ConversationPanel } from "./conversations/conversation-panel.js";
+import type { SceneSession } from "./scene-api.js";
+import { useSelectionQuery } from "./scene-queries.js";
 import { whyOpener } from "./why.js";
-import type { YardSession } from "./yard-api.js";
-import { useSelectionQuery } from "./yard-queries.js";
 
 export const ACTION_LABELS: Readonly<Record<InteractionActionKind, string>> = {
   talk: "Talk",
@@ -38,7 +38,7 @@ export function InteractionCard({
   entityId,
   summary,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly entityId: ObjectId;
   readonly summary: InteractionSummary | undefined;
 }) {

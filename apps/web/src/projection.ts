@@ -22,7 +22,7 @@ import {
   reduceProjection,
 } from "./convergence.js";
 import { measure, timed } from "./measurements.js";
-import { livingSceneOf, sameYardScope } from "./yard-projection.js";
+import { livingSceneOf, sameSceneScope } from "./scene-projection.js";
 
 export { applyScenePatch } from "./world-scene-adapter.js";
 export interface ProjectionSocket {
@@ -81,7 +81,7 @@ export class ProjectionClient {
           return;
         }
         const scope = message.type === "snapshot" ? message.scene : message.scope;
-        if (!sameYardScope(this.scope, scope)) throw new Error("projection scope mismatch");
+        if (!sameSceneScope(this.scope, scope)) throw new Error("projection scope mismatch");
         if (message.type === "snapshot") {
           if (this.scene && message.scene.revision < this.scene.revision) return;
           this.scene = message.scene;
@@ -428,7 +428,7 @@ export class SceneProjectionClient {
               budget: SCENE_RECOVERY,
             }),
         );
-        if (!sameYardScope(this.scope, reduction.state.scope))
+        if (!sameSceneScope(this.scope, reduction.state.scope))
           throw new ContractDecodeError("message", "scope mismatch");
         // The reducer has strictly validated the whole message. Only read envelope metadata
         // here; decoding again would traverse every snapshot collection or patch operation.

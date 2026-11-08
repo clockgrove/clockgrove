@@ -1,7 +1,7 @@
 import * as contracts from "@clockgrove/contracts";
 import { vi } from "vitest";
 import type { ProjectionSocket } from "../src/projection.js";
-import { YardSession } from "../src/yard-api.js";
+import { SceneSession } from "../src/scene-api.js";
 
 export function sceneSocket() {
   const messages: unknown[] = [];
@@ -67,7 +67,7 @@ export function sceneSocket() {
 
 export function sceneSession(onClear = () => {}) {
   const sockets: ReturnType<typeof sceneSocket>[] = [];
-  const session = new YardSession("http://local.test", onClear, () => {
+  const session = new SceneSession("http://local.test", onClear, () => {
     const fixture = sceneSocket();
     sockets.push(fixture);
     return fixture.socket;

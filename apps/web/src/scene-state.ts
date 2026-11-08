@@ -58,13 +58,13 @@ export const useWorldChoice = create<WorldChoice>((set) => ({
   show: (path) => set({ path }),
 }));
 
-interface YardView {
+interface SceneView {
   /** The one shared selection: canvas picks and entity controls all write it. */
   readonly selected: ObjectId | undefined;
   readonly select: (objectId: ObjectId | undefined) => void;
 }
 // Transient view state only: deliberately no browser persistence middleware.
-export const useYardView = create<YardView>((set) => ({
+export const useSceneView = create<SceneView>((set) => ({
   selected: undefined,
   select: (selected) => {
     useWhyView.getState().explain(undefined);
@@ -85,11 +85,11 @@ export const useEntityFocus = create<EntityFocus>((set) => ({
 /** Passes the shared selection and focus to a renderer now and on each change of either. */
 export function followEmphasis(emphasize: (emphasis: SceneEmphasis) => void): () => void {
   const current = (): SceneEmphasis => ({
-    selected: useYardView.getState().selected,
+    selected: useSceneView.getState().selected,
     focused: useEntityFocus.getState().focused,
   });
   emphasize(current());
-  const stopSelection = useYardView.subscribe((view, previous) => {
+  const stopSelection = useSceneView.subscribe((view, previous) => {
     if (view.selected !== previous.selected) emphasize(current());
   });
   const stopFocus = useEntityFocus.subscribe((view, previous) => {
@@ -107,7 +107,7 @@ interface LayoutPanel {
   /** Opens the panel, as choosing a feed event opens the rail. */
   readonly show: () => void;
 }
-/** The desktop breakpoint of docs/design/raccoon-world-ui.md; raccoon-world.css repeats it. */
+/** The shell desktop breakpoint; world-shell.css repeats it. */
 export const DESKTOP_MEDIA = "(min-width: 1200px)";
 const layout = () =>
   (globalThis.matchMedia?.(DESKTOP_MEDIA).matches ?? true) ? "desktop" : "narrow";

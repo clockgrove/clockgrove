@@ -45,26 +45,26 @@ import {
 } from "./api.js";
 import { clientMeasurements, measure } from "./measurements.js";
 import { SceneProjectionClient } from "./projection.js";
-import { browserSceneSocket, type SceneSocketFactory } from "./socket.js";
 import {
-  emptyYard,
-  reduceYard,
-  sameYardScope,
-  type YardProjection,
-  type YardProjectionEvent,
-} from "./yard-projection.js";
+  emptyScene,
+  reduceSceneState,
+  type SceneStateProjection,
+  type SceneStateProjectionEvent,
+  sameSceneScope,
+} from "./scene-projection.js";
 import {
   type DirectoryQueryKey,
   type EntityQueryKey,
+  sceneProjectionKey,
   selectionProjection,
   type ViewTraceQueryKey,
   viewTraceProjection,
   type WhyQueryKey,
   whyProjection,
-  yardProjectionKey,
-} from "./yard-queries.js";
+} from "./scene-queries.js";
+import { browserSceneSocket, type SceneSocketFactory } from "./socket.js";
 
-export type { SelectionProjection, ViewTraceProjection, WhyProjection } from "./yard-queries.js";
+export type { SelectionProjection, ViewTraceProjection, WhyProjection } from "./scene-queries.js";
 
 function answers(request: RecordedWhyRequest, value: RecordedWhy): boolean {
   const { entry } = value;
@@ -151,7 +151,7 @@ function tryDecode<T>(decode: (value: unknown) => T, value: unknown): T | undefi
 }
 
 /** Coordinates authorized transport and transient intents; all read data/status live in Query. */
-export class YardSession {
+export class SceneSession {
   private intent = 0;
   private selectionIntent = 0;
   private whyIntent = 0;
@@ -161,17 +161,17 @@ export class YardSession {
   private following: { readonly intent: number; readonly objectId: ObjectId } | undefined;
   // The signed-in session, held only in memory after the runtime accepted its directory read.
   private account: BrowserSession | undefined;
-  private directoryKey: DirectoryQueryKey = ["living-yard", "directory", 0];
+  private directoryKey: DirectoryQueryKey = ["living-scene", "directory", 0];
   private directoryObserver: QueryObserver<WorldDirectory> | undefined;
   private credential: string | undefined;
   private selected: ObjectId | undefined;
   private entry: RecordedWhyEntry | undefined;
   private viewIntent = 0;
   private viewOpen = false;
-  private viewKey: ViewTraceQueryKey = ["living-yard", "view-trace", 0, undefined, 0, false];
+  private viewKey: ViewTraceQueryKey = ["living-scene", "view-trace", 0, undefined, 0, false];
   private viewObserver: QueryObserver<ClientViewTrace> | undefined;
   private selectionKey: EntityQueryKey = [
-    "living-yard",
+    "living-scene",
     "entity",
     0,
     undefined,
@@ -179,7 +179,7 @@ export class YardSession {
     undefined,
     undefined,
   ];
-  private whyKey: WhyQueryKey = ["living-yard", "why", 0, undefined, 0, undefined, 0, undefined];
+  private whyKey: WhyQueryKey = ["living-scene", "why", 0, undefined, 0, undefined, 0, undefined];
   private observation: SceneProjectionClient | undefined;
   private retirement: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
@@ -187,9 +187,9 @@ export class YardSession {
   readonly queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   // Active observers retain only current queries, including for non-React consumers.
   private readonly projectionObserver = new QueryObserver(this.queries, {
-    queryKey: yardProjectionKey,
+    queryKey: sceneProjectionKey,
     queryFn: skipToken,
-    initialData: emptyYard,
+    initialData: emptyScene,
   });
   private selectionObserver: QueryObserver<EntitySelection> | undefined;
   private whyObserver: QueryObserver<RecordedWhy> | undefined;
@@ -214,8 +214,8 @@ export class YardSession {
     if (this.publishing) return;
     for (const listener of this.listeners) listener();
   }
-  readonly getSnapshot = (): YardProjection =>
-    this.queries.getQueryData<YardProjection>(yardProjectionKey) ?? emptyYard;
+  readonly getSnapshot = (): SceneStateProjection =>
+    this.queries.getQueryData<SceneStateProjection>(sceneProjectionKey) ?? emptyScene;
   readonly getDirectoryKey = (): DirectoryQueryKey => this.directoryKey;
   readonly getSelectionKey = (): EntityQueryKey => this.selectionKey;
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;
@@ -316,7 +316,7 @@ export class YardSession {
   /** Starts from an event the current world-status feed shows. */
   explainEvent(eventId: EventId): void {
     const feed = this.queries
-      .getQueriesData<WorldStatus>({ queryKey: ["living-yard", "status", this.intent] })
+      .getQueriesData<WorldStatus>({ queryKey: ["living-scene", "status", this.intent] })
       .flatMap(([, status]) => status?.feed ?? []);
     const listed = feed.some((item) => item.sourceEventIds.includes(eventId));
     if (listed) measure("inspector_traversal", "event");
@@ -339,7 +339,7 @@ export class YardSession {
     const scope = this.getSnapshot().scope;
     this.entry = entry && this.credential && scope ? entry : undefined;
     this.whyKey = [
-      "living-yard",
+      "living-scene",
       "why",
       this.intent,
       scope,
@@ -374,7 +374,7 @@ export class YardSession {
     const credential = this.credential;
     this.viewOpen = open && credential !== undefined && scope !== undefined;
     this.viewKey = [
-      "living-yard",
+      "living-scene",
       "view-trace",
       this.intent,
       scope,
@@ -459,7 +459,7 @@ export class YardSession {
       signal,
       decode,
     );
-    if (!sameYardScope(request, value)) throw new ApiRefusal(403);
+    if (!sameSceneScope(request, value)) throw new ApiRefusal(403);
     return value;
   }
   /** Verifies the credential only through the runtime's directory read, once per sign-in. */
@@ -503,7 +503,7 @@ export class YardSession {
     this.directoryObserver = undefined;
     void this.queries.cancelQueries({ queryKey: this.directoryKey, exact: true });
     this.queries.removeQueries({ queryKey: this.directoryKey, exact: true });
-    this.directoryKey = ["living-yard", "directory", intent];
+    this.directoryKey = ["living-scene", "directory", intent];
     this.notify();
   }
   /** Discards the session and its directory, retiring observation, selection and Why. */
@@ -596,7 +596,7 @@ export class YardSession {
       disposition.disposition === "followed" ||
       disposition.disposition === "stayed_within_space"
     ) {
-      if (disposition.disposition === "followed" && !sameYardScope(disposition.scope, scope)) {
+      if (disposition.disposition === "followed" && !sameSceneScope(disposition.scope, scope)) {
         this.replace(credential, disposition.scope);
         this.following = { intent: this.intent, objectId: disposition.selectedEntityId };
       }
@@ -920,7 +920,7 @@ export class YardSession {
     this.selected =
       objectId && projectable && this.credential && state.scope ? objectId : undefined;
     this.selectionKey = [
-      "living-yard",
+      "living-scene",
       "entity",
       this.intent,
       state.scope,
@@ -1016,9 +1016,9 @@ export class YardSession {
       this.refuseAuthorization(error);
     }
   }
-  private dispatch(event: YardProjectionEvent): void {
+  private dispatch(event: SceneStateProjectionEvent): void {
     const state = this.getSnapshot();
-    const next = reduceYard(state, event);
+    const next = reduceSceneState(state, event);
     if (next === state) return;
     // Subscribers see projection invalidation together with dependent read retirement.
     this.publishing = true;
@@ -1030,7 +1030,7 @@ export class YardSession {
         this.select(undefined);
         this.resetView();
       }
-      this.queries.setQueryData(yardProjectionKey, next);
+      this.queries.setQueryData(sceneProjectionKey, next);
     } finally {
       this.publishing = false;
     }

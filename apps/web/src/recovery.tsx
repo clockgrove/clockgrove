@@ -2,8 +2,9 @@ import type { SceneCompatibilityCode } from "@clockgrove/contracts";
 import { Component, type ReactNode, useEffect, useId, useRef } from "react";
 import { measure } from "./measurements.js";
 import { SCENE_SNAPSHOT_RETRY } from "./projection.js";
-import { incompatibilityNames } from "./yard-projection.js";
-import type { ReadinessProjection } from "./yard-queries.js";
+import { incompatibilityNames } from "./scene-projection.js";
+import type { ReadinessProjection } from "./scene-queries.js";
+import { worldShell } from "./shell.js";
 
 const deployment = "Refresh to load the current deployment.";
 // Only a refreshed client can match a client or asset-manifest version; the others were retried.
@@ -63,7 +64,7 @@ const readinessScreens: Readonly<
   provisioning: {
     title: "World provisioning",
     explanation:
-      "This world is still being provisioned, so no scene is shown yet. The yard opens once the world is ready.",
+      "This world is still being provisioned, so no scene is shown yet. The scene opens once the world is ready.",
     alert: false,
   },
   failed: {
@@ -80,7 +81,7 @@ const readinessScreens: Readonly<
   },
   ready: {
     title: "World ready",
-    explanation: "The world is ready. Opening the yard.",
+    explanation: "The world is ready. Opening the scene.",
     alert: false,
   },
 };
@@ -152,7 +153,7 @@ function ShellError() {
   return (
     <main className="rw-main">
       <section ref={screen} tabIndex={-1} aria-labelledby={heading}>
-        <h1 id={heading}>Raccoon World stopped</h1>
+        <h1 id={heading}>{worldShell.copy.stopped}</h1>
         <p role="alert">
           The view stopped after an error. The world is unchanged. Reload to observe it again.
         </p>

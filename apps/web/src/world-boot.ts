@@ -4,8 +4,8 @@ import {
   type WorldBootProgress,
   type WorldBootState,
 } from "@clockgrove/contracts";
+import { sameSceneScope } from "./scene-projection.js";
 import { worldRoutePath } from "./world-route.js";
-import { sameYardScope } from "./yard-projection.js";
 
 // The contract's milestone order (wave plan §6.5); scene-arrival.ts keeps its own copy private.
 const milestones = [
@@ -80,11 +80,11 @@ export function reduceBoot(boot: WorldBootState, event: WorldBootEvent): WorldBo
         })
       : boot;
   if (boot.state === "membership_authorized")
-    return event.type === "join" && sameYardScope(scope, event.scope)
+    return event.type === "join" && sameSceneScope(scope, event.scope)
       ? checked({ requestId, progress: at("joining_space"), state: "joining_space", scope })
       : boot;
   if (boot.state === "joining_space")
-    return event.type === "snapshot" && sameYardScope(scope, event.scope)
+    return event.type === "snapshot" && sameSceneScope(scope, event.scope)
       ? checked({
           requestId,
           progress: at("snapshot_ready"),

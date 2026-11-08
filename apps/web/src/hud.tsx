@@ -5,9 +5,9 @@ import type {
   WorldStatus,
 } from "@clockgrove/contracts";
 import { Portrait } from "./portrait.js";
+import type { SceneSession } from "./scene-api.js";
+import { useEntityRail, useFeedSheet, useSceneView } from "./scene-state.js";
 import { whyOpener } from "./why.js";
-import type { YardSession } from "./yard-api.js";
-import { useEntityRail, useFeedSheet, useYardView } from "./yard-state.js";
 
 /** A time of day on a 24-hour face, scaled from the pack's day length. */
 function clockFace(timeOfDayMs: string, dayLengthMs: string): string {
@@ -116,13 +116,13 @@ export function MaterialFeed({
   status,
   scene,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly status: WorldStatus | "unavailable" | undefined;
   readonly scene: LivingScene;
 }) {
   const open = useFeedSheet((sheet) => sheet.open);
   const toggle = useFeedSheet((sheet) => sheet.toggle);
-  const select = useYardView((view) => view.select);
+  const select = useSceneView((view) => view.select);
   const labelOf = (objectId: string) =>
     scene.entities.find((entity) => entity.objectId === objectId)?.presentation.label;
   return (

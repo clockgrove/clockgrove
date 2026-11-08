@@ -1,0 +1,17 @@
+{
+  "shellVersion": 1,
+  "name": "Fixture World",
+  "wordmark": "Fixture World",
+  "copy": {
+    "worldLabel": "Fixture world",
+    "chooseWorld": "Choose a fixture world",
+    "stopped": "Fixture World stopped"
+  },
+  "tokens": {},
+  "scene": {
+    "atlas": null,
+    "accent": 10206432,
+    "panel": 2106928,
+    "text": "#edf1f5"
+  }
+}

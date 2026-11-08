@@ -1,13 +1,13 @@
-/* Raccoon World UI tokens, version 1. Keep the breakpoint in sync with DESKTOP_MEDIA in yard-state.ts. */
-[data-tokens="raccoon-world-ui@1"] {
-  --rw-v1-bg: #12140e;
-  --rw-v1-panel: rgb(30 33 22 / 92%);
-  --rw-v1-panel-solid: #1e2116;
-  --rw-v1-control: #2b2f20;
-  --rw-v1-border: #8a7c4e;
-  --rw-v1-text: #ece9d8;
-  --rw-v1-text-muted: #bdb9a0;
-  --rw-v1-accent: #a8c394;
+/* Neutral shell tokens, version 1. Breakpoint follows DESKTOP_MEDIA in scene-state.ts. */
+[data-tokens="world-shell@1"] {
+  --rw-v1-bg: #14181e;
+  --rw-v1-panel: rgb(32 38 48 / 92%);
+  --rw-v1-panel-solid: #202630;
+  --rw-v1-control: #303947;
+  --rw-v1-border: #7e8b9e;
+  --rw-v1-text: #edf1f5;
+  --rw-v1-text-muted: #b7c1cf;
+  --rw-v1-accent: #9bbce0;
   --rw-v1-rain: #8ec1ea;
   --rw-v1-event: #e8b84e;
   --rw-v1-affection: #f4958a;
@@ -32,7 +32,7 @@
 
 body {
   margin: 0;
-  background: #12140e;
+  background: var(--rw-v1-bg, #14181e);
 }
 
 .rw-visually-hidden,
@@ -470,25 +470,25 @@ body {
   font-weight: 600;
 }
 
-.rw-stevie-head {
+.rw-actor-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.rw-stevie-status {
+.rw-actor-status {
   margin: 0;
   text-align: center;
   color: #2f7d46;
 }
 
-.rw-stevie-portrait {
+.rw-actor-portrait {
   position: relative;
   width: 96px;
   margin: var(--rw-v1-space-2) auto;
 }
 
-.rw-stevie-avatar {
+.rw-actor-avatar {
   width: 96px;
   height: 96px;
   font-size: 2.5rem;
@@ -517,7 +517,7 @@ body {
   stroke-width: 2;
 }
 
-.rw-stevie-actions {
+.rw-actor-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--rw-v1-space-2);
@@ -575,7 +575,7 @@ body {
   color: var(--rw-v1-warning);
 }
 
-.rw-stevie-send {
+.rw-actor-send {
   display: flex;
   gap: var(--rw-v1-space-1);
   position: sticky;
@@ -583,7 +583,7 @@ body {
   background: var(--rw-v1-panel-solid);
 }
 
-.rw-stevie-send input {
+.rw-actor-send input {
   flex: 1;
   min-width: 0;
 }
