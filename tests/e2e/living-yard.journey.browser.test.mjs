@@ -2161,6 +2161,11 @@ const observeYard = async (backend) => {
         await expect
           .poll(() => yard.evaluate(() => globalThis.yardAdapter?.atlasTexture !== undefined))
           .toBeTruthy();
+        await expect
+          .poll(() =>
+            yard.evaluate(() => globalThis.yardAdapter?.metrics.firstRenderMs !== undefined),
+          )
+          .toBeTruthy();
         const golden = JSON.parse(await touch.held()).scene;
         expect(golden.weather.rainIntensity).toBeGreaterThan(0);
         const { budgets } = JSON.parse(

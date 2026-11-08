@@ -156,7 +156,9 @@ evidence when its journey runs; physical GPU timing is reserved for the maintain
 | Reconnect, from observed drop to ready | 3 000 ms | Chromium journey |
 
 The Chromium journey (`tests/e2e/living-yard.journey.browser.test.mjs`) measures the runtime budgets on the golden yard
-with rain and puddles showing, from the adapter's `metrics`. These are local checks on the CI runner. They are
+with rain and puddles showing, from the adapter's `metrics`. The settled cadence window starts after the
+additional viewer's first render, so its initial shader compilation is accounted for by the separate
+first-render budget. These are local checks on the CI runner. They are
 not a measurement on the supported laptop baseline.
 
 Frame time is the unsmoothed interval between animation-frame callbacks, bounded to the latest
@@ -178,3 +180,10 @@ WebGPU device loss follows the same text fallback as WebGL context loss.
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
 and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
+
+Atlas animation uses per-mesh UVs on one shared atlas Texture. Three r187's WebGPURenderer allocates
+GPU storage per Texture identity on both backends, so cloning textures that share an image would
+duplicate atlas storage. Reflections borrow their source texture and copy animated frame UVs; they
+dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts
+unique material-map Texture identities across the whole scene, including effects, reflections and
+generated labels, plus the conservative render-target allocations above.

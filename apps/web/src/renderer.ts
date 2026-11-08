@@ -616,10 +616,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const animation = this.atlas.get(key);
     const frame = animation?.frames[0];
     if (!animation || !frame || !this.atlasTexture) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
-    const texture = this.atlasTexture.clone();
-    texture.needsUpdate = true;
     const material = new THREE.MeshStandardNodeMaterial({
-      map: texture,
+      map: this.atlasTexture,
       transparent: true,
       alphaTest: 0.05,
       roughness: 1,
@@ -641,6 +639,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       width: frame.width,
       height: frame.height,
       base: new Float32Array(geometry.getAttribute("position").array),
+      baseUv: new Float32Array(geometry.getAttribute("uv").array),
     };
     this.setFrame(mesh, 0);
     return mesh;
@@ -650,11 +649,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const animation = this.atlas.get(mesh.userData.key);
     const frame = animation?.frames[index];
     if (!frame || !this.atlasTexture) return false;
-    const texture = mesh.material.map;
-    if (!texture) return false;
+    const uv = mesh.geometry.getAttribute("uv");
+    const base = mesh.userData.baseUv as Float32Array | undefined;
+    if (!uv || !base) return false;
     const image = this.atlasTexture.image;
-    texture.repeat.set(frame.width / image.width, frame.height / image.height);
-    texture.offset.set(frame.x / image.width, 1 - (frame.y + frame.height) / image.height);
+    for (let i = 0; i < uv.count; i++)
+      uv.setXY(
+        i,
+        (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width,
+        1 - (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height,
+      );
+    uv.needsUpdate = true;
     mesh.userData.frame = index;
     return true;
   }
@@ -758,7 +763,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private remove(mesh: Native): void {
     mesh.removeFromParent();
     mesh.geometry?.dispose();
-    if (mesh.material?.map && mesh.material.map !== this.atlasTexture) mesh.material.map.dispose();
+    if (
+      mesh.material?.map &&
+      mesh.material.map !== this.atlasTexture &&
+      mesh.userData.ownsTexture !== false
+    )
+      mesh.material.map.dispose();
     mesh.material?.dispose();
   }
   private drawEnvironment(projection: SceneProjection): void {
@@ -884,7 +894,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       return;
     for (const drawn of this.drawn.values()) {
       const mirror = new THREE.Mesh(drawn.body.geometry.clone(), drawn.body.material.clone());
-      mirror.material.map = drawn.body.material.map?.clone() ?? null;
+      mirror.userData.ownsTexture = false;
       mirror.material.opacity = 0.22;
       mirror.material.depthWrite = false;
       mirror.material.stencilWrite = true;
@@ -1159,9 +1169,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     for (const mirror of this.reflections) {
       const source = mirror.userData.source;
       mirror.position.set(source.position.x, source.position.y, -10);
-      if (mirror.material.map && source.material.map) {
-        mirror.material.map.offset.copy(source.material.map.offset);
-        mirror.material.map.repeat.copy(source.material.map.repeat);
+      if (mirror.userData.frame !== source.userData.frame) {
+        const uv = mirror.geometry.getAttribute("uv");
+        uv.array.set(source.geometry.getAttribute("uv").array);
+        uv.needsUpdate = true;
+        mirror.userData.frame = source.userData.frame;
+        changed = true;
       }
     }
     return changed;
@@ -1244,19 +1257,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
   };
   private updateTextureBytes(): void {
-    const image = this.atlasTexture?.image;
-    let bytes = image ? image.width * image.height * 4 : 0;
-    for (const mesh of [
-      ...this.overlay,
-      ...(this.selection?.items.map(({ item }) => item) ?? []),
-      ...this.cues.map(({ mesh }) => mesh),
-      ...this.drawn.values(),
-    ].flatMap((value) => ("body" in value ? [value.body, value.shadow] : [value]))) {
-      const texture = mesh.material?.map;
-      if (texture?.image && texture.image !== image) {
-        const source = texture.image as { width: number; height: number };
-        bytes += source.width * source.height * 4;
-      }
+    // WebGPURenderer allocates by Texture identity on both backends, not by shared image source.
+    const textures = new Set<THREE.Texture>();
+    if (this.atlasTexture) textures.add(this.atlasTexture);
+    this.scene?.traverse((object) => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
+      const texture = (object as Native).material.map;
+      if (texture) textures.add(texture);
+    });
+    let bytes = 0;
+    for (const texture of textures) {
+      const image = texture.image as { width: number; height: number } | undefined;
+      if (image) bytes += image.width * image.height * 4;
     }
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.

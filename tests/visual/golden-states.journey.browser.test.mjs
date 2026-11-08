@@ -367,6 +367,21 @@ const captureGoldenStates = async (backend) => {
                 lights: adapter.scene.children.filter((child) => child.isPointLight).length,
                 backend: adapter.backend,
                 textureBytes: adapter.metrics.textureBytes,
+                atlasShared: [
+                  ...[...adapter.drawn.values()]
+                    .filter((drawn) => drawn.key)
+                    .map((drawn) => drawn.body),
+                  ...adapter.effects.map(({ sprite }) => sprite),
+                  ...adapter.reflections.filter((mirror) => mirror.userData.source.userData.key),
+                ].every((mesh) => mesh.material.map === adapter.atlasTexture),
+                reflectionUvs: adapter.reflections.every((mirror) =>
+                  mirror.geometry
+                    .getAttribute("uv")
+                    .array.every(
+                      (value, index) =>
+                        value === mirror.userData.source.geometry.getAttribute("uv").array[index],
+                    ),
+                ),
                 adapter:
                   adapter.backend === "webgpu"
                     ? {
@@ -395,6 +410,7 @@ const captureGoldenStates = async (backend) => {
             else expect(pixels.adapter.renderer).toMatch(/SwiftShader/i);
             expect(pixels.meanLuminance).toBeGreaterThan(0);
             expect(pixels.textureBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+            expect([pixels.atlasShared, pixels.reflectionUvs]).toEqual([true, true]);
             expect([pixels.api, pixels.clipped, pixels.lights]).toEqual([
               true,
               0,
