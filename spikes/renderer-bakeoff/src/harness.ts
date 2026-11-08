@@ -124,7 +124,7 @@ interface MotionCheck {
 /** Draws at the clock's current time and returns the capture of that frame. */
 async function frameAt(adapter: BakeoffAdapter, clock: PageClock): Promise<string> {
   await adapter.renderFrame(clock.now);
-  return adapter.capture();
+  return await adapter.capture();
 }
 
 /** Reduced motion, on the current lighting state, tier and camera: two captures a fixed step apart. */

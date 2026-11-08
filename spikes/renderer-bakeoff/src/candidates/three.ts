@@ -617,14 +617,45 @@ export function createThreeAdapter(
       if (pending && typeof pending.then === "function") await pending;
       await finish();
     },
-    capture() {
-      // WebGPURenderer's canvas (on either backend) keeps no drawing buffer once the frame is
-      // presented, so draw the same state again and read it back in the same task.
-      if (backend.candidate !== "three-webgl2") {
+    async capture() {
+      if (!renderer) throw new Error("init() has not completed");
+      // three-webgl2 keeps its drawing buffer (preserveDrawingBuffer).
+      if (backend.candidate === "three-webgl2") return renderer.domElement.toDataURL("image/png");
+      // WebGPURenderer's canvas keeps no readable drawing buffer: under SwiftShader its toDataURL
+      // came back blank in CI. So draw the same state into an output render target (tone mapping and
+      // sRGB output still apply, as on the canvas), read it back and encode it through a 2D canvas.
+      const target = new T.RenderTarget(width, height, { depthBuffer: true, stencilBuffer: true });
+      const output = renderer.getOutputRenderTarget();
+      renderer.setOutputRenderTarget(target);
+      renderer.setRenderTarget(target);
+      try {
         if (post) post.render();
         else renderer.render(scene, camera);
+        const pixels: Uint8Array = await renderer.readRenderTargetPixelsAsync(
+          target,
+          0,
+          0,
+          width,
+          height,
+        );
+        const image = new ImageData(width, height);
+        const row = width * 4;
+        for (let y = 0; y < height; y++) {
+          // WebGL reads rows bottom-up; WebGPU top-down.
+          const from = (isWebGPU ? y : height - 1 - y) * row;
+          image.data.set(pixels.subarray(from, from + row), y * row);
+        }
+        for (let i = 3; i < image.data.length; i += 4) image.data[i] = 255;
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d")?.putImageData(image, 0, 0);
+        return canvas.toDataURL("image/png");
+      } finally {
+        renderer.setRenderTarget(null);
+        renderer.setOutputRenderTarget(output);
+        target.dispose();
       }
-      return renderer.domElement.toDataURL("image/png");
     },
     describe(): CandidateDescription {
       const support = features();

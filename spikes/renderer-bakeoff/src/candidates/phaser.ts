@@ -806,9 +806,9 @@ class PhaserBakeoff implements BakeoffAdapter {
     return Promise.resolve();
   }
 
-  capture(): string {
-    if (!this.game) throw new Error("phaser: init() has not completed");
-    return this.game.canvas.toDataURL("image/png");
+  capture(): Promise<string> {
+    if (!this.game) return Promise.reject(new Error("phaser: init() has not completed"));
+    return Promise.resolve(this.game.canvas.toDataURL("image/png"));
   }
 
   describe(): CandidateDescription {
