@@ -1204,6 +1204,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   #talkContext(who: { readonly principalId: string; readonly personaId: string }) {
     return this.#talkContexts.get(`${who.principalId}:${who.personaId}`);
   }
+  #arming: Promise<unknown> = Promise.resolve();
 
   /** The SDK's `ctx` and `env`, typed by this module's portable declarations. */
   protected get objectState(): DurableObjectState {
@@ -1269,7 +1270,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const result = await withActivations(this.environment, (store) =>
       store.configure(address, configuration, policy),
     );
-    await this.armActivations(address, result, true);
+    await this.armActivations(address, true);
     return result;
   }
 
@@ -1295,13 +1296,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
     // Persist a fallback before admitting canonical work, including unscheduled operator wakes.
-    await this.armActivations(
-      address,
-      await withActivations(this.environment, (store) => store.inspect(address)),
-      false,
-      false,
-      true,
-    );
+    await this.armActivations(address, false, false, true);
     return this.admitActivation(address, wake);
   }
 
@@ -1357,10 +1352,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
 
   /** SDK scheduler callback: bounded journal scan and due configurations, ordered by priority. */
   async runScheduledActivations(address: ActivationAddress): Promise<void> {
-    const inspection = await withActivations(this.environment, (store) => store.inspect(address));
     // The current one-shot is being consumed. Persist its successor before any turn can abort
     // this incarnation; a finally block cannot create the only recovery alarm after owner loss.
-    await this.armActivations(address, inspection, false, true, true);
+    const inspection = await this.armActivations(address, false, true, true);
     try {
       for (const deferred of inspection.activations.filter((a) => a.status === "deferred")) {
         try {
@@ -1417,21 +1411,39 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         });
       }
     } finally {
-      await this.armActivations(
-        address,
-        await withActivations(this.environment, (store) => store.inspect(address)),
-        false,
-        true,
-      );
+      await this.armActivations(address, false, true);
     }
   }
 
-  private async armActivations(
+  /**
+   * Plans the one activation alarm from an inspection read inside this incarnation's single arming
+   * section, and answers that inspection. Configure, wake and the callback run concurrently between
+   * PostgreSQL round trips: a callback planning from an inspection taken before a configuration
+   * committed would cancel the alarm that configuration relied on, and its wake would wait for the
+   * next quiet poll, or forever with none. Every change commits before its own arming, so the last
+   * arming always reads it.
+   */
+  private armActivations(
     address: ActivationAddress,
-    inspection: ActivationInspection,
     initial = false,
     fromCallback = false,
     forceRecovery = false,
+  ): Promise<ActivationInspection> {
+    const armed = this.#arming.then(async () => {
+      const inspection = await withActivations(this.environment, (store) => store.inspect(address));
+      await this.planActivationAlarm(address, inspection, initial, fromCallback, forceRecovery);
+      return inspection;
+    });
+    this.#arming = armed.catch(() => undefined);
+    return armed;
+  }
+
+  private async planActivationAlarm(
+    address: ActivationAddress,
+    inspection: ActivationInspection,
+    initial: boolean,
+    fromCallback: boolean,
+    forceRecovery: boolean,
   ): Promise<void> {
     const stored = await this.objectState.storage.get<{ id: string; at: number }>(
       "activation-alarm",

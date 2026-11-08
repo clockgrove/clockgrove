@@ -258,15 +258,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
         activations: [],
         nextWakeAt: null,
       });
-      // Only SQL observes the autonomous alarm: no client call drains or recovers due work.
-      await expect
-        .poll(() =>
-          owner.sql(
-            `SELECT count(*) FROM clockgrove.conversation_turn_fibers WHERE phase = 'proposal_validating'`,
-          ),
-        )
-        .toBe("1");
-      await owner.replace();
+      // Only SQL observes the autonomous alarm: no client call drains or recovers due work. The
+      // fault ends the incarnation at `proposal_validating`; the successor alarm the owner persisted
+      // before the turn recovers it, and that alarm (floored to a whole second by the SDK) can fire
+      // within milliseconds of the crash, so the crash is read from the durable runs, not the phase.
       await expect
         .poll(() =>
           owner.sql(
@@ -286,6 +281,22 @@ it.skipIf(!isNativeWorldOwnerChild())(
           WHERE a.configuration_id = 'daily'`,
         ),
       ).toBe("completed/2/scheduled_intention");
+      // The first attempt answered and was lost before commit; the second committed that answer.
+      expect(
+        await owner.sql(
+          `SELECT string_agg(r.status || '/' || coalesce(r.outcome_code, '-') || '/' || s.kinds, ' '
+             ORDER BY r.started_at)
+           FROM clockgrove.actor_activations a
+           JOIN clockgrove.agent_runs r
+             ON r.tenant_id = a.tenant_id AND r.session_id = a.session_id
+            AND r.input_message_id = a.message_id
+           CROSS JOIN LATERAL (SELECT string_agg(kind, ',' ORDER BY step) AS kinds
+             FROM clockgrove.run_steps WHERE tenant_id = r.tenant_id AND run_id = r.run_id) s
+          WHERE a.configuration_id = 'daily'`,
+        ),
+      ).toBe(
+        "abandoned/owner_lost/context_retrieval,model_attempt completed/-/context_retrieval,model_attempt,commit",
+      );
       const scheduled = await post("inspect");
       expect(scheduled.configurations).toEqual(
         expect.arrayContaining([expect.objectContaining({ id: "daily", intervalMs: 86_400_000 })]),
