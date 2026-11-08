@@ -711,17 +711,16 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.drawn.set(placement.objectId, drawn);
       } else {
         const move = movement(drawn.visual.placement, placement);
-        this.motions.delete(drawn.body);
-        this.motions.delete(drawn.shadow);
-        if (
-          move === "snap" ||
-          this.reducedMotion ||
-          (drawn.body.position.x === x && drawn.body.position.y === -y)
-        ) {
-          drawn.body.position.set(x, -y, drawn.body.position.z);
-          drawn.shadow.position.set(x, -y, -40);
-        } else
-          for (const mesh of [drawn.body, drawn.shadow])
+        for (const mesh of [drawn.body, drawn.shadow]) {
+          const motion = this.motions.get(mesh);
+          if (
+            move === "snap" ||
+            this.reducedMotion ||
+            (mesh.position.x === x && mesh.position.y === -y)
+          ) {
+            this.motions.delete(mesh);
+            mesh.position.set(x, -y, mesh.position.z);
+          } else if (motion?.x !== x || motion.y !== -y) {
             this.motions.set(mesh, {
               fromX: mesh.position.x,
               fromY: mesh.position.y,
@@ -729,6 +728,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
               y: -y,
               start: performance.now(),
             });
+          }
+        }
         drawn.visual = visual;
       }
       drawn.body.userData.wind = /(?:shrub|foliage|tree)/u.test(binding?.assetId ?? "");
@@ -772,8 +773,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.ground.material.roughness =
       projection.weather.rainIntensity > 0 && this.tier !== "low" ? 0.45 : 1;
     this.rain.visible = projection.weather.rainIntensity > 0;
-    for (const light of this.lights) this.scene.remove(light);
-    this.lights = [];
+    let lightCount = 0;
     const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
     for (const effect of shownEffects(projection)) {
       if (effect.role === "puddle") continue;
@@ -781,11 +781,15 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (!at) continue;
       const [x, y] = iso(at);
       // Decision: 1500 candela at a 35 px offset warms nearby quads; 180 px bounds each source.
-      const light = new THREE.PointLight(0xffb966, 1500, 180, 2);
+      let light = this.lights[lightCount++];
+      if (!light) {
+        light = new THREE.PointLight(0xffb966, 1500, 180, 2);
+        this.lights.push(light);
+        this.scene.add(light);
+      }
       light.position.set(x, -y + 12, 35);
-      this.lights.push(light);
-      this.scene.add(light);
     }
+    while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();
   }
   private drawEffects(projection: SceneProjection): void {
     const effects = projection.effects ?? [];
@@ -1296,8 +1300,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
     this.atlasTexture?.dispose();
     this.atlasTexture = undefined;
-    this.renderer?.dispose();
     this.canvas?.remove();
+    // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
+    void this.renderer?.dispose().catch(() => {});
     this.handlers.clear();
     this.drawn.clear();
     this.atlas.clear();

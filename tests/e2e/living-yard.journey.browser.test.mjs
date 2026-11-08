@@ -2225,11 +2225,13 @@ const observeYard = async (backend) => {
         expect(state.backend).toBe(backend);
         if (backend === "webgpu") expect(state.architecture).toBe("swiftshader");
         else expect(state.renderer).toMatch(/SwiftShader/i);
-        console.info("Renderer correctness", {
-          backend: state.backend,
-          architecture: state.architecture,
-          renderer: state.renderer,
-        });
+        process.stdout.write(
+          `Renderer correctness: ${JSON.stringify({
+            backend: state.backend,
+            architecture: state.architecture,
+            renderer: state.renderer,
+          })}\n`,
+        );
         // Drawn front to back in pick order, under a fixed unrotated camera framed on the yard.
         expect([state.byDepth, state.camera, state.bounds, state.inside, state.weather]).toEqual([
           placed.map((entity) => entity.objectId),
@@ -2303,7 +2305,9 @@ const observeYard = async (backend) => {
           patchApplicationMs: runtime.patchMs,
           reconnectMs,
         };
-        console.log(`scene runtime budgets measured: ${JSON.stringify(measured)}`);
+        process.stdout.write(
+          `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured })}\n`,
+        );
         expect([runtime.entityCount, frames.length > 0]).toEqual([placed.length, true]);
         for (const [name, value] of Object.entries(measured))
           expect([name, value <= budgets[name].limit]).toEqual([name, true]);
@@ -2454,14 +2458,24 @@ const observeYard = async (backend) => {
           const start = body.position.x;
           adapter.loadSnapshot(shifted(1));
           const tweening = [Number(adapter.motions.has(body)), body.position.x];
+          const motion = adapter.motions.get(body);
+          const lights = [...adapter.lights];
+          adapter.loadSnapshot(shifted(1));
+          const retained = [
+            adapter.motions.get(body) === motion,
+            adapter.lights.length === lights.length &&
+              adapter.lights.every((light, index) => light === lights[index]),
+          ];
           await new Promise((resolve) => setTimeout(resolve, 600));
           const settled = body.position.x;
           adapter.loadSnapshot(shifted(21));
           const snapped = [Number(adapter.motions.has(body)), body.position.x];
           adapter.loadSnapshot(committed);
-          return [start, tweening, settled, snapped];
+          return [start, tweening, settled, snapped, retained];
         });
-        const [start, [tweens, during], settled, [snapTweens, snapped]] = interpolated;
+        const [start, [tweens, during], settled, [snapTweens, snapped], retainedMotionAndLights] =
+          interpolated;
+        expect(retainedMotionAndLights).toEqual([true, true]);
         expect([tweens, during < settled, settled - start, snapTweens, snapped - start]).toEqual([
           1,
           true,

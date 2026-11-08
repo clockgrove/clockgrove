@@ -100,11 +100,13 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await server.listen();
       browser = await chromium.launch({
         headless: true,
-        args: ["--disable-webgl", "--disable-webgl2"],
+        args: ["--disable-webgl", "--disable-webgl2", "--disable-blink-features=WebGPU"],
       });
       const { port } = server.httpServer.address();
       // WebGL2 unavailable with the renderer loaded: the complete text scene remains ready.
       const probe = await browser.newPage();
+      const rendererErrors = [];
+      probe.on("pageerror", (error) => rendererErrors.push(error.message));
       await probe.goto(`http://127.0.0.1:${port}/`);
       await probe.getByLabel("Local session credential").fill("yard-inspect");
       await probe.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -123,6 +125,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         0,
         1,
       ]);
+      expect(rendererErrors).toEqual([]);
       await probe.close();
       const page = await browser.newPage({ reducedMotion: "reduce" });
       await page.addInitScript(() => {
