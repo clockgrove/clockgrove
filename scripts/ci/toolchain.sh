@@ -183,15 +183,7 @@ opentofu_present() {
 install_opentofu() {
   local directory archive="tofu_${OPENTOFU_VERSION}_linux_amd64.zip"
   directory="$(mktemp -d)"
-  if ! download "https://github.com/opentofu/opentofu/releases/download/v$OPENTOFU_VERSION/$archive" "$directory/$archive"; then
-    # Same v1.13.1 asset, via the release API when github.com's download route returns 5xx.
-    # Source: https://api.github.com/repos/opentofu/opentofu/releases/tags/v1.13.1
-    note "opentofu: release download failed; trying the pinned GitHub API asset"
-    curl --fail --silent --show-error --location "${CURL_RETRY[@]}" \
-      --header 'Accept: application/octet-stream' \
-      'https://api.github.com/repos/opentofu/opentofu/releases/assets/603708334' \
-      --output "$directory/$archive"
-  fi
+  download "https://github.com/opentofu/opentofu/releases/download/v$OPENTOFU_VERSION/$archive" "$directory/$archive"
   verify_sha256 "$OPENTOFU_ARCHIVE_SHA256" "$directory/$archive"
   unzip -q "$directory/$archive" tofu -d "$directory/bin"
   as_root install -m 0755 "$directory/bin/tofu" "$TOFU"
