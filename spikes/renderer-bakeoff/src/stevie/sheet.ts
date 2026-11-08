@@ -154,7 +154,7 @@ export async function cutSheet(url: string): Promise<CutSheet> {
           heightAt(x + 1, y + 1);
         const strength = 6;
         const nx = -dx * strength;
-        const ny = dy * strength;
+        const ny = -dy * strength;
         const length = Math.hypot(nx, ny, 1);
         normal[to] = Math.round((nx / length) * 127.5 + 127.5);
         normal[to + 1] = Math.round((ny / length) * 127.5 + 127.5);

@@ -54,7 +54,13 @@ function texture(data: Uint8Array, w: number, h: number): Any {
   return t;
 }
 
-function png(data: Uint8Array, w: number, h: number, opaque: boolean): string {
+/** The albedo render target holds linear values; the report's PNG gets them sRGB-encoded. */
+function toSrgb(v: number): number {
+  const c = v / 255;
+  return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055));
+}
+
+function png(data: Uint8Array, w: number, h: number, opaque: boolean, linear = false): string {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -66,6 +72,9 @@ function png(data: Uint8Array, w: number, h: number, opaque: boolean): string {
     image.data.set(row, y * w * 4);
   }
   if (opaque) for (let i = 3; i < image.data.length; i += 4) image.data[i] = 255;
+  if (linear)
+    for (let i = 0; i < image.data.length; i++)
+      if (i % 4 !== 3) image.data[i] = toSrgb(image.data[i] ?? 0);
   context.putImageData(image, 0, 0);
   return canvas.toDataURL("image/png");
 }
@@ -138,7 +147,9 @@ export function bakeSprites(
       });
       for (const o of outlines) o.visible = pass === "albedo";
       renderer.setRenderTarget(target);
-      renderer.setClearColor(new THREE.Color().setRGB(...clears[pass]), 0);
+      // Only the albedo pass's alpha is read; the others clear opaque, because a premultiplied clear at
+      // alpha 0 would write black instead of the flat normal (0.5, 0.5, 1).
+      renderer.setClearColor(new THREE.Color().setRGB(...clears[pass]), pass === "albedo" ? 0 : 1);
       renderer.clear();
       renderer.render(scene, camera);
       renderer.readRenderTargetPixels(target, 0, 0, BAKE_CELL, BAKE_CELL, pixels);
@@ -170,7 +181,7 @@ export function bakeSprites(
     height,
     cell: (key) => cells.get(key) ?? { column: 0, row: 0 },
     pngs: () => ({
-      albedo: png(atlases.albedo, width, height, false),
+      albedo: png(atlases.albedo, width, height, false, true),
       normal: png(atlases.normal, width, height, true),
       depth: png(atlases.depth, width, height, true),
     }),

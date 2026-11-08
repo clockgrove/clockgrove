@@ -577,8 +577,8 @@ export async function generatedStevie(
     stepMs,
     instantiate() {
       const model = cloneSkinned(gltf.scene);
-      // glTF is y-up; the yard is z-up with the character facing +x.
-      model.rotation.x = Math.PI / 2;
+      // glTF is y-up and faces +z; the yard is z-up with the character facing +x (y→z first, then −y→+x).
+      model.rotation.set(Math.PI / 2, 0, Math.PI / 2, "ZYX");
       model.scale.setScalar(scale);
       const tinted: Any[] = [];
       const meshes: Any[] = [];
