@@ -111,7 +111,7 @@ export interface BakeoffAdapter extends WorldSceneAdapter {
    */
   renderFrame(timeMs: number): Promise<void>;
   /** A PNG data URL of the frame just drawn by `renderFrame`. */
-  capture(): Promise<string>;
+  capture(): string;
   describe(): CandidateDescription;
 }
 

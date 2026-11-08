@@ -14,9 +14,11 @@ const backend: ThreeBackend = {
     return renderer;
   },
   createPost(renderer, scene, camera, mode) {
-    const scenePass = pass(scene, camera);
-    // The puddle reflections need a stencil buffer in the pass target.
-    if (scenePass.renderTarget) scenePass.renderTarget.stencilBuffer = true;
+    // The puddle reflections need a stencil buffer in the pass target. It must be asked for at
+    // construction: PassNode then makes its depth texture depth-stencil. Setting stencilBuffer
+    // afterwards left a depth-only texture on a stencil attachment, an incomplete framebuffer that
+    // drew nothing on the WebGL2 backend (CI, SwiftShader).
+    const scenePass = pass(scene, camera, { stencilBuffer: true });
     const color = scenePass.getTextureNode("output");
     const bloomNode = bloom(color, mode === "full" ? 0.9 : 0.6, 0.4, 0.75);
     bloomNode.setResolutionScale(mode === "full" ? 1 : 0.5);
