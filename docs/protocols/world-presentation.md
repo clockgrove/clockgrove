@@ -66,10 +66,10 @@ follow actor activity and the `moving`, `shelter`, `arrived`, `seeking` replacem
 Only projected objects receive bindings. An omitted input produces no world-specific bindings
 or effects. Runtime inputs are decoded at composition and reused by projection readers.
 
-`WORLD_MODEL_CONFIG` binds a JSON object with `alias`, `modelName`, `identity`, `commandPrefix`
+`WORLD_MODEL_CONFIG` binds a JSON object with `alias`, `modelName`, `identity`, `sceneLabel`, `commandPrefix`
 and `aliases`. The alias definitions retain the model gateway's provider-neutral route,
 credential-reference, token-limit, timeout and price contract. `identity` supplies the world's
-actor identity; platform instructions still protect grants and treat retrieved text as untrusted.
+actor identity, and `sceneLabel` supplies its place label; platform instructions still protect grants and treat retrieved text as untrusted.
 The command prefix preserves a world's command idempotency identity across deployments.
 Omitted model configuration uses the generic actor defaults.
 
