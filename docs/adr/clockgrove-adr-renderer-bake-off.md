@@ -43,7 +43,7 @@ The levels below are what each adapter reports in `describe()`. **Native** means
 
 What the table means:
 
-- **Phaser 4** can light normal-mapped sprites and bloom them, and its filters and shader objects can add effects that cover the whole canvas. It can't give specular or roughness response, an emissive channel, light falloff over real 3D positions, or per-object fog depth. Each of these is a separate layer or a screen-space shader, and the spike already carries five of them. That is the ceiling the issue suspected.
+- **Phaser 4** can light normal-mapped sprites and bloom them, and its filters and shader objects can add effects that cover the whole canvas. It can't give specular or roughness response, an emissive channel, light falloff over real 3D positions, or per-object fog depth. Each of these is a separate layer or a screen-space shader, and the spike already carries five of them. That is the ceiling the issue suspected. The spike also warps the ground and the wall into canvas textures for each camera, so a camera change costs Phaser a re-bake that Three.js doesn't pay. In the measured sequence that is two frames of 120, below the p95.
 - **Three.js** gets normal, roughness and emissive maps, physical point lights, per-pixel fog and bloom from the engine. Wetness, wind, rain and reflections are still the spike's own work, as in Phaser, but they sit on a physically based base. The WebGPU entry runs the same scene code. Its post-processing is node-based (TSL) rather than `EffectComposer`, so the post stack is written twice.
 
 ## Measurements
