@@ -31,6 +31,15 @@ const domainZodDependency = "node_modules/(?:\\.pnpm/zod@4\\.6\\.6/node_modules/
 
 export const forbidden = [
   {
+    name: "no-platform-to-world",
+    severity: "error",
+    comment: "Worlds consume platform packages; platform source never consumes a world (issue 86).",
+    from: {
+      path: "^(?:(?:apps|packages)/|tests/dependency-boundaries/forbidden-platform-to-world\\.ts$)",
+    },
+    to: { path: "^worlds/(?!fixture(?:/|$))" },
+  },
+  {
     name: "random-upstream-confined-to-adapter",
     severity: "error",
     from: { pathNot: "^packages/kernel/src/random\\.ts$" },
