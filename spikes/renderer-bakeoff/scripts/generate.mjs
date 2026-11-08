@@ -12,6 +12,7 @@
 //   node scripts/generate.mjs keep <name> <provider|fit> <glb> [walk=<glb>] <why…>
 //                                                   names a generated model for the report to render
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,6 +171,12 @@ async function gatewayBalance(token) {
 }
 
 async function turnaround() {
+  // The owner approved the first turnaround as Stevie's reference (issue 77, 2026-11-08 07:08Z: "Keep it and reuse
+  // it... Don't regenerate it"). Every route and the report's identity check read it, so it is never overwritten.
+  if (existsSync(path.join(media, turnaroundFile())))
+    throw new Error(
+      `refused: media/${turnaroundFile()} is the owner-approved Stevie reference; move it aside deliberately to regenerate`,
+    );
   const token = key("AI_GATEWAY_API_KEY");
   const sheet = await readFile(SHEET);
   const parameters = { size: "1536x1024", quality: "high", n: 1, prompt: TURNAROUND_PROMPT };

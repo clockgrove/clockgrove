@@ -595,8 +595,11 @@ export function fittedSource(
   const rig = timed(stepMs, "fitSkeletonAndWeights", () => fitRig(geometry, JOINTS));
   geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(rig.skinIndex, 4));
   geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(rig.skinWeight, 4));
-  const hips = rig.joints.find((j) => j.name === "hips")?.at;
-  const clips = timed(stepMs, "buildClips", () => standInClips(hips));
+  // hips.position keys are local to hips' parent (root), so the walk's bob starts from the parent-relative rest.
+  const at = (name: string) => rig.joints.find((j) => j.name === name)?.at ?? [0, 0, 0];
+  const [hips, rootAt] = [at("hips"), at("root")];
+  const hipsLocal: V3 = [hips[0] - rootAt[0], hips[1] - rootAt[1], hips[2] - rootAt[2]];
+  const clips = timed(stepMs, "buildClips", () => standInClips(hipsLocal));
   const material = toonMaterial({ map, color: 0xffffff });
   const outline = outlineMaterial();
   return {
@@ -644,6 +647,45 @@ function restClip(scene: Any): Any {
   return new THREE.AnimationClip("rest pose", 0.001, tracks);
 }
 
+/** An idle clip shorter than this (Meshy's one-frame `clip0`) is a held pose, not an idle. */
+const HELD_POSE_SECONDS = 0.05;
+/**
+ * A moving idle for a provider rig that ships none (Tripo) or only a held pose (Meshy): the spike keyframes slow
+ * breathing on the provider's own spine and chest bones, a nod on the neck or head, and a tail sway, each a small
+ * rotation about the bone's local axes on top of its rest rotation. Bones are found by name; the clip is the
+ * spike's, not the provider's, and the report labels it so.
+ */
+function breathingIdle(scene: Any): Any {
+  const tracks: Any[] = [];
+  const q = new THREE.Quaternion();
+  const turn = new THREE.Quaternion();
+  const rule = (name: string): [Any, number, number] | null => {
+    if (/tail/iu.test(name)) return [axisY, 7, 1];
+    if (/spine|chest/iu.test(name)) return [axisX, 2, 1];
+    if (/neck|head/iu.test(name)) return [axisX, 3, 2];
+    return null;
+  };
+  let tail = 0;
+  scene.traverse((node: Any) => {
+    if (!node.isBone) return;
+    const found = rule(node.name);
+    if (!found) return;
+    const [axis, degrees, cycles] = found;
+    const lag = /tail/iu.test(node.name) ? tail++ * 0.6 : 0;
+    const times: number[] = [];
+    const values: number[] = [];
+    for (let k = 0; k <= 12; k++) {
+      times.push((k / 12) * IDLE_SECONDS);
+      turn.setFromAxisAngle(axis, deg(degrees) * Math.sin((k / 12) * TAU * cycles - lag));
+      q.copy(node.quaternion).multiply(turn);
+      values.push(q.x, q.y, q.z, q.w);
+    }
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${node.name}.quaternion`, times, values));
+  });
+  if (!tracks.length) return restClip(scene);
+  return new THREE.AnimationClip("spike breathing on the provider's bones", IDLE_SECONDS, tracks);
+}
+
 /**
  * A generated model (glTF binary), re-shaded with the shared toon ramp and the same inverted-hull outline, at
  * the stand-in's height. With `rig: "provider"` it keeps the provider's skeleton and clips, matched by name
@@ -685,11 +727,11 @@ export async function generatedStevie(
   const find = (clips: Any[], pattern: RegExp) =>
     clips.find((a: Any) => pattern.test(a.name)) ?? null;
   const walk = find(gltf.animations, /walk/iu) ?? walkGltf?.animations[0] ?? null;
-  // Without an idle clip (Tripo's quadruped presets have none) the idle is the rig's rest pose.
+  // Without a moving idle (Tripo's quadruped presets have none; Meshy's clip0 is one frame) the spike keyframes
+  // breathing on the provider's bones (breathingIdle), so the idle can be judged; the clip name says whose it is.
+  const provided = find(gltf.animations, /idle/iu) ?? gltf.animations.find((a: Any) => a !== walk);
   const idle =
-    find(gltf.animations, /idle/iu) ??
-    gltf.animations.find((a: Any) => a !== walk) ??
-    restClip(gltf.scene);
+    provided && provided.duration > HELD_POSE_SECONDS ? provided : breathingIdle(gltf.scene);
   if (!idle || !walk) throw new Error(`${model.url} has no idle or walk clip`);
   // Normalise height so the generated model and the stand-in share one scale (cohesion criterion 5).
   const box = new THREE.Box3().setFromObject(gltf.scene);

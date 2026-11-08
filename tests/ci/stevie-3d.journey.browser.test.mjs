@@ -49,6 +49,8 @@ it("builds the spike and renders every arm's shots in both lighting states", asy
     const record = await stevieReport({
       out,
       label: "CI SwiftShader",
+      // The stand-in arms only, whatever git-ignored media/ this host holds.
+      models: [],
       timedFrames: 2,
       timeoutMs: 840_000,
       launch: async (url) => {

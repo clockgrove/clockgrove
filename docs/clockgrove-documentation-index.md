@@ -67,7 +67,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | `docs/adr/clockgrove-adr-field-guides-and-counterfactual-why.md` | 1.0 | Accepted | Resident-authored evolving knowledge, governed sharing/testimony, and bounded deterministic counterfactual Why |
 | `docs/adr/clockgrove-adr-actor-decision-ladder.md` | 1.0 | Accepted | Actor decision ladder: reflex, utility, compiled policy, bounded decision model, LLM; decision points in actor policy, models propose never commit, journal replay, deterministic fallback, distillation into compiled policy, dreaming steps as decision points |
 | `docs/adr/clockgrove-adr-renderer-bake-off.md` | 0.1 | Draft | None until accepted: renderer bake-off evidence for the owner's pick of the lit 2.5D browser renderer (issue 67); §20.4 Phaser 4 stays current |
-| `docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md` | 0.1 | Draft | None until accepted: 3D Stevie spike evidence for the owner's pick of real-time 3D, 2D sheets or 3D rendered to sprites for characters (issue 77) |
+| `docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md` | 0.4 | Draft | None until accepted: 3D Stevie spike evidence for the owner's pick of real-time 3D, 2D sheets or 3D rendered to sprites for characters (issue 77) |
 
 
 ---

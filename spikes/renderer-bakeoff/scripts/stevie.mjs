@@ -305,7 +305,11 @@ function reportHtml(record, out) {
   const ship = record.provenance.ship?.models ?? {};
   const g = (f) => f.guidelines.map((x) => `${x.item}: ${x.pass ? "pass" : "FAIL"}`).join("; ");
   const v = (x) => `${x.errors} errors, ${x.warnings} warnings`;
-  const shipRows = Object.entries(ship)
+  const candidates = Object.entries(record.provenance.ship?.candidates ?? {}).map(([n, e]) => [
+    `candidate ${n}`,
+    e,
+  ]);
+  const shipRows = [...Object.entries(ship), ...candidates]
     .flatMap(([name, entry]) =>
       Object.entries(entry.files).map(([kind, f]) => [
         `${name} (${kind})`,
@@ -313,8 +317,8 @@ function reportHtml(record, out) {
         `${f.raw.bytes} → ${f.shipped.bytes}`,
         f.shipped.textures.map((t) => `${t.slot} ${t.width}×${t.height}`).join(", "),
         `${f.raw.joints} / ${f.shipped.joints}`,
-        `raw: ${v(f.raw.validator)}; shipped: ${v(f.shipped.validator)}`,
-        g(f),
+        `raw: ${v(f.raw.validator)}; prepared geometry (before KTX2 and meshopt): ${f.prepared ? v(f.prepared.validator) : "not run"}; shipped: ${v(f.shipped.validator)}`,
+        `as delivered: ${f.raw.guidelines ? g({ guidelines: f.raw.guidelines }) : "not run"}. Shipped: ${g(f)}`,
         JSON.stringify(f.shipped.minutes),
       ]),
     )
@@ -357,7 +361,7 @@ function reportHtml(record, out) {
 <h2>Identity check</h2>${identity}
 <h2>Models</h2><p>Generation spend: $${record.provenance.spend.spentUsd} of $${record.provenance.spend.capUsd}; every call is in Provenance below.</p>
 <table><tr><th>model</th><th>rig</th><th>triangles / vertices</th><th>joints</th><th>textures</th><th>fur</th><th>rig and clips</th><th>steps on this page (ms)</th><th>generation cost</th><th>why kept</th></tr>${modelRows}</table>
-<h2>Ship form (glTF 2.0: KTX2, meshopt, XMP provenance)</h2><p>Budget ${escapeHtml(record.provenance.ship?.budgetTriangles ?? "?")} triangles; the page renders the shipped files. The Khronos validator does not decode EXT_meshopt_compression or KHR_texture_basisu, so its shipped warnings are the image/ktx2 MIME type and its geometry checks apply to the raw files.</p>
+<h2>Ship form (glTF 2.0: KTX2, meshopt, XMP provenance)</h2><p>Budget ${escapeHtml(record.provenance.ship?.budgetTriangles ?? "?")} triangles; the page renders the shipped files. The Khronos validator does not decode EXT_meshopt_compression or KHR_texture_basisu, so the geometry the ship step rewrote (simplified, smooth normals, scaled, named) is validated as a prepared GLB before those two transforms; the shipped column only checks the container. The guidelines run on each file as the provider delivered it and on the shipped file; scale and naming pass on the shipped file by construction. Candidates are the generated meshes not kept for the arms.</p>
 <table><tr><th>file</th><th>triangles raw → shipped</th><th>bytes</th><th>textures</th><th>joints raw / shipped</th><th>Khronos glTF Validator</th><th>Asset Creation Guidelines items</th><th>ship minutes</th></tr>${shipRows}</table>
 <table><tr><th>arm</th><th>preparation steps (ms)</th><th>frame p50 ms dusk / night</th><th>timing</th><th>error</th><th>notes</th></tr>${armRows}</table>
 <h2>Provenance</h2><pre>${escapeHtml(JSON.stringify(record.provenance, null, 2))}</pre>

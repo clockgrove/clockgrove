@@ -1,28 +1,34 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-// Issue 77's ship step (README, "Shipping the models"). The owner's standard for 3D outputs is glTF 2.0 / .glb with
-// KHR_texture_basisu (KTX2: ETC1S for colour, UASTC for normal/ORM), EXT_meshopt_compression and KHR_xmp_json_ld
-// provenance carrying IPTC digitalSourceType trainedAlgorithmicMedia. Whatever a 3D service returned is converted to that
-// form here, validated with the Khronos glTF Validator before and after, and checked against the four Asset Creation
-// Guidelines 2.0 items scripted below. Every output goes to the git-ignored media/ directory:
-// media/ship-<name>.glb (and ship-<name>-walk.glb), plus media/ship.json with the evidence.
+// Issue 77's ship step (docs/stevie-3d.md, "Shipping the models"). The owner's standard for 3D outputs is glTF 2.0 / .glb
+// with KHR_texture_basisu (KTX2: UASTC for normal maps, ETC1S for every other texture), EXT_meshopt_compression and
+// KHR_xmp_json_ld provenance carrying IPTC digitalSourceType trainedAlgorithmicMedia. Whatever a 3D service returned is
+// converted to that form here. The Khronos glTF Validator and the four Asset Creation Guidelines 2.0 items scripted
+// below run three times per file: on the provider's raw file, on the prepared geometry (after simplify, smooth normals,
+// scale and naming, before KTX2 and meshopt, which the validator cannot decode) and on the shipped file. Every output
+// goes to the git-ignored media/ directory: media/ship-<name>.glb (and ship-<name>-walk.glb), plus media/ship.json.
 //
-//   node scripts/ship.mjs              ship every model in media/provenance.json "models"
+//   node scripts/ship.mjs              ship every model in media/provenance.json "models", and every other
+//                                      generated .glb as a candidate (media/ship-candidate-<file>)
 //   node scripts/ship.mjs <name>...    ship only the named models
 //
-// The tools are pinned below and installed into media/.tools on first use; they are not workspace dependencies.
+// The tools are devDependencies of this workspace package, pinned in package.json and the lockfile.
 // Triangle, vertex, joint and texture counts are read from the GLB's own JSON and KTX2 headers, independent of
 // glTF-Transform, so they are evidence rather than a restatement of the tool's inspect.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import * as core from "@gltf-transform/core";
+import * as extensions from "@gltf-transform/extensions";
+import * as functions from "@gltf-transform/functions";
+import validator from "gltf-validator";
+import { ktx2 } from "ktx2-encoder/gltf-transform";
+import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from "meshoptimizer";
+import sharp from "sharp";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const media = path.join(root, "media");
-const tools = path.join(media, ".tools");
 const LEDGER = path.join(media, "provenance.json");
 
 /** Decision: one triangle budget for every model; the owner's range is roughly 5-20K. */
@@ -37,63 +43,24 @@ const HEIGHT_RANGE_M = [0.2, 1.0];
 const STEVIE_HEIGHT_M = 0.53;
 const DIGITAL_SOURCE_TYPE =
   "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia";
-const PINNED = {
-  "@gltf-transform/core": "4.5.1",
-  "@gltf-transform/extensions": "4.5.1",
-  "@gltf-transform/functions": "4.5.1",
-  meshoptimizer: "1.3.0",
-  "gltf-validator": "2.0.0-dev.3.10",
-  "ktx2-encoder": "0.6.0",
-  sharp: "0.35.5",
-};
+const TOOLS = [
+  "@gltf-transform/core",
+  "@gltf-transform/extensions",
+  "@gltf-transform/functions",
+  "meshoptimizer",
+  "gltf-validator",
+  "ktx2-encoder",
+  "sharp",
+];
+const PINNED = Object.fromEntries(
+  TOOLS.map((name) => [
+    name,
+    JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).devDependencies[name],
+  ]),
+);
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const minutes = (since) => Math.round(((performance.now() - since) / 60_000) * 100) / 100;
-
-function installedVersion(name) {
-  try {
-    return JSON.parse(readFileSync(path.join(tools, "node_modules", name, "package.json"), "utf8"))
-      .version;
-  } catch {
-    return undefined;
-  }
-}
-
-async function installTools() {
-  if (Object.entries(PINNED).every(([name, version]) => installedVersion(name) === version)) return;
-  await mkdir(tools, { recursive: true });
-  await writeFile(path.join(tools, "package.json"), '{"private":true}\n');
-  const specs = Object.entries(PINNED).map(([name, version]) => `${name}@${version}`);
-  const args = [
-    "install",
-    "--prefix",
-    tools,
-    "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
-    ...specs,
-  ];
-  if (spawnSync("npm", args, { stdio: "inherit" }).status !== 0)
-    throw new Error("npm install of the pinned tools failed");
-}
-
-/** Imports a pinned tool from media/.tools by resolving its ESM entry from there. */
-async function importTool(specifier) {
-  const resolved = createRequire(path.join(tools, "package.json")).resolve(specifier);
-  return import(pathToFileURL(resolved).href);
-}
-
-async function importEsmTool(name, subpath = ".") {
-  const dir = path.join(tools, "node_modules", name);
-  const pkg = JSON.parse(await readFile(path.join(dir, "package.json"), "utf8"));
-  let entry = pkg.exports?.[subpath];
-  if (entry && typeof entry === "object") {
-    entry = entry.node?.import ?? entry.import ?? entry.default ?? entry.node;
-    if (entry && typeof entry === "object") entry = entry.import ?? entry.default;
-  }
-  entry ??= pkg.module ?? pkg.main;
-  return import(pathToFileURL(path.join(dir, entry)).href);
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Independent GLB reading: counts come from the file's JSON chunk and image headers, not from glTF-Transform.
@@ -108,7 +75,7 @@ function readGlb(bytes) {
   return { json, bin: bytes.subarray(binStart, binStart + binLength) };
 }
 
-async function imageSize(image, mime, sharp) {
+async function imageSize(image, mime) {
   if (mime === "image/ktx2") {
     const view = new DataView(image.buffer, image.byteOffset, image.byteLength);
     return { width: view.getUint32(20, true), height: view.getUint32(24, true) };
@@ -138,7 +105,7 @@ function textureSlots(json) {
   return slots;
 }
 
-async function measure(bytes, sharp) {
+async function measure(bytes) {
   const { json, bin } = readGlb(bytes);
   let triangles = 0;
   let vertices = 0;
@@ -164,7 +131,7 @@ async function measure(bytes, sharp) {
     textures.push({
       slot: (slots.get(index) ?? ["unused"]).join("+"),
       mime: image.mimeType,
-      ...(await imageSize(data, image.mimeType, sharp)),
+      ...(await imageSize(data, image.mimeType)),
     });
   }
   return {
@@ -181,7 +148,7 @@ async function measure(bytes, sharp) {
 // ---------------------------------------------------------------------------------------------------------------
 // Validation and guidelines.
 
-async function validate(bytes, validator) {
+async function validate(bytes) {
   const report = await validator.validateBytes(new Uint8Array(bytes), {
     maxIssues: 50,
     externalResourceFunction: (uri) =>
@@ -205,13 +172,11 @@ async function validate(bytes, validator) {
 const isPowerOfTwo = (n) => n > 0 && (n & (n - 1)) === 0;
 
 /** The four scripted Asset Creation Guidelines 2.0 items, evaluated on a glTF-Transform document read from the GLB. */
-function checkGuidelines(document, core, functions, source) {
+function checkGuidelines(document) {
   const root = document.getRoot();
   const height = Math.round(bindPoseHeight(document) * 1000) / 1000;
   const guidelines = [];
-  const note = source.metersAssumed
-    ? "glTF is metres by definition; the source is taken as metres"
-    : "";
+  const note = "glTF is metres by definition; the file is taken as metres";
   guidelines.push({
     item: "scale and units",
     pass: height >= HEIGHT_RANGE_M[0] && height <= HEIGHT_RANGE_M[1],
@@ -290,15 +255,6 @@ function checkGuidelines(document, core, functions, source) {
 // The ship pipeline.
 
 async function main() {
-  await installTools();
-  const core = await importEsmTool("@gltf-transform/core");
-  const extensions = await importEsmTool("@gltf-transform/extensions");
-  const functions = await importEsmTool("@gltf-transform/functions");
-  const { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } =
-    await importEsmTool("meshoptimizer");
-  const validator = await importTool("gltf-validator");
-  const { ktx2 } = await importEsmTool("ktx2-encoder", "./gltf-transform");
-  const sharp = (await importEsmTool("sharp")).default;
   await Promise.all([MeshoptSimplifier.ready, MeshoptEncoder.ready, MeshoptDecoder.ready]);
 
   const ledger = JSON.parse(await readFile(LEDGER, "utf8"));
@@ -306,6 +262,18 @@ async function main() {
   const names = wanted.length ? wanted : Object.keys(ledger.models ?? {});
   for (const name of names)
     if (!ledger.models?.[name]) throw new Error(`no model "${name}" in media/provenance.json`);
+  // Candidates: every other generated mesh (the dropped fal outputs, Tripo's unrigged model), shipped the same way
+  // so the ranking in the ADR rests on validated files too. Armature-only and extra clips are not meshes to rank.
+  const used = new Set(Object.values(ledger.models ?? {}).flatMap((m) => [m.glb, m.walk]));
+  const candidates = wanted.length
+    ? []
+    : Object.keys(ledger.files).filter(
+        (file) =>
+          file.endsWith(".glb") &&
+          !used.has(file) &&
+          !/_armature|running|walking/u.test(file) &&
+          existsSync(path.join(media, file)),
+      );
 
   const report = existsSync(path.join(media, "ship.json"))
     ? JSON.parse(await readFile(path.join(media, "ship.json"), "utf8"))
@@ -313,12 +281,13 @@ async function main() {
   report.budgetTriangles = BUDGET_TRIANGLES;
   report.tools = PINNED;
   report.models ??= {};
+  report.candidates ??= {};
 
   const io = new core.NodeIO()
     .registerExtensions(extensions.ALL_EXTENSIONS)
     .registerDependencies({ "meshopt.decoder": MeshoptDecoder, "meshopt.encoder": MeshoptEncoder });
 
-  /** UASTC for data textures (normal in normal-map mode), ETC1S with sRGB transfer for colour. */
+  /** UASTC for normal maps only (the owner's standard); ETC1S for every other texture, sRGB only for colour. */
   const decode = async (buffer) => {
     let image = sharp(buffer);
     const { width, height } = await image.metadata();
@@ -337,7 +306,7 @@ async function main() {
     },
     {
       slots: /^(metallicRoughnessTexture|occlusionTexture)$/,
-      isUASTC: true,
+      isUASTC: false,
       isPerceptual: false,
       isSetKTX2SRGBTransferFunc: false,
     },
@@ -357,8 +326,10 @@ async function main() {
     if (input.sha256 && input.sha256 !== rawSha)
       throw new Error(`${file} differs from its recorded sha256`);
     console.log(`${outName}: measuring and validating ${file}`);
-    const raw = await measure(rawBytes, sharp);
-    const rawValidator = await validate(rawBytes, validator);
+    const raw = await measure(rawBytes);
+    const rawValidator = await validate(rawBytes);
+    // The guidelines on the provider's file as delivered, before this script scales or names anything.
+    const rawGuidelines = checkGuidelines(await io.readBinary(rawBytes));
 
     // Simplify: reload the input each time and tighten the ratio until the total is within budget.
     const steps = {};
@@ -369,7 +340,8 @@ async function main() {
     let normalsRecomputed = false;
     if (raw.triangles > BUDGET_TRIANGLES) {
       // Hard-edged (split) normals lock the simplifier at their seams (Meshy's mesh stalls at 22.5K this way).
-      // The second pass drops the normals, welds, simplifies and recomputes smooth normals afterwards.
+      // The second pass drops the normals, welds and simplifies, then computes smooth area-weighted vertex normals
+      // on the indexed result (smoothNormals below), so the mesh stays indexed and shared corners share a normal.
       for (const dropNormals of [false, true]) {
         ratio = (BUDGET_TRIANGLES / raw.triangles) * 0.98;
         error = SIMPLIFY_ERROR;
@@ -381,7 +353,6 @@ async function main() {
           await document.transform(
             functions.weld(),
             functions.simplify({ simplifier: MeshoptSimplifier, ratio, error }),
-            ...(dropNormals ? [functions.normals({ overwrite: true })] : []),
             functions.prune(),
           );
           const total = countTriangles(document);
@@ -391,12 +362,22 @@ async function main() {
           error = Math.min(1, error * 2);
         }
         normalsRecomputed = dropNormals;
+        if (dropNormals) smoothNormals(document);
         if (countTriangles(document) <= BUDGET_TRIANGLES) break;
       }
     }
     steps.simplify = minutes(started);
-    const rawHeight = scaleToHeight(document, functions);
+    const rawHeight = scaleToHeight(document);
     const named = nameUnnamed(document, modelName);
+
+    // The geometry this script rewrote, validated before KTX2 and meshopt hide it from the validator.
+    const preparedBytes = new Uint8Array(await io.writeBinary(document));
+    const prepared = {
+      ...(await measure(preparedBytes)),
+      validator: await validate(preparedBytes),
+      guidelines: checkGuidelines(document),
+    };
+    if (normalsRecomputed) prepared.normals = normalReport(document);
 
     started = performance.now();
     await document.transform(...encodings);
@@ -407,16 +388,16 @@ async function main() {
     await document.transform(functions.meshopt({ encoder: MeshoptEncoder, level: "medium" }));
     steps.meshopt = minutes(started);
 
-    addProvenance(document, extensions, { file, rawSha, input, ratio, steps, raw, rawHeight });
+    addProvenance(document, { file, rawSha, input, ratio, steps, raw, rawHeight });
     const shipped = new Uint8Array(await io.writeBinary(document));
     await writeFile(path.join(media, outName), shipped);
 
     console.log(`${outName}: validating the shipped file`);
-    const result = await measure(shipped, sharp);
-    const shippedValidator = await validate(shipped, validator);
+    const result = await measure(shipped);
+    const shippedValidator = await validate(shipped);
     const readBack = await io.readBinary(shipped);
     const { json } = readGlb(shipped);
-    const guidelines = checkGuidelines(readBack, core, functions, { metersAssumed: true });
+    const guidelines = checkGuidelines(readBack);
     const kept = [];
     if (raw.skins && !result.skins) kept.push("skins lost");
     if (raw.animations && !result.animations) kept.push("animations lost");
@@ -424,7 +405,8 @@ async function main() {
     return {
       input: file,
       inputSha256: rawSha,
-      raw: { ...raw, validator: rawValidator },
+      raw: { ...raw, validator: rawValidator, guidelines: rawGuidelines },
+      prepared,
       shipped: {
         ...result,
         file: outName,
@@ -445,18 +427,27 @@ async function main() {
     };
   }
 
+  const entries = [];
   for (const name of names) {
     const model = ledger.models[name];
     report.models[name] = { rig: model.rig, files: {} };
     report.models[name].files.model = await shipFile(name, model.glb, `ship-${name}.glb`);
     if (model.walk)
       report.models[name].files.walk = await shipFile(name, model.walk, `ship-${name}-walk.glb`);
+    entries.push([name, report.models[name].files]);
+  }
+  for (const file of candidates) {
+    const name = file.replace(/(-model_glb|-model_url|-model)?\.glb$/u, "");
+    report.candidates[name] = {
+      files: { model: await shipFile(name, file, `ship-candidate-${name}.glb`) },
+    };
+    entries.push([`candidate ${name}`, report.candidates[name].files]);
   }
   await writeFile(path.join(media, "ship.json"), `${JSON.stringify(report, null, 2)}\n`);
-  summarize(report, names);
-  const failed = names.flatMap((name) =>
-    Object.values(report.models[name].files)
-      .filter((f) => f.shipped.validator.errors > 0)
+  summarize(entries);
+  const failed = entries.flatMap(([, files]) =>
+    Object.values(files)
+      .filter((f) => f.shipped.validator.errors > 0 || f.prepared.validator.errors > 0)
       .map((f) => f.shipped.file),
   );
   if (failed.length) {
@@ -466,13 +457,93 @@ async function main() {
 }
 
 /**
+ * Smooth, area-weighted vertex normals on an indexed mesh. Each triangle adds its unnormalised face normal (whose
+ * length is twice its area) to its three corners; corners at the same position (UV or skin seams the weld kept apart)
+ * pool their sums, so the normal is continuous across seams and the inverted-hull outline stays closed.
+ */
+function smoothNormals(document) {
+  const buffer = document.getRoot().listBuffers()[0];
+  for (const mesh of document.getRoot().listMeshes())
+    for (const primitive of mesh.listPrimitives()) {
+      const position = primitive.getAttribute("POSITION");
+      const indices = primitive.getIndices();
+      if (!position || !indices) throw new Error(`${mesh.getName()}: smooth normals need indices`);
+      const count = position.getCount();
+      const points = new Float64Array(count * 3);
+      const p = [];
+      const group = new Int32Array(count);
+      const keys = new Map();
+      for (let i = 0; i < count; i++) {
+        position.getElement(i, p);
+        points.set(p, i * 3);
+        const key = p.map((v) => Math.round(v * 1e5)).join(",");
+        if (!keys.has(key)) keys.set(key, keys.size);
+        group[i] = keys.get(key);
+      }
+      const sums = new Float64Array(keys.size * 3);
+      const index = indices.getArray();
+      for (let t = 0; t + 2 < index.length; t += 3) {
+        const [a, b, c] = [index[t], index[t + 1], index[t + 2]];
+        const e1 = [0, 1, 2].map((k) => points[b * 3 + k] - points[a * 3 + k]);
+        const e2 = [0, 1, 2].map((k) => points[c * 3 + k] - points[a * 3 + k]);
+        const n = [
+          e1[1] * e2[2] - e1[2] * e2[1],
+          e1[2] * e2[0] - e1[0] * e2[2],
+          e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        for (const v of [a, b, c]) for (let k = 0; k < 3; k++) sums[group[v] * 3 + k] += n[k];
+      }
+      const normals = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const g = group[i] * 3;
+        const length = Math.hypot(sums[g], sums[g + 1], sums[g + 2]);
+        // A corner whose triangles all collapsed to zero area has no direction; give it up (glTF needs unit length).
+        if (length < 1e-12) normals[i * 3 + 1] = 1;
+        else for (let k = 0; k < 3; k++) normals[i * 3 + k] = sums[g + k] / length;
+      }
+      primitive.setAttribute(
+        "NORMAL",
+        document.createAccessor().setType("VEC3").setArray(normals).setBuffer(buffer),
+      );
+    }
+}
+
+/** Evidence that the prepared mesh is indexed and smooth: the share of triangles whose three corner normals differ. */
+function normalReport(document) {
+  let triangles = 0;
+  let flat = 0;
+  let indexed = true;
+  const [a, b, c] = [[], [], []];
+  for (const mesh of document.getRoot().listMeshes())
+    for (const primitive of mesh.listPrimitives()) {
+      const normal = primitive.getAttribute("NORMAL");
+      const indices = primitive.getIndices();
+      if (!indices) {
+        indexed = false;
+        continue;
+      }
+      const index = indices.getArray();
+      for (let t = 0; t + 2 < index.length; t += 3) {
+        triangles++;
+        normal.getElement(index[t], a);
+        normal.getElement(index[t + 1], b);
+        normal.getElement(index[t + 2], c);
+        const same = (x, y) =>
+          Math.abs(x[0] - y[0]) + Math.abs(x[1] - y[1]) + Math.abs(x[2] - y[2]) < 1e-4;
+        if (same(a, b) && same(b, c)) flat++;
+      }
+    }
+  return { indexed, triangles, flatShadedTriangles: flat };
+}
+
+/**
  * Asset Creation Guidelines, scale and units: providers return normalised sizes (about 1-2 units), so the units are
  * converted to Stevie's real height in metres. A uniform scale s is baked in rather than added as a node: vertex
  * positions, every node translation, the translation part of inverse bind matrices and translation animation outputs
  * are multiplied by s (conjugating every transform by a uniform scale), so skins and clips stay exact and no node
  * carries a scale. Returns the height before conversion.
  */
-function scaleToHeight(document, functions) {
+function scaleToHeight(document) {
   const root = document.getRoot();
   const height = bindPoseHeight(document);
   const s = STEVIE_HEIGHT_M / height;
@@ -586,11 +657,7 @@ function countTriangles(document) {
   return total;
 }
 
-function addProvenance(
-  document,
-  extensions,
-  { file, rawSha, input, ratio, steps, raw, rawHeight },
-) {
+function addProvenance(document, { file, rawSha, input, ratio, steps, raw, rawHeight }) {
   const packet = document.createExtension(extensions.KHRXMP).createPacket();
   packet.setContext({
     dc: "http://purl.org/dc/elements/1.1/",
@@ -603,7 +670,7 @@ function addProvenance(
       ? `simplified from ${raw.triangles} to at most ${BUDGET_TRIANGLES} triangles (meshoptimizer, ratio ${ratio.toFixed(4)})`
       : `kept at ${raw.triangles} triangles (within the ${BUDGET_TRIANGLES} budget)`,
     `units converted from a ${rawHeight}-unit height to ${STEVIE_HEIGHT_M} m`,
-    "textures encoded to KTX2 (ETC1S colour with sRGB transfer; UASTC normal and ORM)",
+    "textures encoded to KTX2 (UASTC normal maps; ETC1S for colour, with sRGB transfer, and for metallic-roughness and occlusion)",
     "geometry compressed with EXT_meshopt_compression",
   ].join("; ");
   packet.setProperty("Iptc4xmpExt:DigitalSourceType", DIGITAL_SOURCE_TYPE);
@@ -620,13 +687,14 @@ function addProvenance(
   document.getRoot().setExtension("KHR_xmp_json_ld", packet);
 }
 
-function summarize(report, names) {
-  for (const name of names) {
-    for (const [kind, f] of Object.entries(report.models[name].files)) {
+function summarize(entries) {
+  const g = (list) => list.map((x) => `${x.item}:${x.pass ? "pass" : "FAIL"}`).join(" ");
+  for (const [name, files] of entries) {
+    for (const [kind, f] of Object.entries(files)) {
       const s = f.shipped;
-      const g = f.guidelines.map((x) => `${x.item}:${x.pass ? "pass" : "FAIL"}`).join(" ");
+      const v = (x) => `${x.errors}E/${x.warnings}W`;
       console.log(
-        `${name}/${kind}: ${f.raw.triangles} -> ${s.triangles} tris, ${f.raw.bytes} -> ${s.bytes} bytes, validator raw ${f.raw.validator.errors}E/${f.raw.validator.warnings}W shipped ${s.validator.errors}E/${s.validator.warnings}W, ${g}`,
+        `${name}/${kind}: ${f.raw.triangles} -> ${s.triangles} tris, ${f.raw.vertices} -> ${s.vertices} verts, ${f.raw.bytes} -> ${s.bytes} bytes; validator raw ${v(f.raw.validator)} prepared ${v(f.prepared.validator)} shipped ${v(s.validator)}; raw ${g(f.raw.guidelines)}; shipped ${g(f.guidelines)}`,
       );
     }
   }
