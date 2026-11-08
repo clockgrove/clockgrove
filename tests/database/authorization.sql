@@ -111,6 +111,8 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'document_change_sets', 'participant'),
   ('clockgrove', 'context_manifests', 'participant'),
   ('clockgrove', 'conversation_turn_fibers', 'participant'),
+  ('clockgrove', 'actor_activation_policies', 'participant'),
+  ('clockgrove', 'actor_activations', 'participant'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
   ('clockgrove_management', 'principals', 'none'),
@@ -266,7 +268,8 @@ BEGIN
         'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
-        'clockgrove.actor_processes', 'clockgrove.actor_process_segments'
+        'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
+        'clockgrove.actor_activation_policies', 'clockgrove.actor_activations'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2096,6 +2099,96 @@ BEGIN
     RAISE EXCEPTION 'lease epoch moved back' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
   END;
+END;
+$$;
+ROLLBACK;
+
+-- Activation configuration and causal receipts (0039) require the configuring principal's live
+-- command grant, conversation ceiling and matching session, while preserving immutable identity.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'activation-session', 'principal-a', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'activation-session', 'world-a', 'timeline-a', 'partition-a', 'space-a',
+          'stevie', 'cognitive');
+INSERT INTO clockgrove.actor_activation_policies (
+  tenant_id, world_id, timeline_id, space_id, actor_id, principal_id, allow_model, model_budget
+) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'stevie', 'principal-a', true, 1);
+INSERT INTO clockgrove.actor_activations (
+  tenant_id, world_id, timeline_id, space_id, actor_id, causal_root, activation_id, principal_id,
+  configuration_id, reason, evidence, session_id, message_id, input, status, outcome
+) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'stevie', 'root-activation',
+  'activation-a', 'principal-a', 'subscription-a', '{"kind":"subscription","subscriptionId":"subscription-a","eventId":"rain-a"}',
+  'journal:rain-a', 'activation-session', 'wake-a', 'rain starts', 'pending', 'admitted');
+DO $$
+DECLARE context text[];
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.actor_activation_policies) <> 1
+    OR (SELECT count(*) FROM clockgrove.actor_activations) <> 1
+    OR (SELECT receipt_count FROM clockgrove.actor_activation_policies) <> 1 THEN
+    RAISE EXCEPTION 'activation owner cannot read exact admitted evidence';
+  END IF;
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation"]}'],
+    ARRAY['tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2],context[3]);
+    IF (SELECT count(*) FROM clockgrove.actor_activation_policies) <> 0
+      OR (SELECT count(*) FROM clockgrove.actor_activations) <> 0 THEN
+      RAISE EXCEPTION 'foreign context reads activation evidence';
+    END IF;
+    UPDATE clockgrove.actor_activation_policies SET allow_model=false;
+    IF FOUND THEN RAISE EXCEPTION 'foreign context changed activation policy'; END IF;
+    UPDATE clockgrove.actor_activations SET status='completed';
+    IF FOUND THEN RAISE EXCEPTION 'foreign context settled an activation'; END IF;
+    BEGIN
+      INSERT INTO clockgrove.actor_activation_policies (
+        tenant_id,world_id,timeline_id,space_id,actor_id,principal_id
+      ) VALUES ('tenant-a','world-a','timeline-a','space-a','forged','principal-a');
+      RAISE EXCEPTION 'foreign context inserted activation policy' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    BEGIN
+      INSERT INTO clockgrove.actor_activations (
+        tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
+        configuration_id,reason,evidence,session_id,message_id,input,status,outcome
+      ) VALUES ('tenant-a','world-a','timeline-a','space-a','stevie','forged-root','forged',
+        'principal-a','subscription-a','{}','forged','activation-session','forged','x','pending','admitted');
+      RAISE EXCEPTION 'foreign context inserted activation receipt' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  BEGIN
+    UPDATE clockgrove.actor_activation_policies SET principal_id='principal-a2';
+    RAISE EXCEPTION 'activation policy owner changed' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.actor_activations SET causal_root='rewritten';
+    RAISE EXCEPTION 'activation causal root changed' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  UPDATE clockgrove.actor_activations SET status='completed',outcome='completed';
+  IF (SELECT status || '/' || outcome FROM clockgrove.actor_activations) <> 'completed/completed' THEN
+    RAISE EXCEPTION 'activation owner did not settle evidence';
+  END IF;
+  UPDATE clockgrove.actor_activation_policies SET receipt_count=1000;
+  BEGIN
+    INSERT INTO clockgrove.actor_activations (
+      tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
+      configuration_id,reason,evidence,session_id,message_id,input,status,outcome
+    ) VALUES ('tenant-a','world-a','timeline-a','space-a','stevie','overflow','overflow',
+      'principal-a','subscription-a','{}','overflow','activation-session','overflow','x','pending','admitted');
+    RAISE EXCEPTION 'activation receipt bound exceeded' USING ERRCODE='XX999';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF (SELECT count(*) FROM clockgrove.actor_activations) <> 1 THEN
+    RAISE EXCEPTION 'refused activation changed durable receipt count';
+  END IF;
 END;
 $$;
 ROLLBACK;

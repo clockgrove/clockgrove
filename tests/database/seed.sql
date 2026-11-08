@@ -258,3 +258,9 @@ VALUES ('tenant-a', 'principal-a', 'world-a', 'timeline-a', 'space-a', 'repair-p
         'message-a', 'allow', 'repaired'),
        ('tenant-b', 'principal-b', 'world-b', 'timeline-b', 'space-b', 'replay-message',
         'message-b', 'deny', 'runtime-grant-missing');
+
+-- Activation attacks require a live command-authorized fixture participant.
+UPDATE clockgrove.world_memberships
+   SET grants = array_append(grants, 'runtime:world-command'),
+       privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation"]}'
+ WHERE tenant_id = 'tenant-a' AND principal_id = 'principal-a';
