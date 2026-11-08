@@ -81,7 +81,7 @@ export function ConversationPanel({
     summary?.actions.some((a) => a.kind === kind && a.availability === "enabled") ?? false;
   const openWhy = (commandId: string, opener: HTMLElement) => {
     whyOpener.current = opener;
-    session.explain(commandId as CommandId);
+    session.explainReceipt(commandId as CommandId);
   };
   const railAction = (kind: InteractionActionKind, opener: HTMLElement) => {
     if (kind === "talk") input.current?.focus();

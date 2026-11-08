@@ -306,6 +306,13 @@ export class YardSession {
     if (commandId && action) measure("inspector_traversal", "command");
     this.trace(commandId && action ? { commandId } : undefined);
   }
+  /**
+   * Starts from a command the member's own conversation receipt names, whether or not the selected
+   * entity's history lists it; the runtime still authorizes the read.
+   */
+  explainReceipt(commandId: CommandId): void {
+    this.trace({ commandId });
+  }
   /** Starts from an event the current world-status feed shows. */
   explainEvent(eventId: EventId): void {
     const feed = this.queries
