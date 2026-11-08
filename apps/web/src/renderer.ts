@@ -291,6 +291,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         alpha: false,
         stencil: true,
       });
+      this.renderer.onDeviceLost = () => this.lost(new Event("devicelost"));
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(WIDTH, HEIGHT);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -355,12 +356,16 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
           Boolean(context.getExtension("EXT_color_buffer_float"))
         : true;
       const rendererInfo = context?.getExtension("WEBGL_debug_renderer_info");
-      const software =
-        context &&
-        rendererInfo &&
-        /SwiftShader|llvmpipe|software/i.test(
-          String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL)),
-        );
+      const device = (
+        this.renderer.backend as {
+          device?: { adapterInfo?: { architecture?: string; description?: string } };
+        }
+      ).device;
+      const software = /SwiftShader|llvmpipe|software/i.test(
+        context && rendererInfo
+          ? String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL))
+          : `${device?.adapterInfo?.architecture ?? ""} ${device?.adapterInfo?.description ?? ""}`,
+      );
       const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
       this.setQuality(
         !enoughTargets || software || (memory !== undefined && memory < 4)
@@ -1247,10 +1252,23 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         bytes += source.width * source.height * 4;
       }
     }
-    // RGBA16F composer ping-pong, depth/stencil, half-size bright target and two mip chains.
-    const scale = SCENE_QUALITY[this.tier].bloomScale,
-      pixels = WIDTH * HEIGHT * scale * scale;
-    if (scale > 0) bytes += Math.ceil(pixels * (2 * 12 + 2 + 16 * (1 / 3)));
+    // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
+    // Conservatively include it even when RenderPipeline handles output conversion itself.
+    bytes += WIDTH * HEIGHT * 12;
+    const scale = SCENE_QUALITY[this.tier].bloomScale;
+    if (scale > 0) {
+      // r187 PassNode is full resolution; BloomNode has a bright target and two five-level
+      // RGBA16F chains, starting at bloomScale (not half of bloomScale).
+      bytes += WIDTH * HEIGHT * 12;
+      let width = Math.floor(WIDTH * scale),
+        height = Math.floor(HEIGHT * scale);
+      bytes += width * height * 8;
+      for (let level = 0; level < 5; level++) {
+        bytes += width * height * 16;
+        width = Math.floor(width / 2);
+        height = Math.floor(height / 2);
+      }
+    }
     this.metrics.textureBytes = bytes;
   }
   destroy(): void {

@@ -88,7 +88,7 @@ On three's WebGL2 fallback, a `PassNode` target needs its stencil buffer request
 
 The WebGL2 camera-pan measurements, smaller bundle, faster initialization and working WSL GL path support the compatibility floor; they do not measure the integrated WebGPURenderer. Preserve semantic poses, selection intents, projection-only input and the headless 3D conformance path. Tune bloom and grading so warm lantern/window sources retain color instead of blowing out to white.
 
-CI runs the WebGL2 backend under SwiftShader for correctness and records the backend of each check. The spike's fallback crash must be addressed by integration rather than excluded from scope. Do not reduce effects because automated headless WebGPU is unavailable. Backend-specific paths must be guarded by backend detection. Real-GPU WebGPU, ANGLE D3D11 and ANGLE GL over D3D12 validation remain explicit maintainer checks, as do product GPU-complete timings on the owner's reference box after merge.
+CI runs both WebGPU and forced WebGL2 backends under SwiftShader for correctness and records the backend and adapter of each check, following the [maintainer automation findings](https://github.com/clockgrove/clockgrove/issues/74#issuecomment-6718905798). The spike's fallback crash must be addressed by integration rather than excluded from scope. Headless WebGPU uses the explicitly enabled SwiftShader Vulkan adapter; correctness asserts its architecture and rendered pixels, never timing. Backend-specific paths must be guarded by backend detection. Real-GPU WebGPU, ANGLE D3D11 and ANGLE GL over D3D12 validation remain explicit maintainer checks, as do product GPU-complete timings on the owner's reference box after merge.
 
 ## Consequences
 
@@ -97,3 +97,5 @@ CI runs the WebGL2 backend under SwiftShader for correctness and records the bac
 - Quality tiers and reduced motion remain renderer policy. Golden comparisons at every tier qualify bloom and grading; synthetic-map spike captures do not qualify the product look.
 - Phone and integrated-GPU numbers stay missing until someone measures them on real devices; the report lists them.
 - The material-model Objective (issue 66) replaces the synthetic maps. The adapter inputs here (`MaterialSet`) are the spike's own, not a contract.
+
+The post-merge real-GPU run uses Windows Edge Direct3D 12 via a Playwright CDP loopback bridge for core WebGPU and ANGLE D3D11 for WebGL2. The WSL route sets `GALLIUM_DRIVER=d3d12` with `--use-angle=gl --ignore-gpu-blocklist --enable-unsafe-webgpu --use-webgpu-adapter=opengles`; it checks WebGPU compatibility mode and WebGL2 through Mesa D3D12. Record backend, adapter, and GPU-complete pan timings for the integrated yard at 960×540 high tier. The maintainer findings above describe the routes and their spike measurements.

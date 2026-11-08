@@ -112,8 +112,9 @@ clock/weather patches change the light rig without changing world state or rerea
 
 The live canvas is 640×400 at DPR 1. Quality selection is conservative: software renderers
 (SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
-or device memory below 4 GiB choose low. Otherwise memory below 8 GiB chooses medium and the
-remaining capable devices choose high. These thresholds are local decisions to bound target
+or device memory below 4 GiB choose low. WebGPU software detection reads the device adapter
+architecture/description; WebGL2 uses its debug renderer identity. Otherwise memory below 8 GiB
+chooses medium and the remaining capable devices choose high. These thresholds are local decisions to bound target
 allocation and shader work, rather than measured device-class performance promises.
 
 | Tier | Rain particle cap | Bloom | Wind | Puddle reflections |
@@ -164,11 +165,15 @@ GPU-complete numbers are separately sourced in `scene-budgets.json`: on the RTX 
 960×540 DPR 1, high-tier Three.js WebGL2 spike camera pans measured p50/p95 1.8/2.0 ms under Windows
 Edge/ANGLE D3D11. The WSL2 ANGLE GL-over-D3D12 path also rendered successfully. These are
 spike measurements; product measurements on the owner's box remain a maintainer step after merge.
-CI runs the WebGL2 backend under SwiftShader and records the actual backend with each check.
-SwiftShader proves correctness and is never performance evidence. The integrated WebGPU backend,
+CI runs both WebGPU and forced WebGL2 under SwiftShader and records the actual backend and
+adapter with each check.
+SwiftShader proves correctness and is never performance evidence. Hardware WebGPU,
 ANGLE D3D11 and ANGLE GL over D3D12 require real-GPU maintainer validation, including the fallback
 framebuffer behavior identified in the spike. Product GPU-complete timing remains a maintainer step.
-Multisampling is off.
+Multisampling is off. Texture accounting conservatively includes the renderer output
+RGBA16F/depth-stencil target, a full-resolution scene pass, the scaled bright target and both
+five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
+WebGPU device loss follows the same text fallback as WebGL context loss.
 
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,

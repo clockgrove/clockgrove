@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,18 @@ const VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 390, height: 844 },
 ];
+// Owner findings on #74 (2026-11-08): Vulkan and ANGLE are required for SwiftShader swap chains.
+const GPU_FLAGS = [
+  "--enable-unsafe-webgpu",
+  "--enable-unsafe-swiftshader",
+  "--use-webgpu-adapter=swiftshader",
+  "--use-angle=swiftshader",
+  "--enable-features=Vulkan",
+  "--use-vulkan=swiftshader",
+];
+const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
+  ? [process.env.CLOCKGROVE_RENDERER_PROOF]
+  : ["webgpu", "webgl2"];
 const TIERS = ["low", "medium", "high"];
 const HOUR_MS = 3_600_000n;
 /** The client measurement fields (apps/web/src/measurements.ts): opaque IDs and categories only. */
@@ -47,24 +59,34 @@ function pngSize(bytes) {
 
 // issue 814: the §15.3 golden states at each matrix viewport, captured with their SHA-256 for the Wave 4
 // manifest, which compares them with human approvals; the journey itself asserts state, not pixels.
-it("captures the Wave 4 golden states at each visual matrix viewport", async () => {
+const captureGoldenStates = async (backend) => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
-      vitestConfig: "tests/ci/vitest.browser.config.ts",
-      timeoutMs: 210_000,
-      inheritOutput: true,
-      prepare: (fixture) =>
-        truthOf(fixture)(
-          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-inspect','runtime:world-command'] WHERE principal_id='principal-runtime';
+    const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
+    process.env.CLOCKGROVE_RENDERER_PROOF = backend;
+    try {
+      await runNativeWorldOwnerProcess(FILE, "raccoons", {
+        vitestConfig: "tests/ci/vitest.browser.config.ts",
+        timeoutMs: 210_000,
+        inheritOutput: true,
+        prepare: (fixture) =>
+          truthOf(fixture)(
+            `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-inspect','runtime:world-command'] WHERE principal_id='principal-runtime';
           UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
-        ),
-    });
+          ),
+      });
+    } finally {
+      if (previous === undefined) delete process.env.CLOCKGROVE_RENDERER_PROOF;
+      else process.env.CLOCKGROVE_RENDERER_PROOF = previous;
+    }
     return;
   }
   await withNativeWorldOwner(async (native) => {
     const { fixture, world } = native;
     const provisioned = await provisionTestWorld(fixture, world, "principal-runtime");
-    const scope = { ...provisioned.partition.target, spaceId: provisioned.partition.route.spaceId };
+    const scope = {
+      ...provisioned.partition.target,
+      spaceId: provisioned.partition.route.spaceId,
+    };
     const truth = truthOf(fixture);
     const revision = async () =>
       BigInt(
@@ -92,10 +114,11 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
           }),
         });
     };
-    const out =
+    const evidenceRoot =
       process.env.CLOCKGROVE_WAVE4_EVIDENCE === undefined
         ? await mkdtemp(path.join(os.tmpdir(), "clockgrove-wave4-visual-"))
         : path.join(process.env.CLOCKGROVE_WAVE4_EVIDENCE, "visual");
+    const out = backend === "webgpu" ? evidenceRoot : path.join(evidenceRoot, "webgl2");
     await mkdir(out, { recursive: true });
     const server = await createServer({
       root: path.join(root, "apps/web"),
@@ -111,7 +134,7 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
           transform(code, id) {
             if (id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts"))
               return {
-                code: `${code}\nconst load = ThreeWorldSceneAdapter.prototype.loadSnapshot;\nThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.yardAdapter = this; return load.apply(this, args); };`,
+                code: `${backend === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}\nconst load = ThreeWorldSceneAdapter.prototype.loadSnapshot;\nThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.yardAdapter = this; return load.apply(this, args); };`,
                 map: null,
               };
             if (id.split("?")[0] === path.join(root, "apps/web/src/measurements.ts"))
@@ -127,7 +150,7 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
     try {
       await server.listen();
       const { port } = server.httpServer.address();
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
       const vitals = [];
       const open = async (viewport, text, missingAtlas = false) => {
         const page = await browser.newPage({
@@ -169,6 +192,8 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
               : /^Arrival: scene ready at revision /u,
           )
           .waitFor();
+        if (!text && !missingAtlas)
+          expect(await page.evaluate(() => globalThis.yardAdapter.tier)).toBe("low");
         // Web Vitals the arrival produced (§19): paint, layout shift and first byte, from the page's
         // own buffered performance entries.
         vitals.push({
@@ -341,6 +366,22 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
                 meanLuminance: luminance / (image.width * image.height),
                 lights: adapter.scene.children.filter((child) => child.isPointLight).length,
                 backend: adapter.backend,
+                textureBytes: adapter.metrics.textureBytes,
+                adapter:
+                  adapter.backend === "webgpu"
+                    ? {
+                        architecture: adapter.renderer.backend.device.adapterInfo.architecture,
+                        vendor: adapter.renderer.backend.device.adapterInfo.vendor,
+                        description: adapter.renderer.backend.device.adapterInfo.description,
+                      }
+                    : {
+                        renderer: adapter.renderer
+                          .getContext()
+                          .getParameter(
+                            adapter.renderer.getContext().getExtension("WEBGL_debug_renderer_info")
+                              .UNMASKED_RENDERER_WEBGL,
+                          ),
+                      },
                 api:
                   adapter.backend === "webgpu"
                     ? adapter.renderer.backend.isWebGPUBackend === true
@@ -349,7 +390,11 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
             }, first.toString("base64"));
             // Tuning decisions: warm pixels survive grading and no rendered pixel clips all channels
             // to white. This comparison reads the output PNG independently of the material uniforms.
-            expect(["webgpu", "webgl2"]).toContain(pixels.backend);
+            expect(pixels.backend).toBe(backend);
+            if (backend === "webgpu") expect(pixels.adapter.architecture).toBe("swiftshader");
+            else expect(pixels.adapter.renderer).toMatch(/SwiftShader/i);
+            expect(pixels.meanLuminance).toBeGreaterThan(0);
+            expect(pixels.textureBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
             expect([pixels.api, pixels.clipped, pixels.lights]).toEqual([
               true,
               0,
@@ -516,13 +561,51 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
         "scripted:",
       ])
         expect(serialized.includes(hidden), hidden).toBe(false);
-      await writeFile(
-        path.join(out, "captures.json"),
-        `${JSON.stringify({ viewports: VIEWPORTS, captures, rendererBackends: [...new Set(tierComparisons.map(({ backend }) => backend))], tierComparisons, measurements: [...names].sort(), webVitals: vitals }, null, 2)}\n`,
+      console.info(
+        "Renderer tier correctness",
+        JSON.stringify(
+          tierComparisons.map(({ state, tier, backend, adapter, textureBytes }) => ({
+            state,
+            tier,
+            backend,
+            adapter,
+            textureBytes,
+          })),
+        ),
       );
+      const report = {
+        viewports: VIEWPORTS,
+        captures,
+        rendererBackends: [backend],
+        tierComparisons,
+        measurements: [...names].sort(),
+        webVitals: vitals,
+      };
+      await writeFile(path.join(out, "captures.json"), `${JSON.stringify(report, null, 2)}\n`);
+      if (backend === "webgl2" && process.env.CLOCKGROVE_WAVE4_EVIDENCE !== undefined) {
+        const primary = JSON.parse(
+          await readFile(path.join(evidenceRoot, "captures.json"), "utf8"),
+        );
+        primary.rendererBackends.push(backend);
+        primary.tierComparisons.push(...tierComparisons);
+        primary.backendCaptures = captures.map((capture) => ({
+          ...capture,
+          backend,
+          file: `webgl2/${capture.file}`,
+        }));
+        await writeFile(
+          path.join(evidenceRoot, "captures.json"),
+          `${JSON.stringify(primary, null, 2)}\n`,
+        );
+      }
     } finally {
       await browser?.close();
       await server.close();
     }
   });
-}, 240_000);
+};
+it.each(BACKENDS)(
+  "captures the Wave 4 golden states at each visual matrix viewport (%s)",
+  captureGoldenStates,
+  240_000,
+);

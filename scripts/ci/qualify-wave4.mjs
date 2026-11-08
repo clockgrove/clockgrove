@@ -142,7 +142,12 @@ const browserMatrix = {
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
   ],
-  modes: ["webgl", "webgl-disabled-text-path", "reduced-motion"],
+  modes: [
+    "webgpu-swiftshader",
+    "forced-webgl2-swiftshader",
+    "webgl-disabled-text-path",
+    "reduced-motion",
+  ],
 };
 
 // Each §15.1 suite runs once on this candidate; its log is evidence beside the manifest.
@@ -227,27 +232,29 @@ const failureMatrix = await Promise.all(matrix.failureMatrix.map(resolve));
 const captured = await optionalJson(path.join(evidence, "visual/captures.json"));
 const approvals = (await json(path.join(root, "tests/visual/approved-captures.json"))).approvals;
 const goldenCaptures = [];
-for (const state of GOLDEN_STATES)
-  for (const { width, height } of browserMatrix.viewports) {
-    const file = `${state}@${width}x${height}.png`;
-    const bytes = await readFile(path.join(evidence, "visual", file)).catch(() => null);
-    const sha256 = bytes === null ? null : digest(bytes);
-    const approved = approvals.filter((approval) => approval.file === file);
-    goldenCaptures.push({
-      state,
-      viewport: { width, height },
-      file: bytes === null ? null : `evidence/visual/${file}`,
-      sha256,
-      approval:
-        sha256 === null
-          ? "missing"
-          : approved.some((approval) => approval.sha256 === sha256)
-            ? "approved"
-            : approved.length > 0
-              ? "changed-needs-human-approval"
-              : "pending-human-approval",
-    });
-  }
+for (const backend of ["webgpu", "webgl2"])
+  for (const state of GOLDEN_STATES)
+    for (const { width, height } of browserMatrix.viewports) {
+      const file = `${backend === "webgl2" ? "webgl2/" : ""}${state}@${width}x${height}.png`;
+      const bytes = await readFile(path.join(evidence, "visual", file)).catch(() => null);
+      const sha256 = bytes === null ? null : digest(bytes);
+      const approved = approvals.filter((approval) => approval.file === file);
+      goldenCaptures.push({
+        backend,
+        state,
+        viewport: { width, height },
+        file: bytes === null ? null : `evidence/visual/${file}`,
+        sha256,
+        approval:
+          sha256 === null
+            ? "missing"
+            : approved.some((approval) => approval.sha256 === sha256)
+              ? "approved"
+              : approved.length > 0
+                ? "changed-needs-human-approval"
+                : "pending-human-approval",
+      });
+    }
 
 const accessibility = await optionalJson(path.join(evidence, "accessibility-report.json"));
 const load = await optionalJson(path.join(evidence, "realtime-load.json"));

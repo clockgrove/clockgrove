@@ -14,7 +14,7 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "Decision: retain 16 MiB for accounted texture allocations. Atlas RGBA pixels count at four bytes each; the Three.js adapter must also account for its generated textures and active postprocessing targets. This is a client allocation estimate, not driver-reported residency."
+      "reason": "Decision: retain 16 MiB. Account atlas/generated RGBA8 textures, conservative full-resolution RGBA16F + depth/stencil renderer output, full-resolution PassNode RGBA16F + depth/stencil, BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency."
     },
     "firstSceneRenderMs": {
       "limit": 2500,

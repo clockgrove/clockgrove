@@ -48,6 +48,9 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
+const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
+  ? [process.env.CLOCKGROVE_RENDERER_PROOF]
+  : ["webgpu", "webgl2"];
 function createWorkerServer(worker, nativeOrigin) {
   return createServer({
     root: path.join(root, "apps/web"),
@@ -139,7 +142,7 @@ TextSceneEntities = (props) => {
             };
           if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
           return {
-            code: `${code}
+            code: `${process.env.CLOCKGROVE_RENDERER_PROOF === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}
 const { loadSnapshot: originalPresent, draw: originalDraw } = ThreeWorldSceneAdapter.prototype;
 ThreeWorldSceneAdapter.prototype.draw = function (...args) {
   originalDraw.apply(this, args);
@@ -277,28 +280,39 @@ function pickOrdered(scene) {
   return [...placed, ...scene.entities.filter((entity) => !placed.includes(entity))];
 }
 
-it("observes native authorized socket updates and recovery in Chromium", async () => {
+const observeYard = async (backend) => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess("tests/e2e/living-yard.journey.browser.test.mjs", "raccoons", {
-      vitestConfig: "tests/ci/vitest.browser.config.ts",
-      // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
-      // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
-      // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
-      // exceeded that, so 330 s stays within the test's 360 s timeout.
-      timeoutMs: 330_000,
-      inheritOutput: true,
-      prepare: async (fixture) => {
-        await truthOf(fixture)(
-          `INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id) SELECT DISTINCT tenant_id,'principal-outsider' FROM clockgrove.world_memberships;
+    const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
+    process.env.CLOCKGROVE_RENDERER_PROOF = backend;
+    try {
+      await runNativeWorldOwnerProcess(
+        "tests/e2e/living-yard.journey.browser.test.mjs",
+        "raccoons",
+        {
+          vitestConfig: "tests/ci/vitest.browser.config.ts",
+          // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
+          // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
+          // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
+          // exceeded that, so 330 s stays within the test's 360 s timeout.
+          timeoutMs: 330_000,
+          inheritOutput: true,
+          prepare: async (fixture) => {
+            await truthOf(fixture)(
+              `INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id) SELECT DISTINCT tenant_id,'principal-outsider' FROM clockgrove.world_memberships;
           INSERT INTO clockgrove.world_memberships
           (tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
           SELECT tenant_id,world_id,timeline_id,space_id,'principal-outsider','membership-browser-operator','persona-browser-operator',roles,
           ARRAY['runtime:world-command','runtime:world-clock'],privacy_ceiling,committed_at FROM clockgrove.world_memberships;
           UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime';
           UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
-        );
-      },
-    });
+            );
+          },
+        },
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CLOCKGROVE_RENDERER_PROOF;
+      else process.env.CLOCKGROVE_RENDERER_PROOF = previous;
+    }
     return;
   }
   await withNativeWorldOwner(async (native) => {
@@ -421,7 +435,17 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       try {
         await server.listen();
         const address = server.httpServer.address();
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({
+          headless: true,
+          args: [
+            "--enable-unsafe-webgpu",
+            "--enable-unsafe-swiftshader",
+            "--use-webgpu-adapter=swiftshader",
+            "--use-angle=swiftshader",
+            "--enable-features=Vulkan",
+            "--use-vulkan=swiftshader",
+          ],
+        });
         const page = await browser.newPage();
         page.on("console", (message) => observerTelemetry.push(message.text()));
         page.on("pageerror", (error) => observerTelemetry.push(error.message));
@@ -2161,6 +2185,16 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             };
             return {
               backend: adapter.backend,
+              architecture: adapter.renderer.backend.device?.adapterInfo.architecture,
+              renderer:
+                adapter.backend === "webgl2"
+                  ? adapter.renderer
+                      .getContext()
+                      .getParameter(
+                        adapter.renderer.getContext().getExtension("WEBGL_debug_renderer_info")
+                          .UNMASKED_RENDERER_WEBGL,
+                      )
+                  : adapter.renderer.backend.device.adapterInfo.description,
               byDepth: [...adapter.drawn]
                 .sort(([, a], [, b]) => b.body.renderOrder - a.body.renderOrder)
                 .map(([objectId]) => objectId),
@@ -2188,7 +2222,14 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         const extent = (values) => Math.max(...values) - Math.min(...values);
         const timeOfDay = Number(BigInt(golden.simulationTime) % 86_400_000n);
         const state = await drawnState();
-        expect(["webgpu", "webgl2"]).toContain(state.backend);
+        expect(state.backend).toBe(backend);
+        if (backend === "webgpu") expect(state.architecture).toBe("swiftshader");
+        else expect(state.renderer).toMatch(/SwiftShader/i);
+        console.info("Renderer correctness", {
+          backend: state.backend,
+          architecture: state.architecture,
+          renderer: state.renderer,
+        });
         // Drawn front to back in pick order, under a fixed unrotated camera framed on the yard.
         expect([state.byDepth, state.camera, state.bounds, state.inside, state.weather]).toEqual([
           placed.map((entity) => entity.objectId),
@@ -2456,10 +2497,18 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         expect(await released()).toEqual([true, true, true]);
         await yard.evaluate(() => {
           globalThis.yardBoundsReads = 0;
-          globalThis.yardAdapter.renderer
-            .getContext()
-            .getExtension("WEBGL_lose_context")
-            .loseContext();
+          const adapter = globalThis.yardAdapter;
+          if (adapter.backend === "webgpu") {
+            // Fake-only device-loss notification: device.destroy() is intentionally ignored by Three.
+            adapter.renderer.onDeviceLost({
+              api: "WebGPU",
+              message: "injected device loss",
+              reason: "unknown",
+              originalEvent: null,
+            });
+          } else {
+            adapter.renderer.getContext().getExtension("WEBGL_lose_context").loseContext();
+          }
         });
         await yard
           .getByText("Canvas unavailable. The complete scene is available below.", { exact: true })
@@ -2797,4 +2846,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       }
     });
   });
-}, 360_000);
+};
+it.each(BACKENDS)(
+  "observes native authorized socket updates and recovery in Chromium (%s)",
+  observeYard,
+  360_000,
+);
