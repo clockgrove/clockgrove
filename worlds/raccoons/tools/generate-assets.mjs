@@ -1,3 +1,3 @@
-import "../bin/typescript-hooks.mjs";
+import "../../../packages/assets/bin/typescript-hooks.mjs";
 
-await import("./generate-raccoon-world.ts");
+await import("./generate-assets.ts");

@@ -122,7 +122,7 @@ export interface RoutineAction {
 export interface WorldEntity {
   readonly objectId: ObjectId;
   readonly spaceId: SpaceId;
-  /** Includes the pinned archetype version, such as reference.raccoon@1. */
+  /** Includes the pinned archetype version, such as reference.actor@1. */
   readonly archetypeId: string;
   readonly pose: SemanticPose;
   readonly containment?: ContainmentState;

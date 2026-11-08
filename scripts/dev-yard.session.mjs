@@ -52,6 +52,7 @@ it("serves the living yard", async () => {
     return;
   }
   await withNativeWorldOwner(async (native) => {
+    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),

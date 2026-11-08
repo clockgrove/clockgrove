@@ -18,6 +18,7 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - `packages/world-pack-sdk`: [source and compatibility](packages/world-pack-sdk/docs/source-and-compatibility.md), [collections](packages/world-pack-sdk/docs/collections.md), [migrations](packages/world-pack-sdk/docs/migrations.md), [hashing and output](packages/world-pack-sdk/docs/hashing-and-output.md), [refusal codes](packages/world-pack-sdk/docs/refusal-codes.md), [fixtures](packages/world-pack-sdk/docs/fixtures.md).
 - `spikes/renderer-bakeoff`: [3D Stevie spike](spikes/renderer-bakeoff/docs/stevie-3d.md).
 - `apps/runtime`: [README](apps/runtime/README.md), [runtime runbook](docs/runbooks/runtime.md).
+- World inputs: [theme and presentation](docs/protocols/world-presentation.md).
 - `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md).
 
 ## Documentation conventions
