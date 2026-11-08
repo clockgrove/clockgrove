@@ -26,7 +26,13 @@ const backend: ThreeBackend = {
     const pipeline = new THREE.RenderPipeline(renderer);
     pipeline.outputNode = color.add(bloomNode);
     return {
-      render: () => pipeline.render(),
+      render: () => {
+        // PassNode re-renders its scene once per node frame, and three advances that frame only on
+        // its own requestAnimationFrame tick. The harness draws frames back to back at explicit
+        // times, so advance it here or every frame after the first in a task reuses a stale pass.
+        renderer._nodes?.nodeFrame?.update();
+        pipeline.render();
+      },
       dispose: () => {
         bloomNode.dispose();
         scenePass.dispose();

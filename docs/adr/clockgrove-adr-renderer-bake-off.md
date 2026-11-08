@@ -54,8 +54,8 @@ Bundle sizes and code lines come from `node spikes/renderer-bakeoff/scripts/buil
 
 | Measure | phaser | three-webgl2 | three-webgpu |
 | --- | --- | --- | --- |
-| Bundle (minified, gzip level 9), including the shared inputs | 1,415,654 B (367,817 B gzip) | 797,162 B (201,738 B gzip) | 1,152,548 B (312,956 B gzip) |
-| Adapter code lines (non-blank, non-comment) | 817 | 638 shared + 47 entry | 638 shared + 30 entry |
+| Bundle (minified, gzip level 9), including the shared inputs | 1,415,654 B (367,817 B gzip) | 797,162 B (201,738 B gzip) | 1,152,580 B (312,972 B gzip) |
+| Adapter code lines (non-blank, non-comment) | 817 | 638 shared + 47 entry | 638 shared + 33 entry |
 | Frame time p50/p95, mid-range GPU (RTX 2060 SUPER, WebGL2 in WSL2 Chromium) | pending: maintainer step | pending: maintainer step | pending: maintainer step |
 | Frame time p50/p95, RTX 2060 SUPER, Windows Edge | pending: maintainer step | pending: maintainer step | pending: maintainer step (WebGPU) |
 | Frame time p50/p95, integrated GPU | missing: needs a real device | missing | missing |
@@ -66,7 +66,7 @@ Bundle sizes and code lines come from `node spikes/renderer-bakeoff/scripts/buil
 
 Every candidate implements the three quality tiers of `TIER_FEATURES` and freezes rain, wind and flicker under reduced motion. The CI journey checks reduced motion on every candidate by stepping the page clock itself.
 
-On three's WebGL2 fallback, a `PassNode` target needs its stencil buffer requested at construction (`pass(scene, camera, { stencilBuffer: true })`). Setting it afterwards left an incomplete framebuffer that drew nothing under SwiftShader in CI.
+On three's WebGL2 fallback, a `PassNode` target needs its stencil buffer requested at construction (`pass(scene, camera, { stencilBuffer: true })`). Setting it afterwards left an incomplete framebuffer that drew nothing under SwiftShader in CI. Its `PassNode` also re-renders the scene only once per node frame, which three advances on its own requestAnimationFrame tick. Frames drawn back to back at explicit times, as the harness and any fixed-step product loop draw them, must advance it themselves (the spike calls `nodeFrame.update()`), or they show and time a stale pass.
 
 ## Path to full 3D
 
