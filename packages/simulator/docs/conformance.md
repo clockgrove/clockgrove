@@ -4,6 +4,49 @@ One shared suite, `packages/simulator/test/conformance/`, runs under `pnpm test`
 committed world pack. Packs are data under `worlds/`. The suite is not a production loader; the
 `clockgrove pack` commands ([CLI](cli.md)) read the same layout byte-exact.
 
+## External worlds from a pinned checkout
+
+An external world consumes a Clockgrove source checkout at an exact commit; no npm publishing
+is required. Use the Node and pnpm versions pinned in that checkout's `mise.toml` and
+`package.json`. Install its locked dependencies with lifecycle scripts disabled:
+
+```sh
+git clone https://github.com/clockgrove/clockgrove.git clockgrove
+git -C clockgrove checkout <full-clockgrove-commit>
+pnpm --dir clockgrove install --frozen-lockfile --ignore-scripts
+```
+
+Keep this checkout separate from the world repository. From the world repository, invoke the
+checkout's conformance entry point with the world's pack and asset-manifest directories:
+
+```sh
+node ../clockgrove/scripts/check-world-pack.mjs \
+  --pack worlds/sample --assets assets/manifests
+```
+
+Both options are required exactly once; paths are absolute or relative to the caller's working
+directory. For a pack without presentation metadata, pass an existing empty asset-manifest
+directory. The command never discovers or tests Clockgrove's committed packs. It reads the selected
+pack in the layout below and reuses the shared validation/build, reproducibility, immutability,
+genesis, contract coverage, presentation binding and scenario/golden-layout checks. Every selected
+scenario runs in Node and actual workerd, including parity, assertions, goldens, rule intents and
+runtime observations. Presentation manifests resolve under the explicit `--assets` directory.
+Engine-source neutrality remains a platform repository check; external world source is allowed
+to contain its own identities.
+
+Successful runs print the existing `conformance-run` observation lines followed by
+`{"status":"ok","reports":[...]}`. Exit code 0 means all checks passed, 1 means a conformance
+failure, 2 means invalid arguments or a directory option that is missing or not a directory,
+and 70 means an unexpected internal error. Failures print their diagnostic to stderr. A missing
+manifest in an existing pack directory is a `load-pack` conformance failure. Golden mismatches
+use the same `.actual.json` review workflow below; committed goldens are never rewritten.
+Temporary Workers resources are disposed on success and failure.
+
+This entry point supports the same dependency-free packs as the shared suite. It does not
+run `long-runs/`, publish static assets or start the web shell. CI in an external repository can
+install a pinned checkout and invoke this command on every PR without copying the world into
+Clockgrove or publishing workspace packages.
+
 ## Pack directory layout
 
 ```text
