@@ -194,6 +194,23 @@ async function fixtureShellJourney() {
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
+      plugins: [
+        {
+          name: "fixture-renderer-proof",
+          transform(code, id) {
+            if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
+            return {
+              code: `${code}
+const presentFixture = ThreeWorldSceneAdapter.prototype.loadSnapshot;
+ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
+  globalThis.fixtureAdapter = this;
+  return presentFixture.apply(this, args);
+};`,
+              map: null,
+            };
+          },
+        },
+      ],
       server: {
         host: "127.0.0.1",
         port: 0,
@@ -223,7 +240,7 @@ async function fixtureShellJourney() {
       ).toBe("#14181e");
       await page.getByLabel("Local session credential").fill("local-reader-session");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      await page.getByText(/^Arrival: (?:text )?scene ready at revision \d+/u).waitFor();
+      await page.getByText(/^Arrival: scene ready at revision \d+/u).waitFor();
       expect(
         await page
           .getByLabel("Fixture world", { exact: true })
@@ -231,10 +248,30 @@ async function fixtureShellJourney() {
           .first()
           .textContent(),
       ).toBe("Choose a fixture world");
-      const entity = page.locator('button[data-focus-key="entity:beacon.master"]');
+      const entity = page.locator('button[data-focus-key="entity:beacon.lamp"]');
       await entity.waitFor({ state: "attached" });
-      await entity.click();
+      await page.waitForFunction(
+        () =>
+          globalThis.fixtureAdapter?.metrics.firstRenderMs !== undefined &&
+          globalThis.fixtureAdapter.metrics.frameMs.length > 0,
+      );
+      expect(await page.evaluate(() => globalThis.fixtureAdapter.metrics.entityCount)).toBe(4);
+      const canvas = page.locator("canvas").first();
+      const before = await canvas.screenshot();
+      const point = await page.evaluate(() => {
+        const adapter = globalThis.fixtureAdapter;
+        const body = adapter.drawn.get("beacon.lamp").body;
+        return {
+          x: 320 + (body.position.x - adapter.camera.position.x) * adapter.camera.zoom,
+          y: 200 - (body.position.y - adapter.camera.position.y) * adapter.camera.zoom,
+        };
+      });
+      const bounds = await canvas.boundingBox();
+      await canvas.click({
+        position: { x: (point.x * bounds.width) / 640, y: (point.y * bounds.height) / 400 },
+      });
       expect(await entity.getAttribute("aria-pressed")).toBe("true");
+      expect(await canvas.screenshot()).not.toEqual(before);
       expect(assets).toEqual([]);
     } finally {
       await browser?.close();

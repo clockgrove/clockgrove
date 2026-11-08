@@ -27,7 +27,8 @@ checks resolved module edges. The fixture is the deliberate test-world exception
 The configurable world-identifier check reports remaining references until the world extraction
 lands. Its enforcement switch is intentionally off pending clockgrove/raccoon-world#1. Matching
 identifiers must not confuse the platform's `clockgrove.` protocol namespace with a world's
-`grove.` namespace. No broad world-name exceptions are implied by report-only mode.
+`grove.` namespace. No broad world-name exceptions are implied by report-only mode. The scan includes JSON source;
+its own identifier configuration is explicitly allowlisted in `scripts/world-boundaries.json`.
 
 ## Browser shell v1
 
@@ -79,3 +80,5 @@ The reference world's `runtime.json` groups these as `presentations` and `model`
 bindings; the platform does not discover or import this file. The native test composition does
 this for the explicitly selected pack. The fixture intentionally needs no runtime presentation
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
+An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
+does not require an atlas texture when `scene.atlas` is `null`.

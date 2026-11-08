@@ -3,7 +3,7 @@
   "activation": "Enable enforceNames after clockgrove/raccoon-world#1 lands.",
   "identifiers": ["raccoon", "stevie", "juniper", "gracie", "grove.", "yard"],
   "sourceRoots": ["apps", "packages", "scripts", "tools"],
-  "allowPaths": ["worlds/fixture/", "tests/"],
+  "allowPaths": ["worlds/fixture/", "tests/", "scripts/world-boundaries.json"],
   "allowSegments": ["test", "tests", "negative-boundaries"],
   "allowFilePattern": "\\.(?:test|spec)\\.",
   "worldRoot": "worlds",

@@ -743,7 +743,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   }
   private draw(kind: "snapshot" | "patch" = "snapshot"): void {
     const projection = this.projection;
-    if (!this.atlasTexture || !projection || this.destroyed) return;
+    if (
+      !this.initialized ||
+      (ATLAS !== null && !this.atlasTexture) ||
+      !projection ||
+      this.destroyed
+    )
+      return;
     const started = performance.now();
     const scope = `${projection.tenantId}/${projection.worldId}/${projection.timelineId}/${projection.spaceId}`;
     const placements = pickOrder(projection);
@@ -1247,7 +1253,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
-    if (!this.initialized || !this.atlasTexture || !this.projection) return;
+    if (!this.initialized || (ATLAS !== null && !this.atlasTexture) || !this.projection) return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
     this.previousTime = frameTime;
     if (delta > 0) {

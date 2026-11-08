@@ -84,6 +84,15 @@ export function worldImportProblems(file, source, config, worldPackages = new Se
   return problems;
 }
 
+async function scanWorldNames(repositoryRoot, sourceRoot, config) {
+  const names = [];
+  for (const absolute of await filesUnder(path.join(repositoryRoot, sourceRoot))) {
+    const file = path.relative(repositoryRoot, absolute).split(path.sep).join("/");
+    names.push(...worldNameProblems(file, await readFile(absolute, "utf8"), config));
+  }
+  return names;
+}
+
 export async function checkWorldBoundaries(repositoryRoot = root) {
   const config = JSON.parse(
     await readFile(path.join(repositoryRoot, "scripts/world-boundaries.json"), "utf8"),
@@ -157,13 +166,27 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
       );
     }
   }
+  assert.deepEqual(
+    await scanWorldNames(repositoryRoot, "tests/dependency-boundaries/world-names", {
+      ...config,
+      allowPaths: [],
+      allowSegments: [],
+      allowFilePattern: "$^",
+    }),
+    ["tests/dependency-boundaries/world-names/branding.json:1: raccoon"],
+    "JSON source must participate in the filesystem identifier scan",
+  );
+  assert.deepEqual(
+    worldNameProblems("scripts/world-boundaries.json", config.identifiers.join(" "), config),
+    [],
+  );
   const names = [];
   const dependencies = [];
   for (const sourceRoot of config.sourceRoots) {
+    names.push(...(await scanWorldNames(repositoryRoot, sourceRoot, config)));
     for (const absolute of await filesUnder(path.join(repositoryRoot, sourceRoot))) {
       const file = path.relative(repositoryRoot, absolute).split(path.sep).join("/");
       const source = await readFile(absolute, "utf8");
-      if (!file.endsWith(".json")) names.push(...worldNameProblems(file, source, config));
       const platform = /^(?:apps|packages)\//u.test(file);
       const test =
         config.allowSegments.some((segment) => file.split("/").includes(segment)) ||
