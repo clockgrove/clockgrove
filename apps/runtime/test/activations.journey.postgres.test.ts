@@ -47,13 +47,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         return response.body as Record<string, unknown>;
       };
       const agent = async (fields: object) => {
-        const response = await fetch(new URL("/actor-agent", await owner.origin()), {
-          method: "POST",
-          headers: { authorization: `Bearer ${MEMBER}` },
-          body: JSON.stringify({ version: 1, scope: owner.scope, actorId: ACTOR, ...fields }),
-        });
+        const response = await owner.request(
+          "/actor-agent",
+          { version: 1, scope: owner.scope, actorId: ACTOR, ...fields },
+          MEMBER,
+        );
         expect(response.status).toBe(200);
-        return response.json();
+        return response.body;
       };
       const created = await owner.request(
         "/v1/runtime/conversations/create",

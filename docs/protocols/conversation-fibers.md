@@ -199,8 +199,8 @@ capacity refuses additional admission rather
 than forgetting an old receipt and risking duplicate execution.
 
 A compiled `noop` decision disables that configuration and clears its next wake, suppressing
-repeated empty opportunities until an operator reconfigures it. Subscription event polling and
-recovery checks use a one-minute cadence while configured work remains eligible. These are
+repeated empty opportunities until an operator reconfigures it. Quiet subscription polling uses
+a one-minute cadence; unfinished turns retry after one second, subject to the model budget. These are
 explicit local bounds, rather than continuously running actor processes.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world

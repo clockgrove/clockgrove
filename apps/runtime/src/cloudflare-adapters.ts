@@ -1339,6 +1339,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   /** SDK scheduler callback: bounded journal scan and due configurations, ordered by priority. */
   async runScheduledActivations(address: ActivationAddress): Promise<void> {
     const inspection = await withActivations(this.environment, (store) => store.inspect(address));
+    // The current one-shot is being consumed. Persist its successor before any turn can abort
+    // this incarnation; a finally block cannot create the only recovery alarm after owner loss.
+    await this.armActivations(address, inspection, false, true, true);
     try {
       for (const deferred of inspection.activations.filter((a) => a.status === "deferred")) {
         try {
@@ -1414,8 +1417,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const stored = await this.objectState.storage.get<{ id: string; at: number }>(
       "activation-alarm",
     );
-    // Decision: poll subscribed events at most once per minute; configurations and receipts have
-    // lifetime bounds, so this is an opportunity to check policy, never an unbounded heartbeat.
+    // Decision: unfinished turns retry after one second so an owner loss does not strand their
+    // receipts behind quiet polling. Quiet subscription checks remain one minute apart; model retries
+    // still require a budget reservation at the model boundary.
     const poll = inspection.configurations.some((c) => c.enabled && c.eventType !== undefined);
     const pending = forceRecovery || inspection.activations.some((a) => a.status === "pending");
     const blocked = new Set(
@@ -1431,7 +1435,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const candidates = [
       next,
       poll || pending || (initial && inspection.activations.some((a) => a.status === "deferred"))
-        ? Date.now() + (initial ? 1000 : 60000)
+        ? Date.now() + (initial || pending ? 1000 : 60000)
         : null,
     ].filter((value): value is number => value !== null);
     if ((inspection.activations.length >= 1000 && !pending) || candidates.length === 0) {
