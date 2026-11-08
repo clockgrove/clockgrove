@@ -21,7 +21,12 @@ import {
 } from "@clockgrove/kernel";
 import { allowDecision, TRUSTED_ID_PREFIX } from "./authority-decision.js";
 import { DECISION_SHADOW_RECORDED } from "./event-registry.js";
-import type { Journal, JournalExecuteRequest } from "./journal.js";
+import {
+  type Journal,
+  type JournalExecuteRequest,
+  type JournalOutcomeReader,
+  readsStoredOutcomes,
+} from "./journal.js";
 import { computePayloadHash } from "./journal-verification.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
 import { TRUSTED_COMMAND_ISSUED_AT } from "./world-command.js";
@@ -102,8 +107,8 @@ export interface DecisionShadowRecord {
     status: ShadowStatus;
     /** The model's label for `picked` and `abstained`; null otherwise. */
     choice: string | null;
-    /** Probability of the answer, 0..1, null when the model reported none. */
-    confidence: number | null;
+    /** Probability of the answer in basis points (0..10000), null when the model reported none. */
+    confidenceBp: number | null;
     /** Why the model abstained, failed or was not called. */
     detail: string | null;
   }>;
@@ -119,6 +124,18 @@ export interface DecisionShadowRecord {
 export interface DecisionShadowDeclarations {
   readonly ambiguity: AmbiguityDeclaration;
   readonly decisionPoints: DecisionPointsDeclaration;
+}
+
+/** The shadow declarations of a utility policy, or undefined when it declares none (tier off). */
+export function decisionShadowDeclarations(
+  policy: Readonly<{
+    ambiguity?: AmbiguityDeclaration;
+    decisionPoints?: DecisionPointsDeclaration;
+  }>,
+): DecisionShadowDeclarations | undefined {
+  return policy.ambiguity === undefined || policy.decisionPoints === undefined
+    ? undefined
+    : { ambiguity: policy.ambiguity, decisionPoints: policy.decisionPoints };
 }
 
 /** The first point whose trigger the request meets, or undefined. */
@@ -220,7 +237,7 @@ export async function runDecisionShadow(input: {
         shadow: {
           status: "over-budget",
           choice: null,
-          confidence: null,
+          confidenceBp: null,
           detail: spent.calls >= point.budget.maxCalls ? "calls" : "spend",
         },
         model: null,
@@ -235,7 +252,7 @@ export async function runDecisionShadow(input: {
     );
     const outcome = await decider.pick({
       alias: point.modelAlias,
-      callId: `${request.requestId}:${point.id}`,
+      callId: `${request.requestId}:${request.objectId}:${request.simulationTime}:${point.id}`,
       state: `Actor ${request.objectId}. Candidate actions, already valid in the world:\n${candidates.map((candidate) => `- ${candidate.key}: ${describe(candidate)}`).join("\n")}`,
       options,
       instructions: INSTRUCTIONS,
@@ -243,34 +260,34 @@ export async function runDecisionShadow(input: {
     spent.microusd += outcome.costMicrousd ?? 0;
     const accounting = {
       model: outcome.model,
-      latencyMs: outcome.latencyMs,
+      latencyMs: Math.round(outcome.latencyMs),
       costMicrousd: outcome.costMicrousd,
     };
     if (outcome.status === "failed") {
       records.push({
         ...base,
-        shadow: { status: "failed", choice: null, confidence: null, detail: outcome.code },
+        shadow: { status: "failed", choice: null, confidenceBp: null, detail: outcome.code },
         ...accounting,
       } as DecisionShadowRecord);
       continue;
     }
     const known = Object.hasOwn(options, outcome.label);
-    const low =
-      outcome.confidence === null ||
-      Math.round(outcome.confidence * 10_000) < point.confidenceThreshold;
+    const confidenceBp =
+      outcome.confidence === null ? null : Math.round(outcome.confidence * 10_000);
+    const low = confidenceBp === null || confidenceBp < point.confidenceThreshold;
     records.push({
       ...base,
       shadow: !known
         ? {
             status: "failed",
             choice: null,
-            confidence: outcome.confidence,
+            confidenceBp,
             detail: "unknown-label",
           }
         : {
             status: low ? "abstained" : "picked",
             choice: outcome.label,
-            confidence: outcome.confidence,
+            confidenceBp,
             detail: low ? "below-confidence-threshold" : null,
           },
       ...accounting,
@@ -289,9 +306,23 @@ export interface DecisionShadowScope {
   readonly streamId: string;
 }
 
-/** `trusted:decision-shadow:<requestId>:<pointId>`: one journaled record per decision and point. */
+/** One identity per decision and point: a command may hold several decisions of several actors. */
+function decisionShadowKey(record: DecisionShadowRecord): string {
+  const digest = sha256Hex(
+    canonicalBytes([
+      "clockgrove-decision-shadow-v1",
+      record.requestId,
+      record.objectId,
+      record.simulationTime,
+      record.pointId,
+    ]),
+  );
+  return digest.slice(0, 32);
+}
+
+/** `trusted:decision-shadow:<digest>`: one journaled record per decision and point. */
 export function decisionShadowCommandId(record: DecisionShadowRecord): string {
-  return `${TRUSTED_ID_PREFIX}decision-shadow:${record.requestId}:${record.pointId}`;
+  return `${TRUSTED_ID_PREFIX}decision-shadow:${decisionShadowKey(record)}`;
 }
 
 /**
@@ -302,6 +333,7 @@ export async function journalDecisionShadow(
   journal: Journal,
   scope: DecisionShadowScope,
   record: DecisionShadowRecord,
+  outcomes: JournalOutcomeReader | undefined = readsStoredOutcomes(journal) ? journal : undefined,
 ): Promise<void> {
   const commandId = decodeOpaqueId(decisionShadowCommandId(record), "CommandId");
   const target = constructActorAddress({
@@ -344,14 +376,21 @@ export async function journalDecisionShadow(
     },
   });
   const eventId = decodeOpaqueId(
-    `${TRUSTED_ID_PREFIX}decision-shadow-event:${record.requestId}:${record.pointId}`,
+    `${TRUSTED_ID_PREFIX}decision-shadow-event:${decisionShadowKey(record)}`,
     "EventId",
   );
   const privacyClass = "operator_evidence" as PrivacyClass;
+  const commandBytes = new TextEncoder().encode(canonicalSerialize(raw));
+  // An exact retry is answered from the stored receipt, as every decided command is.
+  if (
+    outcomes !== undefined &&
+    (await outcomes.storedOutcome(scope.authorization, commandId, commandBytes)) !== undefined
+  )
+    return;
   await journal.execute({
     authorization: scope.authorization,
     command,
-    commandBytes: new TextEncoder().encode(canonicalSerialize(raw)),
+    commandBytes,
     route: {
       partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
       spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
