@@ -1524,6 +1524,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const context = this.#talkContext;
     if (context === undefined || proposal.expectedRevision === undefined)
       throw new Error("command context unavailable");
+    // Initiation is the conversation's participant; a context for anyone else never submits.
+    if (
+      context.principalId !== participant.principalId ||
+      context.personaId !== participant.personaId
+    )
+      throw new Error("command context unavailable");
     const scope = {
       tenantId: fiber.scope.tenantId,
       worldId: fiber.scope.worldId,

@@ -20,6 +20,7 @@ it.skipIf(isNativeWorldOwnerChild())(
           `UPDATE clockgrove.world_memberships
               SET grants = ARRAY(SELECT DISTINCT unnest(grants ||
                     ARRAY['runtime:world-observe', 'runtime:world-command'])),
+                  persona_id = 'persona-caretaker',
                   privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation"]}'`,
         );
       },
@@ -82,6 +83,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         { status: "refused", code: "unknown_capability", commandId: null },
       ]);
       expect(await rows("SELECT count(*) FROM clockgrove.command_receipts")).toBe(receipts);
+
+      // Every run, refused proposals included, is initiated by the Caretaker and executed by Stevie.
+      expect(
+        await rows(
+          `SELECT string_agg(DISTINCT persona_id || ' ' || actor_id, ',') FROM clockgrove.agent_runs WHERE session_id = '${sessionId}'`,
+        ),
+      ).toBe(`persona-caretaker ${STEVIE}`);
     });
   },
   240_000,
