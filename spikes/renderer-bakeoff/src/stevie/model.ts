@@ -5,7 +5,9 @@
 //   the same way. It either keeps its provider's rig and clips ("provider", Meshy) or gets the stand-in's
 //   skeleton and clips fitted to it ("fit", fit.ts: the fal.ai route).
 import * as THREE from "three";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { fitRig, type Joint, type V3 } from "./fit.js";
@@ -615,6 +617,33 @@ export function fittedSource(
   };
 }
 
+let ktx2: Any = null;
+/**
+ * The owner's ship form (issue 77): KTX2 textures (KHR_texture_basisu) and EXT_meshopt_compression. The basis
+ * transcoder is copied beside the page by scripts/build.mjs; support is detected once on a throwaway renderer.
+ */
+function shipLoader(): Any {
+  if (!ktx2) {
+    const probe = new THREE.WebGLRenderer();
+    ktx2 = new KTX2Loader().setTranscoderPath("./").detectSupport(probe);
+    probe.dispose();
+  }
+  return new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+}
+
+/** A one-key clip holding every bone at its rest transform. */
+function restClip(scene: Any): Any {
+  const tracks: Any[] = [];
+  scene.traverse((node: Any) => {
+    if (!node.isBone) return;
+    tracks.push(
+      new THREE.VectorKeyframeTrack(`${node.name}.position`, [0], node.position.toArray()),
+      new THREE.QuaternionKeyframeTrack(`${node.name}.quaternion`, [0], node.quaternion.toArray()),
+    );
+  });
+  return new THREE.AnimationClip("rest pose", 0.001, tracks);
+}
+
 /**
  * A generated model (glTF binary), re-shaded with the shared toon ramp and the same inverted-hull outline, at
  * the stand-in's height. With `rig: "provider"` it keeps the provider's skeleton and clips, matched by name
@@ -630,7 +659,7 @@ export async function generatedStevie(
   const head = await fetch(model.url, { method: "HEAD" }).catch(() => null);
   if (!head?.ok) return null;
   let start = performance.now();
-  const loader = new GLTFLoader();
+  const loader = shipLoader();
   const gltf = await loader.loadAsync(model.url);
   const walkGltf = model.walkUrl ? await loader.loadAsync(model.walkUrl) : null;
   stepMs.load = Math.round((performance.now() - start) * 1_000) / 1_000;
@@ -656,7 +685,11 @@ export async function generatedStevie(
   const find = (clips: Any[], pattern: RegExp) =>
     clips.find((a: Any) => pattern.test(a.name)) ?? null;
   const walk = find(gltf.animations, /walk/iu) ?? walkGltf?.animations[0] ?? null;
-  const idle = find(gltf.animations, /idle/iu) ?? gltf.animations[0] ?? walk;
+  // Without an idle clip (Tripo's quadruped presets have none) the idle is the rig's rest pose.
+  const idle =
+    find(gltf.animations, /idle/iu) ??
+    gltf.animations.find((a: Any) => a !== walk) ??
+    restClip(gltf.scene);
   if (!idle || !walk) throw new Error(`${model.url} has no idle or walk clip`);
   // Normalise height so the generated model and the stand-in share one scale (cohesion criterion 5).
   const box = new THREE.Box3().setFromObject(gltf.scene);

@@ -527,7 +527,9 @@ function bindPoseHeight(document) {
     if (!mesh) continue;
     const skin = node.getSkin();
     const jointMatrices = skin?.listJoints().map((joint, j) => {
-      const ibm = skin.getInverseBindMatrices()?.getElement(j, []) ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+      const ibm = skin.getInverseBindMatrices()?.getElement(j, []) ?? [
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+      ];
       return mat4.multiply(joint.getWorldMatrix(), ibm);
     });
     const world = node.getWorldMatrix();
@@ -545,7 +547,8 @@ function bindPoseHeight(document) {
           joints.getElement(i, jw);
           weights.getElement(i, ww);
           y = 0;
-          for (let k = 0; k < 4; k++) if (ww[k]) y += ww[k] * mat4.apply(jointMatrices[jw[k]], p)[1];
+          for (let k = 0; k < 4; k++)
+            if (ww[k]) y += ww[k] * mat4.apply(jointMatrices[jw[k]], p)[1];
         } else y = mat4.apply(world, p)[1];
         lo = Math.min(lo, y);
         hi = Math.max(hi, y);
@@ -583,7 +586,11 @@ function countTriangles(document) {
   return total;
 }
 
-function addProvenance(document, extensions, { file, rawSha, input, ratio, steps, raw, rawHeight }) {
+function addProvenance(
+  document,
+  extensions,
+  { file, rawSha, input, ratio, steps, raw, rawHeight },
+) {
   const packet = document.createExtension(extensions.KHRXMP).createPacket();
   packet.setContext({
     dc: "http://purl.org/dc/elements/1.1/",

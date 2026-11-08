@@ -115,7 +115,7 @@ hook, so every arm shares one light rig, one fog, one bloom and output pass, and
   `3d-sprites:<model>`. A model rigged by its provider keeps its own skeleton and clips (`/idle/`, `/walk/`, or a
   separate walk file). A model marked `fit` gets the stand-in's skeleton and clips fitted to its mesh by `fit.ts`.
 - **2d** (`sheet.ts`): frames cropped from
-  [`stevie-sprite-sheet.png`](../../docs/design/reference/stevie-sprite-sheet.png). The grid is 8 columns of 192×230 cells,
+  [`jimothy-sprite-sheet.png`](../../docs/design/reference/jimothy-sprite-sheet.png). The grid is 8 columns of 192×230 cells,
   with the frame label removed:
   - idle is frames 0–5, walk right is 6–13 and walk left is 14–21;
   - alpha is keyed from each cell's corner colour;
@@ -160,18 +160,29 @@ how it was measured, minutes) and every file's sha256.
 node scripts/generate.mjs turnaround                 # GPT-image edit via AI Gateway (AI_GATEWAY_API_KEY): media/turnaround*.png
 node scripts/generate.mjs fal three-quarter-1536     # TRELLIS.2 on fal (FAL_KEY); also `multi`, `three-quarter`
 node scripts/generate.mjs meshy                      # Meshy multi-image-to-3D, then Meshy rigging (MESHY_API_KEY)
+node scripts/generate.mjs tripo [model-task]         # Tripo multi-view low-poly, free rig check, quadruped rig, walk (TRIPO_API_KEY)
+node scripts/generate.mjs tripo-fetch                # re-downloads every Tripo task's files (fresh URLs, no cost)
 node scripts/generate.mjs keep <name> <provider|fit> <glb> [walk=<glb>] <why…>   # a model for the report
 ```
 
-The turnaround is cropped into four views from its 2×2 grid by `png.mjs`. Both 3D routes start from those views.
-`stevie.mjs` renders every kept model and shows the turnaround beside the identity sheet. The results, the
+The turnaround is cropped into four views from its 2×2 grid by `png.mjs`. Every 3D route starts from those views:
+the owner approved this turnaround as Stevie. The sheet is Jimothy's, so the 2D arm shows a different character.
+
+`scripts/ship.mjs [name…]` converts each kept model to the owner's ship form. It writes `media/ship-<name>.glb`
+(and `-walk.glb`) and `media/ship.json`:
+- glTF 2.0 with KTX2 textures, meshopt geometry and `KHR_xmp_json_ld` provenance;
+- reduced to 10,000 triangles and converted to metres;
+- checked with the Khronos glTF Validator and four Asset Creation Guidelines items.
+
+Its tools are pinned and installed into `media/.tools/`. `stevie.mjs` renders the shipped files where they exist,
+and shows the approved turnaround beside Jimothy's sheet. The results, the
 costs and the likeness findings are in the ADR.
 
 ### Maintainer steps for issue 77 (outside the sandbox)
 
 - **GPU frame times and the screenshots to judge:** run `stevie.mjs` with the GPU flags from the bake-off's
   maintainer step above, with the generated models in `media/`. Post the report's numbers and stills on issue 77
-  with the host label. Regenerating `media/` from scratch costs about $1.83 on this route.
+  with the host label. Regenerating the kept models from scratch costs about $2.00 for all three routes (turnaround $0.18, fal $0.35, Meshy $0.70, Tripo $0.75).
 - **fal's terms:** re-check TRELLIS.2's terms on fal's model page and record them in `media/provenance.json` before
   relying on the licence. The run could not reach fal's web pages.
 - **Assetforge sheet import:** run clockgrove/assetforge's sheet import on the identity sheet. Compare its frames

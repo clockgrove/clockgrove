@@ -19,13 +19,14 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const dist = path.join(root, "dist");
 const media = path.join(root, "media");
 const reference = path.resolve(root, "../../docs/design/reference");
-const SHEET = path.join(reference, "stevie-sprite-sheet.png");
+const SHEET = path.join(reference, "jimothy-sprite-sheet.png");
 const MOCKUP = path.join(reference, "raccoon-world-reference.png");
 const TYPES = {
   ".html": "text/html",
   ".js": "text/javascript",
   ".png": "image/png",
   ".glb": "model/gltf-binary",
+  ".wasm": "application/wasm",
 };
 /**
  * Decision: 20 minutes covers 3 arms × 2 states × 18 shots plus timing at SwiftShader's pace; each generated
@@ -42,7 +43,7 @@ const SERVICE_FINDINGS = [
   "OpenAI directly: not available or needed (the owner's decision: GPT-image through AI Gateway)",
   "fal.ai (FAL_KEY, the owner's choice): TRELLIS.2 image-to-3D at fal-ai/trellis-2 and fal-ai/trellis-2/multi; no quadruped rigger (its one rigging endpoint is Meshy's humanoid rig). fal.ai's web pages and billing API are outside the run's egress allowance, so its price is the listed per-call price and its licence terms are a maintainer check",
   "Meshy (MESHY_API_KEY, the owner's choice): multi-image-to-3D and rigging; credits measured exactly from /openapi/v1/balance. Its auto-rig is a humanoid skeleton and its walk a human walk",
-  "Tripo's quadruped auto-rig (the owner's fallback) was not needed: the fitted rig skins both generated meshes without the tearing that would trigger it",
+  "Tripo (TRIPO_API_KEY, the owner's third route): multiview-to-model with smart_low_poly, the free rig-check (riggable, quadruped), the quadruped rig and its preset quadruped walk; credits are each task's credits_consumed. Files come from openapi-dl.data.tripo3d.com, a host its docs do not name; the sandbox refused it until the owner allowed it",
 ];
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -125,15 +126,25 @@ async function ledger() {
   );
 }
 
-/** The kept generated models, as the page's `models` parameter (GeneratedModel in src/stevie/model.ts). */
+/** media/ship.json, written by ship.mjs: raw and shipped counts, validator and guideline results. */
+async function shipReport() {
+  return JSON.parse(await readFile(path.join(media, "ship.json"), "utf8").catch(() => "{}"));
+}
+
+/**
+ * The kept generated models, as the page's `models` parameter (GeneratedModel in src/stevie/model.ts): the
+ * shipped, reduced GLB from ship.mjs where it exists (the owner compares likeness at the reduced count), else
+ * the provider's file.
+ */
 async function keptModels() {
   const book = await ledger();
-  return Object.entries(book.models ?? {}).map(([name, m]) => ({
-    name,
-    rig: m.rig,
-    url: `media/${m.glb}`,
-    ...(m.walk ? { walkUrl: `media/${m.walk}` } : {}),
-  }));
+  const ship = await shipReport();
+  return Object.entries(book.models ?? {}).map(([name, m]) => {
+    const shipped = ship.models?.[name]?.files ?? {};
+    const glb = shipped.model?.shipped.file ?? m.glb;
+    const walk = shipped.walk?.shipped.file ?? m.walk;
+    return { name, rig: m.rig, url: `media/${glb}`, ...(walk ? { walkUrl: `media/${walk}` } : {}) };
+  });
 }
 
 /** Every file in media/ with its hash, joined to media/provenance.json's entry for it. */
@@ -141,7 +152,9 @@ async function generatedFiles() {
   const names = await readdir(media).catch(() => []);
   const provenance = await ledger();
   const files = [];
-  for (const name of names.filter((n) => n !== "provenance.json").sort()) {
+  for (const name of names
+    .filter((n) => !["provenance.json", "ship.json", ".tools"].includes(n))
+    .sort()) {
     const bytes = await readFile(path.join(media, name));
     files.push({
       file: `media/${name}`,
@@ -197,7 +210,7 @@ export async function stevieReport(options) {
   record.provenance = {
     inputs: [
       {
-        file: "docs/design/reference/stevie-sprite-sheet.png",
+        file: "docs/design/reference/jimothy-sprite-sheet.png",
         sha256: sha256(sheet),
         bytes: sheet.length,
       },
@@ -219,10 +232,15 @@ export async function stevieReport(options) {
       ...Object.entries(book.models ?? {}).map(([name, m]) => ({
         name,
         ...m,
-        files: generated.filter((f) => [m.glb, m.walk].includes(path.basename(f.file))),
+        files: generated.filter((f) =>
+          [m.glb, m.walk, `ship-${name}.glb`, `ship-${name}-walk.glb`].includes(
+            path.basename(f.file),
+          ),
+        ),
       })),
     ],
     generated,
+    ship: await shipReport(),
     calls: book.calls ?? [],
     spend: {
       capUsd: SPEND_CAP_USD,
@@ -280,9 +298,28 @@ function reportHtml(record, out) {
     .join("\n");
   const rel = (file) => path.relative(out, file).split(path.sep).join("/");
   const turnaround = record.provenance.generated.some((g) => g.file === "media/turnaround.png")
-    ? `<figure><img class="wide" src="${rel(path.join(media, "turnaround.png"))}"><figcaption>generated turnaround (media/turnaround.png)</figcaption></figure>`
+    ? `<figure><img class="wide" src="${rel(path.join(media, "turnaround.png"))}"><figcaption>Stevie's approved reference: the GPT-image turnaround (media/turnaround.png); every 3D route starts from it and is judged against it</figcaption></figure>`
     : "<p>no turnaround generated</p>";
-  const identity = `<div class="row"><figure><img class="wide" src="${rel(SHEET)}"><figcaption>identity sheet</figcaption></figure>${turnaround}</div>`;
+  const identity = `<p>The 2D arm uses Jimothy's sheet because no Stevie sprite sheet exists yet, so the 2D and 3D arms show different characters. Judge each arm on technique (lighting, cohesion, animation), not on matching each other; judge 3D likeness against the turnaround.</p>
+<div class="row">${turnaround}<figure><img class="wide" src="${rel(SHEET)}"><figcaption>Jimothy's sheet (the 2D arm's frames)</figcaption></figure></div>`;
+  const ship = record.provenance.ship?.models ?? {};
+  const g = (f) => f.guidelines.map((x) => `${x.item}: ${x.pass ? "pass" : "FAIL"}`).join("; ");
+  const v = (x) => `${x.errors} errors, ${x.warnings} warnings`;
+  const shipRows = Object.entries(ship)
+    .flatMap(([name, entry]) =>
+      Object.entries(entry.files).map(([kind, f]) => [
+        `${name} (${kind})`,
+        `${f.raw.triangles} → ${f.shipped.triangles}`,
+        `${f.raw.bytes} → ${f.shipped.bytes}`,
+        f.shipped.textures.map((t) => `${t.slot} ${t.width}×${t.height}`).join(", "),
+        `${f.raw.joints} / ${f.shipped.joints}`,
+        `raw: ${v(f.raw.validator)}; shipped: ${v(f.shipped.validator)}`,
+        g(f),
+        JSON.stringify(f.shipped.minutes),
+      ]),
+    )
+    .map((cells) => `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .join("");
   const kept = Object.fromEntries(record.provenance.models.map((m) => [m.name, m]));
   const modelRows = (record.models ?? [])
     .map((model) => {
@@ -320,6 +357,8 @@ function reportHtml(record, out) {
 <h2>Identity check</h2>${identity}
 <h2>Models</h2><p>Generation spend: $${record.provenance.spend.spentUsd} of $${record.provenance.spend.capUsd}; every call is in Provenance below.</p>
 <table><tr><th>model</th><th>rig</th><th>triangles / vertices</th><th>joints</th><th>textures</th><th>fur</th><th>rig and clips</th><th>steps on this page (ms)</th><th>generation cost</th><th>why kept</th></tr>${modelRows}</table>
+<h2>Ship form (glTF 2.0: KTX2, meshopt, XMP provenance)</h2><p>Budget ${escapeHtml(record.provenance.ship?.budgetTriangles ?? "?")} triangles; the page renders the shipped files. The Khronos validator does not decode EXT_meshopt_compression or KHR_texture_basisu, so its shipped warnings are the image/ktx2 MIME type and its geometry checks apply to the raw files.</p>
+<table><tr><th>file</th><th>triangles raw → shipped</th><th>bytes</th><th>textures</th><th>joints raw / shipped</th><th>Khronos glTF Validator</th><th>Asset Creation Guidelines items</th><th>ship minutes</th></tr>${shipRows}</table>
 <table><tr><th>arm</th><th>preparation steps (ms)</th><th>frame p50 ms dusk / night</th><th>timing</th><th>error</th><th>notes</th></tr>${armRows}</table>
 <h2>Provenance</h2><pre>${escapeHtml(JSON.stringify(record.provenance, null, 2))}</pre>
 ${sections}

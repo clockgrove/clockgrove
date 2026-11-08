@@ -1,4 +1,4 @@
-// Issue 77's 2D arm: frames cut from the owner's identity sheet (docs/design/reference/stevie-sprite-sheet.png)
+// Issue 77's 2D arm: frames cut from the owner's identity sheet (docs/design/reference/jimothy-sprite-sheet.png)
 // by a plain crop, because Assetforge's sheet import is not available in the sandbox (plan, assumption 5).
 // Alpha is keyed from each cell's corner colour; the normal map is derived from a height estimate.
 

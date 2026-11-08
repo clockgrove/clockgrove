@@ -29,6 +29,9 @@ for (const [name, entry] of Object.entries(BUNDLES)) {
     configFile: false,
     logLevel: "warn",
     publicDir: false,
+    // IIFE has no import.meta; three's KTX2Loader builds URLs from import.meta.url at load (issue 77's shipped
+    // models), which would throw on `{}.url`. The page's own location stands in.
+    define: { "import.meta.url": "self.location.href" },
     build: {
       outDir: dist,
       emptyOutDir: false,
@@ -48,5 +51,9 @@ for (const [name, entry] of Object.entries(BUNDLES)) {
 }
 if (!only) await copyFile(`${root}index.html`, `${dist}/index.html`);
 if (!only) await copyFile(`${root}stevie.html`, `${dist}/stevie.html`);
+// The KTX2 transcoder for the shipped models (issue 77), from the pinned three.
+for (const file of ["basis_transcoder.js", "basis_transcoder.wasm"])
+  if (!only)
+    await copyFile(`${root}node_modules/three/examples/jsm/libs/basis/${file}`, `${dist}/${file}`);
 if (!only) await writeFile(`${dist}/bundles.json`, `${JSON.stringify(sizes, null, 2)}\n`);
 console.log(JSON.stringify(sizes));

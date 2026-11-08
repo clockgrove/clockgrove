@@ -1,7 +1,7 @@
 # ADR: Character Rendering, Real-Time 3D or 2D Sheets
 
 **Status:** Draft  
-**Version:** 0.2  
+**Version:** 0.3  
 **Date:** November 07, 2026  
 **Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, `raccoon-world-cloudflare-implementation-plan.md` v3.12 §20, and implementation Wave 4 §9.1  
 **Scope:** Evidence for the owner's choice of how Raccoon World draws characters while environments stay painted 2.5D (issue 77); the owner picks, and a later Objective builds the chosen path
@@ -13,14 +13,19 @@
 The owner decided on 2026-11-07 to try a 3D Stevie before investing heavily in 2D character sheets (issue 77). The spike draws three versions of Stevie in the #67 lit yard slice, the same Three.js WebGL2 adapter the [renderer bake-off](clockgrove-adr-renderer-bake-off.md) measured, at dusk in rain and at night:
 
 - **3D:** a rigged model playing idle and walk clips, with toon shading and an outline, lit by the scene's own lights.
-- **2D:** frames cut from the owner's [identity sheet](../design/reference/stevie-sprite-sheet.png), drawn as lit sprites with derived normal maps.
+- **2D:** frames cut from [Jimothy's sheet](../design/reference/jimothy-sprite-sheet.png), drawn as lit sprites with derived normal maps. The sheet is Jimothy, the short-spine raccoon, not Stevie (owner's correction, 2026-11-07). No Stevie sprite sheet exists yet, so **the 2D and 3D arms show different characters**. Each arm is judged on technique (lighting, cohesion, animation), not on matching the other.
 - **3D rendered to sprites:** the 3D arm's model and clips rendered offline to sprite frames, with exact albedo, normal and depth maps taken from the geometry.
 
 The spike is in [`spikes/renderer-bakeoff`](../../spikes/renderer-bakeoff/README.md#3d-stevie-issue-77). Nothing in `apps/` imports it. It commits no media: models and frames go to a git-ignored directory or an output directory outside git, and the report records their sha256 and provenance.
 
 ## The generation run
 
-The owner chose the services on the issue (2026-11-07): a GPT-image **turnaround** through Vercel AI Gateway first, then **fal.ai TRELLIS.2** with the spike's own rig, and **Meshy** image-to-3D with Meshy's own auto-rig, side by side within the $10 cap. `scripts/generate.mjs` makes every call. It reserves each call's cost against the cap before the call and records provider, model, endpoint, parameters, cost, minutes and sha256 in the git-ignored `media/provenance.json`.
+The owner chose the services on the issue (2026-11-07): a GPT-image **turnaround** through Vercel AI Gateway first, then three routes side by side within the $10 cap:
+- **fal.ai TRELLIS.2** with the spike's own rig;
+- **Meshy** image-to-3D with Meshy's own auto-rig;
+- **Tripo** multi-view image-to-model with its low-poly option and its quadruped auto-rig.
+
+The owner approved the first turnaround as Stevie's likeness: lean, upright, a long body and a ringed tail. Every route starts from it, and 3D likeness is judged against it. `scripts/generate.mjs` makes every call. It reserves each call's cost against the cap before the call and records provider, model, endpoint, parameters, cost, minutes and sha256 in the git-ignored `media/provenance.json`.
 
 **Services the keys reach.**
 
@@ -28,8 +33,9 @@ The owner chose the services on the issue (2026-11-07): a GPT-image **turnaround
 - Anthropic has no image-to-3D, rigging or image-generation model.
 - fal.ai serves TRELLIS.2 at `fal-ai/trellis-2` and `fal-ai/trellis-2/multi`. It has no quadruped rigger.
 - Meshy serves `multi-image-to-3d` and `rigging`.
+- Tripo's v3 API serves `multiview-to-model`, a free `rig-check`, `rig` and preset `retarget`. Its files come from `openapi-dl.data.tripo3d.com`, a host its docs don't name. The sandbox refused it until the owner allowed it.
 
-**Calls.** Total generation spend is **$1.83 of the $10 cap**.
+**Calls.** Generation has committed **$4.56 of the $10 cap**: $3.56 spent, plus a $1 reservation for a stopped Tripo call whose outcome is unknown. The table lists the calls that produced the kept files.
 
 | Step | Provider, model | Parameters | Cost | Minutes | Output (sha256, first 12) |
 | --- | --- | --- | --- | --- | --- |
@@ -38,12 +44,20 @@ The owner chose the services on the issue (2026-11-07): a GPT-image **turnaround
 | fal three-quarter | TRELLIS.2, three-quarter view | 1024, 2048, 50,000, seed 1 | $0.30 (listed price) | 1.1 | `fal-three-quarter-model_glb.glb` 47fae1d24256 |
 | fal three-quarter 1536 (kept) | TRELLIS.2, three-quarter view | 1536, 2048, 50,000, seed 2 | $0.35 (listed price) | 2.8 | `fal-three-quarter-1536-model_glb.glb` 0908ec787495 |
 | Meshy (kept) | Meshy multi-image-to-3D, four views; then Meshy rigging | textured, remeshed, triangles, 30,000 target; rig height 0.53 m | 35 credits (balance delta) ≈ $0.70 at $0.02 a credit | 2.3 + 0.3 | `meshy-model.glb` 07856f9fc704; `meshy-rig-rigged_character.glb` eb1791deb1f1; walking 6caf04a4b804 |
+| Tripo model (kept) | Tripo `multiview-to-model` `v3.1-20260211`, task `cb8787b8…`; front, left (the side view) and back | textured, PBR, `smart_low_poly`, `face_limit` 10,000 | 40 credits ≈ $0.40 at $0.01 a credit | 5.8 | `tripo-model-model_url.glb` 653511586904 |
+| Tripo rig and walk (kept) | Tripo `rig-check` (free: riggable, `quadruped`), `rig` `v3.0-20260909`, `retarget` `preset:quadruped:walk` | glb out | 35 credits ≈ $0.35 (each task's `credits_consumed`) | 0.08 + 0.26 + 0.08 | rig 0e2fd5f51b3b; walk 4927c226d0c7 |
+
+The other spend is all recorded in `provenance.json`:
+- a second turnaround ($0.19), which the owner dropped because it was pushed toward Jimothy's shape;
+- two more Tripo models at $0.40 each. One is from the approved turnaround (`7c64bf96…`, a spare candidate, not fetched). The other is from the dropped turnaround (`31d1a793…`, ignored). The ledger first carried each of these at its $2 reservation; it now carries the 40 credits Tripo's usage API reports, as the owner asked.
 
 fal's prices are its listed per-call prices, because fal's billing API and web pages are outside the run's network allowance. fal's account is capped at $10 prepaid. Meshy's credit count is exact, and its dollar value is an estimate at the Pro plan's rate. TRELLIS.2's weights are MIT per Microsoft's release; fal's own terms for the endpoint couldn't be fetched from the run, so the maintainer re-checks them before relying on the licence.
 
-**Likeness.** The judge is the turnaround, then the identity sheet; the report shows them side by side.
+**Likeness.** The judge is the approved turnaround. The report shows it beside each route's render at the reduced triangle count.
 
-- **Meshy:** the most faithful. It has the mask and white brows, the ringed tail with clear dark and tan bands, the grey-brown back over a tan underside, dark legs and the round build. Its albedo is evenly lit, because the turnaround asked for flat light.
+- **The image step held Stevie's identity:** the owner confirmed the first turnaround as Stevie, with the mask, the ringed tail, the grey-brown coat and the lean, upright build.
+- **Meshy:** faithful to the turnaround. It has the mask and white brows, the ringed tail with clear dark and tan bands, the grey-brown back over a tan underside and dark legs. Its albedo is evenly lit, because the turnaround asked for flat light.
+- **Tripo:** Tripo's own preview render (front three-quarter, `preview-tripo-provider-render.png`) shows the closest face of the three routes: the mask, the white brows, glossy dark eyes, a grey-brown coat with a tan chest, dark paws, and added whiskers. Its finish is crisper and more naturalistic than the turnaround's soft illustration. The preview doesn't show the tail, so the tail's likeness waits on the maintainer's report render.
 - **fal, three-quarter at 1536 (kept):** the shape and the mask are right. The fur drifts darker and blotchy, and the tail banding is faint.
 - **fal, three-quarter at 1024:** loses the tail rings and drifts red-brown.
 - **fal, multi-view:** worst of the three. The face melts, the eyes go orange, and the tail rings are lost. TRELLIS.2's multi-view endpoint did not help with this input.
@@ -51,36 +65,77 @@ fal's prices are its listed per-call prices, because fal's billing API and web p
 **Rigs.**
 
 - **Meshy's own auto-rig** is a 24-joint humanoid skeleton: `Hips`, `Spine`, `LeftArm`, `LeftForeArm`, `LeftHand`, `LeftUpLeg`, `LeftFoot` and so on. Its only walk is `walking_man`, which rears the raccoon onto its hind legs and shears the belly and front legs. Its idle is a one-frame rest pose. As delivered, it is **not usable** for a four-legged character.
+- **Tripo's quadruped auto-rig:**
+  - the free rig check classed the model as riggable and `quadruped`;
+  - the rig has 28 joints, four influences per vertex: `tripo::Root`, `Spine_0–1`, `Head_0–2`, `0_Right_Limb_0–4`, `0_Left_Limb_0` and 18 unnamed `bone_N` (limbs and tail);
+  - its preset quadruped walk is 2.6 s, and Tripo has no idle preset, so the idle is the rig's rest pose;
+  - it is the only provider rig that fits a four-legged animal.
+- **Skinning artefacts, measured.** The measure is the ratio of each mesh edge's length to its rest length, over eight evenly spaced frames of the walk, on the shipped files:
+  - Tripo: p50 1.00, p99 1.42, p99.9 2.44, max 6.9. Most of the mesh holds, with stretching in a few places;
+  - Meshy's humanoid rig: p99 3.54, max 12.2, which confirms the tearing.
 - **The spike's fitted rig** (`src/stevie/fit.ts`) works on both meshes, with no paid rigger. It puts the stand-in's 18-joint quadruped skeleton on the mesh:
   - the spine and head are mapped from the stand-in by the bounding box;
   - each leg sits over the centroid of its quadrant of paw vertices;
   - the tail runs through slice centroids;
   - each vertex is weighted to its two nearest bone segments, with legs kept to their own side.
 
-  Fitting takes about 0.2 s in Node. A software rasterisation of the idle and walk frames shows a clean diagonal gait with no tearing on either mesh, so the owner's Tripo fallback (quadruped auto-rig, about $0.25 a model) was not triggered. The joins where leg meets belly stretch a little at full stride, and the report's walk frames show how much. The best 3D result is **Meshy's mesh with the fitted rig** (model `meshy-fit` in the report).
+  Fitting takes about 0.2 s in Node. A software rasterisation of the idle and walk frames shows a clean diagonal gait with no tearing on either mesh, so it needed no fallback. The owner then added Tripo as a third route in its own right. The joins where leg meets belly stretch a little at full stride, and the report's walk frames show how much. Two 3D results are close enough that the report has to decide between them:
+- **Meshy's mesh with the fitted rig** (`meshy-fit`): a faithful mesh on the spike's own rig;
+- **Tripo with its own quadruped rig** (`tripo`): the closest face, with a provider rig and walk that need no code.
 
 **What the sandbox could not do.**
 
 - It has no browser, so the report's stills and frame times come from the maintainer step on issue 77. The previews above came from a scratch CPU rasteriser, with skinning computed by three.js. CI renders under SwiftShader, so its numbers are correctness evidence only (`performance: false`). The report names the host of every number.
 - The 2D arm is still a plain crop, because Assetforge's CLI is not in the sandbox.
 
+## Ship form and validation
+
+The owner's standard (2026-11-07) is glTF 2.0 `.glb` with:
+- `KHR_texture_basisu` (KTX2: ETC1S for colour, UASTC for normal and metallic-roughness);
+- `EXT_meshopt_compression`;
+- `KHR_xmp_json_ld` provenance, including IPTC `digitalSourceType: trainedAlgorithmicMedia`.
+
+`scripts/ship.mjs` converts every kept model to that form. Its tools are pinned and installed into the git-ignored `media/.tools/`. It then:
+- reduces the model to the **10,000-triangle budget** with meshoptimizer;
+- converts units to Stevie's 0.53 m height in metres, baked into the vertices, joints, inverse bind matrices and clips;
+- names any unnamed nodes, meshes or materials;
+- runs the Khronos glTF Validator on the raw and the shipped file;
+- checks four Asset Creation Guidelines 2.0 items: scale and units, naming, UVs, and texture sizes (powers of two, at most 2048).
+
+The page renders the shipped files, so likeness is compared at the reduced count.
+
+| Route | Triangles raw → shipped | Bytes raw → shipped | Textures (shipped, KTX2) | Validator raw / shipped | Guidelines (shipped) |
+| --- | --- | --- | --- | --- | --- |
+| Tripo (rig and walk) | 15,156 → 9,799 | 5.5 MB → 8.3 MB | 2048² normal (UASTC), base colour (ETC1S), metallic-roughness (UASTC) | 0 errors, 2 warnings / 0 errors, 8 warnings | all four pass; raw height 1.14 units |
+| Meshy mesh + fitted rig | 31,171 → 9,799 | 5.6 MB → 1.2 MB | 2048² base colour | 0 / 0 errors | all four pass; raw height 0.97 units, 3 items named |
+| Meshy's own rig | 31,171 → **22,464** | 7.5 MB → 2.0 MB | 2048² base colour | 0 / 0 errors | all four pass |
+| fal TRELLIS.2 | 46,681 → 9,800 | 4.2 MB → 3.3 MB | 2048² base colour, metallic-roughness | **3 errors** (zero-length normals) / 0 errors | all four pass; raw height 0.58 units |
+
+What the run found:
+- **The budget needs cleanup on some meshes.** Meshy's split normals locked the simplifier at about 22.5K triangles. Dropping the normals, welding, simplifying and recomputing smooth normals reached the budget on the mesh. Meshy's rigged file still stalls at 22.5K, because its skin-weight seams lock it too. Reducing it needs a re-rig after decimation. Tripo's low-poly option delivered 15,156 triangles, over the requested 10,000 `face_limit`.
+- **No provider returns real-world scale.** Raw heights were 0.58–1.14 units, or 0.53 m only where Meshy's rig took a height.
+- **UASTC is large.** Tripo's two UASTC maps make its shipped file bigger than its raw PNG/JPEG file (8.3 MB against 5.5 MB). Dropping the metallic-roughness map, or encoding it as ETC1S, would shrink it.
+- **The validator's limits.** The Khronos validator does not decode `EXT_meshopt_compression` or `KHR_texture_basisu`. Its shipped warnings are the `image/ktx2` MIME type it doesn't know, so its geometry checks apply to the raw files.
+- **Ship time** is under a minute a model, mostly KTX2 encoding.
+
 ## Recorded for the 3D model
 
 These numbers come from inspecting the GLBs and from the fit's own step times. The report's `results.json` records the same fields on the host that renders it.
 
-| Item | Procedural stand-in | Meshy mesh + fitted rig (best) | fal TRELLIS.2 + fitted rig | Meshy's own rig |
-| --- | --- | --- | --- | --- |
-| Polygons | 5,168 triangles, 3,631 vertices | 31,171 triangles, 55,131 vertices | 46,681 triangles, 40,543 vertices | 31,171 triangles, 55,804 vertices |
-| Textures | 256² procedural fur strokes plus vertex colour | one 2048² JPEG base colour | 2048² WebP base colour plus 2048² metallic-roughness | as Meshy mesh |
-| Rig | 18 joints, two influences per vertex | 18 joints fitted, two influences per vertex | 18 joints fitted, two influences per vertex | 24 humanoid joints, four influences per vertex |
-| Clips | idle 2.4 s, walk 0.8 s (procedural) | the stand-in's clips, re-based on the fitted hips | the stand-in's clips | rest pose (1 frame), `walking_man` 1.07 s, `running` |
-| Skinning artefacts | creases at the shoulders and hips at full stride | slight stretch where leg meets belly at full stride; no tearing | the same as Meshy-fit | rears up and tears; unusable |
-| Fur | texture only | texture only (the generator's colour map); no shells or cards | texture only | texture only |
+| Item | Procedural stand-in | Meshy mesh + fitted rig | Tripo + its quadruped rig | fal TRELLIS.2 + fitted rig | Meshy's own rig |
+| --- | --- | --- | --- | --- | --- |
+| Polygons, raw | 5,168 triangles, 3,631 vertices | 31,171 triangles, 55,131 vertices | 15,156 triangles, 15,412 vertices | 46,681 triangles, 40,543 vertices | 31,171 triangles, 55,804 vertices |
+| Polygons, shipped | as raw | 9,799 triangles | 9,799 triangles | 9,800 triangles | 22,464 triangles (stalled) |
+| Textures | 256² procedural fur strokes plus vertex colour | one 2048² base colour | 2048² base colour, normal and metallic-roughness | 2048² base colour and metallic-roughness | as Meshy mesh |
+| Rig | 18 joints, two influences per vertex | 18 joints fitted, two influences per vertex | 28 joints (quadruped), four influences per vertex | 18 joints fitted, two influences per vertex | 24 humanoid joints, four influences per vertex |
+| Clips | idle 2.4 s, walk 0.8 s (procedural) | the stand-in's clips, re-based on the fitted hips | `preset:quadruped:walk` 2.6 s; idle is the rest pose | the stand-in's clips | rest pose (1 frame), `walking_man` 1.07 s, `running` |
+| Skinning artefacts | creases at the shoulders and hips at full stride | slight stretch where leg meets belly at full stride; no tearing | edge stretch p99 1.42, max 6.9: local stretching | the same as Meshy-fit | edge stretch p99 3.54, max 12.2: rears up and tears; unusable |
+| Fur | texture only | texture only (the generator's colour map); no shells or cards | texture only, with modelled whiskers in the texture | texture only | texture only |
 
-**Cleanup each generated model still needs.** None of this was done in the spike.
+**Cleanup each generated model still needs.** The ship step did the decimation, units, naming and KTX2 (above). It did not do the rest:
 
-- **Retopology:** 31–47k triangles is about 6–9× the stand-in. That is fine for one character on a GPU, but a crowd wants a decimation to about 5–10k.
-- **UVs:** both generators emit fragmented atlas UVs. They work for the one texture, but not for hand painting.
+- **Retopology:** the ship step's decimation is automatic. A production character would want a clean quad topology for deformation, which none of the routes give.
+- **UVs:** all three generators emit fragmented atlas UVs. They work for the one texture, but not for hand painting.
 - **Baked lighting:** the turnaround's flat-light prompt kept Meshy's albedo nearly delit. fal's albedo carries darker, blotchy shading that would need a delighting pass.
 - **Rig:** the fitted rig needs no manual work. A production rig would add weight painting at the shoulders and hips and ear and jaw joints.
 
@@ -92,6 +147,9 @@ These numbers come from inspecting the GLBs and from the fit's own step times. T
 | TRELLIS.2 | 1.0–2.8 min a candidate |
 | Meshy mesh | 2.3 min |
 | Meshy rig | 0.3 min |
+| Tripo model | 5.8 min |
+| Tripo rig check, rig and walk | 0.4 min |
+| Ship (reduce, units, KTX2, meshopt, validate) | under 1 min a model |
 | Fitting the rig | about 0.2 s |
 | Choosing the best candidate | by eye, from the previews |
 
@@ -115,7 +173,7 @@ The owner judges the look from the report's stills. This record does not claim a
 
 | | One more animation | One more character variant |
 | --- | --- | --- |
-| **3D** | one clip: keyframed, or a library motion retargeted onto the rig. A few kilobytes of tracks, and it plays in every direction at once. Library motions are humanoid (Meshy's walk is a human walk), so quadruped clips are keyframed or procedural, as in the spike. | a recolour or rescale is free (Juniper and the kit in the cohesion shot are a material tint and a 0.6 scale). A new shape is another turnaround and mesh, about $0.18 + $0.70 and 5 minutes on this run's route, then the fitted rig in seconds. |
+| **3D** | one clip: keyframed, or a library motion retargeted onto the rig. A few kilobytes of tracks, and it plays in every direction at once. Library motions are humanoid (Meshy's walk is a human walk), so quadruped clips are keyframed or procedural, as in the spike. | a recolour or rescale is free (Juniper and the kit in the cohesion shot are a material tint and a 0.6 scale). A new shape is another turnaround and mesh, then a rig: about $0.18 + $0.70 and 5 minutes on the Meshy route with the fitted rig; about $0.18 + $0.75 and 7 minutes on the Tripo route with its own rig and walk. |
 | **2D** | new painted or generated frames for every direction (the sheet has 3 of 8 directions), with identity drift in each | a tint is free; anything more is a whole new sheet |
 | **3D rendered to sprites** | the 3D clip, plus a re-bake (seconds) for every heading. Atlas memory grows with frames × headings × three maps: 8 headings × 16 frames at 192² is 128 × 192 × 192 × 4 B × 3 maps ≈ 56.6 MB before compression. | a tint is free; a shape variant is a re-bake |
 
@@ -134,7 +192,15 @@ None yet. This record is a draft for the owner, who picks one of three:
 - 2D characters;
 - 3D rendered to sprites.
 
-The pick waits on the maintainer step on issue 77: running `stevie.mjs` on a GPU with the generated models in `media/`, then judging the stills and frame times. On this run's evidence, a 3D path is practical. The turnaround plus Meshy's mesh gives a faithful Stevie for under $1. The spike's fitted quadruped rig animates it, which Meshy's humanoid rig can't do. The open costs are polygon reduction, texture-only fur, and keyframing every quadruped clip by hand.
+The pick waits on the maintainer step on issue 77. It runs `generate.mjs`'s files through `ship.mjs`, then runs `stevie.mjs` on a GPU with the shipped models in `media/`, and judges the stills and frame times.
+
+On this run's evidence, a 3D path is practical:
+- the approved turnaround held Stevie's identity, and each of Meshy and Tripo turns it into a faithful Stevie for under $1;
+- both reduce to the 10K budget in the owner's ship form, with no validator errors;
+- Tripo is the only provider whose rig and walk fit a four-legged animal. The spike's fitted rig does the same for any mesh at no cost;
+- the open costs are hand cleanup for production topology, texture-only fur, and keyframing quadruped clips beyond Tripo's presets.
+
+Any Stevie art kept after the pick goes to clockgrove/raccoon-world, not to this platform repository (owner, 2026-11-07).
 
 ## Consequences
 

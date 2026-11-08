@@ -20,7 +20,7 @@ import { cropRgba, decodePng, encodePng } from "./png.mjs";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const media = path.join(root, "media");
 const LEDGER = path.join(media, "provenance.json");
-const SHEET = path.resolve(root, "../../docs/design/reference/stevie-sprite-sheet.png");
+const SHEET = path.resolve(root, "../../docs/design/reference/jimothy-sprite-sheet.png");
 /** The issue's cap for all generation in this spike; each call reserves its cost first. */
 const CAP_USD = 10;
 /** Decision: polls every 5 s and gives up after 20 minutes per job (TRELLIS.2 and Meshy take minutes). */
@@ -182,7 +182,7 @@ async function turnaround() {
       endpoint: `${GATEWAY}/images/edits`,
       parameters: {
         ...parameters,
-        image: `docs/design/reference/stevie-sprite-sheet.png sha256 ${sha256(sheet)}`,
+        image: `docs/design/reference/jimothy-sprite-sheet.png sha256 ${sha256(sheet)}`,
       },
       reservedUsd: 0.5,
     },
@@ -287,7 +287,10 @@ async function fal(candidate) {
       provider: "fal.ai",
       model: "TRELLIS.2 (microsoft/TRELLIS.2; MIT weights per its release)",
       endpoint: spec.endpoint,
-      parameters: { ...spec.parameters, views: spec.views.map((v) => `media/${turnaroundFile(v)}`) },
+      parameters: {
+        ...spec.parameters,
+        views: spec.views.map((v) => `media/${turnaroundFile(v)}`),
+      },
       reservedUsd: FAL_PRICE_USD[spec.parameters.resolution],
       licence:
         "fal.ai's model page and terms are not reachable from the sandbox (egress allows only fal's API and media hosts); the maintainer re-checks them before relying on the licence",
@@ -472,10 +475,14 @@ async function tripoTask(endpoint, body) {
       await fetch(`${TRIPO}/tasks/${id}`, { headers: tripoHeaders() }),
       "tripo task",
     );
-    console.log(`tripo ${endpoint}: ${task.status} ${task.progress ?? ""}% after ${minutesSince(start)} min`);
+    console.log(
+      `tripo ${endpoint}: ${task.status} ${task.progress ?? ""}% after ${minutesSince(start)} min`,
+    );
     if (task.status === "success") return { id, task, minutes: minutesSince(start) };
     if (!["queued", "running"].includes(task.status))
-      throw new Error(`tripo ${endpoint} ${id}: ${task.status} ${JSON.stringify(task).slice(0, 300)}`);
+      throw new Error(
+        `tripo ${endpoint} ${id}: ${task.status} ${JSON.stringify(task).slice(0, 300)}`,
+      );
   }
 }
 /**
