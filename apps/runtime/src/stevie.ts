@@ -158,7 +158,7 @@ export function stevieOfferCommand(
     commandId: id,
     type: "resource.offer",
     target: { version: 1, tenantId, worldId, timelineId, kind: "world", id: worldId },
-    expected: { partitionRevision: expectedRevision },
+    expected: { partitionRevision: BigInt(expectedRevision) },
     issuedAt,
     context: { version: 1, ...ids },
     attribution: { effectiveActorId: actorId, causalRootActionId: `action-${id}` },
