@@ -2546,9 +2546,10 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           receiptsBefore,
         );
         // With the world-command grant, the same kind of proposal commits through the ordinary
-        // Journal, and the member opens Why from the outcome line, which survives a reload.
+        // Journal, and the member (also granted inspection) opens Why from the outcome line, which
+        // survives a reload.
         await truth(
-          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command'] WHERE principal_id='principal-runtime'`,
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command','runtime:world-inspect'] WHERE principal_id='principal-runtime'`,
         );
         // A widened audience resnapshots the tab and closes the rail, so the member reopens it.
         await talker.viewer.reload();
