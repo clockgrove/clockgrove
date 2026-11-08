@@ -31,6 +31,7 @@ import {
   MOVEMENT_COMMAND_TYPES,
   type MovementCommand,
   type MovementCommandType,
+  type MovementInterruptPayload,
   type MovementRecord,
   movementCompletionTime,
   type NamedRandomState,
@@ -253,6 +254,14 @@ const PASSED_TIME_EVENTS: Readonly<Record<string, "needs" | "resource" | undefin
   "resource.appeared": "resource",
 };
 const PASSED_TIME_TYPES = Object.keys(PASSED_TIME_EVENTS);
+/**
+ * The world time a moving command may pass (`movement.passed-time@1`): at most one decision interval
+ * of the world policy, no other actor's due decision, no lifecycle time, and no more events than one
+ * `world.advance` call.
+ */
+const PASSED_TIME_CHECK = "movement.passed-time";
+/** The event budget of one `world.advance` call (its payload's ceiling), and of one moving command. */
+const MAX_EVENTS_PER_CALL = 4096;
 
 const ENVIRONMENT_CHECK = "environment.state-matches-policy";
 const ECOLOGY_CHECK = "ecology.state-matches-policy";
@@ -594,7 +603,7 @@ function validateWorldPayload(payload: unknown, { state }: { readonly state: Wor
   if (
     !Number.isSafeInteger(value.maxEvents) ||
     value.maxEvents < perActor * actors.length + plantCount + 1 ||
-    value.maxEvents > 4096
+    value.maxEvents > MAX_EVENTS_PER_CALL
   )
     invalid("payload.maxEvents");
 }
@@ -1733,13 +1742,36 @@ function runWorld(
     // time, by the same `emitGroup` as `world.advance`, from a run of those systems alone: the
     // actors' exposure and wellbeing systems, routine movers, lifecycle and decisions stay with
     // `world.advance`. Dwells fall due in order, as in `world.advance`.
+    //
+    // The time a move may pass is bounded (`movement.passed-time@1`, `precondition-failed`): at most
+    // one `decisionIntervalMs` of the policy, so it passes at most one decision of its mover (moved
+    // to its end below); no due decision of another actor, which only `world.advance` runs; no
+    // lifecycle time, whose actions draw from the lifecycle stream a move does not return; and at
+    // most `world.advance`'s per-call event budget.
     const start = current().simulationTime;
+    const mover = (context.payload as { readonly objectId?: string }).objectId;
+    const passedTime = (path: string): never => {
+      throw new RefusalSignal(refusal("precondition-failed", path, `${PASSED_TIME_CHECK}@1`));
+    };
+    const lifeTime =
+      lifecyclePolicy === undefined || startState.lifecycle === undefined
+        ? undefined
+        : nextLifecycleTime(lifecyclePolicy, startState.lifecycle, start);
+    const reach = (time: SimTimeMs): void => {
+      if (time - start > policy.decisionIntervalMs) passedTime("state.simulationTime");
+      if (lifeTime !== undefined && lifeTime <= time) passedTime("state.lifecycle");
+      if (
+        decisionsOf(schedules).some(
+          (item) => item.payload.objectId !== mover && item.dueAt > start && item.dueAt < time,
+        )
+      )
+        passedTime("schedules");
+    };
     const passing = environment === undefined ? undefined : buildRun(true);
     const pass = (through: SimTimeMs): void => {
-      for (const group of passing?.step(through) ?? []) {
-        fireDwells((group.time - 1n) as SimTimeMs);
-        emitGroup(group, false);
-      }
+      for (const group of passing?.step(through) ?? [])
+        if (!fireDwells((group.time - 1n) as SimTimeMs) || !emitGroup(group, false))
+          passedTime("events");
     };
     spec.move({
       state: startState,
@@ -1747,15 +1779,20 @@ function runWorld(
       payload: context.payload,
       indexFactory: input.spatialIndexFactory ?? createQuadtreeSpatialIndex,
       emit: (type, data, time) => {
+        // The passed time's events come only from its groups, never from the movement handler.
+        if (Object.hasOwn(PASSED_TIME_EVENTS, type))
+          throw new RangeError("a movement handler emitted a passed-time event");
+        reach(time as SimTimeMs);
         pass(time as SimTimeMs);
-        fireDwells((time - 1n) as SimTimeMs);
+        if (!fireDwells((time - 1n) as SimTimeMs) || context.eventCount() >= payload.maxEvents)
+          passedTime("events");
         emit(event(type as WorldEvent["type"], time as SimTimeMs, data as never));
       },
     });
     const through = current().simulationTime;
     if (through > start) {
       pass(through);
-      fireDwells(through);
+      if (!fireDwells(through)) passedTime("events");
       // The command does not run the utility system: a decision due before its final time is due
       // at that time instead, so the next `world.advance` runs it first, never in the past.
       for (const item of decisionsOf(schedules))
@@ -3054,12 +3091,12 @@ function runMovingCommand(
 ): HandlerOutput<WorldState, WorldHandlerExtra> {
   return runWorld(context, {
     type: context.command.type as MovementCommandType | PortalCommandType,
-    // A movement command is atomic: it has no event budget and is never continued.
+    // A moving command is atomic and never continued: over the budget it is refused whole.
     payload: {
       schemaVersion: 1,
       targetTime: context.state.simulationTime,
       maxInputs: 1,
-      maxEvents: Number.MAX_SAFE_INTEGER,
+      maxEvents: MAX_EVENTS_PER_CALL,
     },
     inputIdentity: () => "",
     move,
@@ -3100,6 +3137,59 @@ function badCrossingIndex(movement: NonNullable<WorldEntity["movement"]>): numbe
   return -1;
 }
 
+/**
+ * The path of the first passed-time event of a moving command that no boundary owns, or undefined:
+ * actors' needs and wellbeing are integrated only at a weather transition, a plant at a weather
+ * transition or its own stage change, food appears only at its source's appearance times, and spoils
+ * only when its holder's shelf life ends.
+ */
+function passedTimeDisagreement(
+  initial: WorldState,
+  events: readonly WorldEvent[],
+): string | undefined {
+  const ecology = activePolicy?.ecology;
+  const at = (type: string) =>
+    new Set(events.filter((event) => event.type === type).map((event) => event.simulationTime));
+  const weather = at("weather.transitioned");
+  const stages = new Set(
+    events
+      .filter((event) => event.type === "growth.stage-changed")
+      .map(
+        (event) => `${(event.payload as { objectId: string }).objectId}@${event.simulationTime}`,
+      ),
+  );
+  const arrived = new Map(
+    (initial.ecology?.perishables ?? []).map((entry) => [
+      entry.objectId as string,
+      entry.arrivedAt,
+    ]),
+  );
+  for (const [index, event] of events.entries()) {
+    const time = event.simulationTime;
+    const objectId = (event.payload as { objectId?: string }).objectId as string;
+    let owned = true;
+    if (event.type === "needs.changed" || event.type === "wellbeing.integrated")
+      owned = weather.has(time);
+    else if (event.type === "growth.integrated")
+      owned = weather.has(time) || stages.has(`${objectId}@${time}`);
+    else if (event.type === "resource.appeared") {
+      const source = ecology?.sources.find((candidate) => candidate.objectId === objectId);
+      owned =
+        source !== undefined &&
+        time >= source.firstAtMs &&
+        (time - source.firstAtMs) % source.periodMs === 0n;
+      if (arrived.has(objectId)) arrived.set(objectId, time);
+    } else if (event.type === "resource.spoiled") {
+      const holder = ecology?.perishables.find((candidate) => candidate.objectId === objectId);
+      const since = arrived.get(objectId);
+      owned = holder !== undefined && since != null && since + holder.shelfLifeMs === time;
+      arrived.set(objectId, null);
+    }
+    if (!owned) return `events[${index}].simulationTime`;
+  }
+  return undefined;
+}
+
 function registerMovementChecks(
   preconditions: CheckRegistry<WorldPrecondition>,
   invariants: CheckRegistry<WorldInvariantSubject>,
@@ -3130,7 +3220,7 @@ function registerMovementChecks(
     ...MOVEMENT_COMMAND_TYPES.map((type) =>
       invariants.register({
         name: `movement.event-authority.${type}`,
-        version: 1,
+        version: 2,
         commands: [type],
         check: ({ events }) => {
           const index = events.findIndex((event) => !allowed[type].includes(event.type));
@@ -3141,6 +3231,16 @@ function registerMovementChecks(
     pre("active-object"),
     pre("route"),
     pre("timing"),
+    preconditions.register({
+      name: PASSED_TIME_CHECK,
+      version: 1,
+      commands: ["movement.interrupt", "movement.replan"],
+      check: ({ state, input, payload }) =>
+        (payload as MovementInterruptPayload).at - state.simulationTime >
+        input.pack.pack.policy.decisionIntervalMs
+          ? "payload.at"
+          : undefined,
+    }),
     invariants.register({
       name: "movement.events-ordered-and-unique",
       version: 1,
@@ -3178,12 +3278,15 @@ function registerMovementChecks(
     }),
     invariants.register({
       name: "movement.scope",
-      version: 1,
+      version: 2,
       commands: moving,
       check: ({ initial, state, events }) => {
         // A remain-in-region event changes only revision and time, so it may name any object
         // whose dwell falls due while the command moves the world time. The events of the world
-        // time it passes may change their objects' needs or resource, and the weather.
+        // time it passes may change their objects' needs or resource, and the weather, each only
+        // at the boundary that owns it.
+        const unowned = passedTimeDisagreement(initial, events);
+        if (unowned !== undefined) return unowned;
         const objectOf = (event: WorldEvent) =>
           (event.payload as unknown as { objectId: string }).objectId;
         const passed = new Map<string, Set<string>>();
@@ -3273,7 +3376,8 @@ function registerPortalChecks(
     ...PORTAL_COMMAND_TYPES.map((type) =>
       invariants.register({
         name: `portal.event-authority.${type}`,
-        version: 1,
+        // `portal.use` allows the passed-time events since version 2.
+        version: type === "portal.use" ? 2 : 1,
         commands: [type],
         check: ({ events }) => {
           const index = events.findIndex((event) => !allowed[type].includes(event.type));
