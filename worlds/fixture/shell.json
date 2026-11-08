@@ -5,7 +5,9 @@
   "copy": {
     "worldLabel": "Fixture world",
     "chooseWorld": "Choose a fixture world",
-    "stopped": "Fixture World stopped"
+    "stopped": "Fixture World stopped",
+    "provisioning": "This world is still being provisioned, so no scene is shown yet. The scene opens once the world is ready.",
+    "ready": "The world is ready. Opening the scene."
   },
   "tokens": {},
   "scene": {

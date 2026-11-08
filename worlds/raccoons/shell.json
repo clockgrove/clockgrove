@@ -5,7 +5,9 @@
   "copy": {
     "worldLabel": "World",
     "chooseWorld": "Choose a world",
-    "stopped": "Raccoon World stopped"
+    "stopped": "Raccoon World stopped",
+    "provisioning": "This world is still being provisioned, so no scene is shown yet. The yard opens once the world is ready.",
+    "ready": "The world is ready. Opening the yard."
   },
   "tokens": {
     "--rw-v1-bg": "#12140e",

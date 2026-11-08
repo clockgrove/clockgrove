@@ -6,6 +6,8 @@ export interface WorldShellInput {
     readonly worldLabel: string;
     readonly chooseWorld: string;
     readonly stopped: string;
+    readonly provisioning: string;
+    readonly ready: string;
   };
   readonly tokens: Readonly<Record<string, string>>;
   readonly scene: {
@@ -20,7 +22,14 @@ export const neutralShell: WorldShellInput = {
   shellVersion: 1,
   name: "Clockgrove",
   wordmark: "Clockgrove",
-  copy: { worldLabel: "World", chooseWorld: "Choose a world", stopped: "World stopped" },
+  copy: {
+    worldLabel: "World",
+    chooseWorld: "Choose a world",
+    stopped: "World stopped",
+    provisioning:
+      "This world is still being provisioned, so no scene is shown yet. The scene opens once the world is ready.",
+    ready: "The world is ready. Opening the scene.",
+  },
   tokens: {},
   scene: { atlas: null, accent: 0x9bbce0, panel: 0x202630, text: "#edf1f5" },
 };
@@ -36,6 +45,8 @@ export function readWorldShell(value: unknown): WorldShellInput {
       input.copy?.worldLabel,
       input.copy?.chooseWorld,
       input.copy?.stopped,
+      input.copy?.provisioning,
+      input.copy?.ready,
     ].every((text) => typeof text === "string" && text.length > 0) ||
     !input.tokens ||
     typeof input.tokens !== "object" ||

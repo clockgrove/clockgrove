@@ -63,8 +63,7 @@ const readinessScreens: Readonly<
   },
   provisioning: {
     title: "World provisioning",
-    explanation:
-      "This world is still being provisioned, so no scene is shown yet. The scene opens once the world is ready.",
+    explanation: worldShell.copy.provisioning,
     alert: false,
   },
   failed: {
@@ -81,7 +80,7 @@ const readinessScreens: Readonly<
   },
   ready: {
     title: "World ready",
-    explanation: "The world is ready. Opening the scene.",
+    explanation: worldShell.copy.ready,
     alert: false,
   },
 };
