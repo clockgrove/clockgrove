@@ -27,16 +27,22 @@ const TYPES = {
   ".png": "image/png",
   ".glb": "model/gltf-binary",
 };
-/** Decision: 20 minutes covers 3 arms × 2 states × 18 shots plus timing at SwiftShader's pace. */
+/**
+ * Decision: 20 minutes covers 3 arms × 2 states × 18 shots plus timing at SwiftShader's pace; each generated
+ * model adds two arms, so 400 s an arm.
+ */
 const DEFAULT_TIMEOUT_MS = 1_200_000;
+const ARM_TIMEOUT_MS = 400_000;
 /** The issue's spend cap for all generation in this spike, reserved before each call. */
 const SPEND_CAP_USD = 10;
-/** What the sandbox run found when it checked the existing keys (plan comment, assumption 1). */
+/** What the generation run found about the services (plan comment, assumptions 1 and 12). */
 const SERVICE_FINDINGS = [
-  "Vercel AI Gateway (AI_GATEWAY_API_KEY): key absent from the sandbox and host refused by its egress proxy; its published catalogue (not checkable live from the sandbox) has language, embedding and image models, no image-to-3D or rigging",
-  "Anthropic (ANTHROPIC_API_KEY): key absent from the sandbox; Anthropic offers no image-to-3D or rigging model",
-  "OpenAI/Codex key: absent from the sandbox and api.openai.com refused; OpenAI's API offers no image-to-3D or rigging endpoint",
-  "Image-to-3D with auto-rig needs a new account (Tripo or Meshy): an open Question on the PR; nothing was signed up for",
+  "Vercel AI Gateway (AI_GATEWAY_API_KEY): its /v1/models catalogue lists image models (openai/gpt-image-*, Gemini image, FLUX and others) and no image-to-3D or rigging model; the turnaround used openai/gpt-image-2 through /v1/images/edits, costed from the gateway's /v1/credits balance",
+  "Anthropic: no image-to-3D, rigging or image-generation model; no key in the run",
+  "OpenAI directly: not available or needed (the owner's decision: GPT-image through AI Gateway)",
+  "fal.ai (FAL_KEY, the owner's choice): TRELLIS.2 image-to-3D at fal-ai/trellis-2 and fal-ai/trellis-2/multi; no quadruped rigger (its one rigging endpoint is Meshy's humanoid rig). fal.ai's web pages and billing API are outside the run's egress allowance, so its price is the listed per-call price and its licence terms are a maintainer check",
+  "Meshy (MESHY_API_KEY, the owner's choice): multi-image-to-3D and rigging; credits measured exactly from /openapi/v1/balance. Its auto-rig is a humanoid skeleton and its walk a human walk",
+  "Tripo's quadruped auto-rig (the owner's fallback) was not needed: the fitted rig skins both generated meshes without the tearing that would trigger it",
 ];
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -80,12 +86,17 @@ async function serve(options, launch) {
   await new Promise((resolve) => server.listen(0, host, resolve));
   const query = new URLSearchParams({ report: "/result" });
   if (options.timedFrames) query.set("timedFrames", String(options.timedFrames));
+  const models = options.models ?? [];
+  if (models.length) query.set("models", JSON.stringify(models));
   let timer;
   let launched;
   try {
     launched = await launch(`http://${host}:${server.address().port}/stevie.html?${query}`);
     const timeout = new Promise((resolve) => {
-      timer = setTimeout(resolve, Number(options.timeoutMs ?? DEFAULT_TIMEOUT_MS));
+      timer = setTimeout(
+        resolve,
+        Number(options.timeoutMs ?? DEFAULT_TIMEOUT_MS + models.length * 2 * ARM_TIMEOUT_MS),
+      );
     });
     const outcome = await Promise.race([
       received.then((json) => ({ json })),
@@ -105,12 +116,30 @@ async function serve(options, launch) {
   }
 }
 
+/** media/provenance.json, written by generate.mjs: calls, files and the models kept for the report. */
+async function ledger() {
+  return JSON.parse(
+    await readFile(path.join(media, "provenance.json"), "utf8").catch(
+      () => '{"files":{},"calls":[]}',
+    ),
+  );
+}
+
+/** The kept generated models, as the page's `models` parameter (GeneratedModel in src/stevie/model.ts). */
+async function keptModels() {
+  const book = await ledger();
+  return Object.entries(book.models ?? {}).map(([name, m]) => ({
+    name,
+    rig: m.rig,
+    url: `media/${m.glb}`,
+    ...(m.walk ? { walkUrl: `media/${m.walk}` } : {}),
+  }));
+}
+
 /** Every file in media/ with its hash, joined to media/provenance.json's entry for it. */
 async function generatedFiles() {
   const names = await readdir(media).catch(() => []);
-  const provenance = JSON.parse(
-    await readFile(path.join(media, "provenance.json"), "utf8").catch(() => '{"files":{}}'),
-  );
+  const provenance = await ledger();
   const files = [];
   for (const name of names.filter((n) => n !== "provenance.json").sort()) {
     const bytes = await readFile(path.join(media, name));
@@ -137,7 +166,8 @@ async function writePng(out, file, dataUrl) {
  *   timeoutMs?: number | string, timedFrames?: number | string }} options
  */
 export async function stevieReport(options) {
-  const { json, executable, browserArgs } = await serve(options, options.launch);
+  const models = options.models ?? (await keptModels());
+  const { json, executable, browserArgs } = await serve({ ...options, models }, options.launch);
   const record = JSON.parse(json);
   if (record.fatal) throw new Error(`the page failed: ${record.fatal}`);
   const out = path.resolve(options.out);
@@ -163,6 +193,7 @@ export async function stevieReport(options) {
   const sheet = await readFile(SHEET);
   const mockup = await readFile(MOCKUP);
   const generated = await generatedFiles();
+  const book = await ledger();
   record.provenance = {
     inputs: [
       {
@@ -176,22 +207,30 @@ export async function stevieReport(options) {
         bytes: mockup.length,
       },
     ],
-    model:
-      record.model?.kind === "generated-glb"
-        ? generated
-        : [
-            {
-              file: "src/stevie/model.ts",
-              model: "procedural stand-in (code)",
-              provider: "none",
-              parameters: "none",
-              costUsd: 0,
-            },
-          ],
+    models: [
+      {
+        name: "stand-in",
+        file: "src/stevie/model.ts",
+        model: "procedural stand-in (code)",
+        provider: "none",
+        parameters: "none",
+        costUsd: 0,
+      },
+      ...Object.entries(book.models ?? {}).map(([name, m]) => ({
+        name,
+        ...m,
+        files: generated.filter((f) => [m.glb, m.walk].includes(path.basename(f.file))),
+      })),
+    ],
     generated,
+    calls: book.calls ?? [],
     spend: {
       capUsd: SPEND_CAP_USD,
-      spentUsd: generated.reduce((sum, f) => sum + Number(f.provenance?.costUsd ?? 0), 0),
+      spentUsd:
+        Math.round(
+          (book.calls ?? []).reduce((sum, c) => sum + Number(c.costUsd ?? c.reservedUsd ?? 0), 0) *
+            1e4,
+        ) / 1e4,
     },
     services: SERVICE_FINDINGS,
     outputs: "every PNG in this directory, with its sha256 in arms[].shots and atlases",
@@ -239,7 +278,32 @@ function reportHtml(record, out) {
 <h3>Cohesion shot</h3><div class="row wide">${cohesion}</div>${rows}</section>`;
     })
     .join("\n");
-  const m = record.model?.metrics ?? {};
+  const rel = (file) => path.relative(out, file).split(path.sep).join("/");
+  const turnaround = record.provenance.generated.some((g) => g.file === "media/turnaround.png")
+    ? `<figure><img class="wide" src="${rel(path.join(media, "turnaround.png"))}"><figcaption>generated turnaround (media/turnaround.png)</figcaption></figure>`
+    : "<p>no turnaround generated</p>";
+  const identity = `<div class="row"><figure><img class="wide" src="${rel(SHEET)}"><figcaption>identity sheet</figcaption></figure>${turnaround}</div>`;
+  const kept = Object.fromEntries(record.provenance.models.map((m) => [m.name, m]));
+  const modelRows = (record.models ?? [])
+    .map((model) => {
+      const m = model.metrics ?? {};
+      const files = kept[model.name]?.files ?? [];
+      const cost = files.map((f) => Number(f.provenance?.costUsd ?? 0));
+      const cells = [
+        model.name,
+        model.rig ?? "stand-in",
+        `${m.triangles ?? "?"} / ${m.vertices ?? "?"}`,
+        `${m.joints ?? "?"} (${m.maxInfluencesPerVertex ?? "?"} per vertex)`,
+        JSON.stringify(m.textures ?? []),
+        m.fur ?? "",
+        `${m.rigNotes ?? ""}; clips ${JSON.stringify(m.clips ?? [])}`,
+        JSON.stringify(model.stepMs ?? {}),
+        cost.length ? `$${Math.max(...cost)} (the generation call)` : "$0",
+        `${kept[model.name]?.why ?? ""}${model.error ?? ""}`,
+      ];
+      return `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`;
+    })
+    .join("");
   const armRows = record.arms
     .map(
       (a) =>
@@ -253,8 +317,9 @@ function reportHtml(record, out) {
 <style>body{font:14px system-ui;margin:1rem}img{width:240px}img.wide,.wide img{width:480px}.small img{width:120px}.row{display:flex;gap:6px;flex-wrap:wrap}td,th{padding:2px 8px;vertical-align:top;text-align:left}figure{margin:0}</style>
 <h1>3D Stevie spike (issue 77)</h1>
 <p>${escapeHtml(record.host.label)} · ${escapeHtml(record.host.platform)} · ${escapeHtml(record.host.cpu)} · ${escapeHtml(record.device.userAgent)} · renderer ${escapeHtml(record.arms[0]?.description?.rendererString ?? "?")}</p>
-<h2>Model</h2><p>${escapeHtml(record.model?.kind)} · ${m.triangles} triangles · ${m.vertices} vertices · ${m.joints} joints · ${m.maxInfluencesPerVertex} influences per vertex · textures ${escapeHtml(JSON.stringify(m.textures))}</p>
-<p>Fur: ${escapeHtml(m.fur)}. Rig: ${escapeHtml(m.rigNotes)}. Clips: ${escapeHtml(JSON.stringify(m.clips))}. Steps (ms): ${escapeHtml(JSON.stringify(record.model?.stepMs))}</p>
+<h2>Identity check</h2>${identity}
+<h2>Models</h2><p>Generation spend: $${record.provenance.spend.spentUsd} of $${record.provenance.spend.capUsd}; every call is in Provenance below.</p>
+<table><tr><th>model</th><th>rig</th><th>triangles / vertices</th><th>joints</th><th>textures</th><th>fur</th><th>rig and clips</th><th>steps on this page (ms)</th><th>generation cost</th><th>why kept</th></tr>${modelRows}</table>
 <table><tr><th>arm</th><th>preparation steps (ms)</th><th>frame p50 ms dusk / night</th><th>timing</th><th>error</th><th>notes</th></tr>${armRows}</table>
 <h2>Provenance</h2><pre>${escapeHtml(JSON.stringify(record.provenance, null, 2))}</pre>
 ${sections}

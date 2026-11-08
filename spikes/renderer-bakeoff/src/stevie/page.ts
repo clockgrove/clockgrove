@@ -19,6 +19,7 @@ import {
 import {
   type CharacterInstance,
   type CharacterSource,
+  type GeneratedModel,
   generatedStevie,
   proceduralStevie,
   toonMaterial,
@@ -117,7 +118,8 @@ export const SHOTS: readonly Shot[] = [
 
 /** One arm: its scene additions, what it needs prepared, and the notes the report prints. */
 interface Arm {
-  readonly name: "3d" | "2d" | "3d-sprites";
+  /** `3d`, `2d` and `3d-sprites` for the stand-in; `3d:<model>` and `3d-sprites:<model>` for a generated one. */
+  readonly name: string;
   prepare(): Promise<void>;
   extras(): ThreeExtras;
   show(shot: Shot): void;
@@ -129,7 +131,10 @@ const frameKey = (figure: Figure) => `${figure.clip}:${figure.heading}:${figure.
 const clipTime = (instance: CharacterInstance, figure: Figure) =>
   figure.phase * instance.clipDurations[figure.clip];
 
-function arm3d(source: CharacterSource): Arm {
+/** The arm-name suffix for a model: none for the stand-in (the arms CI checks), `:<name>` otherwise. */
+const suffix = (model: string) => (model === "stand-in" ? "" : `:${model}`);
+
+function arm3d(source: CharacterSource, model = "stand-in"): Arm {
   let shot: Shot | undefined;
   let placed: { instance: CharacterInstance; figure: Figure }[] = [];
   const apply = () => {
@@ -142,10 +147,10 @@ function arm3d(source: CharacterSource): Arm {
     }
   };
   return {
-    name: "3d",
+    name: `3d${suffix(model)}`,
     stepMs: { ...source.stepMs },
     notes: [
-      `model: ${source.kind}`,
+      `model: ${model} (${source.kind})`,
       "shaded with MeshToonMaterial (3-step ramp) under the scene's own ambient, sky and point lights and fog; inverted-hull outline",
       "variants: Juniper is a material tint, the kit is the same skeleton scaled to 0.6; no new asset",
     ],
@@ -297,7 +302,7 @@ function arm2d(sheetUrl: string): Arm & { cut(): CutSheet | null } {
   };
 }
 
-function armSprites(source: CharacterSource): Arm {
+function armSprites(source: CharacterSource, model = "stand-in"): Arm {
   let atlas: BakedAtlas | null = null;
   let shot: Shot | undefined;
   const stepMs: Record<string, number> = {};
@@ -317,10 +322,10 @@ function armSprites(source: CharacterSource): Arm {
       });
     }
   const arm: Arm & { atlas(): BakedAtlas | null } = {
-    name: "3d-sprites",
+    name: `3d-sprites${suffix(model)}`,
     stepMs,
     notes: [
-      `the 3D arm's model (${source.kind}) and clips rendered offline from the scene camera's direction: ${frames.length} frames, albedo + view-space normal + depth from the geometry`,
+      `the 3D arm's model (${model}, ${source.kind}) and clips rendered offline from the scene camera's direction: ${frames.length} frames, albedo + view-space normal + depth from the geometry`,
       "placed as camera-facing quads with MeshToonMaterial (same ramp as the 3D arm) and the exact normal map, lit by the scene's lights",
       `the depth map is produced but not used for per-pixel occlusion in the spike; the quad sits ${SPRITE_DEPTH_OFFSET} m towards the camera (assumption 9)`,
       "variants: Juniper is a material tint, the kit is the quad scaled to 0.6; a new heading or clip is a re-bake",
@@ -484,25 +489,52 @@ async function main(): Promise<void> {
     states: [...LIGHTING_STATES],
   };
   try {
-    const generated = await generatedStevie("media/stevie.glb", STEVIE_HEIGHT);
-    const source = generated ?? proceduralStevie();
+    // The stand-in always renders (it is what CI checks); generated models come from media/ via `models`.
+    const source = proceduralStevie();
     record.model = { kind: source.kind, metrics: source.metrics, stepMs: source.stepMs };
     const two = arm2d("sheet.png");
-    const sprites = armSprites(source);
-    const arms = [arm3d(source), two, sprites];
+    const arms: Arm[] = [arm3d(source), two, armSprites(source)];
+    const models: Record<string, unknown>[] = [
+      { name: "stand-in", kind: source.kind, metrics: source.metrics, stepMs: source.stepMs },
+    ];
+    const wanted = JSON.parse(params.get("models") ?? "[]") as GeneratedModel[];
+    for (const model of wanted) {
+      if (status) status.textContent = `loading ${model.name}`;
+      try {
+        const generated = await generatedStevie(model, STEVIE_HEIGHT);
+        if (!generated) throw new Error(`${model.url} is missing`);
+        models.push({
+          name: model.name,
+          kind: generated.kind,
+          rig: model.rig,
+          metrics: generated.metrics,
+          stepMs: generated.stepMs,
+        });
+        arms.push(arm3d(generated, model.name), armSprites(generated, model.name));
+      } catch (caught) {
+        models.push({
+          name: model.name,
+          rig: model.rig,
+          error: caught instanceof Error ? caught.message : String(caught),
+        });
+      }
+    }
+    record.models = models;
     const results = [];
     for (const arm of arms) {
       if (status) status.textContent = `rendering ${arm.name}`;
       results.push(await runArm(arm, host));
     }
     record.arms = results;
-    const atlas = (sprites as Arm & { atlas(): BakedAtlas | null }).atlas();
-    record.atlases = {
-      ...(atlas
-        ? Object.fromEntries(Object.entries(atlas.pngs()).map(([k, v]) => [`sprites-${k}`, v]))
-        : {}),
-      ...cutSheetPngs(two.cut()),
-    };
+    // Atlases: `sprites-<map>` for the stand-in (what CI checks), `sprites-<model>-<map>` for the others.
+    const atlases: Record<string, string> = {};
+    for (const arm of arms) {
+      if (!arm.name.startsWith("3d-sprites")) continue;
+      const atlas = (arm as Arm & { atlas(): BakedAtlas | null }).atlas();
+      const model = arm.name.slice("3d-sprites".length).replace(":", "-");
+      for (const [k, v] of Object.entries(atlas?.pngs() ?? {})) atlases[`sprites${model}-${k}`] = v;
+    }
+    record.atlases = { ...atlases, ...cutSheetPngs(two.cut()) };
   } catch (caught) {
     record.fatal = caught instanceof Error ? caught.message : String(caught);
   }

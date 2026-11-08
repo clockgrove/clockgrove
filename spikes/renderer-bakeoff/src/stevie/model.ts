@@ -1,13 +1,14 @@
-// Issue 77's 3D Stevie. Two sources behind one interface:
+// Issue 77's 3D Stevie. Sources behind one interface:
 // - the procedural stand-in, built here in code: a skinned raccoon of primitives, an 18-joint skeleton
-//   and idle and walk clips. No image-to-3D service was reachable from the sandbox (plan, assumptions 1
-//   and 2), so it stands in for the generated model and exercises the same rig, clip, shading and baking path;
-// - a generated model dropped into the git-ignored media/stevie.glb (the maintainer step), loaded with
-//   GLTFLoader and re-shaded the same way.
+//   and idle and walk clips. CI has no generated media, so CI renders it;
+// - a generated model in the git-ignored media/ (scripts/generate.mjs), loaded with GLTFLoader and re-shaded
+//   the same way. It either keeps its provider's rig and clips ("provider", Meshy) or gets the stand-in's
+//   skeleton and clips fitted to it ("fit", fit.ts: the fal.ai route).
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { fitRig, type Joint, type V3 } from "./fit.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: three ships no type declarations (see three-shim.d.ts)
 type Any = any;
@@ -120,9 +121,8 @@ function furTexture(): Any {
 
 // ---- The procedural stand-in -------------------------------------------------------------------------
 
-type V3 = readonly [number, number, number];
 /** Joints in yard axes (x forward, y left, z up), metres, at rest; each with its parent and segment end. */
-const JOINTS: readonly { name: string; parent: string | null; at: V3; end: V3 }[] = [
+const JOINTS: readonly Joint[] = [
   { name: "root", parent: null, at: [0, 0, 0], end: [0, 0, 0.1] },
   { name: "hips", parent: "root", at: [-0.14, 0, 0.3], end: [0, 0, 0.32] },
   { name: "spine", parent: "hips", at: [0, 0, 0.32], end: [0.13, 0, 0.31] },
@@ -379,7 +379,7 @@ const deg = (d: number) => (d * Math.PI) / 180;
 /** Idle: 2.4 s of breathing, a slow look round and a lazy tail. Walk: a 0.8 s diagonal-pair gait. */
 export const IDLE_SECONDS = 2.4;
 export const WALK_SECONDS = 0.8;
-function standInClips(): { idle: Any; walk: Any } {
+function standInClips(hipsAt: V3 = [-0.14, 0, 0.3]): { idle: Any; walk: Any } {
   const s = Math.sin;
   const idle = new THREE.AnimationClip("idle", IDLE_SECONDS, [
     rotationTrack("chest", axisY, IDLE_SECONDS, (p) => deg(2.5) * s(p * TAU)),
@@ -397,9 +397,9 @@ function standInClips(): { idle: Any; walk: Any } {
     "hips.position",
     Array.from({ length: 9 }, (_, k) => (k / 8) * WALK_SECONDS),
     Array.from({ length: 9 }, (_, k) => [
-      -0.14,
-      0,
-      0.3 + 0.012 * Math.cos((k / 8) * TAU * 2),
+      hipsAt[0],
+      hipsAt[1],
+      hipsAt[2] + 0.012 * Math.cos((k / 8) * TAU * 2),
     ]).flat(),
   );
   const walk = new THREE.AnimationClip("walk", WALK_SECONDS, [
@@ -422,18 +422,19 @@ function standInClips(): { idle: Any; walk: Any } {
   return { idle, walk };
 }
 
-function buildBones(): Any[] {
+function buildBones(joints: readonly Joint[] = JOINTS): Any[] {
   const bones: Any[] = [];
-  for (const joint of JOINTS) {
+  const index = new Map(joints.map((joint, i) => [joint.name, i]));
+  for (const joint of joints) {
     const bone = new THREE.Bone();
     bone.name = joint.name;
-    const parent = joint.parent ? JOINTS[JOINT_INDEX.get(joint.parent) ?? 0] : null;
+    const parent = joint.parent ? joints[index.get(joint.parent) ?? 0] : null;
     bone.position.set(
       joint.at[0] - (parent?.at[0] ?? 0),
       joint.at[1] - (parent?.at[1] ?? 0),
       joint.at[2] - (parent?.at[2] ?? 0),
     );
-    if (joint.parent) bones[JOINT_INDEX.get(joint.parent) ?? 0].add(bone);
+    if (joint.parent) bones[index.get(joint.parent) ?? 0].add(bone);
     bones.push(bone);
   }
   return bones;
@@ -457,6 +458,41 @@ function timed<T>(steps: Record<string, number>, name: string, work: () => T): T
   const result = work();
   steps[name] = Math.round((performance.now() - start) * 1_000) / 1_000;
   return result;
+}
+
+/** One skinned, outlined, posable instance of `geometry` on a fresh skeleton built from `joints`. */
+function skinnedInstance(
+  geometry: Any,
+  material: Any,
+  outline: Any,
+  joints: readonly Joint[],
+  clips: { idle: Any; walk: Any },
+): CharacterInstance {
+  const bones = buildBones(joints);
+  const skeleton = new THREE.Skeleton(bones);
+  const shaded = material.clone();
+  const mesh = new THREE.SkinnedMesh(geometry, shaded);
+  mesh.add(bones[0]);
+  mesh.updateMatrixWorld(true);
+  mesh.bind(skeleton);
+  const hull = new THREE.SkinnedMesh(geometry, outline);
+  hull.bind(skeleton, mesh.bindMatrix);
+  hull.userData.outline = true;
+  mesh.add(hull);
+  mesh.frustumCulled = false;
+  hull.frustumCulled = false;
+  const root = new THREE.Group();
+  root.add(mesh);
+  const pose = poser(root, clips);
+  pose("idle", 0);
+  return {
+    root,
+    pose,
+    tint(rgb) {
+      shaded.color.setRGB(rgb[0], rgb[1], rgb[2]);
+    },
+    clipDurations: { idle: clips.idle.duration, walk: clips.walk.duration },
+  };
 }
 
 export function proceduralStevie(): CharacterSource {
@@ -485,104 +521,172 @@ export function proceduralStevie(): CharacterSource {
     kind: "procedural-stand-in",
     metrics,
     stepMs,
-    instantiate() {
-      const bones = buildBones();
-      const skeleton = new THREE.Skeleton(bones);
-      const shaded = material.clone();
-      const mesh = new THREE.SkinnedMesh(geometry, shaded);
-      mesh.add(bones[0]);
-      mesh.updateMatrixWorld(true);
-      mesh.bind(skeleton);
-      const hull = new THREE.SkinnedMesh(geometry, outline);
-      hull.bind(skeleton, mesh.bindMatrix);
-      hull.userData.outline = true;
-      mesh.add(hull);
-      mesh.frustumCulled = false;
-      hull.frustumCulled = false;
-      const root = new THREE.Group();
-      root.add(mesh);
-      const pose = poser(root, clips);
-      pose("idle", 0);
-      return {
-        root,
-        pose,
-        tint(rgb) {
-          shaded.color.setRGB(rgb[0], rgb[1], rgb[2]);
-        },
-        clipDurations: { idle: IDLE_SECONDS, walk: WALK_SECONDS },
-      };
-    },
+    instantiate: () => skinnedInstance(geometry, material, outline, JOINTS, clips),
   };
 }
 
-/**
- * A generated model from `url` (glTF binary): every skinned mesh re-shaded with the shared toon ramp
- * and the same inverted-hull outline; clips matched by name (/idle/i, /walk/i). Resolves null when absent.
- */
-export async function generatedStevie(
-  url: string,
-  heightMetres: number,
-): Promise<CharacterSource | null> {
-  const stepMs: Record<string, number> = {};
-  const head = await fetch(url, { method: "HEAD" }).catch(() => null);
-  if (!head?.ok) return null;
-  const start = performance.now();
-  const gltf = await new GLTFLoader().loadAsync(url);
-  stepMs.load = Math.round((performance.now() - start) * 1_000) / 1_000;
-  const find = (pattern: RegExp) => gltf.animations.find((a: Any) => pattern.test(a.name)) ?? null;
-  const idle = find(/idle/iu) ?? gltf.animations[0];
-  const walk = find(/walk/iu) ?? idle;
-  if (!idle) throw new Error(`${url} has no animation clips`);
+/** How a generated model is rigged: by its provider (with its clips), or by fitting the stand-in's rig. */
+export interface GeneratedModel {
+  /** The source's name in the report (for example `meshy` or `fal`). */
+  readonly name: string;
+  readonly url: string;
+  readonly rig: "provider" | "fit";
+  /** A second glTF whose first clip is the walk (Meshy ships each clip as its own file). */
+  readonly walkUrl?: string;
+}
+
+/** glTF is y-up and faces +z; the yard is z-up with the character facing +x (y→z first, then −y→+x). */
+const GLTF_TO_YARD = new THREE.Matrix4().makeRotationFromEuler(
+  new THREE.Euler(Math.PI / 2, 0, Math.PI / 2, "ZYX"),
+);
+
+function meshMetrics(scene: Any) {
   let triangles = 0;
   let vertices = 0;
   let joints = 0;
   let influences = 0;
   const textures: { name: string; width: number; height: number }[] = [];
-  gltf.scene.traverse((node: Any) => {
+  scene.traverse((node: Any) => {
     if (!node.isMesh) return;
     const g = node.geometry;
     vertices += g.attributes.position.count;
     triangles += (g.index?.count ?? g.attributes.position.count) / 3;
     if (node.isSkinnedMesh) joints = Math.max(joints, node.skeleton.bones.length);
     influences = Math.max(influences, g.attributes.skinWeight ? 4 : 0);
-    const map = node.material?.map;
-    if (map?.image)
-      textures.push({
-        name: map.name || "baseColor",
-        width: map.image.width,
-        height: map.image.height,
-      });
-    node.material = toonMaterial({ map: map ?? null, color: 0xffffff });
+    for (const slot of ["map", "normalMap", "roughnessMap", "metalnessMap"]) {
+      const map = node.material?.[slot];
+      if (map?.image)
+        textures.push({
+          name: `${slot}${map.name ? ` ${map.name}` : ""}`,
+          width: map.image.width,
+          height: map.image.height,
+        });
+    }
   });
+  return { triangles, vertices, joints, influences, textures };
+}
+
+/**
+ * The stand-in's skeleton and clips fitted to a generated mesh's `geometry` (glTF axes): moved into yard axes,
+ * centred, feet on the ground, scaled to `heightMetres`, then rigged by `fitRig`.
+ */
+export function fittedSource(
+  geometry: Any,
+  map: Any,
+  heightMetres: number,
+  stepMs: Record<string, number> = {},
+  base: Pick<ModelMetrics, "triangles" | "vertices" | "textures" | "fur"> = {
+    triangles: 0,
+    vertices: 0,
+    textures: [],
+    fur: "",
+  },
+  start = performance.now(),
+): CharacterSource {
+  geometry.applyMatrix4(GLTF_TO_YARD);
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const scale = heightMetres / Math.max(1e-6, box.max.z - box.min.z);
+  geometry.translate(-(box.max.x + box.min.x) / 2, -(box.max.y + box.min.y) / 2, -box.min.z);
+  geometry.scale(scale, scale, scale);
+  stepMs.normalise = Math.round((performance.now() - start) * 1_000) / 1_000;
+  const rig = timed(stepMs, "fitSkeletonAndWeights", () => fitRig(geometry, JOINTS));
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(rig.skinIndex, 4));
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(rig.skinWeight, 4));
+  const hips = rig.joints.find((j) => j.name === "hips")?.at;
+  const clips = timed(stepMs, "buildClips", () => standInClips(hips));
+  const material = toonMaterial({ map, color: 0xffffff });
+  const outline = outlineMaterial();
+  return {
+    kind: "generated-glb",
+    metrics: {
+      ...base,
+      joints: rig.joints.length,
+      maxInfluencesPerVertex: 2,
+      clips: [clips.idle, clips.walk].map((c) => ({
+        name: c.name,
+        seconds: c.duration,
+        tracks: c.tracks.length,
+      })),
+      rigNotes: `the spike's own skeleton and clips fitted to the generated mesh (fit.ts): ${rig.notes}`,
+    },
+    stepMs,
+    instantiate: () => skinnedInstance(geometry, material, outline, rig.joints, clips),
+  };
+}
+
+/**
+ * A generated model (glTF binary), re-shaded with the shared toon ramp and the same inverted-hull outline, at
+ * the stand-in's height. With `rig: "provider"` it keeps the provider's skeleton and clips, matched by name
+ * (/idle/i, else the rigged file's own clip; /walk/i, else `walkUrl`'s first clip). With `rig: "fit"` its
+ * first mesh is moved into yard axes and given the stand-in's skeleton and clips by `fitRig`. Resolves null
+ * when the file is absent.
+ */
+export async function generatedStevie(
+  model: GeneratedModel,
+  heightMetres: number,
+): Promise<CharacterSource | null> {
+  const stepMs: Record<string, number> = {};
+  const head = await fetch(model.url, { method: "HEAD" }).catch(() => null);
+  if (!head?.ok) return null;
+  let start = performance.now();
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(model.url);
+  const walkGltf = model.walkUrl ? await loader.loadAsync(model.walkUrl) : null;
+  stepMs.load = Math.round((performance.now() - start) * 1_000) / 1_000;
+  const counted = meshMetrics(gltf.scene);
+  const base = {
+    triangles: counted.triangles,
+    vertices: counted.vertices,
+    textures: counted.textures,
+    fur: "texture only: the generator's baked colour map; no shells or cards",
+  };
+  if (model.rig === "fit") {
+    start = performance.now();
+    let mesh: Any = null;
+    gltf.scene.updateMatrixWorld(true);
+    gltf.scene.traverse((node: Any) => {
+      if (node.isMesh && !mesh) mesh = node;
+    });
+    if (!mesh) throw new Error(`${model.url} has no mesh`);
+    const geometry = mesh.geometry.clone();
+    geometry.applyMatrix4(mesh.matrixWorld);
+    return fittedSource(geometry, mesh.material?.map ?? null, heightMetres, stepMs, base, start);
+  }
+  const find = (clips: Any[], pattern: RegExp) =>
+    clips.find((a: Any) => pattern.test(a.name)) ?? null;
+  const walk = find(gltf.animations, /walk/iu) ?? walkGltf?.animations[0] ?? null;
+  const idle = find(gltf.animations, /idle/iu) ?? gltf.animations[0] ?? walk;
+  if (!idle || !walk) throw new Error(`${model.url} has no idle or walk clip`);
   // Normalise height so the generated model and the stand-in share one scale (cohesion criterion 5).
   const box = new THREE.Box3().setFromObject(gltf.scene);
   const scale = heightMetres / Math.max(1e-6, box.max.y - box.min.y);
-  const metrics: ModelMetrics = {
-    triangles,
-    vertices,
-    joints,
-    maxInfluencesPerVertex: influences,
-    textures,
-    clips: gltf.animations.map((c: Any) => ({
-      name: c.name,
-      seconds: c.duration,
-      tracks: c.tracks.length,
-    })),
-    fur: "as generated: see the model's provenance and the report's stills",
-    rigNotes: "as generated by the provider's auto-rig: see provenance",
-  };
+  gltf.scene.traverse((node: Any) => {
+    if (node.isMesh)
+      node.material = toonMaterial({ map: node.material?.map ?? null, color: 0xffffff });
+  });
+  const clips = [idle, walk];
   return {
     kind: "generated-glb",
-    metrics,
+    metrics: {
+      ...base,
+      joints: counted.joints,
+      maxInfluencesPerVertex: counted.influences,
+      clips: clips.map((c: Any, i) => ({
+        name: `${i ? "walk" : "idle"}: ${c.name}`,
+        seconds: c.duration,
+        tracks: c.tracks.length,
+      })),
+      rigNotes: `the provider's auto-rig, ${counted.joints} joints: ${(gltf.scene.getObjectByProperty("isSkinnedMesh", true)?.skeleton.bones ?? []).map((b: Any) => b.name).join(" ")}`,
+    },
     stepMs,
     instantiate() {
-      const model = cloneSkinned(gltf.scene);
-      // glTF is y-up and faces +z; the yard is z-up with the character facing +x (y→z first, then −y→+x).
-      model.rotation.set(Math.PI / 2, 0, Math.PI / 2, "ZYX");
-      model.scale.setScalar(scale);
+      const model3d = cloneSkinned(gltf.scene);
+      model3d.rotation.set(Math.PI / 2, 0, Math.PI / 2, "ZYX");
+      model3d.scale.setScalar(scale);
       const tinted: Any[] = [];
       const meshes: Any[] = [];
-      model.traverse((node: Any) => {
+      model3d.traverse((node: Any) => {
         if (node.isMesh) meshes.push(node);
       });
       for (const node of meshes) {
@@ -598,7 +702,7 @@ export async function generatedStevie(
         }
       }
       const root = new THREE.Group();
-      root.add(model);
+      root.add(model3d);
       const pose = poser(root, { idle, walk });
       pose("idle", 0);
       return {

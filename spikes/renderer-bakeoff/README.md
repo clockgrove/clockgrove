@@ -110,9 +110,10 @@ hook, so every arm shares one light rig, one fog, one bloom and output pass, and
 [character rendering ADR](../../docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md).
 
 - **3d** (`model.ts`): a rigged Stevie playing `idle` and `walk` clips, with `MeshToonMaterial` (a three-step ramp)
-  and an inverted-hull outline. If `media/stevie.glb` exists, the page loads it, re-shades it the same way and
-  matches its clips by name. Otherwise it builds the **procedural stand-in**: 18 joints, two-bone skin weights and
-  texture-only fur. No image-to-3D service was reachable from the sandbox.
+  and an inverted-hull outline. CI renders the **procedural stand-in**: 18 joints, two-bone skin weights and
+  texture-only fur. Each generated model kept in `media/` (below) adds the arms `3d:<model>` and
+  `3d-sprites:<model>`. A model rigged by its provider keeps its own skeleton and clips (`/idle/`, `/walk/`, or a
+  separate walk file). A model marked `fit` gets the stand-in's skeleton and clips fitted to its mesh by `fit.ts`.
 - **2d** (`sheet.ts`): frames cropped from
   [`stevie-sprite-sheet.png`](../../docs/design/reference/stevie-sprite-sheet.png). The grid is 8 columns of 192×230 cells,
   with the frame label removed:
@@ -148,18 +149,31 @@ node spikes/renderer-bakeoff/scripts/stevie.mjs --browser <chromium-family exe> 
 
 A software renderer's times are marked `performance: false`. No media is committed.
 
+### Generating the models
+
+`scripts/generate.mjs` runs the owner's chosen route, and every output lands in the git-ignored `media/`. Keys come
+from the environment and are never printed. Each call reserves its cost against the $10 cap before it runs, and is
+refused past the cap. `media/provenance.json` records every call (provider, model, endpoint, parameters, cost and
+how it was measured, minutes) and every file's sha256.
+
+```sh
+node scripts/generate.mjs turnaround                 # GPT-image edit via AI Gateway (AI_GATEWAY_API_KEY): media/turnaround*.png
+node scripts/generate.mjs fal three-quarter-1536     # TRELLIS.2 on fal (FAL_KEY); also `multi`, `three-quarter`
+node scripts/generate.mjs meshy                      # Meshy multi-image-to-3D, then Meshy rigging (MESHY_API_KEY)
+node scripts/generate.mjs keep <name> <provider|fit> <glb> [walk=<glb>] <why…>   # a model for the report
+```
+
+The turnaround is cropped into four views from its 2×2 grid by `png.mjs`. Both 3D routes start from those views.
+`stevie.mjs` renders every kept model and shows the turnaround beside the identity sheet. The results, the
+costs and the likeness findings are in the ADR.
+
 ### Maintainer steps for issue 77 (outside the sandbox)
 
 - **GPU frame times and the screenshots to judge:** run `stevie.mjs` with the GPU flags from the bake-off's
-  maintainer step above, and post the report's numbers and stills on issue 77 with the host label.
-- **A generated model:** this needs an image-to-3D and auto-rig service, which is an open Question on the PR.
-  1. Reserve the cost against the $10 cap before each call.
-  2. Generate from the identity sheet (or one frame of it).
-  3. Auto-rig it as a quadruped, with `idle` and `walk` clips.
-  4. Save the result as `media/stevie.glb`.
-  5. Record each file's model, provider, parameters, cost and step minutes in
-     `media/provenance.json` as `{ "files": { "stevie.glb": { "model", "provider", "parameters", "costUsd", "steps": [{ "step", "minutes" }] } } }`.
-  6. Rerun `stevie.mjs`.
+  maintainer step above, with the generated models in `media/`. Post the report's numbers and stills on issue 77
+  with the host label. Regenerating `media/` from scratch costs about $1.83 on this route.
+- **fal's terms:** re-check TRELLIS.2's terms on fal's model page and record them in `media/provenance.json` before
+  relying on the licence. The run could not reach fal's web pages.
 - **Assetforge sheet import:** run clockgrove/assetforge's sheet import on the identity sheet. Compare its frames
   with the spike's plain crop (`atlas-sheet-albedo.png` in the output), and post the result.
 
