@@ -2542,15 +2542,21 @@ const observeYard = async (backend) => {
         ]).toEqual([heldBefore, "ready", [false, false, false]]);
         // §16 React error boundary: a throwing yard component leaves a focused, announced error
         // screen, not a blank page, recorded only as client_errors:shell; Reload recovers.
-        await yard.evaluate(() => {
-          globalThis.yardThrowRender = true;
-        });
-        await yard
+        const failingEntity = yard
           .getByRole("region", { name: "Living scene" })
           .getByRole("listitem")
           .getByRole("button", { pressed: false })
-          .first()
-          .click();
+          .first();
+        await failingEntity.evaluate((button) => {
+          button.addEventListener(
+            "click",
+            () => {
+              globalThis.yardThrowRender = true;
+            },
+            { capture: true, once: true },
+          );
+        });
+        await failingEntity.click();
         const stopped = yard.getByRole("region", { name: "Raccoon World stopped" });
         await stopped.waitFor();
         expect([
