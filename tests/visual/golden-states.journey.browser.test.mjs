@@ -261,10 +261,18 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
             return living(page);
           });
           for (const page of pages) {
-            // Read the preserved WebGL drawing buffer: a locator screenshot can include a fixed
+            // Render and read in the same task: a locator screenshot can include a fixed
             // DOM header or change hover while scrolling the canvas into view on the phone layout.
-            const canvasPixels = async () => Buffer.from(await page.evaluate(() =>
-              globalThis.yardAdapter.renderer.domElement.toDataURL("image/png").split(",")[1]), "base64");
+            const canvasPixels = async () =>
+              Buffer.from(
+                await page.evaluate(() => {
+                  const adapter = globalThis.yardAdapter;
+                  if (adapter.composer) adapter.composer.render();
+                  else adapter.renderer.render(adapter.scene, adapter.camera);
+                  return adapter.renderer.domElement.toDataURL("image/png").split(",")[1];
+                }),
+                "base64",
+              );
             const first = await canvasPixels();
             await page.evaluate(
               () =>
@@ -333,9 +341,10 @@ it("captures the Wave 4 golden states at each visual matrix viewport", async () 
                 meanLuminance: luminance / (image.width * image.height),
                 lights: adapter.scene.children.filter((child) => child.isPointLight).length,
                 backend: adapter.backend,
-                api: adapter.backend === "webgpu"
-                  ? adapter.renderer.backend.isWebGPUBackend === true
-                  : adapter.renderer.getContext() instanceof WebGL2RenderingContext,
+                api:
+                  adapter.backend === "webgpu"
+                    ? adapter.renderer.backend.isWebGPUBackend === true
+                    : adapter.renderer.getContext() instanceof WebGL2RenderingContext,
               };
             }, first.toString("base64"));
             // Tuning decisions: warm pixels survive grading and no rendered pixel clips all channels

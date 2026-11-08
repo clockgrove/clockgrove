@@ -5,9 +5,9 @@ import type {
   SceneTransientCue,
   WorldObjectId,
 } from "@clockgrove/contracts";
-import * as THREE from "three/webgpu";
-import { pass } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
+import { pass } from "three/tsl";
+import * as THREE from "three/webgpu";
 import {
   applyScenePatch,
   cyclePick,
@@ -290,7 +290,6 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         antialias: false,
         alpha: false,
         stencil: true,
-        preserveDrawingBuffer: true,
       });
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(WIDTH, HEIGHT);
@@ -347,20 +346,29 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       await this.renderer.init();
       if (this.destroyed) return;
       this.initialized = true;
-      const context = this.backend === "webgl2"
-        ? this.renderer.getContext() as WebGL2RenderingContext
-        : undefined;
+      const context =
+        this.backend === "webgl2"
+          ? (this.renderer.getContext() as WebGL2RenderingContext)
+          : undefined;
       const enoughTargets = context
         ? context.getParameter(context.MAX_TEXTURE_SIZE) >= 4096 &&
           Boolean(context.getExtension("EXT_color_buffer_float"))
         : true;
       const rendererInfo = context?.getExtension("WEBGL_debug_renderer_info");
-      const software = context && rendererInfo && /SwiftShader|llvmpipe|software/i.test(
-        String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL)),
-      );
+      const software =
+        context &&
+        rendererInfo &&
+        /SwiftShader|llvmpipe|software/i.test(
+          String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL)),
+        );
       const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-      this.setQuality(!enoughTargets || software || (memory !== undefined && memory < 4)
-        ? "low" : memory !== undefined && memory < 8 ? "medium" : "high");
+      this.setQuality(
+        !enoughTargets || software || (memory !== undefined && memory < 4)
+          ? "low"
+          : memory !== undefined && memory < 8
+            ? "medium"
+            : "high",
+      );
       this.frame = requestAnimationFrame(this.step);
       await this.create();
     } catch {
