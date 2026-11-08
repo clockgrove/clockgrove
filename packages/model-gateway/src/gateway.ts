@@ -3,6 +3,13 @@ import { ProviderFailure, type RouteAdapter, type RouteCall } from "./adapter.js
 import { costCeilingMicrousd, type ModelAliasDefinition, type ModelRoute } from "./aliases.js";
 import { RouteBreaker } from "./breaker.js";
 import type {
+  DecisionAdapter,
+  DecisionAliasDefinition,
+  DecisionCallRecord,
+  DecisionOutcome,
+  DecisionRequest,
+} from "./decision.js";
+import type {
   ModelAccountingSink,
   ModelBudgetPort,
   ModelCallRecord,
@@ -23,6 +30,9 @@ export interface ModelGatewayOptions {
   readonly budget: ModelBudgetPort;
   readonly accounting: ModelAccountingSink;
   readonly now?: () => number;
+  /** Decision aliases and the adapters that serve them; absent, `decide` refuses its alias. */
+  readonly decisionAliases?: readonly DecisionAliasDefinition[];
+  readonly decisionAdapters?: Readonly<Partial<Record<ProviderKind, DecisionAdapter>>>;
 }
 
 /** Route outcomes after which the next route of the alias is tried. */
@@ -65,6 +75,115 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     if (found === undefined) breakers.set(route.id, (found = new RouteBreaker()));
     return found;
   };
+
+  const decisionAliases = new Map((options.decisionAliases ?? []).map((a) => [a.alias, a]));
+  for (const alias of decisionAliases.values()) {
+    if (options.decisionAdapters?.[alias.route.provider] === undefined)
+      throw new Error(`no decision adapter for model provider: ${alias.route.provider}`);
+  }
+
+  async function decide(request: DecisionRequest, outer?: AbortSignal): Promise<DecisionOutcome> {
+    const alias = decisionAliases.get(request.alias);
+    if (alias === undefined) throw new Error(`unknown decision alias: ${request.alias}`);
+    const { route } = alias;
+    const started = now();
+    const requestSha256 = await sha256(
+      JSON.stringify([alias.alias, alias.policyVersion, request.state, request.question]),
+    );
+    const recordOf = (
+      outcome: DecisionCallRecord["outcome"],
+      fields: Partial<DecisionCallRecord> = {},
+    ): DecisionCallRecord => ({
+      callId: request.callId,
+      alias: alias.alias,
+      policyVersion: alias.policyVersion,
+      attribution: request.attribution,
+      model: route.model,
+      responseModel: null,
+      outcome,
+      label: null,
+      confidence: null,
+      latencyMs: now() - started,
+      costMicrousd: 0,
+      requestSha256,
+      ...fields,
+    });
+    const fail = async (
+      code: ModelFailureCode,
+      retryable: boolean,
+      fields: Partial<DecisionCallRecord> = {},
+    ): Promise<DecisionOutcome> => {
+      const record = recordOf(code, fields);
+      await options.accounting.recordDecision?.(record);
+      return { status: "failed", code, retryable, record };
+    };
+    const encoder = new TextEncoder();
+    const bytes =
+      encoder.encode(request.state).length +
+      encoder.encode(JSON.stringify(request.question)).length;
+    if (bytes > alias.maxInputBytes) return fail("input_too_large", false);
+    if (outer?.aborted) return fail("cancelled", true);
+    const routeBreaker = breaker(route);
+    if (!routeBreaker.admit(started)) return fail("unavailable", true);
+    const scope = `${request.attribution.tenantId}/${request.attribution.worldId}`;
+    const reservation = options.budget.reserve(scope, alias.maxCostMicrousd);
+    if (reservation === undefined) return fail("budget_exceeded", true);
+    const adapter = options.decisionAdapters?.[route.provider] as DecisionAdapter;
+    const controller = new AbortController();
+    const abortFromOuter = () => controller.abort(outer?.reason);
+    outer?.addEventListener("abort", abortFromOuter, { once: true });
+    try {
+      const reply = await withTimeout(
+        adapter.decide({
+          route,
+          state: request.state,
+          question: request.question,
+          signal: controller.signal,
+        }),
+        alias.timeoutMs,
+      );
+      if (reply === TIMED_OUT) {
+        controller.abort(new Error("decision timed out"));
+        routeBreaker.failed(now());
+        options.budget.settle(reservation, reservation.microusd);
+        return await fail("timeout", true, { costMicrousd: null });
+      }
+      const cost =
+        reply.reportedCostUsd !== null
+          ? Math.round(reply.reportedCostUsd * 1_000_000)
+          : reply.inputTokens === null || reply.outputTokens === null
+            ? null
+            : Math.round(
+                reply.inputTokens * route.priceUsdPerMTok.input +
+                  reply.outputTokens * route.priceUsdPerMTok.output,
+              );
+      options.budget.settle(reservation, cost ?? reservation.microusd);
+      routeBreaker.succeeded();
+      const record = recordOf("completed", {
+        responseModel: reply.responseModel,
+        label: reply.answer.label,
+        confidence: reply.answer.confidence,
+        costMicrousd: cost,
+      });
+      await options.accounting.recordDecision?.(record);
+      return { status: "completed", value: reply.answer, record };
+    } catch (error) {
+      // A refused or failed call returned no answer, so nothing was billed.
+      options.budget.settle(reservation, 0);
+      const kind = outer?.aborted
+        ? "cancelled"
+        : error instanceof ProviderFailure
+          ? error.kind
+          : "unavailable";
+      if (kind === "rate_limited" || kind === "unavailable") routeBreaker.failed(now());
+      else routeBreaker.released();
+      const code = kind === "credential_missing" ? "unavailable" : kind;
+      const retryable = error instanceof ProviderFailure ? error.retryable : kind === "cancelled";
+      return await fail(code, retryable);
+    } finally {
+      outer?.removeEventListener("abort", abortFromOuter);
+    }
+  }
 
   async function call<T>(
     request: ModelRequest,
@@ -306,6 +425,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
 
   return {
     stream: (request, signal, onText) => call<string>(request, signal, onText, undefined),
+    decide,
     generateObject: <T>(request: StructuredModelRequest<T>, signal?: AbortSignal) =>
       call<T>(request, signal, undefined, request.schema),
     inspect(name: string): ModelRouteStatus {

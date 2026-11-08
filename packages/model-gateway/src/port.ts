@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { DecisionCallRecord, DecisionOutcome, DecisionRequest } from "./decision.js";
 
 /**
  * The project-owned model port. Callers name an alias; provider, model, bounds and fallback are
@@ -16,6 +17,12 @@ export interface ModelGateway {
     request: StructuredModelRequest<T>,
     signal?: AbortSignal,
   ): Promise<ModelOutcome<T>>;
+  /**
+   * A bounded Choice, Score or Boolean question through the decisions endpoint; resolves to an
+   * outcome and never rejects for provider faults. Every call records its model, latency, cost,
+   * label and confidence.
+   */
+  decide(request: DecisionRequest, signal?: AbortSignal): Promise<DecisionOutcome>;
   inspect(alias: string): ModelRouteStatus;
 }
 
@@ -136,6 +143,8 @@ export type ProviderKind = "scripted" | "vercel-ai-gateway" | "anthropic";
 /** Accounting leaves the gateway through this port. */
 export interface ModelAccountingSink {
   record(record: ModelCallRecord): void | Promise<void>;
+  /** Decision calls are recorded here when the sink takes them. */
+  recordDecision?(record: DecisionCallRecord): void | Promise<void>;
 }
 
 /** Spend is reserved before a call and settled after it, outside any prompt. */

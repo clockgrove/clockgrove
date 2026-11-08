@@ -1,12 +1,25 @@
 // The only module that imports provider SDKs. Their types never leave it.
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGateway, jsonSchema, Output, streamText } from "ai";
+import {
+  createGateway,
+  Experimental_DecisionRefusalError,
+  experimental_decide,
+  jsonSchema,
+  Output,
+  streamText,
+} from "ai";
 import {
   type ProviderEvent,
   ProviderFailure,
   type RouteAdapter,
   type RouteCall,
 } from "./adapter.js";
+import type {
+  DecisionAdapter,
+  DecisionAdapterResult,
+  DecisionAnswer,
+  DecisionCall,
+} from "./decision.js";
 import type { CredentialResolver } from "./port.js";
 
 /** Credential references resolve from the process environment only when a call is made. */
@@ -72,6 +85,81 @@ export class AiSdkRouteAdapter implements RouteAdapter {
     }
     if (finish !== undefined) yield finish;
   }
+}
+
+/**
+ * The decisions endpoint of Vercel AI Gateway, through the SDK's `decide`. One question per call,
+ * answered as a label and a probability; retries belong to the caller, so the SDK makes none.
+ */
+export class AiSdkDecisionAdapter implements DecisionAdapter {
+  constructor(
+    private readonly credentials: CredentialResolver,
+    private readonly fetch?: typeof globalThis.fetch,
+  ) {}
+
+  async decide(call: DecisionCall): Promise<DecisionAdapterResult> {
+    const { route, question } = call;
+    const apiKey = route.credential === null ? undefined : this.credentials(route.credential);
+    if (apiKey === undefined) throw new ProviderFailure("credential_missing", null, false);
+    const provider = createGateway({
+      apiKey,
+      ...(route.baseURL === undefined ? {} : { baseURL: route.baseURL }),
+      ...(this.fetch === undefined ? {} : { fetch: this.fetch }),
+    });
+    const instructions =
+      question.instructions === undefined ? {} : { instructions: question.instructions };
+    const questions = {
+      q:
+        question.type === "choice"
+          ? { type: "choice" as const, ...instructions, criteria: { ...question.options } }
+          : question.type === "score"
+            ? { type: "score" as const, ...instructions, criteria: [...question.levels] }
+            : { type: "boolean" as const, instructions: question.instructions },
+    };
+    let result: Awaited<ReturnType<typeof experimental_decide>>;
+    try {
+      result = await experimental_decide({
+        model: provider.decision(route.model),
+        state: call.state,
+        questions,
+        maxRetries: 0,
+        abortSignal: call.signal,
+      });
+    } catch (error) {
+      if (call.signal.aborted) throw error;
+      if (error instanceof Experimental_DecisionRefusalError)
+        throw new ProviderFailure("refused", null, false);
+      throw classify(error);
+    }
+    const answer = result.answers.q as unknown as Record<string, unknown>;
+    return {
+      answer: toAnswer(answer),
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      reportedCostUsd: reportedCost(result.providerMetadata),
+      responseModel: result.response.modelId ?? null,
+    };
+  }
+}
+
+function toAnswer(answer: Record<string, unknown>): DecisionAnswer {
+  const probabilities = answer.probabilities as Record<string, number> | undefined;
+  if (answer.type === "choice") {
+    const label = String(answer.choice);
+    return { type: "choice", label, confidence: probabilities?.[label] ?? null };
+  }
+  if (answer.type === "score") {
+    const score = Number(answer.score);
+    return {
+      type: "score",
+      label: String(score),
+      score,
+      confidence: probabilities?.[String(score)] ?? null,
+    };
+  }
+  const probability = Number(answer.probability);
+  const label = probability >= 0.5 ? "true" : "false";
+  return { type: "boolean", label, confidence: label === "true" ? probability : 1 - probability };
 }
 
 function classify(error: unknown): ProviderFailure {
