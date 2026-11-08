@@ -70,4 +70,33 @@ export const PRODUCTION_ALIASES: readonly ModelAliasDefinition[] = [
     // back after a first-byte timeout lasts at most 15 s + 60 s.
     timeouts: { firstByteMs: 15_000, idleMs: 10_000, totalMs: 60_000 },
   },
+  {
+    alias: "stevie.pilot",
+    policyVersion: "stevie.pilot@1",
+    routes: [
+      {
+        id: "vercel-ai-gateway/claude-opus-5.5",
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-5.5",
+        credential: "AI_GATEWAY_API_KEY",
+        priceUsdPerMTok: OPUS_5_5_PRICE,
+      },
+      {
+        id: "anthropic/claude-opus-5-5",
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        credential: "ANTHROPIC_API_KEY",
+        priceUsdPerMTok: OPUS_5_5_PRICE,
+      },
+    ],
+    // Decision (issue 19, the pilot rubric): at most $0.05 a turn. 7k input tokens at $4 and 1k output
+    // tokens at $20 per million bound one call at $0.04848, so a turn never exceeds the envelope.
+    // A reply cut at the cap completes with the attempt's finishReason "length".
+    maxInputTokens: 7_000,
+    maxOutputTokens: 1_024,
+    // Decisions: 15 s to first text covers model thinking before the reply; 10 s of silence after
+    // text has started means a stalled stream; 60 s bounds one route attempt, so a turn that falls
+    // back after a first-byte timeout lasts at most 15 s + 60 s.
+    timeouts: { firstByteMs: 15_000, idleMs: 10_000, totalMs: 60_000 },
+  },
 ];

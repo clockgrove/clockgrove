@@ -43,11 +43,17 @@ exercises this.
 - **Messages** are immutable and ordered by `sequence` from 1. A Caretaker message is authored by
   the persona and has no voice mode. An actor message is authored by the actor and carries the
   session's voice mode.
-- A **turn** joins one input message to its answer. The scripted model fixture
-  (`scripted-fixture-v1`) answers in the same request, deterministically and only from its own
-  session: "you have said N things to me in this conversation". Each turn is a recoverable fiber
-  in the actor's runtime owner ([recoverable turn fibers](conversation-fibers.md)); RW-0504
-  replaces the fixture with the ModelGateway.
+- A **turn** joins one input message to its answer. Without a model key bound, the scripted model
+  fixture (`scripted-fixture-v1`) answers deterministically and only from its own session: "you
+  have said N things to me in this conversation". With a key, the actor's owner answers through the
+  ModelGateway's `stevie.pilot` alias and the turn records the route's model name (`^[a-z0-9][a-z0-9._-]{0,127}$`).
+  Each turn is a recoverable fiber in the actor's runtime owner
+  ([recoverable turn fibers](conversation-fibers.md)).
+- A turn's answer may carry one **command proposal**: a typed capability call decided by the actor's
+  grants ([capabilities](capabilities.md)). The Talk receipt's optional `command`
+  (`TalkCommandOutcome`: `capability`, `commandId` or null, `status` `committed` or `refused`,
+  `code`, `summary`) says whether the world committed it or refused it, and why. The proposal text
+  itself is a `private_cognition` artifact and is never returned.
 - Every Talk attempt that reaches the model is one **run** with its steps and one terminal
   disposition, including retried and abandoned attempts. See [run and step evidence](runs.md).
 

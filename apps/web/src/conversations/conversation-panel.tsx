@@ -1,13 +1,38 @@
 import {
+  type CommandId,
   type ConversationMessage,
   type ConversationSession,
+  type InteractionActionKind,
+  type InteractionSummary,
   type ObjectId,
+  type TalkCommandOutcome,
   VOICE_DISCLOSURES,
 } from "@clockgrove/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Portrait } from "../portrait.js";
+import { whyOpener } from "../why.js";
 import type { YardSession } from "../yard-api.js";
+import { useSelectionQuery } from "../yard-queries.js";
+import { useEntityRail } from "../yard-state.js";
 
-const VOICE_PENDING = "The actor is";
+const RAIL_ACTIONS = [
+  ["talk", "Talk"],
+  ["observe", "Observe"],
+  ["remember", "Remember"],
+  ["why", "Why?"],
+] as const;
+
+const LEAF = "M5 19C5 9 11 5 19 5c0 9-4 14-12 14M5 19l7-7";
+
+function displayName(label: string): string {
+  const segment = label.split(".").pop() || label;
+  return segment.charAt(0).toUpperCase() + segment.slice(1);
+}
+
+function worldTime(createdAt: string): string {
+  return new Date(createdAt).toISOString().slice(11, 16);
+}
+
 const UNTITLED = "Untitled conversation";
 
 function sessionLabel(session: ConversationSession): string {
@@ -18,10 +43,28 @@ function sessionLabel(session: ConversationSession): string {
 export function ConversationPanel({
   session,
   actorId,
+  summary,
+  onAction,
 }: {
   readonly session: YardSession;
   readonly actorId: ObjectId;
+  /** When given, the rail's Talk / Observe / Remember / Why? grid is drawn from its actions. */
+  readonly summary?: InteractionSummary | undefined;
+  readonly onAction?: (kind: InteractionActionKind, opener: HTMLElement) => void;
 }) {
+  const selected = useSelectionQuery(session).value;
+  const name = displayName(
+    selected?.objectId === actorId ? selected.entity.presentation.label : actorId,
+  );
+  const input = useRef<HTMLInputElement>(null);
+  const [outcomes, setOutcomes] = useState<Readonly<Record<string, TalkCommandOutcome>>>({});
+  const [lastCommand, setLastCommand] = useState<string>();
+  const publicAction = selected?.objectId === actorId ? selected.history.actions[0] : undefined;
+  const statusLine =
+    publicAction === undefined
+      ? `${name} has done nothing public lately`
+      : `Last public action: ${publicAction.type.replaceAll(/[._]/g, " ")}`;
+  const closeRail = useEntityRail((rail) => rail.toggle);
   const [sessions, setSessions] = useState<readonly ConversationSession[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [current, setCurrent] = useState<ConversationSession>();
@@ -33,6 +76,18 @@ export function ConversationPanel({
   const [provisional, setProvisional] = useState("");
   const [phase, setPhase] = useState<string>();
   const hooks = { onProvisional: setProvisional, onPhase: setPhase };
+
+  const enabledAction = (kind: InteractionActionKind) =>
+    summary?.actions.some((a) => a.kind === kind && a.availability === "enabled") ?? false;
+  const openWhy = (commandId: string, opener: HTMLElement) => {
+    whyOpener.current = opener;
+    session.explainReceipt(commandId as CommandId);
+  };
+  const railAction = (kind: InteractionActionKind, opener: HTMLElement) => {
+    if (kind === "talk") input.current?.focus();
+    else if (kind === "why" && whyCommand) openWhy(whyCommand, opener);
+    else onAction?.(kind, opener);
+  };
 
   const refuse = (value: { readonly refused: string }) => {
     setRefusal(value.refused);
@@ -129,16 +184,29 @@ export function ConversationPanel({
   };
   const send = async () => {
     const text = draft.trim();
-    if (!current || !text) return;
+    if (!text) return;
     setRefusal(undefined);
+    let target = current;
+    if (!target) {
+      const created = await session.createConversation(actorId);
+      if ("refused" in created) return refuse(created);
+      target = created;
+      setCurrent(created);
+      setSelectedId(created.sessionId);
+    }
     setDraft("");
-    const receipt = await session.talk(current.sessionId, text, hooks);
+    const receipt = await session.talk(target.sessionId, text, hooks);
     setPhase(undefined);
     if ("refused" in receipt) {
       setDraft(text);
       return refuse(receipt);
     }
-    if ("reloaded" in receipt) return settled(current.sessionId);
+    if ("reloaded" in receipt) return settled(target.sessionId);
+    const command = receipt.command;
+    if (command) {
+      if (command.commandId !== null) setLastCommand(command.commandId);
+      setOutcomes((all) => ({ ...all, [receipt.reply.messageId]: command }));
+    }
     setCurrent(receipt.session);
     // The receipt holds both new messages. Append them when the loaded tail is the end of the
     // transcript; otherwise the next "load more" page reaches them. No transcript or list re-read.
@@ -149,9 +217,52 @@ export function ConversationPanel({
     ]);
   };
 
+  // A reloaded transcript carries each turn's outcome from run evidence; this session's receipts add to it.
+  const outcomeOf = (message: ConversationMessage) =>
+    outcomes[message.messageId] ?? message.command;
+  const whyCommand =
+    lastCommand ?? messages.findLast((m) => m.command?.commandId)?.command?.commandId ?? undefined;
+  const shown = RAIL_ACTIONS.filter(([kind]) =>
+    kind === "why" ? whyCommand !== undefined || enabledAction(kind) : enabledAction(kind),
+  );
   return (
-    <section aria-label="Private conversation">
-      <p>Private to you; never spoken aloud in the world.</p>
+    <section className="rw-stevie" aria-label="Private conversation">
+      <header className="rw-stevie-head">
+        <h2>{name}</h2>
+        <button type="button" aria-label="Close conversation" onClick={closeRail}>
+          ×
+        </button>
+      </header>
+      <div className="rw-stevie-portrait">
+        <Portrait label={name} className="rw-stevie-avatar" />
+        <span
+          className="rw-voice-badge"
+          role="img"
+          aria-label={VOICE_DISCLOSURES[current?.voiceMode ?? "cognitive"]}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d={LEAF} />
+          </svg>
+        </span>
+      </div>
+      <p className="rw-stevie-status">{statusLine}</p>
+      {shown.length > 0 && (
+        <div className="rw-stevie-actions">
+          {shown.map(([kind, text]) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={(event) => railAction(kind, event.currentTarget)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="rw-disclosure">
+        {name} is model-backed. This conversation is private to you and never spoken aloud in the
+        world.
+      </p>
       <label>
         Conversation
         <select
@@ -170,7 +281,8 @@ export function ConversationPanel({
         New conversation
       </button>
       {current && (
-        <>
+        <details>
+          <summary>Manage conversation</summary>
           <p className="rw-disclosure">{current.disclosure}</p>
           <form
             onSubmit={(event) => {
@@ -197,44 +309,77 @@ export function ConversationPanel({
           <button type="button" onClick={() => void remove()}>
             Delete conversation
           </button>
-          <ol aria-label="Conversation history">
-            {messages.map((message) => (
-              <li key={message.messageId}>
-                <strong>{message.role === "caretaker" ? "You" : "Actor"}</strong>
-                {message.voiceMode && <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>}:{" "}
-                {message.text}
-              </li>
-            ))}
-          </ol>
-          <div aria-live="polite">
-            {phase && <p>Reply in progress ({phase.replaceAll("_", " ")})</p>}
-            {provisional && (
-              <p>
-                <em>{VOICE_PENDING} replying…</em> {provisional}
-              </p>
-            )}
-          </div>
-          {next !== null && (
-            <button type="button" onClick={() => void loadMore()}>
-              Load more
-            </button>
-          )}
-          {current.state === "active" && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void send();
-              }}
-            >
-              <label>
-                Message
-                <input value={draft} onChange={(event) => setDraft(event.target.value)} />
-              </label>
-              <button type="submit">Talk privately</button>
-            </form>
-          )}
-        </>
+        </details>
       )}
+      <>
+        <ol className="rw-chat" aria-label="Conversation history">
+          {messages.map((message) => {
+            const mine = message.role === "caretaker";
+            const outcome = outcomeOf(message);
+            return (
+              <li key={message.messageId} className="rw-bubble" data-from={mine ? "you" : "actor"}>
+                {!mine && <Portrait label={name} className="rw-bubble-avatar" />}
+                <div>
+                  <strong>{mine ? "You" : name}</strong>
+                  {message.voiceMode && <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>}
+                  <p>{message.text}</p>
+                  <time dateTime={message.createdAt}>{worldTime(message.createdAt)}</time>
+                  {outcome && (
+                    <p className="rw-outcome" data-status={outcome.status}>
+                      {outcome.status === "committed"
+                        ? `${name}'s proposal committed`
+                        : `refused: ${outcome.summary}`}{" "}
+                      {outcome.commandId !== null && (
+                        <button
+                          type="button"
+                          onClick={(event) =>
+                            openWhy(outcome.commandId as string, event.currentTarget)
+                          }
+                        >
+                          Why?
+                        </button>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <div aria-live="polite">
+          {phase && <p>Reply in progress ({phase.replaceAll("_", " ")})</p>}
+          {provisional && (
+            <p>
+              <em>{name} is replying…</em> {provisional}
+            </p>
+          )}
+        </div>
+        {next !== null && (
+          <button type="button" onClick={() => void loadMore()}>
+            Load more
+          </button>
+        )}
+        {(!current || current.state === "active") && (
+          <form
+            className="rw-stevie-send"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            <input
+              ref={input}
+              aria-label={`Message ${name}…`}
+              placeholder={`Message ${name}…`}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button type="submit" aria-label="Send">
+              Send
+            </button>
+          </form>
+        )}
+      </>
       {refusal && <p role="status">Conversation refused: {refusal}</p>}
     </section>
   );

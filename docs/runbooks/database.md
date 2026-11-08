@@ -647,6 +647,13 @@ Migration `0037_actor_documents.sql` (Wave 5 RW-0505, issue 17) holds `actor_doc
 - **Audit:** 0037 adds the `context-manifest` and `actor-documents` subjects to
   `inspector_accesses`.
 
+## Model-backed turns
+
+Migration `0040_model_turns.sql` (issue 19) replaces `conversation_turns_model_check`, which allowed
+only `scripted-fixture-v1`, with a pattern for a route's model name
+(`^[a-z0-9][a-z0-9._-]{0,127}$`). The fixture's name still matches. See
+[capabilities](../protocols/capabilities.md).
+
 ## Turn fibers and actor processes
 
 Migration `0038_turn_fibers.sql` (Wave 5 RW-0503, issue 18) holds `conversation_turn_fibers`,

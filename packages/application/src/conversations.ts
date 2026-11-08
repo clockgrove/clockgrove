@@ -36,12 +36,49 @@ export type ConversationResponder = (
   session: ConversationSession,
   caretakerMessages: number,
   input: string,
-) => ConversationResponse;
+  /** The turn's assembled prompt: its protected, governed and untrusted context sections. */
+  prompt: string,
+) => ConversationResponse | Promise<ConversationResponse>;
 
-/** The model's answer: its reply, and at most one document change it proposes (issue 17). */
+/**
+ * The model's answer: its reply, and at most one proposal: a document change (issue 17) or a
+ * capability call (issue 19). Neither is authority; each is decided where it commits.
+ */
 export interface ConversationResponse {
   readonly text: string;
   readonly proposal?: DocumentProposal;
+  readonly command?: CapabilityCall;
+  /** The model call's measured usage; absent for the free fixture. */
+  readonly usage?: ModelUsage;
+}
+
+export interface ModelUsage {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly costMicrousd: number | null;
+}
+
+/** A capability the model proposes to call, undecided: the registry's grants decide it. */
+export interface CapabilityCall {
+  readonly capability: string;
+  readonly input: unknown;
+  /** The partition revision the actor perceived when it proposed: the command's expected one. */
+  readonly expectedRevision?: string;
+}
+
+/** A command proposal as checkpointed with the answer; `issuedAt` keeps a retried command's bytes. */
+export interface StoredCommandProposal extends CapabilityCall {
+  readonly issuedAt: string;
+}
+
+/** What became of a turn's command proposal, recorded as its run's `world_command_proposal` step. */
+export interface TurnCommandRecord {
+  readonly capability: string;
+  readonly commandId: string | null;
+  readonly status: "committed" | "refused";
+  /** A stable `[a-z_]` reason when refused. */
+  readonly code: string | null;
+  readonly summary: string;
 }
 
 /**
@@ -119,6 +156,17 @@ export interface ConversationStore {
     fiber: TurnFiber,
     response: ConversationResponse,
   ): Promise<TurnFiber | undefined>;
+  /** The command the answer proposed, read back from its checkpoint; undefined when it proposed none. */
+  commandProposal(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<StoredCommandProposal | undefined>;
+  /** Records the command's outcome on the run and checkpoints `committing`, in one transaction. */
+  recordCommand(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    record: TurnCommandRecord,
+  ): Promise<TurnFiber | undefined>;
   /** Commits the message, the reply and the turn with `finalizing`, in one transaction. */
   commitTurn(
     participant: ConversationParticipant,
@@ -154,6 +202,8 @@ export interface TurnInput {
   readonly session: ConversationSession;
   readonly caretakerMessages: number;
   readonly input: string;
+  /** The assembled prompt stored with the turn's run (`renderPrompt`). */
+  readonly prompt: string;
 }
 
 /** A turn fiber's durable checkpoint (migration 0038). */

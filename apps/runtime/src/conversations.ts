@@ -59,6 +59,26 @@ export function scriptedConversationReply(
   const text = `Scripted fixture reply: you have said ${caretakerMessages} ${
     caretakerMessages === 1 ? "thing" : "things"
   } to me in this conversation.`;
+  // `fixture:offer <objectId> <kind>` proposes a world command; `fixture:call <capability>` proposes
+  // an arbitrary capability, which the registry's grants then decide (the injection journey).
+  const offer = /^fixture:offer (\S+) (\S+)$/.exec(input);
+  if (offer !== null)
+    return {
+      text,
+      command: {
+        capability: "world.command",
+        input: { type: "resource.offer", objectId: offer[1], kind: offer[2] },
+      },
+    };
+  const call = /^fixture:call (\S+) (\S+)$/.exec(input);
+  if (call !== null)
+    return {
+      text,
+      command: {
+        capability: call[1] as string,
+        input: { type: call[2], objectId: "any", kind: "any" },
+      },
+    };
   const script = /^fixture:propose (\S+)\n([\s\S]*)$/.exec(input);
   const [, path, content] = script ?? [];
   if (path === undefined || content === undefined) return { text };

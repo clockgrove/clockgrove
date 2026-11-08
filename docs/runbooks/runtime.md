@@ -1265,6 +1265,17 @@ staging correlation, successful Queue/webhook effects, independent review and fu
 remain separate obligations. Operator-appointed independent exact-candidate review and fresh
 published-head Quality/browser/artifact evidence are still required before integration/acceptance.
 
+## Stevie's model route and commands
+
+`ActorAgentDO` answers Talk through the `stevie.pilot` model alias when `ANTHROPIC_API_KEY` or
+`AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives the
+member's authorized public scene, asks for a structured `{reply, command}`, and the turn's
+`proposal_validating` phase decides the command against the member-bounded grants and submits an
+accepted `resource.offer` to the world owner ([capabilities](../protocols/capabilities.md)). The
+owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
+abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
+[the Stevie pilot](stevie-pilot.md).
+
 ## Recoverable scene streams
 
 The native `/v1/projection` stream resumes from the acknowledged native attachment and PostgreSQL.

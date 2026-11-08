@@ -28,6 +28,7 @@
       "@clockgrove/world-pack-sdk": ["./packages/world-pack-sdk/src/index.ts"],
       "@clockgrove/simulator": ["./packages/simulator/src/index.ts"],
       "@clockgrove/application": ["./packages/application/src/index.ts"],
+      "@clockgrove/model-gateway": ["./packages/model-gateway/src/index.ts"],
       "@clockgrove/persistence": ["./packages/persistence/src/index.ts"],
       "@clockgrove/testkit": ["./packages/testkit/src/index.ts"],
       "@clockgrove/assets": ["./packages/assets/src/index.ts"]

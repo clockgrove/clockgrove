@@ -284,8 +284,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       vitestConfig: "tests/ci/vitest.browser.config.ts",
       // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
       // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
-      // margin and stays within the test's 240 s timeout.
-      timeoutMs: 210_000,
+      // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
+      // exceeded that, so 330 s stays within the test's 360 s timeout.
+      timeoutMs: 330_000,
       inheritOutput: true,
       prepare: async (fixture) => {
         await truthOf(fixture)(
@@ -2517,9 +2518,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await stevieOwner({ op: "fault", phase: "hold:model_running:streaming" });
         await openTalk();
         await talker.viewer.getByRole("button", { name: "New conversation", exact: true }).click();
-        await talker.viewer.getByLabel("Message", { exact: true }).fill("hello Stevie");
-        await talker.viewer.getByRole("button", { name: "Talk privately", exact: true }).click();
-        await talker.viewer.getByText("The actor is replying…").waitFor({ timeout: 60_000 });
+        await talker.viewer.getByLabel("Message Stevie…", { exact: true }).fill("hello Stevie");
+        await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
+        await talker.viewer.getByText("Stevie is replying…").waitFor({ timeout: 60_000 });
         expect(await history.getByText(/Scripted fixture reply/u).count()).toBe(0);
         await talker.viewer.reload();
         await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
@@ -2531,6 +2532,50 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
         expect(await history.getByText("hello Stevie").count()).toBe(1);
         expect(await history.getByRole("listitem").count()).toBe(2);
+        // issue 19: this member holds no world-command grant, so Stevie's proposal is refused
+        // before the world with a visible reason, and no command receipt is added.
+        const receiptsBefore = await truth("SELECT count(*) FROM clockgrove.command_receipts");
+        await talker.viewer
+          .getByLabel("Message Stevie…", { exact: true })
+          .fill("fixture:call world.command resource.offer");
+        await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
+        await talker.viewer
+          .getByText(/refused: Refused before the world: /u)
+          .waitFor({ timeout: 60_000 });
+        expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
+          receiptsBefore,
+        );
+        // With the world-command grant, the same kind of proposal commits through the ordinary
+        // Journal, and the member (also granted inspection) opens Why from the outcome line, which
+        // survives a reload.
+        await truth(
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command','runtime:world-inspect'] WHERE principal_id='principal-runtime'`,
+        );
+        // A widened audience resnapshots the tab and closes the rail, so the member reopens it.
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await talker.viewer
+          .getByLabel("Message Stevie…", { exact: true })
+          .fill("fixture:offer grove.water-bowl water");
+        await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
+        await history.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
+        expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
+          String(Number(receiptsBefore) + 1),
+        );
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
+        await history.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
+        await history.getByRole("button", { name: "Why?", exact: true }).last().click();
+        await talker.viewer
+          .getByRole("region", { name: "Recorded Why", exact: true })
+          .waitFor({ timeout: 60_000 });
+        await truth(
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime'`,
+        );
         await talker.viewer.context().close();
         // A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM.
         await truth(
@@ -2735,4 +2780,4 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       }
     });
   });
-}, 240_000);
+}, 360_000);

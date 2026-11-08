@@ -77,6 +77,8 @@ export interface ConversationMessage {
   readonly voiceMode: VoiceMode | null;
   readonly text: string;
   readonly createdAt: string;
+  /** On an actor reply: the world command proposed in that turn and what became of it, read from run evidence. */
+  readonly command?: TalkCommandOutcome;
 }
 
 /** One input message and its answer. The scripted fixture completes a turn in its request. */
@@ -85,7 +87,8 @@ export interface ConversationTurn {
   readonly turn: number;
   readonly inputSequence: number;
   readonly outputSequence: number;
-  readonly model: "scripted-fixture-v1";
+  /** The model that answered: `scripted-fixture-v1`, or the route alias a real model answered under. */
+  readonly model: string;
   readonly state: "completed";
   readonly createdAt: string;
 }
@@ -112,6 +115,17 @@ export interface TalkReceipt {
   readonly message: ConversationMessage;
   readonly reply: ConversationMessage;
   readonly turn: ConversationTurn;
+  /** The world command the actor proposed this turn, if any, and what became of it. */
+  readonly command?: TalkCommandOutcome;
+}
+
+/** A model-proposed world command's outcome: committed, or refused with the stable reason code. */
+export interface TalkCommandOutcome {
+  readonly capability: string;
+  readonly commandId: string | null;
+  readonly status: "committed" | "refused";
+  readonly code: string | null;
+  readonly summary: string;
 }
 
 export interface CreateConversationRequest {
@@ -348,7 +362,7 @@ export function decodeConversationMessage(
   exactKeys(
     v,
     ["sessionId", "sequence", "messageId", "role", "authorId", "voiceMode", "text", "createdAt"],
-    [],
+    ["command"],
     path,
   );
   const role = literal(v.role, ["caretaker", "actor"], `${path}.role`);
@@ -365,6 +379,9 @@ export function decodeConversationMessage(
     voiceMode,
     text: string(v.text, `${path}.text`),
     createdAt: utcTimestamp(v.createdAt, `${path}.createdAt`),
+    ...(v.command === undefined
+      ? {}
+      : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),
   });
 }
 
@@ -384,7 +401,7 @@ export function decodeConversationTurn(
     turn: nonNegativeInteger(v.turn, `${path}.turn`),
     inputSequence: nonNegativeInteger(v.inputSequence, `${path}.inputSequence`),
     outputSequence: nonNegativeInteger(v.outputSequence, `${path}.outputSequence`),
-    model: literal(v.model, ["scripted-fixture-v1"], `${path}.model`),
+    model: modelName(v.model, `${path}.model`),
     state: literal(v.state, ["completed"], `${path}.state`),
     createdAt: utcTimestamp(v.createdAt, `${path}.createdAt`),
   });
@@ -416,12 +433,34 @@ export function decodeConversationTranscript(value: unknown): ConversationTransc
 export function decodeTalkReceipt(value: unknown): TalkReceipt {
   const path = "talkReceipt";
   const v = record(value, path);
-  exactKeys(v, ["type", "session", "message", "reply", "turn"], [], path);
+  exactKeys(v, ["type", "session", "message", "reply", "turn"], ["command"], path);
   return Object.freeze({
     type: literal(v.type, ["private_caretaker_talk"], `${path}.type`),
     session: decodeConversationSession(v.session, `${path}.session`),
     message: decodeConversationMessage(v.message, `${path}.message`),
     reply: decodeConversationMessage(v.reply, `${path}.reply`),
     turn: decodeConversationTurn(v.turn, `${path}.turn`),
+    ...(v.command === undefined
+      ? {}
+      : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),
+  });
+}
+
+function modelName(value: unknown, path: string): string {
+  const text = string(value, path);
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(text))
+    throw new ContractDecodeError(path, "expected a model name");
+  return text;
+}
+
+function decodeTalkCommandOutcome(value: unknown, path: string): TalkCommandOutcome {
+  const v = record(value, path);
+  exactKeys(v, ["capability", "commandId", "status", "code", "summary"], [], path);
+  return Object.freeze({
+    capability: boundedId(v.capability, `${path}.capability`),
+    commandId: v.commandId === null ? null : boundedId(v.commandId, `${path}.commandId`),
+    status: literal(v.status, ["committed", "refused"], `${path}.status`),
+    code: v.code === null ? null : boundedId(v.code, `${path}.code`),
+    summary: string(v.summary, `${path}.summary`),
   });
 }

@@ -7,6 +7,7 @@ export * from "./authentication.js";
 export * from "./authority-decision.js";
 export * from "./canonical-node.js";
 export * from "./capabilities.js";
+export * from "./capability-registry.js";
 export * from "./catch-up-workflows.js";
 export * from "./causal-inspector.js";
 export * from "./cognition.js";

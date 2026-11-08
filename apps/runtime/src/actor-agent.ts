@@ -1,8 +1,11 @@
 import {
+  type CapabilityGrants,
   type ConversationParticipant,
   ConversationRefusedError,
   type ConversationResponder,
   type ConversationStore,
+  type StoredCommandProposal,
+  type TurnCommandRecord,
   type TurnFiber,
 } from "@clockgrove/application";
 import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
@@ -48,6 +51,19 @@ export interface TurnFiberHost {
   readonly respond: ConversationResponder;
   capabilityRevision(): number;
   beforeModel?(participant: ConversationParticipant, fiber: TurnFiber): Promise<void>;
+  /**
+   * What this owner may do for the turn's member: the registry's grants for the member's runtime
+   * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
+   * the attempt so the client's retry carries one.
+   */
+  grants?(participant: ConversationParticipant): CapabilityGrants | undefined;
+  /** Submits an authorized world command through the ordinary world-command path. */
+  submitCommand?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    call: { readonly objectId: string; readonly kind: string },
+  ): Promise<TurnCommandRecord>;
   /**
    * Called after every durable checkpoint, and inside `model_running` after the first streamed
    * delta, with the phase just reached. The owner records it for recovery; a local fault binding
@@ -240,11 +256,11 @@ export class TurnFibers {
             );
             break;
           case "model_running": {
-            const { session, caretakerMessages, input } = await this.store((store) =>
+            const { session, caretakerMessages, input, prompt } = await this.store((store) =>
               store.turnInput(participant, current),
             );
             await this.host.beforeModel?.(participant, current);
-            const response = this.host.respond(session, caretakerMessages, input);
+            const response = await this.host.respond(session, caretakerMessages, input, prompt);
             const words = response.text.split(/(?<= )/u);
             for (const [index, text] of words.entries()) {
               emit({ type: "delta", text });
@@ -253,13 +269,22 @@ export class TurnFibers {
             next = await this.store((store) => store.answerTurn(participant, current, response));
             break;
           }
-          case "proposal_validating":
-            // A document proposal is validated where it commits, with the turn (issue 17); the
-            // scripted model proposes no world command or effect, so nothing else is refused here.
-            next = await this.store((store) =>
-              store.advanceTurn(participant, current, "committing"),
+          case "proposal_validating": {
+            // A document proposal is validated where it commits, with the turn (issue 17). A
+            // capability call is decided here, against the grants, before anything executes.
+            const proposal = await this.store((store) =>
+              store.commandProposal(participant, current),
             );
+            if (proposal === undefined) {
+              next = await this.store((store) =>
+                store.advanceTurn(participant, current, "committing"),
+              );
+              break;
+            }
+            const record = await this.decideCommand(participant, current, proposal);
+            next = await this.store((store) => store.recordCommand(participant, current, record));
             break;
+          }
           case "committing":
             next = await this.store((store) => store.commitTurn(participant, current));
             break;
@@ -289,6 +314,37 @@ export class TurnFibers {
       await this.store((store) => store.endTurn(participant, failing, "failed", error.code));
       return { refused: error.code };
     }
+  }
+
+  /** What became of a capability call: refused by the grants, or submitted as an ordinary command. */
+  private async decideCommand(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+  ): Promise<TurnCommandRecord> {
+    const grants = this.host.grants?.(participant);
+    if (grants === undefined || this.host.submitCommand === undefined)
+      throw new Error("capability context unavailable");
+    const decision = grants.authorize(proposal);
+    if (!decision.accepted)
+      return {
+        capability: proposal.capability,
+        commandId: null,
+        status: "refused",
+        code: decision.code,
+        summary: `Refused before the world: ${decision.code}`,
+      };
+    // Read capabilities have no executor in this checkpoint; only a world command acts.
+    if (decision.definition.effect !== "world_command")
+      return {
+        capability: proposal.capability,
+        commandId: null,
+        status: "refused",
+        code: "not_executable",
+        summary: "Refused before the world: not_executable",
+      };
+    const { objectId, kind } = decision.input as { objectId: string; kind: string };
+    return this.host.submitCommand(participant, fiber, proposal, { objectId, kind });
   }
 
   /** The outcome of a turn this holder no longer moves: finished, or moved on by another. */

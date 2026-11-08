@@ -121,3 +121,7 @@ delta averages ten frames and clamps slow ones, so it can report 16.7 ms while t
 changed: a committed draw, an emphasis change, a cue, a rain or sprite animation frame, a running
 tween, or a camera scroll or zoom. Other steps still run Phaser's update (input, timers, tweens and
 animations), and the canvas keeps its last frame. WebGL multisampling is off.
+
+The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
+a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
+and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
