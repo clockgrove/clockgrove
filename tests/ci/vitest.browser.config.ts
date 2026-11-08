@@ -20,6 +20,8 @@ export default defineConfig({
       "tests/load/realtime/fanout.journey.browser.test.mjs",
       // pnpm dev:yard: the local checkpoint command serves and tears down.
       "tests/ci/dev-yard.journey.browser.test.mjs",
+      // Issue 67: the renderer bake-off measurement page and script, under SwiftShader.
+      "tests/ci/renderer-bakeoff.journey.browser.test.mjs",
     ],
     // Journeys run one at a time, so neither one's measured deadline shares the host with the other.
     fileParallelism: false,

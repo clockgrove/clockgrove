@@ -13,6 +13,7 @@
       "apps/**/*.{ts,tsx,mjs,json}",
       "tests/**/*.{ts,tsx,mjs,json}",
       "scripts/**/*.{ts,mjs,json}",
+      "spikes/**/*.{ts,mjs,json}",
       "!!**/node_modules",
       "!!**/dist",
       "!!**/.turbo",

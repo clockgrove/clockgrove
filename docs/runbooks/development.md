@@ -165,6 +165,12 @@ newest stable release and the exact selection in `apps/runtime/package.json`. It
 install lifecycle scripts. Node-side Vitest configurations alias `agents` to the local fake, because
 only workerd runs the owner.
 
+Issue 67 added `three` 0.187.0 (MIT, published `2026-10-30T08:09:24Z`, no dependencies and no install
+scripts) to the throwaway `spikes/renderer-bakeoff` workspace package only. It was resolved on `2026-11-07`
+under the unchanged release-age and supply-chain policy. No product package depends on it. The spike
+types it with a local `declare module` shim instead of `@types/three`, whose dependency closure a
+spike does not need.
+
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
 cutoff. Vite 8.3.2 is selected without a workspace policy exception.
 
