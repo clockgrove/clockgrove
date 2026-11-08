@@ -46,25 +46,41 @@ it("rejects private data in the shared projection, including behind a permitted 
   ).toThrow();
 });
 
-it("confines Phaser to its renderer and permits only the required server and transient state libraries", () => {
+it("confines Three.js to its renderer and permits only the required server and transient state libraries", () => {
   const rendererFile = fileURLToPath(new URL("../src/renderer.ts", import.meta.url));
-  expect(() => assertBrowserSource('import Phaser from "phaser";', rendererFile)).not.toThrow();
-  expect(() => assertBrowserSource('import Phaser from "phaser";', sourceFile)).toThrow();
+  expect(() => assertBrowserSource('import * as THREE from "three";', rendererFile)).toThrow();
+  expect(() => assertBrowserSource('import * as THREE from "three";', sourceFile)).toThrow();
+  expect(() => assertBrowserSource('import Phaser from "phaser";', rendererFile)).toThrow();
+  expect(() =>
+    assertBrowserSource('import * as THREE from "three/webgpu";', rendererFile),
+  ).not.toThrow();
+  expect(() =>
+    assertBrowserSource(
+      'import { bloom } from "three/addons/tsl/display/BloomNode.js";',
+      rendererFile,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    assertBrowserSource(
+      'import { bloom } from "three/addons/tsl/display/BloomNode.js";',
+      sourceFile,
+    ),
+  ).toThrow();
   expect(() =>
     assertBrowserSource('import { QueryClient } from "@tanstack/react-query";', sourceFile),
   ).not.toThrow();
   expect(() => assertBrowserSource('import { create } from "zustand";', sourceFile)).not.toThrow();
   expect(() =>
-    assertBrowserSource('import internal from "phaser/src/core";', rendererFile),
+    assertBrowserSource('import internal from "three/src/core/Object3D.js";', rendererFile),
   ).toThrow();
   expect(() =>
     assertBrowserSource('import internal from "zustand/middleware";', sourceFile),
   ).toThrow();
 });
 
-it("keeps Phaser types and its renderer out of the headless 3D adapter fixture's whole program", () => {
-  // Rooted at the fixture with no ambient type packages, a global `Phaser.` reference fails to
-  // resolve, and any import or type reference that reaches Phaser or the renderer joins the program.
+it("keeps renderer SDK types and its renderer out of the headless 3D adapter fixture's whole program", () => {
+  // Rooted at the fixture with no ambient type packages, a global `THREE.` reference fails to
+  // resolve, and any import or type reference that reaches Three.js or the renderer joins the program.
   const directory = fileURLToPath(new URL("..", import.meta.url));
   const tsconfig = ts.readConfigFile(`${directory}tsconfig.json`, ts.sys.readFile).config;
   const { options } = ts.parseJsonConfigFileContent(tsconfig, ts.sys, directory);
@@ -81,7 +97,9 @@ it("keeps Phaser types and its renderer out of the headless 3D adapter fixture's
     program
       .getSourceFiles()
       .map(({ fileName }) => fileName)
-      .filter((file) => /\/node_modules\/phaser\/|\/src\/renderer\.ts$/u.test(file)),
+      .filter((file) =>
+        /\/node_modules\/(?:phaser|three|@types\/three)\/|\/src\/renderer\.ts$/u.test(file),
+      ),
   ).toEqual([]);
 });
 

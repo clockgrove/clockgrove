@@ -416,7 +416,7 @@ The camera does not need arbitrary 3D rotation. A fixed isometric projection kee
 
 The primary screen should combine:
 
-- Phaser-rendered world canvas
+- Three.js-rendered world canvas
 - Current time, date, simulation speed, and weather
 - Actor/object selection
 - Entity panel with status, relationships, and available interaction modes
@@ -428,7 +428,7 @@ The primary screen should combine:
 - Timeline/branch controls for authorized operators
 - Optional developer inspector exposing raw traces and projections
 
-React owns application chrome, chat, inspectors, timelines, menus, and forms. Phaser owns scene rendering, camera, animation, selection hit-testing, weather effects, and local presentation state.
+React owns application chrome, chat, inspectors, timelines, menus, and forms. The Three.js adapter owns scene rendering, camera, animation, selection hit-testing, weather effects, and local presentation state.
 
 ### 6.4 Asset pipeline
 
@@ -2497,7 +2497,7 @@ Every authored object separates renderer-neutral meaning from presentation:
 - Presentation asset binding
 - Presentation state/animation mapping
 
-Phaser consumes the presentation binding; it does not define the object's canonical meaning.
+The renderer consumes the presentation binding; it does not define the object's canonical meaning.
 
 ---
 
@@ -2561,7 +2561,7 @@ Economies, matchmaking, global chat, public world discovery, moderation operatio
 
 ```mermaid
 flowchart TD
-    Client["React + Phaser client"]
+    Client["React + Three.js client"]
     Gateway["Cloudflare Worker gateway"]
     Runtime["Durable world and actor runtime"]
     Physical["Deterministic physical kernel"]
@@ -2750,8 +2750,8 @@ The repository does not need runtime selectors such as `typescript | rust-wasm` 
 
 | Concern | Choice | Boundary/notes |
 | --- | --- | --- |
-| Browser UI | React + Vite | Application chrome; Phaser owns the scene and renderer-specific state |
-| World renderer | Phaser 4 | 2.5D/isometric presentation, input, animation, camera, effects |
+| Browser UI | React + Vite | Application chrome; the Three.js adapter owns scene and renderer-specific state |
+| World renderer | Three.js WebGPURenderer with WebGL2 fallback | Lit 2.5D/isometric presentation, input, animation, camera, effects; accepted [renderer ADR](adr/clockgrove-adr-renderer-bake-off.md) |
 | Public gateway | Cloudflare Workers | One deployable may expose logically separate Management and World Runtime APIs initially |
 | Durable actors | Cloudflare Durable Objects | World/space coordination, active cognition, recoverable runtime state, and hibernating WebSockets behind project-owned actor-runtime contracts |
 | Durable background work | Cloudflare Workflows + Queues | Long jobs, asynchronous reactions, indexing, and external effects |
@@ -2807,7 +2807,7 @@ Responsibility boundaries are explicit:
 
 The following choices require short architecture decision records before dependency lock-in:
 
-- **Phaser versus PixiJS, Godot Web, or Three.js:** choose Phaser for a fixed-camera 2.5D browser game with scenes, input, animation, and mature game primitives. Reconsider only if arbitrary 3D rotation, 3D interiors, or non-browser-native distribution becomes core.
+- **Browser renderer:** the accepted [renderer bake-off ADR](adr/clockgrove-adr-renderer-bake-off.md) selects Three.js WebGPURenderer with WebGL2 fallback for lit 2.5D now, superseding the initial Phaser choice. Materials and post-processing use TSL node APIs shared by WebGPU and WebGL2. The renderer-neutral adapter preserves the semantic projection and intent contract.
 - **Agent-harness contract:** pin run, context, model-route, tool, proposal, checkpoint, and telemetry contracts; keep SDK and provider types inside adapters; define the deterministic test, recorded-run, direct-provider, gateway, and local-model profiles.
 - **Replaceable-engine contract:** define serialized fixtures, deterministic state hashes, benchmark scenarios, and conformance requirements before introducing any non-TypeScript implementation.
 - **Canonical append transaction:** record locking, expected-head concurrency, idempotency, timeline ordering, private streams, synchronous projections, schema evolution, and transactional-outbox invariants.
@@ -3142,7 +3142,7 @@ The detailed wave documents, not the older product-sequencing sketch retained be
 | 1 | Deterministic world kernel and world-pack foundation | Technical/OSS |
 | 2 | PostgreSQL journal, projections, replay, attribution persistence, and evidence | Technical/OSS |
 | 3 | Cloudflare actor fabric, scheduling, quadtree-backed activity partitioning | Technical/OSS |
-| 4 | Shared visual projection, inspector, and accessible React/Phaser web client | Technical/OSS |
+| 4 | Shared visual projection, inspector, and accessible React/Three.js web client | Technical/OSS |
 | 5 | Durable conversations, actor harness, models, capabilities, and MCP | Technical/OSS |
 | 6 | Context, memory, relationships, and learning | Technical/OSS |
 | 7 | Rules, preview timelines, branch-local persona inventory, and authoring | Technical/OSS |
@@ -3220,7 +3220,7 @@ The following Wave 0–8 sketch from v0.4 is retained as architectural lineage o
 
 #### Historical Wave 6: Shared-world browser experience
 
-- Implement the isometric Phaser world, entity inspection, conversation, event journal, cognitive workspace, and “Why?” views.
+- Implement the lit isometric Three.js world, entity inspection, conversation, event journal, cognitive workspace, and “Why?” views.
 - Generate actor-authorized rendered-perception bundles and validate a selective multimodal `vision.scene` turn without making pixels authoritative.
 - Add multiple sessions per actor, two or more clients, presence, interest filtering, hibernating WebSockets, reconnection, and sequence-aware backfill.
 - Show time, weather, offline change summaries, active research/tool progress, memory/skill diffs, and rejected proposals.

@@ -105,9 +105,9 @@ function YardCanvas({
       advance({ type: "fallback", requestId, reason });
     };
     void import("./renderer.js")
-      .then(({ PhaserWorldSceneAdapter }) => {
+      .then(({ ThreeWorldSceneAdapter }) => {
         if (!active) return;
-        const renderer: WorldSceneAdapter = new PhaserWorldSceneAdapter(
+        const renderer: WorldSceneAdapter = new ThreeWorldSceneAdapter(
           parent,
           () => {
             if (!active || created !== renderer) return;

@@ -92,7 +92,7 @@ The production stack is:
 - **Cloudflare AI Gateway** plus the Vercel AI SDK for model routing, streaming, structured outputs, embeddings, accounting, and provider policy.
 - **Neon PostgreSQL with pgvector**, accessed through Hyperdrive, as the canonical world and cognitive evidence ledger.
 - **Better Auth** as the default OSS authentication/session/organization adapter, with Clerk as an optional hosted adapter behind the same project-owned port.
-- **React, Vite, React Router, TanStack Query, Zustand, and Phaser 4.2+** for the browser experience.
+- **React, Vite, React Router, TanStack Query, Zustand, and Three.js WebGPURenderer with WebGL2 fallback** for the browser experience.
 - **Cloudflare Workers Observability, OpenTelemetry export to Sentry, and PostHog** for operations, diagnostics, and product analytics. Canonical product evidence remains queryable in PostgreSQL.
 - **OpenTofu, Wrangler, Drizzle migrations, and GitHub Actions** for infrastructure and delivery.
 
@@ -107,7 +107,7 @@ No successful mutation is acknowledged before its PostgreSQL transaction commits
 ```text
 Browser
   React shell
-  Phaser isometric scene
+  Three.js lit isometric scene
   chat · inspector · timeline · authoring · operator UI
         │
         │ HTTPS / WebSocket
@@ -566,7 +566,7 @@ No scale response changes canonical actor IDs.
 /
 ├── apps/
 │   ├── runtime/                 Cloudflare Worker, DOs, Workflows, Queues
-│   ├── web/                     React + Phaser browser
+│   ├── web/                     React + Three.js browser
 │   └── cli/                     replay, inspect, seed, export, verify
 ├── packages/
 │   ├── contracts/               branded IDs, Zod schemas, wire protocols
@@ -717,7 +717,7 @@ Ports exist because they protect domain semantics or testing, not to imply suppo
 | Human auth | Better Auth reference adapter; optional Clerk adapter |
 | Agent runtime | Cloudflare `agents` 0.20.0+ baseline, exact version pinned |
 | Models | Vercel `ai` plus `ai-gateway-provider` |
-| Rendering | React and Phaser 4.2+ |
+| Rendering | React and Three.js WebGPURenderer; see the accepted [renderer ADR](adr/clockgrove-adr-renderer-bake-off.md) |
 | Web state | React Router, TanStack Query and Zustand |
 | Testing | Vitest, fast-check, Cloudflare test pool, Playwright and k6 |
 | Infrastructure | OpenTofu, Wrangler and GitHub Actions |
@@ -2768,7 +2768,7 @@ React owns:
 - authoring and approvals;
 - settings, accessibility and operator controls.
 
-Phaser owns:
+The Three.js adapter owns:
 
 - fixed isometric world rendering;
 - depth sorting and sprite/elevation layers;
@@ -2777,7 +2777,7 @@ Phaser owns:
 - movement interpolation;
 - application of projection deltas and transient cues.
 
-The bridge is a typed renderer-neutral adapter. `SceneProjection` exposes semantic object IDs, spatial-frame references, poses/regions, presentation-role bindings, animation state, and authorized cues—not Phaser display objects or quadtree cells:
+The bridge is a typed renderer-neutral adapter. `SceneProjection` exposes semantic object IDs, spatial-frame references, poses/regions, presentation-role bindings, animation state, and authorized cues—not Three.js scene nodes or quadtree cells:
 
 ```ts
 interface WorldSceneAdapter {
@@ -2789,7 +2789,7 @@ interface WorldSceneAdapter {
 }
 ```
 
-Phaser never imports runtime, persistence or cognition code. Phaser is the initial isometric implementation, not a permanent public contract; a future Three.js, Babylon, native/WebGPU, VR, or other full-3D adapter must consume the same semantic projection and submit the same typed intents.
+The renderer never imports runtime, persistence or cognition code. Three.js WebGPURenderer replaces the initial Phaser implementation under the accepted [renderer ADR](adr/clockgrove-adr-renderer-bake-off.md). Future VR or other full-3D adapters consume the same semantic projection and submit the same typed intents.
 
 ### 20.2 Information architecture and visible loop
 
@@ -2827,11 +2827,11 @@ Snapshot/asset compatibility is pinned by world-pack installation and asset-mani
 ### 20.3 Client state
 
 - TanStack Query: HTTP server state, history and inspector queries;
-- Zustand: transient cross-panel UI state and React/Phaser bridge;
-- Phaser scene graph: visual state only;
+- Zustand: transient cross-panel UI state and React/renderer bridge;
+- Three.js scene graph: visual state only;
 - IndexedDB: optional cached assets and last projection metadata, never authority.
 
-### 20.4 Initial Phaser/isometric rules
+### 20.4 Lit isometric rules
 
 - fixed camera angle;
 - limited zoom;
@@ -2841,7 +2841,7 @@ Snapshot/asset compatibility is pinned by world-pack installation and asset-mani
 - navigation anchors/polygons shared as presentation metadata;
 - no free rotation or general 3D physics.
 
-Phaser 4.2+ is pinned through the lockfile. Use WebGL. GPU tilemap layers are not assumed to provide isometric semantics; the scene uses ordinary sprites/layers or validated custom rendering appropriate to the map.
+Three.js is pinned through the lockfile and uses `WebGPURenderer` (`three/webgpu`), selecting WebGPU where available and automatically falling back to WebGL2. Materials and post-processing use TSL (`three/tsl`) and node materials; raw GLSL `ShaderMaterial` and `onBeforeCompile` patches are excluded so both backends share the shader graph. Lit quads live in an orthographic 3D scene, preserving the fixed 2:1 view while keeping materials, lights and geometry ready for 3D. Materials and dynamic lights come only from the presentation contract and committed projection; existing bindings use flat albedo until the material model (issue 66) lands. Quality tiers bound local effects; reduced motion freezes animation. Bloom and grading preserve warm source color, with per-tier golden comparison through qualify-wave4. The [scene contract](../apps/web/docs/scene.md) records policy and budgets. CI checks the WebGL2 backend under SwiftShader and records the backend with each check. Real-GPU WebGPU, ANGLE D3D11 and ANGLE GL over D3D12 validation, plus product GPU-complete timing on the owner's box, remain explicit maintainer steps; software rendering supplies correctness evidence only.
 
 #### Observer navigation
 
@@ -4396,7 +4396,7 @@ Unit metrics:
 - the full observe → converse/investigate/influence → consequence → why → memory → later changed behavior loop operates in `green-lake-yard@1`;
 - the north-star scenario in 2.7 passes end to end with two clients and injected failures;
 - the falsifiable evaluations in 2.4 and metrics in 25.4 have recorded baselines, declared release thresholds and reviewed results;
-- the accessible text path can operate and understand the world without the Phaser canvas;
+- the accessible text path can operate and understand the world without the world canvas;
 - the world remains legible while actors sleep and after a user returns from an unobserved period.
 
 ### Simulation and world
@@ -4540,6 +4540,6 @@ Minecraft/Paper and Roblox are comparative systems evidence, not product templat
 
 Build the final conceptual system from the first commit:
 
-> Stable logical actors and versioned contracts; WorldDO for world coordination; SpaceDO for physical consistency; ActorAgentDO for thinking and conversation; PostgreSQL for truth; fibers for ordinary agent work; Workflows for long durable jobs; Queues for asynchronous failure isolation; provider-neutral human identity with Better Auth as the OSS reference; React and Phaser for the visible world.
+> Stable logical actors and versioned contracts; WorldDO for world coordination; SpaceDO for physical consistency; ActorAgentDO for thinking and conversation; PostgreSQL for truth; fibers for ordinary agent work; Workflows for long durable jobs; Queues for asynchronous failure isolation; provider-neutral human identity with Better Auth as the OSS reference; React and Three.js WebGPURenderer for the visible world.
 
 Do not build a throwaway parallel architecture. Do not prebuild generalized infrastructure. Each wave must add tested production capability through these final seams and leave behind evidence that the layer is correct, recoverable, secure, observable and reusable.

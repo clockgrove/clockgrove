@@ -190,7 +190,7 @@ body {
 }
 
 .rw-canvas canvas {
-  /* Never CSS-scaled and never in a scrolling container: Phaser picks from window scroll. */
+  /* Never CSS-scaled and never in a scrolling container: the renderer maps pointer coordinates from window scroll. */
   max-width: none;
 }
 
@@ -348,7 +348,7 @@ body {
   }
 
   /*
-   * The window scrolls the scene, never an inner container: Phaser maps pointers from window scroll.
+   * The window scrolls the scene, never an inner container: the renderer maps pointers from window scroll.
    * The feed floats in its own lower-left gutter, so it never covers the canvas or a control.
    */
   .rw-hud-end {

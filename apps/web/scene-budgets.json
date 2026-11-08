@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "budgets": {
     "initialJsGzipBytes": {
       "limit": 512000,
       "measured": "build",
-      "reason": "Decision: the shell entry plus the scene chunk a yard boot loads, gzip level 9. Phaser alone is about 350 kB of the 455 kB measured at issue 809; the limit leaves about 12% headroom."
+      "reason": "Decision: retain the 512000 B total entry-plus-scene gzip ceiling while replacing Phaser. The Three.js WebGL2 spike measured 201792 B gzip including fixture inputs (renderer ADR); product bytes are measured by tools/scene-budget.mjs, not inferred from the spike."
     },
     "assetBytes": {
       "limit": 262144,
@@ -14,7 +14,7 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "One 2048 x 2048 RGBA texture, the WebGL minimum maximum texture size issue 813 sizes atlases under (packages/assets/docs/pipeline.md#packing), at four bytes per pixel."
+      "reason": "Decision: retain 16 MiB for accounted texture allocations. Atlas RGBA pixels count at four bytes each; the Three.js adapter must also account for its generated textures and active postprocessing targets. This is a client allocation estimate, not driver-reported residency."
     },
     "firstSceneRenderMs": {
       "limit": 2500,
@@ -24,7 +24,7 @@
     "frameTimeMs": {
       "limit": 33.4,
       "measured": "browser",
-      "reason": "Decision: the 95th-percentile unsmoothed frame interval with rain at the 30 frames per second floor of the supported laptop baseline (plan section 9.3)."
+      "reason": "Decision: retain the p95 unsmoothed requestAnimationFrame interval ceiling at the 30 fps laptop floor (Wave 4 section 9.3). This cadence check is distinct from GPU-complete pan latency: the #67 RTX 2060 SUPER high-tier Three.js WebGL2 spike measured p50/p95 1.8/2.0 ms at 960x540 DPR1; product timing is a post-merge maintainer step."
     },
     "entityCount": {
       "limit": 256,
@@ -41,5 +41,38 @@
       "measured": "browser",
       "reason": "Decision: the first reconnect delay (SCENE_RECONNECT.firstDelayMs, 1 s, apps/web/src/projection.ts) plus 2 s for the join and snapshot, from the client observing its scene socket drop to the next ready scene."
     }
+  },
+  "referenceMeasurements": {
+    "source": "https://github.com/clockgrove/clockgrove/issues/67#issuecomment-6716384072",
+    "backend": "WebGLRenderer WebGL2 spike (not WebGPURenderer)",
+    "scope": "Renderer bake-off spike; not measurements of the product adapter. Product GPU-complete pan timing remains the maintainer step after merge.",
+    "date": "2026-11-07",
+    "gpu": "NVIDIA GeForce RTX 2060 SUPER (8 GB)",
+    "viewport": {
+      "width": 960,
+      "height": 540,
+      "dpr": 1
+    },
+    "warmupFrames": 10,
+    "measuredFrames": 120,
+    "windowsEdgeAngleD3D11": {
+      "highPanGpuCompleteMs": {
+        "p50": 1.8,
+        "p95": 2.0
+      },
+      "highStaticGpuCompleteMs": {
+        "p50": 1.8,
+        "p95": 2.0
+      },
+      "lowPanGpuCompleteMs": {
+        "p50": 0.5,
+        "p95": 0.7
+      }
+    },
+    "wsl2ChromiumAngleGlOverD3D12": {
+      "lowStaticAndPanApproximateMs": 1.4,
+      "caveat": "Suspect-clock flag from failed peer candidates; maintainer reports real clock and working Three.js WebGL2."
+    },
+    "missing": ["integrated GPU", "phone"]
   }
 }

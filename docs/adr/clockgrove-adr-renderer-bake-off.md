@@ -1,10 +1,10 @@
 # ADR: Renderer for Top-Tier Lit 2.5D
 
-**Status:** Draft  
-**Version:** 0.1  
+**Status:** Accepted  
+**Version:** 1.0  
 **Date:** November 07, 2026  
 **Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, `raccoon-world-cloudflare-implementation-plan.md` v3.12 §20, and implementation Wave 4 §9.1  
-**Scope:** Evidence for choosing the browser renderer of the lit 2.5D yard; the owner picks, a later Objective integrates
+**Scope:** Accepted Three.js WebGPURenderer browser renderer decision with WebGL2 fallback; issue 74 integrates the lit 2.5D yard
 
 ---
 
@@ -12,7 +12,7 @@
 
 Architecture §20.4 pins Phaser 4.2+ with WebGL as the initial renderer. Issue 67 records that Phaser 4 is the initial implementation, not a permanent contract, and that its lighting may cap the look the [reference mockup](../design/reference/raccoon-world-reference.png) asks for: painterly storybook realism, dusk in rain and night, lit windows and lanterns, wet ground, fog and soft glow. The owner decided on 2026-11-07 to run a bake-off first and then pick.
 
-The bake-off is the spike in [`spikes/renderer-bakeoff`](../../spikes/renderer-bakeoff/README.md). Every candidate implements the product's `WorldSceneAdapter` (Wave 4 §9.1) for one reference yard slice. Every candidate gets the same committed projection, the same dusk-to-night patch, the same light rig, the same camera and the same synthetic maps: normal, height, emissive, roughness/wetness and wind. Production rendering does not change.
+The bake-off is the spike in [`spikes/renderer-bakeoff`](../../spikes/renderer-bakeoff/README.md). Every candidate implements the product's `WorldSceneAdapter` (Wave 4 §9.1) for one reference yard slice. Every candidate gets the same committed projection, the same dusk-to-night patch, the same light rig, the same camera and the same synthetic maps: normal, height, emissive, roughness/wetness and wind. The spike left production rendering unchanged; issue 74 carries the selected implementation into the product.
 
 ## Candidates and why
 
@@ -60,13 +60,15 @@ Bundle sizes and code lines come from `node spikes/renderer-bakeoff/scripts/buil
 | --- | --- | --- | --- |
 | Bundle (minified, gzip level 9), including the shared inputs | 1,415,827 B (367,900 B gzip) | 797,225 B (201,792 B gzip) | 1,152,627 B (313,009 B gzip) |
 | Adapter code lines (non-blank, non-comment) | 824 | 639 shared + 45 entry | 639 shared + 32 entry |
-| Frame time p50/p95, mid-range GPU (RTX 2060 SUPER, WebGL2 in WSL2 Chromium) | pending: maintainer step | pending: maintainer step | pending: maintainer step |
-| Frame time p50/p95, RTX 2060 SUPER, Windows Edge | pending: maintainer step | pending: maintainer step | pending: maintainer step (WebGPU) |
+| Frame time, RTX 2060 SUPER, WSL2 Chromium (ANGLE GL over D3D12) | shader compilation fails | static and pan about 1.4 ms at low; suspect-clock flag from failed peers | unavailable WebGPU; fallback crashes |
+| Camera pan p50/p95, RTX 2060 SUPER, Windows Edge, low → high | 10.1/15.9 → 14.8/18.6 ms (night low 17.1/24.6 ms) | 0.5/0.7 → 1.8/2.0 ms | 3.4/4.1 → 5.0/7.1 ms (WebGPU) |
 | Frame time p50/p95, integrated GPU | missing: needs a real device | missing | missing |
 | Frame time p50/p95, phone | missing: needs a real device | missing | missing |
 | GPU memory | estimate in `results.json`: texture uploads, the canvas's colour and depth/stencil, and bloom targets while bloom is on (browsers expose no GPU memory API) | same items | same items |
 | WebGL2 | yes | yes | fallback backend |
 | WebGPU | no | no | yes, where the browser offers it |
+
+The [maintainer measurements on issue 67](https://github.com/clockgrove/clockgrove/issues/67#issuecomment-6716384072) were taken on 2026-11-07 at 960×540, DPR 1, with an NVIDIA GeForce RTX 2060 SUPER (8 GB), Windows 11 Edge on ANGLE D3D11 and WSL2 Chromium on ANGLE GL over D3D12. They use 10 warm-up and 120 measured frames. The Windows Three.js WebGL2 static high-tier p50/p95 was also 1.8/2.0 ms. These are spike baselines, not product-adapter measurements. The owner observed white bloom blowout in the Three.js lantern/window and required tuning during integration.
 
 The GPU memory figures count the same items, and the texture and canvas bytes compare directly. The bloom share is each candidate's own estimate of its engine's internal targets, three RGBA8 full-canvas targets for Phaser and a half-float mip chain for three, so the totals compare only roughly.
 
@@ -82,10 +84,16 @@ On three's WebGL2 fallback, a `PassNode` target needs its stencil buffer request
 
 ## Decision
 
-None yet. This record is a draft for the owner. The owner picks a renderer after the maintainer GPU step posts its numbers and screenshots on issue 67. Accepting this record then states the pick and amends architecture §20.4 if the pick is not Phaser. A later Objective integrates the winner behind `WorldSceneAdapter`.
+**Three.js `WebGPURenderer` with automatic WebGL2 fallback**, as [decided by Kirk on 2026-11-08](https://github.com/clockgrove/clockgrove/issues/74#issuecomment-6718736583), updating the [2026-11-07 WebGL2 selection](https://github.com/clockgrove/clockgrove/issues/67#issuecomment-6716391037). WebGL2 remains the compatibility floor. Use `three/webgpu` for lit quads in an orthographic 3D scene behind the existing renderer-neutral `WorldSceneAdapter`. Materials and post-processing use TSL (`three/tsl`) and node materials so the same shader graphs compile for both backends. Raw GLSL `ShaderMaterial` and `onBeforeCompile` patches are excluded. This supersedes the Phaser renderer choice in architecture §20 and the PRD rendering rows. Issue 74 integrates the decision into the live yard.
+
+The WebGL2 camera-pan measurements, smaller bundle, faster initialization and working WSL GL path support the compatibility floor; they do not measure the integrated WebGPURenderer. Preserve semantic poses, selection intents, projection-only input and the headless 3D conformance path. Tune bloom and grading so warm lantern/window sources retain color instead of blowing out to white.
+
+CI runs the WebGL2 backend under SwiftShader for correctness and records the backend of each check. The spike's fallback crash must be addressed by integration rather than excluded from scope. Do not reduce effects because automated headless WebGPU is unavailable. Backend-specific paths must be guarded by backend detection. Real-GPU WebGPU, ANGLE D3D11 and ANGLE GL over D3D12 validation remain explicit maintainer checks, as do product GPU-complete timings on the owner's reference box after merge.
 
 ## Consequences
 
-- Until the owner picks, production rendering stays on Phaser 4 (§20.4).
+- Three.js WebGPURenderer replaces Phaser in the product path; the bake-off may retain Phaser as a reference. WebGPU is preferred when available, WebGL2 is automatic fallback, and renderer initialization failure or context loss uses the accessible text scene.
+- Materials and lighting come from the presentation contract and committed projection. Until issue 66 lands, current bindings use a flat-albedo fallback, without deriving lighting from painted highlights.
+- Quality tiers and reduced motion remain renderer policy. Golden comparisons at every tier qualify bloom and grading; synthetic-map spike captures do not qualify the product look.
 - Phone and integrated-GPU numbers stay missing until someone measures them on real devices; the report lists them.
 - The material-model Objective (issue 66) replaces the synthetic maps. The adapter inputs here (`MaterialSet`) are the spike's own, not a contract.

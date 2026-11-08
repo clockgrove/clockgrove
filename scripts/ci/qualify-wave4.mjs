@@ -47,6 +47,9 @@ const SUITE_TIMEOUT_MS = 15 * 60_000;
 const GOLDEN_STATES = [
   "daylight-dry",
   "dusk-rain",
+  ...["dusk", "night"].flatMap((state) =>
+    ["low", "medium", "high"].map((tier) => `${state}-rain-${tier}`),
+  ),
   "selected-actor-rail",
   "event-why-inspector",
   "selected-inspectable-object",
@@ -324,7 +327,7 @@ const section19 = [
   ["WebSocket authorization and audience filtering occur server-side.", ["test:realtime"]],
   ["Snapshot/patch reducer convergence suite passes.", ["test:web", "test:projection"]],
   ["Hibernation, restart, deploy, reconnect, and snapshot fallback pass on Cloudflare.", null],
-  ["React/Phaser ownership boundary is enforced.", ["test:scene"]],
+  ["React/renderer ownership boundary is enforced.", ["test:scene"]],
   [
     "Reference composition and art-direction tokens are implemented.",
     { review: "the §15.3 golden captures, compared with the reference image by the approver" },
@@ -400,6 +403,8 @@ const manifest = {
   browserMatrix,
   suites,
   goldenCaptures,
+  rendererBackends: captured?.rendererBackends ?? [],
+  rendererTierComparisons: captured?.tierComparisons ?? [],
   convergenceAndFaults: {
     scenarios,
     failureMatrix,

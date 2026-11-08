@@ -468,7 +468,7 @@ async function assertRendererLibrariesStayInWeb() {
           `${violation.from} -> ${violation.to.replace(/^node_modules\/\.pnpm\/[^/]+\/(node_modules\/(?:@types\/)?[^/]+\/).*$/u, "$1")}`,
       )
       .sort(),
-    ["@types/react", "phaser", "react-dom"].map(
+    ["@types/react", "@types/three", "phaser", "react-dom", "three"].map(
       (target) => `${rendererFixture} -> node_modules/${target}/`,
     ),
     `exactly ${rendererFixture}'s imports must be rejected by ${rule}`,

@@ -8,7 +8,7 @@ import { contractDigest } from "../scripts/contract-drift.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const app = path.join(root, "apps/web");
 const web = path.join(app, "src");
-// Wave 4 plan §3.1 and §5: Phaser stays in its renderer adapter, which reaches the React shell only
+// Wave 4 plan §3.1 and §5: Three.js stays in its renderer adapter, which reaches the React shell only
 // through the renderer-neutral bridge, which imports only contracts; React, TanStack Query and
 // Zustand stay in the shell.
 const adapter = path.join(web, "renderer.ts");
@@ -39,9 +39,9 @@ export function assertBrowserSource(source, file) {
     )
       specifier = node.arguments[0];
     if (specifier && !path.resolve(file).startsWith(`${web}/`)) {
-      // Tests, fixtures and configuration elsewhere in apps/web may import anything but Phaser.
-      if (ts.isStringLiteralLike(specifier) && /^phaser(?:\/|$)/u.test(specifier.text))
-        throw new Error(`${file}: Phaser outside its renderer adapter`);
+      // Tests, fixtures and configuration elsewhere in apps/web may import anything but a renderer SDK.
+      if (ts.isStringLiteralLike(specifier) && /^(?:phaser|three)(?:\/|$)/u.test(specifier.text))
+        throw new Error(`${file}: renderer SDK outside its renderer adapter`);
     } else if (specifier) {
       if (!ts.isStringLiteral(specifier))
         throw new Error(`${file}: dynamic import target forbidden`);
@@ -50,7 +50,10 @@ export function assertBrowserSource(source, file) {
       const allowed =
         target === "@clockgrove/contracts" ||
         (path.resolve(file) === adapter
-          ? target === "phaser" || local === `${bridge}.js`
+          ? target === "three/webgpu" ||
+            target === "three/tsl" ||
+            target === "three/addons/tsl/display/BloomNode.js" ||
+            local === `${bridge}.js`
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
               target === "zustand" ||
@@ -381,10 +384,10 @@ export async function checkWebBoundaries() {
     "pg",
   ];
   for (const [file, targets] of [
-    [path.join(web, "negative.ts"), ["phaser", ...outward]],
+    [path.join(web, "negative.ts"), ["phaser", "three", ...outward]],
     [adapter, ["react", "@tanstack/react-query", "zustand", "./yard-state.js", ...outward]],
     [`${bridge}.ts`, ["react", "zustand", "./yard-state.js"]],
-    [path.join(app, "test/negative.ts"), ["phaser"]],
+    [path.join(app, "test/negative.ts"), ["phaser", "three"]],
   ]) {
     for (const target of targets) {
       let refused = false;
