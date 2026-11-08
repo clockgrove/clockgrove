@@ -8,6 +8,7 @@ export const WORLD_PROJECTION_VERIFIED = "WorldProjectionVerified";
 export const WORLD_READY = "WorldReady";
 export const CLOCK_POLICY_CHANGED = "ClockPolicyChanged";
 export const RUNTIME_NO_OP_ACCEPTED = "RuntimeNoOpAccepted";
+export const DECISION_SHADOW_RECORDED = "DecisionShadowRecorded";
 
 /**
  * Every event type the Wave 1 world kernel emits, in UTF-16 order. Each is journaled as its own
@@ -25,6 +26,7 @@ export const JOURNAL_EVENT_REGISTRY = createEventTypeRegistry(
     WORLD_PROJECTION_VERIFIED,
     WORLD_READY,
     RUNTIME_NO_OP_ACCEPTED,
+    DECISION_SHADOW_RECORDED,
     CLOCK_POLICY_CHANGED,
     ...WORLD_KERNEL_EVENT_TYPES,
   ].map((type) => ({ type, schemaVersion: 2 })),
