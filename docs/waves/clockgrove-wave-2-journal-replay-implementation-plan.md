@@ -172,6 +172,8 @@ World creation persists `WorldProvisioningCase` and `WorldPackInstallation` inde
 
 `WorldGenesisCreated`, stable seed-command receipts/events, `WorldProjectionVerified`, and `WorldReady` are canonical evidence. Clock mapping, named random-stream initial state, cognitive seed references, schedules, expected/actual seed hash, initial membership/persona/inventory, and installation ID are preserved sufficiently for replay and offline verification.
 
+Amended (2026-11-07): provisioning seeds no initial membership, persona or inventory yet, so the §19 retry-safety item is proven only for birth, seed state, schedules and events. The owner moves the rest to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): provisioning seeds the initial membership, persona and inventory, preserves them for replay and offline verification as above, and a retry in any crash window never duplicates them.
+
 ### 5.3 Journal constraints
 
 Events require uniqueness on:
@@ -415,6 +417,8 @@ Checkpointed replay from the stored birth or a verified snapshot detects corrupt
 written back. Rebuild applies to derived read models when RW-0210 adds them; full canonical repair
 arrives with Wave 7 re-execution.
 
+Amended (2026-11-07): replay verification has no cursor, so it is not resumable. The owner moves the resumable part to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): verification records a durable cursor, and a run interrupted part-way resumes from it and reaches the same verified head and state hash, with every check above, as an uninterrupted run.
+
 ---
 
 ## 10. Timeline and fork foundation
@@ -484,6 +488,8 @@ Exit: alternating tenants through one pooled connection cannot observe or mutate
 Map Wave 1 versioned state without leaking TypeScript implementation details. Define immutable pack artifacts/installations, provisioning case and world lifecycle constraints, genesis/seed cursor and readiness evidence, timelines, heads, spaces, objects/components, containment, rules, schedules, and required indexes.
 
 Exit: install, interrupt/resume at every seed/projection boundary, and reconstruct both world packs with identical Wave 1 hashes; no non-ready world can be resolved for ordinary entry.
+
+Amended (2026-11-07): the interrupt/resume test at every seed/projection boundary runs only the fixture pack (`worlds/fixture`). The owner moves the Raccoon World half to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the Raccoon World pack (`worlds/raccoons`) is installed, interrupted and resumed at every seed/projection boundary, and reconstructs with identical Wave 1 hashes.
 
 ### RW-0203 — Streams, events, command receipts, and envelope codecs
 
@@ -596,6 +602,8 @@ Every case asserts:
 - recoverable next action;
 - complete causal evidence;
 - safe user-visible status.
+
+Amended (2026-11-07): two cases have no fault-injected test: "during replay checkpoint" and "during export assembly and verification". The owner moves both to Wave 9 (the Wave 9 §18 amendment of 2026-11-07), where each case asserts every item above.
 
 ---
 

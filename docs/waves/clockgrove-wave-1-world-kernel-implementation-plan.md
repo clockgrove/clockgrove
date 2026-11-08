@@ -642,6 +642,8 @@ Interfaces required by later waves may be declared, but empty machinery is not a
 - [ ] Package READMEs, protocol docs, and any ADRs are current.
 - [ ] Main is deployable even though Wave 1 itself is headless.
 
+Amended (2026-11-07): the owner moves two parts of this checklist to Wave 9 (the Wave 9 §18 amendment of 2026-11-07). First, the component part of "Historic pack/component/event fixtures upcast deterministically": every Wave 1 component is version 1 with no upcasters, so the registry's upcast walk (`upcast` in `packages/domain/src/components/registry/index.ts`) has no test. Wave 9 proves that a historic component fixture at an earlier version upcasts through the registered chain to the current version deterministically. Second, the READMEs of `packages/contracts`, `packages/testkit`, `packages/application` and `packages/persistence`, which have none, under "Package READMEs, protocol docs, and any ADRs are current". The pack and event upcasts and the other READMEs, protocol docs and ADRs stay Wave 1 evidence.
+
 The qualification job publishes one immutable Wave 1 evidence manifest containing commit, lockfile hash, toolchain, test results, golden bundle hashes, performance counters, and the exit decision.
 
 ---
