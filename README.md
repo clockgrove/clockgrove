@@ -69,6 +69,7 @@ Key public-facing documents also include:
 
 - [`BRAND.md`](BRAND.md) — brand identity, voice and creative principles;
 - [`STYLE.md`](STYLE.md) — visual language and image-generation direction;
+- [`AI content disclosure policy`](docs/policy/ai-content-disclosure.md) — how players are told which content AI made, before shipping and live;
 - [`docs/adr/`](docs/adr/) — accepted product/runtime architectural decisions;
 - [`docs/waves/`](docs/waves/) — substantial sequential workstreams containing numerous capability Objectives and Work Items;
 - [`incremental-delivery ADR`](docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md) — early checkpoints, readiness versus full qualification, and proportionate evidence;
