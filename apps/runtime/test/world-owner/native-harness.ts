@@ -287,6 +287,20 @@ export async function withNativeWorldOwner(
   if (inherited === undefined)
     throw new Error("run this journey through runNativeWorldOwnerProcess");
   const fixture = JSON.parse(inherited) as NativeFixture;
+  const presentationSource = JSON.parse(
+    await readFile(path.join(REPO_ROOT, "worlds", fixture.packName, "runtime.json"), "utf8").catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return "{}";
+        throw error;
+      },
+    ),
+  );
+  const worldBindings = {
+    WORLD_PRESENTATION: JSON.stringify(presentationSource.presentations ?? []),
+    ...(presentationSource.model === undefined
+      ? {}
+      : { WORLD_MODEL_CONFIG: JSON.stringify(presentationSource.model) }),
+  };
   const world = await testWorld(fixture.packName);
   const space = world.birth.spaces[0];
   if (space === undefined) throw new Error("native pack requires a space");
@@ -365,6 +379,7 @@ export async function withNativeWorldOwner(
         hyperdrives: { HYPERDRIVE: connection("clockgrove_runtime") },
         r2Buckets: { ARTIFACTS_BUCKET: "rw-local-artifacts" },
         bindings: {
+          ...worldBindings,
           NATIVE_PROVISIONING_FAULTS_DISABLED: provisioningFaultsDisabled,
           AUTH_DATABASE_URL: connection("clockgrove_auth_verifier"),
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),

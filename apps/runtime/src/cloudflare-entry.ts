@@ -56,6 +56,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { ActivationOwners } from "./activation-routes.js";
+import { type ActorScene, describeScene } from "./actor-model.js";
 import {
   composeReferenceAuthentication,
   type ReferenceAuthenticationConfiguration,
@@ -103,7 +104,6 @@ import {
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
-import { describeScene, type StevieScene } from "./stevie.js";
 import {
   type RuntimeAuthenticationDependencies,
   TrustedRuntimeRequestAuthenticator,
@@ -318,12 +318,12 @@ export function composeConversations(
   };
 }
 
-/** What Stevie perceives: the member's authorized public scene, read over this invocation's connection. */
+/** What the actor perceives: the member's authorized public scene, read over this invocation's connection. */
 export function perceiveScene(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   scope: BrowserScope,
   context: TrustedContext,
-): Promise<StevieScene> {
+): Promise<ActorScene> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
     const { scene, stored } = await new PostgreSqlLivingSceneReader(
       new PostgreSqlWorldOwnerReader(client),
@@ -611,6 +611,8 @@ export async function cancelWorldProvisioning(env: RuntimeEnvironment, input: un
 }
 
 export interface RuntimeEnvironment {
+  readonly WORLD_PRESENTATION?: string;
+  readonly WORLD_MODEL_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   readonly MANAGEMENT_DATABASE_URL?: string;
@@ -628,7 +630,7 @@ export interface RuntimeEnvironment {
    * without it every conversation route answers `503 conversation_unavailable`.
    */
   readonly ARTIFACT_KEYRING?: string;
-  /** The production model route's keys (Stevie); without either, Stevie answers from the scripted fixture. */
+  /** The production model route's keys (the actor); without either, the actor answers from the scripted fixture. */
   readonly ANTHROPIC_API_KEY?: string;
   readonly AI_GATEWAY_API_KEY?: string;
   readonly WORLD_DO: DurableObjectNamespace<

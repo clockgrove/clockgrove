@@ -8,38 +8,47 @@ import {
   type ScenePresentationBinding,
 } from "@clockgrove/contracts";
 import { presentationSchema, type WorldEntity, type WorldState } from "@clockgrove/domain";
-import reviewedAtlas from "../../../assets/reviewed/raccoon-world.animations.json" with {
-  type: "json",
-};
-import raccoonWorld from "../../../worlds/raccoons/presentation.json" with { type: "json" };
+export interface ScenePresentationInput {
+  readonly presentation: PackPresentation;
+  readonly drawable: readonly string[];
+  readonly activity: {
+    readonly families: readonly string[];
+    readonly moving: string;
+    readonly shelter: string;
+    readonly arrived: string;
+    readonly seeking: string;
+  };
+}
 
-/**
- * Presentation is outside the pack source and outside world truth: the committed `presentation.json`
- * of each shipped pack, keyed by pack id. A world installed at an earlier version of a shipped pack
- * still draws that pack's shipped presentation; bindings for objects it does not project are dropped.
- * Each binding is decoded through the Presentation component (`clockgrove.presentation`, Wave 1
- * §5.2 amendment, RW-0409).
- */
-const PRESENTATIONS: ReadonlyMap<string, PackPresentation> = new Map(
-  [raccoonWorld].map((source) => {
-    const presentation = decodePackPresentation(source);
+export function decodeScenePresentations(
+  source: string | undefined,
+): readonly ScenePresentationInput[] {
+  if (source === undefined) return [];
+  const values: unknown = JSON.parse(source);
+  if (!Array.isArray(values)) throw new Error("world presentations must be an array");
+  return values.map((value) => {
+    const presentation = decodePackPresentation(value.presentation);
     for (const binding of presentation.bindings)
       presentationSchema.parse({
         assetId: binding.assetId,
         animationFamily: binding.animationFamily,
         accessibilityLabel: binding.accessibilityLabel,
       });
-    return [presentation.pack.id, presentation] as const;
-  }),
-);
-
-/** The `assetId/animationFamily` strips the reviewed atlas holds: the families a binding may use. */
-const DRAWABLE: ReadonlySet<string> = new Set(
-  reviewedAtlas.animations.map((strip) => `${strip.assetId}/${strip.animationFamily}`),
-);
-
-/** Families an actor's binding replaces; `static` and `loop` bindings never follow activity. */
-const ACTOR_FAMILIES: ReadonlySet<string> = new Set(["idle", "walk", "sniff", "eat", "shelter"]);
+    const { drawable, activity } = value;
+    if (
+      !Array.isArray(drawable) ||
+      !drawable.every((item) => typeof item === "string") ||
+      !activity ||
+      !Array.isArray(activity.families) ||
+      !activity.families.every((item: unknown) => typeof item === "string") ||
+      ![activity.moving, activity.shelter, activity.arrived, activity.seeking].every(
+        (item) => typeof item === "string",
+      )
+    )
+      throw new Error("invalid world presentation activity or drawable families");
+    return { presentation, drawable, activity };
+  });
+}
 
 /** Whether `entity` stands on `target`'s pose: where a seek's movement ends on arrival. */
 function atTarget(entity: WorldEntity, target: WorldEntity | undefined): boolean {
@@ -61,13 +70,14 @@ function atTarget(entity: WorldEntity, target: WorldEntity | undefined): boolean
 function activityFamily(
   entity: WorldEntity,
   byId: ReadonlyMap<ObjectId, WorldEntity>,
+  activity: ScenePresentationInput["activity"],
 ): string | undefined {
-  if (entity.movement?.status === "active") return "walk";
+  if (entity.movement?.status === "active") return activity.moving;
   const action = entity.selectedAction;
   if (action === undefined || action.kind === "stay") return undefined;
-  if (action.kind === "seek-shelter") return "shelter";
+  if (action.kind === "seek-shelter") return activity.shelter;
   const target = action.targetObjectId === undefined ? undefined : byId.get(action.targetObjectId);
-  return atTarget(entity, target) ? "eat" : "sniff";
+  return atTarget(entity, target) ? activity.arrived : activity.seeking;
 }
 
 /** The installed pack's bindings for the projected entities, each actor in its activity's family. */
@@ -75,8 +85,10 @@ export function scenePresentationBindings(
   pack: { readonly packId?: string },
   entities: readonly WorldEntity[],
   projected: ReadonlySet<ObjectId>,
+  inputs: readonly ScenePresentationInput[] = [],
 ): ScenePresentationBinding[] {
-  const presentation = pack.packId === undefined ? undefined : PRESENTATIONS.get(pack.packId);
+  const input = inputs.find((item) => item.presentation.pack.id === pack.packId);
+  const presentation = input?.presentation;
   if (presentation === undefined) return [];
   const byId = new Map(entities.map((entity) => [entity.objectId, entity]));
   return presentation.bindings
@@ -84,10 +96,10 @@ export function scenePresentationBindings(
     .map((binding) => {
       const entity = byId.get(binding.objectId);
       const family =
-        entity === undefined || !ACTOR_FAMILIES.has(binding.animationFamily)
+        entity === undefined || !input?.activity.families.includes(binding.animationFamily)
           ? undefined
-          : activityFamily(entity, byId);
-      return family !== undefined && DRAWABLE.has(`${binding.assetId}/${family}`)
+          : activityFamily(entity, byId, input.activity);
+      return family !== undefined && input?.drawable.includes(`${binding.assetId}/${family}`)
         ? { ...binding, animationFamily: family }
         : binding;
     });
@@ -107,8 +119,10 @@ export function sceneEffects(
   state: Pick<WorldState, "entities" | "anchorGraphs">,
   frames: readonly LivingSpatialFrame[],
   projected: ReadonlySet<ObjectId>,
+  inputs: readonly ScenePresentationInput[] = [],
 ): SceneEffect[] {
-  const presentation = pack.packId === undefined ? undefined : PRESENTATIONS.get(pack.packId);
+  const input = inputs.find((item) => item.presentation.pack.id === pack.packId);
+  const presentation = input?.presentation;
   if (presentation === undefined) return [];
   const shown = new Set(frames.map((frame) => `${frame.frameId}@${frame.version}`));
   const byId = new Map(state.entities.map((entity) => [entity.objectId, entity]));
