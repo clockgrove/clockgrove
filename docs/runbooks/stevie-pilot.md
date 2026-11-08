@@ -35,4 +35,6 @@ The declared and owner-approved (Kirk, 2026-11-07) rubric for the first cognitiv
 
 The gateway's own live check (`CLOCKGROVE_MODEL_LIVE=1 pnpm --filter @clockgrove/model-gateway
 test:live`) proves the route answers. It never runs by default. The manual real-provider workflow
-is not in this repository's checkout yet: `.github/` is outside what an Objective may change.
+is "Model live check" (`.github/workflows/model-live.yml`): run it from the Actions tab. It is
+dispatch only and reads the organization secrets `ANTHROPIC_API_KEY` and `AI_GATEWAY_API_KEY`. A
+live run is a maintainer step after merge, not a merge condition.
