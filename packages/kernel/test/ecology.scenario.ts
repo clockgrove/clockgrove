@@ -266,7 +266,7 @@ export function ecologySample(spec: EcologySpec): Loose {
   const sample = environmentSample(spec);
   sample.pack.packId = "clockgrove.fixture.ecology";
   sample.pack.archetypes = [...sample.pack.archetypes, "reference.cedar@1", "reference.bowl@1"];
-  const pose = { frameId: "yard-ground", frameVersion: 1, coordinates: ["0", "0"] };
+  const pose = { frameId: "zone-ground", frameVersion: 1, coordinates: ["0", "0"] };
   const present = new Set<string>(
     sample.initialState.entities.map((entity: Loose) => entity.objectId),
   );
@@ -278,7 +278,7 @@ export function ecologySample(spec: EcologySpec): Loose {
       archetypeId: "reference.shelter@1",
       pose,
       shelter: { rainProtection: plant.protection },
-      spaceId: "yard",
+      spaceId: "zone",
     });
   }
   for (const holder of spec.holders)
@@ -286,7 +286,7 @@ export function ecologySample(spec: EcologySpec): Loose {
       objectId: holder.objectId,
       archetypeId: "reference.bowl@1",
       pose,
-      spaceId: "yard",
+      spaceId: "zone",
       resource: { kind: holder.kind, quantity: holder.quantity },
       ...(holder.status === undefined ? {} : { lifecycle: { status: holder.status } }),
     });
@@ -295,7 +295,7 @@ export function ecologySample(spec: EcologySpec): Loose {
       objectId: plant.objectId,
       archetypeId: "reference.cedar@1",
       pose,
-      spaceId: "yard",
+      spaceId: "zone",
       ...(plant.protection === null ? {} : { locationId: `shelter-${plant.protection}` }),
       ...(plant.status === undefined ? {} : { lifecycle: { status: plant.status } }),
     });

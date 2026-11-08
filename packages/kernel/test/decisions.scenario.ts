@@ -163,7 +163,7 @@ const BASE: UtilitySpec = {
   hungerPerInterval: 5,
   wetnessPerInterval: 1500,
   dryingPerInterval: 1000,
-  actors: [["t-raccoon", null]],
+  actors: [["t-weather", null]],
   wellbeing: QUIET,
   items: [],
   utility: DEFAULT_UTILITY,
@@ -202,7 +202,7 @@ const needs = (hunger: number, wetness: number, thirst: number): InitialNeeds =>
 });
 
 const POSE = (x: number, y: number) => ({
-  frameId: "yard-ground",
+  frameId: "zone-ground",
   frameVersion: 1,
   coordinates: [String(x), String(y)],
 });
@@ -237,7 +237,7 @@ export function utilitySample(spec: UtilitySpec): Loose {
     objectId: item.id,
     archetypeId: item.kind === "shelter" ? "reference.shelter@1" : "reference.bowl@1",
     pose: POSE(item.at[0], item.at[1]),
-    spaceId: item.spaceId ?? "yard",
+    spaceId: item.spaceId ?? "zone",
     ...(item.kind === "shelter"
       ? { shelter: { rainProtection: item.protection ?? 0 } }
       : { resource: { kind: item.kind, quantity: item.quantity ?? 0 } }),
@@ -283,9 +283,9 @@ function anchorGraphsOf(spec: UtilitySpec): unknown[] {
   const at = new Map(anchors.map(([id, x, y]) => [id, point(x, y)] as const));
   return [
     {
-      graphId: "yard",
+      graphId: "zone",
       version: 1,
-      frameId: "yard-ground",
+      frameId: "zone-ground",
       frameVersion: 1,
       anchors: anchors.map(([anchorId, x, y]) => ({ anchorId, coordinates: point(x, y) })),
       edges: edges
@@ -306,7 +306,7 @@ function regionsOf(spec: UtilitySpec): unknown[] {
     .map(([regionId, minx, miny, maxx, maxy]) => ({
       regionId,
       version: 1,
-      frameId: "yard-ground",
+      frameId: "zone-ground",
       frameVersion: 1,
       shape: { kind: "rectangle", min: point(minx, miny), max: point(maxx, maxy) },
     }));
@@ -1013,7 +1013,7 @@ export function generateDecisionCases(sequences = 3): GeneratedCase[] {
     const actorCount = 1 + next(2);
     const actors = Array.from(
       { length: actorCount },
-      (_, index) => [`raccoon-${sequence}-${index}`, null] as const,
+      (_, index) => [`weather-${sequence}-${index}`, null] as const,
     );
     const itemCount = 2 + next(4);
     const kinds = ["food", "water", "shelter"] as const;
@@ -1143,7 +1143,7 @@ export const SNACK_SPEC: UtilitySpec = {
   hungerPerInterval: 400,
   wetnessPerInterval: 1500,
   dryingPerInterval: 1000,
-  actors: [["raccoon", null]],
+  actors: [["resident-x", null]],
   wellbeing: {
     thirstPerInterval: 300,
     healthLossPerInterval: 500,
@@ -1163,7 +1163,7 @@ export const SNACK_SPEC: UtilitySpec = {
     {
       ref: "scripted:memory:snack-house",
       kind: "memory",
-      actorId: "raccoon",
+      actorId: "resident-x",
       targetObjectId: "snack-house",
       value: 6000,
       effectiveAt: 2500n,
@@ -1171,7 +1171,7 @@ export const SNACK_SPEC: UtilitySpec = {
     {
       ref: "scripted:belief:snack-house",
       kind: "belief",
-      actorId: "raccoon",
+      actorId: "resident-x",
       targetObjectId: "snack-house",
       value: 4000,
       effectiveAt: 3000n,
@@ -1219,15 +1219,15 @@ const WITH = (over: Partial<UtilitySpec>): UtilitySpec => ({ ...BASE, ...over })
 /** Far bin with scripted entries: also the base world of the refusal inputs. */
 export const SCRIPTED_SPEC: UtilitySpec = WITH({
   actors: [
-    ["a-raccoon", null],
-    ["b-raccoon", null],
+    ["a-weather", null],
+    ["b-weather", null],
   ],
   items: [food("far-bin", [8000, 0]), water("far-bowl", [9000, 0], 3)],
   scripted: [
     {
       ref: "scripted:belief:far-bin",
       kind: "belief",
-      actorId: "a-raccoon",
+      actorId: "a-weather",
       targetObjectId: "far-bin",
       value: 10000,
       effectiveAt: 2000n,
@@ -1235,7 +1235,7 @@ export const SCRIPTED_SPEC: UtilitySpec = WITH({
     {
       ref: "scripted:memory:far-bowl",
       kind: "memory",
-      actorId: "a-raccoon",
+      actorId: "a-weather",
       targetObjectId: "far-bowl",
       value: 500,
       effectiveAt: 5000n,
@@ -1250,7 +1250,7 @@ export const EXCLUSION_SPEC: UtilitySpec = WITH({
     food("c-empty-bin", [500, 0], 0),
     shelter("d-dry-shelter", [500, 500], 0),
     food("e-island-bin", [2000, 0]),
-    food("f-other-bin", [1000, 0], 4, "other-yard"),
+    food("f-other-bin", [1000, 0], 4, "other-zone"),
   ],
   graph: {
     anchors: [
@@ -1286,8 +1286,8 @@ export const TARGETED_SPECS: readonly TargetedSpec[] = [
     label: "emptied-before-arrival",
     spec: WITH({
       actors: [
-        ["a-raccoon", null],
-        ["b-raccoon", null],
+        ["a-weather", null],
+        ["b-weather", null],
       ],
       starts: [
         [0, 0],
@@ -1318,8 +1318,8 @@ export const TARGETED_SPECS: readonly TargetedSpec[] = [
     label: "interrupt",
     spec: WITH({
       actors: [
-        ["a-raccoon", null],
-        ["b-raccoon", null],
+        ["a-weather", null],
+        ["b-weather", null],
       ],
       starts: [
         [0, 0],
@@ -1591,7 +1591,7 @@ export function decisionsRefusalInputs(base: WorldKernelInput): RefusalCase[] {
     state("entry-actor-unknown", entry(0, "actorId", "ghost")),
     state("entry-actor-not-needs", entry(0, "actorId", "far-bin")),
     state("entry-target-unknown", entry(0, "targetObjectId", "ghost")),
-    state("entry-target-not-seekable", entry(0, "targetObjectId", "a-raccoon")),
+    state("entry-target-not-seekable", entry(0, "targetObjectId", "a-weather")),
     {
       name: "plan-mismatch",
       input: {
@@ -1601,7 +1601,7 @@ export function decisionsRefusalInputs(base: WorldKernelInput): RefusalCase[] {
           state: {
             ...base.partition.state,
             entities: base.partition.state.entities.map((entity) =>
-              entity.objectId === "a-raccoon"
+              entity.objectId === "a-weather"
                 ? { ...entity, selectedAction: { kind: "stay" } }
                 : entity,
             ),
@@ -1849,7 +1849,7 @@ async function refusalEntries(): Promise<DecisionsEntry[]> {
   const disagreeing = createWorldState({
     ...state,
     entities: state.entities.map((entity) =>
-      entity.objectId === "a-raccoon" ? { ...entity, selectedAction: { kind: "stay" } } : entity,
+      entity.objectId === "a-weather" ? { ...entity, selectedAction: { kind: "stay" } } : entity,
     ),
   } as never);
   for (const [name, type] of [

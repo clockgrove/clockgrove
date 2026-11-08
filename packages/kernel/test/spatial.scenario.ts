@@ -162,7 +162,7 @@ export function regions() {
 }
 export function anchorGraph() {
   return {
-    graphId: "yard",
+    graphId: "zone",
     version: 1,
     frameId: GROUND,
     frameVersion: 1,
@@ -177,7 +177,7 @@ export function mover(
 ): WorldEntity {
   return {
     objectId: objectId as ObjectId,
-    spaceId: "yard" as SpaceId,
+    spaceId: "zone" as SpaceId,
     archetypeId: "fixture.object@1",
     pose: { frameId: GROUND, frameVersion: 1, coordinates: p2(at[0], at[1]) },
     ...extra,
@@ -190,7 +190,7 @@ export function climber(
 ): WorldEntity {
   return {
     objectId: objectId as ObjectId,
-    spaceId: "yard" as SpaceId,
+    spaceId: "zone" as SpaceId,
     archetypeId: "fixture.object@1",
     pose: { frameId: TREE, frameVersion: 1, coordinates: [f(at[0]), f(at[1]), f(at[2])] },
   } as WorldEntity;
@@ -199,7 +199,7 @@ export function climber(
 export async function spatialFixture(
   entities: readonly WorldEntity[] = [mover("mover", [0n, 0n])],
 ): Promise<WorldKernelInput> {
-  const base = await scenarioInput(scenarios.raccoon);
+  const base = await scenarioInput(scenarios.weather);
   const state = createWorldState({
     ...base.partition.state,
     spatialFrames: [groundFrame(), treeFrame()],

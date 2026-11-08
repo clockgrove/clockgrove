@@ -36,7 +36,7 @@ export const LIFECYCLE_EVENT_NAMES = [
 export const LIFECYCLE_GOLDEN = {
   name: "household-generations",
   materialEventHash: "e3a4c178e9817119a7aab61dfbb46d18db6188f81cd4c0d11e51bacdda05bca2",
-  finalStateHash: "dc8229113133f900cafd54dd06138692f9c59a180830bbe15b51529f92ef0fa5",
+  finalStateHash: "1493ef74b1c4954a149bfd21e1a6ab78a70073d31a1f089803ac4b0be1283bef",
 } as const;
 
 /** Committed literal hashes of the long-run summaries. */

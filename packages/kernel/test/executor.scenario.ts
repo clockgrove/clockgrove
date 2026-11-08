@@ -211,7 +211,7 @@ async function fuzz(entries: Entry[], steps: number) {
     return Number(draw.draw.rawValue + 2147483648n);
   };
   let current = await scenarioInput(
-    scenarios.raccoon,
+    scenarios.weather,
     10000,
     4,
     initializeNamedRandomStreams(fuzzSeed, fuzzStreams),
@@ -317,7 +317,7 @@ async function fuzz(entries: Entry[], steps: number) {
 /** Executor identities for golden and fuzzed commands plus the production registry identity. */
 export async function executorEvidence(steps = fuzzSteps) {
   const goldenEntries: Entry[] = [];
-  await golden("raccoon", scenarios.raccoon, goldenEntries);
+  await golden("weather", scenarios.weather, goldenEntries);
   await golden("garden", scenarios.garden, goldenEntries);
   const fuzzEntries: Entry[] = [];
   await fuzz(fuzzEntries, steps);

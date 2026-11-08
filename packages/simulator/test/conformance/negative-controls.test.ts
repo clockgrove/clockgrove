@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,7 +7,7 @@ import { checkScenarioGoldenLayout } from "./checks.js";
 import { ConformanceFailure } from "./failure.js";
 import { FIXTURE_SCENARIO, type FixturePackOptions, writeFixturePack } from "./fixture-pack.js";
 import { checkEngineNeutrality } from "./neutrality.js";
-import { type LoadedPack, loadPack, WORLDS_ROOT } from "./pack-source.js";
+import { type LoadedPack, loadPack, REPO_ROOT, WORLDS_ROOT } from "./pack-source.js";
 import { checkPresentationBindings } from "./presentation.js";
 import { ResourceLedger } from "./runtime.js";
 import { checkScenarios } from "./scenarios.js";
@@ -45,29 +45,66 @@ const nodeOnly = (pack: LoadedPack) =>
 
 describe("conformance negative controls", () => {
   it("fails presentation bindings to another pack, a missing actor and the wrong entity", async () => {
-    const pack = await loadPack(join(WORLDS_ROOT, "raccoons"));
-    const presentation = JSON.parse(
-      await readFile(join(pack.directory, "presentation.json"), "utf8"),
-    );
+    const pack = await loadPack(join(WORLDS_ROOT, "fixture"));
     const directory = await mkdtemp(join(tmpdir(), "clockgrove-presentation-control-"));
     temporary.push(directory);
-    const binding = { assetId: "stevie", animationFamily: "idle", accessibilityLabel: "Stevie" };
+    const assetsRoot = join(directory, "assets");
+    await mkdir(join(assetsRoot, "fixture-critter"), { recursive: true });
+    const asset = JSON.parse(
+      await readFile(
+        join(REPO_ROOT, "packages/contracts/test/fixtures/asset-manifest/approved.json"),
+        "utf8",
+      ),
+    );
+    asset.semantic.entity = "beacon.master";
+    await writeFile(join(assetsRoot, "fixture-critter", "idle.json"), JSON.stringify(asset));
+    const binding = {
+      assetId: "fixture-critter",
+      animationFamily: "idle",
+      accessibilityLabel: "Keeper",
+    };
     await writeFile(
       join(directory, "presentation.json"),
       JSON.stringify({
-        ...presentation,
-        pack: { ...presentation.pack, version: "9.0.0" },
+        presentationVersion: 1,
+        assetManifestVersion: 1,
+        pack: { id: "clockgrove.test-world", version: "9.0.0" },
         bindings: [
-          { ...binding, objectId: "grove.ghost" },
-          { ...binding, objectId: "grove.porch" },
+          { ...binding, objectId: "beacon.ghost" },
+          { ...binding, objectId: "beacon.larder" },
+        ],
+        effects: [
+          { role: "path", assetId: "fixture-critter", animationFamily: "idle", objectId: null },
+          { role: "rain", assetId: "fixture-critter", animationFamily: "idle", objectId: null },
+          { role: "puddle", assetId: "fixture-critter", animationFamily: "idle", objectId: null },
+          {
+            role: "lantern",
+            assetId: "fixture-critter",
+            animationFamily: "idle",
+            objectId: "beacon.master",
+          },
+          {
+            role: "window",
+            assetId: "fixture-critter",
+            animationFamily: "idle",
+            objectId: "beacon.master",
+          },
+          {
+            role: "selection",
+            assetId: "fixture-critter",
+            animationFamily: "idle",
+            objectId: null,
+          },
         ],
       }),
     );
-    const failure = await failureOf(() => checkPresentationBindings({ ...pack, directory }));
+    const failure = await failureOf(() =>
+      checkPresentationBindings({ ...pack, directory }, assetsRoot),
+    );
     expect(failure.problems.map(({ check, detail }) => `${check}: ${detail}`)).toEqual([
-      "presentation-bindings: presentation names clockgrove.green-lake-yard@9.0.0, the pack is clockgrove.green-lake-yard@1.1.0",
-      "presentation-bindings: bindings[0]: grove.ghost is not an actor of the pack",
-      "presentation-bindings: bindings[1]: manifest stevie/idle depicts grove.stevie, not grove.porch",
+      "presentation-bindings: presentation names clockgrove.test-world@9.0.0, the pack is clockgrove.test-world@1.1.0",
+      "presentation-bindings: bindings[0]: beacon.ghost is not an actor of the pack",
+      "presentation-bindings: bindings[1]: manifest fixture-critter/idle depicts beacon.master, not beacon.larder",
     ]);
   });
 

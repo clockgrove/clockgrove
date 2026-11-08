@@ -73,8 +73,8 @@ describe("real rain/needs/shelter capability", () => {
     const nodeInputs = inputIdentities(nodePacks);
     const workersInputs = inputIdentities(workersPacks);
     const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
-    const nodeArtifactBytes = nodePacks.built.raccoon.output;
-    const workersArtifactBytes = workersPacks.built.raccoon.output;
+    const nodeArtifactBytes = nodePacks.built.weather.output;
+    const workersArtifactBytes = workersPacks.built.weather.output;
     const packComparisons = {
       baseEqual: same(nodePacks.built, workersPacks.built),
       inputsEqual: same(nodeInputs, workersInputs),

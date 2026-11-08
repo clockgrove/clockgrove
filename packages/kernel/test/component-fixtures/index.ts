@@ -20,7 +20,7 @@ import {
 
 import { canonicalSerialize } from "../../src/canonical.js";
 
-export const componentFixtureNames = ["raccoon", "garden"] as const;
+export const componentFixtureNames = ["weather", "garden"] as const;
 export type ComponentFixtureName = (typeof componentFixtureNames)[number];
 const snapshot = (type: string, state: unknown): ComponentSnapshot => ({ type, version: 1, state });
 const map = (...values: ComponentSnapshot[]): ComponentMap =>
@@ -33,7 +33,7 @@ export function composeComponentFixture(
   reverse = false,
 ) {
   const components = createInitialComponentRegistry();
-  const dimensions = name === "raccoon" ? 2 : 3;
+  const dimensions = name === "weather" ? 2 : 3;
   const zero = 0n as SimTimeMs;
   const coordinates =
     dimensions === 2
@@ -118,7 +118,7 @@ export function composeComponentFixture(
     traits: reverse ? [...traits].reverse() : traits,
   });
   const declarations = [
-    { id: name === "raccoon" ? "stevie" : "mae", archetype: actorPin, trait: needsPin },
+    { id: name === "weather" ? "subject" : "mae", archetype: actorPin, trait: needsPin },
     { id: "primary-cover", archetype: coverPin, trait: shelterPin },
     { id: "secondary-cover", archetype: coverPin, trait: shelterPin },
   ].map(({ id, archetype, trait }) => {

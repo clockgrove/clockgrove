@@ -84,8 +84,8 @@ export const GOLDEN_SPEC: EnvironmentSpec = {
   wetnessPerInterval: 1500,
   dryingPerInterval: 1000,
   actors: [
-    ["exposed-raccoon", null],
-    ["sheltered-raccoon", 10000],
+    ["exposed-weather", null],
+    ["sheltered-weather", 10000],
   ],
 };
 export const GOLDEN_END = 24000n;
@@ -107,7 +107,7 @@ export const KINDS_SPEC: EnvironmentSpec = {
   hungerPerInterval: 5,
   wetnessPerInterval: 600,
   dryingPerInterval: 300,
-  actors: [["kind-raccoon", null]],
+  actors: [["kind-weather", null]],
 };
 
 /** Tiny fixture for exception sweeps: the first weather boundary comes before the first interval. */
@@ -125,12 +125,12 @@ export const EXCEPTION_SPEC: EnvironmentSpec = {
   hungerPerInterval: 5,
   wetnessPerInterval: 1500,
   dryingPerInterval: 1000,
-  actors: [["solo-raccoon", null]],
+  actors: [["solo-weather", null]],
 };
 
 /** JSON-form scenario (the historical decoder input) for a spec. */
 export function environmentSample(spec: EnvironmentSpec): Loose {
-  const sample = structuredClone(scenarios.raccoon) as Loose;
+  const sample = structuredClone(scenarios.weather) as Loose;
   sample.pack.packId = "clockgrove.fixture.environment";
   sample.pack.policy = {
     schemaVersion: 1,
@@ -158,7 +158,7 @@ export function environmentSample(spec: EnvironmentSpec): Loose {
       discomfortThreshold: spec.discomfortThreshold,
     },
   };
-  const pose = { frameId: "yard-ground", frameVersion: 1, coordinates: ["0", "0"] };
+  const pose = { frameId: "zone-ground", frameVersion: 1, coordinates: ["0", "0"] };
   const shelters = [
     ...new Set(spec.actors.flatMap(([, protection]) => (protection === null ? [] : [protection]))),
   ];
@@ -169,11 +169,11 @@ export function environmentSample(spec: EnvironmentSpec): Loose {
       archetypeId: "reference.shelter@1",
       pose,
       shelter: { rainProtection: protection },
-      spaceId: "yard",
+      spaceId: "zone",
     })),
     ...spec.actors.map(([objectId, protection]) => ({
       objectId,
-      archetypeId: "reference.raccoon@1",
+      archetypeId: "reference.weather@1",
       pose,
       needs: {
         hunger: 3000,
@@ -182,7 +182,7 @@ export function environmentSample(spec: EnvironmentSpec): Loose {
         hungerRemainder: "0",
         wetnessRemainder: "0",
       },
-      spaceId: "yard",
+      spaceId: "zone",
       ...(protection === null ? {} : { locationId: `shelter-${protection}` }),
     })),
   ];
