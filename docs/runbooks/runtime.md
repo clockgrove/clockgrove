@@ -1292,3 +1292,14 @@ Native qualification lives in `apps/runtime/test/scene-delivery.postgres.test.ts
 workerd/PostgreSQL evidence, not hosted eviction or redeploy evidence. The partial
 [Wave 4 manifest](../waves/clockgrove-wave-4-runtime-evidence.json) keeps actual Cloudflare hibernation,
 restart and redeploy pending on issue 881, blocked on issue 329 and issue 693. No staging qualification is claimed.
+
+## Proactive actor activation
+
+The [turn fiber contract](../protocols/conversation-fibers.md#proactive-activation) documents the
+operator's configure/wake routes and activation inspector. Configure a bounded daily scheduled
+intention using `scheduled_intention`, an epoch-millisecond `nextWakeAt` and `intervalMs: 86400000`;
+configure event subscriptions with `subscription` and their event type. An optional heartbeat is
+an opportunity for policy and compiled checks, and can record a no-op without calling a model.
+The activation inspector reports each causal reason and the next scheduled wake, including
+budget-deferred evidence. The existing native owner executes admitted work through its recoverable
+turn fiber, retaining PostgreSQL as authority. No continuous per-actor process is required.

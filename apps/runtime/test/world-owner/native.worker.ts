@@ -217,12 +217,17 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   async injectTurnFault(phase: string | null): Promise<void> {
     await this.objectState.storage.put("test-turn-fault", phase);
   }
+  async modelCallsTest(): Promise<number> {
+    return (await this.objectState.storage.get<number>("test-model-calls")) ?? 0;
+  }
   /** Releases a turn held by a `hold:<phase>` fault. */
   async releaseTurn(): Promise<void> {
     this.held?.();
   }
   protected override async turnCheckpointed(fiber: TurnFiber, phase: string): Promise<void> {
     const storage = this.objectState.storage;
+    if (phase === "model_running:streaming")
+      await storage.put("test-model-calls", (await this.modelCallsTest()) + 1);
     const fault = await storage.get<string | null>("test-turn-fault");
     if (fault === `hold:${phase}`) {
       await new Promise<void>((resolve) => {
@@ -977,6 +982,7 @@ export default {
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
+      if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")
         return Response.json(await actor.reconcileCapabilities(Number(body.revision)));
       if (body.op === "perception")

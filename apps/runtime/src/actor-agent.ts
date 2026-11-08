@@ -50,6 +50,7 @@ export interface TurnFiberHost {
   readonly stores: ConversationStores;
   readonly respond: ConversationResponder;
   capabilityRevision(): number;
+  beforeModel?(participant: ConversationParticipant, fiber: TurnFiber): Promise<void>;
   /**
    * What this owner may do for the turn's member: the registry's grants for the member's runtime
    * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
@@ -258,6 +259,7 @@ export class TurnFibers {
             const { session, caretakerMessages, input, prompt } = await this.store((store) =>
               store.turnInput(participant, current),
             );
+            await this.host.beforeModel?.(participant, current);
             const response = await this.host.respond(session, caretakerMessages, input, prompt);
             const words = response.text.split(/(?<= )/u);
             for (const [index, text] of words.entries()) {
@@ -298,6 +300,10 @@ export class TurnFibers {
       }
     } catch (error) {
       const failing = fiber;
+      if (error instanceof ActivationGateBlockedError && error.status === "noop") {
+        await this.store((store) => store.cancelTurn(participant, failing));
+        throw error;
+      }
       if (!(error instanceof ConversationRefusedError)) {
         // The attempt is recorded as failed at once; the turn stays open for its next claim.
         await this.store((store) => store.abandonAttempt(participant, failing)).catch(
@@ -358,5 +364,12 @@ export class TurnFibers {
 
   private store<T>(operation: (store: ConversationStore) => Promise<T>): Promise<T> {
     return this.host.stores(operation);
+  }
+}
+
+export class ActivationGateBlockedError extends Error {
+  constructor(readonly status: "deferred" | "noop") {
+    super(`activation ${status} before model escalation`);
+    this.name = "ActivationGateBlockedError";
   }
 }

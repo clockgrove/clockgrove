@@ -63,6 +63,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | `docs/adr/clockgrove-adr-management-plane-world-runtime-plane-and-shared-wallet.md` | 1.0 | Accepted | Management/Runtime authority, provisioning, shared-wallet leases and Management-only billing-provider boundary |
 | `docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md` | 1.0 | Accepted | Substantial sequential workstreams, Objective checkpoints/readiness, proportionate qualification and comparison rules |
 | `docs/adr/clockgrove-adr-field-guides-and-counterfactual-why.md` | 1.0 | Accepted | Resident-authored evolving knowledge, governed sharing/testimony, and bounded deterministic counterfactual Why |
+| `docs/adr/clockgrove-adr-renderer-bake-off.md` | 0.1 | Draft | None until accepted: renderer bake-off evidence for the owner's pick of the lit 2.5D browser renderer (issue 67); §20.4 Phaser 4 stays current |
 
 
 ---

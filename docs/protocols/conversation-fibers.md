@@ -144,7 +144,7 @@ epoch, and a sequence of bounded run segments (`actor_processes` and `actor_proc
   write that does not continue the checkpoint, and it moves the checkpoint itself.
 - Decision: at most 64 segments a process.
 - The only objective today is the `fixture-tally` fixture. Only the native test entry calls it.
-- Schedules, subscriptions and heartbeats are later Wave 5 work.
+- Proactive activations use the same turn fiber, as described below.
 
 ## Proof and fault injection
 
@@ -164,6 +164,59 @@ for each turn and phase. Production has no such hook. The journey proves these c
 
 ## Known gaps
 
-A turn is resumed only by one of the paths above. If an owner lost its local storage and the
-participant never calls again, the turn stays open, and so does its run. Wave 5's scheduled
-reconciliation of actor owners (RW-0503's schedules and subscriptions) closes this gap.
+Local owner recovery does not claim hosted delivery, deployment or eviction qualification.
+An owner that loses all local storage needs a subsequent routed call to rebuild its alarm;
+PostgreSQL retains its configuration, activation decisions and turn checkpoints.
+
+## Proactive activation
+
+The authenticated Runtime HTTP API exposes three POST routes, each with a JSON body containing
+`version: 1`, `scope` (the existing browser scope) and `actorId`:
+
+- `/v1/runtime/activations/configure` additionally takes `configuration` and `policy`.
+- `/v1/runtime/activations/wake` additionally takes `wake`.
+- `/v1/runtime/activations/inspect` returns the actor's bounded activation evidence, configuration,
+  model reservation count and `nextWakeAt`.
+
+Configuration and explicit wakes require `runtime:world-command`. Inspection requires
+`runtime:world-observe`. All three require the caller's world persona, the `conversation` privacy
+category, matching authorized scope, and an addressable cognitive actor. The caller's identity is
+supplied by authentication, never by the body. A configuration belongs to a conversation session
+of that participant and actor.
+
+A configuration contains `id`, `sessionId`, `kind`, `nextWakeAt` (epoch milliseconds or null),
+`intervalMs` (milliseconds or null, at least 60,000 when set), optional `eventType`, `input`,
+`priority` (0–100), `enabled` and
+`compiledRoutine` (`noop` or `escalate`). The policy contains `allowModel` and `modelBudget`, a
+lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations.
+An opportunity is reserved before model escalation; interrupted model retries reserve another. A wake
+contains `configurationId`, `causalRoot`, `reason` and `evidence`. Its discriminated reason is one
+of Wave 5 §5.2's scheduled intention, subscription, perception, threshold, heartbeat, tool
+completion or operator reasons, with the corresponding reason identifier.
+
+The actor's canonical causal-root key coalesces deliveries before escalation. Deterministic
+compiled routines and policy run before a model opportunity is reserved; a no-op or deferred
+activation records its outcome without opening a model turn. An admitted model activation uses a
+stable message ID in the existing recoverable turn fiber. Inspection preserves its reason, causal
+root, participant attribution, decision and next wake. Configurations and durable deduplication
+receipts are bounded to 64 configurations and 1,000 causal receipts per actor; exhausted
+capacity refuses additional admission rather
+than forgetting an old receipt and risking duplicate execution.
+
+A compiled `noop` decision disables that configuration and clears its next wake, suppressing
+repeated empty opportunities until an operator reconfigures it. Quiet subscription polling uses
+a one-minute cadence; unfinished turns retry after one second, subject to the model budget. These are
+explicit local bounds, rather than continuously running actor processes.
+
+Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
+logic owns evaluation of the physical condition. Event cursors start at the journal head when
+the actor's policy is first configured. Recurring intentions retain their scheduled cadence and
+skip missed opportunities instead of producing an unbounded catch-up burst.
+
+The model boundary rechecks the current policy, compiled decision, membership and fiber lease.
+Recovery after the answer checkpoint reuses the answer. Deferred evidence keeps its causal
+identity and can resume when an operator changes the policy or allowance.
+
+These routes provide the local operator and inspector surface. The activation journey is intended
+for native workerd/PostgreSQL local proof; it does not establish hosted delivery. Wave 5
+qualification and hosted delivery remain separate obligations.

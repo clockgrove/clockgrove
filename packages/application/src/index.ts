@@ -1,5 +1,6 @@
 export { validateWorldBehaviorPack, type WorldBehaviorPack } from "@clockgrove/domain";
 export { canonicalBytes } from "@clockgrove/kernel";
+export * from "./activations.js";
 export * from "./artifact-keys.js";
 export * from "./artifacts.js";
 export * from "./authentication.js";
