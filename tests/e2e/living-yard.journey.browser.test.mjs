@@ -2503,15 +2503,31 @@ it("observes native authorized socket updates and recovery in Chromium", async (
             .press("Enter");
           await talker.viewer.getByRole("button", { name: "Talk", exact: true }).click();
         };
+        // The native owner holds the turn after its first streamed delta, so the reload lands
+        // mid-turn: the tab's pending message is settled from /v1/runtime/turns/status and resent
+        // with the same message ID, which joins the held turn rather than starting another.
+        const stevieOwner = async (fields) => {
+          const { status, body } = await native.request(
+            "/actor-agent",
+            { scope: auth.scope, actorId: "grove.stevie", ...fields },
+            "yard-inspect",
+          );
+          if (status !== 200) throw new Error(JSON.stringify(body));
+        };
+        await stevieOwner({ op: "fault", phase: "hold:model_running:streaming" });
         await openTalk();
         await talker.viewer.getByRole("button", { name: "New conversation", exact: true }).click();
         await talker.viewer.getByLabel("Message", { exact: true }).fill("hello Stevie");
         await talker.viewer.getByRole("button", { name: "Talk privately", exact: true }).click();
-        await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
+        await talker.viewer.getByText("The actor is replying…").waitFor({ timeout: 60_000 });
+        expect(await history.getByText(/Scripted fixture reply/u).count()).toBe(0);
         await talker.viewer.reload();
         await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
         await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
         await openTalk();
+        await talker.viewer.getByText(/^Reply in progress/u).waitFor({ timeout: 60_000 });
+        await stevieOwner({ op: "fault", phase: null });
+        await stevieOwner({ op: "release" });
         await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
         expect(await history.getByText("hello Stevie").count()).toBe(1);
         expect(await history.getByRole("listitem").count()).toBe(2);

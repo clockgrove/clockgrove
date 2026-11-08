@@ -60,8 +60,9 @@ export interface TurnFiberHost {
 }
 
 /**
- * Decision: the inbox remembers the last 256 activations. It only short-cuts a duplicate wakeup;
- * the fiber row's key in PostgreSQL is what makes a duplicate harmless, so forgetting is safe.
+ * Decision: the inbox remembers the last 256 activations. A duplicate it did not admit joins this
+ * owner's acceptance or run of that message without accepting it again; the fiber row's key in
+ * PostgreSQL is what makes any duplicate harmless, so forgetting an entry is safe.
  */
 export const PERCEPTION_INBOX_LIMIT = 256;
 
@@ -96,6 +97,10 @@ export function activationKey(activation: DirectMessageActivation): string {
 export class TurnFibers {
   private readonly running = new Map<string, Promise<TurnOutcome>>();
   private readonly lanes = new Map<string, Promise<unknown>>();
+  /** Acceptances in flight, by activation key: a duplicate joins one before its run exists. */
+  private readonly accepting = new Map<string, Promise<TurnOutcome>>();
+  /** Turns this owner resumed after a crash, by session. */
+  private readonly recovering = new Map<string, Promise<TurnOutcome>>();
   constructor(private readonly host: TurnFiberHost) {}
 
   /** How many fibers this incarnation is running. */
@@ -103,13 +108,53 @@ export class TurnFibers {
     return this.running.size;
   }
 
-  /** Accepts a Caretaker message and runs its turn, streaming deltas to the first caller only. */
-  async talk(
+  /**
+   * Accepts a Caretaker message and runs its turn, streaming deltas to the first caller only. An
+   * activation the perception inbox did not admit (a duplicate) joins this owner's acceptance or
+   * run of that message without accepting it again; one this owner is not handling falls to the
+   * fiber's key in PostgreSQL, which answers its stored receipt or resumes it.
+   */
+  talk(
+    participant: ConversationParticipant,
+    request: TalkRequest,
+    emit: (frame: TalkStreamFrame) => void,
+    admitted = true,
+  ): Promise<TurnOutcome> {
+    const key = activationKey({ kind: "direct_message", ...request });
+    if (!admitted) {
+      const joined = this.accepting.get(key) ?? this.running.get(key);
+      if (joined !== undefined) return joined;
+    }
+    const accepting = this.accept(participant, request, emit);
+    this.accepting.set(key, accepting);
+    void accepting
+      .finally(() => {
+        if (this.accepting.get(key) === accepting) this.accepting.delete(key);
+      })
+      .catch(() => undefined);
+    return accepting;
+  }
+
+  private async accept(
     participant: ConversationParticipant,
     request: TalkRequest,
     emit: (frame: TalkStreamFrame) => void,
   ): Promise<TurnOutcome> {
-    const accepted = await this.store((store) => store.acceptTurn(participant, request));
+    let accepted: Awaited<ReturnType<ConversationStore["acceptTurn"]>>;
+    try {
+      accepted = await this.store((store) => store.acceptTurn(participant, request));
+    } catch (error) {
+      // A turn this owner is resuming after a crash still holds the session: the new message waits
+      // for it, then takes its turn, instead of being refused for a request that already died.
+      const resuming = this.recovering.get(request.sessionId);
+      if (
+        !(error instanceof ConversationRefusedError && error.code === "conversation_busy") ||
+        resuming === undefined
+      )
+        throw error;
+      await resuming.catch(() => undefined);
+      accepted = await this.store((store) => store.acceptTurn(participant, request));
+    }
     if (accepted.receipt !== undefined) return { receipt: accepted.receipt };
     if (accepted.fiber.phase === "accepted")
       await this.host.checkpointed(accepted.fiber, "accepted");
@@ -145,7 +190,16 @@ export class TurnFibers {
     actorId: string,
   ): Promise<number> {
     const open = await this.store((store) => store.openTurns(participant, scope, actorId));
-    for (const fiber of open) void this.activate(participant, fiber).catch(() => undefined);
+    for (const fiber of open) {
+      const resumed = this.activate(participant, fiber);
+      this.recovering.set(fiber.sessionId, resumed);
+      void resumed
+        .finally(() => {
+          if (this.recovering.get(fiber.sessionId) === resumed)
+            this.recovering.delete(fiber.sessionId);
+        })
+        .catch(() => undefined);
+    }
     return open.length;
   }
 
@@ -206,8 +260,14 @@ export class TurnFibers {
         if (fiber.phase !== "completed") await this.host.checkpointed(fiber, fiber.phase);
       }
     } catch (error) {
-      if (!(error instanceof ConversationRefusedError)) throw error;
       const failing = fiber;
+      if (!(error instanceof ConversationRefusedError)) {
+        // The attempt is recorded as failed at once; the turn stays open for its next claim.
+        await this.store((store) => store.abandonAttempt(participant, failing)).catch(
+          () => undefined,
+        );
+        throw error;
+      }
       await this.store((store) => store.endTurn(participant, failing, "failed", error.code));
       return { refused: error.code };
     }

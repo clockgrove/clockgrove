@@ -21,9 +21,11 @@ timeline. The portable half is in `apps/runtime/src/actor-agent.ts`.
 - **Logical session routing.** Each session has its own lane. A session's turns run one after
   another, and other sessions' lanes run at the same time.
 - **Perception inbox.** It keeps a deduplicated set of the last 256 activations, keyed
-  `direct_message:<session>:<message>` (Wave 5 §5.2). A duplicate is not admitted again.
-  Decision: 256 entries. The inbox only short-cuts a duplicate. What makes a duplicate harmless is
-  the turn's key in PostgreSQL, so forgetting an entry is safe.
+  `direct_message:<session>:<message>` (Wave 5 §5.2). A duplicate is not admitted again: a Talk
+  the inbox did not admit joins the owner's acceptance or run of that message without accepting it
+  again. One the owner is not handling falls to the turn's key in PostgreSQL, which answers the
+  stored receipt or resumes the turn. Decision: 256 entries. What makes any duplicate harmless is
+  that key, so forgetting an entry is safe.
 - **Capability revision hook.** `reconcileCapabilities(revision)` records the newest revision, and
   the revision only moves forward. Each later claim of a turn stores the revision it ran under
   (`capability_revision`). RW-0506 will announce grant changes through this hook.
@@ -94,7 +96,9 @@ turn at once. These paths resume a turn:
 - A Talk retry with the same message ID, which joins the running fiber or resumes it.
 
 Within one incarnation, an activation that is already running joins that run instead of starting
-another. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
+another. A new message of a session whose turn this owner is resuming after a crash waits for that
+turn to settle, then takes its turn, so a member's next message after a dead request is not
+refused. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
 whose accepted message started the turn.
 
 ## Streaming, status and cancel

@@ -1236,13 +1236,13 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<ReadableStream<Uint8Array>> {
     await this.ready(scope, context, actorId);
     await this.recoverOnce(scope, participant, actorId);
-    await this.receivePerception({ kind: "direct_message", ...request });
+    const { admitted } = await this.receivePerception({ kind: "direct_message", ...request });
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
     const write = (frame: TalkStreamFrame) =>
       void writer.write(encodeTalkFrame(frame)).catch(() => undefined);
     const done = this.fibers(scope, actorId)
-      .talk(participant, request, write)
+      .talk(participant, request, write, admitted)
       .then(async (outcome) => {
         write(
           outcome.receipt !== undefined

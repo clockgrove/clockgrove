@@ -93,6 +93,13 @@ type ConversationEndpoint =
   | "/v1/runtime/conversations/title"
   | "/v1/runtime/turns/status";
 
+/**
+ * Decision: up to 3 resends (4 attempts) of an interrupted Talk. An interruption means the owner was
+ * lost, and a Durable Object's next incarnation takes the turn over at once, so the first resend
+ * normally settles it; each attempt moves the turn past at least one checkpoint, so 3 covers losses
+ * at successive phases. Only `503 turn_interrupted` or a stream without a final frame is resent;
+ * after the last, the turn is left to the reopen path, which settles it from its durable status.
+ */
 const MAX_TALK_RESENDS = 3;
 
 interface PendingTurn {
@@ -738,7 +745,7 @@ export class YardSession {
         const receipt = response.status === 200 ? tryDecode(decodeTalkReceipt, json) : undefined;
         if (receipt) return { kind: "receipt", status: 200, receipt };
         const error = (json as { error?: unknown } | undefined)?.error;
-        if (response.status === 503 || error === "turn_interrupted") return { kind: "interrupted" };
+        if (error === "turn_interrupted") return { kind: "interrupted" };
         return {
           kind: "refused",
           status: response.status,

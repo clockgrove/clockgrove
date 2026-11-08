@@ -152,11 +152,17 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ),
       ).toBe("2/1/1");
 
-      // A session's turns are ordered: while one is open, another message waits its turn. Other
-      // sessions are unaffected, and run concurrently.
+      // A session's turns are ordered: while one runs, another message of it is refused busy, and
+      // other sessions' turns run concurrently.
       const ordered = await open();
-      await agent({ op: "fault", phase: "model_running:streaming" });
-      expect((await talk(ordered, "o1")).status).toBe(503);
+      await agent({ op: "fault", phase: "hold:context_ready" });
+      const holding = talk(ordered, "o1");
+      await expect
+        .poll(
+          async () =>
+            (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o1" })).body,
+        )
+        .toMatchObject({ phase: "context_ready" });
       await agent({ op: "fault", phase: null });
       expect(await talk(ordered, "o2")).toEqual({
         status: 409,
@@ -164,14 +170,23 @@ it.skipIf(!isNativeWorldOwnerChild())(
       });
       const [left, right] = await Promise.all([talk(await open(), "c1"), talk(await open(), "c1")]);
       expect([left.status, right.status]).toEqual([200, 200]);
-      // The participant's next call to the owner resumes the open turn from PostgreSQL.
-      await expect
-        .poll(
-          async () =>
-            (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o1" })).body,
-        )
-        .toMatchObject({ phase: "completed", attempt: 2 });
-      expect((await talk(ordered, "o2")).status).toBe(200);
+      await agent({ op: "release" });
+      expect((await holding).status).toBe(200);
+      // A message sent after a crashed turn waits for the owner to resume that turn, then follows it.
+      await agent({ op: "fault", phase: "model_running:streaming" });
+      expect((await talk(ordered, "o3")).status).toBe(503);
+      await agent({ op: "fault", phase: null });
+      const following = await talk(ordered, "o4");
+      expect(following.status).toBe(200);
+      expect(
+        await rows(
+          `SELECT string_agg(message_id || '@' || sequence, ',' ORDER BY sequence)
+             FROM clockgrove.conversation_messages WHERE session_id = '${ordered}'`,
+        ),
+      ).toBe("o1@1,o1:reply@2,o3@3,o3:reply@4,o4@5,o4:reply@6");
+      expect(
+        (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o3" })).body,
+      ).toMatchObject({ phase: "completed", attempt: 2 });
 
       // Cancel stops a running turn before it commits; a committed turn's status does not change.
       const cancelled = await open();

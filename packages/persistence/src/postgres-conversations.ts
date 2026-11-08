@@ -473,6 +473,15 @@ export class PostgreSqlConversationStore implements ConversationStore {
     );
   }
 
+  async abandonAttempt(participant: ConversationParticipant, fiber: TurnFiber): Promise<void> {
+    const runId = fiber.runId;
+    if (runId === null) return;
+    // Closing only a running run, this is a no-op once a later claim has closed it.
+    await this.transaction(participant, () =>
+      this.runs.close(fiber.scope.tenantId, runId, "abandoned", "attempt_failed"),
+    );
+  }
+
   async turnReceipt(participant: ConversationParticipant, fiber: TurnFiber): Promise<TalkReceipt> {
     const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
     const receipt = await this.retried(participant, stored, fiber.messageId);

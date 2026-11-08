@@ -60,8 +60,9 @@ messages and the turn. Nothing reaches the scene, the scene stream or the journa
 the turn's key, and the answer's ID is the message ID followed by `:reply`, so a client message ID
 ending in `:reply` is refused as a bad request. A retry or duplicate delivery of the same message
 joins, resumes or answers the same turn and never adds a message; other text under the same ID
-answers `409 message_id_reused`. While another turn of the session is open, a new message answers
-`409 conversation_busy`. Talk can stream its reply, and a turn can be read and cancelled: see
+answers `409 message_id_reused`. While another turn of the session is running, a new message answers
+`409 conversation_busy`; a turn its owner is resuming after a crash is waited for instead, so the
+next message follows it. Talk can stream its reply, and a turn can be read and cancelled: see
 [recoverable turn fibers](conversation-fibers.md).
 
 `/v1/runtime/say` (`actorId`, `messageId`, `text`) returns a `public_say` receipt. Its

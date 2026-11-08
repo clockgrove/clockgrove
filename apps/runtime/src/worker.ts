@@ -948,8 +948,9 @@ export class RuntimeWorker {
   /**
    * A call its session's actor owner answers. Talk streams NDJSON when the client asks for it with
    * `Accept: application/x-ndjson`; otherwise it answers the stream's last frame as JSON. An owner
-   * that fails before the outcome answers `503 turn_interrupted`: the turn is durable, so the same
-   * message ID resumes it.
+   * lost before the outcome (its stream ends early, or the platform reports the object reset or
+   * disconnected) answers `503 turn_interrupted`: the turn is durable, so the same message ID
+   * resumes it. Every other owner error falls through to the route's error mapping.
    */
   private async turn(
     request: Request,
@@ -969,7 +970,10 @@ export class RuntimeWorker {
     let answer: Awaited<ReturnType<typeof owner.run>>;
     try {
       answer = await owner.run(owners, actorId, participant, context);
-    } catch {
+    } catch (error) {
+      // Only a lost owner (reset, evicted or disconnected) interrupts the turn; any other failure
+      // keeps the route's own error mapping.
+      if (!ownerInterrupted(error)) throw error;
       note.outcome = "unavailable";
       return jsonResponse({ error: "turn_interrupted" }, 503);
     }
@@ -1578,4 +1582,14 @@ function worldResult(
 
 function worldResultStatus(result: WorldCommandResult): number {
   return result.outcome === "committed" ? 200 : result.value.status === "denied" ? 403 : 409;
+}
+
+/**
+ * Whether a Durable Object call failed because its object was lost, not because it refused: the
+ * platform marks such errors `retryable` (disconnected) or `durableObjectReset` (reset or aborted).
+ */
+function ownerInterrupted(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const marks = error as { readonly retryable?: unknown; readonly durableObjectReset?: unknown };
+  return marks.retryable === true || marks.durableObjectReset === true;
 }

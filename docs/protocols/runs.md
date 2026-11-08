@@ -64,10 +64,16 @@ The attempt names its own disposition:
 | --- | --- | --- |
 | `completed` | its turn committed | none |
 | `failed` | a refusal after the run opened, such as the session closing before the commit | the refusal code |
+| `abandoned` | an unexpected error ended the attempt; its turn stays open for the next claim | `attempt_failed` |
 | `abandoned` | a later claim of its turn found it open: its owner incarnation was evicted or crashed | `owner_lost` |
 | `cancelled` | its turn was cancelled before committing | `cancel_requested` |
 | `superseded` | reserved; no producer since turn fibers | none |
 | `running` (no disposition yet) | its turn has not been claimed again since its owner was lost | none |
+
+Turn fibers replace the earlier `superseded/retried`, `superseded/message_stored` and
+`abandoned/stale` dispositions: a retry of the same message joins or resumes its turn instead of
+starting a competing attempt, and a lost owner's attempt is closed by the next claim
+(`owner_lost`) instead of by a 60 s timeout.
 
 A late commit of a closed run is refused (`CG020`) and rolls back with its messages, so an abandoned
 or cancelled attempt never commits a message. A claim after the turn committed opens no new run.

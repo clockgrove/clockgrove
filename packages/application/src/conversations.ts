@@ -131,6 +131,11 @@ export interface ConversationStore {
     phase: "completed" | "failed",
     outcomeCode?: string,
   ): Promise<TurnFiber | undefined>;
+  /**
+   * Closes the attempt's run `abandoned` with `attempt_failed` after an unexpected error, leaving
+   * the turn open: its next claim resumes it under a new run.
+   */
+  abandonAttempt(participant: ConversationParticipant, fiber: TurnFiber): Promise<void>;
   /** The committed receipt of a completed turn. */
   turnReceipt(participant: ConversationParticipant, fiber: TurnFiber): Promise<TalkReceipt>;
   turnStatus(participant: ConversationParticipant, request: TurnRequest): Promise<TurnStatus>;
