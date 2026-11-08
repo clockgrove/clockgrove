@@ -72,6 +72,9 @@ requires `ambiguity`; without it the policy keeps its encoding and hash and no s
   request whose margin is at most it) or `{kind: "declared-ambiguity"}` (fires on any planning request the
   `ambiguity` declaration raised). `DECISION_TRIGGER_KINDS` is the closed set.
 - `candidates` is always `"kernel-valid"`: the model chooses among the kernel's eligible candidates and never adds one.
+- `signatureScope` (`"actor"` or `"archetype"`) says whose repeats share a signature, and `marginBuckets`
+  `{noneMax, smallMax}` (bigints, `noneMax < smallMax`) bucket the top-two score gap as `none`, `small` or `large`
+  for it. Both are policy data, never hard-coded.
 - `features` are the feature names shown to the model, sorted and unique, at most 16.
 - `modelAlias` names a configured model alias; the model is configuration, never pack or code.
 - `confidenceThreshold` is an integer from 0 to 10000 basis points; a lower-confidence answer abstains.

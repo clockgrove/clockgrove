@@ -75,6 +75,8 @@ export interface ShadowDecider {
 export interface ShadowSubject {
   readonly commandId: CommandId;
   readonly trace: DecisionTrace;
+  /** The actor's archetype, used by points with `signatureScope: "archetype"` (else the actor id). */
+  readonly archetype?: string;
 }
 
 /**
@@ -100,6 +102,8 @@ export interface DecisionShadowRecord {
   readonly pointId: string;
   readonly requestId: string;
   readonly signature: string;
+  /** Evidence beside the signature: the bucket that went into it. */
+  readonly marginBucket: MarginBucket;
   readonly objectId: string;
   readonly commandId: string;
   readonly simulationTime: string;
@@ -159,18 +163,34 @@ export function matchingDecisionPoint(
   );
 }
 
+export type MarginBucket = "none" | "small" | "large";
+
+/** The top-two score gap bucket under the point's declared boundaries. */
+export function marginBucket(
+  candidates: readonly ShadowCandidate[],
+  buckets: DecisionPointDeclaration["marginBuckets"],
+): MarginBucket {
+  const scores = candidates
+    .map((candidate) => BigInt(candidate.score))
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  const gap = (scores[0] ?? 0n) - (scores[1] ?? 0n);
+  return gap <= buckets.noneMax ? "none" : gap <= buckets.smallMax ? "small" : "large";
+}
+
 /**
- * Time-independent identity of a decision situation: the point, the actor, the shown features and
- * scores of the valid candidates and the utility choice. The same situation repeats the same value.
+ * Time-independent identity of a decision situation: the point, the actor (or its archetype), the
+ * sorted candidate option ids, the utility choice and the margin bucket. Scores and feature values
+ * drift every tick and stay out of the hash, so a recurring kind of situation repeats the value.
  */
 export function decisionSignature(
   pointId: string,
-  objectId: string,
+  scopeId: string,
   candidates: readonly ShadowCandidate[],
   utilityChoice: string,
+  bucket: MarginBucket,
 ): string {
-  const sorted = [...candidates].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return `sig_${sha256Hex(canonicalBytes(["clockgrove-decision-signature-v1", pointId, objectId, sorted, utilityChoice])).slice(0, 32)}`;
+  const options = candidates.map((candidate) => candidate.key).sort();
+  return `sig_${sha256Hex(canonicalBytes(["clockgrove-decision-signature-v2", pointId, scopeId, options, utilityChoice, bucket])).slice(0, 32)}`;
 }
 
 function shownCandidate(candidate: RoutineCandidate, features: readonly string[]): ShadowCandidate {
@@ -221,7 +241,16 @@ export async function runDecisionShadow(input: {
       schemaVersion: DECISION_SHADOW_RECORD_VERSION,
       pointId: point.id,
       requestId: request.requestId,
-      signature: decisionSignature(point.id, request.objectId, candidates, utilityChoice),
+      marginBucket: marginBucket(candidates, point.marginBuckets),
+      signature: decisionSignature(
+        point.id,
+        point.signatureScope === "archetype"
+          ? (subject.archetype ?? request.objectId)
+          : request.objectId,
+        candidates,
+        utilityChoice,
+        marginBucket(candidates, point.marginBuckets),
+      ),
       objectId: request.objectId,
       commandId: request.commandId,
       simulationTime: request.simulationTime.toString(),

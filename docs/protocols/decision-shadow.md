@@ -22,7 +22,7 @@ With no decider (models off) it returns nothing, so the world runs exactly as wi
 
 `DecisionShadowRecord` is plain JSON: `pointId`, `requestId`, `signature`, `objectId`, `commandId`, `simulationTime` and `policyVersion`; the `trigger` with its margin; `candidates` (`key`, `score`, shown `features`, all as strings); the `utilityChoice` taken; the `shadow` result (`status`, `choice`, `confidenceBp` in basis points, `detail`); the model alias, threshold, `model`, `latencyMs` and `costMicrousd` (null when unknown); and `llm: {status: "not-run"}`, the slot for what an LLM planning request would have chosen once that path runs.
 
-The `signature` hashes the point, the actor, the shown candidates with scores and the utility choice, and not the time, so the same situation repeats the same signature.
+The `signature` hashes the point id, the actor (or its archetype when the point's `signatureScope` is `archetype`), the sorted candidate option ids, the utility choice and the margin bucket (`none`, `small` or `large` for the top-two score gap, with boundaries in the point's `marginBuckets`). Scores, shown features, the model's label, confidence, latency and cost drift per tick, so they stay out of the hash and sit beside it as evidence (with `marginBucket`). A repeat is therefore a recurring kind of situation, not an exact match.
 
 ## Journal
 
@@ -30,7 +30,7 @@ The `signature` hashes the point, the actor, the shown candidates with scores an
 
 ## Report
 
-`decisionShadowReport(records)` gives, per point, decisions, answered, agreed, agreement rate, low-confidence, `cant-tell`, failed, over-budget, total cost, mean and p95 latency; up to ten differing examples; and `review`: signatures seen at least twice whose answers were low-confidence, `cant-tell` or disagreeing, listed apart for human review.
+`decisionShadowReport(records)` gives, per point, decisions, answered, agreed, agreement rate, low-confidence, `cant-tell`, failed, over-budget, total cost, mean and p95 latency; up to ten differing examples; and `review`: signatures seen at least twice where the tier did not simply agree with utility (it disagreed, answered `cant_tell` or fell below the confidence threshold), listed apart for human review.
 
 ## Proof
 

@@ -39,6 +39,8 @@ const decisionPoints = {
       id: "routine.close-call",
       trigger: { kind: "declared-ambiguity" },
       candidates: "kernel-valid",
+      signatureScope: "actor",
+      marginBuckets: { noneMax: 0n, smallMax: 1_000_000n },
       features: ["hunger", "thirst"],
       modelAlias: "shadow.default",
       confidenceThreshold: 6500,

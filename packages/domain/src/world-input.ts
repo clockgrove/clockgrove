@@ -588,6 +588,8 @@ function decisionPointsDeclaration(input: unknown, path: string): DecisionPoints
           "id",
           "trigger",
           "candidates",
+          "signatureScope",
+          "marginBuckets",
           "features",
           "modelAlias",
           "confidenceThreshold",
@@ -598,6 +600,7 @@ function decisionPointsDeclaration(input: unknown, path: string): DecisionPoints
       );
       const trigger = object(point.trigger, ["kind"], `${at}.trigger`, ["maxMargin"]);
       const budget = object(point.budget, ["maxCalls", "maxMicrousd"], `${at}.budget`);
+      const buckets = object(point.marginBuckets, ["noneMax", "smallMax"], `${at}.marginBuckets`);
       return {
         id: point.id,
         trigger:
@@ -608,6 +611,11 @@ function decisionPointsDeclaration(input: unknown, path: string): DecisionPoints
                 maxMargin: decimal(trigger.maxMargin, `${at}.trigger.maxMargin`),
               },
         candidates: point.candidates,
+        signatureScope: point.signatureScope,
+        marginBuckets: {
+          noneMax: decimal(buckets.noneMax, `${at}.marginBuckets.noneMax`),
+          smallMax: decimal(buckets.smallMax, `${at}.marginBuckets.smallMax`),
+        },
         features: list(point.features, `${at}.features`, (feature) => feature),
         modelAlias: point.modelAlias,
         confidenceThreshold: integer(point.confidenceThreshold, `${at}.confidenceThreshold`),

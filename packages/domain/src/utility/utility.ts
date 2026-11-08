@@ -66,6 +66,13 @@ export interface DecisionPointDeclaration {
   readonly trigger: DecisionTrigger;
   /** Always the kernel's valid (eligible) candidate set; the model never adds an option. */
   readonly candidates: "kernel-valid";
+  /** Whose repeats share a signature: the actor itself, or every actor of its archetype. */
+  readonly signatureScope: "actor" | "archetype";
+  /**
+   * Top-two score gap buckets for the repeat signature: a gap up to `noneMax` is `none`, up to
+   * `smallMax` is `small`, anything wider is `large`.
+   */
+  readonly marginBuckets: Readonly<{ noneMax: bigint; smallMax: bigint }>;
   /** Feature names shown to the model, sorted and unique. */
   readonly features: readonly string[];
   /** A configured model alias; the model behind it is configuration, never code. */
@@ -294,6 +301,8 @@ function validateDecisionPoints(value: unknown, path: string): void {
         "id",
         "trigger",
         "candidates",
+        "signatureScope",
+        "marginBuckets",
         "features",
         "modelAlias",
         "confidenceThreshold",
@@ -329,6 +338,20 @@ function validateDecisionPoints(value: unknown, path: string): void {
         `${at}.candidates`,
         'expected "kernel-valid": the model only chooses among valid options',
       );
+    if (record.signatureScope !== "actor" && record.signatureScope !== "archetype")
+      fail(`${at}.signatureScope`, 'expected "actor" or "archetype"');
+    const buckets = exactObject(
+      record.marginBuckets,
+      ["noneMax", "smallMax"],
+      `${at}.marginBuckets`,
+    );
+    for (const key of ["noneMax", "smallMax"] as const) {
+      const bound = buckets[key];
+      if (typeof bound !== "bigint" || bound < 0n || bound > FIXED_POINT_LIMIT)
+        fail(`${at}.marginBuckets.${key}`, "expected a nonnegative fixed-point bigint");
+    }
+    if ((buckets.noneMax as bigint) >= (buckets.smallMax as bigint))
+      fail(`${at}.marginBuckets`, "noneMax must be below smallMax");
     const features = record.features;
     if (
       !Array.isArray(features) ||
