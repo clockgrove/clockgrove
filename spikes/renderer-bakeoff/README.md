@@ -101,3 +101,12 @@ For the last, it opens `index.html?drive=1` from `file://`. In that mode the pag
 exposes `window.bakeoffDrive` (`open`, `setReducedMotion`, and `frameAt` and `step`, which return
 the frame's capture), so the test steps the page clock by a fixed amount and compares two captures: identical with
 reduced motion on, different with it off. It also checks the dumped-DOM path from `file://`.
+
+## 3D Stevie (issue 77)
+
+A second page, `stevie.html` (`src/stevie/`), draws Stevie as real-time 3D, 2D sheet sprites and 3D rendered to
+sprites in this same lit slice, with `scripts/generate.mjs` and `scripts/ship.mjs` producing the git-ignored models.
+
+Subsystem contracts:
+
+- [3D Stevie spike](docs/stevie-3d.md): the arms, shots, generation, ship step, maintainer steps and CI check.

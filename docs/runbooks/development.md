@@ -176,6 +176,23 @@ under the unchanged release-age and supply-chain policy. No product package depe
 types it with a local `declare module` shim instead of `@types/three`, whose dependency closure a
 spike does not need.
 
+Issue 77 added the 3D Stevie spike's ship tools (`spikes/renderer-bakeoff/scripts/ship.mjs`) as exact
+devDependencies of the throwaway `spikes/renderer-bakeoff` workspace package only, resolved on `2026-11-08` through
+pnpm under the unchanged release-age, provenance, build and licence controls. No product package depends on them.
+`sharp` runs no install script: its prebuilt `@img/sharp-*` binaries are optional dependencies, and the lockfile
+already carried `sharp` 0.35.5 through the `miniflare` override. The Khronos validator publishes only `-dev`
+versions on npm; `2.0.0-dev.3.10` is its newest.
+
+| Official package | Exact selection | Publication time (UTC) | License |
+| --- | --- | --- | --- |
+| [@gltf-transform/core](https://registry.npmjs.org/%40gltf-transform%2Fcore) | `4.5.1` | `2026-09-28T12:51:13.194Z` | MIT |
+| [@gltf-transform/extensions](https://registry.npmjs.org/%40gltf-transform%2Fextensions) | `4.5.1` | `2026-09-28T12:48:44.869Z` | MIT |
+| [@gltf-transform/functions](https://registry.npmjs.org/%40gltf-transform%2Ffunctions) | `4.5.1` | `2026-09-28T12:49:17.189Z` | MIT |
+| [meshoptimizer](https://registry.npmjs.org/meshoptimizer) | `1.3.0` | `2026-09-25T15:42:07.109Z` | MIT |
+| [gltf-validator](https://registry.npmjs.org/gltf-validator) | `2.0.0-dev.3.10` | `2024-10-22T14:21:47.401Z` | Apache-2.0 |
+| [ktx2-encoder](https://registry.npmjs.org/ktx2-encoder) | `0.6.0` | `2026-07-19T12:09:02.909Z` | MIT |
+| [sharp](https://registry.npmjs.org/sharp) | `0.35.5` | `2026-09-27T13:46:24.509Z` | Apache-2.0 |
+
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
 cutoff. Vite 8.3.2 is selected without a workspace policy exception.
 

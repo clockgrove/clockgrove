@@ -27,7 +27,7 @@ const SOURCES = {
   "three-webgpu": ["src/candidates/three.ts", "src/candidates/three-webgpu.ts"],
 };
 /** Renderer strings of software rasterisers: their numbers prove correctness, never performance. */
-const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|software|microsoft basic render/iu;
+export const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|software|microsoft basic render/iu;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json" };
 /** Decision: 20 minutes covers 3 candidates × 6 runs × 190 frames at SwiftShader's ~0.3 s a frame. */
 const DEFAULT_TIMEOUT_MS = 1_200_000;
@@ -102,7 +102,7 @@ async function servePage(options, launch) {
 }
 
 /** The CLI's launcher: spawns any Chromium-family executable headless, its stderr kept for errors. */
-function spawnLauncher(executable, extra) {
+export function spawnLauncher(executable, extra) {
   return async (url) => {
     const profile = extra.some((arg) => arg.startsWith("--user-data-dir"))
       ? undefined
