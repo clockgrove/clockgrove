@@ -27,7 +27,7 @@ env:
   FACTORY_MAX_USD: 25
   FACTORY_TIMEOUT_MINUTES: 300 # under 360 on hosted runners; mirrored in timeout-minutes below
   FACTORY_AUTO_MERGE: "true"
-  FACTORY_NOTIFY: kirkmarple-clockgrove
+  FACTORY_NOTIFY: kirkmarple-clockgrove#318831919 # login#id: the id pins the account (setup writes it)
   FACTORY_SETUP: corepack enable && scripts/ci/toolchain.sh postgresql pgvector
   FACTORY_INSTALL: pnpm install --frozen-lockfile --ignore-scripts && scripts/ci/toolchain.sh browser # auto (from the lockfile), none, or your own command
   # pnpm check runs alone first (pnpm test reruns its turbo check tasks); the rest are independent and run together in local mode.
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs: { issues: "${{ steps.f.outputs.issues }}", count: "${{ steps.f.outputs.count }}" }
     steps:
-      - uses: clockgrove/factory@v0.7.70
+      - uses: clockgrove/factory@v0.7.83
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   work:
@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.70
+      - uses: clockgrove/factory@v0.7.83
         id: f
         with:
           mode: work
@@ -81,6 +81,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }} # Claude; empty with federation
           codex_api_key: ${{ secrets.CODEX_API_KEY }} # Codex; reaches the harness step only
           copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }} # Copilot; a Copilot Requests token, else the job token bills (copilot-requests: write)
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass; empty turns it off
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }} # Claude federation (with id-token: write above)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # credential: plan only; your own repository only
       - uses: actions/upload-artifact@v7
@@ -102,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.70
+      - uses: clockgrove/factory@v0.7.83
         id: f
         with:
           mode: review
@@ -113,6 +114,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           codex_api_key: ${{ secrets.CODEX_API_KEY }}
           copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass; empty turns it off
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       - uses: actions/upload-artifact@v7
