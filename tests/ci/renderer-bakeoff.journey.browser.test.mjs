@@ -43,6 +43,14 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
   // The pinned Chromium (scripts/ci/toolchain.sh browser), launched as the other browser journeys
   // launch it; a browser that cannot start fails here with Playwright's own error.
   const browser = await chromium.launch({ headless: true, args: SWIFTSHADER });
+  const consoleErrors = [];
+  const listen = (tab) => {
+    tab.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning")
+        consoleErrors.push(`${message.type()}: ${message.text()}`.slice(0, 300));
+    });
+    tab.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`.slice(0, 300)));
+  };
   try {
     // The measurement script serves dist/ and opens its page in that browser.
     const record = await measure({
@@ -54,6 +62,7 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
       timeoutMs: 540_000,
       launch: async (url) => {
         const tab = await browser.newPage();
+        listen(tab);
         const failed = new Promise((resolve) => {
           tab.on("crash", () => resolve("the page crashed"));
           browser.on("disconnected", () => resolve("the browser disconnected"));
@@ -71,6 +80,7 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
     expect(record.candidates.map((c) => c.candidate)).toEqual(CANDIDATES);
 
     const page = await browser.newPage();
+    listen(page);
     // The page from a file:// URL, the owner's Edge path, with the clock driven from here.
     const index = pathToFileURL(path.join(spike, "dist", "index.html"));
     await page.goto(`${index}?drive=1`);
@@ -148,7 +158,18 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
       };
     }
     // One comparison, so a failure shows every candidate's every property at once.
-    expect(summary).toEqual(expected);
+    // Recorded, not asserted: each candidate's API and renderer, and the pages' console errors, so a
+    // failure in CI (whose logs a sandboxed worker cannot read) explains itself in its annotation.
+    const context = record.candidates.map((c) => ({
+      candidate: c.candidate,
+      api: c.description?.api,
+      renderer: c.description?.rendererString,
+      webgpuAdapter: c.description?.webgpuAdapter,
+    }));
+    expect(
+      summary,
+      JSON.stringify({ context, device: record.device, consoleErrors }).slice(0, 6_000),
+    ).toEqual(expected);
 
     // The same page from file://, its record read back from the DOM and through the script.
     await page.goto(`${index}?candidates=phaser&frames=2&warmup=1&rafFrames=1`);
