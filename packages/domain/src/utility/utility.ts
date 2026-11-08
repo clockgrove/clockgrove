@@ -17,6 +17,17 @@ export const AMBIGUITY_CONDITION_KINDS = Object.freeze([
   "score-margin",
   "unperceived-target",
 ] as const);
+export const DECISION_POINTS_VERSION = 1;
+export const MAX_DECISION_POINTS = 8;
+export const MAX_DECISION_POINT_FEATURES = 16;
+/** The closed set of decision-point triggers. */
+export const DECISION_TRIGGER_KINDS = Object.freeze([
+  "declared-ambiguity",
+  "score-margin",
+] as const);
+const DECISION_POINT_ID = /^[a-z][a-z0-9.-]{0,63}$/;
+const DECISION_MODEL_ALIAS = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/;
+const DECISION_FEATURE = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
 const MAX_SIM_TIME = (1n << 63n) - 1n;
 
 export type AmbiguityConditionKind = (typeof AMBIGUITY_CONDITION_KINDS)[number];
@@ -35,6 +46,41 @@ export interface AmbiguityDeclaration {
   readonly schemaVersion: 1;
   /** One condition per kind at most, sorted by kind. */
   readonly conditions: readonly AmbiguityCondition[];
+}
+
+/**
+ * When a decision point fires on a planning request: `score-margin` when the request's margin is
+ * within `maxMargin`; `declared-ambiguity` on any request the ambiguity declaration raised.
+ */
+export type DecisionTrigger =
+  | Readonly<{ kind: "score-margin"; maxMargin: bigint }>
+  | Readonly<{ kind: "declared-ambiguity" }>;
+
+/**
+ * One decision-model decision point (the decision ladder's fourth tier). It runs in shadow mode
+ * only: the model picks among the kernel's own valid candidates beside the utility choice and
+ * never changes it. `fallback` is the deterministic choice taken whenever the model abstains.
+ */
+export interface DecisionPointDeclaration {
+  readonly id: string;
+  readonly trigger: DecisionTrigger;
+  /** Always the kernel's valid (eligible) candidate set; the model never adds an option. */
+  readonly candidates: "kernel-valid";
+  /** Feature names shown to the model, sorted and unique. */
+  readonly features: readonly string[];
+  /** A configured model alias; the model behind it is configuration, never code. */
+  readonly modelAlias: string;
+  /** Basis points, 0..10000: a pick below it abstains to the fallback. */
+  readonly confidenceThreshold: number;
+  /** Per run: at most `maxCalls` model calls and `maxMicrousd` of spend. */
+  readonly budget: Readonly<{ maxCalls: number; maxMicrousd: number }>;
+  readonly fallback: "utility-top-pick";
+}
+
+export interface DecisionPointsDeclaration {
+  readonly schemaVersion: 1;
+  /** One to `MAX_DECISION_POINTS`, sorted by unique id. */
+  readonly points: readonly DecisionPointDeclaration[];
 }
 
 /**
@@ -63,6 +109,8 @@ export interface UtilityPolicy {
   readonly thirstReliefPerUnit: number;
   /** Optional: absent keeps the canonical encoding and emits no planning request. */
   readonly ambiguity?: AmbiguityDeclaration;
+  /** Optional, requires `ambiguity`: absent keeps the canonical encoding and runs no shadow tier. */
+  readonly decisionPoints?: DecisionPointsDeclaration;
 }
 
 export type ScriptedKind = "belief" | "memory";
@@ -166,6 +214,8 @@ export function validateUtilityPolicy(
 ): asserts value is UtilityPolicy {
   const hasAmbiguity =
     value !== null && typeof value === "object" && Object.hasOwn(value, "ambiguity");
+  const hasPoints =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "decisionPoints");
   const root = exactObject(
     value,
     [
@@ -181,6 +231,7 @@ export function validateUtilityPolicy(
       "hungerReliefPerUnit",
       "thirstReliefPerUnit",
       ...(hasAmbiguity ? ["ambiguity"] : []),
+      ...(hasPoints ? ["decisionPoints"] : []),
     ],
     path,
   );
@@ -204,6 +255,104 @@ export function validateUtilityPolicy(
   for (const key of ["hungerReliefPerUnit", "thirstReliefPerUnit"] as const)
     basisPoints(root[key], `${path}.${key}`, 1);
   if (hasAmbiguity) validateAmbiguityDeclaration(root.ambiguity, `${path}.ambiguity`);
+  if (hasPoints) {
+    if (!hasAmbiguity)
+      fail(`${path}.decisionPoints`, "decision points require an ambiguity declaration");
+    validateDecisionPoints(root.decisionPoints, `${path}.decisionPoints`);
+  }
+}
+
+function boundedInteger(value: unknown, path: string, minimum: number, maximum: number): void {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    Object.is(value, -0) ||
+    value < minimum ||
+    value > maximum
+  )
+    fail(path, `expected an integer from ${minimum} through ${maximum}`);
+}
+
+/** Validates an untrusted decision-points declaration; throws `UtilityValidationError`. */
+function validateDecisionPoints(value: unknown, path: string): void {
+  const root = exactObject(value, ["schemaVersion", "points"], path);
+  if (root.schemaVersion !== DECISION_POINTS_VERSION)
+    fail(`${path}.schemaVersion`, "unsupported decision points schema version");
+  const points = root.points;
+  if (!Array.isArray(points) || Object.getPrototypeOf(points) !== Array.prototype)
+    return fail(`${path}.points`, "expected an array");
+  if (Reflect.ownKeys(points).length !== points.length + 1)
+    return fail(`${path}.points`, "expected a dense array");
+  if (points.length === 0 || points.length > MAX_DECISION_POINTS)
+    return fail(`${path}.points`, `expected one to ${MAX_DECISION_POINTS} points`);
+  let previous: string | undefined;
+  for (const [index, point] of (points as unknown[]).entries()) {
+    const at = `${path}.points[${index}]`;
+    const record = exactObject(
+      point,
+      [
+        "id",
+        "trigger",
+        "candidates",
+        "features",
+        "modelAlias",
+        "confidenceThreshold",
+        "budget",
+        "fallback",
+      ],
+      at,
+    );
+    const id = record.id;
+    if (typeof id !== "string" || !DECISION_POINT_ID.test(id))
+      fail(`${at}.id`, "expected a lowercase identifier of at most 64 characters");
+    if (previous !== undefined && (id as string) <= previous)
+      fail(`${at}.id`, "points must be unique and sorted by id");
+    previous = id as string;
+    const kind: unknown =
+      typeof record.trigger === "object" && record.trigger !== null
+        ? Object.getOwnPropertyDescriptor(record.trigger, "kind")?.value
+        : undefined;
+    if (!DECISION_TRIGGER_KINDS.includes(kind as never))
+      fail(`${at}.trigger.kind`, "unsupported decision trigger");
+    const trigger = exactObject(
+      record.trigger,
+      kind === "score-margin" ? ["kind", "maxMargin"] : ["kind"],
+      `${at}.trigger`,
+    );
+    if (kind === "score-margin") {
+      const margin = trigger.maxMargin;
+      if (typeof margin !== "bigint" || margin < 0n || margin > FIXED_POINT_LIMIT)
+        fail(`${at}.trigger.maxMargin`, "expected a nonnegative fixed-point bigint");
+    }
+    if (record.candidates !== "kernel-valid")
+      fail(
+        `${at}.candidates`,
+        'expected "kernel-valid": the model only chooses among valid options',
+      );
+    const features = record.features;
+    if (
+      !Array.isArray(features) ||
+      Object.getPrototypeOf(features) !== Array.prototype ||
+      Reflect.ownKeys(features).length !== features.length + 1 ||
+      features.length === 0 ||
+      features.length > MAX_DECISION_POINT_FEATURES
+    )
+      fail(`${at}.features`, `expected one to ${MAX_DECISION_POINT_FEATURES} feature names`);
+    (features as unknown[]).forEach((feature, featureIndex, all) => {
+      if (typeof feature !== "string" || !DECISION_FEATURE.test(feature))
+        fail(`${at}.features[${featureIndex}]`, "expected a feature name");
+      if (featureIndex > 0 && (feature as string) <= (all[featureIndex - 1] as string))
+        fail(`${at}.features[${featureIndex}]`, "features must be unique and sorted");
+    });
+    if (typeof record.modelAlias !== "string" || !DECISION_MODEL_ALIAS.test(record.modelAlias))
+      fail(`${at}.modelAlias`, "expected a model alias");
+    boundedInteger(record.confidenceThreshold, `${at}.confidenceThreshold`, 0, 10_000);
+    const budget = exactObject(record.budget, ["maxCalls", "maxMicrousd"], `${at}.budget`);
+    boundedInteger(budget.maxCalls, `${at}.budget.maxCalls`, 1, 1_000_000);
+    boundedInteger(budget.maxMicrousd, `${at}.budget.maxMicrousd`, 1, 1_000_000_000);
+    if (record.fallback !== "utility-top-pick")
+      fail(`${at}.fallback`, 'expected "utility-top-pick"');
+  }
 }
 
 /** Validates an untrusted ambiguity declaration; throws `UtilityValidationError`. */

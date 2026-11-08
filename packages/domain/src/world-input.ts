@@ -16,6 +16,8 @@ import {
 import type {
   AmbiguityCondition,
   AmbiguityDeclaration,
+  DecisionPointDeclaration,
+  DecisionPointsDeclaration,
   ScriptedCognitionState,
   UtilityPolicy,
 } from "./utility/utility.js";
@@ -545,7 +547,7 @@ function utilityPolicy(input: unknown, path: string): UtilityPolicy {
       "thirstReliefPerUnit",
     ],
     path,
-    ["ambiguity"],
+    ["ambiguity", "decisionPoints"],
   );
   version(raw, path);
   if (raw.scorer !== "clockgrove.routine-utility") fail(`${path}.scorer`, "unsupported scorer");
@@ -565,6 +567,57 @@ function utilityPolicy(input: unknown, path: string): UtilityPolicy {
     ...(raw.ambiguity === undefined
       ? {}
       : { ambiguity: ambiguityDeclaration(raw.ambiguity, `${path}.ambiguity`) }),
+    ...(raw.decisionPoints === undefined
+      ? {}
+      : {
+          decisionPoints: decisionPointsDeclaration(raw.decisionPoints, `${path}.decisionPoints`),
+        }),
+  };
+}
+
+/** Decodes the JSON shape (`maxMargin` as a decimal string); `validateUtilityPolicy` checks bounds. */
+function decisionPointsDeclaration(input: unknown, path: string): DecisionPointsDeclaration {
+  const raw = object(input, ["schemaVersion", "points"], path);
+  version(raw, path);
+  return {
+    schemaVersion: 1,
+    points: list(raw.points, `${path}.points`, (value, at) => {
+      const point = object(
+        value,
+        [
+          "id",
+          "trigger",
+          "candidates",
+          "features",
+          "modelAlias",
+          "confidenceThreshold",
+          "budget",
+          "fallback",
+        ],
+        at,
+      );
+      const trigger = object(point.trigger, ["kind"], `${at}.trigger`, ["maxMargin"]);
+      const budget = object(point.budget, ["maxCalls", "maxMicrousd"], `${at}.budget`);
+      return {
+        id: point.id,
+        trigger:
+          trigger.maxMargin === undefined
+            ? { kind: trigger.kind }
+            : {
+                kind: trigger.kind,
+                maxMargin: decimal(trigger.maxMargin, `${at}.trigger.maxMargin`),
+              },
+        candidates: point.candidates,
+        features: list(point.features, `${at}.features`, (feature) => feature),
+        modelAlias: point.modelAlias,
+        confidenceThreshold: integer(point.confidenceThreshold, `${at}.confidenceThreshold`),
+        budget: {
+          maxCalls: integer(budget.maxCalls, `${at}.budget.maxCalls`),
+          maxMicrousd: integer(budget.maxMicrousd, `${at}.budget.maxMicrousd`),
+        },
+        fallback: point.fallback,
+      } as DecisionPointDeclaration;
+    }),
   };
 }
 
