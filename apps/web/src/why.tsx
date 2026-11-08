@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
-import type { YardSession } from "./yard-api.js";
-import { useWhyQuery } from "./yard-queries.js";
+import type { SceneSession } from "./scene-api.js";
+import { useWhyQuery } from "./scene-queries.js";
 
 /** The control that opened the Why, so closing it returns focus there. */
 export const whyOpener: { current: HTMLElement | null } = { current: null };
 
-export function RecordedWhyPanel({ session }: { readonly session: YardSession }) {
+export function RecordedWhyPanel({ session }: { readonly session: SceneSession }) {
   const why = useWhyQuery(session);
   const heading = useRef<HTMLHeadingElement>(null);
   const open = why.status !== "none";

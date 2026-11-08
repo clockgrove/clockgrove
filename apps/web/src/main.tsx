@@ -1,15 +1,20 @@
 /// <reference types="vite/client" />
+
 import { createRoot } from "react-dom/client";
 import { localSessionAuthentication } from "./api.js";
 import { ShellErrorBoundary } from "./recovery.js";
-import { RaccoonWorldApp } from "./yard.js";
-import "./raccoon-world.css";
+import { WorldApp } from "./scene.js";
+import { worldShell } from "./shell.js";
+import "./world-shell.css";
+
+for (const [name, value] of Object.entries(worldShell.tokens))
+  document.documentElement.style.setProperty(name, value);
 
 const element = document.getElementById("root");
 if (!element) throw new Error("missing application root");
 // Credentials are verified through the ordinary runtime authentication port, never in the browser.
 createRoot(element).render(
   <ShellErrorBoundary>
-    <RaccoonWorldApp authentication={localSessionAuthentication} />
+    <WorldApp authentication={localSessionAuthentication} />
   </ShellErrorBoundary>,
 );

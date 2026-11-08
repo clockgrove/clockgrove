@@ -1,7 +1,7 @@
 import * as scene from "@clockgrove/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import { SceneProjectionClient } from "../src/projection.js";
-import { emptyYard, yardStatusText } from "../src/yard-projection.js";
+import { emptyScene, sceneStatusText } from "../src/scene-projection.js";
 import { later, scope, snapshot } from "./convergence-fixture.js";
 import { sceneSocket } from "./scene-socket-fixture.js";
 
@@ -82,7 +82,7 @@ it("commits before notification and fences retired transport work", async () => 
   expect(losses.length).toBe(6);
   random.mockRestore();
   await bounded.disconnect();
-  expect(yardStatusText({ ...emptyYard, status: "Authorization lost" })).toBe(
+  expect(sceneStatusText({ ...emptyScene, status: "Authorization lost" })).toBe(
     "unavailable. Authorization lost",
   );
 });

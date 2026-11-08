@@ -60,7 +60,11 @@ import {
   isNestedTarget,
   sceneHierarchyOf,
 } from "./scene-navigation.js";
-import { sceneEffects, scenePresentationBindings } from "./scene-presentation.js";
+import {
+  type ScenePresentationInput,
+  sceneEffects,
+  scenePresentationBindings,
+} from "./scene-presentation.js";
 import { assertWorldCommandContext, PostgreSqlCommandOwner } from "./world-commands.js";
 
 /** Request-owned current-state reads. This projection never copies a world document to the wire. */
@@ -448,7 +452,10 @@ const SCENE_BACKFILL_EVENT_TYPES: ReadonlySet<string> = new Set([
 
 /** Request-owned PostgreSQL recovery; no patch cache or additional durable projection. */
 export class PostgreSqlSceneStreamReader {
-  constructor(private readonly client: PostgreSqlClient) {}
+  constructor(
+    private readonly client: PostgreSqlClient,
+    private readonly presentations: readonly ScenePresentationInput[] = [],
+  ) {}
 
   async read(
     attachment: SceneConnectionAttachment,
@@ -466,7 +473,13 @@ export class PostgreSqlSceneStreamReader {
     const audienceHash = decision.hash;
     const projected = new Set(scene.entities.map((entity) => entity.objectId));
     const privateCognition = privateCognitionOf(stored.document.state, decision, projected);
-    const effects = sceneEffects(stored, stored.document.state, scene.frames, projected);
+    const effects = sceneEffects(
+      stored,
+      stored.document.state,
+      scene.frames,
+      projected,
+      this.presentations,
+    );
     const projection = decodeSceneProjection({
       tenantId: scene.tenantId,
       worldId: scene.worldId,
@@ -488,6 +501,7 @@ export class PostgreSqlSceneStreamReader {
         stored,
         stored.document.state.entities,
         projected,
+        this.presentations,
       ),
       interactions: interactionsOf(
         stored.document.state,

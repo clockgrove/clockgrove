@@ -62,7 +62,7 @@ export function livingSceneOf(next: SceneProjection): LivingScene {
   };
 }
 
-export interface YardProjection {
+export interface SceneStateProjection {
   readonly intent: number;
   readonly scope: BrowserScope | undefined;
   readonly scene: LivingScene | undefined;
@@ -78,7 +78,7 @@ export interface YardProjection {
   /** The final incompatibility, set only with status "unsupported version". */
   readonly incompatibility?: SceneCompatibilityCode | undefined;
 }
-export const emptyYard: YardProjection = {
+export const emptyScene: SceneStateProjection = {
   intent: 0,
   scope: undefined,
   scene: undefined,
@@ -91,14 +91,14 @@ export const incompatibilityNames: Readonly<Record<SceneCompatibilityCode, strin
   unsupported_asset_manifest_version: "asset-manifest",
   unsupported_client_version: "client",
 };
-export function yardStatusText(state: YardProjection): string {
+export function sceneStatusText(state: SceneStateProjection): string {
   if (state.status === "Authorization lost") return "unavailable. Authorization lost";
   if (state.status === "degraded") return "degraded. Recovering committed scene";
   if (state.incompatibility)
     return `unsupported ${incompatibilityNames[state.incompatibility]} version`;
   return state.status;
 }
-export type YardProjectionEvent =
+export type SceneStateProjectionEvent =
   | {
       readonly type: "replace";
       readonly intent: number;
@@ -125,7 +125,7 @@ export type YardProjectionEvent =
     }
   | { readonly type: "connecting"; readonly intent: number };
 
-export function sameYardScope(a: BrowserScope, b: BrowserScope): boolean {
+export function sameSceneScope(a: BrowserScope, b: BrowserScope): boolean {
   return (
     a.tenantId === b.tenantId &&
     a.worldId === b.worldId &&
@@ -133,7 +133,10 @@ export function sameYardScope(a: BrowserScope, b: BrowserScope): boolean {
     a.spaceId === b.spaceId
   );
 }
-export function reduceYard(state: YardProjection, event: YardProjectionEvent): YardProjection {
+export function reduceSceneState(
+  state: SceneStateProjection,
+  event: SceneStateProjectionEvent,
+): SceneStateProjection {
   if (event.type === "replace") {
     if (event.intent <= state.intent) return state;
     return {
@@ -153,14 +156,14 @@ export function reduceYard(state: YardProjection, event: YardProjectionEvent): Y
       incompatibility: event.code,
     };
   // Every other stream outcome supersedes a reported incompatibility.
-  const current: YardProjection = { ...state, incompatibility: undefined };
+  const current: SceneStateProjection = { ...state, incompatibility: undefined };
   if (event.type === "connecting")
     return { ...current, scene: undefined, projection: undefined, status: "connecting" };
   if (event.type === "recovering")
     return { ...current, scene: event.scene, projection: event.projection, status: "degraded" };
   if (event.type === "failure")
     return { ...current, scene: undefined, projection: undefined, status: "unavailable" };
-  if (!sameYardScope(state.scope, event.scene)) return state;
+  if (!sameSceneScope(state.scope, event.scene)) return state;
   if (state.scene && BigInt(event.scene.revision) < BigInt(state.scene.revision)) return state;
   return { ...current, scene: event.scene, projection: event.projection, status: "ready" };
 }

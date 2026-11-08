@@ -4,9 +4,9 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AssetManifest } from "@clockgrove/contracts";
-import { packAtlas } from "../src/atlas.js";
-import { encodePng } from "../src/png.js";
-import { hexColour, sha256Hex } from "../src/validate.js";
+import { packAtlas } from "../../../packages/assets/src/atlas.js";
+import { encodePng } from "../../../packages/assets/src/png.js";
+import { hexColour, sha256Hex } from "../../../packages/assets/src/validate.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const TOOL = "packages/assets/scripts/generate-raccoon-world.ts";

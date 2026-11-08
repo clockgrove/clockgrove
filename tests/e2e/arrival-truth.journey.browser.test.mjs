@@ -12,6 +12,10 @@ import {
 import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+process.env.CLOCKGROVE_WORLD_SHELL = path.join(
+  root,
+  `worlds/${process.env.CLOCKGROVE_FIXTURE_SHELL ? "fixture" : "raccoons"}/shell.json`,
+);
 const FILE = "tests/e2e/arrival-truth.journey.browser.test.mjs";
 
 // issue 22: Wave 4 §15.2 S10 and S9, §16 F10. Arrival tells the truth about an unready world and a
@@ -28,8 +32,23 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
           UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
         ),
     });
+    process.env.CLOCKGROVE_FIXTURE_SHELL = "1";
+    try {
+      await runNativeWorldOwnerProcess(FILE, "fixture", {
+        vitestConfig: "tests/ci/vitest.browser.config.ts",
+        timeoutMs: 150_000,
+        inheritOutput: true,
+        prepare: (fixture) =>
+          truthOf(fixture)(
+            "UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime'",
+          ),
+      });
+    } finally {
+      delete process.env.CLOCKGROVE_FIXTURE_SHELL;
+    }
     return;
   }
+  if (process.env.CLOCKGROVE_FIXTURE_SHELL) return fixtureShellJourney();
   await withNativeWorldOwner(async (native) => {
     const { fixture, world } = native;
     const provisioned = await provisionTestWorld(fixture, world, "principal-runtime");
@@ -166,3 +185,97 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
     }
   });
 }, 180_000);
+
+async function fixtureShellJourney() {
+  await withNativeWorldOwner(async (native) => {
+    const provisioned = await provisionTestWorld(native.fixture, native.world, "principal-runtime");
+    const scope = { ...provisioned.partition.target, spaceId: provisioned.partition.route.spaceId };
+    const route = `/worlds/${scope.tenantId}/${scope.worldId}/${scope.timelineId}/${scope.spaceId}`;
+    const server = await createServer({
+      root: path.join(root, "apps/web"),
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      plugins: [
+        {
+          name: "fixture-renderer-proof",
+          transform(code, id) {
+            if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
+            return {
+              code: `${code}
+const presentFixture = ThreeWorldSceneAdapter.prototype.loadSnapshot;
+ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
+  globalThis.fixtureAdapter = this;
+  return presentFixture.apply(this, args);
+};`,
+              map: null,
+            };
+          },
+        },
+      ],
+      server: {
+        host: "127.0.0.1",
+        port: 0,
+        proxy: { "/v1": { target: await native.origin(), ws: true } },
+      },
+    });
+    let browser;
+    try {
+      await server.listen();
+      browser = await chromium.launch({
+        headless: true,
+        args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+      });
+      const page = await browser.newPage();
+      const assets = [];
+      page.on("request", (request) => {
+        if (/\.(png|animations\.json)$/.test(new URL(request.url()).pathname))
+          assets.push(request.url());
+      });
+      await page.goto(`http://127.0.0.1:${server.httpServer.address().port}${route}`);
+      expect(await page.title()).toBe("Fixture World");
+      await page.getByRole("heading", { name: "Fixture World", exact: true }).waitFor();
+      expect(
+        await page
+          .locator(".rw-shell")
+          .evaluate((shell) => getComputedStyle(shell).getPropertyValue("--rw-v1-bg").trim()),
+      ).toBe("#14181e");
+      await page.getByLabel("Local session credential").fill("local-reader-session");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByText(/^Arrival: scene ready at revision \d+/u).waitFor();
+      expect(
+        await page
+          .getByLabel("Fixture world", { exact: true })
+          .locator("option")
+          .first()
+          .textContent(),
+      ).toBe("Choose a fixture world");
+      const entity = page.locator('button[data-focus-key="entity:beacon.lamp"]');
+      await entity.waitFor({ state: "attached" });
+      await page.waitForFunction(
+        () =>
+          globalThis.fixtureAdapter?.metrics.firstRenderMs !== undefined &&
+          globalThis.fixtureAdapter.metrics.frameMs.length > 0,
+      );
+      expect(await page.evaluate(() => globalThis.fixtureAdapter.metrics.entityCount)).toBe(4);
+      const canvas = page.locator("canvas").first();
+      const before = await canvas.screenshot();
+      const point = await page.evaluate(() => {
+        const adapter = globalThis.fixtureAdapter;
+        const body = adapter.drawn.get("beacon.lamp").body;
+        return {
+          x: 320 + (body.position.x - adapter.camera.position.x) * adapter.camera.zoom,
+          y: 200 - (body.position.y - adapter.camera.position.y) * adapter.camera.zoom,
+        };
+      });
+      const bounds = await canvas.boundingBox();
+      await canvas.click({
+        position: { x: (point.x * bounds.width) / 640, y: (point.y * bounds.height) / 400 },
+      });
+      expect(await entity.getAttribute("aria-pressed")).toBe("true");
+      expect(await canvas.screenshot()).not.toEqual(before);
+      expect(assets).toEqual([]);
+    } finally {
+      await browser?.close();
+      await server.close();
+    }
+  });
+}

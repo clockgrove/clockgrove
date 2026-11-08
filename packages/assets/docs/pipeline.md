@@ -88,8 +88,8 @@ Staging upload and the RW-0409 exit stay pending on issue 881.
 
 ## First set and how to approve it
 
-`pnpm --filter @clockgrove/assets run generate:raccoon-world` regenerates the first Raccoon World set
-deterministically from `scripts/generate-raccoon-world.ts`: Stevie, the Gracie and Juniper placeholder
+`node worlds/raccoons/tools/generate-assets.mjs` (from the repository root) regenerates the first Raccoon World set
+deterministically from the world-owned `worlds/raccoons/tools/generate-assets.ts`: Stevie, the Gracie and Juniper placeholder
 variants and the kit in the `idle`, `walk`, `sniff`, `eat`, `play` and `shelter` families; the den,
 trash can, feeder, mailbox, tree, plant and path tile; and the rain, puddle, lantern, window and
 selection effects. The generator writes every manifest with `review.status: "pending"`, because

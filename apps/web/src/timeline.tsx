@@ -2,9 +2,9 @@ import type { LivingScene, WorldStatus } from "@clockgrove/contracts";
 import { useState } from "react";
 import { focusWhenPresent } from "./focus.js";
 import { CATEGORY_LABELS, eventTime } from "./hud.js";
+import type { SceneSession } from "./scene-api.js";
+import { useEntityRail, useSceneView } from "./scene-state.js";
 import { whyOpener } from "./why.js";
-import type { YardSession } from "./yard-api.js";
-import { useEntityRail, useYardView } from "./yard-state.js";
 
 /**
  * Timeline metadata and stepping through the authorized recent material events, each opening its
@@ -15,12 +15,12 @@ export function Timeline({
   scene,
   status,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly scene: LivingScene;
   readonly status: WorldStatus | "unavailable" | undefined;
 }) {
   const [stepId, setStepId] = useState<string>();
-  const select = useYardView((view) => view.select);
+  const select = useSceneView((view) => view.select);
   const clock = typeof status === "object" ? status.clock : undefined;
   const feed = typeof status === "object" ? status.feed : [];
   // The feed is newest first; a step no longer in it falls back to the newest event.

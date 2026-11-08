@@ -69,7 +69,6 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
-
 import {
   ActivationGateBlockedError,
   type ActorAgentRecovery,
@@ -77,6 +76,13 @@ import {
   PerceptionInbox,
   TurnFibers,
 } from "./actor-agent.js";
+import {
+  actorCommandId,
+  actorGateway,
+  actorModelConfiguration,
+  actorOfferCommand,
+  actorResponder,
+} from "./actor-model.js";
 import {
   composeConversations,
   composeRuntime,
@@ -121,13 +127,7 @@ import { runtimeRouteName } from "./routing.js";
 import { type SceneAuthorityFacts, sceneAuthorityFacts } from "./scene-audience.js";
 import { SCENE_JOIN_HEADER, verifySceneJoin } from "./scene-connections.js";
 import { SCENE_SOCKET_BOUNDS, SceneDelivery, sceneReads } from "./scene-delivery.js";
-import {
-  STEVIE_MODEL_NAME,
-  stevieCommandId,
-  stevieGateway,
-  stevieOfferCommand,
-  stevieResponder,
-} from "./stevie.js";
+import { decodeScenePresentations } from "./scene-presentation.js";
 import type {
   RuntimeEpochs,
   RuntimeInitializationDisposition,
@@ -412,7 +412,10 @@ export class SpaceDO extends OwnerAdapter {
     from: bigint | null,
   ) {
     return withLifecycleWorkflowClient(this.environment, (client) =>
-      new PostgreSqlSceneStreamReader(client).read(
+      new PostgreSqlSceneStreamReader(
+        client,
+        decodeScenePresentations(this.environment.WORLD_PRESENTATION),
+      ).read(
         { ...attachment, principalId: authority.context.principalId },
         from,
         authority.context,
@@ -1716,13 +1719,15 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   private stores(): ConversationStores {
     const stores = composeConversations(
       this.environment,
-      stevieGateway(this.environment) === undefined ? undefined : STEVIE_MODEL_NAME,
+      actorGateway(this.environment) === undefined
+        ? undefined
+        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG).modelName,
     );
     if (stores === undefined) throw new Error("conversation keyring required");
     return stores;
   }
 
-  /** Stevie's grants: the registry's, bounded by the grants of the member he is talking with. */
+  /** The actor's grants: the registry's, bounded by the grants of the participating member. */
   private grants(participant: ConversationSessionParticipant): CapabilityGrants | undefined {
     const context = this.#talkContext(participant);
     return context === undefined
@@ -1735,11 +1740,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return context === undefined ? undefined : perceiveScene(this.environment, scope, context);
   };
 
-  /** The production route when a key is bound, else the scripted fixture; both perceive the yard. */
+  /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
   private responder(): ConversationResponder {
-    const gateway = stevieGateway(this.environment);
+    const gateway = actorGateway(this.environment);
     if (gateway !== undefined)
-      return stevieResponder({
+      return actorResponder({
+        configuration: actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
         gateway,
         grants: (participant) => this.grants(participant),
         perceive: this.perceive,
@@ -1762,7 +1768,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /**
-   * Submits Stevie's authorized proposal as an ordinary `resource.offer`, sealed with the member's
+   * Submits the actor's authorized proposal as an ordinary `resource.offer`, sealed with the member's
    * principal, membership and persona like the member's own Influence. The world decides it; the
    * outcome is returned as the turn's recorded command step.
    */
@@ -1788,7 +1794,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       spaceId: fiber.scope.spaceId,
     } as RuntimeScope;
     const commandId = decodeOpaqueId(
-      stevieCommandId(participant.principalId, fiber.sessionId, fiber.messageId),
+      actorCommandId(
+        participant.principalId,
+        fiber.sessionId,
+        fiber.messageId,
+        actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG).commandPrefix,
+      ),
       "CommandId",
     );
     const expectedRevision = proposal.expectedRevision;
@@ -1800,7 +1811,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       this.environment.HYPERDRIVE?.connectionString ?? "",
       (owner) =>
         owner.prepareBuilt(scope, participant.principalId, commandId, (fields) =>
-          stevieOfferCommand(scope, fiber.actorId, commandId, offer, expectedRevision, {
+          actorOfferCommand(scope, fiber.actorId, commandId, offer, expectedRevision, {
             epochs: fields.epochs,
             context: fields.context ?? metadata,
             issuedAt: fields.issuedAt ?? proposal.issuedAt,

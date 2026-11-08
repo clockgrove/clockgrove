@@ -14,8 +14,7 @@
     "check": "tsc --noEmit --project tsconfig.json && node bin/clockgrove-assets.mjs check",
     "test": "vitest run --config vitest.config.ts",
     "build": "node bin/clockgrove-assets.mjs build",
-    "update-golden": "node bin/clockgrove-assets.mjs update-golden",
-    "generate:raccoon-world": "node scripts/generate-raccoon-world.mjs"
+    "update-golden": "node bin/clockgrove-assets.mjs update-golden"
   },
   "dependencies": {
     "@clockgrove/contracts": "workspace:*"

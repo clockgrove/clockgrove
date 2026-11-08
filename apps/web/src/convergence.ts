@@ -4,8 +4,8 @@ import {
   type ObserverSceneMessage,
   type SceneProjection,
 } from "@clockgrove/contracts";
+import { sameSceneScope as sameScope } from "./scene-projection.js";
 import { applyScenePatch } from "./world-scene-adapter.js";
-import { sameYardScope as sameScope } from "./yard-projection.js";
 
 export interface RecoveryBudget {
   readonly maxBufferedPatches: number;

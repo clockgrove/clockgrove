@@ -8,6 +8,7 @@ import type {
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass } from "three/tsl";
 import * as THREE from "three/webgpu";
+import { worldShell } from "./shell.js";
 import {
   applyScenePatch,
   cyclePick,
@@ -116,7 +117,7 @@ export const SCENE_QUALITY = {
 } as const;
 /** Decision: warm sources stay below 0.45 linear luminance; ACES exposure 1 and modest bloom retain hue. */
 export const EMISSIVE_LUMINANCE = { min: 0, max: 0.45 } as const;
-const ATLAS = "raccoon-world";
+const ATLAS = worldShell.scene.atlas;
 const WIDTH = 640,
   HEIGHT = 400;
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
@@ -129,9 +130,9 @@ const CUE_KEYS = 64,
 const FRAME_SAMPLES = 120; // #67 uses 120 measured frames; telemetry stays bounded.
 const FRAME_BUDGET_MS = 33.4; // scene-budgets.json's supported 30 fps floor.
 const ATLAS_REFETCHES = 1; // One cache-bypassing retry, then the text path.
-const SAGE = 0xa8c394,
-  PANEL = 0x1e2116,
-  TEXT = "#ece9d8";
+const SAGE = worldShell.scene.accent,
+  PANEL = worldShell.scene.panel,
+  TEXT = worldShell.scene.text;
 const REBOUND_EVENTS = ["pointerdown", "pointerover"] as const;
 const iso = (at: Pick<ScenePlacement, "x" | "y" | "elevation">): [number, number] => [
   (at.x + at.y) * PX_PER_METRE,
@@ -431,6 +432,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
   }
   private async create(): Promise<void> {
+    if (ATLAS === null) {
+      this.ready();
+      this.draw();
+      return;
+    }
     try {
       const response = await fetch(`/${ATLAS}.animations.json`);
       if (!response.ok) return this.failAssets();
@@ -737,7 +743,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   }
   private draw(kind: "snapshot" | "patch" = "snapshot"): void {
     const projection = this.projection;
-    if (!this.atlasTexture || !projection || this.destroyed) return;
+    if (
+      !this.initialized ||
+      (ATLAS !== null && !this.atlasTexture) ||
+      !projection ||
+      this.destroyed
+    )
+      return;
     const started = performance.now();
     const scope = `${projection.tenantId}/${projection.worldId}/${projection.timelineId}/${projection.spaceId}`;
     const placements = pickOrder(projection);
@@ -1241,7 +1253,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
-    if (!this.initialized || !this.atlasTexture || !this.projection) return;
+    if (!this.initialized || (ATLAS !== null && !this.atlasTexture) || !this.projection) return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
     this.previousTime = frameTime;
     if (delta > 0) {

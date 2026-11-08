@@ -48,7 +48,12 @@ A route pins its provider (`scripted`, `vercel-ai-gateway` or `anthropic`), the 
 name, a credential reference and its price in USD per million tokens. That price is also
 microdollars per token. Callers never see provider or model names.
 
-`stevie.conversation@1` is the production alias. The owner decided this on 2026-11-07 (issue 16):
+Aliases are world configuration supplied to `createModelGateway`; the platform exports
+`productionAliases(conversationAlias, pilotAlias)` for the existing bounded route policy.
+`PRODUCTION_ALIASES` uses neutral `actor.conversation` and `actor.pilot` defaults.
+The world may supply its original aliases without changing the route or policy version.
+
+The original world's conversation alias is configured in its runtime input. The owner decided this on 2026-11-07 (issue 16):
 
 1. `vercel-ai-gateway/claude-opus-5.5`: Vercel AI Gateway, model `anthropic/claude-opus-5.5`,
    credential `AI_GATEWAY_API_KEY`. The same gateway is the routing layer for generation models

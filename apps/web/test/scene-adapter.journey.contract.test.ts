@@ -5,7 +5,7 @@ import {
   encodeObserverSceneMessage,
 } from "@clockgrove/contracts";
 import { afterEach, expect, it, vi } from "vitest";
-import { followEmphasis, useEntityFocus, useYardView } from "../src/yard-state.js";
+import { followEmphasis, useEntityFocus, useSceneView } from "../src/scene-state.js";
 import { ackMessage, patch, resumeMessage } from "./convergence-fixture.js";
 import { Headless3DAdapter } from "./headless-3d-adapter.js";
 import { sceneSession } from "./scene-socket-fixture.js";
@@ -55,7 +55,7 @@ const scope = {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
-  useYardView.getState().select(undefined);
+  useSceneView.getState().select(undefined);
   useEntityFocus.getState().focus(undefined);
 });
 
@@ -63,7 +63,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
   vi.useFakeTimers();
   const transport = vi.fn();
   vi.stubGlobal("fetch", transport);
-  const fixture = sceneSession(() => useYardView.getState().select(undefined));
+  const fixture = sceneSession(() => useSceneView.getState().select(undefined));
   const { session, sockets } = fixture;
   const notifications: string[] = [];
   const unsubscribe = session.subscribe(() => {
@@ -96,13 +96,13 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
   const adapter = new Headless3DAdapter();
   const committed = session.getSnapshot().projection;
   if (!committed) throw new Error("missing committed projection");
-  const stop = adapter.onIntent(({ objectId }) => useYardView.getState().select(objectId));
+  const stop = adapter.onIntent(({ objectId }) => useSceneView.getState().select(objectId));
   adapter.loadSnapshot(committed);
   expect(adapter.revision).toBe(9007199254740993n);
   adapter.pick(decodeOpaqueId("object-unknown", "ObjectId"));
-  expect(useYardView.getState().selected).toBeUndefined();
+  expect(useSceneView.getState().selected).toBeUndefined();
   adapter.pick(decodeOpaqueId("object-raccoon", "ObjectId"));
-  expect(useYardView.getState().selected).toBe("object-raccoon");
+  expect(useSceneView.getState().selected).toBe("object-raccoon");
   // Shared selection and keyboard focus reach the 3D consumer as emphasis on its existing nodes.
   const stopEmphasis = followEmphasis(({ selected, focused }) => {
     adapter.setSelection(selected);
@@ -365,7 +365,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
       const current = await fixture.deliver(scene);
       const late = Promise.withResolvers<Response>();
       transport.mockReturnValue(late.promise);
-      useYardView.getState().select(selection.objectId);
+      useSceneView.getState().select(selection.objectId);
       session.select(selection.objectId);
       const selectionKey = session.getSelectionKey();
       session.queries.setQueryData(selectionKey, selection);
@@ -388,7 +388,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
       current.deliver(message.replaceAll(`"${field}":"${previous}"`, `"${field}":"other"`));
       if (field === "audienceHash") expect(current.messages.at(-1)).toEqual(resumeMessage(null));
       expect(
-        `${session.getSnapshot().status}|${session.getSnapshot().scene}|${session.getSnapshot().projection}|${session.getSelectionSnapshot().status}|${session.getWhySnapshot().status}|${useYardView.getState().selected}`,
+        `${session.getSnapshot().status}|${session.getSnapshot().scene}|${session.getSnapshot().projection}|${session.getSelectionSnapshot().status}|${session.getWhySnapshot().status}|${useSceneView.getState().selected}`,
       ).toBe(
         `${field === "audienceHash" ? "degraded" : "unavailable"}|undefined|undefined|none|none|undefined`,
       );
@@ -410,6 +410,6 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
     { selected: undefined, focused: undefined },
   ]);
   adapter.pick(decodeOpaqueId("object-raccoon", "ObjectId"));
-  expect(useYardView.getState().selected).toBeUndefined();
+  expect(useSceneView.getState().selected).toBeUndefined();
   session.replace(undefined, undefined);
 });

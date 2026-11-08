@@ -68,7 +68,7 @@ export class CapabilityRegistry {
   }
 }
 
-/** One grant per capability and one call each: Stevie proposes at most one command a turn. */
+/** One grant per capability and one call each: An actor proposes at most one command a turn. */
 const DEFAULT_GRANTS: readonly CapabilityGrant[] = [
   { capability: "inspect", callsPerTurn: 1 },
   { capability: "why", callsPerTurn: 1 },

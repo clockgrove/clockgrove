@@ -4,7 +4,7 @@ import {
   createModelGateway,
   environmentCredentials,
   InMemoryModelBudget,
-  PRODUCTION_ALIASES,
+  productionAliases,
 } from "../src/index.js";
 
 // Opt-in: sends one bounded request through the real production alias. `pnpm test` never sets
@@ -18,7 +18,7 @@ describe.skipIf(!live)("production model route (live)", () => {
   it("answers through stevie.conversation and records model, tokens and cost", async () => {
     const adapter = new AiSdkRouteAdapter(environmentCredentials);
     const gateway = createModelGateway({
-      aliases: PRODUCTION_ALIASES,
+      aliases: productionAliases("stevie.conversation", "stevie.pilot"),
       adapters: { "vercel-ai-gateway": adapter, anthropic: adapter },
       // One call's ceiling: 16,000 × 4 + 1,024 × 20 microdollars, about $0.08.
       budget: new InMemoryModelBudget(() => 84_480),

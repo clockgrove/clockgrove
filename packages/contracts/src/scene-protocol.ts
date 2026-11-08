@@ -148,7 +148,7 @@ export interface ScenePresentationBinding {
   readonly accessibilityLabel: string;
 }
 export type SceneProjectedEntity = LivingEntity;
-/** The placed presentation effects the live yard may show; the client decides from weather and clock. */
+/** The placed presentation effects the live scene may show; the client decides from weather and clock. */
 export type SceneEffectRole = "puddle" | "lantern" | "window";
 /** One placed effect of the installed pack's presentation, at a pose in a projected frame. */
 export interface SceneEffect {

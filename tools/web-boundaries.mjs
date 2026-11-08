@@ -53,7 +53,8 @@ export function assertBrowserSource(source, file) {
           ? target === "three/webgpu" ||
             target === "three/tsl" ||
             target === "three/addons/tsl/display/BloomNode.js" ||
-            local === `${bridge}.js`
+            local === `${bridge}.js` ||
+            local === path.join(web, "shell.js")
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
               target === "zustand" ||
@@ -385,8 +386,8 @@ export async function checkWebBoundaries() {
   ];
   for (const [file, targets] of [
     [path.join(web, "negative.ts"), ["phaser", "three", ...outward]],
-    [adapter, ["react", "@tanstack/react-query", "zustand", "./yard-state.js", ...outward]],
-    [`${bridge}.ts`, ["react", "zustand", "./yard-state.js"]],
+    [adapter, ["react", "@tanstack/react-query", "zustand", "./scene-state.js", ...outward]],
+    [`${bridge}.ts`, ["react", "zustand", "./scene-state.js"]],
     [path.join(app, "test/negative.ts"), ["phaser", "three"]],
   ]) {
     for (const target of targets) {

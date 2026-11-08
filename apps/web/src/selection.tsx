@@ -1,9 +1,13 @@
 import type { ObjectId, SelectionDerived, SelectionValues } from "@clockgrove/contracts";
 import { InteractionCard } from "./interaction-card.js";
+import type { SceneSession } from "./scene-api.js";
+import {
+  type SelectionProjection,
+  useSceneStateProjection,
+  useSelectionQuery,
+} from "./scene-queries.js";
+import { useEntityRail } from "./scene-state.js";
 import { whyOpener } from "./why.js";
-import type { YardSession } from "./yard-api.js";
-import { type SelectionProjection, useSelectionQuery, useYardProjection } from "./yard-queries.js";
-import { useEntityRail } from "./yard-state.js";
 
 export function EntityValues({ values }: { readonly values: SelectionValues | SelectionDerived }) {
   return (
@@ -38,13 +42,13 @@ export function EntityRail({
   session,
   selected,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly selected: ObjectId | undefined;
 }) {
   const open = useEntityRail((rail) => rail.open);
   const toggle = useEntityRail((rail) => rail.toggle);
   const selection = useSelectionQuery(session);
-  const summary = useYardProjection(session).projection?.interactions.find(
+  const summary = useSceneStateProjection(session).projection?.interactions.find(
     (interaction) => interaction.entityId === selected,
   );
   // The transient intent also gates rendering before a subscription has started its request.
@@ -84,7 +88,7 @@ function EntitySelectionPanel({
   selected,
   current,
 }: {
-  readonly session: YardSession;
+  readonly session: SceneSession;
   readonly selected: ObjectId | undefined;
   readonly current: SelectionProjection | undefined;
 }) {
