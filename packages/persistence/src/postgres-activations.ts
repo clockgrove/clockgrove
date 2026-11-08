@@ -116,7 +116,7 @@ export class PostgreSqlActivations {
       }
       const joined =
         status === "pending" && pending.rows[0] ? activation(pending.rows[0] as Row) : undefined;
-      if (prior && (status !== "pending" || joined)) return prior;
+      if (prior && joined) return prior;
       const id = prior?.activationId ?? joined?.activationId ?? crypto.randomUUID();
       const sessionId = prior?.sessionId ?? joined?.sessionId ?? config.sessionId;
       const messageId = prior?.messageId ?? joined?.messageId ?? `activation:${id}`;
@@ -137,11 +137,11 @@ export class PostgreSqlActivations {
       }
       if (prior) {
         await this.client.query(
-          `UPDATE clockgrove.actor_activations SET status='pending',outcome='admitted'
+          `UPDATE clockgrove.actor_activations SET status=$6,outcome=$7
           WHERE ${KEY} AND causal_root=$5`,
-          [...values(a), wake.causalRoot],
+          [...values(a), wake.causalRoot, status, outcome],
         );
-        return { ...prior, status: "pending", outcome: "admitted" };
+        return { ...prior, status, outcome };
       }
       const result = await this.client.query(
         `INSERT INTO clockgrove.actor_activations

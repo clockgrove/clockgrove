@@ -240,6 +240,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
         intervalMs: 86_400_000,
         input: "Check the daily intention",
       });
+      await owner.sql(`INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id)
+        SELECT tenant_id,'principal-outsider' FROM clockgrove.tenant_principals WHERE principal_id='principal-runtime';
+        INSERT INTO clockgrove.world_memberships
+        (tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
+        SELECT tenant_id,world_id,timeline_id,space_id,'principal-outsider','observer-membership',
+          'observer-persona',roles,ARRAY['runtime:world-observe'],privacy_ceiling,committed_at
+        FROM clockgrove.world_memberships WHERE principal_id='principal-runtime'`);
+      const observer = await owner.request(
+        "/v1/runtime/activations/inspect",
+        { version: 1, scope: owner.scope, actorId: ACTOR },
+        "outsider-session-token",
+      );
+      expect(observer.status).toBe(200);
+      expect(observer.body).toMatchObject({
+        configurations: [],
+        activations: [],
+        nextWakeAt: null,
+      });
       // Only SQL observes the autonomous alarm: no client call drains or recovers due work.
       await expect
         .poll(() =>
@@ -297,6 +315,57 @@ it.skipIf(!isNativeWorldOwnerChild())(
           '{"kind": "subscription", "eventId": "subscription-change:event:0", "subscriptionId": "journal"}/journal:subscription-change:event:0/noop',
         );
       expect(await counts()).toBe("8/3/6");
+      expect(await agent({ op: "model-calls" })).toBe(3);
+
+      await configure("recheck", "heartbeat", {}, 3);
+      const recheckReason = { kind: "heartbeat", heartbeatId: "recheck" };
+      expect(await wake("recheck", "recheck-root", recheckReason)).toMatchObject({
+        status: "deferred",
+        outcome: "budget_exhausted",
+      });
+      await configure("recheck", "heartbeat", {}, 3, false);
+      expect(await wake("recheck", "recheck-root", recheckReason)).toMatchObject({
+        status: "deferred",
+        outcome: "policy_denied",
+      });
+      await configure("recheck", "heartbeat", { compiledRoutine: "noop" });
+      expect(await wake("recheck", "recheck-root", recheckReason)).toMatchObject({
+        status: "noop",
+        outcome: "compiled_noop",
+      });
+      expect((await post("inspect")).configurations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "recheck", enabled: false, nextWakeAt: null }),
+        ]),
+      );
+
+      await configure("gate", "scheduled_intention");
+      await agent({ op: "fault", phase: "hold:context_ready" });
+      const gated = wake("gate", "gate-root", { kind: "scheduled_intention", scheduleId: "gate" });
+      await expect
+        .poll(() =>
+          owner.sql(
+            `SELECT count(*) FROM clockgrove.conversation_turn_fibers WHERE phase='context_ready'`,
+          ),
+        )
+        .toBe("1");
+      await configure("gate", "scheduled_intention", {
+        compiledRoutine: "noop",
+        nextWakeAt: Date.now() + 60_000,
+      });
+      await agent({ op: "fault", phase: null });
+      await agent({ op: "release" });
+      await gated;
+      expect(
+        await owner.sql(
+          `SELECT status || '/' || outcome FROM clockgrove.actor_activations WHERE causal_root='gate-root'`,
+        ),
+      ).toBe("noop/compiled_noop");
+      expect((await post("inspect")).configurations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "gate", enabled: false, nextWakeAt: null }),
+        ]),
+      );
       expect(await agent({ op: "model-calls" })).toBe(3);
     });
   },

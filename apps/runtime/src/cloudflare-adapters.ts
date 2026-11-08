@@ -1260,9 +1260,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<ActivationInspection> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
-    const result = await withActivations(this.environment, (store) => store.inspect(address));
-    await this.armActivations(address, result);
-    return result;
+    return withActivations(this.environment, (store) => store.inspect(address));
   }
 
   async wakeActivation(

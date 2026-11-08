@@ -156,6 +156,13 @@ BEGIN
     UPDATE clockgrove.actor_activations SET status='pending',outcome=why,has_reservation=true,model_epoch=epoch
       WHERE tenant_id=t AND world_id=w AND timeline_id=tl AND actor_id=a AND activation_id=r.activation_id;
   ELSE
+    IF decision='noop' THEN
+      UPDATE clockgrove.actor_activation_policies SET configurations=(
+        SELECT jsonb_agg(CASE WHEN value->>'id'=r.configuration_id
+          THEN value || '{"enabled":false,"nextWakeAt":null}'::jsonb ELSE value END)
+        FROM jsonb_array_elements(policy.configurations)
+      ) WHERE tenant_id=t AND world_id=w AND timeline_id=tl AND actor_id=a;
+    END IF;
     UPDATE clockgrove.actor_activations SET status=decision,outcome=why
       WHERE tenant_id=t AND world_id=w AND timeline_id=tl AND actor_id=a AND activation_id=r.activation_id;
   END IF;
