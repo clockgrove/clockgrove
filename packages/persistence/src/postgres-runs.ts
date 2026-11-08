@@ -81,7 +81,7 @@ export class PostgreSqlRunRecorder {
   }
 
   /**
-   * Opens a Talk run with its running model attempt. The turn fiber that claims it (0037) closes
+   * Opens a Talk run with its running model attempt. The turn fiber that claims it (0038) closes
    * its previous attempt first, so no attempt is left open.
    */
   async beginTalk(start: TalkRunStart): Promise<void> {

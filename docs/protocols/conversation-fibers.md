@@ -41,16 +41,22 @@ accepted → context_pending → context_ready → model_running → proposal_va
 terminal: rejected | cancelled | failed | abandoned
 ```
 
-A turn is one `conversation_turn_fibers` row (migration 0037), keyed by session and message ID.
+A turn is one `conversation_turn_fibers` row (migration 0038), keyed by session and message ID.
 Its phase is its checkpoint. The phases do this:
 
 - `accepted`: the message's text is stored as its input artifact.
-- `context_pending`, then `context_ready`: fixes the session revision the turn reads.
-- `model_running`: streams and stores the answer as a protected artifact. This checkpoint is the
-  `proposal_validating` move.
-- `proposal_validating`: the scripted model proposes no command or effect.
-- `committing`: appends the Caretaker message, the reply, the conversation turn and the run's
-  commit step, and moves the fiber to `finalizing`, all in one transaction.
+- `context_pending`, then `context_ready`: fixes the session revision the turn reads. Each claim
+  assembles its attempt's context ([context assembly](context-assembly.md)) with its run, since
+  the run's prompt and manifest are that context.
+- `model_running`: streams and stores the answer as a protected artifact. A document proposal
+  (issue 17) is stored beside it as a `private_cognition` artifact (`proposal_artifact_id`), so a
+  recovered attempt commits the same proposal. This checkpoint is the `proposal_validating` move.
+- `proposal_validating`: the scripted model proposes no command or effect. A document proposal is
+  validated where it commits.
+- `committing`: appends the Caretaker message, the reply, the conversation turn, any document
+  change set and the run's commit step, and moves the fiber to `finalizing`, all in one
+  transaction. The runtime reads the checkpointed proposal back under the same one-call
+  `private_cognition` ceiling it wrote it with; no route returns it to the participant.
 - `finalizing`: releases the turn.
 
 SQL guards (`guard_turn_fiber`) enforce these rules for every writer:
@@ -58,7 +64,7 @@ SQL guards (`guard_turn_fiber`) enforce these rules for every writer:
 - A turn starts `accepted`.
 - Its phase moves only forward.
 - A finished turn never changes.
-- A checkpointed answer never changes.
+- A checkpointed answer never changes, and a proposal is checkpointed only with its answer.
 - The lease epoch never decreases.
 
 A session holds at most one open turn, enforced by a unique index. A different message sent while
@@ -118,7 +124,7 @@ message answers `404 turn_not_found`.
 `ActorProcess` (`packages/contracts/src/turn-fibers.ts`) is the contract for long-lived actor work
 (Wave 5 §1). A process has a stable ID for its actor's life, one objective, a checkpoint, a lease
 epoch, and a sequence of bounded run segments (`actor_processes` and `actor_process_segments`,
-0037).
+0038).
 
 - `ActorAgentDO.advanceProcess` runs one segment. It claims the next lease epoch, then appends one
   segment from the current checkpoint.

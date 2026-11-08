@@ -442,7 +442,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
         fiber,
         count,
         `${fiber.sessionId}:message:${fiber.messageId}`,
-        { run: runId, replyArtifact: replyArtifactId, ...(proposal === undefined ? {} : { proposal }) },
+        {
+          run: runId,
+          replyArtifact: replyArtifactId,
+          ...(proposal === undefined ? {} : { proposal }),
+        },
         () => this.moveTurnHere(fiber, "finalizing"),
       );
       return written;
@@ -1240,8 +1244,7 @@ function fiberOf(row: Row, scope: BrowserScope): TurnFiber {
     runId: row.run_id === null ? null : String(row.run_id),
     inputArtifactId: String(row.input_artifact_id),
     replyArtifactId: row.reply_artifact_id === null ? null : String(row.reply_artifact_id),
-    proposalArtifactId:
-      row.proposal_artifact_id === null ? null : String(row.proposal_artifact_id),
+    proposalArtifactId: row.proposal_artifact_id === null ? null : String(row.proposal_artifact_id),
     inputRevision: row.input_revision === null ? null : Number(row.input_revision),
     outcomeCode: row.outcome_code === null ? null : String(row.outcome_code),
   });

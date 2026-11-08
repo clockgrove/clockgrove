@@ -314,7 +314,7 @@ export function composeConversations(
   };
 }
 
-/** `ActorProcess` state over this invocation's connection (migration 0037). */
+/** `ActorProcess` state over this invocation's connection (migration 0038). */
 export function withActorProcesses<T>(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   operation: (processes: PostgreSqlActorProcesses) => Promise<T>,

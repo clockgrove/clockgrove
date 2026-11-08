@@ -6,6 +6,7 @@ import {
 } from "@clockgrove/application";
 import {
   type BrowserScope,
+  type ConversationSession,
   decodeConversationArchiveRequest,
   decodeConversationDeleteRequest,
   decodeConversationListRequest,

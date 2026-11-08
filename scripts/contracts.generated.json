@@ -1,5 +1,5 @@
 {
-  "version": 26,
+  "version": 27,
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
     "asset-manifest.ts": "e64e6e4871e8450fa7a006d97270fc629902f9c3e644f159f79ae4b558a1b2e7",
@@ -9,7 +9,7 @@
     "conversations.ts": "d362bd218a73daeec3c95aa32ed88587734a581f74a6ac82a027a3ba91ff698b",
     "execution-context.ts": "8c09a549f3f403ba0a8e14be07479ec44ba3d65f3c43acf5eb8e2bdd33c03030",
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
-    "index.ts": "87d1b4fef827b976bda45a642814994834b3fcc862d1a09687f3d18409256df8",
+    "index.ts": "fc6c80756616d2351b52a8eff9e7729e672a6668c025f3cd8f664d97d36b54e4",
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
     "privacy.ts": "eee0e6d1cc4846816e590b3d4a59c46e35909831e303249b54c326e7b9bd9c28",
     "protocol.ts": "5ec8053a0e5bf99c0e3a1cf489e8a200c5f4ecf60460446437885dce7ed11464",

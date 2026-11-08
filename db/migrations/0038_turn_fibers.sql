@@ -32,7 +32,7 @@ CREATE TABLE clockgrove.conversation_turn_fibers (
   run_id text,
   -- The model's answer once checkpointed: a recovered attempt commits it instead of asking again.
   reply_artifact_id text,
-  -- The model's document proposal checkpointed with its answer (0037): the actor's private
+  -- The model's document proposal checkpointed with its answer (issue 17): the actor's private
   -- cognition, so a recovered attempt commits the same proposal without asking again.
   proposal_artifact_id text,
   proposal_privacy_class text NOT NULL DEFAULT 'private_cognition'

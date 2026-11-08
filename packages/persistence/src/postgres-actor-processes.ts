@@ -4,7 +4,7 @@ import { type PostgreSqlClient, withClientTransaction } from "./postgres-transac
 
 type Row = Record<string, unknown>;
 
-/** A segment written under a lease epoch a newer claim replaced (CG022, migration 0037). */
+/** A segment written under a lease epoch a newer claim replaced (CG022, migration 0038). */
 export class StaleProcessLeaseError extends Error {
   constructor() {
     super("stale actor process lease");
@@ -13,7 +13,7 @@ export class StaleProcessLeaseError extends Error {
 }
 
 /**
- * `ActorProcess` state over migration 0037. A process keeps its ID for life; each bounded segment
+ * `ActorProcess` state over migration 0038. A process keeps its ID for life; each bounded segment
  * claims the next lease epoch, then appends one checkpoint segment under it. The segment trigger
  * fences the epoch and moves the checkpoint, so a superseded holder can never advance the process.
  */

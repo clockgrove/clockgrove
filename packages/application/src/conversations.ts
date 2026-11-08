@@ -95,11 +95,22 @@ export interface ConversationStore {
     capabilityRevision: number,
   ): Promise<TurnFiber | undefined>;
   /** Assembles the turn's context (the session revision it reads) and checkpoints `context_ready`. */
-  assembleTurn(participant: ConversationParticipant, fiber: TurnFiber): Promise<TurnFiber | undefined>;
+  assembleTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined>;
   /** The actor a session addresses: the owner its turns route to. */
-  actorOf(participant: ConversationParticipant, scope: BrowserScope, sessionId: string): Promise<string>;
+  actorOf(
+    participant: ConversationParticipant,
+    scope: BrowserScope,
+    sessionId: string,
+  ): Promise<string>;
   /** Checkpoints the next phase; undefined when the lease or phase moved on (fenced). */
-  advanceTurn(participant: ConversationParticipant, fiber: TurnFiber, to: TurnPhase): Promise<TurnFiber | undefined>;
+  advanceTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    to: TurnPhase,
+  ): Promise<TurnFiber | undefined>;
   /** What the turn's model reads: its session, its Caretaker message count and its input text. */
   turnInput(participant: ConversationParticipant, fiber: TurnFiber): Promise<TurnInput>;
   /** Stores the model's answer (its reply and any proposal) and checkpoints `proposal_validating`. */
@@ -109,7 +120,10 @@ export interface ConversationStore {
     response: ConversationResponse,
   ): Promise<TurnFiber | undefined>;
   /** Commits the message, the reply and the turn with `finalizing`, in one transaction. */
-  commitTurn(participant: ConversationParticipant, fiber: TurnFiber): Promise<TurnFiber | undefined>;
+  commitTurn(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined>;
   /** Ends the turn: `completed` releases it; `failed` also fails its run with the refusal code. */
   endTurn(
     participant: ConversationParticipant,
