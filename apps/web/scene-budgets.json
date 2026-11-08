@@ -76,11 +76,11 @@
     "missing": ["integrated GPU", "phone"]
   },
   "productCorrectnessMeasurements": {
-    "candidate": "62b831d1426467818174c05ac58f66ca84b11b71",
-    "source": "pnpm run qualify:wave4; visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
-    "captureReportSha256": "sha256:2683237886106f091a0ed3632008b1e78f2d152058d5f7295d7cdcc12497e5e5",
+    "candidate": "5d9f502b565f1f126359c0bb4f85d3d63627fff6",
+    "source": "timeout 3600 taskset -c 0-3 pnpm run qualify:wave4; evidence/visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
+    "captureReportSha256": "sha256:c32b705dab7c5b891fbe0bf51c80298e9b871e661ca411df38e3801597b31ca9",
     "performance": false,
-    "initialJsGzipBytes": 343451,
+    "initialJsGzipBytes": 343476,
     "assetBytes": 28255,
     "buildSource": "pnpm --filter @clockgrove/web check; tools/scene-budget.mjs",
     "maxTierTextureBytes": {
@@ -88,6 +88,28 @@
       "medium": 8977380,
       "high": 14605540
     },
-    "scope": "Software correctness and accounted allocation only. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike."
+    "scope": "Four-core software correctness and accounted allocation with one shared atlas Texture. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike.",
+    "runtimeBudgetSource": "qualify:wave4 evidence/test-e2e.log; four-core CPU affinity, both SwiftShader backends; unsmoothed rAF cadence, not GPU-complete latency",
+    "runtimeBudgetLogSha256": "sha256:abdea6809262f1cbb900e315a2bb40cfbf8916b31a038c7aa0b31839aebff91f",
+    "runtimeBudgetChecks": [
+      {
+        "backend": "webgpu",
+        "textureBytes": 4029540,
+        "firstSceneRenderMs": 160.5,
+        "frameTimeMs": 16.700000000000273,
+        "entityCount": 15,
+        "patchApplicationMs": 0.19999992847442627,
+        "reconnectMs": 681
+      },
+      {
+        "backend": "webgl2",
+        "textureBytes": 4029540,
+        "firstSceneRenderMs": 210.39999997615814,
+        "frameTimeMs": 16.700000000000273,
+        "entityCount": 15,
+        "patchApplicationMs": 0.2999999523162842,
+        "reconnectMs": 871.7000000476837
+      }
+    ]
   }
 }
