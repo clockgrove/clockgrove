@@ -236,7 +236,7 @@ describe("native durable sleeping-world catch-up", () => {
       await withNativeWorldOwner(async (owner) => {
         const { envelope, instanceId } = await startNativeCatchUp(owner, "outage");
         await waitForNativeWorkflow(owner, instanceId, "errored", "catch-up");
-        const birth = await testWorld("lamp-yard");
+        const birth = await testWorld("lamp-hall");
         await owner.sql(`INSERT INTO clockgrove.tenants (tenant_id,display_name) VALUES ('${birth.birth.world.tenantId}','mixed recovery') ON CONFLICT DO NOTHING;
           INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id) VALUES ('${birth.birth.world.tenantId}','principal-runtime') ON CONFLICT DO NOTHING`);
         const launched = await owner.request("/provisioning/launch", {

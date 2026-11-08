@@ -9,12 +9,12 @@ export interface FixtureSource {
 }
 
 /**
- * Committed seed projection hashes of the lamp-yard fixture, one per version. The world identity
+ * Committed seed projection hashes of the lamp-hall fixture, one per version. The world identity
  * is a function of the pack id and version, so each version projects to a different hash.
  */
 export const EXPECTED_SEED_PROJECTION_HASHES: Record<string, string> = {
-  "1.0.0": "89a4ea27038c8dda354a5166b062bfa86d51f370de77057f389366d62c5fea6b",
-  "1.1.0": "089728a25b8a8beda3efbd0f98cdc2108e8479fa36cbb43c06257d32afa625aa",
+  "1.0.0": "702644ad67a391da9aef59165338c00055e728eb5df8a644c99550fddf4a34e0",
+  "1.1.0": "687e7df865700eb7496128d8106e5628d8f8c46d14d3ca018801911ed22f10d7",
 };
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -76,8 +76,8 @@ export interface FixtureOptions {
   edit?: (context: FixtureContext) => void;
 }
 
-/** A small non-raccoon schema-2 pack: two spaces, three actors (two placed) and two seed commands. */
-export async function buildLampYardSource(options: FixtureOptions = {}): Promise<FixtureSource> {
+/** A small neutral schema-2 pack: two spaces, three actors (two placed) and two seed commands. */
+export async function buildLampHallSource(options: FixtureOptions = {}): Promise<FixtureSource> {
   const version = options.version ?? "1.0.0";
   const docs: Record<string, unknown> = {
     "traits/needs.json": {
@@ -104,10 +104,10 @@ export async function buildLampYardSource(options: FixtureOptions = {}): Promise
       traits: [{ id: "lamp.needs", version: 1 }],
       components: {},
     },
-    "spaces/yard.json": space("lamp.yard", "frame-ground", "den"),
+    "spaces/hall.json": space("lamp.hall", "frame-ground", "den"),
     "spaces/roof.json": space("lamp.roof", "frame-roof", "ridge"),
     "actors/keeper-one.json": actor("lamp.keeper-one", {
-      space: { id: "lamp.yard", version: 1 },
+      space: { id: "lamp.hall", version: 1 },
       coordinates: [10n, 20n],
     }),
     "actors/keeper-two.json": actor("lamp.keeper-two", {
@@ -143,7 +143,7 @@ export async function buildLampYardSource(options: FixtureOptions = {}): Promise
   };
   const manifest: Json = {
     schemaVersion: 2,
-    id: "fixture.lamp-yard",
+    id: "fixture.lamp-hall",
     version,
     engineCompatibility: ">=1.0.0 <2.0.0",
     dependencies: [],
@@ -151,7 +151,7 @@ export async function buildLampYardSource(options: FixtureOptions = {}): Promise
     archetypes: [{ id: "lamp.keeper", version: 1, path: "archetypes/keeper.json" }],
     traits: [{ id: "lamp.needs", version: 1, path: "traits/needs.json" }],
     spaces: [
-      { id: "lamp.yard", version: 1, path: "spaces/yard.json" },
+      { id: "lamp.hall", version: 1, path: "spaces/hall.json" },
       { id: "lamp.roof", version: 1, path: "spaces/roof.json" },
     ],
     actors: [
@@ -178,7 +178,7 @@ export async function buildLampYardSource(options: FixtureOptions = {}): Promise
         name: "weather",
         algorithm: NAMED_RANDOM_ALGORITHM,
         algorithmVersion: 1,
-        seed: "lamp-yard-seed",
+        seed: "lamp-hall-seed",
         state: [-1, 5, -6, 7],
         draws: 0,
       },

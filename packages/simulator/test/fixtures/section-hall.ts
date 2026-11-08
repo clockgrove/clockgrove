@@ -1,16 +1,16 @@
 import { encodeResource, NAMED_RANDOM_ALGORITHM } from "@clockgrove/world-pack-sdk";
 import { previewSeedProjection } from "../../src/index.js";
-import { sha256Hex, type FixtureSource, type Json } from "./lamp-yard.js";
+import { sha256Hex, type FixtureSource, type Json } from "./lamp-hall.js";
 
 export const SECTION_EPOCH = 100000n;
 
-export interface SectionYardContext {
+export interface SectionHallContext {
   docs: Record<string, unknown>;
   manifest: Json;
 }
 
-export interface SectionYardOptions {
-  edit?: (context: SectionYardContext) => void;
+export interface SectionHallOptions {
+  edit?: (context: SectionHallContext) => void;
   /** Skips the two-pass computation of the expected seed projection hash. */
   expectedSeedProjectionHash?: string;
 }
@@ -30,7 +30,7 @@ const actor = (id: string, archetype: string, coordinates: bigint[], lifecycle?:
   traits: [],
   overrides: [],
   capabilities: [],
-  placement: { space: { id: "sec.yard", version: 1 }, coordinates },
+  placement: { space: { id: "sec.hall", version: 1 }, coordinates },
   ...(lifecycle === undefined ? {} : { lifecycle }),
 });
 
@@ -136,7 +136,7 @@ const scriptedEntry = (ref: string, kind: string, actorId: string, target: strin
  * (parent and child, with lifecycle seeds), a food crate, a water pond, a shed, a plant and two
  * scripted-cognition seeds. The expected seed projection hash is computed from the seeded result.
  */
-export async function buildSectionYardSource(options: SectionYardOptions = {}): Promise<FixtureSource> {
+export async function buildSectionHallSource(options: SectionHallOptions = {}): Promise<FixtureSource> {
   const assemble = async (expected: string): Promise<FixtureSource> => {
     const docs: Record<string, unknown> = {
       "traits/needs.json": {
@@ -172,8 +172,8 @@ export async function buildSectionYardSource(options: SectionYardOptions = {}): 
         },
       },
       "archetypes/sprout.json": { id: "sec.sprout-kind", version: 1, traits: [], components: {} },
-      "spaces/yard.json": {
-        id: "sec.yard",
+      "spaces/hall.json": {
+        id: "sec.hall",
         version: 1,
         frame: {
           frameId: "frame-ground",
@@ -238,7 +238,7 @@ export async function buildSectionYardSource(options: SectionYardOptions = {}): 
     };
     const manifest: Json = {
       schemaVersion: 2,
-      id: "fixture.section-yard",
+      id: "fixture.section-hall",
       version: "1.0.0",
       engineCompatibility: ">=1.0.0 <2.0.0",
       dependencies: [],
@@ -255,7 +255,7 @@ export async function buildSectionYardSource(options: SectionYardOptions = {}): 
         { id: "sec.sprout-kind", version: 1, path: "archetypes/sprout.json" },
       ],
       traits: [{ id: "sec.needs", version: 1, path: "traits/needs.json" }],
-      spaces: [{ id: "sec.yard", version: 1, path: "spaces/yard.json" }],
+      spaces: [{ id: "sec.hall", version: 1, path: "spaces/hall.json" }],
       actors: [
         { id: "sec.parent", version: 1, path: "actors/parent.json" },
         { id: "sec.child", version: 1, path: "actors/child.json" },
@@ -280,7 +280,7 @@ export async function buildSectionYardSource(options: SectionYardOptions = {}): 
           name: "weather",
           algorithm: NAMED_RANDOM_ALGORITHM,
           algorithmVersion: 1,
-          seed: "section-yard-seed",
+          seed: "section-hall-seed",
           state: [-1, 5, -6, 7],
           draws: 0,
         },

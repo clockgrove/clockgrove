@@ -7,7 +7,7 @@ import { decodeOpaqueId } from "@clockgrove/contracts";
 import { canonicalBytes } from "@clockgrove/kernel";
 import { seedGenesis } from "@clockgrove/simulator";
 import { describe, expect, it } from "vitest";
-import { sha256Hex } from "../../../packages/simulator/test/fixtures/lamp-yard.js";
+import { sha256Hex } from "../../../packages/simulator/test/fixtures/lamp-hall.js";
 import { runtimeBindingManifest } from "../src/cloudflare-entry.js";
 import { stableWorkflowInstanceId } from "../src/routing.js";
 import * as workflows from "../src/workflows.js";
@@ -34,7 +34,7 @@ const COUNTS = `SELECT
 const RELEASED = `SELECT (workflow_source IS NULL AND workflow_source_bytes IS NULL)::text || '|' ||
   (workflow_request->'authorization' IS NOT NULL)::text FROM clockgrove_birth.provisioning_cases`;
 const EXPECTED_COUNTS =
-  "1|1|2|1|1|5|1|89a4ea27038c8dda354a5166b062bfa86d51f370de77057f389366d62c5fea6b";
+  "1|1|2|1|1|5|1|702644ad67a391da9aef59165338c00055e728eb5df8a644c99550fddf4a34e0";
 
 interface Launch {
   readonly envelope: LifecycleWorkflowEnvelope;
@@ -46,7 +46,7 @@ describe("native durable world birth", () => {
   it.skipIf(isNativeWorldOwnerChild())(
     "owns the finite native Workflow/PostgreSQL process and cleanup",
     async () => {
-      await runNativeWorldOwnerProcess(FILE, "lamp-yard", { provision: false, queues: true });
+      await runNativeWorldOwnerProcess(FILE, "lamp-hall", { provision: false, queues: true });
     },
     210_000,
   );

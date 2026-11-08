@@ -28,7 +28,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { EXPECTED_SEED_PROJECTION_HASHES } from "../../../packages/simulator/test/fixtures/lamp-yard.js";
+import { EXPECTED_SEED_PROJECTION_HASHES } from "../../../packages/simulator/test/fixtures/lamp-hall.js";
 import {
   applyMigrations,
   // @ts-expect-error -- repository-local JavaScript helper has no declaration file.

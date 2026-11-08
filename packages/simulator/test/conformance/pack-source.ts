@@ -4,7 +4,7 @@ import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { readBytes } from "../../cli/input.js";
 import { ACTUAL_SUFFIX, directoryEntries, walk } from "../../cli/pack-source.js";
 import { REPO_ROOT, WORLDS_ROOT } from "../../cli/repo.js";
-import type { FixtureSource } from "../fixtures/lamp-yard.js";
+import type { FixtureSource } from "../fixtures/lamp-hall.js";
 import { CHECKS, failCheck } from "./failure.js";
 
 export { REPO_ROOT, WORLDS_ROOT };

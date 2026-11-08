@@ -6,13 +6,13 @@ import { DigestStream, STREAM_BATCH } from "../../src/scenario/summary.js";
 import { loadPack, WORLDS_ROOT } from "../conformance/pack-source.js";
 import {
   advance,
+  hall,
   MATERIAL_TYPES,
   ports,
   rain,
   runOk,
   SECTION_EPOCH,
   scenario,
-  yard,
 } from "./harness.js";
 
 // No committed golden records `summarised`; the qualification long runs do. This file keeps the
@@ -20,7 +20,7 @@ import {
 
 type Rec = Record<string, any>;
 
-function yardDocument(recording: "full" | "summarised"): Rec {
+function hallDocument(recording: "full" | "summarised"): Rec {
   return scenario({
     recording,
     steps: [advance("span", SECTION_EPOCH + 600_000n, "live", 60_000n)],
@@ -73,9 +73,9 @@ async function chainDigest(records: readonly unknown[]): Promise<Rec> {
 
 describe("summarised recording", () => {
   it("keeps the outcomes of a full recording with streams replaced by counts and digests", async () => {
-    const { source, artifact } = await yard({ rules: true });
-    const full = (await runOk({ artifact, source, scenario: yardDocument("full") })).bundle;
-    const summarised = (await runOk({ artifact, source, scenario: yardDocument("summarised") }))
+    const { source, artifact } = await hall({ rules: true });
+    const full = (await runOk({ artifact, source, scenario: hallDocument("full") })).bundle;
+    const summarised = (await runOk({ artifact, source, scenario: hallDocument("summarised") }))
       .bundle;
     expect(summarised.equivalences).toEqual(full.equivalences);
     expect(summarised.assertions).toEqual(full.assertions);
