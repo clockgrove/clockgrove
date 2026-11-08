@@ -2768,7 +2768,7 @@ const observeYard = async (backend) => {
             "den",
             "garden",
             "green-lake-neighborhood",
-            "living-scene",
+            "living-yard",
             "porch",
             "snack-house",
             "street-buffer",
@@ -2827,7 +2827,7 @@ const observeYard = async (backend) => {
           await places.getByText("Viewing: snack-house").count(),
         ]).toEqual(["true", 1]);
         await view(
-          "living-scene",
+          "living-yard",
           "grove.stevie is not within living-yard; the view stayed on snack-house.",
         );
         // Refusals the yard's topology cannot produce here are the runtime's own answers, replayed.
