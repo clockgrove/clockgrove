@@ -4,11 +4,45 @@
 // own process group and turns Ctrl-C, SIGTERM or a closed terminal (SIGHUP) into a stop file the session watches. The session
 // then returns and the harness tears everything down as it does after a journey.
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+
+const usage =
+  "Usage: node scripts/dev-yard.mjs [--pack <pack-directory> --shell <shell-json> --assets <static-directory>]";
+let inputs = {};
+try {
+  const { values, tokens } = parseArgs({
+    options: { pack: { type: "string" }, shell: { type: "string" }, assets: { type: "string" } },
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+  });
+  if (tokens.length !== 0) {
+    if (
+      tokens.length !== 3 ||
+      [values.pack, values.shell, values.assets].some((value) => !value || value.startsWith("--"))
+    )
+      throw new Error(usage);
+    const pack = path.resolve(values.pack);
+    const shell = path.resolve(values.shell);
+    const assets = path.resolve(values.assets);
+    for (const directory of [pack, assets])
+      if (!(await stat(directory)).isDirectory()) throw new Error(`Not a directory: ${directory}`);
+    if (!(await stat(shell)).isFile()) throw new Error(`Not a file: ${shell}`);
+    inputs = {
+      CLOCKGROVE_DEV_WORLD_PACK: pack,
+      CLOCKGROVE_WORLD_SHELL: shell,
+      CLOCKGROVE_WORLD_ASSETS: assets,
+    };
+  }
+} catch (error) {
+  process.stderr.write(`${error.message}\n${usage}\n`);
+  process.exit(2);
+}
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const vitest = path.join(
@@ -32,7 +66,7 @@ const session = spawn(
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: { ...process.env, CLOCKGROVE_DEV_YARD_STOP: stopFile },
+    env: { ...process.env, ...inputs, CLOCKGROVE_DEV_YARD_STOP: stopFile },
   },
 );
 // The session writes through this launcher, never to the terminal itself, so a closed terminal

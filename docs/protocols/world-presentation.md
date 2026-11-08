@@ -34,11 +34,20 @@ its own identifier configuration is explicitly allowlisted in `scripts/world-bou
 
 Set `CLOCKGROVE_WORLD_SHELL` to the absolute path of a JSON document before starting Vite or
 building the web app. The same input is compiled into the browser and used for the HTML title.
-Without it the shell uses its neutral default, with no atlas. For example:
+Without it the shell uses its neutral default, with no atlas. Set `CLOCKGROVE_WORLD_ASSETS`
+to the world's reviewed static-asset directory, containing atlas files at the paths requested
+by the renderer. An explicit path must name an existing directory; relative paths resolve from
+Vite's working directory. Without this input the current compatibility default is
+Clockgrove's `assets/reviewed`. Use absolute paths when invoking pnpm from another repository.
+For example, from an external world repository beside the pinned Clockgrove checkout:
 
 ```sh
-CLOCKGROVE_WORLD_SHELL="$PWD/worlds/fixture/shell.json" pnpm --filter @clockgrove/web dev
-CLOCKGROVE_WORLD_SHELL="$PWD/worlds/raccoons/shell.json" pnpm --filter @clockgrove/web build
+CLOCKGROVE_WORLD_SHELL="$PWD/worlds/sample/shell.json" \
+CLOCKGROVE_WORLD_ASSETS="$PWD/assets/reviewed" \
+  pnpm --dir ../clockgrove --filter @clockgrove/web dev
+CLOCKGROVE_WORLD_SHELL="$PWD/worlds/sample/shell.json" \
+CLOCKGROVE_WORLD_ASSETS="$PWD/assets/reviewed" \
+  pnpm --dir ../clockgrove --filter @clockgrove/web build
 ```
 
 The document has these required fields:
@@ -58,6 +67,31 @@ The shell does not interpret HTML in names or copy. Presentation data is trusted
 configuration, rather than player-authored content. Static asset publication remains the
 composition root's responsibility. The renderer verifies the selected atlas's image digest
 before using it, as described in the [scene contract](../../apps/web/docs/scene.md).
+
+## External local session
+
+Install a separate Clockgrove source checkout at an exact commit as described in
+[pack conformance](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout).
+The local runtime also needs the repository's pinned PostgreSQL and pgvector toolchain;
+see the [development reference](../runbooks/development.md). From the world repository:
+
+```sh
+node ../clockgrove/scripts/dev-yard.mjs \
+  --pack worlds/sample --shell worlds/sample/shell.json --assets assets/reviewed
+```
+
+Supply all three options together. Paths resolve from the caller's working directory, so the
+world remains outside the platform checkout. The command provisions the selected pack in
+disposable PostgreSQL, starts the native workerd runtime and serves the web shell with the
+selected theme and static assets. It reads optional `runtime.json` beside the pack's manifest,
+serializing `presentations` and `model` into the runtime bindings described below. An omitted
+runtime file uses neutral presentation and the generic model defaults.
+
+Open the printed URL and sign in with the printed local credential. That credential grants
+observation only. Ctrl-C stops the session and removes its database and runtime storage;
+the existing four-hour session bound also stops it. This local composition is a development
+session, not a production deployment. A direct Vite invocation above serves/builds only the
+browser shell; it does not provision a runtime or configure authentication.
 
 ## Runtime inputs
 

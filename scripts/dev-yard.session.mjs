@@ -1,6 +1,6 @@
 // The session of `pnpm dev:yard` (issue 1002, launched by scripts/dev-yard.mjs). It reuses the
 // browser-journey harness (apps/runtime/test/world-owner/native-harness.ts): a disposable
-// PostgreSQL, green-lake-yard@1 (worlds/raccoons) provisioned, the native runtime in workerd, and
+// PostgreSQL, the explicitly selected pack provisioned, the native runtime in workerd, and
 // the web app on Vite proxying /v1 to it. It prints the world URL and the observer credential, and
 // stops when the launcher writes its stop file or after SESSION_MS; the harness then removes the
 // database and runtime storage.
@@ -19,6 +19,7 @@ import { createServer } from "../apps/web/node_modules/vite/dist/node/index.js";
 import { worldRoutePath } from "../apps/web/src/world-route.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const pack = process.env.CLOCKGROVE_DEV_WORLD_PACK ?? "raccoons";
 const CONFIG = "scripts/dev-yard.vitest.config.ts";
 /**
  * One session's bound (issue 1002 decision: 4 h covers a pilot session; restart for more), overridden by
@@ -38,7 +39,7 @@ async function stopped() {
 
 it("serves the living yard", async () => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess("scripts/dev-yard.session.mjs", "raccoons", {
+    await runNativeWorldOwnerProcess("scripts/dev-yard.session.mjs", pack, {
       vitestConfig: CONFIG,
       timeoutMs: SESSION_MS + 60_000,
       inheritOutput: true,
@@ -52,7 +53,7 @@ it("serves the living yard", async () => {
     return;
   }
   await withNativeWorldOwner(async (native) => {
-    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
+    process.env.CLOCKGROVE_WORLD_SHELL ??= path.resolve(root, "worlds", pack, "shell.json");
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
@@ -66,7 +67,7 @@ it("serves the living yard", async () => {
       await server.listen();
       const { port } = server.httpServer.address();
       process.stdout.write(
-        `\nLiving yard: green-lake-yard@1 (${native.scope.worldId} / ${native.scope.spaceId})\n` +
+        `\nLiving world: ${native.world.artifact.packId}@${native.world.artifact.version} (${native.scope.worldId} / ${native.scope.spaceId})\n` +
           `  Open:    http://127.0.0.1:${port}${worldRoutePath(native.scope)}\n` +
           `  Sign in: local session credential "${CREDENTIAL}" (observation only)\n` +
           `  Stop:    Ctrl-C; the database and runtime storage are temporary and removed on exit.\n\n`,
