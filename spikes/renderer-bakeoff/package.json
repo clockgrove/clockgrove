@@ -1,0 +1,20 @@
+{
+  "name": "@clockgrove/renderer-bakeoff",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit --project tsconfig.json && node scripts/build.mjs",
+    "measure": "node scripts/measure.mjs"
+  },
+  "dependencies": {
+    "@clockgrove/contracts": "workspace:*",
+    "phaser": "4.2.1",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.4"
+  }
+}
