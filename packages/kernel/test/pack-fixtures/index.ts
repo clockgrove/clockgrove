@@ -7,7 +7,7 @@ import {
 import { canonicalBytes } from "../../src/canonical.js";
 import { initializeNamedRandomStreams } from "../../src/index.js";
 
-export type PackName = "raccoon" | "lantern";
+export type PackName = "weather" | "lantern";
 export interface PackSource {
   manifest: Record<string, unknown>;
   resources: Record<string, unknown>;
@@ -17,12 +17,12 @@ type Json = Record<string, unknown>;
 
 /** Two independent packs: different identities, vocabulary, clock policies and seeds. */
 export const packSpecs = {
-  raccoon: {
-    packId: "clockgrove.pack.raccoon-rain",
-    prefix: "raccoon",
+  weather: {
+    packId: "clockgrove.pack.weather-rain",
+    prefix: "weather",
     needsPrefix: "routine",
-    resident: "raccoon.stevie",
-    seed: "raccoon-installation-1",
+    resident: "weather.subject",
+    seed: "weather-installation-1",
     epoch: 0n,
     wallEpoch: "2026-01-01T00:00:00.000Z",
     ratio: 1,

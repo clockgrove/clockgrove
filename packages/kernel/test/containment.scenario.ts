@@ -127,7 +127,7 @@ function deltas(events: readonly WorldEvent[]) {
   return result;
 }
 export async function containmentFixture(): Promise<WorldKernelInput> {
-  const base = await scenarioInput(scenarios.raccoon);
+  const base = await scenarioInput(scenarios.weather);
   const state = createWorldState({ ...base.partition.state, entities: [] });
   const pack = {
     ...base.pack.pack,

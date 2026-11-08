@@ -4,7 +4,7 @@
     "schemaVersion": 1,
     "packId": "clockgrove.reference.rain-shelter",
     "packVersion": "0.1.0",
-    "archetypes": ["reference.raccoon@1", "reference.shelter@1"],
+    "archetypes": ["reference.weather@1", "reference.shelter@1"],
     "policy": {
       "schemaVersion": 1,
       "version": "rain-shelter@1",
@@ -19,9 +19,9 @@
   "initialState": {
     "schemaVersion": 1,
     "tenantId": "reference-local",
-    "worldId": "reference-yard",
+    "worldId": "reference-zone",
     "timelineId": "reference-main",
-    "partitionId": "reference-yard-ground",
+    "partitionId": "reference-zone-ground",
     "revision": "0",
     "simulationTime": "0",
     "weather": {
@@ -29,7 +29,7 @@
     },
     "spatialFrames": [
       {
-        "frameId": "yard-ground",
+        "frameId": "zone-ground",
         "version": 1,
         "dimensions": 2,
         "unit": {
@@ -57,10 +57,10 @@
     ],
     "entities": [
       {
-        "objectId": "stevie",
-        "archetypeId": "reference.raccoon@1",
+        "objectId": "subject",
+        "archetypeId": "reference.weather@1",
         "pose": {
-          "frameId": "yard-ground",
+          "frameId": "zone-ground",
           "frameVersion": 1,
           "coordinates": ["0", "0"]
         },
@@ -71,33 +71,33 @@
           "hungerRemainder": "0",
           "wetnessRemainder": "0"
         },
-        "spaceId": "yard"
+        "spaceId": "zone"
       },
       {
         "objectId": "den-mouth",
         "archetypeId": "reference.shelter@1",
         "pose": {
-          "frameId": "yard-ground",
+          "frameId": "zone-ground",
           "frameVersion": 1,
           "coordinates": ["0", "0"]
         },
         "shelter": {
           "rainProtection": 10000
         },
-        "spaceId": "yard"
+        "spaceId": "zone"
       },
       {
         "objectId": "porch-step",
         "archetypeId": "reference.shelter@1",
         "pose": {
-          "frameId": "yard-ground",
+          "frameId": "zone-ground",
           "frameVersion": 1,
           "coordinates": ["0", "0"]
         },
         "shelter": {
           "rainProtection": 7500
         },
-        "spaceId": "yard"
+        "spaceId": "zone"
       }
     ]
   }

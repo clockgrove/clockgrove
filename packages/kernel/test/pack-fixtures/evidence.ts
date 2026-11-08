@@ -148,7 +148,7 @@ export const expectedPackRefusals: Record<string, readonly [string, string]> = {
   "actor-traits-object": ["MALFORMED_RESOURCE", "manifest.actors[0].traits"],
 };
 
-/** Each case starts from the valid raccoon pack and must be refused with a stable code and path. */
+/** Each case starts from the valid weather pack and must be refused with a stable code and path. */
 export const refusalMutations: readonly (readonly [string, Mutation])[] = [
   [
     "hash-mismatch",
@@ -253,14 +253,14 @@ export const refusalMutations: readonly (readonly [string, Mutation])[] = [
   [
     "missing-definition",
     resource("archetypes/resident.json", (document) => {
-      document.traits = [{ id: `${packSpecs.raccoon.needsPrefix}.ghost`, version: 1 }];
+      document.traits = [{ id: `${packSpecs.weather.needsPrefix}.ghost`, version: 1 }];
     }),
   ],
   [
     "definition-cycle",
     async (source) => {
-      const needs = `${packSpecs.raccoon.needsPrefix}.needs`;
-      const shelter = `${packSpecs.raccoon.needsPrefix}.shelter`;
+      const needs = `${packSpecs.weather.needsPrefix}.needs`;
+      const shelter = `${packSpecs.weather.needsPrefix}.shelter`;
       const first = await rewriteResource(source, "traits/needs.json", (document) => {
         document.traits = [{ id: shelter, version: 1 }];
       });
@@ -354,22 +354,22 @@ function artifactOf(value: PackCase): WorldPackArtifactRef {
 
 /** Deterministic, JSON-safe evidence: identical bytes are required from Node and Workers. */
 export async function packEvidence() {
-  const raccoon = await buildFixtureSource("raccoon");
+  const weather = await buildFixtureSource("weather");
   const lantern = await buildFixtureSource("lantern");
-  const built = { raccoon: await buildCase(raccoon), lantern: await buildCase(lantern) };
+  const built = { weather: await buildCase(weather), lantern: await buildCase(lantern) };
 
   const refusals: { name: string; case: PackCase }[] = [];
   for (const [name, mutate] of refusalMutations)
-    refusals.push({ name, case: await buildCase(await mutate(raccoon)) });
+    refusals.push({ name, case: await buildCase(await mutate(weather)) });
 
-  const baseArtifact = artifactOf(built.raccoon);
+  const baseArtifact = artifactOf(built.weather);
   const hashChanges: {
     name: string;
     case: PackCase;
     changed: { contentHash: boolean; resourceManifestHash: boolean; assetManifestHash: boolean };
   }[] = [];
   for (const [name, mutate] of hashChangeMutations) {
-    const changedCase = await buildCase(await mutate(raccoon));
+    const changedCase = await buildCase(await mutate(weather));
     const artifact = artifactOf(changedCase);
     hashChanges.push({
       name,
@@ -382,24 +382,24 @@ export async function packEvidence() {
     });
   }
 
-  const reordered = await buildCase(reorderSource(raccoon));
+  const reordered = await buildCase(reorderSource(weather));
   const reorderedLantern = await buildCase(reorderSource(lantern));
-  const v2Source = newerVersion(raccoon, "1.1.0");
+  const v2Source = newerVersion(weather, "1.1.0");
   const v2 = await buildCase(v2Source);
-  const rebuilt = await buildCase(await buildFixtureSource("raccoon"));
-  const afterV2 = await buildCase(raccoon);
+  const rebuilt = await buildCase(await buildFixtureSource("weather"));
+  const afterV2 = await buildCase(weather);
   const retained = {
-    unchanged: JSON.stringify(afterV2) === JSON.stringify(built.raccoon),
-    before: built.raccoon,
+    unchanged: JSON.stringify(afterV2) === JSON.stringify(built.weather),
+    before: built.weather,
     after: afterV2,
   };
 
-  const extras = "clockgrove.pack.raccoon-extras";
+  const extras = "clockgrove.pack.weather-extras";
   const dependOn = async (versionRange: string, artifacts: readonly WorldPackArtifactRef[]) =>
     buildCase(
-      await buildFixtureSource("raccoon", {
+      await buildFixtureSource("weather", {
         packId: extras,
-        dependencies: [{ id: packSpecs.raccoon.packId, versionRange }],
+        dependencies: [{ id: packSpecs.weather.packId, versionRange }],
         dependencyArtifacts: artifacts.map((artifact) => ({ ...artifact })),
       }),
     );
@@ -429,7 +429,7 @@ export type PackEvidence = Awaited<ReturnType<typeof packEvidence>>;
 /** Flat, ordered inventory of every input identity, for exact cross-runtime equality. */
 export function inputIdentities(evidence: PackEvidence): { label: string; input: InputIdentity }[] {
   const all: [string, PackCase][] = [
-    ["built.raccoon", evidence.built.raccoon],
+    ["built.weather", evidence.built.weather],
     ["built.lantern", evidence.built.lantern],
     ...evidence.refusals.map(({ name, case: item }): [string, PackCase] => [
       `refusal.${name}`,

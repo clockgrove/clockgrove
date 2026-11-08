@@ -345,7 +345,7 @@ export const PERCEPTION_BASELINE_OUTCOMES: readonly (readonly [
   ["viewer:subscribed", "viewer", "included", "explicit-subscriber", null],
   ["viewer:watching", "viewer", "excluded", "viewer-unsubscribed", null],
   ["walker", "actor", "included", "event-actor", null],
-  ["yard-far", "actor", "excluded", "modality-range", null],
+  ["zone-far", "actor", "excluded", "modality-range", null],
 ];
 
 /** Executable schema of the `perception` evidence section; returns every violation (empty = valid). */
@@ -1048,8 +1048,8 @@ const ENVIRONMENT_CROSSINGS = [
 /** Committed literals of the `rain-shelter-comfort` golden; any change here is a reviewed change. */
 export const ENVIRONMENT_GOLDEN = {
   name: "rain-shelter-comfort",
-  materialEventHash: "53dea224cfe869ddc4d2978bbb651f8ad5b50d960df6ad55be4c7ce91c9953a7",
-  finalStateHash: "fc8298d945846b02fc6cb1cd0ae60bce263ce4a7a9dc76504842c4f361bac310",
+  materialEventHash: "f29049ce223ded73fda2326eda5417f989f6c1673d6df8029467749575ac2b91",
+  finalStateHash: "da83e70c5e0810352f8394839e5067cb2c2a79d1ae17403154b1e6feec442542",
 } as const;
 
 const ENV_POLICY = "pack.pack.policy.environment";
@@ -1418,12 +1418,12 @@ export const ECOLOGY_GOLDENS = [
   {
     name: "food-decay-and-conservation",
     materialEventHash: "72a52ddf64ac477802cf56200d49a2ffed84e242578c5607d6ebbc894e0bf28b",
-    finalStateHash: "eb7f94480d6522c03d1b681d4411258d1936597460477fcb4c6e38c0c1a564cb",
+    finalStateHash: "f80d1e1050641b4f1e6605a2af384b92e7932d6c7bb32e2c07d2602692702765",
   },
   {
     name: "cedar-growth",
     materialEventHash: "023be47e530b5e49844b720d0f565f221efc83935090f8b70a32ae1111eb495d",
-    finalStateHash: "c1be6b4f707813fa7acffcd33e54408ec8ac09cd36d878c394fc670e2705117a",
+    finalStateHash: "590ea459a70e9e4da9c06ee58b4c7f5d7ba5a35721625a65396ca643e1b24cd7",
   },
 ] as const;
 
@@ -1922,8 +1922,8 @@ const FIRST_DUE_CHECK = "world.decision.first-due@1";
 /** Committed literals of the `comfort-and-health` golden; any change here is a reviewed change. */
 export const WELLBEING_GOLDEN = {
   name: "comfort-and-health",
-  materialEventHash: "9394c44a6b93a86fe2a64cc60a0d177fad0206f55e2ceabb0da904850eafd61f",
-  finalStateHash: "f150d21479d9c04c02a696c87c71479c0f568a8cb7b072386cf515d3aba84d7b",
+  materialEventHash: "f757f14b5c28c22191b216d844fd2fe3fa36002987deedfec506bebaca6ccf5f",
+  finalStateHash: "75a95c4adca018ca1550755d14f3157477d15845702955d431619131aeb9ad9f",
 } as const;
 
 const WB_POLICY = "pack.pack.policy.wellbeing";
@@ -2361,9 +2361,9 @@ const EXCLUSIONS = [
 /** Committed literals of the `favorite-snack-house` golden; any change here is a reviewed change. */
 export const DECISIONS_GOLDEN = {
   name: "favorite-snack-house",
-  materialEventHash: "6a9461c240e0388e50245316f3aae17322f7c885ac904474870db9b82cc08368",
-  traceHash: "fb4e1162b631fb7643f213d2f12189d665fbe3977321e09181179f1f0260e160",
-  finalStateHash: "7dac86eb56fd58be1384c82a3b33cbaafaaaa3d4cb5a27ac4d62fff071f5a99b",
+  materialEventHash: "f5d3895045f6183481893a9447a54e074a62634107a2f5e20f60d1d6fe05c3db",
+  traceHash: "f4fd76a538132ee6fc0e90f34a63b614ae2d9ca098370f7f7848a5f80605ca9e",
+  finalStateHash: "782d938a93353e05bc0f6784ce26f3b5ee2cbbe5b2365bba0a31b5bf587a7deb",
 } as const;
 
 const UT_POLICY = "pack.pack.policy.utility";

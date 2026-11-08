@@ -10,7 +10,9 @@ import {
   type WorldState,
 } from "@clockgrove/domain";
 import garden from "../../../examples/world-packs/garden-rain-shelter.json" with { type: "json" };
-import raccoon from "../../../examples/world-packs/raccoon-rain-shelter.json" with { type: "json" };
+import weatherScenario from "../../../examples/world-packs/weather-rain-shelter.json" with {
+  type: "json",
+};
 import { canonicalBytes, canonicalSerialize } from "../src/canonical.js";
 import { createDeterministicIdSource } from "../src/deterministic-id.js";
 import { simulationTimeMs } from "../src/time.js";
@@ -26,9 +28,9 @@ import { componentFixtureNames, composeComponentFixture } from "./component-fixt
 import { packEvidence } from "./pack-fixtures/evidence.js";
 import { randomRuntimeEvidence } from "./random-streams.scenario.js";
 
-export const scenarios = { raccoon, garden };
+export const scenarios = { weather: weatherScenario, garden };
 export function fractionalScenario() {
-  const sample = structuredClone(raccoon);
+  const sample = structuredClone(weatherScenario);
   sample.pack.policy.decisionIntervalMs = "7";
   const first = sample.initialState.entities.find((entity) => entity.needs !== undefined);
   if (first === undefined) throw new Error("sample actor required");
@@ -199,7 +201,7 @@ export function actor(state: WorldState) {
   return state.entities.find((entity) => entity.needs !== undefined);
 }
 export async function wetnessCarryEvidence() {
-  let input = await scenarioInput(raccoon);
+  let input = await scenarioInput(weatherScenario);
   const weather = executeWorldKernel(input, { mode: "test" });
   if (!weather.ok || input.input.kind !== "command") throw new Error("weather setup failed");
   let previous = weather.result;
@@ -236,10 +238,10 @@ export async function wetnessCarryEvidence() {
   }
   return {
     stepped: actor(previous.state)?.needs,
-    aggregate: actor((await runScenario(raccoon, 10000, 32, {}, 32, 50n)).state)?.needs,
+    aggregate: actor((await runScenario(weatherScenario, 10000, 32, {}, 32, 50n)).state)?.needs,
   };
 }
-export async function runComponentScenario(name: "raccoon" | "garden", override = false) {
+export async function runComponentScenario(name: "weather" | "garden", override = false) {
   const fixture = composeComponentFixture(name, override);
   const sourceBefore = fixture.sourceCanonicalBefore;
   const result = await runScenario(

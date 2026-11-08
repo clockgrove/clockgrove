@@ -70,13 +70,13 @@ function check(condition: boolean, what: string): void {
 // Fixtures over the RW-0105a anchor world and the RW-0104 containment fixture.
 // ---------------------------------------------------------------------------------------------
 
-const at = (id: string, x: number, y: number, space = "yard", extra: Partial<WorldEntity> = {}) =>
+const at = (id: string, x: number, y: number, space = "zone", extra: Partial<WorldEntity> = {}) =>
   mover(id, [BigInt(x), BigInt(y)], { spaceId: space as SpaceId, ...extra });
 
 /**
  * Ground-plane world: walker stands on the porch inside porch-box; others surround it. The declared
- * semantic hierarchy is town → yard-lot → porch, so townsfolk, standing in the town just north of
- * the yard lot, is in an ancestor place of the walker's porch.
+ * semantic hierarchy is town → zone-lot → porch, so townsfolk, standing in the town just north of
+ * the zone lot, is in an ancestor place of the walker's porch.
  */
 export async function anchorWorld(): Promise<WorldState> {
   const place = (
@@ -93,20 +93,20 @@ export async function anchorWorld(): Promise<WorldState> {
     ...(parent === undefined ? {} : { parent: { regionId: parent, version: 1 } }),
   });
   const base = await spatialFixture([
-    at("walker", 4000, 0, "yard", {
+    at("walker", 4000, 0, "zone", {
       containment: { kind: "object", capacity: 1, containerId: "porch-box" as ObjectId },
     }),
-    at("porch-box", 4000, 0, "yard", { containment: { kind: "object", capacity: 2 } }),
+    at("porch-box", 4000, 0, "zone", { containment: { kind: "object", capacity: 2 } }),
     at("bowl", 3800, 200),
     at("mover", 4500, 500),
     at("hidden", 3500, 0),
     at("private-neighbour", 4200, 200),
     at("reduced-neighbour", 4300, -200),
-    at("yard-far", 8000, 0),
+    at("zone-far", 8000, 0),
     at("street-sitter", 4800, -300, "street"),
     at("townsfolk", 4000, 1400, "town"),
     at("subscriber", -5000, 3000, "elsewhere"),
-    at("sleeper", 4100, 100, "yard", { lifecycle: { status: "dead" } }),
+    at("sleeper", 4100, 100, "zone", { lifecycle: { status: "dead" } }),
   ]);
   const state = base.partition.state;
   return createWorldState({
@@ -114,11 +114,11 @@ export async function anchorWorld(): Promise<WorldState> {
     spatialRegions: [
       ...(state.spatialRegions ?? []).map((region) =>
         region.regionId === "porch"
-          ? { ...region, parent: { regionId: "yard-lot", version: 1 } }
+          ? { ...region, parent: { regionId: "zone-lot", version: 1 } }
           : region,
       ),
       place("town", [0n, -3000n], [12000n, 10000n]),
-      place("yard-lot", [3400n, -1300n], [9000n, 1300n], "town"),
+      place("zone-lot", [3400n, -1300n], [9000n, 1300n], "town"),
     ] as never,
   });
 }
@@ -175,7 +175,7 @@ export function baseEvent(state: WorldState): EventFixture {
     eventId: "event-1",
     modality: "sound",
     sourceRevision: state.revision,
-    spaceId: "yard",
+    spaceId: "zone",
     actorId: "walker",
     targetId: "bowl",
     regionIds: ["porch"],

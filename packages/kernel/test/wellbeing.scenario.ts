@@ -139,7 +139,7 @@ const QUIET_VALUES: WellbeingValues = {
 export const SAME_SPEC: WellbeingSpec = {
   ...DRY,
   ...BASE_RATES,
-  actors: [["solo-raccoon", null]],
+  actors: [["solo-weather", null]],
   wellbeing: {
     thirstPerInterval: 5,
     healthLossPerInterval: 5000,
@@ -153,7 +153,7 @@ export const SAME_SPEC: WellbeingSpec = {
 export const THIRST_SPEC: WellbeingSpec = {
   ...DRY,
   ...BASE_RATES,
-  actors: [["solo-raccoon", null]],
+  actors: [["solo-weather", null]],
   wellbeing: { ...QUIET_VALUES, thirstPerInterval: 3, urgentThirst: 4, urgentHunger: 3010 },
 };
 /** No threshold is reachable: two actors whose decisions only come from their own schedules. */
@@ -161,8 +161,8 @@ export const QUIET_SPEC: WellbeingSpec = {
   ...DRY,
   ...BASE_RATES,
   actors: [
-    ["a-raccoon", null],
-    ["b-raccoon", 10000],
+    ["a-weather", null],
+    ["b-weather", 10000],
   ],
   wellbeing: QUIET_VALUES,
 };
@@ -170,7 +170,7 @@ export const QUIET_SPEC: WellbeingSpec = {
 export const EARLY_SPEC: WellbeingSpec = {
   ...DRY,
   ...BASE_RATES,
-  actors: [["early-raccoon", null]],
+  actors: [["early-weather", null]],
   wellbeing: { ...QUIET_VALUES, urgentHunger: 3001 },
 };
 
@@ -406,7 +406,7 @@ export function generateWellbeingCases(sequences = 3): GeneratedCase[] {
       { length: actorCount },
       (_, index) =>
         [
-          `raccoon-${sequence}-${index}`,
+          `weather-${sequence}-${index}`,
           index === 0 ? null : (protections[next(4)] ?? null),
         ] as const,
     );
@@ -769,7 +769,7 @@ export function wellbeingRefusalInputs(base: WorldKernelInput): RefusalCase[] {
       record.entries.pop();
       return record;
     }),
-    state("entry-id-differs", entry(0, "objectId", "aa-raccoon")),
+    state("entry-id-differs", entry(0, "objectId", "aa-weather")),
     state("entry-integrated-at-differs", entry(0, "integratedAt", 5n)),
     state("entry-thirst-remainder-too-large", entry(0, "thirstRemainder", 1000n)),
     state("entry-health-remainder-too-large", entry(0, "healthRemainder", 1000n)),
@@ -819,7 +819,7 @@ export function scheduledRefusalInputs(world: EnvironmentWorld): ScheduledRefusa
     })),
     edit("payload-wrong-object", (scheduled) => ({
       ...scheduled,
-      payload: { ...scheduled.payload, objectId: "b-raccoon" },
+      payload: { ...scheduled.payload, objectId: "b-weather" },
     })),
     edit("foreign-command-id", (scheduled) => ({
       ...scheduled,

@@ -53,8 +53,8 @@ function spec(segments: UtilitySpec["segments"]): UtilitySpec {
     wetnessPerInterval: 1500,
     dryingPerInterval: 1000,
     actors: [
-      ["a-raccoon", null],
-      ["b-raccoon", 10000],
+      ["a-weather", null],
+      ["b-weather", 10000],
     ],
     wellbeing: {
       thirstPerInterval: 40,
@@ -89,12 +89,12 @@ async function fixtureWorld(source: UtilitySpec): Promise<EnvironmentWorld> {
   sample.pack.packId = "clockgrove.fixture.event-volume";
   if (!sample.pack.archetypes.includes("reference.cedar@1"))
     sample.pack.archetypes.push("reference.cedar@1");
-  const pose = { frameId: "yard-ground", frameVersion: 1, coordinates: ["0", "0"] };
+  const pose = { frameId: "zone-ground", frameVersion: 1, coordinates: ["0", "0"] };
   (sample.initialState.entities as Loose[]).push({
     objectId: "cedar",
     archetypeId: "reference.cedar@1",
     pose,
-    spaceId: "yard",
+    spaceId: "zone",
   });
   (sample.initialState.entities as Loose[]).sort((l, r) =>
     l.objectId < r.objectId ? -1 : l.objectId > r.objectId ? 1 : 0,
