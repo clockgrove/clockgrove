@@ -1,0 +1,275 @@
+// The measurement page: loads each candidate bundle in turn, drives the same adapter through the fixed
+// lighting, quality and camera sequence, times every frame to GPU completion and writes one JSON record
+// into the DOM (for `--dump-dom` from a file:// URL) and, when served by scripts/measure.mjs, POSTs it.
+import {
+  type BakeoffAdapter,
+  type CandidateDescription,
+  QUALITY_TIERS,
+  type QualityTier,
+} from "./contract.js";
+import {
+  CAMERA_PATH,
+  LIGHTING_STATES,
+  type LightingState,
+  SCREENSHOT_CAMERA,
+  SNAPSHOT,
+  TO_NIGHT,
+} from "./inputs/scene.js";
+
+const params = new URLSearchParams(location.search);
+const CANDIDATES = (params.get("candidates") ?? "phaser,three-webgl2,three-webgpu").split(",");
+/** Measured frames per lighting state and tier (plan assumption 7: a stable p95, short under SwiftShader). */
+const FRAMES = Number(params.get("frames") ?? 120);
+const WARMUP = Number(params.get("warmup") ?? 10);
+/** Frames timed by requestAnimationFrame cadence, after the GPU-completion frames. */
+const RAF_FRAMES = Number(params.get("rafFrames") ?? 30);
+/** Canvas size in CSS pixels at device pixel ratio 1: half of 1080p (plan, design note 6). */
+const WIDTH = 960;
+const HEIGHT = 540;
+/** Animation times for screenshots and the reduced-motion check; fixed so every candidate matches. */
+const SCREENSHOT_TIME_MS = 1_250;
+const SECOND_TIME_MS = 2_350;
+const FRAME_MS = 1_000 / 60;
+
+interface Stats {
+  readonly count: number;
+  readonly p50: number;
+  readonly p95: number;
+  readonly mean: number;
+  readonly max: number;
+}
+function stats(samples: readonly number[]): Stats {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const at = (q: number) =>
+    sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)] ?? 0;
+  const round = (v: number) => Math.round(v * 1_000) / 1_000;
+  return {
+    count: sorted.length,
+    p50: round(at(0.5)),
+    p95: round(at(0.95)),
+    mean: round(sorted.reduce((sum, v) => sum + v, 0) / Math.max(1, sorted.length)),
+    max: round(sorted.at(-1) ?? 0),
+  };
+}
+interface Run {
+  readonly state: LightingState;
+  readonly tier: QualityTier;
+  readonly warmupFrames: number;
+  /** Render start to GPU completion, per frame, in milliseconds. */
+  readonly frameMs: Stats;
+  /** Interval between requestAnimationFrame callbacks while rendering each frame (vsync-capped). */
+  readonly rafIntervalMs: Stats | null;
+}
+interface CandidateResult {
+  candidate: string;
+  description?: CandidateDescription;
+  loadMs?: number;
+  initMs?: number;
+  runs: Run[];
+  /** `<state>/<tier>` → PNG data URL, all at SCREENSHOT_CAMERA and SCREENSHOT_TIME_MS. */
+  screenshots: Record<string, string>;
+  reducedMotion?: {
+    /** Two frames at different animation times are identical with reduced motion on. */
+    readonly frozen: boolean;
+    /** The same two frames differ with reduced motion off (the scene does animate). */
+    readonly animatesWhenOff: boolean;
+  };
+  jsHeapUsedBytes?: number | null;
+  error?: string;
+}
+
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`could not load ${src}`));
+    document.head.append(script);
+  });
+}
+/** The next animation frame's timestamp, or NaN when none comes (a virtual clock may never run one). */
+const nextFrame = () =>
+  new Promise<number>((resolve) => {
+    const timer = setTimeout(() => resolve(Number.NaN), 250);
+    requestAnimationFrame((now) => {
+      clearTimeout(timer);
+      resolve(now);
+    });
+  });
+const heapUsed = () =>
+  (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ??
+  null;
+
+async function measureCandidate(name: string): Promise<CandidateResult> {
+  const result: CandidateResult = { candidate: name, runs: [], screenshots: {} };
+  const host = document.createElement("div");
+  host.className = "stage";
+  host.dataset.candidate = name;
+  document.getElementById("stages")?.append(host);
+  let adapter: BakeoffAdapter | undefined;
+  try {
+    let started = performance.now();
+    await loadScript(`./${name}.js`);
+    result.loadMs = performance.now() - started;
+    const factory = window.bakeoffCandidates?.[name];
+    if (!factory) throw new Error(`${name}.js registered no candidate named ${name}`);
+    adapter = factory({ host, width: WIDTH, height: HEIGHT });
+    started = performance.now();
+    await adapter.init();
+    result.initMs = performance.now() - started;
+    adapter.setReducedMotion(false);
+    adapter.loadSnapshot(SNAPSHOT);
+    let time = 0;
+    for (const state of LIGHTING_STATES) {
+      // The lighting change arrives as a committed patch through the adapter contract.
+      if (state === "night") adapter.applyPatch(TO_NIGHT);
+      for (const tier of QUALITY_TIERS) {
+        adapter.setQuality(tier);
+        for (let i = 0; i < WARMUP; i++) {
+          adapter.setCamera(CAMERA_PATH[0] ?? SCREENSHOT_CAMERA);
+          await adapter.renderFrame((time += FRAME_MS));
+        }
+        const frameMs: number[] = [];
+        for (let i = 0; i < FRAMES; i++) {
+          adapter.setCamera(
+            CAMERA_PATH[Math.floor((i * CAMERA_PATH.length) / FRAMES)] ?? SCREENSHOT_CAMERA,
+          );
+          const t0 = performance.now();
+          await adapter.renderFrame((time += FRAME_MS));
+          frameMs.push(performance.now() - t0);
+        }
+        const rafIntervalMs: number[] = [];
+        let last = await nextFrame();
+        for (let i = 0; i < RAF_FRAMES; i++) {
+          await adapter.renderFrame((time += FRAME_MS));
+          const now = await nextFrame();
+          rafIntervalMs.push(now - last);
+          last = now;
+        }
+        result.runs.push({
+          state,
+          tier,
+          warmupFrames: WARMUP,
+          frameMs: stats(frameMs),
+          rafIntervalMs: rafIntervalMs.every(Number.isFinite) ? stats(rafIntervalMs) : null,
+        });
+        adapter.setCamera(SCREENSHOT_CAMERA);
+        await adapter.renderFrame(SCREENSHOT_TIME_MS);
+        result.screenshots[`${state}/${tier}`] = adapter.capture();
+      }
+    }
+    // Reduced motion, at night on the high tier (everything that moves is on).
+    await adapter.renderFrame(SECOND_TIME_MS);
+    const moving = adapter.capture();
+    adapter.setReducedMotion(true);
+    await adapter.renderFrame(SCREENSHOT_TIME_MS);
+    const still = adapter.capture();
+    await adapter.renderFrame(SECOND_TIME_MS);
+    result.reducedMotion = {
+      frozen: adapter.capture() === still,
+      animatesWhenOff: moving !== result.screenshots["night/high"],
+    };
+    result.description = adapter.describe();
+    result.jsHeapUsedBytes = heapUsed();
+  } catch (error) {
+    result.error =
+      error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
+  } finally {
+    try {
+      adapter?.destroy();
+    } catch {
+      // A failing destroy must not hide the measurement already taken.
+    }
+    host.remove();
+  }
+  return result;
+}
+
+/** The page's own view of the device, independent of any candidate. */
+async function probeDevice() {
+  const canvas = document.createElement("canvas");
+  const gl = canvas.getContext("webgl2");
+  const info = gl?.getExtension("WEBGL_debug_renderer_info");
+  const webgl2 = gl
+    ? {
+        renderer: String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)),
+        vendor: String(gl.getParameter(info ? info.UNMASKED_VENDOR_WEBGL : gl.VENDOR)),
+        version: String(gl.getParameter(gl.VERSION)),
+      }
+    : null;
+  gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  let webgpu: Record<string, string> | null = null;
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (gpu) {
+    try {
+      const adapter = (await gpu.requestAdapter()) as { info?: Record<string, unknown> } | null;
+      if (adapter?.info) {
+        webgpu = {};
+        for (const key of ["vendor", "architecture", "device", "description"])
+          webgpu[key] = String(adapter.info[key] ?? "");
+      }
+    } catch {
+      webgpu = null;
+    }
+  }
+  return {
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency,
+    devicePixelRatio: window.devicePixelRatio,
+    webgl2,
+    webgpuApi: Boolean(gpu),
+    webgpuAdapter: webgpu,
+  };
+}
+
+async function main() {
+  const startedAt = new Date().toISOString();
+  const clockStart = performance.now();
+  const device = await probeDevice();
+  const candidates: CandidateResult[] = [];
+  for (const name of CANDIDATES) {
+    setStatus(`measuring ${name}`);
+    candidates.push(await measureCandidate(name));
+  }
+  const elapsed = performance.now() - clockStart;
+  const record = {
+    schema: "clockgrove.renderer-bakeoff/1",
+    startedAt,
+    page: {
+      url: location.href.split("?")[0],
+      canvas: { width: WIDTH, height: HEIGHT, devicePixelRatio: 1 },
+      frames: FRAMES,
+      warmupFrames: WARMUP,
+      rafFrames: RAF_FRAMES,
+      // A virtual clock (--virtual-time-budget) can freeze performance.now() during synchronous work.
+      clock: { elapsedMs: Math.round(elapsed), suspect: elapsed < 1 },
+    },
+    device,
+    candidates,
+  };
+  // `<` is escaped so the JSON can sit in a script element and survive a DOM dump intact.
+  const json = JSON.stringify(record).replace(/</gu, "\\u003c");
+  const out = document.getElementById("bakeoff-result");
+  if (out) out.textContent = json;
+  const report = params.get("report");
+  if (report) await fetch(report, { method: "POST", body: json });
+  document.body.dataset.state = "done";
+  setStatus("done");
+}
+function setStatus(text: string) {
+  const status = document.getElementById("status");
+  if (status) status.textContent = text;
+}
+
+main().catch(async (error: unknown) => {
+  const json = JSON.stringify({
+    schema: "clockgrove.renderer-bakeoff/1",
+    fatal: error instanceof Error ? error.message : String(error),
+  });
+  const out = document.getElementById("bakeoff-result");
+  if (out) out.textContent = json;
+  const report = params.get("report");
+  if (report) await fetch(report, { method: "POST", body: json }).catch(() => undefined);
+  document.body.dataset.state = "done";
+  setStatus("failed");
+});

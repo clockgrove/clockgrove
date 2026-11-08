@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clockgrove renderer bake-off</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; background: #1d1b22; color: #eee; }
+      .stage { width: 960px; height: 540px; }
+      #bakeoff-result { display: none; }
+    </style>
+  </head>
+  <body data-state="running">
+    <p id="status">starting</p>
+    <div id="stages"></div>
+    <!-- The JSON record; scripts/measure.mjs reads it from a POST or from a dumped DOM. -->
+    <script type="application/json" id="bakeoff-result"></script>
+    <!-- Classic scripts, not modules, so the page also runs from a file:// URL. -->
+    <script src="./harness.js"></script>
+  </body>
+</html>

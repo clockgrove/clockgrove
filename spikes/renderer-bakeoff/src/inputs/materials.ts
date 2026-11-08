@@ -96,7 +96,10 @@ const PAINTERS: Readonly<Record<AssetId, Painter>> = {
     const body = inEllipse(u, v, 0.48, 0.68, 0.3, 0.22);
     const head = inEllipse(u, v, 0.72, 0.42, 0.17, 0.15);
     const tail = inEllipse(u, v, 0.18, 0.62, 0.16, 0.1);
-    const ear = Math.min(inEllipse(u, v, 0.66, 0.27, 0.05, 0.06), inEllipse(u, v, 0.8, 0.27, 0.05, 0.06));
+    const ear = Math.min(
+      inEllipse(u, v, 0.66, 0.27, 0.05, 0.06),
+      inEllipse(u, v, 0.8, 0.27, 0.05, 0.06),
+    );
     const legs =
       v > 0.82 && v < 0.96 && [0.32, 0.42, 0.58, 0.66].some((c) => Math.abs(u - c) < 0.035) ? 0 : 2;
     const inside = Math.min(body, head, tail, ear, legs);
@@ -199,7 +202,8 @@ const PAINTERS: Readonly<Record<AssetId, Painter>> = {
     t.rough = 0.8;
     t.wet = 0.4;
     const inWindow = Math.abs(u - 0.45) < 0.11 && v > 0.32 && v < 0.62;
-    const frame = Math.abs(u - 0.45) > 0.095 || Math.abs(u - 0.45) < 0.008 || Math.abs(v - 0.47) < 0.008;
+    const frame =
+      Math.abs(u - 0.45) > 0.095 || Math.abs(u - 0.45) < 0.008 || Math.abs(v - 0.47) < 0.008;
     if (inWindow) {
       if (frame || v < 0.335 || v > 0.615) {
         t.r = 200;
@@ -235,10 +239,9 @@ export function materialSet(assetId: AssetId): MaterialSet {
   if (cached) return cached;
   const [width, height] = DIMENSIONS[assetId];
   const size = width * height * 4;
-  const maps = Object.fromEntries(MAP_NAMES.map((name) => [name, new Uint8ClampedArray(size)])) as Record<
-    MapName,
-    Uint8ClampedArray
-  >;
+  const maps = Object.fromEntries(
+    MAP_NAMES.map((name) => [name, new Uint8ClampedArray(size)]),
+  ) as Record<MapName, Uint8ClampedArray>;
   const heights = new Float32Array(width * height);
   const paint = PAINTERS[assetId];
   for (let y = 0; y < height; y++)
@@ -254,7 +257,8 @@ export function materialSet(assetId: AssetId): MaterialSet {
     }
   // Normals from the height map's central differences; strength 2 keeps the relief visible under light.
   const at = (x: number, y: number) =>
-    heights[Math.min(height - 1, Math.max(0, y)) * width + Math.min(width - 1, Math.max(0, x))] ?? 0;
+    heights[Math.min(height - 1, Math.max(0, y)) * width + Math.min(width - 1, Math.max(0, x))] ??
+    0;
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
       const dx = (at(x + 1, y) - at(x - 1, y)) * 2;

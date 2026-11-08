@@ -7,11 +7,7 @@ import {
   type ScenePatch,
   type SceneProjection,
 } from "@clockgrove/contracts";
-import {
-  isNight,
-  poseMetres,
-  shownEffects,
-} from "../../../../apps/web/src/world-scene-adapter.js";
+import { isNight, poseMetres, shownEffects } from "../../../../apps/web/src/world-scene-adapter.js";
 import type { CameraState } from "../contract.js";
 import type { AssetId } from "./materials.js";
 
@@ -196,7 +192,10 @@ export interface Puddle {
 /** Everything about the light and weather, decided from the committed projection alone. */
 export interface LightRig {
   readonly state: LightingState;
-  readonly ambient: { readonly color: readonly [number, number, number]; readonly intensity: number };
+  readonly ambient: {
+    readonly color: readonly [number, number, number];
+    readonly intensity: number;
+  };
   /** The low sky light: direction it travels (towards the ground), colour and intensity. */
   readonly sky: {
     readonly direction: readonly [number, number, number];
@@ -219,7 +218,9 @@ export interface LightRig {
   readonly clearColor: readonly [number, number, number];
 }
 
-const LIGHT_STYLE: Readonly<Record<"lantern" | "window", Omit<PointLightSpec, "role" | "x" | "y" | "z">>> = {
+const LIGHT_STYLE: Readonly<
+  Record<"lantern" | "window", Omit<PointLightSpec, "role" | "x" | "y" | "z">>
+> = {
   lantern: { color: [1.0, 0.62, 0.28], intensity: 2.4, range: 5.5, flicker: 0.08 },
   window: { color: [1.0, 0.78, 0.45], intensity: 1.6, range: 4.5, flicker: 0 },
 };
