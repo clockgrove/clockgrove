@@ -284,8 +284,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       vitestConfig: "tests/ci/vitest.browser.config.ts",
       // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
       // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
-      // margin and stays within the test's 240 s timeout.
-      timeoutMs: 210_000,
+      // margin; issue 19's Stevie turns (a refusal and a commit, each a model turn plus a reload)
+      // exceeded that, so 330 s stays within the test's 360 s timeout.
+      timeoutMs: 330_000,
       inheritOutput: true,
       prepare: async (fixture) => {
         await truthOf(fixture)(
@@ -2775,4 +2776,4 @@ it("observes native authorized socket updates and recovery in Chromium", async (
       }
     });
   });
-}, 240_000);
+}, 360_000);
