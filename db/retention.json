@@ -29,5 +29,7 @@
   "clockgrove.context_manifests": "bounded: one immutable row per run (primary key run_id, 0037) of at most 273 metadata entries, so bounded by agent_runs; retired with its session's messages as conversation_messages says",
   "clockgrove.conversation_turn_fibers": "bounded per session: at most 1,000 turns, one per possible Caretaker message (guard_turn_fiber, 0038), each updated in place along its phases until its one terminal phase and never again; retired with their session's messages as conversation_messages says",
   "clockgrove.actor_processes": "bounded: one row per actor process, updated in place (lease, checkpoint, segment count); grows with processes, which today only the fixture objective starts; no retirement yet, since a process keeps its identity for its actor's life",
-  "clockgrove.actor_process_segments": "bounded per process: at most 64 immutable segments (0038), so it grows with actor_processes and is retired with them"
+  "clockgrove.actor_process_segments": "bounded per process: at most 64 immutable segments (0038), so it grows with actor_processes and is retired with them",
+  "clockgrove.actor_activation_policies": "bounded: one row per actor and world timeline; at most 64 configurations with total JSON <=1 MiB, updated in place; lifetime model reservations and causal receipts limited to 1,000 (0039)",
+  "clockgrove.actor_activations": "bounded: at most 1,000 causal receipts per actor, serialized by policy row counter (0039); no deletion, so a duplicate causal root remains suppressed for actor life"
 }

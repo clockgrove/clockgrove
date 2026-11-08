@@ -36,6 +36,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
+  PostgreSqlActivations,
   PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
   PostgreSqlCatchUpWorkflowStore,
@@ -54,6 +55,7 @@ import {
   WebCryptoKeyring,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
+import type { ActivationOwners } from "./activation-routes.js";
 import {
   composeReferenceAuthentication,
   type ReferenceAuthenticationConfiguration,
@@ -322,6 +324,42 @@ export function withActorProcesses<T>(
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
     operation(new PostgreSqlActorProcesses(client)),
   );
+}
+
+/** Proactive activation metadata over canonical PostgreSQL, never local owner storage. */
+export function withActivations<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (activations: PostgreSqlActivations) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    operation(new PostgreSqlActivations(client)),
+  );
+}
+
+export function composeActivationOwners(
+  env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO">,
+): ActivationOwners {
+  const owner = async (scope: BrowserScope, actorId: string) =>
+    env.ACTOR_AGENT_DO.get(
+      env.ACTOR_AGENT_DO.idFromName(
+        await runtimeRouteName("actor-agent", scope, decodeOpaqueId(actorId, "SubjectId")),
+      ),
+    );
+  return {
+    configure: async (scope, context, participant, actorId, configuration, policy) =>
+      (await owner(scope, actorId)).configureActivation(
+        scope,
+        context,
+        participant,
+        actorId,
+        configuration,
+        policy,
+      ),
+    wake: async (scope, context, participant, actorId, wake) =>
+      (await owner(scope, actorId)).wakeActivation(scope, context, participant, actorId, wake),
+    inspect: async (scope, context, participant, actorId) =>
+      (await owner(scope, actorId)).inspectActivations(scope, context, participant, actorId),
+  };
 }
 
 /** Talk turns run in the session actor's `ActorAgentDO`, over Workers RPC. */
@@ -599,6 +637,9 @@ export interface RuntimeEnvironment {
       | "reconcileCapabilities"
       | "inspectAgent"
       | "advanceProcess"
+      | "configureActivation"
+      | "wakeActivation"
+      | "inspectActivations"
     >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;
@@ -935,7 +976,13 @@ export default {
           );
         },
         journal: dependencies.journal,
-        ...(conversations === undefined ? {} : { conversations, turns: composeTurnOwners(env) }),
+        ...(conversations === undefined
+          ? {}
+          : {
+              conversations,
+              turns: composeTurnOwners(env),
+              activations: composeActivationOwners(env),
+            }),
         ...(runs === undefined ? {} : { runs }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>

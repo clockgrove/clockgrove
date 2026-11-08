@@ -2,6 +2,12 @@
 import { DurableObject, WorkflowEntrypoint } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
+  type ActivationAddress,
+  type ActivationConfiguration,
+  type ActivationInspection,
+  type ActivationPolicy,
+  type ActivationWake,
+  type ActorActivation,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
   type CatchUpWorkflowEnvelope,
@@ -58,6 +64,7 @@ import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
 
 import {
+  ActivationGateBlockedError,
   type ActorAgentRecovery,
   type DirectMessageActivation,
   PerceptionInbox,
@@ -70,6 +77,7 @@ import {
   reconcileWorldCatchUp,
   reconcileWorldProvisioning,
   runtimeLogger,
+  withActivations,
   withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
@@ -1226,6 +1234,223 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     });
   }
 
+  async configureActivation(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    configuration: ActivationConfiguration,
+    policy: ActivationPolicy,
+  ): Promise<ActivationInspection> {
+    assertWorldCommandContext(context, scope);
+    await this.ready(scope, context, actorId);
+    const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
+    const result = await withActivations(this.environment, (store) =>
+      store.configure(address, configuration, policy),
+    );
+    await this.armActivations(address, result, true);
+    return result;
+  }
+
+  async inspectActivations(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ): Promise<ActivationInspection> {
+    await this.ready(scope, context, actorId);
+    const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
+    const result = await withActivations(this.environment, (store) => store.inspect(address));
+    await this.armActivations(address, result);
+    return result;
+  }
+
+  async wakeActivation(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+    wake: ActivationWake,
+  ): Promise<ActorActivation> {
+    assertWorldCommandContext(context, scope);
+    await this.ready(scope, context, actorId);
+    const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
+    // Persist a fallback before admitting canonical work, including unscheduled operator wakes.
+    await this.armActivations(
+      address,
+      await withActivations(this.environment, (store) => store.inspect(address)),
+      false,
+      false,
+      true,
+    );
+    return this.admitActivation(address, wake);
+  }
+
+  private async admitActivation(
+    address: ActivationAddress,
+    wake: ActivationWake,
+  ): Promise<ActorActivation> {
+    const admitted = await withActivations(this.environment, (store) => store.admit(address, wake));
+    if (admitted.status !== "pending") return admitted;
+    return this.runActivation(address, admitted);
+  }
+
+  private async runActivation(
+    address: ActivationAddress,
+    admitted: ActorActivation,
+  ): Promise<ActorActivation> {
+    try {
+      const result = await this.fibers(address.scope, address.actorId).talk(
+        address.participant,
+        {
+          scope: address.scope,
+          sessionId: admitted.sessionId,
+          messageId: admitted.messageId,
+          text: admitted.input,
+        },
+        () => undefined,
+        false,
+      );
+      await withActivations(this.environment, (store) =>
+        store.settle(
+          address,
+          admitted.activationId,
+          result.receipt === undefined ? result.refused : "completed",
+        ),
+      );
+      return {
+        ...admitted,
+        status: "completed",
+        outcome: result.receipt === undefined ? result.refused : "completed",
+      };
+    } catch (error) {
+      if (!(error instanceof ActivationGateBlockedError)) throw error;
+      const state = await withActivations(this.environment, (store) => store.inspect(address));
+      return (
+        state.activations.find((a) => a.causalRoot === admitted.causalRoot) ?? {
+          ...admitted,
+          status: error.status,
+          outcome: "policy_denied",
+        }
+      );
+    }
+  }
+
+  /** SDK scheduler callback: bounded journal scan and due configurations, ordered by priority. */
+  async runScheduledActivations(address: ActivationAddress): Promise<void> {
+    const inspection = await withActivations(this.environment, (store) => store.inspect(address));
+    try {
+      for (const deferred of inspection.activations.filter((a) => a.status === "deferred")) {
+        try {
+          await this.admitActivation(address, {
+            configurationId: deferred.configurationId,
+            causalRoot: deferred.causalRoot,
+            reason: deferred.reason,
+            evidence: deferred.evidence,
+          });
+        } catch {
+          /* Other due configurations still get their opportunity. */
+        }
+      }
+      for (const pending of inspection.activations.filter((a) => a.status === "pending")) {
+        try {
+          await this.runActivation(address, pending);
+        } catch {
+          /* PostgreSQL checkpoints retain interrupted work. */
+        }
+      }
+      const events = await withActivations(this.environment, (store) => store.events(address));
+      for (const event of events) {
+        for (const configuration of inspection.configurations
+          .filter((c) => c.enabled && c.eventType === event.eventType)
+          .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
+          if (configuration.kind !== "subscription" && configuration.kind !== "threshold") continue;
+          await this.admitActivation(address, {
+            configurationId: configuration.id,
+            causalRoot: event.causalRoot,
+            evidence: `journal:${event.eventId}`,
+            reason:
+              configuration.kind === "subscription"
+                ? { kind: "subscription", subscriptionId: configuration.id, eventId: event.eventId }
+                : { kind: "threshold", conditionId: configuration.id },
+          });
+        }
+        await withActivations(this.environment, (store) =>
+          store.acknowledgeEvent(address, event.eventId),
+        );
+      }
+      for (const configuration of inspection.configurations
+        .filter((c) => c.enabled && c.nextWakeAt !== null && c.nextWakeAt <= Date.now())
+        .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
+        if (configuration.kind !== "heartbeat" && configuration.kind !== "scheduled_intention")
+          continue;
+        await this.admitActivation(address, {
+          configurationId: configuration.id,
+          causalRoot: `schedule:${configuration.id}:${configuration.nextWakeAt}`,
+          evidence: `due:${configuration.nextWakeAt}`,
+          reason:
+            configuration.kind === "heartbeat"
+              ? { kind: "heartbeat", heartbeatId: configuration.id }
+              : { kind: "scheduled_intention", scheduleId: configuration.id },
+        });
+      }
+    } finally {
+      await this.armActivations(
+        address,
+        await withActivations(this.environment, (store) => store.inspect(address)),
+        false,
+        true,
+      );
+    }
+  }
+
+  private async armActivations(
+    address: ActivationAddress,
+    inspection: ActivationInspection,
+    initial = false,
+    fromCallback = false,
+    forceRecovery = false,
+  ): Promise<void> {
+    const stored = await this.objectState.storage.get<{ id: string; at: number }>(
+      "activation-alarm",
+    );
+    // Decision: poll subscribed events at most once per minute; configurations and receipts have
+    // lifetime bounds, so this is an opportunity to check policy, never an unbounded heartbeat.
+    const poll = inspection.configurations.some((c) => c.enabled && c.eventType !== undefined);
+    const pending = forceRecovery || inspection.activations.some((a) => a.status === "pending");
+    const blocked = new Set(
+      inspection.activations.filter((a) => a.status === "deferred").map((a) => a.causalRoot),
+    );
+    const times = inspection.configurations
+      .filter(
+        (c) =>
+          c.enabled && c.nextWakeAt !== null && !blocked.has(`schedule:${c.id}:${c.nextWakeAt}`),
+      )
+      .map((c) => c.nextWakeAt as number);
+    const next = times.length ? Math.min(...times) : null;
+    const candidates = [
+      next,
+      poll || pending || (initial && inspection.activations.some((a) => a.status === "deferred"))
+        ? Date.now() + (initial ? 1000 : 60000)
+        : null,
+    ].filter((value): value is number => value !== null);
+    if ((inspection.activations.length >= 1000 && !pending) || candidates.length === 0) {
+      await this.objectState.storage.put("activation-alarm", null);
+      if (stored) await this.cancelSchedule(stored.id);
+      return;
+    }
+    const plannedAt = Math.max(Date.now() + 1000, Math.min(...candidates));
+    if (!fromCallback && stored && stored.at > Date.now() && stored.at <= plannedAt) return;
+    const scheduled = await this.schedule(
+      new Date(plannedAt),
+      "runScheduledActivations",
+      { ...address, wakeAt: plannedAt },
+      { idempotent: true },
+    );
+    await this.objectState.storage.put("activation-alarm", { id: scheduled.id, at: plannedAt });
+    if (stored && stored.id !== scheduled.id) await this.cancelSchedule(stored.id);
+  }
+
   /** Talk: accepts the message as a turn and answers its NDJSON stream of `TalkStreamFrame`s. */
   async talk(
     scope: RuntimeScope,
@@ -1466,6 +1691,17 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       respond: scriptedConversationReply,
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
+      beforeModel: async (participant, fiber) => {
+        if (!fiber.messageId.startsWith("activation:")) return;
+        const result = await withActivations(this.environment, (store) =>
+          store.beforeModel(
+            { scope: scope as ActivationAddress["scope"], participant, actorId },
+            fiber,
+          ),
+        );
+        if (result === "deferred" || result === "noop" || result === "completed")
+          throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+      },
       durable: (fiber, participant, run) =>
         this.runFiber(`turn:${fiber.sessionId}:${fiber.messageId}`, async (fiberContext) => {
           fiberContext.stash({
