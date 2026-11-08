@@ -1162,12 +1162,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     return changed;
   }
-  private readonly step = (time: number) => {
+  private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
     if (!this.initialized || !this.atlasTexture || !this.projection) return;
-    const delta = this.previousTime === undefined ? 0 : time - this.previousTime;
-    this.previousTime = time;
+    const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
+    this.previousTime = frameTime;
     if (delta > 0) {
       this.metrics.frameMs.push(delta);
       if (this.metrics.frameMs.length > FRAME_SAMPLES) this.metrics.frameMs.shift();
@@ -1185,6 +1185,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
           this.setQuality(this.tier === "high" ? "medium" : "low");
       }
     }
+    // rAF timestamps precede callback execution; GPU work can delay them past a motion's start.
+    const time = performance.now();
     let changed = this.dirty;
     for (const [mesh, motion] of this.motions) {
       const progress = Math.min(1, (time - motion.start) / INTERPOLATION_MS);
