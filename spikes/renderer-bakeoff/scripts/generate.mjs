@@ -7,6 +7,8 @@
 //   node scripts/generate.mjs turnaround            GPT-image edit through Vercel AI Gateway
 //   node scripts/generate.mjs fal <candidate>       TRELLIS.2 on fal.ai (candidates below)
 //   node scripts/generate.mjs meshy                 Meshy multi-image-to-3D, then Meshy's auto-rig
+//   node scripts/generate.mjs tripo [model-task]    Tripo multi-view to model (low poly), free rig check, rig, walk
+//   node scripts/generate.mjs tripo-fetch           maintainer: downloads the Tripo tasks' files (fresh URLs)
 //   node scripts/generate.mjs keep <name> <provider|fit> <glb> [walk=<glb>] <why…>
 //                                                   names a generated model for the report to render
 import { createHash } from "node:crypto";
@@ -24,6 +26,9 @@ const CAP_USD = 10;
 /** Decision: polls every 5 s and gives up after 20 minutes per job (TRELLIS.2 and Meshy take minutes). */
 const POLL_MS = 5_000;
 const JOB_LIMIT_MS = 1_200_000;
+
+/** The turnaround every route reads: the first pass, approved as Stevie's likeness (issue 77, 07:08Z). */
+const turnaroundFile = (view) => `turnaround${view ? `-${view}` : ""}.png`;
 
 const GATEWAY = "https://ai-gateway.vercel.sh/v1";
 const TURNAROUND_MODEL = "openai/gpt-image-2";
@@ -151,8 +156,8 @@ async function download(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 async function viewBytes(view) {
-  return readFile(path.join(media, `turnaround-${view}.png`)).catch(() => {
-    throw new Error(`media/turnaround-${view}.png is missing: run the turnaround step first`);
+  return readFile(path.join(media, turnaroundFile(view))).catch(() => {
+    throw new Error(`media/${turnaroundFile(view)} is missing: run the turnaround step first`);
   });
 }
 
@@ -201,11 +206,11 @@ async function turnaround() {
       await sleep(10_000);
       const spent = Math.max(0, before - (await gatewayBalance(token)));
       const image = decodePng(png);
-      const files = { "turnaround.png": png };
+      const files = { [turnaroundFile()]: png };
       const w = Math.floor(image.width / 2);
       const h = Math.floor(image.height / 2);
       VIEWS.forEach((view, i) => {
-        files[`turnaround-${view}.png`] = encodePng(
+        files[turnaroundFile(view)] = encodePng(
           cropRgba(image, (i % 2) * w, Math.floor(i / 2) * h, w, h),
         );
       });
@@ -218,8 +223,8 @@ async function turnaround() {
         files,
         fileNotes: Object.fromEntries(
           VIEWS.map((view, i) => [
-            `turnaround-${view}.png`,
-            { derivedFrom: "turnaround.png", quadrant: i },
+            turnaroundFile(view),
+            { derivedFrom: turnaroundFile(), quadrant: i },
           ]),
         ),
       };
@@ -282,7 +287,7 @@ async function fal(candidate) {
       provider: "fal.ai",
       model: "TRELLIS.2 (microsoft/TRELLIS.2; MIT weights per its release)",
       endpoint: spec.endpoint,
-      parameters: { ...spec.parameters, views: spec.views.map((v) => `media/turnaround-${v}.png`) },
+      parameters: { ...spec.parameters, views: spec.views.map((v) => `media/${turnaroundFile(v)}`) },
       reservedUsd: FAL_PRICE_USD[spec.parameters.resolution],
       licence:
         "fal.ai's model page and terms are not reachable from the sandbox (egress allows only fal's API and media hosts); the maintainer re-checks them before relying on the licence",
@@ -364,7 +369,7 @@ async function meshy() {
       endpoint: `${MESHY}/multi-image-to-3d, ${MESHY}/rigging`,
       parameters: {
         ...modelParameters,
-        views: VIEWS.map((v) => `media/turnaround-${v}.png`),
+        views: VIEWS.map((v) => `media/${turnaroundFile(v)}`),
         rig: { height_meters: STEVIE_HEIGHT_M },
       },
       reservedUsd: MESHY_RESERVE_CREDITS * MESHY_USD_PER_CREDIT,
@@ -379,7 +384,7 @@ async function meshy() {
       });
       steps.push({ step: "multi-image-to-3d", minutes: model.minutes, taskId: model.id });
       if (model.task.model_urls?.glb)
-        files["meshy-model.glb"] = await download(model.task.model_urls.glb);
+        files[`meshy-model.glb`] = await download(model.task.model_urls.glb);
       let rig = null;
       try {
         rig = await meshyJob("rigging", {
@@ -410,6 +415,235 @@ async function meshy() {
   );
 }
 
+const TRIPO = "https://openapi.tripo3d.ai/v3";
+const TRIPO_MODEL = "v3.1-20260211";
+/** The newest rig model the endpoint lists (its error names v1.0-20240301, v2.5-20260210 and v3.0-20260909). */
+const TRIPO_RIG_MODEL = "v3.0-20260909";
+/** Tripo credits valued at $0.01 each (an estimate; credits are measured exactly, like Meshy's). */
+const TRIPO_USD_PER_CREDIT = 0.01;
+/** Reserved: textured multi-view with low poly, the rig and two preset clips, with margin. */
+const TRIPO_RESERVE_USD = 2;
+/** Reserved when resuming from a made model: the rig and one preset clip, with margin. */
+const TRIPO_RIG_RESERVE_USD = 1;
+/** Plan assumption 9: every route is compared at this budget; Tripo's low-poly option targets it. */
+const TRIANGLE_BUDGET = 10_000;
+/** Tripo's four multi-view slots in order (front, left, back, right); the turnaround has no right view. */
+const TRIPO_SLOTS = ["front", "side", "back", null];
+
+async function tripoBody(response, what) {
+  const body = await json(response, what);
+  if (body.code !== 0) throw new Error(`${what}: code ${body.code} ${body.message ?? ""}`);
+  return body.data;
+}
+const tripoHeaders = () => ({ authorization: `Bearer ${key("TRIPO_API_KEY")}` });
+async function tripoBalance() {
+  const data = await tripoBody(
+    await fetch(`${TRIPO}/account/balance`, { headers: tripoHeaders() }),
+    "tripo balance",
+  );
+  return Number(data.balance);
+}
+async function tripoUpload(view) {
+  const form = new FormData();
+  form.append("file", new Blob([await viewBytes(view)], { type: "image/png" }), `${view}.png`);
+  const data = await tripoBody(
+    await fetch(`${TRIPO}/files`, { method: "POST", headers: tripoHeaders(), body: form }),
+    "tripo upload",
+  );
+  return data.file_token;
+}
+/** Creates a Tripo task, polls it to success, and returns the task with its wall-clock minutes. */
+async function tripoTask(endpoint, body) {
+  const created = await tripoBody(
+    await fetch(`${TRIPO}/${endpoint}`, {
+      method: "POST",
+      headers: { ...tripoHeaders(), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    `tripo ${endpoint}`,
+  );
+  const id = created.task_id;
+  console.log(`tripo ${endpoint}: task ${id} created`);
+  const start = Date.now();
+  for (;;) {
+    if (Date.now() - start > JOB_LIMIT_MS) throw new Error(`tripo ${id}: no result in time`);
+    await sleep(POLL_MS);
+    const task = await tripoBody(
+      await fetch(`${TRIPO}/tasks/${id}`, { headers: tripoHeaders() }),
+      "tripo task",
+    );
+    console.log(`tripo ${endpoint}: ${task.status} ${task.progress ?? ""}% after ${minutesSince(start)} min`);
+    if (task.status === "success") return { id, task, minutes: minutesSince(start) };
+    if (!["queued", "running"].includes(task.status))
+      throw new Error(`tripo ${endpoint} ${id}: ${task.status} ${JSON.stringify(task).slice(0, 300)}`);
+  }
+}
+/**
+ * Downloads every model URL in a Tripo task's output at once (its URLs expire after 5 minutes). A refused
+ * download host is recorded and named in the report, not worked around (owner, 06:45Z); `tripo-fetch`
+ * re-reads the tasks for fresh URLs where the host is reachable.
+ */
+async function tripoFiles(task, prefix, files, refused) {
+  for (const f of fileUrls(task.output ?? {})) {
+    const ext = path.extname(new URL(f.url).pathname) || ".bin";
+    try {
+      files[`${prefix}-${f.at.replace(/\W+/gu, "-")}${ext}`] = await download(f.url);
+    } catch (error) {
+      refused.push({
+        file: `${prefix}-${f.at}`,
+        host: new URL(f.url).host,
+        error: String(error.message ?? error),
+      });
+    }
+  }
+}
+const tripoGet = async (id) =>
+  tripoBody(await fetch(`${TRIPO}/tasks/${id}`, { headers: tripoHeaders() }), "tripo task");
+
+/**
+ * Tripo route: multi-view to a low-poly model, the free rig check, the rig with the type it returns, and
+ * the walk preset. `fromTask` resumes from an existing multiview task (its credits are already recorded).
+ */
+async function tripo(fromTask) {
+  const parameters = {
+    model: TRIPO_MODEL,
+    texture: true,
+    pbr: true,
+    smart_low_poly: true,
+    face_limit: TRIANGLE_BUDGET,
+  };
+  return call(
+    {
+      id: `tripo-${Date.now()}`,
+      step: "image to 3D and auto-rig (Tripo)",
+      provider: "Tripo",
+      model: `Tripo multiview-to-model ${TRIPO_MODEL} + Tripo rig ${TRIPO_RIG_MODEL}`,
+      endpoint: `${TRIPO}/generation/multiview-to-model, ${TRIPO}/animations/rig-check, ${TRIPO}/animations/rig, ${TRIPO}/animations/retarget`,
+      parameters: {
+        ...parameters,
+        ...(fromTask ? { resumedFromModelTask: fromTask } : {}),
+        views: Object.fromEntries(
+          TRIPO_SLOTS.map((v, i) => [
+            ["front", "left", "back", "right"][i],
+            v ? `media/${turnaroundFile(v)}` : null,
+          ]),
+        ),
+      },
+      reservedUsd: fromTask ? TRIPO_RIG_RESERVE_USD : TRIPO_RESERVE_USD,
+    },
+    async () => {
+      const files = {};
+      const steps = [];
+      const refused = [];
+      const tasks = {};
+      let model;
+      if (fromTask) {
+        model = { id: fromTask, task: await tripoGet(fromTask), minutes: null };
+      } else {
+        const tokens = [];
+        for (const view of TRIPO_SLOTS) tokens.push(view ? await tripoUpload(view) : null);
+        model = await tripoTask("generation/multiview-to-model", {
+          ...parameters,
+          files: tokens.map((token) => (token ? { type: "png", file_token: token } : {})),
+        });
+        tasks.model = model.id;
+      }
+      steps.push({ step: "multiview-to-model", minutes: model.minutes, taskId: model.id });
+      await tripoFiles(model.task, "tripo-model", files, refused);
+      let rigType = null;
+      try {
+        const check = await tripoTask("animations/rig-check", { input: model.id });
+        rigType = check.task.output?.rig_type ?? null;
+        tasks.rigCheck = check.id;
+        steps.push({
+          step: "rig-check (free)",
+          minutes: check.minutes,
+          taskId: check.id,
+          output: check.task.output,
+        });
+        const rig = await tripoTask("animations/rig", {
+          model: TRIPO_RIG_MODEL,
+          input: model.id,
+          ...(rigType ? { rig_type: rigType } : {}),
+          out_format: "glb",
+        });
+        tasks.rig = rig.id;
+        steps.push({ step: "rig", minutes: rig.minutes, taskId: rig.id, rigType });
+        await tripoFiles(rig.task, "tripo-rig", files, refused);
+        // Tripo's quadruped presets have a walk but no idle; the idle is the rig's rest pose, as Meshy's is.
+        const animation = rigType && rigType !== "biped" ? `preset:${rigType}:walk` : "preset:walk";
+        try {
+          const moved = await tripoTask("animations/retarget", {
+            input: rig.id,
+            animations: [animation],
+            out_format: "glb",
+          });
+          tasks.walk = moved.id;
+          steps.push({ step: `retarget ${animation}`, minutes: moved.minutes, taskId: moved.id });
+          await tripoFiles(moved.task, "tripo-walk", files, refused);
+        } catch (error) {
+          steps.push({
+            step: `retarget ${animation}`,
+            error: String(error.message ?? error).slice(0, 400),
+          });
+        }
+      } catch (error) {
+        steps.push({ step: "rig", error: String(error.message ?? error).slice(0, 400) });
+      }
+      // Each task reports the credits it consumed; their sum is this call's exact credit cost.
+      let credits = 0;
+      for (const id of Object.values(tasks))
+        credits += Number((await tripoGet(id)).credits_consumed ?? 0);
+      return {
+        record: {
+          credits,
+          rigType,
+          tasks: { ...(fromTask ? { model: fromTask } : {}), ...tasks },
+          refusedDownloads: refused,
+          costUsd: Math.round(credits * TRIPO_USD_PER_CREDIT * 100) / 100,
+          costBasis: `the credits_consumed of each Tripo task this call created (exact), valued at $${TRIPO_USD_PER_CREDIT} per credit (estimate)`,
+          steps,
+        },
+        files,
+      };
+    },
+  );
+}
+
+/**
+ * Maintainer step, outside the sandbox: re-reads every Tripo task the ledger names (fresh URLs, no cost)
+ * and downloads its files with the generating call's provenance.
+ */
+async function tripoFetch() {
+  const book = await ledger();
+  for (const record of book.calls.filter((c) => c.provider === "Tripo" && c.tasks)) {
+    for (const [role, id] of Object.entries(record.tasks)) {
+      if (role === "rigCheck") continue;
+      const files = {};
+      const refused = [];
+      await tripoFiles(await tripoGet(id), `tripo-${role}`, files, refused);
+      if (refused.length) throw new Error(`refused: ${JSON.stringify(refused)}`);
+      for (const [name, bytes] of Object.entries(files)) {
+        await writeFile(path.join(media, name), bytes);
+        book.files[name] = {
+          call: record.id,
+          provider: record.provider,
+          model: record.model,
+          parameters: record.parameters,
+          costUsd: record.costUsd,
+          sha256: sha256(bytes),
+          bytes: bytes.length,
+          taskId: id,
+          fetchedBy: "tripo-fetch (maintainer, outside the sandbox)",
+        };
+        console.log(`${record.id}: wrote media/${name} (${bytes.length} bytes)`);
+      }
+    }
+  }
+  await saveLedger(book);
+  return { id: "tripo-fetch", status: "done" };
+}
+
 /** Records which generated file the report renders as model `name`, how it is rigged, and why. */
 async function keep(name, rig, glb, ...rest) {
   if (!name || !["provider", "fit"].includes(rig) || !glb)
@@ -427,10 +661,17 @@ async function keep(name, rig, glb, ...rest) {
 }
 
 const [step, arg, ...more] = process.argv.slice(2);
-const steps = { turnaround, fal: () => fal(arg), meshy, keep: () => keep(arg, ...more) };
+const steps = {
+  turnaround,
+  fal: () => fal(arg),
+  meshy,
+  tripo: () => tripo(arg),
+  "tripo-fetch": tripoFetch,
+  keep: () => keep(arg, ...more),
+};
 if (!steps[step]) {
   console.error(
-    "usage: generate.mjs turnaround | fal <multi|three-quarter|three-quarter-1536> | meshy | keep …",
+    "usage: generate.mjs turnaround | fal <multi|three-quarter|three-quarter-1536> | meshy | tripo [model-task] | tripo-fetch | keep …",
   );
   process.exit(2);
 }
