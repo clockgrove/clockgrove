@@ -2553,7 +2553,9 @@ it("observes native authorized socket updates and recovery in Chromium", async (
           .getByLabel("Message Stevie…", { exact: true })
           .fill("fixture:offer grove.water-bowl water");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
-        await talker.viewer.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
+        const outcomes = history.locator(".rw-outcome");
+        await expect.poll(() => outcomes.count(), { timeout: 60_000 }).toBe(2);
+        expect(await outcomes.last().textContent()).toMatch(/proposal committed/iu);
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           String(Number(receiptsBefore) + 1),
         );
