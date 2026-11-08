@@ -9,7 +9,7 @@ Authority is `AGENTS.md`, then the runbooks under `docs/runbooks/` (`development
 
 ## Canonical commands
 
-Install first: `pnpm install --frozen-lockfile --ignore-scripts` (if an install script runs, stop and report). Then, in this order, on one frozen candidate:
+Install first: `pnpm install --frozen-lockfile --ignore-scripts` (if an install script not approved under `allowBuilds` runs, stop and report; work in the checkout you were given and create no extra git worktrees, since pnpm installs in each). Then, in this order, on one frozen candidate:
 
 ```
 pnpm format                      # Biome write; run before the gate, check only verifies
