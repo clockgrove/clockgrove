@@ -516,6 +516,20 @@ Release requires:
 
 Any zero-tolerance invariant failure blocks release regardless of demo quality.
 
+Amended (2026-11-07): the owner moves these Wave 1–3 hardening gaps here. Release also requires each, built and proven as its source amendment states:
+
+- Wave 1 §13: a historic component fixture at an earlier version upcasts through the registered chain to the current version deterministically, which tests the registry's upcast walk.
+- Wave 1 §13: current READMEs for `packages/contracts`, `packages/testkit`, `packages/application` and `packages/persistence`.
+- Wave 2 §5.2 and §19: provisioning seeds the initial membership, persona and inventory, preserves them for replay and offline verification, and a retry in any crash window never duplicates them.
+- Wave 2 RW-0202: the Raccoon World pack is interrupted and resumed at every seed/projection boundary and reconstructs with identical Wave 1 hashes.
+- Wave 2 §9.4: replay verification is resumable from a durable cursor and reaches the same verified head and state hash as an uninterrupted run.
+- Wave 2 §14: fault-injected tests "during replay checkpoint" and "during export assembly and verification", each asserting every §14 item.
+- Wave 3 §6: quota and cost policy for world commands (gateway steps 3 and 7).
+- Wave 3 §8: a `WorldDO` FIFO control mutation lane of its own, and reads that declare and are served by mailbox drain, a known revision or a stale bounded snapshot.
+- Wave 3 §20: telemetry carries the DO class, the hashed route fingerprint and the runtime schema.
+- Wave 3 §18.3: `food-decay-and-conservation` with Queue duplicates matches the Wave 1/2 golden semantic events and final hash.
+- Wave 3 §14: the inspector shows provisioning and readiness Workflow IDs and their reconciliation state.
+
 ---
 
 ## 19. Explicit non-goals
@@ -552,6 +566,8 @@ Wave 9 does not implement:
 - [ ] No unresolved zero-tolerance or release-blocking finding exists.
 
 Amended (2026-10-27): the checklist adds "Exported event/replay bundles carry a signed manifest and the upcaster identifiers for their event versions, and verify offline (§6.2, RW-0902)."
+
+Amended (2026-11-07): the checklist adds "The Wave 1–3 hardening items moved here (§18) pass."
 
 The final manifest records commit/tag, toolchain/runtime/compatibility versions, dependency lock/SBOM/checksums, schema/migration/world-pack/asset/model/capability versions, environment/infrastructure hashes, all qualification manifests, replay/scenario hashes, SLO/load/cost results, restore/delete/export evidence, security/provenance reports, docs verification, runbook rehearsals, known limitations, and release decision.
 

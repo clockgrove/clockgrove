@@ -234,6 +234,8 @@ Clients cannot provide or broaden `ExecutionContext`. Actor keys and trusted int
 
 The production bundle must contain no development auth bypass path. CI scans and integration-tests this invariant.
 
+Amended (2026-11-07): world commands have no quota or cost policy; only mailbox admission and inspector rate limits exist. The owner moves the quota part of step 3 and the cost part of step 7 to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the gateway resolves the caller's quotas from PostgreSQL and applies cost policy to world commands before routing, as steps 3 and 7 state.
+
 ---
 
 ## 7. Durable Object initialization and local state
@@ -296,6 +298,8 @@ Rules:
 - no nested same-owner RPC that can deadlock the lane.
 
 Amended: in Wave 3, SpaceDO cancellation means dropping a waiting entry when its deadline passes. A started entry always runs to its journal outcome, since stopping it could hide a commit. A disconnected caller does not stop a waiting entry either: the SpaceDO RPCs take no abort signal, and its deadline drops it. The trusted request and correlation IDs stand in for the context reference. A client command carries its route epoch; resume and inspection carry their scope and trace context but no route epoch, catch-up its Workflow run, and alarm work only its kind (`docs/runbooks/runtime.md` "Physical owner mailbox"). Reason: these entries have no route epoch in hand without another read, and alarm work runs one at a time.
+
+Amended (2026-11-07): `WorldDO` has no FIFO control mutation lane of its own; clock controls run in the SpaceDO lane. Reads declare no drain, known-revision or stale-snapshot mode. The owner moves both to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): WorldDO control mutations run in their own FIFO lane under the rules above, and every read declares whether it requires mailbox drain, a known revision, or can use a stale bounded snapshot, and is served as it declares.
 
 ---
 
@@ -546,6 +550,8 @@ Authorized inspection must expose:
 
 Inspector values may be operationally stale and must say so. They never supersede canonical Journal inspection.
 
+Amended (2026-11-07): the inspector shows catch-up Workflow IDs but not provisioning or readiness ones. The owner moves those to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the inspector shows the provisioning and readiness Workflow IDs and their reconciliation state, as this list requires for every Workflow.
+
 ---
 
 ## 15. Detailed work packets
@@ -717,6 +723,8 @@ Run at minimum:
 
 Compare semantic events and final hashes to Wave 1/2 goldens.
 
+Amended (2026-11-07): `food-decay-and-conservation` runs with commit/response duplicates but has no Queue-duplicate mode. The owner moves that mode to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the run with Queue duplicates matches the Wave 1/2 golden semantic events and final hash.
+
 ---
 
 ## 19. Runtime budgets and load evidence
@@ -766,6 +774,8 @@ Amended (2026-10-19): metrics, including the Wave 2 §16 metrics deferred here, 
 Amended (2026-10-27): the deferred Wave 2 §16 signals are live Workers Analytics Engine metrics (docs/runbooks/runtime.md "Metrics"), except optimistic conflicts, idempotent receipt hits, request-hash mismatches and failures by stable error code on Worker-answered requests, which issue 874's `world_command_answered` and `noop_command_answered` records evidence through their outcome, code and failure class. Conflicts of alarm and autonomous commands, which answer no request, are the `autonomous_conflicts` metric. The §20 runtime signals above (alarm lateness, admission wait and service time, rehydration cause, Workflow steps, cost) are issue 848.
 
 Amended (2026-10-27): the gateway authorization/routing result and stable error code, stale route and authority-epoch rejections included, and the mailbox timeout and refusal counts above are evidenced by issue 874's `world_command_answered` and `noop_command_answered` records, not by metrics. The remaining §20 runtime signals (alarm lateness, batch and continuation; mailbox wait and service time; rehydrate/reconcile cause; catch-up step duration and outcome; per-activation resource counters) are live Workers Analytics Engine metrics (docs/runbooks/runtime.md "Metrics").
+
+Amended (2026-11-07): telemetry lacks the DO class, the hashed route fingerprint and the runtime schema. The owner moves them to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): structured telemetry carries all three, under the redaction rule above (no raw actor keys).
 
 ---
 

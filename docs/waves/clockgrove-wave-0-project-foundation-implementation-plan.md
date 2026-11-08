@@ -93,6 +93,8 @@ Deployment-private notes belong outside this repository. Secrets belong in the c
 
 Provider SDK types must remain inside adapters. Durable product/domain contracts may not depend on a hosted vendor's object model.
 
+Amended (2026-11-07): the owner accepts the testing tools as built. Property and fuzz tests use seeded generators that draw from a named random stream (for example `packages/kernel/test/rules-fuzz.test.ts`), not fast-check. Load tests are Vitest tests (`tests/load/` and `apps/runtime/test/load-curves.long-run.test.ts`), not k6. Wherever a plan names fast-check or k6, read the seeded generators and Vitest load tests. The Sentry and PostHog adapters come later (§14).
+
 ---
 
 ## 4. Repository layout
@@ -153,6 +155,8 @@ tools/
 ```
 
 The layout may grow only when a package or deployable owns a real responsibility.
+
+Amended (2026-11-07): the owner accepts that there is no `apps/cli`. The simulator CLI (`packages/simulator/cli/`, documented in [CLI](../../packages/simulator/docs/cli.md)) covers seed and verify, and the application API stands in for inspect, replay and export, as Wave 2 §4 and Wave 3 §1 already read "CLI".
 
 ---
 
@@ -487,6 +491,8 @@ Create an evidence-manifest schema that later waves can extend with:
 - security/recovery checks;
 - cloud qualification evidence;
 - known risks/waivers.
+
+Amended (2026-11-07): there are no Sentry or PostHog adapters yet, and the owner accepts that they come later. Each arrives behind a project-owned adapter contract, as every third-party service does: the provider's SDK types stay inside the adapter and no product contract depends on them (§3). Until then operational telemetry is the structured logs above and Cloudflare-native analytics (Wave 3 §20).
 
 ---
 
