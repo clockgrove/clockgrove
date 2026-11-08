@@ -5,7 +5,8 @@
 stages); `state.ecology` tracks each perishable's arrival time and each plant's stage, growing time,
 wetness and integration time. Refusals are `invalid-input` at `pack.pack.policy.ecology...` or
 `partition.state.ecology...`. `ecology.state-matches-policy@1` is a precondition and a post-state
-invariant of every command; policies without ecology behave and encode byte-identically.
+invariant of every command; policies without ecology behave and encode byte-identically. A movement or portal command that moves the world time emits the spoilage, appearance and stage
+changes it passes ([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 
 **Schema version and validation rules.** The policy is `schemaVersion: 1` (any other version is
 refused). Each list (`sources`, `perishables`, `plants`) holds at most 64 entries, a plant declares 1

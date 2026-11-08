@@ -31,6 +31,7 @@ import {
   MOVEMENT_COMMAND_TYPES,
   type MovementCommand,
   type MovementCommandType,
+  type MovementInterruptPayload,
   type MovementRecord,
   movementCompletionTime,
   type NamedRandomState,
@@ -238,6 +239,30 @@ export type WorldKernelOutcome =
   | Readonly<{ ok: false; error: Refusal }>;
 const MAX_TIME = (1n << 63n) - 1n;
 const WETNESS_SCALE = 100_000_000n;
+/**
+ * The events a movement or portal command emits for the phase, weather and ecology times it passes
+ * (see `runWorld`), each with the entity field it may change on the objects it names.
+ */
+const PASSED_TIME_EVENTS: Readonly<Record<string, "needs" | "resource" | undefined>> = {
+  "environment.phase-changed": undefined,
+  "weather.transitioned": undefined,
+  "needs.changed": "needs",
+  "wellbeing.integrated": undefined,
+  "growth.integrated": undefined,
+  "growth.stage-changed": undefined,
+  "resource.spoiled": "resource",
+  "resource.appeared": "resource",
+};
+const PASSED_TIME_TYPES = Object.keys(PASSED_TIME_EVENTS);
+/**
+ * The world time a moving command may pass (`movement.passed-time@1`): at most one decision interval
+ * of the world policy, no other actor's due decision, no lifecycle time, and no more events than one
+ * `world.advance` call.
+ */
+const PASSED_TIME_CHECK = "movement.passed-time";
+/** The event budget of one `world.advance` call (its payload's ceiling), and of one moving command. */
+const MAX_EVENTS_PER_CALL = 4096;
+
 const ENVIRONMENT_CHECK = "environment.state-matches-policy";
 const ECOLOGY_CHECK = "ecology.state-matches-policy";
 const WELLBEING_CHECK = "wellbeing.state-matches-policy";
@@ -578,7 +603,7 @@ function validateWorldPayload(payload: unknown, { state }: { readonly state: Wor
   if (
     !Number.isSafeInteger(value.maxEvents) ||
     value.maxEvents < perActor * actors.length + plantCount + 1 ||
-    value.maxEvents > 4096
+    value.maxEvents > MAX_EVENTS_PER_CALL
   )
     invalid("payload.maxEvents");
 }
@@ -640,10 +665,12 @@ function runScheduledDecision(context: WorldContext): HandlerOutput<WorldState, 
 }
 
 interface WorldRunSpec {
-  readonly type: WorldCommandType;
+  readonly type: WorldCommandType | MovementCommandType | PortalCommandType;
   readonly payload: WorldCommandPayload;
   readonly inputIdentity: (keptRandom: NamedRandomState) => string;
   readonly scheduled?: { readonly scheduleId: ScheduleId; readonly dueAt: SimTimeMs };
+  /** A movement or portal command: its handler, run on the runtime the world time passes through. */
+  readonly move?: (rt: MovementRuntime) => void;
 }
 
 function runWorld(
@@ -1245,7 +1272,7 @@ function runWorld(
    * A run built from the working state at its simulation time. Building from any state at any
    * position equals resuming, so the run is rebuilt after a lifecycle change (death or birth).
    */
-  function buildRun(): EnvironmentRun {
+  function buildRun(worldOnly = false): EnvironmentRun {
     const begin = current();
     const position = begin.simulationTime;
     const record = begin.environment;
@@ -1253,7 +1280,7 @@ function runWorld(
       throw new RangeError("environment policy without a state record");
     const built = createEnvironmentRun({
       ...(environment === undefined ? {} : { policy: environment }),
-      ...(wellbeingPolicy === undefined
+      ...(wellbeingPolicy === undefined || worldOnly
         ? {}
         : {
             wellbeing: {
@@ -1265,7 +1292,7 @@ function runWorld(
             },
           }),
       actors:
-        environment === undefined
+        environment === undefined || worldOnly
           ? []
           : livingActorsOf(begin).map((actor) => {
               const needs = integrateNeeds(begin, actor, position, policy) as WorldNeeds;
@@ -1284,7 +1311,7 @@ function runWorld(
         integrateNeedsWith(needs, protection, rain, through, policy),
       ...(ecologyPolicy === undefined ? {} : { ecology: ecologyRunOptions(begin, ecologyPolicy) }),
     });
-    if (utilityPolicy !== undefined) refreshRun(built, []);
+    if (utilityPolicy !== undefined && !worldOnly) refreshRun(built, []);
     return built;
   }
   if (spec.type === "world.advance") timeline = buildRun();
@@ -1310,15 +1337,18 @@ function runWorld(
     return total;
   };
   let lifecycleChanged = false;
-  /** Emits one environment time group; returns false, emitting nothing, when it does not fit. */
-  function emitGroup(group: EnvironmentGroup): boolean {
+  /**
+   * Emits one environment time group; returns false, emitting nothing, when it does not fit.
+   * Without `lifecycle` the group's time plans no lifecycle actions (a movement command's groups).
+   */
+  function emitGroup(group: EnvironmentGroup, lifecycle = true): boolean {
     if (environment === undefined) return true;
     const at = group.time;
     const derived = deriveEnvironmentState(environment, at);
     // Lifecycle (RW-0109): everything due at exactly this time, planned before anything is emitted.
     const lifecycleNow = current().lifecycle;
     const plan: LifecyclePlan | undefined =
-      lifecyclePolicy === undefined || lifecycleNow === undefined
+      lifecyclePolicy === undefined || lifecycleNow === undefined || !lifecycle
         ? undefined
         : planLifecycleAt(
             lifecyclePolicy,
@@ -1705,6 +1735,81 @@ function runWorld(
     }
     arrivedActors = arrivalIds;
     return true;
+  }
+  if (spec.move !== undefined) {
+    // A movement or portal command moves the world time to its last event. The phase, weather and
+    // ecology times it passes are emitted inside it, each before the command's events at the same
+    // time, by the same `emitGroup` as `world.advance`, from a run of those systems alone: the
+    // actors' exposure and wellbeing systems, routine movers, lifecycle and decisions stay with
+    // `world.advance`. Dwells fall due in order, as in `world.advance`.
+    //
+    // The time a move may pass is bounded (`movement.passed-time@1`, `precondition-failed`): at most
+    // one `decisionIntervalMs` of the policy, so it passes at most one decision of its mover (moved
+    // to its end below); no due decision of another actor, which only `world.advance` runs; no
+    // lifecycle time, whose actions draw from the lifecycle stream a move does not return; and at
+    // most `world.advance`'s per-call event budget.
+    const start = current().simulationTime;
+    const mover = (context.payload as { readonly objectId?: string }).objectId;
+    const passedTime = (path: string): never => {
+      throw new RefusalSignal(refusal("precondition-failed", path, `${PASSED_TIME_CHECK}@1`));
+    };
+    const lifeTime =
+      lifecyclePolicy === undefined || startState.lifecycle === undefined
+        ? undefined
+        : nextLifecycleTime(lifecyclePolicy, startState.lifecycle, start);
+    const reach = (time: SimTimeMs): void => {
+      if (time - start > policy.decisionIntervalMs) passedTime("state.simulationTime");
+      if (lifeTime !== undefined && lifeTime <= time) passedTime("state.lifecycle");
+      if (
+        decisionsOf(schedules).some(
+          (item) => item.payload.objectId !== mover && item.dueAt > start && item.dueAt < time,
+        )
+      )
+        passedTime("schedules");
+    };
+    const passing = environment === undefined ? undefined : buildRun(true);
+    const pass = (through: SimTimeMs): void => {
+      for (const group of passing?.step(through) ?? [])
+        if (!fireDwells((group.time - 1n) as SimTimeMs) || !emitGroup(group, false))
+          passedTime("events");
+    };
+    spec.move({
+      state: startState,
+      command: { type: context.command.type, commandId: context.command.commandId },
+      payload: context.payload,
+      indexFactory: input.spatialIndexFactory ?? createQuadtreeSpatialIndex,
+      emit: (type, data, time) => {
+        // The passed time's events come only from its groups, never from the movement handler.
+        if (Object.hasOwn(PASSED_TIME_EVENTS, type))
+          throw new RangeError("a movement handler emitted a passed-time event");
+        reach(time as SimTimeMs);
+        pass(time as SimTimeMs);
+        if (!fireDwells((time - 1n) as SimTimeMs) || context.eventCount() >= payload.maxEvents)
+          passedTime("events");
+        emit(event(type as WorldEvent["type"], time as SimTimeMs, data as never));
+      },
+    });
+    const through = current().simulationTime;
+    if (through > start) {
+      pass(through);
+      if (!fireDwells(through)) passedTime("events");
+      // The command does not run the utility system: a decision due before its final time is due
+      // at that time instead, so the next `world.advance` runs it first, never in the past.
+      for (const item of decisionsOf(schedules))
+        if (item.dueAt < through) reschedule(item, through);
+    }
+    const final = current();
+    return {
+      scheduleMutations: Object.freeze([...scheduleMutations]),
+      projectionDelta: {
+        schemaVersion: 1,
+        partitionId: startState.partitionId,
+        fromRevision: startRevision,
+        toRevision: final.revision,
+        delta: final,
+      },
+      extra: { schedules, complete: true, stage: "scheduled", inputIdentity: "" },
+    };
   }
   if (spec.type === "world.weather.set") {
     for (const actor of actors) integrateActor(actor, current().simulationTime);
@@ -2979,155 +3084,40 @@ function runContainmentCommand(
     },
   };
 }
-/**
- * The keyed dwell schedules of one command. Every emitted event updates them (`dwellChanges`), and
- * every object's dwells fall due in the command's event stream: before an event at a later time,
- * and, when the command moved the world time, at the end for those due by the final time. A
- * command therefore never leaves a dwell due in the past.
- */
-interface CommandDwells {
-  schedules: ScheduleQueue<WorldScheduledPayload>;
-  readonly mutations: WorldScheduleMutation[];
-  readonly emit: (type: string, payload: unknown, time: bigint) => void;
-  readonly fire: (through: bigint, inclusive: boolean) => void;
-}
-
-function commandDwells(context: WorldContext): CommandDwells {
-  const { state, input } = context;
-  const attribution = decodeAttributionEnvelope(input.attribution);
-  const raw = (type: string, payload: unknown, time: bigint): void => {
-    const event = {
-      schemaVersion: 1,
-      tenantId: state.tenantId,
-      worldId: state.worldId,
-      timelineId: state.timelineId,
-      partitionId: state.partitionId,
-      simulationTime: time as SimTimeMs,
-      attribution,
-      policyVersions: input.policies.policyVersions,
-      type,
-      payload,
-    } as WorldEvent;
-    context.emit(event);
-    for (const change of dwellChanges(dwells.schedules, context.workingState(), event)) {
-      dwells.mutations.push(change as WorldScheduleMutation);
-      dwells.schedules =
-        change.kind === "cancel"
-          ? cancelSchedule(dwells.schedules, change.scheduleId)
-          : upsertSchedule(dwells.schedules, change.item);
-    }
-  };
-  const fire = (through: bigint, inclusive: boolean): void => {
-    for (const item of dwells.schedules) {
-      if (!isDwellItem(item)) continue;
-      if (inclusive ? item.dueAt > through : item.dueAt >= through) continue;
-      const dwell = item.payload as DwellPayload;
-      if (dwellHolds(context.workingState(), dwell, item.dueAt))
-        raw("movement.region-remained", remainedPayload(dwell), item.dueAt);
-      else {
-        dwells.schedules = cancelSchedule(dwells.schedules, item.id);
-        dwells.mutations.push(Object.freeze({ kind: "cancel", scheduleId: item.id }));
-      }
-    }
-  };
-  const dwells: CommandDwells = {
-    schedules: createScheduleQueue(input.schedules),
-    mutations: [],
-    emit: (type, payload, time) => {
-      fire(time, false);
-      raw(type, payload, time);
-    },
-    fire,
-  };
-  return dwells;
-}
-
-/** The movement runtime of a command: its state, payload, index and version-1 event emitter. */
-function movementRuntime(context: WorldContext, dwells: CommandDwells): MovementRuntime {
-  const { state, input } = context;
-  return {
-    state,
-    command: { type: context.command.type, commandId: context.command.commandId },
-    payload: context.payload,
-    indexFactory: input.spatialIndexFactory ?? createQuadtreeSpatialIndex,
-    emit: dwells.emit,
-  };
-}
-
-/**
- * A `world.decision` that fell due while a movement or portal command moved the world time is due
- * at the command's final time instead: the command does not run the utility system, so the next
- * `world.advance` runs it first. Like its dwells, a command never leaves a decision due in the past.
- */
-function deferDecisions(dwells: CommandDwells, through: SimTimeMs): void {
-  for (const item of decisionsOf(dwells.schedules)) {
-    if (item.dueAt >= through) continue;
-    const next = Object.freeze({
-      ...item,
-      dueAt: through,
-      payload: Object.freeze({ ...item.payload }),
-      idempotencyKey: `${item.id}:${through}`,
-    });
-    dwells.schedules = upsertSchedule(dwells.schedules, next);
-    dwells.mutations.push(
-      Object.freeze({
-        kind: "upsert",
-        scheduleId: next.id,
-        dueAt: next.dueAt,
-        payload: next.payload,
-        item: next,
-      }),
-    );
-  }
-}
-
-function commandOutput(
+/** A movement or portal command, run by `runWorld` so it passes the world time like `world.advance`. */
+function runMovingCommand(
   context: WorldContext,
-  dwells: CommandDwells,
+  move: (rt: MovementRuntime) => void,
 ): HandlerOutput<WorldState, WorldHandlerExtra> {
-  const { state } = context;
-  const through = context.workingState().simulationTime;
-  if (through > state.simulationTime) {
-    dwells.fire(through, true);
-    deferDecisions(dwells, through as SimTimeMs);
-  }
-  const final = context.workingState();
-  return {
-    scheduleMutations: Object.freeze([...dwells.mutations]),
-    projectionDelta: {
+  return runWorld(context, {
+    type: context.command.type as MovementCommandType | PortalCommandType,
+    // A moving command is atomic and never continued: over the budget it is refused whole.
+    payload: {
       schemaVersion: 1,
-      partitionId: state.partitionId,
-      fromRevision: state.revision,
-      toRevision: final.revision,
-      delta: final,
+      targetTime: context.state.simulationTime,
+      maxInputs: 1,
+      maxEvents: MAX_EVENTS_PER_CALL,
     },
-    extra: {
-      schedules: dwells.schedules,
-      complete: true,
-      stage: "scheduled",
-      inputIdentity: "",
-    },
-  };
+    inputIdentity: () => "",
+    move,
+  });
 }
 
 /** `portal.open` and `portal.close` emit their one event; `portal.use` moves through the portal. */
 function runPortalCommand(context: WorldContext): HandlerOutput<WorldState, WorldHandlerExtra> {
-  const dwells = commandDwells(context);
-  const rt = movementRuntime(context, dwells);
-  if (context.command.type === "portal.use") runPortalUse(rt);
-  else
-    rt.emit(
-      context.command.type === "portal.open" ? "portal.opened" : "portal.closed",
-      { portalId: (context.payload as PortalTogglePayload).portalId },
-      context.state.simulationTime,
-    );
-  return commandOutput(context, dwells);
+  return runMovingCommand(context, (rt) => {
+    if (context.command.type === "portal.use") runPortalUse(rt);
+    else
+      rt.emit(
+        context.command.type === "portal.open" ? "portal.opened" : "portal.closed",
+        { portalId: (context.payload as PortalTogglePayload).portalId },
+        context.state.simulationTime,
+      );
+  });
 }
 
 function runMovementCommand(context: WorldContext): HandlerOutput<WorldState, WorldHandlerExtra> {
-  const dwells = commandDwells(context);
-  runMovementHandler(movementRuntime(context, dwells));
-  return commandOutput(context, dwells);
+  return runMovingCommand(context, runMovementHandler);
 }
 
 /** Index of the first emitted crossing that repeats a state or goes back in time, or -1. */
@@ -3147,6 +3137,59 @@ function badCrossingIndex(movement: NonNullable<WorldEntity["movement"]>): numbe
   return -1;
 }
 
+/**
+ * The path of the first passed-time event of a moving command that no boundary owns, or undefined:
+ * actors' needs and wellbeing are integrated only at a weather transition, a plant at a weather
+ * transition or its own stage change, food appears only at its source's appearance times, and spoils
+ * only when its holder's shelf life ends.
+ */
+function passedTimeDisagreement(
+  initial: WorldState,
+  events: readonly WorldEvent[],
+): string | undefined {
+  const ecology = activePolicy?.ecology;
+  const at = (type: string) =>
+    new Set(events.filter((event) => event.type === type).map((event) => event.simulationTime));
+  const weather = at("weather.transitioned");
+  const stages = new Set(
+    events
+      .filter((event) => event.type === "growth.stage-changed")
+      .map(
+        (event) => `${(event.payload as { objectId: string }).objectId}@${event.simulationTime}`,
+      ),
+  );
+  const arrived = new Map(
+    (initial.ecology?.perishables ?? []).map((entry) => [
+      entry.objectId as string,
+      entry.arrivedAt,
+    ]),
+  );
+  for (const [index, event] of events.entries()) {
+    const time = event.simulationTime;
+    const objectId = (event.payload as { objectId?: string }).objectId as string;
+    let owned = true;
+    if (event.type === "needs.changed" || event.type === "wellbeing.integrated")
+      owned = weather.has(time);
+    else if (event.type === "growth.integrated")
+      owned = weather.has(time) || stages.has(`${objectId}@${time}`);
+    else if (event.type === "resource.appeared") {
+      const source = ecology?.sources.find((candidate) => candidate.objectId === objectId);
+      owned =
+        source !== undefined &&
+        time >= source.firstAtMs &&
+        (time - source.firstAtMs) % source.periodMs === 0n;
+      if (arrived.has(objectId)) arrived.set(objectId, time);
+    } else if (event.type === "resource.spoiled") {
+      const holder = ecology?.perishables.find((candidate) => candidate.objectId === objectId);
+      const since = arrived.get(objectId);
+      owned = holder !== undefined && since != null && since + holder.shelfLifeMs === time;
+      arrived.set(objectId, null);
+    }
+    if (!owned) return `events[${index}].simulationTime`;
+  }
+  return undefined;
+}
+
 function registerMovementChecks(
   preconditions: CheckRegistry<WorldPrecondition>,
   invariants: CheckRegistry<WorldInvariantSubject>,
@@ -3156,7 +3199,8 @@ function registerMovementChecks(
     "movement.region-exited",
     "movement.region-remained",
     "movement.portal-crossed",
-  ] as const;
+    ...PASSED_TIME_TYPES,
+  ];
   const allowed: Readonly<Record<MovementCommandType, readonly string[]>> = {
     "movement.start": ["movement.started", ...crossings, "movement.completed"],
     "movement.interrupt": [...crossings, "movement.interrupted"],
@@ -3176,7 +3220,7 @@ function registerMovementChecks(
     ...MOVEMENT_COMMAND_TYPES.map((type) =>
       invariants.register({
         name: `movement.event-authority.${type}`,
-        version: 1,
+        version: 2,
         commands: [type],
         check: ({ events }) => {
           const index = events.findIndex((event) => !allowed[type].includes(event.type));
@@ -3187,6 +3231,16 @@ function registerMovementChecks(
     pre("active-object"),
     pre("route"),
     pre("timing"),
+    preconditions.register({
+      name: PASSED_TIME_CHECK,
+      version: 1,
+      commands: ["movement.interrupt", "movement.replan"],
+      check: ({ state, input, payload }) =>
+        (payload as MovementInterruptPayload).at - state.simulationTime >
+        input.pack.pack.policy.decisionIntervalMs
+          ? "payload.at"
+          : undefined,
+    }),
     invariants.register({
       name: "movement.events-ordered-and-unique",
       version: 1,
@@ -3224,19 +3278,40 @@ function registerMovementChecks(
     }),
     invariants.register({
       name: "movement.scope",
-      version: 1,
+      version: 2,
       commands: moving,
       check: ({ initial, state, events }) => {
         // A remain-in-region event changes only revision and time, so it may name any object
-        // whose dwell falls due while the command moves the world time.
+        // whose dwell falls due while the command moves the world time. The events of the world
+        // time it passes may change their objects' needs or resource, and the weather, each only
+        // at the boundary that owns it.
+        const unowned = passedTimeDisagreement(initial, events);
+        if (unowned !== undefined) return unowned;
+        const objectOf = (event: WorldEvent) =>
+          (event.payload as unknown as { objectId: string }).objectId;
+        const passed = new Map<string, Set<string>>();
+        for (const event of events) {
+          const field = PASSED_TIME_EVENTS[event.type];
+          if (field === undefined) continue;
+          const fields = passed.get(objectOf(event)) ?? new Set<string>();
+          passed.set(objectOf(event), fields.add(field));
+        }
         const touched = new Set(
           events
-            .filter((event) => event.type !== "movement.region-remained")
-            .map((event) => (event.payload as unknown as { objectId: string }).objectId),
+            .filter(
+              (event) =>
+                event.type !== "movement.region-remained" &&
+                !Object.hasOwn(PASSED_TIME_EVENTS, event.type),
+            )
+            .map(objectOf),
         );
         if (touched.size !== 1) return "events";
+        const weather = events.some((event) => event.type === "weather.transitioned");
         for (const key of ["weather", "spatialFrames", "spatialRegions", "anchorGraphs"] as const)
-          if (canonicalSerialize(initial[key] ?? null) !== canonicalSerialize(state[key] ?? null))
+          if (
+            !(key === "weather" && weather) &&
+            canonicalSerialize(initial[key] ?? null) !== canonicalSerialize(state[key] ?? null)
+          )
             return `state.${key}`;
         if (initial.entities.length !== state.entities.length) return "state.entities";
         for (const entity of state.entities) {
@@ -3244,15 +3319,14 @@ function registerMovementChecks(
             (candidate) => candidate.objectId === entity.objectId,
           );
           if (before === undefined) return "state.entities";
-          if (
-            !touched.has(entity.objectId) &&
-            canonicalSerialize(before) !== canonicalSerialize(entity)
-          )
-            return entityPath(state, entity);
-          const { movement: _m, pose: _p, ...rest } = entity;
-          const { movement: _bm, pose: _bp, ...beforeRest } = before;
-          if (canonicalSerialize(rest) !== canonicalSerialize(beforeRest))
-            return entityPath(state, entity);
+          // The mover may change its movement and pose; a passed-time event, its named field.
+          const released = new Set(passed.get(entity.objectId));
+          if (touched.has(entity.objectId)) released.add("movement").add("pose");
+          const kept = (value: WorldEntity) =>
+            canonicalSerialize(
+              Object.fromEntries(Object.entries(value).filter(([key]) => !released.has(key))),
+            );
+          if (kept(before) !== kept(entity)) return entityPath(state, entity);
         }
         return undefined;
       },
@@ -3280,6 +3354,7 @@ function registerPortalChecks(
       "movement.region-remained",
       "movement.portal-crossed",
       "movement.completed",
+      ...PASSED_TIME_TYPES,
     ],
   };
   const results = [
@@ -3301,7 +3376,8 @@ function registerPortalChecks(
     ...PORTAL_COMMAND_TYPES.map((type) =>
       invariants.register({
         name: `portal.event-authority.${type}`,
-        version: 1,
+        // `portal.use` allows the passed-time events since version 2.
+        version: type === "portal.use" ? 2 : 1,
         commands: [type],
         check: ({ events }) => {
           const index = events.findIndex((event) => !allowed[type].includes(event.type));

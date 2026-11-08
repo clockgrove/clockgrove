@@ -14,6 +14,7 @@ import type { RunParity } from "./journal-parity.js";
 export const SCENARIOS = [
   ["fixture", "non-raccoon-conformance"],
   ["raccoons", "birth-and-parentage"],
+  ["raccoons", "boundary-walk"],
   ["raccoons", "cedar-growth"],
   ["raccoons", "death-and-successor"],
   ["raccoons", "differential-perception"],
