@@ -6,6 +6,8 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
+  # The Agents SDK's closure brings core-js-pure, whose postinstall only prints a funding banner: declared, never run.
+  core-js-pure: false
 
 overrides:
   "zod@<4.6.6": "4.6.6"
