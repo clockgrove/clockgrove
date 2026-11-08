@@ -2550,19 +2550,16 @@ it("observes native authorized socket updates and recovery in Chromium", async (
         await truth(
           `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command'] WHERE principal_id='principal-runtime'`,
         );
+        // A widened audience resnapshots the tab and closes the rail, so the member reopens it.
+        await talker.viewer.reload();
+        await talker.viewer.getByLabel("Local session credential").fill("yard-inspect");
+        await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await openTalk();
         await talker.viewer
           .getByLabel("Message Stevie…", { exact: true })
           .fill("fixture:offer grove.water-bowl water");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
-        const outcomes = history.locator(".rw-outcome");
-        await outcomes
-          .nth(1)
-          .waitFor({ timeout: 60_000 })
-          .catch(async (error) => {
-            const rail = talker.viewer.getByRole("region", { name: "Private conversation" });
-            throw new Error(`no outcome line: ${await rail.innerText()}`, { cause: error });
-          });
-        expect(await outcomes.last().textContent()).toMatch(/proposal committed/iu);
+        await history.getByText("Stevie's proposal committed").waitFor({ timeout: 60_000 });
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           String(Number(receiptsBefore) + 1),
         );
