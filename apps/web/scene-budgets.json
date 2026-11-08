@@ -76,11 +76,11 @@
     "missing": ["integrated GPU", "phone"]
   },
   "productCorrectnessMeasurements": {
-    "candidate": "6fcaaa5e75541ad8e4f7b0e56c00ce000150f221",
+    "candidate": "62b831d1426467818174c05ac58f66ca84b11b71",
     "source": "pnpm run qualify:wave4; visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
-    "captureReportSha256": "sha256:9ba380e11c163568a360c080d2b2258abd5da97c1c85a2f48b324f6fcfcabc4f",
+    "captureReportSha256": "sha256:2683237886106f091a0ed3632008b1e78f2d152058d5f7295d7cdcc12497e5e5",
     "performance": false,
-    "initialJsGzipBytes": 343464,
+    "initialJsGzipBytes": 343451,
     "assetBytes": 28255,
     "buildSource": "pnpm --filter @clockgrove/web check; tools/scene-budget.mjs",
     "maxTierTextureBytes": {
