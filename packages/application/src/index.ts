@@ -12,6 +12,7 @@ export * from "./catch-up-workflows.js";
 export * from "./causal-inspector.js";
 export * from "./cognition.js";
 export * from "./conversations.js";
+export * from "./decision-shadow.js";
 export * from "./dispatch.js";
 export * from "./event-registry.js";
 export * from "./journal.js";

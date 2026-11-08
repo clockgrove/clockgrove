@@ -167,6 +167,30 @@ adapter replaces the SDK's error logger with a no-op, and a provider fault keeps
 HTTP status. A route whose credential is missing records `credential_missing` and is skipped
 without a network call.
 
+## Decide
+
+`ModelGateway.decide(request, signal?)` is a bounded Choice, Score or Boolean request: the caller lists the
+options (or score levels, or the yes/no question) and the model answers with one label and a probability.
+It goes through Vercel AI Gateway's decisions endpoint (`AiSdkDecisionAdapter`, AI SDK `experimental_decide`).
+It is not a generation call: no streaming, no structured output, no fallback chain.
+
+- **Aliases.** A decision alias (`decisionAlias({alias, model})`) maps a name to a route and bounds: 8 KiB of
+  input, a 5 s timeout and a 1000 microusd ceiling by default. The model is configuration, never code (the free
+  tier reached only some models; the paid tier reaches all four measured in factory#2504). Suggested default
+  `pplx-decider-v1.2`, alternate `gpt-6-luna-decisions`.
+- **Order of checks.** Input byte bound, cancellation, circuit breaker, then the budget reservation. A timeout
+  settles the whole reservation and records a null cost; a failed or refused call settles 0.
+- **Outcome.** `completed` carries `{type, label, confidence}`; `failed` carries a `ModelFailureCode`,
+  `retryable` and the call record. Confidence is the model's probability for its label, `null` when absent.
+  Observed confidences run 0.5 to 0.8 even when correct, so callers set a threshold per decision, not a global one.
+- **Record.** Every call records `DecisionCallRecord` through `ModelAccountingSink.recordDecision`: model,
+  response model, outcome, label, confidence, latency, cost in microusd (reported cost, else tokens times price,
+  else null) and the request hash. Null means unknown, not zero.
+- **Scripted decider.** `ScriptedDecider` answers from a per-route finite script of `answer` or `http` steps and
+  refuses with `unavailable` when it runs out. Tests and replays use it; replay never calls a model.
+
+The runtime's shadow tier consumes it ([decision shadow](../../../docs/protocols/decision-shadow.md)).
+
 ## Tests
 
 The offline suite (`test/model-gateway.journey.test.ts`) runs in `pnpm test`. It drives the

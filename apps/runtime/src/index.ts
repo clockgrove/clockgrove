@@ -1,4 +1,5 @@
 export * from "./canonical-state.js";
+export * from "./decision-shadow.js";
 export * from "./local-storage.js";
 export * from "./owners.js";
 export * from "./queues.js";
