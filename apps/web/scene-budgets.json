@@ -74,5 +74,20 @@
       "caveat": "Suspect-clock flag from failed peer candidates; maintainer reports real clock and working Three.js WebGL2."
     },
     "missing": ["integrated GPU", "phone"]
+  },
+  "productCorrectnessMeasurements": {
+    "candidate": "6fcaaa5e75541ad8e4f7b0e56c00ce000150f221",
+    "source": "pnpm run qualify:wave4; visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
+    "captureReportSha256": "sha256:9ba380e11c163568a360c080d2b2258abd5da97c1c85a2f48b324f6fcfcabc4f",
+    "performance": false,
+    "initialJsGzipBytes": 343464,
+    "assetBytes": 28255,
+    "buildSource": "pnpm --filter @clockgrove/web check; tools/scene-budget.mjs",
+    "maxTierTextureBytes": {
+      "low": 4029540,
+      "medium": 8977380,
+      "high": 14605540
+    },
+    "scope": "Software correctness and accounted allocation only. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike."
   }
 }
