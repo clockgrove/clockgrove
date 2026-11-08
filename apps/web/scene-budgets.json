@@ -76,40 +76,51 @@
     "missing": ["integrated GPU", "phone"]
   },
   "productCorrectnessMeasurements": {
-    "candidate": "5d9f502b565f1f126359c0bb4f85d3d63627fff6",
+    "candidate": "d0f73a91d2c82107b90cbe714f1dc8a80d668fdf",
     "source": "timeout 3600 taskset -c 0-3 pnpm run qualify:wave4; evidence/visual/captures.json (both SwiftShader backends, 36 tier comparisons)",
-    "captureReportSha256": "sha256:c32b705dab7c5b891fbe0bf51c80298e9b871e661ca411df38e3801597b31ca9",
+    "captureReportSha256": "sha256:f1db8ef8a4402e598f6c3090820f1b704e37a119d98f096b38d749b4a394799c",
     "performance": false,
-    "initialJsGzipBytes": 343476,
+    "initialJsGzipBytes": 343650,
     "assetBytes": 28255,
     "buildSource": "pnpm --filter @clockgrove/web check; tools/scene-budget.mjs",
     "maxTierTextureBytes": {
-      "low": 4029540,
+      "low": 4797540,
       "medium": 8977380,
       "high": 14605540
     },
-    "scope": "Four-core software correctness and accounted allocation with one shared atlas Texture. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike.",
+    "scope": "Software correctness and accounted allocation: four-core qualification plus one-core WebGPU stress. Low uses Lambert and a half-resolution scene pass into the unchanged canvas. GPU-complete latency remains the post-merge maintainer measurement; reference measurements above are from the bake-off spike.",
     "runtimeBudgetSource": "qualify:wave4 evidence/test-e2e.log; four-core CPU affinity, both SwiftShader backends; unsmoothed rAF cadence, not GPU-complete latency",
-    "runtimeBudgetLogSha256": "sha256:abdea6809262f1cbb900e315a2bb40cfbf8916b31a038c7aa0b31839aebff91f",
+    "runtimeBudgetLogSha256": "sha256:6ca9ad5a6de8cf68657f2712d4ea079751ce0762683c9c6099f2498f32ee0f9b",
     "runtimeBudgetChecks": [
       {
         "backend": "webgpu",
-        "textureBytes": 4029540,
-        "firstSceneRenderMs": 160.5,
-        "frameTimeMs": 16.700000000000273,
+        "textureBytes": 4797540,
+        "firstSceneRenderMs": 142.39999997615814,
+        "frameTimeMs": 16.799999999999727,
         "entityCount": 15,
-        "patchApplicationMs": 0.19999992847442627,
-        "reconnectMs": 681
+        "patchApplicationMs": 0.2999999523162842,
+        "reconnectMs": 904.1999999284744
       },
       {
         "backend": "webgl2",
-        "textureBytes": 4029540,
-        "firstSceneRenderMs": 210.39999997615814,
+        "textureBytes": 4797540,
+        "firstSceneRenderMs": 162.19999992847443,
         "frameTimeMs": 16.700000000000273,
         "entityCount": 15,
-        "patchApplicationMs": 0.2999999523162842,
-        "reconnectMs": 871.7000000476837
+        "patchApplicationMs": 0.8999999761581421,
+        "reconnectMs": 1054.5
       }
-    ]
+    ],
+    "oneCoreWebgpuSource": "timeout 600 taskset -c 0 env CI=true CLOCKGROVE_RENDERER_PROOF=webgpu node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts tests/e2e/living-yard.journey.browser.test.mjs; renderer source matches 190ff17",
+    "oneCoreWebgpuLogSha256": "sha256:a4cf0485870afc30e08c392a0dab2794d538a5bc2cc292215db297c06a136735",
+    "oneCoreWebgpuBudgetCheck": {
+      "backend": "webgpu",
+      "textureBytes": 4797540,
+      "firstSceneRenderMs": 870.6000000238419,
+      "frameTimeMs": 16.700000000000728,
+      "entityCount": 15,
+      "patchApplicationMs": 0.20000004768371582,
+      "reconnectMs": 956.7999999523163
+    }
   }
 }
