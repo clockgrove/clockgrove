@@ -142,10 +142,20 @@ async function motionCheck(adapter: BakeoffAdapter, clock: PageClock): Promise<M
   return { stepMs: MOTION_STEP_MS, frozen: identicalOn, animatesWhenOff: !identicalOff };
 }
 
+/** The only names the page loads; `candidates` and `bakeoffDrive.open` come from outside the page. */
+const KNOWN_CANDIDATES: readonly string[] = ["phaser", "three-webgl2", "three-webgpu"];
+
 async function createAdapter(name: string, host: HTMLElement): Promise<BakeoffAdapter> {
-  if (!window.bakeoffCandidates?.[name]) await loadScript(`./${name}.js`);
-  const factory = window.bakeoffCandidates?.[name];
-  if (!factory) throw new Error(`${name}.js registered no candidate named ${name}`);
+  if (!KNOWN_CANDIDATES.includes(name))
+    throw new Error(`unknown candidate ${JSON.stringify(name)}`);
+  const registered = () =>
+    window.bakeoffCandidates && Object.hasOwn(window.bakeoffCandidates, name)
+      ? window.bakeoffCandidates[name]
+      : undefined;
+  if (!registered()) await loadScript(`./${name}.js`);
+  const factory = registered();
+  if (typeof factory !== "function")
+    throw new Error(`${name}.js registered no candidate named ${name}`);
   return factory({ host, width: WIDTH, height: HEIGHT });
 }
 
