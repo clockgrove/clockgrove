@@ -274,7 +274,7 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
   };
   const failure = { failureClass: "internal", retryable: false };
   expect(record).toEqual({
-    schemaVersion: 5,
+    schemaVersion: 6,
     level: "error",
     event: "world_owner_failed",
     ...ids,
@@ -284,7 +284,7 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
   expect([error.name, error.message]).toEqual(["Error", "connect [url] password=[redacted]"]);
   expect(error.stack).not.toContain(secret);
   expect({ ...answered, timestamp: undefined }).toEqual({
-    schemaVersion: 5,
+    schemaVersion: 6,
     level: "warn",
     event: "world_command_answered",
     ...ids,
@@ -385,7 +385,7 @@ it("answers each world command with one record: committed, replayed, refused, co
     statuses.push((await send(commandId)).status);
   expect(statuses).toEqual([200, 200, 403, 409, 409]);
   const record = (commandId: string, fields: Record<string, unknown>) => ({
-    schemaVersion: 5,
+    schemaVersion: 6,
     level: "info",
     event: "world_command_answered",
     ...scope,

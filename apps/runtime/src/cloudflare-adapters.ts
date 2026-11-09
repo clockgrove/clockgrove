@@ -1218,6 +1218,9 @@ export interface ActivationArming {
   readonly prompt?: boolean;
 }
 
+/** Where one arming is: requested, inside the serialized arming section, or out of it again. */
+export type ActivationArmingStep = "requested" | "started" | "settled";
+
 /**
  * The per-actor cognitive owner (Wave 5 §7, RW-0503 with RW-0307), on the pinned Agents SDK. It runs
  * each Caretaker message as a turn fiber checkpointed in PostgreSQL, streams its reply, and resumes
@@ -1503,17 +1506,32 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     address: ActivationAddress,
     arming: ActivationArming,
   ): Promise<ActivationInspection> {
+    this.activationArmingStep(arming, "requested");
     const armed = this.#arming.then(async () => {
-      const inspection = await withActivations(this.environment, (store) => store.inspect(address));
-      if (inspection.configurations.length > 0)
-        await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
-      await this.activationPlanning(arming);
-      await this.planActivationAlarm(address, inspection, arming);
-      return inspection;
+      this.activationArmingStep(arming, "started");
+      try {
+        const inspection = await withActivations(this.environment, (store) =>
+          store.inspect(address),
+        );
+        if (inspection.configurations.length > 0)
+          await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
+        await this.activationPlanning(arming);
+        await this.planActivationAlarm(address, inspection, arming);
+        return inspection;
+      } finally {
+        this.activationArmingStep(arming, "settled");
+      }
     });
     this.#arming = armed.catch(() => undefined);
     return armed;
   }
+
+  /**
+   * Called as an arming is requested, as it enters the arming section and as it leaves it.
+   * Production does nothing. The native test owner counts the steps: an arming requested but not
+   * started waits for the section, and one started but not settled is inside it.
+   */
+  protected activationArmingStep(_arming: ActivationArming, _step: ActivationArmingStep): void {}
 
   /**
    * Called inside the arming section, after its inspection is read and before it plans. Production

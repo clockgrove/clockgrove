@@ -209,10 +209,11 @@ events: after a world command commits, its space owner asks the owner of each ac
 subscription or threshold names a committed event type for a check within one second
 (`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
 world's system principal). Repeated hints coalesce into the actor's one activation alarm, and a
-check that reads a full page of 64 unread events checks again within one second. Quiet subscription
-polling, one minute apart, remains the backstop for a lost hint; unfinished turns retry after one
-second, subject to the model budget. These are explicit local bounds, rather than continuously
-running actor processes.
+check that reads a full page of 64 unread events checks again within one second. A failed hint pass
+logs `activation_hint_failed`; when a commit during it asked for another pass, that pass hints the
+failed pass's event types too. Quiet subscription polling, one minute apart, remains the backstop
+for a lost or failed hint; unfinished turns retry after one second, subject to the model budget.
+These are explicit local bounds, rather than continuously running actor processes.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
 logic owns evaluation of the physical condition. Event cursors start at the journal head when
