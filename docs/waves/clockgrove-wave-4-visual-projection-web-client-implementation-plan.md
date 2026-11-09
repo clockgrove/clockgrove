@@ -583,12 +583,12 @@ local runtime and PostgreSQL; the scenario matrix names their markers:
 | Row | Browser step |
 | --- | --- |
 | S1 | Join an observer, commit an event, join another observer and compare their views. |
-| S4 / F4 | Toggle the browser offline/online and expire its session, observing status and recovery. |
+| S4 / F4 | Keep the browser offline until a reconnect attempt fails while it still shows recovery, then go online; expire its session in the session store, observing the refusal and recovery on sign-in. |
 | S5 | Observe pause, resume and speed changes in the clock HUD. |
-| S12 | Hold critical assets past the snapshot, then release them; readiness waits for presentation. |
+| S12 | Hold the atlas request past the snapshot; while it is held, boot stays at `snapshot_ready` with no canvas presented. Release it; readiness waits for presentation. |
 | F1 | Drop the socket before its first snapshot, then recover. |
 | F13 | Request inspection as an observer without inspect authority and show the denial. |
-| A4 | Lose the canvas and rebuild it from the retained reducer projection. |
+| A4 | Lose the canvas; a failed retry stays on the text path, and a successful one rebuilds the canvas from the retained reducer projection, with arrival status and accessibility mode reporting it. |
 | A5 | Compare PostgreSQL world facts across the React error-boundary fault. |
 
 S4's full coverage is local: hosted hibernation, restart and deployment still

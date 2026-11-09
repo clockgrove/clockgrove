@@ -182,7 +182,8 @@ five-level bloom chains (Three r187 allocation layout), plus atlas and generated
 WebGPU device loss follows the same text fallback as WebGL context loss.
 After renderer or asset failure, **Retry canvas** creates a fresh renderer and loads
 the latest retained reducer projection. The text scene remains available throughout;
-retrying does not reconnect the observation or issue a world command.
+retrying does not reconnect the observation or issue a world command. A retry that presents
+returns the boot to `scene_ready`; one that fails leaves it at `text_ready`.
 
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
