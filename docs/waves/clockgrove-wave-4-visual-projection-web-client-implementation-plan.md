@@ -567,6 +567,28 @@ pnpm qualify:wave4:staging
 - private Caretaker Talk never appears as public spatial speech, while an explicit public-speech action does;
 - a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Phaser or quadtree identifiers.
 
+Amended (2026-11-09, issue 23): local qualification uses only the shell and
+`fixture/reference`. The WebGPU and forced WebGL2 living-hall browser journey
+(`tests/e2e/living-hall.journey.browser.test.mjs`) drives these steps through the
+local runtime and PostgreSQL; the scenario matrix names their markers:
+
+| Row | Browser step |
+| --- | --- |
+| S1 | Join an observer, commit an event, join another observer and compare their views. |
+| S4 / F4 | Toggle the browser offline/online and expire its session, observing status and recovery. |
+| S5 | Observe pause, resume and speed changes in the clock HUD. |
+| S12 | Hold critical assets past the snapshot, then release them; readiness waits for presentation. |
+| F1 | Drop the socket before its first snapshot, then recover. |
+| F13 | Request inspection as an observer without inspect authority and show the denial. |
+| A4 | Lose the canvas and rebuild it from the retained reducer projection. |
+| A5 | Compare PostgreSQL world facts across the React error-boundary fault. |
+
+S4's full coverage is local: hosted hibernation, restart and deployment still
+belong to issue 3. F6 and F7 retain that hosted deviation. The runtime evidence
+JSON records the local browser source and backends separately from hosted
+qualification. Golden-capture approval and the §19 independent review remain
+maintainer steps; these browser proofs do not qualify the whole wave.
+
 ### 15.3 Visual regression matrix
 
 Capture fixed golden states at 1536×864, 1280×720, and one narrow layout:

@@ -18,6 +18,14 @@ it("keeps hosted scene qualification pending independently of local native check
       source: "apps/runtime/test/scene-delivery.postgres.test.ts",
       hostedQualification: false,
     },
+    localBrowser: {
+      environment: "local-shell-workerd-postgresql",
+      world: "fixture/reference",
+      source: "tests/e2e/living-hall.journey.browser.test.mjs",
+      backends: ["webgpu", "webgl2"],
+      scenarioMatrix: "scripts/ci/qualify-wave4-scenarios.json",
+      hostedQualification: false,
+    },
     cloudflareQualification: [
       "real-cloudflare-hibernation",
       "real-cloudflare-restart",
