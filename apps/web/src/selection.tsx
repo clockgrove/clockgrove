@@ -179,7 +179,10 @@ function EntitySelectionPanel({
                 <li key={action.eventId}>
                   Action {action.actionId}; event {action.eventId}; command {action.commandId};{" "}
                   {action.type}; partition sequence {action.partitionSequence}; recorded simulation
-                  time {action.simulationTime}; recorded at {action.recordedAt}{" "}
+                  time {action.simulationTime}; recorded at{" "}
+                  <time dateTime={action.recordedAt} data-wall-clock>
+                    {action.recordedAt}
+                  </time>{" "}
                   <button
                     type="button"
                     onClick={(event) => {

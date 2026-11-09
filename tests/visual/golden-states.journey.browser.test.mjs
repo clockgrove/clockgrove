@@ -43,6 +43,11 @@ const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
   ? [process.env.CLOCKGROVE_RENDERER_PROOF]
   : ["webgpu", "webgl2"];
 const TIERS = ["low", "medium", "high"];
+// The shell renders each wall-clock value, such as an action's recorded-at time, in a
+// `[data-wall-clock]` element; it differs on every run. The capture paints each one as a solid
+// box of fixed width, so a capture's hash depends only on the commit and the world.
+const WALL_CLOCK_MASK =
+  "[data-wall-clock] { color: transparent !important; background: #ff00ff !important; font-variant-numeric: tabular-nums !important; }";
 // scripts/capture-world.mjs asks a run to stop by creating this file. Vitest exits at once on a
 // signal, so the run stops itself instead and tears down as it does after a failure.
 const STOP_FILE = process.env.CLOCKGROVE_CAPTURE_STOP;
@@ -314,7 +319,24 @@ const captureGoldenStates = async (backend) => {
               ),
             ])
             .toEqual(["false", true]);
-        if (region) await region.evaluate((element) => element.scrollIntoView({ block: "start" }));
+        // The region's offset follows the content above it, such as the live changes log, whose
+        // entries depend on how the run's commits fell into its announcement interval. Scrolling
+        // stops on whole pixels, so a fractional offset would move the framed text by a pixel: the
+        // scene column's padding first takes the region to a whole pixel, until the capture ends.
+        if (region)
+          expect(
+            await region.evaluate((element) => {
+              element.scrollIntoView({ block: "start" });
+              const top = element.getBoundingClientRect().top;
+              const column = element.closest(".rw-main");
+              if (column && top !== Math.ceil(top)) {
+                column.style.paddingTop = `calc(${getComputedStyle(column).paddingTop} + ${Math.ceil(top) - top}px)`;
+                element.scrollIntoView({ block: "start" });
+              }
+              return element.getBoundingClientRect().top;
+            }),
+            `${state}: framed on a whole pixel`,
+          ).toSatisfy(Number.isInteger);
         // Two animation frames let the canvas present the committed state before the capture. The
         // window scrolls the narrow layout and the scene column scrolls the desktop frame.
         await page.evaluate(
@@ -353,7 +375,16 @@ const captureGoldenStates = async (backend) => {
           ),
           `${state}: clear of the HUD`,
         ).toEqual([true, true, true]);
-        const bytes = await page.screenshot({ animations: "disabled", caret: "hide" });
+        const bytes = await page.screenshot({
+          animations: "disabled",
+          caret: "hide",
+          style: WALL_CLOCK_MASK,
+        });
+        if (region)
+          await page.evaluate(() => {
+            for (const column of document.querySelectorAll(".rw-main"))
+              column.style.paddingTop = "";
+          });
         const viewport = page.viewportSize();
         expect(pngSize(bytes)).toEqual(viewport);
         const file = `${state}@${viewport.width}x${viewport.height}.png`;

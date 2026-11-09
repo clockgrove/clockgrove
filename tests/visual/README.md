@@ -19,6 +19,12 @@ fixture caller also retains its renderer qualification assertions. External worl
 own pack, shell, static assets and optional runtime presentation; they need not reproduce fixture
 lanterns, puddles or atlas content. Capture success does not establish whole-wave qualification.
 
+A capture's hash depends only on the Clockgrove commit and the world. The shell renders each
+wall-clock value, such as an action's recorded-at time, in a `[data-wall-clock]` element, and every
+capture paints those as solid magenta boxes of fixed width; the shell itself still shows the real
+time. A state framed on one region, such as the event/Why inspector, places that region on a whole
+pixel, so content above it whose height depends on timing cannot shift its text.
+
 ## Fixture caller
 
 After installing the pinned browser and native-runtime toolchain, run from Clockgrove:
