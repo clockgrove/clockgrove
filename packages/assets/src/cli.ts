@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts";
+import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
 import { atlasLocationProblems, buildAtlases } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
 import {

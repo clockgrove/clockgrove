@@ -3,12 +3,14 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type AssetManifest,
-  type AssetStyleProfile,
   decodeAssetManifest,
-  decodeAssetStyleProfile,
   decodePackPresentation,
   type PackPresentation,
-} from "@clockgrove/contracts";
+} from "@clockgrove/contracts/asset-manifest";
+import {
+  type AssetStyleProfile,
+  decodeAssetStyleProfile,
+} from "@clockgrove/contracts/asset-style-profile";
 import type { AssetEntry } from "./atlas.js";
 import type { SceneCamera } from "./scene.js";
 
