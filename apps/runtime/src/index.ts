@@ -13,4 +13,5 @@ export async function scheduledReconciliation(): Promise<{ readonly disposition:
   return { disposition: "shell-only" };
 }
 
+export * from "./moderation-shadow.js";
 export * from "./world-commands.js";
