@@ -6,7 +6,7 @@ import type {
   WorldObjectId,
 } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { pass } from "three/tsl";
+import { pass, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
   type ContentFailure,
@@ -156,6 +156,30 @@ const SAGE = worldShell.scene.accent,
   PANEL = worldShell.scene.panel,
   TEXT = worldShell.scene.text;
 const REBOUND_EVENTS = ["pointerdown", "pointerover"] as const;
+/** Canvas labels draw on their own layer, so a reduced-resolution scene pass never scales their text. */
+const LABEL_LAYER = 1;
+
+/**
+ * The label layer at the canvas's own resolution over a transparent clear: the scene's opaque
+ * background colour is held back for this pass only, so the composite keeps every scene pixel the
+ * labels do not cover.
+ */
+class LabelPass extends THREE.PassNode {
+  override updateBefore(frame: THREE.NodeFrame): boolean | undefined {
+    const scene = this.scene as THREE.Scene;
+    const renderer = frame.renderer;
+    const background = scene.background;
+    const alpha = renderer?.getClearAlpha();
+    scene.background = null;
+    renderer?.setClearAlpha(0);
+    try {
+      return super.updateBefore(frame);
+    } finally {
+      scene.background = background;
+      if (alpha !== undefined) renderer?.setClearAlpha(alpha);
+    }
+  }
+}
 const iso = (at: Pick<ScenePlacement, "x" | "y" | "elevation">): [number, number] => [
   (at.x + at.y) * PX_PER_METRE,
   ((at.x - at.y) * PX_PER_METRE) / 2 - at.elevation * PX_PER_METRE,
@@ -207,6 +231,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private atlasTexture: THREE.Texture<HTMLImageElement> | undefined;
   private composer: THREE.RenderPipeline | undefined;
   private scenePass: ReturnType<typeof pass> | undefined;
+  private labelPass: LabelPass | undefined;
   private bloom: ReturnType<typeof bloom> | undefined;
   private initialized = false;
   get backend(): "initializing" | "webgpu" | "webgl2" {
@@ -364,6 +389,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         3000,
       );
       this.camera.position.set(0, 0, 1000);
+      this.camera.layers.enable(LABEL_LAYER);
       this.ambient = new THREE.AmbientLight(0xffffff, Math.PI);
       this.scene.add(this.ambient);
       const sky = new THREE.DirectionalLight(0xcbdcff, 0.25 * Math.PI);
@@ -771,10 +797,21 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.bloom = bloom(color, quality.bloomStrength, 0.2, 0.8);
       this.bloom.setResolutionScale(quality.bloomScale);
     }
-    this.composer = new THREE.RenderPipeline(
-      this.renderer,
-      this.bloom ? color.add(this.bloom) : color,
-    );
+    let output = this.bloom ? color.add(this.bloom) : color;
+    if (quality.renderScale < 1) {
+      // Labels skip the reduced scene pass and draw at full resolution, so their text stays legible.
+      this.scenePass.setLayers(new THREE.Layers());
+      const layer = new THREE.Layers();
+      layer.set(LABEL_LAYER);
+      this.labelPass = new LabelPass(THREE.PassNode.COLOR, this.scene, this.camera, {
+        depthBuffer: false,
+      });
+      this.labelPass.setLayers(layer);
+      // The label target holds colour already weighted by coverage: draw it over the scene.
+      const labels = this.labelPass.getTextureNode("output");
+      output = vec4(output.rgb.mul(labels.a.oneMinus()).add(labels.rgb), output.a);
+    }
+    this.composer = new THREE.RenderPipeline(this.renderer, output);
     this.rebuildRain();
     if (this.projection) this.drawEnvironment(this.projection);
     this.rebuildReflections();
@@ -840,6 +877,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.bloom?.dispose();
     this.scenePass?.dispose();
     this.scenePass = undefined;
+    this.labelPass?.dispose();
+    this.labelPass = undefined;
     this.composer.dispose();
     this.composer = undefined;
     this.bloom = undefined;
@@ -1320,6 +1359,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       ctx.fillText(text, width / 2, height / 2);
     }
     const mesh = this.canvasMesh(canvas, width, height, pill ? "selection-pill" : "hover-label");
+    mesh.layers.set(LABEL_LAYER);
     mesh.userData = {
       width,
       height,
@@ -1631,6 +1671,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const quality = SCENE_QUALITY[this.tier];
     bytes +=
       Math.floor(WIDTH * quality.renderScale) * Math.floor(HEIGHT * quality.renderScale) * 12;
+    // A reduced tier's full-resolution label pass: one RGBA16F target without depth.
+    if (this.labelPass) bytes += WIDTH * HEIGHT * 8;
     const scale = quality.bloomScale;
     if (scale > 0) {
       // BloomNode has a bright target and two five-level RGBA16F chains, starting at bloomScale.

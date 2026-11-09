@@ -302,7 +302,9 @@ Transient cues cover footsteps, splashes, particles, short sound references, emo
 
 ### 6.5 Browser boot and compatibility
 
-The shell exposes one typed `WorldBootState` rather than independent spinners: `route_resolving → identity_resolved → membership_authorized → joining_space → snapshot_ready → critical_assets_ready → scene_ready`. An accessible `text_ready` terminal state is valid when the semantic projection is usable but visual assets or the scene renderer are unavailable.
+The shell exposes one typed `WorldBootState` rather than independent spinners: `route_resolving → identity_resolved → membership_authorized → joining_space → snapshot_ready → critical_assets_ready → scene_ready`. An accessible `text_ready` state is valid when the semantic projection is usable but visual assets or the scene renderer are unavailable.
+
+Amended (2026-11-09, issue 143): `scene_ready` and `text_ready` are both arrival states, and after arrival the canvas moves the boot between them. A lost or refused canvas moves `scene_ready` to `text_ready`; a retried canvas that presents moves it back. The owner decided this on 2026-11-09: the shell must never claim a canvas is ready while it shows text only. Each move names the revision of the projection the shell holds. [Realtime projection](../protocols/realtime-projection.md#arrival-and-recovery) is the contract.
 
 Every snapshot declares projection, asset-manifest, and client compatibility versions. Incompatibility is explicit and recoverable: refresh or deploy mismatch, bounded snapshot retry, text fallback, or a stable unsupported-version screen. The UI never displays an apparently live but semantically mismatched scene.
 
@@ -592,7 +594,11 @@ local runtime and PostgreSQL; the scenario matrix names their markers:
 | A5 | Compare PostgreSQL world facts across the React error-boundary fault. |
 
 S4's full coverage is local: hosted hibernation, restart and deployment still
-belong to issue 3. F6 and F7 retain that hosted deviation. The runtime evidence
+belong to issue 3. F6 and F7 retain that hosted deviation. A4 is a deviation on
+WebGPU: WebGL2 loses its canvas through the real `WEBGL_lose_context`, but the
+WebGPU run calls the renderer's `onDeviceLost` callback directly, because a page
+has no standard way to lose a WebGPU device other than `GPUDevice.destroy()`,
+whose loss Three ignores. The scenario matrix records A4 as partial. The runtime evidence
 JSON records the local browser source and backends separately from hosted
 qualification. Golden-capture approval and the §19 independent review remain
 maintainer steps; these browser proofs do not qualify the whole wave.

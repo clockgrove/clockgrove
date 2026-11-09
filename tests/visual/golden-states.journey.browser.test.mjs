@@ -225,16 +225,49 @@ const captureGoldenStates = async (backend) => {
       const capture = async (state, page, check) => {
         // A check may name the region its state is about; the capture frames it, else the page top.
         const region = await check(page);
+        // The HUD clock and the feed come from the world-status read, which follows the committed
+        // revision on its own interval: the capture waits until that read has caught up.
+        if ((await clock(page).count()) > 0)
+          await expect.poll(() => clock(page).getAttribute("aria-busy")).toBe("false");
         if (region) await region.evaluate((element) => element.scrollIntoView({ block: "start" }));
-        // Two animation frames let the canvas present the committed state before the capture.
+        // Two animation frames let the canvas present the committed state before the capture. The
+        // window scrolls the narrow layout and the scene column scrolls the desktop frame.
         await page.evaluate(
           (framed) =>
             new Promise((resolve) => {
-              if (!framed) window.scrollTo(0, 0);
+              if (!framed)
+                for (const scroller of [
+                  document.scrollingElement,
+                  ...document.querySelectorAll(".rw-main"),
+                ])
+                  scroller.scrollTo(0, 0);
               requestAnimationFrame(() => requestAnimationFrame(resolve));
             }),
           region !== undefined,
         );
+        // Nothing passes under the HUD: the scene column starts below it and either clips its own
+        // scrolling content (the desktop frame) or scrolls the HUD away with it (the narrow page).
+        // A framed region's top edge is the region itself, never the HUD or anything over it.
+        expect(
+          await page.evaluate(
+            (framed) => {
+              const hud = document.querySelector(".rw-hud");
+              const main = document.querySelector(".rw-main");
+              const box = framed?.getBoundingClientRect();
+              return [
+                main.getBoundingClientRect().top >= hud.getBoundingClientRect().bottom,
+                getComputedStyle(hud).position === "static" ||
+                  getComputedStyle(main).overflowY !== "visible",
+                framed === null ||
+                  framed.contains(
+                    document.elementFromPoint(box.left + box.width / 2, Math.max(box.top, 0) + 1),
+                  ),
+              ];
+            },
+            region ? await region.elementHandle() : null,
+          ),
+          `${state}: clear of the HUD`,
+        ).toEqual([true, true, true]);
         const bytes = await page.screenshot({ animations: "disabled", caret: "hide" });
         const viewport = page.viewportSize();
         expect(pngSize(bytes)).toEqual(viewport);
@@ -278,10 +311,15 @@ const captureGoldenStates = async (backend) => {
       const captureTiers = async (state, hour, minute = 0n) => {
         await advanceTo(`visual-${state}-tiers`, hour, minute);
         const committed = await scene();
+        const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
         for (const tier of TIERS) {
           await each(`${state}-rain-${tier}`, async (page) => {
             await living(page)
               .getByText(`Canonical revision: ${committed.revision}`, { exact: true })
+              .waitFor();
+            // The clock reads the committed time, not an earlier one marked updating.
+            await clock(page)
+              .getByText(new RegExp(`^Day \\d+, ${time}$`, "u"))
               .waitFor();
             await page.evaluate((quality) => globalThis.hallAdapter.setQuality(quality), tier);
             return living(page);
@@ -506,6 +544,28 @@ const captureGoldenStates = async (backend) => {
         await selected(page)
           .getByText(/^Selected entity at canonical revision /u)
           .waitFor();
+        // At the low arrival tier the scene pass is a quarter of the canvas, but the selection pill
+        // and label draw in their own pass at the canvas's full resolution, so the text stays legible.
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const adapter = globalThis.hallAdapter;
+              const labels = adapter.scene.children.filter((child) =>
+                ["selection-pill", "selection-label"].includes(child.name),
+              );
+              const size = (target) => [target.width, target.height];
+              return [
+                adapter.tier,
+                labels.length,
+                size(adapter.scenePass.renderTarget),
+                size(adapter.labelPass.renderTarget),
+                labels.some((label) => label.layers.test(adapter.camera.layers)),
+                labels.every((label) => !adapter.scenePass._layers.test(label.layers)),
+                labels.every((label) => adapter.labelPass._layers.test(label.layers)),
+              ];
+            }),
+          )
+          .toEqual(["low", 2, [320, 200], [640, 400], true, true, true]);
       });
       await each("event-why-inspector", async (page) => {
         await selected(page)

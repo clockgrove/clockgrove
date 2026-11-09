@@ -30,7 +30,13 @@ export type WorldBootEvent =
   // Renderer outcomes name the boot that mounted the renderer.
   | { readonly type: "assets"; readonly requestId: string }
   | { readonly type: "present"; readonly requestId: string; readonly revision: bigint }
-  | { readonly type: "fallback"; readonly requestId: string; readonly reason: TextReadyReason };
+  // A fallback names the revision of the projection the shell holds when it falls back.
+  | {
+      readonly type: "fallback";
+      readonly requestId: string;
+      readonly reason: TextReadyReason;
+      readonly revision: bigint;
+    };
 
 /** The shell holds only values the contract decoder accepts. */
 function checked(boot: WorldBootState): WorldBootState {
@@ -131,7 +137,7 @@ export function reduceBoot(boot: WorldBootState, event: WorldBootEvent): WorldBo
       progress: at("text_ready"),
       state: "text_ready",
       scope,
-      projectionRevision,
+      projectionRevision: event.revision,
       terminal: true,
       reason: event.reason,
     });

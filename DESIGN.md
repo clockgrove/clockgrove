@@ -112,7 +112,7 @@ One humanist sans-serif stack at the browser's base size with a 1.4 line height.
 
 ## Layout
 
-A 4, 8 and 16 px spacing scale. On wide screens (1200 px and up, the desktop breakpoint of the scene state) the shell is a grid: a 60 px HUD row on top, then the scene beside a rail 20% wide and an event feed up to 320 px wide (at most 24vw). Narrower screens stack the regions and use a 56 px sheet bar. Layout sizes are tokens so a world can resize regions without new CSS.
+A 4, 8 and 16 px spacing scale. On wide screens (1200 px and up, the desktop breakpoint of the scene state) the shell is a fixed frame: a 60 px HUD row on top, then the scene beside a rail 20% wide and an event feed up to 320 px wide (at most 24vw). The scene column scrolls inside the frame, so nothing passes under the HUD. Narrower screens stack the regions, the HUD scrolls away with the page, and the rail and feed use a 56 px sheet bar. Layout sizes are tokens so a world can resize regions without new CSS.
 
 ## Elevation & Depth
 

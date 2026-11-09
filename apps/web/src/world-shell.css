@@ -167,7 +167,7 @@ body {
 }
 
 .rw-canvas canvas {
-  /* Never CSS-scaled and never in a scrolling container: the renderer maps pointer coordinates from window scroll. */
+  /* Never CSS-scaled: the renderer maps pointers through the canvas bounds, re-read on any scroll. */
   max-width: none;
 }
 
@@ -298,11 +298,15 @@ body {
 }
 
 @media (min-width: 1200px) {
+  /*
+   * A fixed frame: the HUD row and the rail stay put, and the scene column scrolls inside its own
+   * row. Nothing ever passes under the HUD, so nothing is hidden by it or shows through it.
+   */
   .rw-shell {
     display: grid;
-    grid-template-rows: var(--cg-v1-hud-height) 1fr;
+    grid-template-rows: var(--cg-v1-hud-height) minmax(0, 1fr);
     grid-template-columns: 4fr 1fr;
-    min-height: 100vh;
+    height: 100vh;
   }
 
   .rw-hud {
@@ -311,9 +315,6 @@ body {
     /* Navigation at the left edge, the clock centered, utilities at the right edge (§4.1). */
     display: grid;
     grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
-    position: sticky;
-    top: 0;
-    z-index: 20;
     height: var(--cg-v1-hud-height);
     white-space: nowrap;
   }
@@ -324,27 +325,27 @@ body {
     flex-wrap: nowrap;
   }
 
-  /*
-   * The window scrolls the scene, never an inner container: the renderer maps pointers from window scroll.
-   * The feed floats in its own lower-left gutter, so it never covers the canvas or a control.
-   */
+  /* A clock squeezed onto two lines still fits the HUD row. */
+  .rw-clock {
+    row-gap: 0;
+  }
+
   .rw-hud-end {
     grid-column: 3;
   }
 
+  /* The feed floats in its own lower-left gutter, so it never covers the canvas or a control. */
   .rw-main {
     grid-row: 2;
     grid-column: 1;
+    overflow: auto;
+    scroll-padding-top: var(--cg-v1-space-2);
     padding-left: calc(var(--cg-v1-feed-width) + 2 * var(--cg-v1-space-3));
   }
 
   .rw-rail {
     grid-row: 2;
     grid-column: 2;
-    position: sticky;
-    top: var(--cg-v1-hud-height);
-    align-self: start;
-    height: calc(100vh - var(--cg-v1-hud-height));
     overflow: auto;
     border-width: 0 0 0 1px;
   }
@@ -367,10 +368,8 @@ body {
     display: block;
   }
 
+  /* The wrapped HUD scrolls with the page: nothing passes under it, and the sheets keep the bottom. */
   .rw-hud {
-    position: sticky;
-    top: 0;
-    z-index: 20;
     flex-wrap: wrap;
     padding: var(--cg-v1-space-2) var(--cg-v1-space-3);
   }

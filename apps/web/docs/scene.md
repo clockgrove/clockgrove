@@ -30,7 +30,7 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
 - `destroy()` removes canvas/context listeners, cancels the animation frame, clears intent handlers,
   and disposes scene geometries, materials, textures, postprocessing targets and renderer resources.
 - The adapter refreshes the canvas bounds when a pointer enters or presses the canvas, or the page
-  scrolls. Pointer moves do not trigger repeated layout reads.
+  or any element around the canvas scrolls. Pointer moves do not trigger repeated layout reads.
 
 The renderer loads the atlas manifest, then fetches the atlas image itself and compares the
 SHA-256 of its bytes with the manifest's `image.sha256` before any use. A copy is refused when the
@@ -82,7 +82,10 @@ path. The reducer's committed projection is untouched.
   at night. Hidden effects stop animating; reduced motion holds shown effects at frame 0.
   The text path states the same conditions as `Puddles: <count or none>` and `Lights: <lit roles, or off>`.
 - **Labels.** Only the selected and the hovered entity are labelled on the canvas, so labels never
-  pile up. The text path lists every label.
+  pile up. The text path lists every label. The pill and label text draw on their own layer: the
+  low tier, whose scene pass is a quarter of the canvas, draws that layer in a separate pass at the
+  canvas's full resolution and composites it over the scene, so the text stays legible at every
+  tier. The medium and high tiers draw it in their full-resolution scene pass.
 - **Selection.** The renderer draws it from projection data, never into art (decisions, in
   `SELECTION` and the token constants of `renderer.ts`): a 2:1 ellipse at the feet (32x16, 3 px
   stroke, 0.18 fill) with two wider glow ellipses (40x20 with a 6 px stroke at alpha 0.35, 48x24 with a
@@ -258,8 +261,9 @@ SwiftShader proves correctness and is never performance evidence. Hardware WebGP
 ANGLE D3D11 and ANGLE GL over D3D12 require real-GPU maintainer validation, including the fallback
 framebuffer behavior identified in the spike. Product GPU-complete timing remains a maintainer step.
 Multisampling is off. Texture accounting conservatively includes the renderer output
-RGBA16F/depth-stencil target, the tier-scaled scene pass, the scaled bright target and both
-five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
+RGBA16F/depth-stencil target, the tier-scaled scene pass, the low tier's full-resolution RGBA16F
+label target, the scaled bright target and both five-level bloom chains (Three r187 allocation
+layout), plus atlas and generated UI textures.
 WebGPU device loss follows the same text fallback as WebGL context loss.
 After renderer or asset failure, **Retry canvas** creates a fresh renderer and loads
 the latest retained reducer projection. The text scene remains available throughout;

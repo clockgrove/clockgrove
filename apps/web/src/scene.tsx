@@ -57,7 +57,12 @@ function presentScene(
   } catch {
     current.destroy();
     adapter.current = undefined;
-    advance({ type: "fallback", requestId, reason: "assets_unavailable" });
+    advance({
+      type: "fallback",
+      requestId,
+      reason: "assets_unavailable",
+      revision: projection.revision,
+    });
     return false;
   }
   advance({ type: "present", requestId, revision: projection.revision });
@@ -108,7 +113,7 @@ function SceneCanvas({
       release();
       setUnavailable(true);
       availability(false);
-      advance({ type: "fallback", requestId, reason });
+      advance({ type: "fallback", requestId, reason, revision: latest.current.revision });
     };
     void import("./renderer.js")
       .then(({ ThreeWorldSceneAdapter }) => {
@@ -150,7 +155,12 @@ function SceneCanvas({
         measure("client_errors", "renderer");
         setUnavailable(true);
         availability(false);
-        advance({ type: "fallback", requestId, reason: "renderer_unavailable" });
+        advance({
+          type: "fallback",
+          requestId,
+          reason: "renderer_unavailable",
+          revision: latest.current.revision,
+        });
       });
     return () => {
       active = false;
