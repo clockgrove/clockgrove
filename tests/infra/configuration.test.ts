@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-configuration.mjs";
 import { environmentSchema } from "../../infra/environment-schema.ts";
+import { stateBackend } from "../../scripts/ci/deployment-authority.mjs";
+import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -56,5 +58,33 @@ describe("infrastructure validator", () => {
       change(config);
       expect(() => verifyWrangler(config, manifest, surface, root, file)).toThrow();
     }
+  });
+});
+
+describe("hosted deploy inputs", () => {
+  it("keeps state in the account's R2 bucket with no credentials or encryption in the file", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const backend = stateBackend("staging", config, "clockgrove-staging-state");
+    expect(Object.keys(backend.terraform)).toEqual(["backend"]);
+    const { s3 } = backend.terraform.backend;
+    expect(s3).toMatchObject({
+      bucket: "clockgrove-staging-state",
+      key: "staging/terraform.tfstate",
+      endpoints: { s3: `https://${config.safeIds.cloudflareAccountId}.r2.cloudflarestorage.com` },
+      use_lockfile: true,
+    });
+    expect(s3).not.toHaveProperty("access_key");
+    expect(s3).not.toHaveProperty("secret_key");
+    for (const bucket of [undefined, "", "Upper", "a"])
+      expect(() => stateBackend("staging", config, bucket)).toThrow(/INFRA_STATE_BUCKET/u);
+  });
+
+  it("treats placeholder routing metadata as an unconfigured environment", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    expect(missingRoutingMetadata(config)).toEqual([]);
+    const placeholder = structuredClone(config);
+    placeholder.safeIds.cloudflareZoneId = "0".repeat(32);
+    placeholder.domains.dnsTarget = "runtime.example.org";
+    expect(missingRoutingMetadata(placeholder)).toEqual(["cloudflareZoneId", "dnsTarget"]);
   });
 });

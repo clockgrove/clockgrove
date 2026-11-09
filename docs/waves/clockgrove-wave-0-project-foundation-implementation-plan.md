@@ -561,13 +561,19 @@ Wave 0 proves the release path without granting unattended production authority.
 
 A qualified `main` commit may deploy automatically to the development environment.
 
+Amended (2026-11-09): development deploys only once its environment is configured with its own zone; until then a qualified `main` commit deploys nowhere automatically, and staging is the only hosted environment.
+
 ### Staging
 
 A release candidate deploys through a protected environment and runs production-shaped qualification.
 
+Amended (2026-11-09): the owner's required-reviewer approval on the protected `staging` environment is the only staging sign-off. Staging needs no independent reviewer, signed review or recovery evidence, acceptance key or configuration digest. The deploy runs on a GitHub-hosted runner, a fresh VM per job, and keeps OpenTofu state in a Cloudflare R2 bucket with no OpenTofu state encryption: R2 encrypts at rest and a bucket-scoped token limits access. The zone stays on Cloudflare's Free plan, so its rate-limit rule matches paths with 10-second periods. [Infrastructure](../runbooks/infrastructure.md#w0-009-protected-deployment-and-recovery) has the details.
+
 ### Production
 
 Production deployment requires the release policy in force at that time, including explicit human approval until a later accepted ADR narrows that gate.
+
+Amended (2026-11-09): production, still disabled, keeps the stricter design the staging amendment drops: an independent reviewer's signed review of the exact candidate, verified against an offline Ed25519 acceptance key; signed recovery evidence for persisted state; and OpenTofu state and plans encrypted with a managed key, pinned by a configuration digest.
 
 A release manifest pins at least:
 

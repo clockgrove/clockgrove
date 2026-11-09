@@ -1,153 +1,75 @@
 import assert from "node:assert/strict";
-import { verify } from "node:crypto";
-import { cp, readFile, realpath, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { assertNoSecretValues } from "../check-secrets.mjs";
-import { digest, root } from "./evidence.mjs";
+import { root } from "./evidence.mjs";
 
-export const reviewScope = [
-  "credential exposure",
-  "protected approval/candidate binding",
-  "encrypted persisted state and recovery",
-  "effective database-role isolation",
-  "provisioning/activation ownership",
-  "provider-neutral identity",
-  "Management/World ownership",
-  "effective least privilege/RLS",
-  "request cleanup",
-  "coherent provisioning consumers",
-];
+// The state backend's settings, read from the protected environment at job start: the bucket is
+// the environment variable INFRA_STATE_BUCKET, and its bucket-scoped R2 credentials are the
+// environment secrets INFRA_STATE_ACCESS_KEY_ID and INFRA_STATE_SECRET_ACCESS_KEY.
+export const stateSecrets = ["INFRA_STATE_ACCESS_KEY_ID", "INFRA_STATE_SECRET_ACCESS_KEY"];
 
-// The key and its digest are appointed through protected operator configuration.
-// Local tests and source-controlled statements cannot appoint a reviewer.
-export async function authenticatedFact(file, keyFile, keyDigest) {
-  const key = await readFile(keyFile);
-  assert(digest(key) === keyDigest, "operator acceptance public key mismatch");
-  const envelope = JSON.parse(await readFile(file, "utf8"));
-  const bytes = Buffer.from(envelope.payload, "base64");
+// OpenTofu state in a Cloudflare R2 bucket through the S3-compatible backend, one object per
+// environment, locked with a conditional-write lock object. R2 encrypts objects at rest; state
+// carries no OpenTofu encryption. Credentials stay out of the file: the backend reads them from
+// hostedTofuEnv.
+export function stateBackend(target, config, bucket) {
   assert(
-    verify(null, bytes, key, Buffer.from(envelope.signature, "base64")),
-    "external acceptance signature invalid",
+    /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u.test(bucket ?? ""),
+    "INFRA_STATE_BUCKET must name an R2 bucket",
   );
-  return JSON.parse(bytes.toString("utf8"));
+  return {
+    terraform: {
+      backend: {
+        s3: {
+          bucket,
+          key: `${target}/terraform.tfstate`,
+          region: "auto",
+          endpoints: {
+            s3: `https://${config.safeIds.cloudflareAccountId}.r2.cloudflarestorage.com`,
+          },
+          use_path_style: true,
+          use_lockfile: true,
+          skip_credentials_validation: true,
+          skip_metadata_api_check: true,
+          skip_region_validation: true,
+          skip_requesting_account_id: true,
+          skip_s3_checksum: true,
+        },
+      },
+    },
+  };
 }
 
-// An owner-approved location named by a protected variable: absolute and outside the checkout.
-export async function externalPath(env, name) {
-  const value = env[name];
-  assert(value?.trim(), `missing ${name}`);
-  assert(path.isAbsolute(value), `${name} must be an absolute owner-approved external path`);
-  const resolved = await realpath(value);
-  assert(resolved !== root && !resolved.startsWith(`${root}/`), `${name} must be outside checkout`);
-  return resolved;
-}
-
-// The zero account/zone IDs and example.org domains are publication-safe placeholders.
-export function assertRoutingMetadata(config, target) {
-  for (const [name, value] of Object.entries(config.safeIds))
-    assert(!/^0+$/u.test(value), `missing routing metadata ${target}.${name}`);
-  for (const [name, value] of Object.entries(config.domains))
-    assert(!/(?:^|\.)example\.org$/u.test(value), `missing routing metadata ${target}.${name}`);
-}
-
-// The owner-approved external state configuration: INFRA_CONFIGURATION_DIGEST pins the backend
-// file's bytes followed by the encryption file's bytes. Both name the target environment, the
-// backend is not local, and state and plans are AES-GCM encrypted with no plaintext fallback.
-export async function externalStateConfiguration(target, backendFile, encryptionFile, pinned) {
-  const backendBytes = await readFile(backendFile);
-  const encryptionBytes = await readFile(encryptionFile);
-  assert.equal(
-    configurationDigest(backendBytes, encryptionBytes),
-    pinned,
-    "owner-approved encrypted external-state configuration mismatch",
-  );
-  const backend = JSON.parse(backendBytes);
-  const encryption = JSON.parse(encryptionBytes);
-  assertNoSecretValues(backendBytes.toString(), "external backend configuration");
-  assertNoSecretValues(encryptionBytes.toString(), "external encryption configuration");
-  assert.equal(backend.environment, target, "external backend environment isolation mismatch");
-  assert.equal(
-    encryption.environment,
-    target,
-    "external encryption environment isolation mismatch",
-  );
-  assert(
-    backend.terraform?.backend && Object.keys(backend.terraform.backend).length === 1,
-    "missing owner-approved external backend destination",
-  );
-  assert(!backend.terraform.backend.local, "external persisted-state backend required");
-  const crypt = encryption.terraform?.encryption;
-  assert(
-    crypt?.key_provider && crypt?.method?.aes_gcm,
-    "missing owner-approved external encryption key provider and AES-GCM method",
-  );
-  assert(
-    Object.keys(crypt.key_provider).every((name) =>
-      ["aws_kms", "gcp_kms", "azure_key_vault", "openbao"].includes(name),
-    ),
-    "external encryption must use owner-managed key identity; no new static credential catalog entry",
-  );
-  assert.equal(Object.keys(crypt.method).length, 1, "unencrypted encryption methods forbidden");
-  for (const name of ["state", "plan"]) {
-    assert.equal(crypt[name]?.enforced, true, `${name} encryption must be enforced`);
-    assert(
-      !crypt[name].fallback &&
-        typeof crypt[name].method === "string" &&
-        crypt[name].method.includes("method.aes_gcm."),
-      `${name} encryption method required without plaintext fallback`,
-    );
-  }
-  return { backend, encryption };
-}
-
-export const configurationDigest = (backendBytes, encryptionBytes) =>
-  digest(Buffer.concat([backendBytes, encryptionBytes]));
-
-// An OpenTofu working directory outside the checkout, wired to the external backend and encryption.
-export async function prepareStateWorkspace(work, backend, encryption) {
-  await cp(path.join(root, "infra/opentofu"), work, { recursive: true });
-  await cp(path.join(root, "infra/environments"), path.join(work, "environments"), {
+// A new temporary copy of infra/ wired to the environment's R2 state. Saved plans hold sensitive
+// values, so callers remove the whole directory when done. Returns it and its OpenTofu directory.
+export async function stateWorkspace(target, config, env) {
+  for (const name of stateSecrets) assert(env[name]?.trim(), `missing ${name}`);
+  const backend = stateBackend(target, config, env.INFRA_STATE_BUCKET);
+  const temporary = await mkdtemp(path.join(os.tmpdir(), `clockgrove-${target}-`));
+  await cp(path.join(root, "infra"), path.join(temporary, "infra"), {
     recursive: true,
+    filter: (source) =>
+      ![".terraform", "node_modules"].includes(path.basename(source)) &&
+      !/\.tfstate|\.tfplan/u.test(source),
   });
-  // Keep the original manifest path semantics when running outside checkout.
-  const source = (await readFile(path.join(work, "main.tf"), "utf8")).replace(
-    "/../environments/",
-    "/environments/",
-  );
-  await writeFile(path.join(work, "main.tf"), source);
-  await writeFile(
-    path.join(work, "external-backend.tf.json"),
-    JSON.stringify({ terraform: backend.terraform }),
-  );
-  await writeFile(
-    path.join(work, "external-encryption.tf.json"),
-    JSON.stringify({ terraform: encryption.terraform }),
-  );
+  const work = path.join(temporary, "infra/opentofu");
+  await writeFile(path.join(work, "backend.tf.json"), JSON.stringify(backend));
+  return { temporary, work };
 }
 
-// The provider credentials OpenTofu reads: the Cloudflare provider reads CLOUDFLARE_API_TOKEN
-// itself, and the Neon provider reads NEON_TOKEN, which carries the declared NEON_API_KEY.
+// The credentials OpenTofu reads: the Cloudflare provider reads CLOUDFLARE_API_TOKEN itself, the
+// Neon provider reads NEON_TOKEN, which carries NEON_API_KEY, and the S3 backend reads the R2 state
+// credentials under its AWS_* names. TF_ENCRYPTION is cleared: state is not OpenTofu-encrypted.
 export const hostedTofuEnv = (env, ipc, work) => ({
   ...env,
   TMPDIR: ipc,
   TF_DATA_DIR: path.join(work, ".terraform"),
   TF_ENCRYPTION: "",
   NEON_TOKEN: env.NEON_API_KEY,
+  AWS_ACCESS_KEY_ID: env.INFRA_STATE_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY: env.INFRA_STATE_SECRET_ACCESS_KEY,
 });
-
-export function verifyReview(fact, candidate, tree, reviewer) {
-  assert(fact.outcome !== "refused", "independent review refused candidate");
-  assert(fact.outcome === "passed", "independent review remains needs-human");
-  assert(fact.commit === candidate && fact.tree === tree, "independent review candidate mismatch");
-  assert(
-    fact.reviewer === reviewer && fact.evidence && fact.independent === true,
-    "operator-appointed independent reviewer evidence missing",
-  );
-  assert(
-    reviewScope.every((scope) => fact.scope?.includes(scope)),
-    "independent review scope missing",
-  );
-}
 
 export function ownedInventory(state) {
   const resources = [];
@@ -211,7 +133,7 @@ export function verifyPlan(plan, config, stage, preservePublic) {
   }
 }
 
-export async function cloudflareFact(_config, token, suffix) {
+export async function cloudflareFact(token, suffix) {
   const response = await fetch(`https://api.cloudflare.com/client/v4/${suffix}`, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(30_000),
@@ -222,26 +144,18 @@ export async function cloudflareFact(_config, token, suffix) {
   return body.result;
 }
 
-export async function verifyPriorActivation(config, token, inventory, activation) {
+// Public routing in state is preserved only when Cloudflare's current route and DNS record are the
+// ones state names, with this environment's identity. State holding only one of them is refused.
+export async function verifyPriorActivation(config, token, inventory) {
   const route = inventory.find(
     (resource) => resource.address === "cloudflare_workers_route.runtime[0]",
   );
   const dns = inventory.find((resource) => resource.address === "cloudflare_dns_record.runtime[0]");
-  if (!route && !dns) {
-    assert(!activation, "activation evidence contradicts owned state");
-    return false;
-  }
-  assert(
-    route && dns && activation?.workerVersionId,
-    "public routing effects unknown; authenticated activation evidence required",
-  );
-  assert(
-    activation.routeId === route.id && activation.dnsId === dns.id,
-    "activation resource identity mismatch",
-  );
+  if (!route && !dns) return false;
+  assert(route && dns, "partial public routing in state refused");
   const prefix = `zones/${config.safeIds.cloudflareZoneId}`;
-  const actualRoute = await cloudflareFact(config, token, `${prefix}/workers/routes/${route.id}`);
-  const actualDns = await cloudflareFact(config, token, `${prefix}/dns_records/${dns.id}`);
+  const actualRoute = await cloudflareFact(token, `${prefix}/workers/routes/${route.id}`);
+  const actualDns = await cloudflareFact(token, `${prefix}/dns_records/${dns.id}`);
   assert(
     actualRoute.script === config.resources.worker &&
       actualRoute.pattern === `${config.domains.runtime}/*`,
@@ -253,17 +167,6 @@ export async function verifyPriorActivation(config, token, inventory, activation
       actualDns.content === config.domains.dnsTarget &&
       actualDns.proxied === true,
     "authenticated DNS identity mismatch",
-  );
-  const versions = await cloudflareFact(
-    config,
-    token,
-    `accounts/${config.safeIds.cloudflareAccountId}/workers/scripts/${config.resources.worker}/deployments`,
-  );
-  assert(
-    versions.deployments?.[0]?.versions?.length === 1 &&
-      versions.deployments[0].versions[0].version_id === activation.workerVersionId &&
-      versions.deployments[0].versions[0].percentage === 100,
-    "authenticated Worker activation version mismatch",
   );
   return true;
 }

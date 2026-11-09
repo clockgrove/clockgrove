@@ -113,6 +113,8 @@ export function verifyWrangler(config, manifest, surface, root, configPath) {
 export const requiredSecrets = Object.fromEntries([
   ["CLOUDFLARE_API_TOKEN", "opentofu/cloudflare"],
   ["NEON_API_KEY", "opentofu/neon"],
+  ["INFRA_STATE_ACCESS_KEY_ID", "opentofu/state"],
+  ["INFRA_STATE_SECRET_ACCESS_KEY", "opentofu/state"],
   ["DATABASE_URL", "hyperdrive/runtime-role"],
   ["MIGRATION_DATABASE_URL", "database/migrations"],
   ["SUPPORT_DATABASE_URL", "database/support"],
@@ -127,6 +129,12 @@ export const requiredSecrets = Object.fromEntries([
   ["SENTRY_OTLP_TOKEN", "observability/sentry"],
   ["ARTIFACT_KEYRING", "runtime/artifact-encryption"],
 ]);
+
+// Development and staging keep OpenTofu state in an R2 bucket reached with these credentials.
+// Production's state design is decided before production is enabled, so it declares neither.
+const productionSecrets = Object.fromEntries(
+  Object.entries(requiredSecrets).filter(([name]) => !name.startsWith("INFRA_STATE_")),
+);
 
 export async function checkInfrastructure(root) {
   const surface = deploymentSurface(
@@ -151,7 +159,11 @@ export async function checkInfrastructure(root) {
     assert.equal(declaration.environment, environment);
     assert.deepEqual(
       Object.fromEntries(declaration.secrets.map(({ name, consumer }) => [name, consumer])),
-      ["local", "ci"].includes(environment) ? {} : requiredSecrets,
+      ["local", "ci"].includes(environment)
+        ? {}
+        : environment === "production"
+          ? productionSecrets
+          : requiredSecrets,
     );
     const configPath = `infra/wrangler/${environment}.json`;
     verifyWrangler(await readJson(root, configPath), manifest, surface, root, configPath);

@@ -117,6 +117,8 @@ export const secretSchema = z.strictObject({
         name: z.enum([
           "CLOUDFLARE_API_TOKEN",
           "NEON_API_KEY",
+          "INFRA_STATE_ACCESS_KEY_ID",
+          "INFRA_STATE_SECRET_ACCESS_KEY",
           "DATABASE_URL",
           "MIGRATION_DATABASE_URL",
           "SUPPORT_DATABASE_URL",
@@ -134,6 +136,7 @@ export const secretSchema = z.strictObject({
         consumer: z.enum([
           "opentofu/cloudflare",
           "opentofu/neon",
+          "opentofu/state",
           "hyperdrive/runtime-role",
           "database/migrations",
           "database/support",

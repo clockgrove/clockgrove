@@ -1,36 +1,37 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { databaseIsolationQuery } from "../database/isolation.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
-  assertRoutingMetadata,
-  authenticatedFact,
-  externalPath,
-  externalStateConfiguration,
   hostedTofuEnv,
   ownedInventory,
-  prepareStateWorkspace,
   resourceAddresses,
   roleConnections,
+  stateSecrets,
+  stateWorkspace,
   verifyPlan,
   verifyPriorActivation,
-  verifyReview,
 } from "./deployment-authority.mjs";
 import { digest, fileInventory, root, subprocessEvidence, validateEvidence } from "./evidence.mjs";
+import { assertRoutingMetadata } from "./routing-metadata.mjs";
 
 const env = process.env;
 const require = createRequire(path.join(root, "apps/runtime/package.json"));
 const { Client } = require("pg");
-const consumedSecrets = ["CLOUDFLARE_API_TOKEN", "NEON_API_KEY", "BETTER_AUTH_SECRET"];
+const consumedSecrets = [
+  "CLOUDFLARE_API_TOKEN",
+  "NEON_API_KEY",
+  "BETTER_AUTH_SECRET",
+  ...stateSecrets,
+];
 const required = (name) => {
   assert(env[name]?.trim(), `missing ${name}`);
   return env[name];
 };
-const outside = (name) => externalPath(env, name);
 export async function verifyDatabaseIsolation(connectionString) {
   const client = new Client({ connectionString });
   // Do not leak URLs, provider errors or parameters to release logs.
@@ -122,6 +123,7 @@ async function runDeployment() {
     phases: [],
   };
   manifest.deployments.push(result);
+  let temporary;
   let work;
   let providerIpc;
   let connections;
@@ -155,88 +157,26 @@ async function runDeployment() {
       "true",
       "activation prerequisite issue 2 remains pending",
     );
-    const acceptanceKey = await outside("OWNER_ACCEPTANCE_PUBLIC_KEY_FILE");
-    const keyDigest = required("OWNER_ACCEPTANCE_PUBLIC_KEY_DIGEST");
-    const review = await authenticatedFact(
-      await outside("INDEPENDENT_REVIEW_EVIDENCE_FILE"),
-      acceptanceKey,
-      keyDigest,
-    );
-    verifyReview(review, candidate, manifest.candidate.tree, required("INDEPENDENT_REVIEWER"));
-    const stateDirectory = await outside("INFRA_STATE_DIRECTORY");
-    assert(
-      ((await stat(stateDirectory)).mode & 0o077) === 0,
-      "INFRA_STATE_DIRECTORY must be private to its owner",
-    );
-    const { backend, encryption } = await externalStateConfiguration(
-      target,
-      await outside("INFRA_BACKEND_CONFIG_FILE"),
-      await outside("INFRA_ENCRYPTION_CONFIG_FILE"),
-      required("INFRA_CONFIGURATION_DIGEST"),
-    );
-    const recoveryFile = await outside("INFRA_RECOVERY_EVIDENCE_FILE");
-    const recovery = await authenticatedFact(recoveryFile, acceptanceKey, keyDigest);
-    assert.equal(recovery.environment, target, "encrypted state recovery environment mismatch");
-    assert.equal(
-      recovery.configurationDigest,
-      env.INFRA_CONFIGURATION_DIGEST,
-      "encrypted state recovery configuration mismatch",
-    );
-    assert(
-      recovery.evidence && recovery.operator && typeof recovery.statePresent === "boolean",
-      "missing encrypted persisted-state recovery evidence",
-    );
-    work = path.join(stateDirectory, `${target}-${candidate}-${required("GITHUB_RUN_ID")}`);
-    await mkdir(work, { mode: 0o700 });
-    await prepareStateWorkspace(work, backend, encryption);
+    ({ temporary, work } = await stateWorkspace(target, config, env));
     await withProviderIpc(work, async (ipc) => {
       providerIpc = ipc;
       phase("OpenTofu initialization", "tofu", ["init", "-input=false", "-lockfile=readonly"]);
-      const priorState = JSON.parse(
-        phase("read owned persisted resource identities", "tofu", ["show", "-json"]),
+      const inventory = ownedInventory(
+        JSON.parse(phase("read owned persisted resource identities", "tofu", ["show", "-json"])),
       );
-      const inventory = ownedInventory(priorState);
-      if (recovery.statePresent) {
-        const stateBytes = phase("recover encrypted persisted state", "tofu", ["state", "pull"]);
-        assert(
-          digest(stateBytes) === recovery.restoredStateDigest,
-          "encrypted state recovery digest mismatch",
-        );
-      } else {
-        assert(
-          inventory.length === 0 &&
-            recovery.restoredStateDigest === null &&
-            recovery.emptyEnvironmentVerified === true,
-          "fresh provisioning requires verified empty environment and absent state",
-        );
-      }
       const allowed = resourceAddresses(config);
       assert(
         inventory.length <= allowed.size &&
           inventory.every((resource) => allowed.has(resource.address)),
         "persisted resource ownership bounds exceeded",
       );
-      assert(
-        JSON.stringify(inventory) === JSON.stringify(recovery.ownedResources),
-        "verified ownership/state-import identities required",
-      );
-      if (inventory.length)
-        assert(
-          recovery.ownershipVerified === true && recovery.stateImportVerified === true,
-          "existing resources require verified ownership and state import",
-        );
       const preserveBindings = inventory.some(
         (resource) => resource.address === "cloudflare_hyperdrive_config.world[0]",
       );
-      result.stateRecovery = {
-        status: recovery.statePresent ? "passed" : "missing",
-        evidence: [digest(JSON.stringify(recovery))],
-      };
       const preservePublic = await verifyPriorActivation(
         config,
         env.CLOUDFLARE_API_TOKEN,
         inventory,
-        recovery.activation,
       );
       const apply = (stage) => {
         const plan = path.join(work, `${stage}.tfplan`);
@@ -406,9 +346,9 @@ async function runDeployment() {
       path.join(evidenceDirectory, "evidence-manifest.json"),
       JSON.stringify(manifest, null, 2),
     );
-    // Encrypted saved plans/state are deliberately retained outside checkout for recovery.
+    // Saved plans hold generated credentials; state lives only in the R2 bucket.
     connections = undefined;
-    if (work) await rm(path.join(work, ".terraform"), { recursive: true, force: true });
+    if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url))

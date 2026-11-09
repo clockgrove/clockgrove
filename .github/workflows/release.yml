@@ -46,6 +46,8 @@ jobs:
           REPOSITORY_DEPLOYMENT_ENABLED: ${{ vars.REPOSITORY_DEPLOYMENT_ENABLED }}
         run: node scripts/ci/select-candidate.mjs
 
+  # Skipped until infra/environments/development.json carries development's own routing metadata:
+  # select-candidate.mjs names no environment for a main push before then.
   development:
     needs: select
     if: ${{ needs.select.outputs.environment == 'development' }}
