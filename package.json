@@ -35,6 +35,7 @@
     "verify:docs": "python3 schemas/doc_validator.py adr docs/adr/*.md && python3 schemas/doc_validator.py wave docs/waves/*.md && python3 -m unittest schemas.test_doc_validator",
     "infra:validate": "node scripts/infra-validate.mjs",
     "infra:plan": "node scripts/infra-plan.mjs",
+    "infra:state": "node scripts/infra-state.mjs",
     "test:cloud": "node scripts/test-cloud.mjs",
     "verify:supply-chain": "node scripts/supply-chain.mjs",
     "qualify:wave0": "node scripts/ci/qualify-wave0.mjs",

@@ -110,6 +110,27 @@ export function verifyWrangler(config, manifest, surface, root, configPath) {
   }
 }
 
+// The zone's rate-limiting rule for an environment, as OpenTofu must choose it from the manifest's
+// zone plan. Cloudflare Free allows only the Path field and 10-second periods and timeouts
+// (https://developers.cloudflare.com/waf/rate-limiting-rules/#availability); Pro and up also allow
+// the Host field and 60-second periods.
+export function expectedRateLimitRule(manifest) {
+  const perMinute = manifest.budgets.requestsPerMinute;
+  return manifest.cloudflareZonePlan === "free"
+    ? {
+        expression: 'http.request.uri.path wildcard "/v1/*"',
+        period: 10,
+        requests: Math.ceil(perMinute / 6),
+        mitigation_timeout: 10,
+      }
+    : {
+        expression: `http.host eq "${manifest.domains.runtime}"`,
+        period: 60,
+        requests: perMinute,
+        mitigation_timeout: 60,
+      };
+}
+
 export const requiredSecrets = Object.fromEntries([
   ["CLOUDFLARE_API_TOKEN", "opentofu/cloudflare"],
   ["NEON_API_KEY", "opentofu/neon"],

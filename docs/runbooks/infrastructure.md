@@ -14,9 +14,16 @@ The exact deployment authority is [`runtimeBindingManifest`](../../apps/runtime/
 | `staging` | Dedicated `rw-staging-*` resources/project/branch and sanitized data; protected release candidate qualification. |
 | `production` | Dedicated `rw-production-*` resources/project/branch; protected credentials and explicit human approval. |
 
-Each `infra/environments/<environment>.json` permits only resource names, domains, documented-safe Cloudflare account/zone IDs, retention, budgets, compatibility date and model aliases. Resource names include the public provider region name and canonical database-local role names. Objects reject unknown fields at every level. Zero account/zone IDs and `example.org` domains are publication-safe placeholders; replace them with reviewed non-secret routing metadata for your installation before planning a hosted environment. Use separate account/zone ownership for isolated staging and production; avoid combining zone-wide entrypoint rulesets with unrelated applications. Each hosted environment creates its zone's entry-point rulesets for the `http_ratelimit` and `http_request_firewall_custom` phases, and a zone allows one per phase, so development needs its own zone. Resources use the full canonical environment name. Local/CI cloud resource counts are zero even when a plan is requested; ordinary local use needs no cloud credentials or OpenTofu plan.
+Each `infra/environments/<environment>.json` permits only resource names, domains, the zone's Cloudflare plan, documented-safe Cloudflare account/zone IDs, retention, budgets, compatibility date and model aliases. Resource names include the public provider region name and canonical database-local role names. Objects reject unknown fields at every level. Zero account/zone IDs and `example.org` domains are publication-safe placeholders; replace them with reviewed non-secret routing metadata for your installation before planning a hosted environment. Use separate account/zone ownership for isolated staging and production; avoid combining zone-wide entrypoint rulesets with unrelated applications. Each hosted environment creates its zone's entry-point rulesets for the `http_ratelimit` and `http_request_firewall_custom` phases, and a zone allows one per phase, so development needs its own zone. Resources use the full canonical environment name. Local/CI cloud resource counts are zero even when a plan is requested; ordinary local use needs no cloud credentials or OpenTofu plan.
 
-The `clockgrove.dev` zone is on Cloudflare's Free plan, whose rate-limiting rules allow only the Path field, with 10-second counting periods and mitigation timeouts ([Cloudflare rate limiting](https://developers.cloudflare.com/waf/rate-limiting-rules/#availability)). So the rate-limit rule matches `http.request.uri.path wildcard "/v1/*"`, the runtime API on every host of the zone, and blocks a client IP for 10 seconds after `ceil(budgets.requestsPerMinute / 6)` requests in 10 seconds. The WAF rule still matches the runtime host.
+Each manifest's `cloudflareZonePlan` (`free`, or `paid` for Pro and up) chooses the zone's rate-limiting rule, since Free rules allow only the Path field with 10-second counting periods and mitigation timeouts ([Cloudflare rate limiting](https://developers.cloudflare.com/waf/rate-limiting-rules/#availability)):
+
+| Zone plan | Environments | Rule |
+| --- | --- | --- |
+| `free` | `staging` (the `clockgrove.dev` zone), `development`, `local`, `ci` | `http.request.uri.path wildcard "/v1/*"`, the runtime API on every host of the zone; blocks a client IP for 10 seconds after `ceil(budgets.requestsPerMinute / 6)` requests in 10 seconds. |
+| `paid` | `production` | `http.host eq "<runtime host>"`; blocks a client IP for 60 seconds after `budgets.requestsPerMinute` requests in 60 seconds. |
+
+`pnpm infra:validate` has OpenTofu evaluate each hosted environment's rule from its manifest, offline, and fails unless it is the one the zone plan allows. The WAF rule matches the runtime host on every plan.
 
 `retention.databaseSeconds` is the Neon project's `history_retention` (restore window). Staging's Neon organization is on the Free plan, which allows at most 6 hours ([Neon plans](https://neon.com/docs/introduction/plans)), so `staging.json` sets 21600; development and production keep 604800 (7 days, the Launch maximum). Raise staging back to 604800 when it moves to a paid Neon plan (Launch).
 
@@ -49,7 +56,7 @@ Supply credentials through the operator's external secret manager/session, never
 `pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does.
 
 - `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
-- `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
+- `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
 
 `pnpm test:cloud [environment]` (default `staging`) runs `tests/cloud`: the environment plans twice with the same change-set digest and no pending change, and a hosted environment's deployed origin serves the web shell over HTTPS and refuses an unauthenticated runtime request with 401. It needs what `infra:plan` needs. Quality runs it for `ci`; the staging pass needs a staging deploy (issue 2).
 
@@ -119,15 +126,55 @@ KMS. The settings come from the protected environment at job start:
 
 The deploy and `infra:plan` copy `infra/` into a new temporary directory, add the generated
 backend there and remove the directory when done; saved plans hold generated credentials and
-never leave it. The bucket is not an OpenTofu resource, so no plan can change it. If the state
-object is lost, a deploy's creates fail on the existing names and nothing is deleted; import the
-existing resources with `tofu import` into the bucket's state before the next deploy.
+never leave it. The bucket is not an OpenTofu resource, so no plan can change it. R2 keeps no
+object versions, so the deploy keeps its own copies: after every successful apply it writes the
+state object to `<environment>/backups/<UTC time>-<stage>-<commit>.tfstate` in the same bucket,
+never overwriting one. Backups are not expired.
+
+`pnpm infra:state <command> <environment>` is the owner's tool for the bucket. It takes
+`development` or `staging`, needs the three settings above in the shell, and prints keys, lock
+holders and ages, never state:
+
+| Command | Effect |
+| --- | --- |
+| `lock <environment>` | Names the held lock's object, holder, operation, age and lock ID, or says the state is not locked. |
+| `unlock <environment> <lock ID>` | Deletes the lock object. Refuses unless the ID is the held lock's and the lock is at least 45 minutes old, the deploy job's timeout, so it never clears a live run's lock. |
+| `backups <environment>` | Lists the dated backups, oldest first. |
+| `restore <environment> <key>` | Copies one backup to `<environment>/terraform.tfstate`. Refuses while the state is locked or a state object exists. |
+
+#### Lost state
+
+Most owned resources have unique names, so a create with lost state fails on the existing name.
+The Neon project, the Turnstile widget and the Access service token do not: a create would make a
+second copy. So before anything is planned, the deploy and `infra:plan` look each of these up by
+name with the environment's Cloudflare and Neon credentials when state does not record it, and
+refuse by name and ID if one exists. This catches a missing, empty or older state object alike.
+
+To recover, list the backups and restore the newest: `pnpm infra:state backups staging`, then
+`pnpm infra:state restore staging <key>`. It equals the state after the last successful apply. If
+a later deploy failed mid-apply, resources it created are not in that backup: the deploy then
+refuses again for a duplicable resource, or fails on the existing name for any other, and each
+such resource must be imported with `tofu import` into the bucket's state before deploying. Never
+delete a resource to get past the refusal.
+
+#### Held lock
+
+OpenTofu writes `<environment>/terraform.tfstate.tflock` while it plans or applies and deletes it
+when done. A run cut off mid-apply, by the job timeout or a runner teardown, leaves it behind, and
+every later plan would fail with its output withheld. So the deploy and `infra:plan` read the lock
+first and refuse with its holder, operation, age and lock ID; a failed OpenTofu phase also names a
+lock it leaves. Nothing clears a lock automatically. If no deploy or plan is running, the owner
+clears it with `pnpm infra:state unlock staging <lock ID>`, then dispatches the deploy again. An
+interrupted apply's effect is unknown: the next deploy plans against what state recorded, and
+anything the apply created without recording it is handled as under [Lost state](#lost-state).
 
 ### Deploy phases
 
 Before provisioning, the deploy requires `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`,
 `BETTER_AUTH_SECRET` and the two `INFRA_STATE_*` secrets, each declared in the environment's
-`*.secrets.json`, the reviewed routing metadata and the two readiness variables. The catalog
+`*.secrets.json`, the reviewed routing metadata and the two readiness variables. It then refuses a
+held state lock and state that lost a duplicable resource, as [OpenTofu state](#opentofu-state)
+describes. The catalog
 above remains canonical. `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `AUTH_DATABASE_URL`,
 `MANAGEMENT_DATABASE_URL` and `WORLD_AUTHORIZATION_DATABASE_URL` are generated after OpenTofu
 provisions the owned Neon project/branch/database/roles; they are never prerequisites for first

@@ -55,6 +55,9 @@ export const environmentSchema = z
       transport: z.literal("direct-postgresql"),
     }),
     domains: z.strictObject({ runtime: domain, dnsTarget: domain }),
+    // The Cloudflare plan of the zone serving `domains`: it decides which rate-limiting rule the
+    // zone can hold. `paid` is Pro or higher.
+    cloudflareZonePlan: z.enum(["free", "paid"]),
     // Public account and zone identifiers are routing metadata, never credentials.
     safeIds: z.strictObject({
       cloudflareAccountId: z.string().regex(/^[a-f0-9]{32}$/),

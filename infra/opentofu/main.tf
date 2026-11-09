@@ -30,6 +30,23 @@ locals {
     { for key, queue in local.config.resources.queues : key => queue.name },
     { for key, queue in local.config.resources.queues : "${key}-dlq" => queue.deadLetter }
   ) : {}
+  # The zone's rate-limiting rule, chosen by the environment's Cloudflare zone plan. A Free zone
+  # allows only the Path field with 10-second periods and timeouts, so its rule counts the runtime
+  # API on every host of the zone. A paid zone (Pro and up) counts the runtime host per minute.
+  rate_limit_rule = {
+    free = {
+      expression         = "http.request.uri.path wildcard \"/v1/*\""
+      period             = 10
+      requests           = ceil(local.config.budgets.requestsPerMinute / 6)
+      mitigation_timeout = 10
+    }
+    paid = {
+      expression         = "http.host eq \"${local.config.domains.runtime}\""
+      period             = 60
+      requests           = local.config.budgets.requestsPerMinute
+      mitigation_timeout = 60
+    }
+  }[local.config.cloudflareZonePlan]
 }
 # Local and CI deliberately create no cloud resources.
 resource "cloudflare_queue" "runtime" {
@@ -152,17 +169,15 @@ resource "cloudflare_ruleset" "rate_limit" {
   name    = "rw-${var.environment}-rate-limit"
   kind    = "zone"
   phase   = "http_ratelimit"
-  # A Free zone's rate-limiting rule: the Path field only, so it counts the runtime API on every
-  # host of the zone, with 10-second periods and timeouts.
   rules = [{
     action     = "block"
-    expression = "http.request.uri.path wildcard \"/v1/*\""
+    expression = local.rate_limit_rule.expression
     enabled    = true
     ratelimit = {
       characteristics     = ["cf.colo.id", "ip.src"]
-      period              = 10
-      requests_per_period = ceil(local.config.budgets.requestsPerMinute / 6)
-      mitigation_timeout  = 10
+      period              = local.rate_limit_rule.period
+      requests_per_period = local.rate_limit_rule.requests
+      mitigation_timeout  = local.rate_limit_rule.mitigation_timeout
     }
   }]
 }

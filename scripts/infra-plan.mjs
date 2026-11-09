@@ -2,17 +2,26 @@
 // applies. `local` and `ci` own no cloud resources: their plan runs offline in a new temporary
 // directory with no credentials or backend, and must stay empty. `development` and `staging` plan the
 // full configuration a completed deploy owns against the environment's R2 state, with the same checks
-// the deploy makes first. Only resource addresses, actions and a digest of the change set are printed;
-// saved plans hold sensitive values and are removed with their temporary directory.
+// the deploy makes first: no held state lock and no owned resource that state lost track of. Only
+// resource addresses, actions and a digest of the change set are printed; saved plans hold sensitive
+// values and are removed with their temporary directory.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { hostedTofuEnv, stateWorkspace, verifyPlan } from "./ci/deployment-authority.mjs";
+import {
+  assertNoUnrecordedDuplicates,
+  hostedTofuEnv,
+  ownedInventory,
+  stateStoreFor,
+  stateWorkspace,
+  verifyPlan,
+} from "./ci/deployment-authority.mjs";
 import { digest, root } from "./ci/evidence.mjs";
 import { assertRoutingMetadata } from "./ci/routing-metadata.mjs";
+import { assertUnlocked } from "./ci/state-store.mjs";
 import { isolatedTofu, offline } from "./lib/opentofu.mjs";
 import { withProviderIpc } from "./provider-ipc.mjs";
 
@@ -119,11 +128,14 @@ async function hostedPlans(target, config, operation) {
   for (const name of ["CLOUDFLARE_API_TOKEN", "NEON_API_KEY"])
     assert(env[name]?.trim(), `missing ${name}`);
   assertRoutingMetadata(config, target);
+  await assertUnlocked(stateStoreFor(target, config, env), target);
   const { temporary, work } = await stateWorkspace(target, config, env);
   try {
     return await withProviderIpc(work, async (ipc) => {
       const options = { cwd: work, env: hostedTofuEnv(env, ipc, work) };
       tofu(["init", "-input=false", "-lockfile=readonly", "-no-color"], options, true);
+      const inventory = ownedInventory(JSON.parse(tofu(["show", "-json"], options, true)));
+      await assertNoUnrecordedDuplicates(config, env, inventory, target);
       let count = 0;
       return operation(async () => {
         const plan = path.join(work, `plan-${++count}.tfplan`);

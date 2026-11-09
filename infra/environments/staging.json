@@ -46,6 +46,7 @@
     "runtime": "staging.runtime.clockgrove.dev",
     "dnsTarget": "runtime.clockgrove.dev"
   },
+  "cloudflareZonePlan": "free",
   "safeIds": {
     "cloudflareAccountId": "615b168aa61f6905a475eba2eac9413d",
     "cloudflareZoneId": "e18af0fcffa47500d76130f5a36d9cd3"
