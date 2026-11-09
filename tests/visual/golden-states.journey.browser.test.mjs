@@ -19,6 +19,8 @@ import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.j
 import { decodeLivingScene } from "../../packages/contracts/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+const external = process.env.CLOCKGROVE_CAPTURE_PACK !== undefined;
+const pack = process.env.CLOCKGROVE_CAPTURE_PACK ?? "fixture/reference";
 const FILE = "tests/visual/golden-states.journey.browser.test.mjs";
 /** Wave 4 plan §15.3: two desktop layouts and one narrow layout (390×844, a phone portrait). */
 const VIEWPORTS = [
@@ -64,7 +66,7 @@ const captureGoldenStates = async (backend) => {
     const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
     process.env.CLOCKGROVE_RENDERER_PROOF = backend;
     try {
-      await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
+      await runNativeWorldOwnerProcess(FILE, pack, {
         vitestConfig: "tests/ci/vitest.browser.config.ts",
         timeoutMs: 210_000,
         inheritOutput: true,
@@ -105,7 +107,8 @@ const captureGoldenStates = async (backend) => {
     const advanceTo = async (key, hour, minute = 0n) => {
       const now = BigInt((await scene()).simulationTime);
       const day = now - (now % (24n * HOUR_MS));
-      const target = day + hour * HOUR_MS + minute * 60_000n;
+      let target = day + hour * HOUR_MS + minute * 60_000n;
+      if (external && target < now) target += 24n * HOUR_MS;
       if (target > now)
         await commit({
           ...advanceCommand(world, key, target, await revision(), {
@@ -115,12 +118,28 @@ const captureGoldenStates = async (backend) => {
         });
     };
     const evidenceRoot =
-      process.env.CLOCKGROVE_WAVE4_EVIDENCE === undefined
+      process.env.CLOCKGROVE_CAPTURE_OUT ??
+      (process.env.CLOCKGROVE_WAVE4_EVIDENCE === undefined
         ? await mkdtemp(path.join(os.tmpdir(), "clockgrove-wave4-visual-"))
-        : path.join(process.env.CLOCKGROVE_WAVE4_EVIDENCE, "visual");
+        : path.join(process.env.CLOCKGROVE_WAVE4_EVIDENCE, "visual"));
     const out = backend === "webgpu" ? evidenceRoot : path.join(evidenceRoot, "webgl2");
     await mkdir(out, { recursive: true });
-    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
+    if (!external)
+      process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
+    const visible = new Set((await scene()).entities.map(({ objectId }) => objectId));
+    const entities = world.birth.state.entities.filter(({ objectId }) => visible.has(objectId));
+    const actorId = external
+      ? (process.env.CLOCKGROVE_CAPTURE_ACTOR ?? entities.find((entity) => entity.needs)?.objectId)
+      : "fixture.keeper";
+    const objectId = external
+      ? (process.env.CLOCKGROVE_CAPTURE_OBJECT ??
+        entities.find((entity) => !entity.needs && entity.objectId !== actorId)?.objectId)
+      : "fixture.den";
+    for (const id of [actorId, objectId])
+      if (!id || !entities.some((entity) => entity.objectId === id))
+        throw new Error(
+          `Capture selection is absent from the world: ${id ?? "supply --actor and --object"}`,
+        );
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
@@ -219,8 +238,25 @@ const captureGoldenStates = async (backend) => {
         });
         return page;
       };
+      const shellInput = external
+        ? JSON.parse(await readFile(process.env.CLOCKGROVE_WORLD_SHELL, "utf8"))
+        : undefined;
       const pages = [];
       for (const viewport of VIEWPORTS) pages.push(await open(viewport, false));
+      const browserShell = external
+        ? await pages[0].evaluate(
+            (tokens) => ({
+              title: document.title,
+              tokens: Object.fromEntries(
+                Object.keys(tokens).map((name) => [
+                  name,
+                  getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+                ]),
+              ),
+            }),
+            shellInput.tokens,
+          )
+        : undefined;
       const captures = [];
       const capture = async (state, page, check) => {
         // A check may name the region its state is about; the capture frames it, else the page top.
@@ -304,7 +340,17 @@ const captureGoldenStates = async (backend) => {
       };
       const selected = (page) => page.getByRole("region", { name: "Selected entity", exact: true });
 
+      const externalWeather = async (key, rainIntensity) => {
+        if (external && (await scene()).weather.rainIntensity !== rainIntensity) {
+          await commit({
+            ...advanceCommand(world, key, 0n, await revision()),
+            type: "world.weather.set",
+            payload: { schemaVersion: 2, rainIntensity },
+          });
+        }
+      };
       await advanceTo("visual-daylight", 12n);
+      await externalWeather("visual-dry", 0);
       const daylight = await scene();
       await each("daylight-dry", async (page) => {
         await living(page)
@@ -319,6 +365,7 @@ const captureGoldenStates = async (backend) => {
       const tierComparisons = [];
       const captureTiers = async (state, hour, minute = 0n) => {
         await advanceTo(`visual-${state}-tiers`, hour, minute);
+        await externalWeather(`visual-${state}-rain`, 9000);
         const committed = await scene();
         const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
         for (const tier of TIERS) {
@@ -334,6 +381,19 @@ const captureGoldenStates = async (backend) => {
             return living(page);
           });
           for (const page of pages) {
+            if (external) {
+              const actual = await page.evaluate(() => ({
+                backend: globalThis.hallAdapter.backend,
+                api:
+                  globalThis.hallAdapter.backend === "webgpu"
+                    ? globalThis.hallAdapter.renderer.backend.isWebGPUBackend === true
+                    : globalThis.hallAdapter.renderer.getContext() instanceof
+                      WebGL2RenderingContext,
+              }));
+              expect(actual).toEqual({ backend, api: true });
+              tierComparisons.push({ state, tier, viewport: page.viewportSize(), ...actual });
+              continue;
+            }
             // Render and read in the same task: a locator screenshot can include a fixed
             // DOM header or change hover while scrolling the canvas into view on the phone layout.
             const canvasPixels = async () =>
@@ -519,6 +579,7 @@ const captureGoldenStates = async (backend) => {
       });
       await captureTiers("dusk", 17n, 45n);
       await advanceTo("visual-dusk", 19n);
+      await externalWeather("visual-dusk-rain", 9000);
       const dusk = await scene();
       await each("dusk-rain", async (page) => {
         await living(page)
@@ -531,7 +592,7 @@ const captureGoldenStates = async (backend) => {
       });
 
       await captureTiers("night", 22n);
-      for (const night of tierComparisons.filter(({ state }) => state === "night")) {
+      for (const night of tierComparisons.filter(({ state }) => !external && state === "night")) {
         const dusk = tierComparisons.find(
           (row) =>
             row.state === "dusk" &&
@@ -547,9 +608,21 @@ const captureGoldenStates = async (backend) => {
 
       // fixture-hall has no cognitive actor before Wave 5: Keeper, an actor, discloses reactive.
       await each("selected-actor-rail", async (page) => {
-        await living(page).getByRole("button", { name: "fixture.keeper", exact: true }).click();
+        if (external) {
+          await living(page)
+            .getByRole("button")
+            .evaluateAll((buttons, id) => {
+              const button = buttons.find((button) => button.dataset.focusKey === `entity:${id}`);
+              if (!button) throw new Error(`Missing actor ${id}`);
+              button.click();
+            }, actorId);
+        } else
+          await living(page).getByRole("button", { name: "fixture.keeper", exact: true }).click();
         await openRail(page);
-        await expect.poll(() => rail(page).innerText()).toContain("Deterministic/reactive object");
+        if (!external)
+          await expect
+            .poll(() => rail(page).innerText())
+            .toContain("Deterministic/reactive object");
         await selected(page)
           .getByText(/^Selected entity at canonical revision /u)
           .waitFor();
@@ -591,9 +664,18 @@ const captureGoldenStates = async (backend) => {
       await each("selected-inspectable-object", async (page) => {
         // The DOM click reaches the control wherever the narrow layout scrolled it.
         await page.getByRole("button", { name: "Close Why" }).evaluate((button) => button.click());
-        await living(page)
-          .getByRole("button", { name: "fixture.den", exact: true })
-          .evaluate((button) => button.click());
+        if (external) {
+          await living(page)
+            .getByRole("button")
+            .evaluateAll((buttons, id) => {
+              const button = buttons.find((button) => button.dataset.focusKey === `entity:${id}`);
+              if (!button) throw new Error(`Missing object ${id}`);
+              button.click();
+            }, objectId);
+        } else
+          await living(page)
+            .getByRole("button", { name: "fixture.den", exact: true })
+            .evaluate((button) => button.click());
         await openRail(page);
         await expect.poll(() => rail(page).innerText()).toContain("Inspection from world evidence");
         await selected(page)
@@ -615,18 +697,20 @@ const captureGoldenStates = async (backend) => {
         await page.close();
       }
       // The missing atlas ends in the text scene with assets named, and the client reports the failure.
-      const missing = await open(VIEWPORTS[1], false, true);
-      await missing
-        .getByText(/^Arrival: text scene ready at revision \d+; assets unavailable\.$/u)
-        .waitFor();
-      const failed = await missing.evaluate(() => globalThis.hallMeasurements.points());
-      expect(
-        ["asset_cache:failed", "client_errors:asset"].map((key) =>
-          failed.some(({ name, category }) => `${name}:${category}` === key),
-        ),
-      ).toEqual([true, true]);
-      points.push(...failed);
-      await missing.close();
+      if (!external) {
+        const missing = await open(VIEWPORTS[1], false, true);
+        await missing
+          .getByText(/^Arrival: text scene ready at revision \d+; assets unavailable\.$/u)
+          .waitFor();
+        const failed = await missing.evaluate(() => globalThis.hallMeasurements.points());
+        expect(
+          ["asset_cache:failed", "client_errors:asset"].map((key) =>
+            failed.some(({ name, category }) => `${name}:${category}` === key),
+          ),
+        ).toEqual([true, true]);
+        points.push(...failed);
+        await missing.close();
+      }
       for (const viewport of VIEWPORTS) {
         const page = await open(viewport, true);
         await capture("text-access", page, async () => {
@@ -654,7 +738,7 @@ const captureGoldenStates = async (backend) => {
       for (const name of [
         "reducer_latency_ms",
         "scene_apply_ms",
-        "asset_cache",
+        ...(!external || shellInput.scene.atlas !== null ? ["asset_cache"] : []),
         "inspector_traversal",
         "accessibility_mode",
         "scene_recovery",
@@ -675,13 +759,7 @@ const captureGoldenStates = async (backend) => {
         if (point.worldId !== undefined) expect(point.worldId).toBe(scope.worldId);
       }
       const serialized = JSON.stringify(points);
-      for (const hidden of [
-        "principal-runtime",
-        "hall-inspect",
-        "fixture.keeper",
-        "Keeper",
-        "scripted:",
-      ])
+      for (const hidden of ["principal-runtime", "hall-inspect", actorId, "Keeper", "scripted:"])
         expect(serialized.includes(hidden), hidden).toBe(false);
       console.info(
         "Renderer tier correctness",
@@ -696,6 +774,9 @@ const captureGoldenStates = async (backend) => {
         ),
       );
       const report = {
+        ...(external
+          ? { pack: world.artifact.packId, actor: actorId, object: objectId, browserShell }
+          : {}),
         viewports: VIEWPORTS,
         captures,
         rendererBackends: [backend],
@@ -704,7 +785,10 @@ const captureGoldenStates = async (backend) => {
         webVitals: vitals,
       };
       await writeFile(path.join(out, "captures.json"), `${JSON.stringify(report, null, 2)}\n`);
-      if (backend === "webgl2" && process.env.CLOCKGROVE_WAVE4_EVIDENCE !== undefined) {
+      if (
+        backend === "webgl2" &&
+        (process.env.CLOCKGROVE_WAVE4_EVIDENCE !== undefined || external)
+      ) {
         const primary = JSON.parse(
           await readFile(path.join(evidenceRoot, "captures.json"), "utf8"),
         );

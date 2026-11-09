@@ -1,9 +1,11 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
 import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
@@ -288,3 +290,171 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
     await rm(external, { recursive: true, force: true });
   }
 }, 240_000);
+
+it("captures an external world's full matrix and retains digest-specific approvals there", async () => {
+  const external = await mkdtemp(path.join(tmpdir(), "clockgrove-external-captures-"));
+  try {
+    const pack = path.join(external, "world inputs");
+    const assets = path.join(external, "static");
+    const out = path.join(external, "visual");
+    await cp(path.join(root, "worlds/fixture/reference"), pack, { recursive: true });
+    await mkdir(assets);
+    await writeFile(
+      path.join(pack, "runtime.json"),
+      JSON.stringify({
+        presentationVersion: 1,
+        presentations: [
+          {
+            presentation: {
+              presentationVersion: 1,
+              assetManifestVersion: 2,
+              pack: { id: "clockgrove.fixture-hall", version: "1.1.0" },
+              bindings: [
+                {
+                  objectId: "fixture.keeper",
+                  assetId: "external-subject",
+                  animationFamily: "idle",
+                  accessibilityLabel: "External subject",
+                },
+              ],
+              effects: [],
+            },
+            drawable: ["external-subject/idle"],
+            activity: {
+              families: [],
+              moving: "idle",
+              shelter: "idle",
+              arrived: "idle",
+              seeking: "idle",
+            },
+          },
+        ],
+      }),
+    );
+    const shell = JSON.parse(await readFile(path.join(root, "worlds/fixture/shell.json"), "utf8"));
+    shell.name = "External capture fixture";
+    shell.wordmark = "External capture fixture";
+    shell.tokens = { "--cg-v1-bg": "#123abc" };
+    shell.scene.atlas = "external-atlas";
+    await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
+    const atlas = JSON.parse(
+      await readFile(
+        path.join(root, "worlds/fixture/assets/reviewed/fixture-world.animations.json"),
+        "utf8",
+      ),
+    );
+    atlas.animations = atlas.animations
+      .filter(({ assetId, animationFamily }) => assetId === "keeper" && animationFamily === "idle")
+      .map((animation) => ({
+        ...animation,
+        assetId: "external-subject",
+        accessibilityLabel: "External subject",
+      }));
+    await cp(
+      path.join(root, "worlds/fixture/assets/reviewed/fixture-world.png"),
+      path.join(assets, "external-atlas.png"),
+    );
+    await writeFile(path.join(assets, "external-atlas.animations.json"), JSON.stringify(atlas));
+    // Generate the composition outside the checkout; this world has no package manager installation.
+    const launcher = path.join(root, "scripts/capture-world.mjs");
+    const args = [
+      "--pack",
+      pack,
+      "--shell",
+      path.join(external, "shell.json"),
+      "--assets",
+      assets,
+      "--out",
+      out,
+      "--actor",
+      "fixture.keeper",
+      "--object",
+      "fixture.den",
+    ];
+    for (const invalid of [
+      [],
+      [...args, "--pack", pack],
+      [...args, "--unknown", "x"],
+      ["--pack", path.join(external, "missing"), ...args.slice(2)],
+    ]) {
+      const refused = spawnSync(process.execPath, [launcher, ...invalid], {
+        cwd: assets,
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      expect([refused.status, refused.stdout], refused.stderr).toEqual([2, ""]);
+      expect(refused.stderr).toContain("Usage:");
+    }
+    // Two native backend runs use the existing 240 s journey bound each, plus launcher teardown.
+    const { stdout } = await promisify(execFile)(process.execPath, [launcher, ...args], {
+      cwd: assets,
+      timeout: 540_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const result = JSON.parse(stdout.trim().split("\n").at(-1));
+    expect(result.status).toBe("ok");
+    const states = [
+      "daylight-dry",
+      "dusk-rain-low",
+      "dusk-rain-medium",
+      "dusk-rain-high",
+      "dusk-rain",
+      "night-rain-low",
+      "night-rain-medium",
+      "night-rain-high",
+      "selected-actor-rail",
+      "event-why-inspector",
+      "selected-inspectable-object",
+      "disconnected-recovering",
+      "text-access",
+    ];
+    const viewports = [
+      { width: 1536, height: 864 },
+      { width: 1280, height: 720 },
+      { width: 390, height: 844 },
+    ];
+    const expectedFiles = ["", "webgl2/"].flatMap((prefix) =>
+      states.flatMap((state) =>
+        viewports.map(({ width, height }) => `${prefix}${state}@${width}x${height}.png`),
+      ),
+    );
+    expect(result.reports.map(({ file }) => file)).toEqual(expectedFiles);
+    expect(result.reports.map(({ approval }) => approval)).toEqual(
+      expectedFiles.map(() => "pending-human-approval"),
+    );
+    const captures = JSON.parse(await readFile(path.join(out, "captures.json"), "utf8"));
+    expect(captures.viewports).toEqual(viewports);
+    expect(captures.rendererBackends).toEqual(["webgpu", "webgl2"]);
+    expect(captures.browserShell).toEqual({
+      title: "External capture fixture",
+      tokens: { "--cg-v1-bg": "#123abc" },
+    });
+    expect([captures.actor, captures.object]).toEqual(["fixture.keeper", "fixture.den"]);
+    for (const report of result.reports) {
+      const bytes = await readFile(path.join(out, report.file));
+      expect(report.sha256).toBe(`sha256:${createHash("sha256").update(bytes).digest("hex")}`);
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([
+        report.viewport.width,
+        report.viewport.height,
+      ]);
+    }
+    expect(existsSync(path.join(external, "node_modules"))).toBe(false);
+    const approvalsFile = path.join(out, "approved-captures.json");
+    expect(JSON.parse(await readFile(approvalsFile, "utf8")).approvals).toEqual([]);
+    const first = result.reports[0];
+    const approval = { approvals: [{ file: first.file, sha256: first.sha256 }] };
+    await writeFile(approvalsFile, JSON.stringify(approval));
+    const { readCaptureApprovals } = await import(
+      pathToFileURL(path.join(root, "scripts/capture-world-report.mjs")).href
+    );
+    expect((await readCaptureApprovals(out))[0].approval).toBe("approved");
+    await writeFile(
+      path.join(out, first.file),
+      Buffer.concat([await readFile(path.join(out, first.file)), Buffer.from("changed capture")]),
+    );
+    expect((await readCaptureApprovals(out))[0].approval).toBe("changed-needs-human-approval");
+    expect(JSON.parse(await readFile(approvalsFile, "utf8"))).toEqual(approval);
+  } finally {
+    await rm(external, { recursive: true, force: true });
+  }
+}, 600_000);

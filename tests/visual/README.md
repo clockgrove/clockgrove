@@ -49,7 +49,7 @@ the native runtime. Reviewed static assets must already be hydrated. The suite n
 world into Clockgrove.
 
 Output contains the named PNG captures and `captures.json` with SHA-256 hashes; forced WebGL2
-captures live under `webgl2/`. Approval belongs to `approved-captures.json` in the same output
+captures live under `webgl2/`. `approval-status.json` records the digest review status. Approval belongs to `approved-captures.json` in the same output
 directory. A successful command prints its progress and a final
 `{"status":"ok","reports":[...]}`. Exit 0 means the capture run completed, not that review
 approved it. Exit 1 denotes a capture validation failure, 2 invalid arguments or input locations,
