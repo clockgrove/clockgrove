@@ -35,3 +35,45 @@ The `signature` hashes the point id, the actor (or its archetype when the point'
 ## Proof
 
 `apps/runtime/test/decision-evidence/shadow.postgres.test.ts`: PostgreSQL, the native owner and a scripted decider. A real-model run on the Raccoon World long run is a maintainer step; its numbers go on issue 76.
+
+## Wake triage
+
+Wake triage is a separate shadow decision point at the actor's model-escalation boundary
+(issue 111). Application code is `packages/application/src/wake-triage.ts`; it reuses
+`ShadowDecider` and the runtime gateway adapter rather than asking a generation model to judge.
+The optional `WAKE_TRIAGE_CONFIG` binding supplies the policy version, model alias/model,
+confidence threshold and world/day decision budget. Absence disables triage. Configuration and
+report usage are in the [runtime runbook](../runbooks/runtime.md#wake-triage-shadow-report).
+
+The bounded choices are `suppress`, `compiled_routine`, `full_turn` and `cant_tell`. The current
+full turn always runs after an admitted model escalation, including when triage is disabled,
+unavailable, over budget, low confidence or abstaining. `cant-tell` and `low-confidence` are
+separate statuses; failures retain their reason. No enforcing mode exists. Direct messages are
+included and marked as messages from people; a later enforcing mode must never suppress them
+(owner decision, 2026-11-09).
+
+Each record identifies the actor, session/message, activation reason, canonical simulation time,
+policy/model configuration, label, confidence in basis points, latency and nullable measured cost.
+The signature hashes the activation reason, actor, suppression cause and policy/model versions.
+A repeated miss or a repeated low-confidence signature (at least two occurrences) appears in
+`review` for human attention. Wake input and assembled context are model evidence, not authority.
+Journaled cognitive evidence has no physical projection delta; replay reads history without a model.
+
+The durable budget reserves the configured per-call ceiling before the decision call, shared by
+actors in the same world, timeline and simulated day, using the pack's environment day length
+(or 86,400,000 ms when absent). Reservations survive recovery and are not refunded,
+including when the model reports a lower or unknown cost. The budget therefore bounds reserved
+opportunities conservatively; measured report spend remains separate from that ledger.
+
+`wakeTriageReport` compares the decision with the turn's stored final disposition, command proposal
+and output message. A proposed command is material even if refused; a reply to a person is
+material. Autonomous text alone is not a reply to a person. Unfinished turns are counted apart.
+The report is scoped to the operator's authorized space and returns classifications and cognitive
+evidence, without disclosing private input, prompt or output artifact contents. It provides
+per-reason labels, confidence, latency, costs, agreement and bypass share,
+with abstentions separate from low-confidence answers. A `suppress` or `compiled_routine` answer
+on a material turn is a miss; examples and recurring signatures remain visible. Savings are
+counterfactual full-turn spend for confident bypass labels, with triage spend subtracted for net
+savings. Direct-message wakes are excluded from safe bypass/savings while their raw labels and
+misses remain visible. Unknown costs remain counted as unknown, and a savings figure does not establish that
+bypassing the missed work would be acceptable.

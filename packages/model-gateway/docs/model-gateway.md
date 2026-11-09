@@ -196,6 +196,21 @@ It is not a generation call: no streaming, no structured output, no fallback cha
 
 The runtime's shadow tier consumes it ([decision shadow](../../../docs/protocols/decision-shadow.md)).
 
+Wake triage (issue 111) uses this same `decide` port and a configured decision alias; it does not
+route through generation. Runtime composition reads the optional `WAKE_TRIAGE_CONFIG` JSON binding.
+Its default alias is `wake.triage`, backed by `perplexity/pplx-decider-v1.2`; operators can measure
+`openai/gpt-6-luna-decisions` or `baseten/mammoth-1` by changing the configured model. These are the
+owner's candidate models, not a model selection made by the actor. The runtime durably reserves
+the per-call ceiling against a shared world/day budget before asking the gateway, in addition to
+this gateway's own bounds. The full ceiling stays reserved even when actual cost is lower or
+unknown, so a crash or concurrent actor cannot create unaccounted decision opportunities.
+
+The labels `suppress`, `compiled_routine`, `full_turn` and `cant_tell` are shadow evidence only.
+Unknown labels, absent or low confidence, unavailable credentials and provider failures retain
+today's full-turn path. Actual decision cost remains nullable in the report: a reserved ceiling
+is not measured spend. See [the runtime procedure](../../../docs/runbooks/runtime.md#wake-triage-shadow-report)
+for configuration, report access and the maintainer's real-model measurement step.
+
 ## Tests
 
 The offline suite (`test/model-gateway.journey.test.ts`) runs in `pnpm test`. It drives the
