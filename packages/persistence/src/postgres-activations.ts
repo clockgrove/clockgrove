@@ -11,8 +11,15 @@ import type {
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
-/** Journal events one activation check reads; a full page means more may be waiting. */
-export const ACTIVATION_EVENT_PAGE = 64;
+/** Journal events one activation check reads. */
+const ACTIVATION_EVENT_PAGE = 64;
+
+/** One activation check's journal read. */
+export interface ActivationEventPage {
+  readonly events: readonly { eventId: string; eventType: string; causalRoot: string }[];
+  /** More events may be waiting: the page is full, or a visible event's transaction is unsettled. */
+  readonly more: boolean;
+}
 const KEY = "tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND actor_id=$4";
 const values = (a: ActivationAddress) => [
   a.scope.tenantId,
@@ -51,10 +58,12 @@ export class PostgreSqlActivations {
         [...values(a), config.sessionId, a.scope.spaceId],
       );
       if (session.rows.length !== 1) throw new Error("activation conversation not found");
+      // The cursor starts after every transaction this snapshot can know of: an event committed
+      // before the policy existed is not read, and an append that has not started yet is.
       await this.client.query(
         `INSERT INTO clockgrove.actor_activation_policies
-        (tenant_id,world_id,timeline_id,actor_id,principal_id,space_id,event_cursor) VALUES ($1,$2,$3,$4,$5,$6,
-        (SELECT coalesce(max(journal_position),0) FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3))
+        (tenant_id,world_id,timeline_id,actor_id,principal_id,space_id,event_cursor_transaction)
+        VALUES ($1,$2,$3,$4,$5,$6,pg_snapshot_xmax(pg_current_snapshot()))
         ON CONFLICT DO NOTHING`,
         [...values(a), a.participant.principalId, a.scope.spaceId],
       );
@@ -226,38 +235,59 @@ export class PostgreSqlActivations {
     });
   }
 
-  /** Read each journal event once; configuration matches are evaluated without invoking a model. */
-  events(
-    a: ActivationAddress,
-  ): Promise<readonly { eventId: string; eventType: string; causalRoot: string }[]> {
+  /**
+   * Read each journal event once, in (transaction, position) order after the cursor; configuration
+   * matches are evaluated without invoking a model. Partitions commit in parallel, so a lower
+   * position can become visible after a higher one (migration 0043). Only events whose appending
+   * transaction is older than this snapshot's xmin are read: those transactions have all ended, so
+   * the cursor never passes an event that can still appear. A visible later event waits for the
+   * next check, and `more` asks for that check promptly.
+   */
+  events(a: ActivationAddress): Promise<ActivationEventPage> {
     return this.transaction(a, async () => {
       const policy = await this.policy(a);
       const result = await this.client.query(
-        `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,journal_position
-        FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND journal_position>$4
-        ORDER BY journal_position LIMIT $5`,
+        `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,
+          transaction_id < settled.horizon AS settled
+        FROM clockgrove.events
+        CROSS JOIN (SELECT pg_snapshot_xmin(pg_current_snapshot()) AS horizon) settled
+        WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3
+          AND (transaction_id,journal_position) > ($4::xid8,$5::bigint)
+        ORDER BY transaction_id,journal_position LIMIT $6`,
         [
           a.scope.tenantId,
           a.scope.worldId,
           a.scope.timelineId,
+          policy.event_cursor_transaction,
           policy.event_cursor,
-          ACTIVATION_EVENT_PAGE,
+          ACTIVATION_EVENT_PAGE + 1,
         ],
       );
-      return (result.rows as Row[]).map((r) => ({
-        eventId: String(r.event_id),
-        eventType: String(r.event_type),
-        causalRoot: String(r.causal_root),
-      }));
+      // Settled rows sort before every unsettled one: their transactions are older.
+      const rows = result.rows as Row[];
+      const settled = rows.filter((r) => r.settled === true).slice(0, ACTIVATION_EVENT_PAGE);
+      return {
+        events: settled.map((r) => ({
+          eventId: String(r.event_id),
+          eventType: String(r.event_type),
+          causalRoot: String(r.causal_root),
+        })),
+        more: rows.length > settled.length,
+      };
     });
   }
 
+  /** Moves the cursor to `eventId`, never back. */
   acknowledgeEvent(a: ActivationAddress, eventId: string): Promise<void> {
     return this.transaction(a, async () => {
       await this.policy(a);
       await this.client.query(
-        `UPDATE clockgrove.actor_activation_policies SET event_cursor=greatest(event_cursor,
-        (SELECT journal_position FROM clockgrove.events WHERE tenant_id=$1 AND event_id=$5)) WHERE ${KEY}`,
+        `UPDATE clockgrove.actor_activation_policies AS p
+        SET event_cursor_transaction=e.transaction_id,event_cursor=e.journal_position
+        FROM clockgrove.events AS e
+        WHERE p.tenant_id=$1 AND p.world_id=$2 AND p.timeline_id=$3 AND p.actor_id=$4
+          AND e.tenant_id=$1 AND e.world_id=$2 AND e.timeline_id=$3 AND e.event_id=$5
+          AND (e.transaction_id,e.journal_position) > (p.event_cursor_transaction,p.event_cursor)`,
         [...values(a), eventId],
       );
     });
