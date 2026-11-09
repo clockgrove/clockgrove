@@ -157,5 +157,37 @@ The validator and fixture CLI enforce the declared profile. Manifest version 2 a
 frames within the platform envelope, while the declared role limits and atlas strip budget
 still apply. A soft-alpha, unrestricted-colour profile continues to accept binary-alpha
 placeholders alongside painterly assets. Bounded multi-atlas packing supports larger strips and
-multiple pages. External-world commands remain the final part of issue 61. Upload retains its review/licence, generated
+multiple pages. External-world commands accept a world location as described below. Upload retains its review/licence, generated
 provenance and golden gate; it does not itself perform source/profile validation.
+
+
+## External world commands
+
+Use a separately installed, exact-commit Clockgrove checkout (see the
+[pinned-checkout guide](../../simulator/docs/conformance.md)). No npm project is
+required in the world repository. From any working directory:
+
+```sh
+node /path/to/clockgrove/packages/assets/bin/clockgrove-assets.mjs validate /path/to/world/assets/manifests/example/idle.json --world /path/to/world
+node /path/to/clockgrove/packages/assets/bin/clockgrove-assets.mjs build --world /path/to/world
+node /path/to/clockgrove/packages/assets/bin/clockgrove-assets.mjs update-golden --world /path/to/world
+node /path/to/clockgrove/packages/assets/bin/clockgrove-assets.mjs check --world /path/to/world
+```
+
+The world directory holds `assets/` and `reference/`; presentation metadata,
+style profile and resources live in `reference/`. Source paths remain relative
+to the world directory. Reviewed atlases, the licence report and golden records
+are written into that world's `assets/`. No world files are copied into the
+Clockgrove checkout. Omitting `--world` preserves the fixture pipeline.
+
+`validate` reads only the named manifest, its media and the world's style
+profile, including provenance and licence refusals. Pending human review is accepted
+by this generation-tool hook; build and check retain the human review gate. It prints refusals on stderr and exits 1
+on refusal, 0 on success; invalid command usage or world directory exits 2,
+and unexpected internal errors exit 70. External success prints a JSON object
+with `status: "ok"` and the command name. `check` also refuses
+undeployable external assets, stale reviewed output, stale licence reporting,
+missing or changed goldens and pending golden approval. `build` includes only
+deployable assets; human review is still required. A changed golden resets to
+pending until a human records approval for the new scene hash. Existing
+external local sessions serve the world's reviewed directory.
