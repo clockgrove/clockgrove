@@ -92,6 +92,16 @@ to prevent own-zone fetch shortcuts to origins. The
 describes a default public-only network, but that alone is not hosted Cloudflare evidence. If the
 verified hosted adapter leaves an actual rebinding hole, use an egress adapter that pins addresses.
 
+## Acceptance boundary
+
+The foundation is a sequential delivery part, not acceptance of issue 164 as a whole.
+In particular, address admission is not hosted installation safety; a discovery snapshot is not
+a canonical installation or registry version; a schema hash is not drift detection; ciphertext
+owner binding is not installation authorization; and credential fencing is not actor grant
+revocation. The memory-store journeys do not establish durable secret isolation or the
+PostgreSQL/runtime/browser path. No operator installation procedure is available yet.
+All of those obligations remain in the canonical integration below before deployment.
+
 ## Canonical integration still required
 
 Installation, binding, grant and review changes must be attributed Journal events, backed by
