@@ -11,6 +11,7 @@ CREATE TABLE clockgrove_mcp.credentials (
   timeline_id text NOT NULL,
   installation_id text NOT NULL,
   owner_principal_id text NOT NULL,
+  -- Vault revisions are JavaScript numbers: 2^53 - 1 is the largest exact integer.
   revision bigint NOT NULL CHECK (revision > 0 AND revision <= 9007199254740991),
   state text NOT NULL CHECK (state IN ('pending', 'active', 'blocked', 'revoked')),
   revocation_requested boolean NOT NULL DEFAULT false,

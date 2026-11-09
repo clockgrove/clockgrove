@@ -1,6 +1,6 @@
 # Remote MCP installation
 
-Issue 164's first part provides discovery and isolated credential foundations. It does not yet
+Issue 164 provides discovery and isolated credential foundations, including a PostgreSQL secret adapter. It does not yet
 install a server into a world, write canonical installation events, register actor capabilities,
 or expose operator HTTP routes. Those consumers must preserve the contract below before remote
 capabilities become usable. The existing [capability registry](capabilities.md) remains unchanged.
@@ -71,15 +71,37 @@ active credential after it. Errors never include provider response bodies, calle
 
 The encrypted storage port requires linearizable reads, atomic durable compare-and-swap and an
 irreversible revocation fence. An uncertain fence outcome must make future reads unavailable until
-reconciled; an adapter that simply throws and later returns the old unfenced row is invalid. This part proves encryption
-and lifecycle behavior through fixture HTTP and an isolated memory implementation of that port;
-it does **not** prove PostgreSQL persistence, RLS, canonical attribution or deployed durability.
-OAuth state expires after ten minutes (an engineering limit); the storage adapter must retire
-expired pending/blocked rows and token-free revoked tombstones under the canonical retention
-policy when that adapter is introduced. Keys must remain available for referenced older key
+reconciled; an adapter that simply throws and later returns the old unfenced row is invalid. The fixture HTTP journeys prove the OAuth lifecycle. The PostgreSQL secret-provider journey separately proves encrypted persistence and secret isolation; canonical attribution, actor integration and deployed durability remain unproved.
+OAuth state expires after ten minutes (an engineering limit). Secret-provider retention must preserve irreversible revocation fences; it must never delete a tombstone and permit the same reference to become active again. Keys must remain available for referenced older key
 versions until those rows have been retired or re-encrypted. Do not compose a memory store in
 production. Do not place plaintext in events, run evidence,
 logs, traces, prompts, R2 keys or Durable Object names.
+
+## PostgreSQL secret provider
+
+`packages/persistence/src/postgres-mcp-secrets.ts` implements the encrypted storage port in a
+separate PostgreSQL schema. The non-login `clockgrove_mcp_secrets` role has access only to that
+provider. The ordinary runtime role has no access. Forced RLS binds each operation to the complete
+tenant, world, timeline, installation and installing-owner scope. Envelope state and revision form
+encryption authenticated data, so fencing preserves them and sets a separate irreversible bit.
+SQL guards prevent clearing that bit, changing scope, deleting tombstones or reusing a revision.
+The vault continues to own the separate versioned credential keyring; the adapter receives only
+sealed envelopes and opaque references. Nothing is appended to the Journal by this provider.
+
+Decision: this adapter sacrifices credential availability on provider restart to preserve the
+storage port's fail-closed uncertainty guarantee. It owns a dedicated, pinned PostgreSQL session
+and an exclusive scope lock. Opening a provider fences all existing references in that scope
+before permitting operations. A competing provider fails closed while the first session owns the
+lock. A connection error makes the provider unusable; no transparent reconnect is allowed.
+After session loss, a successor must acquire the lock and fence the old references before it can
+serve reads. Thus even a revocation request that never committed cannot expose an old active
+credential through a fresh provider. Operators must reconnect credentials after provider takeover,
+including a graceful restart. This adapter is not composed into the Worker or a connection pool.
+
+The [database runbook](../runbooks/database.md#mcp-secret-provider-prerequisite) records role
+provisioning. Future installation composition must supply the privileged pinned connection,
+coordinate provider ownership, and expose reconnect through the operator flow. Do not use a
+per-request provider: opening it deliberately invalidates all older scoped credentials.
 
 ## Cloudflare composition prerequisite
 
@@ -98,8 +120,7 @@ The foundation is a sequential delivery part, not acceptance of issue 164 as a w
 In particular, address admission is not hosted installation safety; a discovery snapshot is not
 a canonical installation or registry version; a schema hash is not drift detection; ciphertext
 owner binding is not installation authorization; and credential fencing is not actor grant
-revocation. The memory-store journeys do not establish durable secret isolation or the
-PostgreSQL/runtime/browser path. No operator installation procedure is available yet.
+revocation. The PostgreSQL secret journey establishes secret persistence and isolation only; it does not establish the complete PostgreSQL/runtime/browser installation path. No operator installation procedure is available yet.
 All of those obligations remain in the canonical integration below before deployment.
 
 ## Canonical integration still required

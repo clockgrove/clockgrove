@@ -20,6 +20,7 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
   private readonly scope: McpCredentialScope;
   private failed = false;
   private backendPid = 0;
+  private tail: Promise<void> = Promise.resolve();
   private readonly lockIdentity: string;
 
   private constructor(
@@ -69,7 +70,16 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
     await this.client.close().catch(() => undefined);
   }
 
-  private async transaction<T>(operation: () => Promise<T>): Promise<T> {
+  private transaction<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(() => this.runTransaction(operation));
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private async runTransaction<T>(operation: () => Promise<T>): Promise<T> {
     if (this.failed) throw new McpCredentialError();
     try {
       return await withClientTransaction(this.client, {}, async () => {

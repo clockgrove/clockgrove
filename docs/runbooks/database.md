@@ -950,3 +950,27 @@ checkpoint still holds the recorded hash. For the running service,
 proves the next cron sweep writes a new snapshot. It then rewrites that snapshot to another kernel
 registry hash, as an old-runtime snapshot carries, and proves the next sweep after a command passes
 over it (a `birth` replay only, no failure) and writes a new snapshot.
+
+
+## MCP secret provider prerequisite
+
+Before applying migration `0045_mcp_secret_storage.sql`, an administrator must provision the
+isolated role (the disposable database bootstrap does this for tests):
+
+```sql
+CREATE ROLE clockgrove_mcp_secrets
+  NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+```
+
+The migrator remains `NOCREATEROLE`. Do not grant this role to `clockgrove_runtime`, support,
+backup, authentication readers or actors. This change creates no provider login, credential or
+hosted connection. Future trusted installation composition must explicitly provision a dedicated
+connection with this role and no canonical runtime authority. The role accesses sealed envelopes
+in its own schema, never plaintext or the credential encryption keyring. Forced RLS checks the
+complete installation/owner scope; the provider holds an exclusive PostgreSQL session lock.
+
+Opening a successor provider fences all previous scoped references, including pending OAuth
+connections. Reconnect credentials after session loss or restart. Do not use transaction pooling,
+transparent reconnect or a per-request adapter. Keep token-free revocation tombstones for the
+installation lifetime so a deleted reference can never be reactivated. Retention is recorded in
+`db/retention.json`; canonical installation deletion and automated cleanup remain later integration.

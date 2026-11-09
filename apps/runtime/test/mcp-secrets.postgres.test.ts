@@ -3,8 +3,12 @@ import {
   type McpCredentialScope,
   McpCredentialVault,
 } from "@clockgrove/application";
+import { PostgreSqlMcpSecretStorage } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
-import { PostgreSqlMcpSecretStorage } from "../../../packages/persistence/src/postgres-mcp-secrets.js";
+import {
+  databaseIsolationQuery,
+  // @ts-expect-error -- repository-local JavaScript helper has no declaration file.
+} from "../../../scripts/database/isolation.mjs";
 import {
   applyMigrations,
   applySqlFile,
@@ -26,8 +30,16 @@ it("isolates encrypted MCP credentials and preserves revocation across provider 
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
     await applySqlFile(fixture.tools, fixture.environment, "tests/database/journal-fixture.sql");
-    const truth = async (sql: string) =>
+    const truth = async (sql: string): Promise<string> =>
       (await psqlQuery(fixture.tools, fixture.environment, sql)).trim();
+    const isolation = await truth(`SET ROLE clockgrove_migrator; ${databaseIsolationQuery}`);
+    expect(
+      isolation
+        .split("\n")
+        .at(-1)
+        ?.split("|")
+        .every((value) => value === "t"),
+    ).toBe(true);
     let fault: "none" | "fence" | "commit" = "none";
     const open = async (context = scope, inject = false) => {
       const client = connect(fixture.environment, "clockgrove", "clockgrove_admin");
@@ -103,7 +115,13 @@ it("isolates encrypted MCP credentials and preserves revocation across provider 
           await other.close();
         }
       }
-      const row = (await provider.read(reference))!;
+      const [row, concurrent] = await Promise.all([
+        provider.read(reference),
+        provider.read(reference),
+      ]);
+      expect(concurrent).toEqual(row);
+      expect(row).toBeDefined();
+      if (!row) throw new Error("credential missing");
       expect(
         await provider.compareAndSwap(reference, row.revision + 1, {
           ...row,

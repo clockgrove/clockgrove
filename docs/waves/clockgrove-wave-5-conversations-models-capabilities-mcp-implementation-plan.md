@@ -388,6 +388,10 @@ no loopback allowance; fixtures use a test-only network port. Before Cloudflare 
 DNS answers and the platform's private-egress behavior, documenting residual rebinding risk;
 use pinned egress if that leaves a real hole. The transport and credential foundation and its
 remaining integration work are described in the [installation protocol](../protocols/mcp.md).
+Amended (2026-11-09, issue 164, part 2): the isolated PostgreSQL secret adapter uses a dedicated
+non-login role and forced installation/owner RLS. Provider-session takeover fences old references
+and requires reconnect, preserving fail-closed uncertainty without granting ordinary runtime
+access. It remains uncomposed; canonical installation and operator OAuth composition are pending.
 Canonical records, scoped grants, runtime revision invalidation and the operator browser journey
 remain required before the installation outcome can be accepted.
 
