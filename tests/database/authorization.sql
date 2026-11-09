@@ -2301,6 +2301,28 @@ BEGIN
   IF (SELECT count(*) FROM clockgrove.actor_activations) <> 1 THEN
     RAISE EXCEPTION 'refused activation changed durable receipt count';
   END IF;
+  -- Commit hints (0042): only the world's own system principal learns which actors subscribe.
+  UPDATE clockgrove.actor_activation_policies SET configurations='[
+    {"id":"subscription-a","kind":"subscription","enabled":true,"eventType":"rain.started"},
+    {"id":"subscription-off","kind":"subscription","enabled":false,"eventType":"rain.stopped"}]';
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a'],
+    ARRAY['tenant-b','system:world:world-b'],
+    ARRAY['tenant-a','system:world:world-b']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2]);
+    IF EXISTS (SELECT 1 FROM clockgrove.activation_event_subscribers(
+        'tenant-a','world-a','timeline-a',ARRAY['rain.started'])) THEN
+      RAISE EXCEPTION 'foreign context read activation subscribers';
+    END IF;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','system:world:world-a','{"version":1,"allowedCategories":["public_scene"]}');
+  IF (SELECT string_agg(actor_id || '/' || space_id, ',') FROM clockgrove.activation_event_subscribers(
+      'tenant-a','world-a','timeline-a',ARRAY['rain.started','rain.stopped'])) IS DISTINCT FROM 'keeper/space-a'
+    OR EXISTS (SELECT 1 FROM clockgrove.activation_event_subscribers(
+      'tenant-a','world-a','timeline-a',ARRAY['rain.stopped'])) THEN
+    RAISE EXCEPTION 'world system principal did not read exactly its enabled subscribers';
+  END IF;
 END;
 $$;
 ROLLBACK;
