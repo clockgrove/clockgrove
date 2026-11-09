@@ -1,7 +1,7 @@
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
 import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
+import { readPackDirectory, sdkSource } from "../../packages/simulator/cli/pack-source.ts";
+import { previewSeedProjection } from "../../packages/simulator/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -298,6 +300,28 @@ it("captures an external world's full matrix and retains digest-specific approva
     const assets = path.join(external, "static");
     const out = path.join(external, "visual");
     await cp(path.join(root, "worlds/fixture/reference"), pack, { recursive: true });
+    // A 48-hour day: the HUD's face times fall at twice the fixture's simulation times.
+    const sha256 = async (bytes) => createHash("sha256").update(bytes).digest("hex");
+    const policyFile = path.join(pack, "resources/policies/behavior.json");
+    const behavior = JSON.parse(await readFile(policyFile, "utf8"));
+    const environment = behavior.policy.environment;
+    for (const time of [
+      environment.dayLengthMs,
+      ...environment.phases.map(({ startMs }) => startMs),
+    ])
+      time.$bigint = String(2n * BigInt(time.$bigint));
+    await writeFile(policyFile, JSON.stringify(behavior));
+    const manifest = JSON.parse(await readFile(path.join(pack, "manifest.json"), "utf8"));
+    manifest.policies.find(({ path }) => path === "policies/behavior.json").sha256 = await sha256(
+      await readFile(policyFile),
+    );
+    await writeFile(path.join(pack, "manifest.json"), JSON.stringify(manifest));
+    const preview = await previewSeedProjection(sdkSource(await readPackDirectory(pack)), {
+      sha256,
+    });
+    expect(preview.ok).toBe(true);
+    manifest.expectedSeedProjectionHash = preview.value.actual;
+    await writeFile(path.join(pack, "manifest.json"), JSON.stringify(manifest));
     await mkdir(assets);
     await writeFile(
       path.join(pack, "runtime.json"),
@@ -385,6 +409,73 @@ it("captures an external world's full matrix and retains digest-specific approva
       expect([refused.status, refused.stdout], refused.stderr).toEqual([2, ""]);
       expect(refused.stderr).toContain("Usage:");
     }
+    // SIGTERM mid-capture: the run stops and removes its PostgreSQL cluster and processes.
+    const scratch = path.join(external, "tmp");
+    const partial = path.join(external, "interrupted");
+    await mkdir(scratch);
+    const stopping = spawn(process.execPath, [launcher, ...args.slice(0, 6), "--out", partial], {
+      cwd: assets,
+      env: { ...process.env, TMPDIR: scratch },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let log = "";
+    stopping.stderr.setEncoding("utf8").on("data", (chunk) => {
+      log += chunk;
+    });
+    const stopped = new Promise((resolve) => stopping.on("exit", (code) => resolve(code)));
+    const alive = (pid) => {
+      try {
+        return process.kill(pid, 0);
+      } catch (error) {
+        if (error.code === "ESRCH") return false;
+        throw error;
+      }
+    };
+    let cluster;
+    await expect
+      .poll(
+        async () => {
+          const files = await readdir(scratch, { recursive: true }).catch(() => []);
+          const lock = files.find((file) => path.basename(file) === "postmaster.pid");
+          const pid =
+            lock && Number((await readFile(path.join(scratch, lock), "utf8")).split("\n")[0]);
+          const pngs = (await readdir(partial).catch(() => [])).filter((file) =>
+            file.endsWith(".png"),
+          );
+          if (pid && alive(pid) && pngs.length > 0)
+            cluster = {
+              pid,
+              data: path.join(scratch, path.dirname(lock)),
+              run: lock.split("/")[0],
+            };
+          return cluster !== undefined;
+        },
+        { timeout: 240_000, interval: 500 },
+      )
+      .toBe(true);
+    // Every process the run started carries its marker, whatever its process group.
+    const owned = async () => {
+      const marker = `CLOCKGROVE_CAPTURE_RUN=${cluster.run}`;
+      const environs = await Promise.all(
+        (await readdir("/proc"))
+          .filter((name) => /^\d+$/u.test(name))
+          .map((name) => readFile(`/proc/${name}/environ`, "latin1").catch(() => "")),
+      );
+      return environs.filter((environ) => environ.split("\0").includes(marker)).length;
+    };
+    expect([alive(cluster.pid), existsSync(cluster.data), (await owned()) > 0]).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    stopping.kill("SIGTERM");
+    expect(await stopped, log).toBe(143);
+    expect([
+      alive(cluster.pid),
+      existsSync(cluster.data),
+      await readdir(scratch),
+      await owned(),
+    ]).toEqual([false, false, [], 0]);
     // Two native backend runs use the existing 240 s journey bound each, plus launcher teardown.
     const { stdout } = await promisify(execFile)(process.execPath, [launcher, ...args], {
       cwd: assets,
@@ -429,7 +520,11 @@ it("captures an external world's full matrix and retains digest-specific approva
       title: "External capture fixture",
       tokens: { "--cg-v1-bg": "#123abc" },
     });
-    expect([captures.actor, captures.object]).toEqual(["fixture.keeper", "fixture.den"]);
+    expect([captures.actor, captures.object, captures.dayLengthMs]).toEqual([
+      "fixture.keeper",
+      "fixture.den",
+      "172800000",
+    ]);
     for (const report of result.reports) {
       const bytes = await readFile(path.join(out, report.file));
       expect(report.sha256).toBe(`sha256:${createHash("sha256").update(bytes).digest("hex")}`);
@@ -457,4 +552,5 @@ it("captures an external world's full matrix and retains digest-specific approva
   } finally {
     await rm(external, { recursive: true, force: true });
   }
-}, 600_000);
+  // The interrupted run's 240 s bound and the full run's 540 s launcher bound, plus teardown.
+}, 840_000);

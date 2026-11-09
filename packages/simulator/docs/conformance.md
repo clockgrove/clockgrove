@@ -80,7 +80,8 @@ for the matrix, file layout and review procedure.
 Like external conformance, successful capture prints `{"status":"ok","reports":[...]}` after
 its progress output. Exit 0 means captures completed, even when approvals remain pending;
 1 means capture validation failed, 2 means invalid arguments or invalid input locations,
-and 70 means an unexpected internal error. Diagnostics go to stderr. Capture success is not
+and 70 means an unexpected internal error. Diagnostics go to stderr. A run stopped by SIGINT,
+SIGTERM or SIGHUP removes its database and processes and exits 128 plus the signal number. Capture success is not
 approval or whole-wave qualification. Clockgrove's fixture invocation and approvals are unchanged.
 
 ## World-repository CI recipe

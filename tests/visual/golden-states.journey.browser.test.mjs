@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -42,7 +43,12 @@ const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
   ? [process.env.CLOCKGROVE_RENDERER_PROOF]
   : ["webgpu", "webgl2"];
 const TIERS = ["low", "medium", "high"];
-const HOUR_MS = 3_600_000n;
+// scripts/capture-world.mjs asks a run to stop by creating this file. Vitest exits at once on a
+// signal, so the run stops itself instead and tears down as it does after a failure.
+const STOP_FILE = process.env.CLOCKGROVE_CAPTURE_STOP;
+const throwIfStopped = () => {
+  if (STOP_FILE !== undefined && existsSync(STOP_FILE)) throw new Error("Capture run stopped");
+};
 /** The client measurement fields (apps/web/src/measurements.ts): opaque IDs and categories only. */
 const MEASUREMENT_FIELDS = [
   "name",
@@ -63,6 +69,7 @@ function pngSize(bytes) {
 // issue 814: the §15.3 golden states at each matrix viewport, captured with their SHA-256 for the Wave 4
 // manifest, which compares them with human approvals; the journey itself asserts state, not pixels.
 const captureGoldenStates = async (backend) => {
+  throwIfStopped();
   if (!isNativeWorldOwnerChild()) {
     const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
     process.env.CLOCKGROVE_RENDERER_PROOF = backend;
@@ -91,6 +98,15 @@ const captureGoldenStates = async (backend) => {
       spaceId: provisioned.partition.route.spaceId,
     };
     const truth = truthOf(fixture);
+    // The HUD shows a 24-hour face scaled from the world's day length (apps/web/src/hud.tsx), so
+    // each state's time is a face time on the selected world's day.
+    const dayLength = world.behavior.policy.environment?.dayLengthMs;
+    if (dayLength === undefined)
+      throw new Error("Capture states need a world clock: the behavior policy has no environment");
+    const face = (time) => {
+      const minutes = ((time % dayLength) * 1440n) / dayLength;
+      return `${(minutes / 60n).toString().padStart(2, "0")}:${(minutes % 60n).toString().padStart(2, "0")}`;
+    };
     const revision = async () =>
       BigInt(
         await truth(
@@ -105,11 +121,14 @@ const captureGoldenStates = async (backend) => {
       const { status, body } = await native.submit(command, {}, "hall-inspect");
       expect(status, JSON.stringify(body)).toBe(200);
     };
+    /** Advances to the next face time `hour`:`minute` and returns the face the HUD must show. */
     const advanceTo = async (key, hour, minute = 0n) => {
+      throwIfStopped();
       const now = BigInt((await scene()).simulationTime);
-      const day = now - (now % (24n * HOUR_MS));
-      let target = day + hour * HOUR_MS + minute * 60_000n;
-      if (external && target < now) target += 24n * HOUR_MS;
+      const day = now - (now % dayLength);
+      // Rounded up, so the HUD's rounded-down face reads exactly this minute.
+      let target = day + ((hour * 60n + minute) * dayLength + 1439n) / 1440n;
+      if (external && target < now) target += dayLength;
       if (target > now)
         await commit({
           ...advanceCommand(world, key, target, await revision(), {
@@ -117,6 +136,7 @@ const captureGoldenStates = async (backend) => {
             maxEvents: 4096,
           }),
         });
+      return face(target);
     };
     const evidenceRoot =
       process.env.CLOCKGROVE_CAPTURE_OUT ??
@@ -168,10 +188,20 @@ const captureGoldenStates = async (backend) => {
       ],
     });
     let browser;
+    let stopped = false;
+    // A stop request closes the browser, so a pending page wait fails now rather than at its timeout.
+    const watch = setInterval(() => {
+      if (!stopped && STOP_FILE !== undefined && existsSync(STOP_FILE)) {
+        stopped = true;
+        browser?.close().catch(() => undefined);
+      }
+    }, 250);
     try {
+      throwIfStopped();
       await server.listen();
       const { port } = server.httpServer.address();
       browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+      throwIfStopped();
       const vitals = [];
       const open = async (viewport, text, missingAtlas = false) => {
         const page = await browser.newPage({
@@ -262,6 +292,7 @@ const captureGoldenStates = async (backend) => {
         : undefined;
       const captures = [];
       const capture = async (state, page, check) => {
+        throwIfStopped();
         // A check may name the region its state is about; the capture frames it, else the page top.
         const region = await check(page);
         // The HUD clock and the feed come from the world-status read, which follows the committed
@@ -352,7 +383,7 @@ const captureGoldenStates = async (backend) => {
           });
         }
       };
-      await advanceTo("visual-daylight", 12n);
+      const noon = await advanceTo("visual-daylight", 12n);
       await externalWeather("visual-dry", 0);
       const daylight = await scene();
       await each("daylight-dry", async (page) => {
@@ -361,16 +392,15 @@ const captureGoldenStates = async (backend) => {
           .waitFor();
         await living(page).getByText("Rain intensity: 0", { exact: true }).waitFor();
         await clock(page)
-          .getByText(/^Day \d+, 12:00$/u)
+          .getByText(new RegExp(`^Day \\d+, ${noon}$`, "u"))
           .waitFor();
       });
 
       const tierComparisons = [];
       const captureTiers = async (state, hour, minute = 0n) => {
-        await advanceTo(`visual-${state}-tiers`, hour, minute);
+        const time = await advanceTo(`visual-${state}-tiers`, hour, minute);
         await externalWeather(`visual-${state}-rain`, 9000);
         const committed = await scene();
-        const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
         for (const tier of TIERS) {
           await each(`${state}-rain-${tier}`, async (page) => {
             await living(page)
@@ -581,7 +611,7 @@ const captureGoldenStates = async (backend) => {
         payload: { schemaVersion: 2, rainIntensity: 9000 },
       });
       await captureTiers("dusk", 17n, 45n);
-      await advanceTo("visual-dusk", 19n);
+      const evening = await advanceTo("visual-dusk", 19n);
       await externalWeather("visual-dusk-rain", 9000);
       const dusk = await scene();
       await each("dusk-rain", async (page) => {
@@ -590,7 +620,7 @@ const captureGoldenStates = async (backend) => {
           .waitFor();
         await living(page).getByText("Rain intensity: 9000", { exact: true }).waitFor();
         await clock(page)
-          .getByText(/^Day \d+, 19:00$/u)
+          .getByText(new RegExp(`^Day \\d+, ${evening}$`, "u"))
           .waitFor();
       });
 
@@ -778,7 +808,13 @@ const captureGoldenStates = async (backend) => {
       );
       const report = {
         ...(external
-          ? { pack: world.artifact.packId, actor: actorId, object: objectId, browserShell }
+          ? {
+              pack: world.artifact.packId,
+              dayLengthMs: dayLength.toString(),
+              actor: actorId,
+              object: objectId,
+              browserShell,
+            }
           : {}),
         viewports: VIEWPORTS,
         captures,
@@ -807,7 +843,10 @@ const captureGoldenStates = async (backend) => {
           `${JSON.stringify(primary, null, 2)}\n`,
         );
       }
+    } catch (error) {
+      throw stopped ? new Error("Capture run stopped", { cause: error }) : error;
     } finally {
+      clearInterval(watch);
       await browser?.close();
       await server.close();
     }

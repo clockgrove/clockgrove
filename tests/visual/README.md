@@ -13,7 +13,9 @@ capture traversal for the fixture world and external worlds. Its fixed matrix is
 - disconnected/recovering;
 - text access.
 
-The fixture caller also retains its renderer qualification assertions. External worlds use their
+Daylight is 12:00, dusk 17:45 and 19:00, and night 22:00 on the HUD's 24-hour face, which scales
+the world's environment day length; a world needs an environment policy for its clock. The
+fixture caller also retains its renderer qualification assertions. External worlds use their
 own pack, shell, static assets and optional runtime presentation; they need not reproduce fixture
 lanterns, puddles or atlas content. Capture success does not establish whole-wave qualification.
 
@@ -54,6 +56,12 @@ directory. A successful command prints its progress and a final
 `{"status":"ok","reports":[...]}`. Exit 0 means the capture run completed, not that review
 approved it. Exit 1 denotes a capture validation failure, 2 invalid arguments or input locations,
 and 70 an unexpected internal error; failure diagnostics go to stderr.
+
+SIGINT, SIGTERM or SIGHUP asks the run to stop: the suite tears down its runtime, browser and
+PostgreSQL cluster as after a failure, and the command exits 128 plus the signal number. A run
+that has not stopped 60 seconds later, or a second signal, ends the suite by force; the command
+then stops every process and cluster the run started and removes its temporary directory. A run
+past its 540-second bound is stopped the same way and exits 1.
 
 ## Review and approval
 
