@@ -290,6 +290,35 @@ const OWN_MOVEMENT_TYPES: Readonly<Record<MovementCommandType | "portal.use", re
     "movement.replan": ["movement.replanned", "movement.completed"],
     "portal.use": ["movement.started", "movement.completed"],
   });
+/**
+ * The entity fields each event a moving command journals may change on the object its `objectId`
+ * names (`movement.scope@4`). An event type not listed changes no entity field: its state, if any,
+ * lives in the world's wellbeing, lifecycle, ecology or environment records. `lifecycle.born` adds
+ * the entity its `childId` names instead.
+ */
+const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)[]>> =
+  Object.freeze({
+    "needs.changed": ["needs"],
+    "needs.relieved": ["needs"],
+    "resource.spoiled": ["resource"],
+    "resource.appeared": ["resource"],
+    "resource.consumed": ["resource"],
+    "routine.selected": ["selectedAction"],
+    "location.changed": ["locationId"],
+    "lifecycle.died": ["lifecycle"],
+    "movement.started": ["movement"],
+    "movement.region-entered": ["movement"],
+    "movement.region-exited": ["movement"],
+    "movement.portal-crossed": ["movement"],
+    "movement.replanned": ["movement", "pose"],
+    "movement.interrupted": ["movement", "pose"],
+    "movement.completed": ["movement", "pose"],
+  });
+/**
+ * The only event a moving command may journal twice with the same time and payload
+ * (`movement.events-ordered-and-unique@3`): two actors eating from one holder at one time.
+ */
+const REPEATABLE_MOVING_TYPES: ReadonlySet<string> = new Set(["resource.consumed"]);
 /** The movement events that begin, change or end one mover's movement (not its crossings). */
 const MOVEMENT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
   "movement.started",
@@ -307,10 +336,11 @@ function handlerTypes(command: string): readonly string[] {
   ];
 }
 /**
- * The world time a moving command may pass (`movement.passed-time@1`): at most one decision interval
- * of the world policy, and no more events than one `world.advance` call.
+ * The world time a moving command may pass (`movement.passed-time@2`): at most one decision interval
+ * of the world policy, and no more events or decisions than one `world.advance` call.
  */
 const PASSED_TIME_CHECK = "movement.passed-time";
+const PASSED_TIME_VERSION = 2;
 /** The event budget of one `world.advance` call (its payload's ceiling), and of one moving command. */
 const MAX_EVENTS_PER_CALL = 4096;
 /** The decision budget of one `world.advance` call (its payload's ceiling), and of one moving command. */
@@ -2102,11 +2132,14 @@ function runWorld(
     // - when the mover dies, its movement is interrupted there (`movement.interrupted`, then
     //   `lifecycle.died`) and the move ends at that time.
     //
-    // The time a move may pass is bounded (`movement.passed-time@1`, `precondition-failed`): at most
-    // one `decisionIntervalMs` of the policy, and at most `world.advance`'s per-call event budget.
+    // The time a move may pass is bounded (`movement.passed-time@2`, `precondition-failed`): at most
+    // one `decisionIntervalMs` of the policy, and at most `world.advance`'s per-call event and
+    // decision budgets.
     const start = current().simulationTime;
     const passedTime = (path: string): never => {
-      throw new RefusalSignal(refusal("precondition-failed", path, `${PASSED_TIME_CHECK}@1`));
+      throw new RefusalSignal(
+        refusal("precondition-failed", path, `${PASSED_TIME_CHECK}@${PASSED_TIME_VERSION}`),
+      );
     };
     let ended = false;
     spec.move({
@@ -3243,14 +3276,6 @@ function passedTimeDisagreement(
   return undefined;
 }
 
-/** The objects an event names: the ones whose entity it may change or create. */
-function namedObjects(event: WorldEvent): readonly string[] {
-  const payload = event.payload as Readonly<Record<string, unknown>>;
-  return ["objectId", "childId", "gestatingParentId", "coParentId", "sourceObjectId"]
-    .map((key) => payload[key])
-    .filter((value): value is string => typeof value === "string");
-}
-
 /**
  * The path of the first event a moving command (`movement.*`, `portal.use`) may not emit, or
  * undefined. The mover's own movement events belong to the command alone; the world time's events,
@@ -3311,7 +3336,7 @@ function registerMovementChecks(
     pre("timing"),
     preconditions.register({
       name: PASSED_TIME_CHECK,
-      version: 1,
+      version: PASSED_TIME_VERSION,
       commands: ["movement.interrupt", "movement.replan"],
       check: ({ state, input, payload }) =>
         (payload as MovementInterruptPayload).at - state.simulationTime >
@@ -3321,17 +3346,17 @@ function registerMovementChecks(
     }),
     invariants.register({
       name: "movement.events-ordered-and-unique",
-      version: 2,
+      version: 3,
       commands: moving,
       check: ({ initial, state, events }) => {
-        // Every event is in time order; no movement event repeats. Other events of the world time
-        // may: two actors eating from one holder at one time each journal the same consumption.
+        // Every event is in time order and none repeats, except a consumption: two actors eating
+        // from one holder at one time each journal the same `resource.consumed`.
         let last = initial.simulationTime;
         const seen = new Set<string>();
         for (const [index, event] of events.entries()) {
           if (event.simulationTime < last) return `events[${index}].simulationTime`;
           last = event.simulationTime;
-          if (!event.type.startsWith("movement.")) continue;
+          if (REPEATABLE_MOVING_TYPES.has(event.type)) continue;
           const key = canonicalSerialize({
             type: event.type,
             time: event.simulationTime,
@@ -3359,15 +3384,43 @@ function registerMovementChecks(
     }),
     invariants.register({
       name: "movement.scope",
-      version: 3,
+      version: 4,
       commands: moving,
-      check: ({ initial, state, events }) => {
-        // The command moves one object; the world time it passes changes only what its events name.
-        // Food appears and spoils only at the times its ecology owns. The frames, regions and anchor
-        // graphs never change, and the weather only at a weather transition. No entity is removed,
-        // the only new ones are those born, and an entity that no event names is unchanged.
+      check: ({ initial, state, events, payload }) => {
+        // The command moves one object: its own events name its mover, and the only other objects
+        // with movement events are needs actors, the ones the routine movers move, and objects whose
+        // dwell falls due (`movement.region-remained` changes no entity field). The world time it
+        // passes changes, on each object an event names, only the fields that event type owns
+        // (`MOVING_ENTITY_FIELDS`); the mover's movement and pose change only through movement
+        // events. Food appears and spoils only at the times its ecology owns. The frames, regions
+        // and anchor graphs never change, and the weather only at a weather transition. No entity
+        // is removed, and the only new ones are those born.
         const unowned = passedTimeDisagreement(initial, events);
         if (unowned !== undefined) return unowned;
+        const mover = (payload as { readonly objectId?: string }).objectId;
+        const born = new Set(
+          events
+            .filter((event) => event.type === "lifecycle.born")
+            .map((event) => (event.payload as { childId: string }).childId),
+        );
+        const objectOf = (event: WorldEvent) =>
+          (event.payload as { readonly objectId?: string }).objectId;
+        const moved = new Set(
+          events
+            .filter(
+              (event) =>
+                event.type.startsWith("movement.") && event.type !== "movement.region-remained",
+            )
+            .map(objectOf),
+        );
+        if (!moved.has(mover)) return "events";
+        for (const objectId of moved)
+          if (
+            objectId !== mover &&
+            !born.has(objectId as string) &&
+            initial.entities.find((entity) => entity.objectId === objectId)?.needs === undefined
+          )
+            return "events";
         const weather = events.some((event) => event.type === "weather.transitioned");
         for (const key of ["weather", "spatialFrames", "spatialRegions", "anchorGraphs"] as const)
           if (
@@ -3375,12 +3428,15 @@ function registerMovementChecks(
             canonicalSerialize(initial[key] ?? null) !== canonicalSerialize(state[key] ?? null)
           )
             return `state.${key}`;
-        const named = new Set(events.flatMap(namedObjects));
-        const born = new Set(
-          events
-            .filter((event) => event.type === "lifecycle.born")
-            .map((event) => (event.payload as { childId: string }).childId),
-        );
+        const released = new Map<string, Set<string>>();
+        for (const event of events) {
+          const objectId = objectOf(event);
+          const fields = MOVING_ENTITY_FIELDS[event.type];
+          if (objectId === undefined || fields === undefined) continue;
+          const set = released.get(objectId) ?? new Set<string>();
+          for (const field of fields) set.add(field);
+          released.set(objectId, set);
+        }
         for (const before of initial.entities)
           if (!state.entities.some((entity) => entity.objectId === before.objectId))
             return "state.entities";
@@ -3390,11 +3446,14 @@ function registerMovementChecks(
           );
           if (before === undefined) {
             if (!born.has(entity.objectId)) return "state.entities";
-          } else if (
-            !named.has(entity.objectId) &&
-            canonicalSerialize(before) !== canonicalSerialize(entity)
-          )
-            return entityPath(state, entity);
+            continue;
+          }
+          const free = released.get(entity.objectId);
+          const kept = (value: WorldEntity) =>
+            canonicalSerialize(
+              Object.fromEntries(Object.entries(value).filter(([key]) => free?.has(key) !== true)),
+            );
+          if (kept(before) !== kept(entity)) return entityPath(state, entity);
         }
         return undefined;
       },

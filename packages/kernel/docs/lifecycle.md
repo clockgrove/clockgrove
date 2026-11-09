@@ -40,7 +40,8 @@ removes the actor from every later system. Each birth upserts the child's `world
 `bornAt + decisionIntervalMs`. The dead stay in `state.entities` with unchanged `objectId` and `archetypeId`
 and their lifecycle entry is kept. Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
 random state equals the input. A movement or portal command that moves the world time plans the lifecycle times it
-passes the same way and in the same stream order, and a mover's death ends its move
+passes the same way and in the same stream order, and a mover's death ends its move: `movement.interrupted`
+(without a cause), then `lifecycle.died` with the cause, both at the time of death
 ([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 
 **Ids.** `lifecycleChildId(gestatingParentId, ordinal)`, `lifecycleScheduleId(childId)` and

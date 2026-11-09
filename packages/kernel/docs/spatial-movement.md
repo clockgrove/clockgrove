@@ -43,9 +43,9 @@ hashed. The domain reducers validate against every region, so a faulty index is 
 
 | Command | Payload | Events | Preconditions | Invariants |
 | --- | --- | --- | --- | --- |
-| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@3`, `movement.events-ordered-and-unique@2`, `movement.crossings-consistent@1`, `movement.scope@3` |
-| `movement.interrupt` | `objectId`, `at` | crossings up to `at`, then `movement.interrupted` | `movement.active-object@1` (active movement), `movement.timing@1` (`at` inside the active segment), `movement.passed-time@1` | `movement.event-authority.movement.interrupt@3` plus the shared three |
-| `movement.replan` | `objectId`, `at`, `destination`, `unitsPerSecond`, `observeUntil?` | crossings of the prior movement up to `at`, `movement.replanned`, new crossings, `movement.completed` if reached | `movement.active-object@1` (unfinished movement), `movement.route@1`, `movement.timing@1`, `movement.passed-time@1` | `movement.event-authority.movement.replan@3` plus the shared three |
+| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@4` |
+| `movement.interrupt` | `objectId`, `at` | crossings up to `at`, then `movement.interrupted` | `movement.active-object@1` (active movement), `movement.timing@1` (`at` inside the active segment), `movement.passed-time@2` | `movement.event-authority.movement.interrupt@3` plus the shared three |
+| `movement.replan` | `objectId`, `at`, `destination`, `unitsPerSecond`, `observeUntil?` | crossings of the prior movement up to `at`, `movement.replanned`, new crossings, `movement.completed` if reached | `movement.active-object@1` (unfinished movement), `movement.route@1`, `movement.timing@1`, `movement.passed-time@2` | `movement.event-authority.movement.replan@3` plus the shared three |
 
 Refusals (always returned, never thrown):
 
@@ -57,8 +57,8 @@ Refusals (always returned, never thrown):
 | `precondition-failed` | `payload.objectId` (unknown, retired or dead object; start while active; interrupt without an active movement; replan without an unfinished movement) | `movement.active-object@1` |
 | `precondition-failed` | `payload.destination.anchorId`, `payload.destination.graphVersion`, `payload.destination.pose.frameId` (unknown frame or frame mismatch with the object), `payload.destination.pose.frameVersion`, `payload.destination.pose.coordinates`, `payload.destination` (unreachable) | `movement.route@1` |
 | `precondition-failed` | `payload.at` (before world time or outside the active segment), `payload.observeUntil` (before the start) | `movement.timing@1` |
-| `precondition-failed` | `payload.at` (more than the policy's `decisionIntervalMs` after the world time), `state.simulationTime`, `events` (the time a move passes; see [World time a move passes](#world-time-a-move-passes)) | `movement.passed-time@1` |
-| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering, and uniqueness of movement events), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events[i].simulationTime`, `state.<collection>`, `state.entities`, `state.entities[i]` (scope) | `movement.event-authority.<command>@3`, `movement.events-ordered-and-unique@2`, `movement.crossings-consistent@1`, `movement.scope@3` |
+| `precondition-failed` | `payload.at` (more than the policy's `decisionIntervalMs` after the world time), `state.simulationTime`, `events` (the time a move passes; see [World time a move passes](#world-time-a-move-passes)) | `movement.passed-time@2` |
+| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering and uniqueness), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events[i].simulationTime`, `state.<collection>`, `state.entities`, `state.entities[i]` (scope) | `movement.event-authority.<command>@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@4` |
 
 `parseSpatialRegionAtBoundary`, `parseAnchorGraphAtBoundary`, `parseMovementRecordAtBoundary`
 and `parseMovementPayloadAtBoundary` wrap the throwing domain validators and return an
@@ -140,8 +140,8 @@ Refusals are `precondition-failed` with the `portal.<check>@1` check (malformed 
 | `portal.transit@1` | `payload.portalId` | `close` while an active movement still has to cross the portal |
 
 Invariants: `portal.event-authority.<command>@1` (`events[i].type`; `@3` for `portal.use`);
-`portal.use` also runs `movement.events-ordered-and-unique@2` and `movement.scope@3`, and is bound
-by `movement.passed-time@1` like a move; and the global
+`portal.use` also runs `movement.events-ordered-and-unique@3` and `movement.scope@4`, and is bound
+by `movement.passed-time@2` like a move; and the global
 `portal.transit-open@1` refuses any command after which an active movement still has to cross a
 portal that is not open (`state.entities[i].movement.portalSteps[j]`), for example retiring the
 portal object mid-route. A portal can close behind a mover that has crossed it, even while it is
@@ -208,8 +208,9 @@ Three things differ from `world.advance`:
   change the mover's decision, such as becoming uncomfortable, does not stop the move: it is
   journaled at its time and brings the mover's decision forward to the end.
 - When the mover dies, its movement is interrupted at that time (its pending crossings, then
-  `movement.interrupted`, then `lifecycle.died`) and the move ends there. The handler's later
-  events are dropped, and nothing after that time is emitted.
+  `movement.interrupted`, then `lifecycle.died`) and the move ends there. `movement.interrupted`
+  carries no cause; the `lifecycle.died` at the same time carries it (`lifespan` or `health`).
+  The handler's later events are dropped, and nothing after that time is emitted.
 
 The event authority of every moving command (`movement.event-authority.<command>@3`,
 `portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits
@@ -218,17 +219,27 @@ for the time it passes, other than `time.advanced`. The mover's movement events 
 `completed`, `movement.interrupt` owns `interrupted`, `movement.replan` owns `replanned` and
 `completed`. The one other mover event is the death path's `movement.interrupted`, accepted only
 when the mover's `lifecycle.died` follows it at the same time. Other objects' movement events come
-from the world time. `movement.events-ordered-and-unique@2` requires
-time order and no repeated movement event; other events may repeat, as when two actors eat from one
-holder at one time. `movement.scope@3` refuses:
+from the world time. `movement.events-ordered-and-unique@3` requires
+time order and no repeated event (same type, time and payload). The one exception is
+`resource.consumed`: two actors eating from one holder at one time each journal the same
+consumption. `movement.scope@4` refuses:
 
 - an appearance or spoilage at a time its ecology does not own (`events[i].simulationTime`);
+- no movement event of the mover, or a movement event of another object that is not a needs actor
+  (the only objects routine movers move); dwells (`movement.region-remained`) may name any object
+  (`events`);
 - any change to the frames, regions or anchor graphs, or to the weather without a
   `weather.transitioned` (`state.<collection>`);
 - a removed entity, or a new one that no `lifecycle.born` names (`state.entities`);
-- a changed entity that no event names (`state.entities[i]`).
+- a change to an entity field that no event naming the entity owns (`state.entities[i]`). Each
+  event type owns fields of the object its `objectId` names: `needs.changed` and `needs.relieved`
+  own `needs`; `resource.appeared`, `resource.spoiled` and `resource.consumed` own `resource`;
+  `routine.selected` owns `selectedAction`; `location.changed` owns `locationId`;
+  `lifecycle.died` owns `lifecycle`; `movement.started`, the region and portal crossings own
+  `movement`; `movement.replanned`, `movement.interrupted` and `movement.completed` own `movement`
+  and `pose`. Every other event changes no entity field.
 
-The time a move passes is bounded by `movement.passed-time@1` (`precondition-failed`):
+The time a move passes is bounded by `movement.passed-time@2` (`precondition-failed`):
 
 - `payload.at`: an interrupt or replan `at` more than the policy's `decisionIntervalMs` after the
   world time, checked before the move runs.
