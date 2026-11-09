@@ -27,6 +27,98 @@
       "expect": true,
       "id": "small-step-equals-aggregate",
       "kind": "equivalence"
+    },
+    {
+      "eventType": "resource.consumed",
+      "from": {
+        "$bigint": "8661600000"
+      },
+      "id": "main-bowl-drunk-dry-by-decisions",
+      "kind": "eventCount",
+      "operator": "eq",
+      "run": "main",
+      "to": {
+        "$bigint": "8985600000"
+      },
+      "value": 3,
+      "where": [
+        {
+          "path": [
+            "payload",
+            "objectId"
+          ],
+          "value": "fixture.water-bowl"
+        }
+      ]
+    },
+    {
+      "eventType": "resource.appeared",
+      "from": {
+        "$bigint": "8985600000"
+      },
+      "id": "main-bowl-refills-at-next-due",
+      "kind": "eventCount",
+      "operator": "eq",
+      "run": "main",
+      "to": {
+        "$bigint": "9007200000"
+      },
+      "value": 1,
+      "where": [
+        {
+          "path": [
+            "payload",
+            "objectId"
+          ],
+          "value": "fixture.water-bowl"
+        }
+      ]
+    },
+    {
+      "eventType": "resource.consumed",
+      "from": {
+        "$bigint": "8661600000"
+      },
+      "id": "aggregate-bowl-drunk-dry-by-decisions",
+      "kind": "eventCount",
+      "operator": "eq",
+      "run": "aggregate",
+      "to": {
+        "$bigint": "8985600000"
+      },
+      "value": 3,
+      "where": [
+        {
+          "path": [
+            "payload",
+            "objectId"
+          ],
+          "value": "fixture.water-bowl"
+        }
+      ]
+    },
+    {
+      "eventType": "resource.appeared",
+      "from": {
+        "$bigint": "8985600000"
+      },
+      "id": "aggregate-bowl-refills-at-next-due",
+      "kind": "eventCount",
+      "operator": "eq",
+      "run": "aggregate",
+      "to": {
+        "$bigint": "9007200000"
+      },
+      "value": 1,
+      "where": [
+        {
+          "path": [
+            "payload",
+            "objectId"
+          ],
+          "value": "fixture.water-bowl"
+        }
+      ]
     }
   ],
   "equivalences": [
@@ -37,7 +129,10 @@
         "growth.stage-changed",
         "lifecycle.stage-changed",
         "lifecycle.born",
-        "lifecycle.died"
+        "lifecycle.died",
+        "resource.spoiled",
+        "resource.appeared",
+        "resource.consumed"
       ],
       "fields": [
         "events",
@@ -63,6 +158,34 @@
   "schemaVersion": 1,
   "steps": [
     {
+      "key": "before-walk",
+      "kind": "advance",
+      "mode": "live",
+      "stepMs": {
+        "$bigint": "86400000"
+      },
+      "to": {
+        "$bigint": "8726400000"
+      }
+    },
+    {
+      "key": "walk-to-bowl",
+      "kind": "command",
+      "payload": {
+        "destination": {
+          "anchorId": "garden-edge",
+          "graphVersion": 1,
+          "kind": "anchor"
+        },
+        "objectId": "fixture.companion",
+        "unitsPerSecond": {
+          "$bigint": "1000"
+        }
+      },
+      "type": "movement.start",
+      "version": 1
+    },
+    {
       "key": "span",
       "kind": "advance",
       "mode": "live",
@@ -78,6 +201,31 @@
     {
       "name": "aggregate",
       "steps": [
+        {
+          "key": "before-walk",
+          "kind": "advance",
+          "mode": "fast-forward",
+          "to": {
+            "$bigint": "8726400000"
+          }
+        },
+        {
+          "key": "walk-to-bowl",
+          "kind": "command",
+          "payload": {
+            "destination": {
+              "anchorId": "garden-edge",
+              "graphVersion": 1,
+              "kind": "anchor"
+            },
+            "objectId": "fixture.companion",
+            "unitsPerSecond": {
+              "$bigint": "1000"
+            }
+          },
+          "type": "movement.start",
+          "version": 1
+        },
         {
           "key": "span",
           "kind": "advance",

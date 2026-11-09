@@ -41,7 +41,10 @@ bound above in Budgets and continuation](environment.md)), and re-advancing to t
 
 **Food and water.** A source places its quantity into its holder (itself) at `firstAtMs + n × periodMs`
 only when the holder is empty after any spoilage at that instant; a skipped appearance is not
-queued. Perishable food spoils entirely `shelfLifeMs` after it arrived (a transfer from a perishable
+queued. The holder at that instant includes every change before it in the same call: a decision or
+arrival that consumes from a holder re-seeds that holder's spoilage and appearance schedule at its
+time, so a source drunk dry inside one `world.advance` appears at its next due time in that call, as
+it does across live steps. Perishable food spoils entirely `shelfLifeMs` after it arrived (a transfer from a perishable
 keeps the arrival time); consuming to zero clears the arrival. Water does not spoil and rain does not
 change it. A perishable holder holds a single batch: `resource.offer` or `resource.transfer` into one
 that holds food is refused with `precondition-failed`, check `resource.perishable-single-batch@1`, at
@@ -75,7 +78,10 @@ new event. Input hashes reuse `containmentInputIdentity`.
 `growth.stage-changed` and `routine.selected` events by type, simulation time and payload, plus the
 final state with `revision` set aside. `needs.changed`, `growth.integrated` and `time.advanced`
 events and `revision` are declared incidental because their count depends on step boundaries. Pairs
-proved equal: `live-steps-vs-fast-forward` and `bounded-continuation-vs-unbounded`.
+proved equal: `live-steps-vs-fast-forward` and `bounded-continuation-vs-unbounded`. The fixture-hall
+one-year long run (`worlds/fixture/reference/long-runs/long-run-one-year.json`) walks an actor to the
+water source, whose decisions drink it dry; its `small-step-vs-aggregate` equivalence compares the
+resource events as well, and both runs assert the refill at the next due time after the first drain.
 
 **Goldens.** `food-decay-and-conservation`: food and water appear on schedule, a partial and a
 full consume, a refused offer into a holder that still has food, food that spoils entirely at
