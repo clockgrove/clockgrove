@@ -241,7 +241,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
       expect(
         await page
           .locator(".rw-shell")
-          .evaluate((shell) => getComputedStyle(shell).getPropertyValue("--rw-v1-bg").trim()),
+          .evaluate((shell) => getComputedStyle(shell).getPropertyValue("--cg-v1-bg").trim()),
       ).toBe("#14181e");
       await page.getByLabel("Local session credential").fill("local-reader-session");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();

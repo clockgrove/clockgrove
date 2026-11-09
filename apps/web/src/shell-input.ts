@@ -52,7 +52,7 @@ export function readWorldShell(value: unknown): WorldShellInput {
     typeof input.tokens !== "object" ||
     Array.isArray(input.tokens) ||
     !Object.entries(input.tokens).every(
-      ([key, token]) => /^--rw-v1-[a-z0-9-]+$/.test(key) && typeof token === "string",
+      ([key, token]) => /^--cg-v1-[a-z0-9-]+$/.test(key) && typeof token === "string",
     ) ||
     !input.scene ||
     !(

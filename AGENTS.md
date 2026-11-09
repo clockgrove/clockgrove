@@ -19,7 +19,7 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - `spikes/renderer-bakeoff`: [3D Stevie spike](https://github.com/clockgrove/raccoon-world/blob/main/spikes/stevie-3d/docs/stevie-3d.md).
 - `apps/runtime`: [README](apps/runtime/README.md), [runtime runbook](docs/runbooks/runtime.md).
 - World inputs: [theme and presentation](docs/protocols/world-presentation.md).
-- `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md).
+- `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md), [shell UI tokens](DESIGN.md).
 
 ## Documentation conventions
 
