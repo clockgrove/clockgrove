@@ -2853,7 +2853,7 @@ const observeHall = async (backend) => {
             unitsPerSecond: 1000n,
           },
         });
-        await living.getByText(/^ Identity: grove\.keeper;.*position: 33000, 13000$/u).waitFor();
+        await living.getByText(/^ Identity: fixture\.keeper;.*position: 33000, 13000$/u).waitFor();
         // issue 20: moved off the trash can his food routine targets, Keeper forages (sniffs).
         await expect
           .poll(() => activity(kin.viewer))
