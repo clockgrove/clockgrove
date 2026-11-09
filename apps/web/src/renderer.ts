@@ -10,8 +10,6 @@ import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
-import sceneBudgets from "../scene-budgets.json" with { type: "json" };
-import { selectMaterialRendition } from "./material-delivery.js";
 import {
   type ContentFailure,
   contentDepth,
@@ -30,12 +28,14 @@ import {
   cyclePick,
   INTERPOLATION_MS,
   isNight,
+  MATERIAL_DELIVERY_BUDGET,
   movement,
   type PickCycle,
   pickOrder,
   poseMetres,
   type SceneIntent,
   type ScenePlacement,
+  selectMaterialRendition,
   shownEffects,
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
@@ -738,12 +738,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const rendition = selectMaterialRendition(material, globalThis.devicePixelRatio ?? 1, {
       transferBytes: Math.max(
         0,
-        sceneBudgets.budgets.assetBytes.limit - this.materialTransferBytes,
+        MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
       ),
-      textureBytes: Math.max(
-        0,
-        sceneBudgets.budgets.textureBytes.limit - this.metrics.textureBytes,
-      ),
+      textureBytes: Math.max(0, MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.textureBytes),
     });
     if (!rendition) return legacy;
     const albedo = rendition.channels.albedo;
@@ -751,7 +748,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
     for (const page of pages) {
       if (!page.atlasId) throw new Error("material page identity missing");
-      let texture = this.materialPageTextures.get(page.image.sha256);
+      const textureKey = `${page.image.sha256}/${albedo.encoding ?? "srgb"}`;
+      let texture = this.materialPageTextures.get(textureKey);
       if (!texture) {
         const bytes = await this.fetchAtlas(page.atlasId, page.image.sha256);
         if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
@@ -769,13 +767,14 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         if (image.width !== page.image.width || image.height !== page.image.height)
           throw new Error("material dimensions differ");
         texture = new THREE.Texture(image);
-        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.colorSpace =
+          albedo.encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
         texture.needsUpdate = true;
         this.atlasTextures.push(texture);
-        this.materialPageTextures.set(page.image.sha256, texture);
+        this.materialPageTextures.set(textureKey, texture);
       }
       textures.set(page.atlasId, texture);
     }
@@ -1295,6 +1294,16 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.sky.pop()?.removeFromParent();
       this.scene.userData.gradingKey = projection.lighting.gradingKey;
       this.scene.userData.weatherIntensity = projection.lighting.weatherIntensity;
+    } else {
+      while (this.sky.length > 1) this.sky.pop()?.removeFromParent();
+      const sky = this.sky[0];
+      if (sky) {
+        sky.color.set(0xcbdcff);
+        sky.intensity = 0.25 * Math.PI;
+        sky.position.set(-200, 400, 500);
+      }
+      delete this.scene.userData.gradingKey;
+      delete this.scene.userData.weatherIntensity;
     }
     let lightCount = 0;
     const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));

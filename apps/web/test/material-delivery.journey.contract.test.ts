@@ -1,15 +1,26 @@
+import { readFileSync } from "node:fs";
 import {
   decodeSceneMaterialDelivery,
   decodeScenePatch,
   type SceneMaterialDelivery,
 } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
-import { selectMaterialRendition } from "../src/material-delivery.js";
-import { applyScenePatch } from "../src/world-scene-adapter.js";
+import {
+  applyScenePatch,
+  MATERIAL_DELIVERY_BUDGET,
+  selectMaterialRendition,
+} from "../src/world-scene-adapter.js";
 import { snapshot } from "./convergence-fixture.js";
 import { Headless3DAdapter } from "./headless-3d-adapter.js";
 
 it("delivers every channel to an adapter while an albedo-only client selects density within budgets", () => {
+  const declared = JSON.parse(
+    readFileSync(new URL("../scene-budgets.json", import.meta.url), "utf8"),
+  ).budgets;
+  expect(MATERIAL_DELIVERY_BUDGET).toEqual({
+    transferBytes: declared.assetBytes.limit,
+    textureBytes: declared.textureBytes.limit,
+  });
   const texture = (density: number, channel: number) => ({
     image: {
       sha256: String(channel).repeat(64),
@@ -83,7 +94,16 @@ it("delivers every channel to an adapter while an albedo-only client selects den
     audienceHash: projection.audienceHash,
     operations: [{ op: "set_lighting", lighting }],
   });
-  expect(applyScenePatch(projection, patch).lighting).toEqual(lighting);
+  const lit = applyScenePatch(projection, patch);
+  expect(lit.lighting).toEqual(lighting);
+  const clear = decodeScenePatch({
+    fromRevision: lit.revision,
+    toRevision: lit.revision + 1n,
+    sourceEventIds: [],
+    audienceHash: lit.audienceHash,
+    operations: [{ op: "set_lighting", lighting: null }],
+  });
+  expect(applyScenePatch(lit, clear)).not.toHaveProperty("lighting");
   expect(() =>
     decodeSceneMaterialDelivery({ ...material, renditions: [material.renditions[0]] }),
   ).toThrow("expected sorted unique densities 1, 2 and optional 4");

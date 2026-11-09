@@ -143,6 +143,7 @@ export interface VisibleSpace {
   readonly parentSpaceId?: SpaceId;
 }
 export interface SceneMaterialTexture {
+  readonly encoding?: "srgb" | "linear";
   readonly pages?: readonly {
     readonly atlasId: string;
     readonly image: SceneMaterialTexture["image"];
@@ -178,6 +179,11 @@ export function decodeSceneMaterialDelivery(
   value: unknown,
   path = "material",
 ): SceneMaterialDelivery {
+  const atlasId = (value: unknown, p: string): string => {
+    const id = string(value, p);
+    if (!/^[a-z0-9-]+$/u.test(id)) throw new ContractDecodeError(p, "expected atlas basename");
+    return id;
+  };
   const v = record(value, path);
   exactKeys(v, ["materialVersion", "renditions"], [], path);
   if (v.materialVersion !== 1) throw new ContractDecodeError(path, "expected material version 1");
@@ -192,7 +198,7 @@ export function decodeSceneMaterialDelivery(
       `${p}.channels`,
       (value, p): SceneMaterialTexture => {
         const t = record(value, p);
-        exactKeys(t, ["image", "compressed", "frames"], ["pages"], p);
+        exactKeys(t, ["image", "compressed", "frames"], ["pages", "encoding"], p);
         const image = record(t.image, `${p}.image`),
           compressed = record(t.compressed, `${p}.compressed`);
         exactKeys(image, ["sha256", "width", "height", "bytes"], [], `${p}.image`);
@@ -220,7 +226,7 @@ export function decodeSceneMaterialDelivery(
                 exactKeys(image, ["sha256", "width", "height", "bytes"], [], `${p}.image`);
                 exactKeys(compressed, ["sha256", "format", "bytes"], [], `${p}.compressed`);
                 return {
-                  atlasId: string(page.atlasId, `${p}.atlasId`),
+                  atlasId: atlasId(page.atlasId, `${p}.atlasId`),
                   image: {
                     sha256: hash(image.sha256, `${p}.image.sha256`),
                     width: positive(image.width, `${p}.image.width`),
@@ -238,6 +244,9 @@ export function decodeSceneMaterialDelivery(
           throw new ContractDecodeError(p, "duplicate texture page");
         return {
           ...(pages === undefined ? {} : { pages }),
+          ...(t.encoding === undefined
+            ? {}
+            : { encoding: literal(t.encoding, ["srgb", "linear"], `${p}.encoding`) }),
           image: {
             sha256: hash(image.sha256, `${p}.image.sha256`),
             width,
@@ -263,7 +272,7 @@ export function decodeSceneMaterialDelivery(
               y,
               width: fw,
               height: fh,
-              ...(f.atlasId === undefined ? {} : { atlasId: string(f.atlasId, `${p}.atlasId`) }),
+              ...(f.atlasId === undefined ? {} : { atlasId: atlasId(f.atlasId, `${p}.atlasId`) }),
             };
           }),
         };
@@ -650,7 +659,7 @@ export type ScenePatchOperation =
       readonly entries: readonly ScenePrivateCognition[];
     }
   | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] }
-  | { readonly op: "set_lighting"; readonly lighting: SceneLighting };
+  | { readonly op: "set_lighting"; readonly lighting: SceneLighting | null };
 export interface ScenePatch {
   readonly fromRevision: bigint;
   readonly toRevision: bigint;
@@ -716,7 +725,10 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
       };
     case "set_lighting":
       exactKeys(v, ["op", "lighting"], [], path);
-      return { op: v.op, lighting: decodeSceneLighting(v.lighting, `${path}.lighting`) };
+      return {
+        op: v.op,
+        lighting: v.lighting === null ? null : decodeSceneLighting(v.lighting, `${path}.lighting`),
+      };
     case "set_effects":
       exactKeys(v, ["op", "effects"], [], path);
       return { op: v.op, effects: array(v.effects, `${path}.effects`, decodeSceneEffect) };
