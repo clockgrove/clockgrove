@@ -12,7 +12,7 @@ Manifest and presentation shapes are owned by the
 2. Decode the manifest; the decoder enforces naming, ids, frame limits and review consistency.
 3. Validate the source PNG against the manifest (validator rules below).
 4. A human reviews the asset and sets `review` to `approved` with their login.
-5. Check the license against `PERMITTED_ASSET_LICENSES` and the reviewer against the deploy gate.
+5. Check the declared licence, generated provenance/provider grant and reviewer against the deploy gate.
 6. Pack approved assets into atlases and write `worlds/fixture/assets/reviewed`.
 7. Regenerate `worlds/fixture/assets/license-report.md`.
 8. Render the golden scene and get its diff approved by a human.
@@ -36,6 +36,7 @@ Manifest and presentation shapes are owned by the
 - `contentHash` equals the SHA-256 of the source bytes.
 - The PNG is 8-bit RGBA ("transparency") of `frames.width * frames.count` by `frames.height`
   ("dimensions").
+- Manifest version 2 admits frame edges up to the 2048 px WebGL envelope.
 - A declared `reference/asset-style.json` supplies alpha, colour, edge and per-role frame limits.
   Missing and malformed profiles are refused with `STYLE_PROFILE_REQUIRED` and `STYLE_PROFILE_INVALID`.
 - Binary alpha permits only 0 and 255; soft alpha accepts all byte values. Bounds use 255 for
@@ -65,7 +66,8 @@ recorded `atlas.x/y` must equal the computed placement ("atlas location"); place
 over every manifest, so a pending asset keeps its place while only approved ones are built.
 
 Numbers: atlas width 1024 is a decision of issue 813 that keeps atlases under the 2048 px minimum texture
-size WebGL guarantees; the 256 px frame edge is a decision of issue 813 (`MAX_ASSET_FRAME_EDGE`). Inputs in
+size WebGL guarantees. `MAX_ASSET_FRAME_EDGE` is the 2048 px platform envelope; the 256 px
+frame edge from issue 813 is now the fixture's pixel-art profile value. Inputs in
 any order produce identical bytes (deflate level 9, filter 0, sorted-key JSON).
 
 ## Deploy gate
@@ -73,6 +75,17 @@ any order produce identical bytes (deflate level 9, filter 0, sorted-key JSON).
 `pnpm check` proves the gate on the committed `unreviewed` and `unlicensed` contract fixtures,
 requires `worlds/fixture/assets/reviewed` to equal a fresh build of exactly the manifests with no
 `assetDeployRefusals`, and requires the license report to be current.
+
+Generated assets use manifest version 2's complete provenance: `model`, `provider`, `route`,
+`providerTermsVersion`, prompt or serialized parameters, reference hashes and `outputGrant`.
+The provider grant uses the tool-neutral fields `license`, `plan`, `commercial`, `relabel` and,
+when required, `attribution`; see the
+[manifest contract](../../../docs/protocols/shared-contracts.md#generated-provenance).
+The top-level `license` declares the asset's licence. MIT requires a commercial grant that
+permits relicensing. A CC-BY-4.0 grant remains CC-BY-4.0 with its required credit line, published
+in the licence report. Non-commercial or provider-retained output, incomplete provenance and
+an incompatible declared licence are refused with stable deploy reasons. No refusal changes
+an asset's declared licence, and provenance never replaces human review.
 
 ## Golden approval
 
@@ -123,8 +136,9 @@ rule and 256 px frame limits for every role. Other profiles can declare soft alp
 bounds threshold, unrestricted colour, palette subsets, transparent borders and larger
 frames within the platform envelope.
 
-The validator and fixture CLI enforce the declared profile. Manifest version 1 still limits
-frames to 256 px independently of the declared role limits. The manifest-version migration
-for larger frames and generated provenance, bounded multi-atlas packing and external-world
-commands remain subsequent parts of issue 61. Upload retains its existing review/licence and
-golden gate; it does not itself perform source/profile validation.
+The validator and fixture CLI enforce the declared profile. Manifest version 2 allows larger
+frames within the platform envelope, while the declared role limits and atlas strip budget
+still apply. A soft-alpha, unrestricted-colour profile continues to accept binary-alpha
+placeholders alongside painterly assets. Bounded multi-atlas packing and external-world
+commands remain the next part of issue 61. Upload retains its review/licence, generated
+provenance and golden gate; it does not itself perform source/profile validation.

@@ -171,7 +171,7 @@ function expectedOperations(canonical: HydratedWorldOwner): ScenePatchOperation[
     { op: "set_feed_cursor", feedCursor: canonical.coveredHeadSequence.toString() },
     {
       op: "set_compatibility",
-      compatibility: { projectionVersion: 2, assetManifestVersion: 1, clientVersion: 1 },
+      compatibility: { projectionVersion: 2, assetManifestVersion: 2, clientVersion: 1 },
     },
   ];
 }
@@ -266,7 +266,7 @@ describe("native recoverable bounded scene delivery", () => {
               protocolVersion: 1,
               type: "resume",
               lastAppliedRevision,
-              assetManifestVersion: 1,
+              assetManifestVersion: 2,
             }),
           );
         const ack = (socket: NativeSocket, at: bigint, connectionVersion: number) =>
@@ -283,7 +283,7 @@ describe("native recoverable bounded scene delivery", () => {
             protocolVersion: 1,
             type: "resume",
             lastAppliedRevision: null,
-            assetManifestVersion: 2,
+            assetManifestVersion: 1,
           }),
         );
         await first.received.recovery("asset_manifest_changed");
@@ -297,7 +297,7 @@ describe("native recoverable bounded scene delivery", () => {
         expect(snapshot.payload.audienceHash).toBe(expectedAudience);
         expect(snapshot.payload.compatibility).toEqual({
           projectionVersion: 2,
-          assetManifestVersion: 1,
+          assetManifestVersion: 2,
           clientVersion: 1,
         });
         expect([

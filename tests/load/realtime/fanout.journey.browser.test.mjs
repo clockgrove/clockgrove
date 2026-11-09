@@ -94,7 +94,7 @@ it("fans one committed change out to every scene socket and measures it per turn
               protocolVersion: 1,
               type: "resume",
               lastAppliedRevision: null,
-              assetManifestVersion: 1,
+              assetManifestVersion: 2,
             }),
           ),
         );

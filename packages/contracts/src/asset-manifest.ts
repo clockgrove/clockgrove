@@ -8,13 +8,14 @@ import {
   literal,
   literalVersion,
   nonNegativeInteger,
+  optional,
   record,
   string,
   utcTimestamp,
 } from "./validation.js";
 
 /** The asset-manifest version a scene snapshot's `compatibility.assetManifestVersion` names. */
-export const ASSET_MANIFEST_VERSION = 1;
+export const ASSET_MANIFEST_VERSION = 2;
 /** The pack presentation-metadata version. */
 export const PACK_PRESENTATION_VERSION = 1;
 /**
@@ -33,8 +34,8 @@ export const ASSET_ANIMATION_FAMILIES = [
   "loop",
 ] as const;
 export type AssetAnimationFamily = (typeof ASSET_ANIMATION_FAMILIES)[number];
-/** The largest frame edge in pixels; a frame is a sprite, not a backdrop (issue 813 decision). */
-export const MAX_ASSET_FRAME_EDGE = 256;
+/** WebGL guarantees 2048 px textures; each world profile sets tighter role limits (issue 61). */
+export const MAX_ASSET_FRAME_EDGE = 2048;
 /**
  * The most frames in one strip (issue 813 decision): eight times the four-frame cycles of the first set,
  * headroom for smoother loops without unbounded strips. The atlas width also bounds a strip's pixels.
@@ -45,8 +46,26 @@ const kebab = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const sha256 = /^[0-9a-f]{64}$/u;
 const colour = /^#[0-9a-f]{6}$/u;
 
+/** Assetforge #47 provider grant field names; absent fields are refused by the deploy gate. */
+export interface AssetOutputGrant {
+  readonly license?: string;
+  readonly plan?: string;
+  readonly commercial?: boolean;
+  readonly relabel?: boolean;
+  readonly attribution?: string;
+}
+export interface AssetProvenance {
+  readonly prompt: string | null;
+  readonly references: readonly string[];
+  readonly model?: string;
+  readonly provider?: string;
+  readonly route?: string;
+  readonly providerTermsVersion?: string;
+  readonly outputGrant?: AssetOutputGrant;
+}
+
 export interface AssetManifest {
-  readonly assetManifestVersion: 1;
+  readonly assetManifestVersion: 2;
   /** Kebab-case; with `animationFamily` the manifest's identity. */
   readonly assetId: string;
   readonly animationFamily: AssetAnimationFamily;
@@ -60,7 +79,7 @@ export interface AssetManifest {
   /** An SPDX license identifier. */
   readonly license: string;
   /** Generation prompt (or generator parameters) and the references the asset was drawn from. */
-  readonly provenance: { readonly prompt: string | null; readonly references: readonly string[] };
+  readonly provenance: AssetProvenance;
   readonly review: {
     readonly status: "pending" | "approved" | "rejected";
     /** The human reviewer's login; null until reviewed. */
@@ -162,9 +181,53 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
   const kind = literal(source.kind, ["generated", "authored", "imported"], `${path}.source.kind`);
 
   const provenance = record(v.provenance, `${path}.provenance`);
-  exactKeys(provenance, ["prompt", "references"], [], `${path}.provenance`);
+  const generatedFields = ["model", "provider", "route", "providerTermsVersion", "outputGrant"];
+  exactKeys(
+    provenance,
+    ["prompt", "references"],
+    kind === "generated" ? generatedFields : [],
+    `${path}.provenance`,
+  );
   const prompt = nullable(provenance.prompt, `${path}.provenance.prompt`, string);
-  const references = array(provenance.references, `${path}.provenance.references`, string);
+  const references = array(provenance.references, `${path}.provenance.references`, (v, p) =>
+    kind === "generated"
+      ? pattern(v, sha256, p, "a lowercase SHA-256 reference hash")
+      : string(v, p),
+  );
+  const metadata = Object.fromEntries(
+    generatedFields.slice(0, 4).flatMap((field) => {
+      const value = optional(provenance, field, string, `${path}.provenance`);
+      return value === undefined ? [] : [[field, value]];
+    }),
+  );
+  const outputGrant = optional(
+    provenance,
+    "outputGrant",
+    (value, p) => {
+      const grant = record(value, p);
+      exactKeys(grant, [], ["license", "plan", "commercial", "relabel", "attribution"], p);
+      const result: Record<string, string | boolean> = {};
+      for (const key of ["license", "plan", "attribution"])
+        if (key in grant)
+          result[key] =
+            key === "license"
+              ? pattern(
+                  grant[key],
+                  /^[A-Za-z0-9.+-]+(?: AND [A-Za-z0-9.+-]+)*$/u,
+                  `${p}.${key}`,
+                  "an SPDX identifier or AND expression",
+                )
+              : string(grant[key], `${p}.${key}`);
+      for (const key of ["commercial", "relabel"])
+        if (key in grant) {
+          if (typeof grant[key] !== "boolean")
+            throw new ContractDecodeError(`${p}.${key}`, "expected a boolean");
+          result[key] = grant[key];
+        }
+      return Object.freeze(result) as AssetOutputGrant;
+    },
+    `${path}.provenance`,
+  );
   if (kind === "generated" && prompt === null && references.length === 0)
     throw new ContractDecodeError(
       `${path}.provenance`,
@@ -223,7 +286,7 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
     throw new ContractDecodeError(`${path}.palette`, "expected sorted, unique colours");
 
   return Object.freeze({
-    assetManifestVersion: 1,
+    assetManifestVersion: 2,
     assetId,
     animationFamily,
     source: Object.freeze({
@@ -233,7 +296,12 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
       tool: nullable(source.tool, `${path}.source.tool`, string),
     }),
     license: pattern(v.license, /^[A-Za-z0-9.+-]+$/u, `${path}.license`, "an SPDX identifier"),
-    provenance: Object.freeze({ prompt, references }),
+    provenance: Object.freeze({
+      prompt,
+      references,
+      ...metadata,
+      ...(outputGrant === undefined ? {} : { outputGrant }),
+    }),
     review: Object.freeze({
       status,
       reviewer,
@@ -279,7 +347,11 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
 export type AssetDeployRefusalCode =
   | "REVIEW_NOT_APPROVED"
   | "REVIEWER_NOT_HUMAN"
-  | "LICENSE_NOT_PERMITTED";
+  | "LICENSE_NOT_PERMITTED"
+  | "GENERATED_PROVENANCE_INCOMPLETE"
+  | "OUTPUT_GRANT_NOT_PERMITTED"
+  | "OUTPUT_GRANT_LICENSE_MISMATCH"
+  | "OUTPUT_GRANT_ATTRIBUTION_REQUIRED";
 export interface AssetDeployRefusal {
   readonly code: AssetDeployRefusalCode;
   readonly asset: string;
@@ -311,6 +383,56 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
       asset,
       detail: `license ${manifest.license} is not one of ${PERMITTED_ASSET_LICENSES.join(", ")}`,
     });
+  if (manifest.source.kind === "generated") {
+    const provenance = manifest.provenance;
+    const grant = provenance.outputGrant;
+    if (
+      !provenance.prompt?.trim() ||
+      !provenance.model?.trim() ||
+      !provenance.provider?.trim() ||
+      !provenance.route?.trim() ||
+      !provenance.providerTermsVersion?.trim() ||
+      !grant?.license?.trim() ||
+      !grant.plan?.trim() ||
+      grant.commercial === undefined ||
+      grant.relabel === undefined
+    )
+      refusals.push({
+        code: "GENERATED_PROVENANCE_INCOMPLETE",
+        asset,
+        detail:
+          "generated assets require prompt or serialized parameters, model, provider, route, providerTermsVersion and a complete outputGrant",
+      });
+    if (
+      grant?.commercial === false ||
+      (grant?.license !== undefined &&
+        grant.relabel !== true &&
+        !(PERMITTED_ASSET_LICENSES as readonly string[]).includes(grant.license))
+    )
+      refusals.push({
+        code: "OUTPUT_GRANT_NOT_PERMITTED",
+        asset,
+        detail:
+          "the provider grant must permit commercial distribution and either relicensing or a permitted asset license",
+      });
+    if (
+      grant?.license !== undefined &&
+      ((grant.relabel === false && manifest.license !== grant.license) ||
+        (grant.license === "CC-BY-4.0" && manifest.license !== "CC-BY-4.0") ||
+        (manifest.license === "MIT" && grant.relabel !== true))
+    )
+      refusals.push({
+        code: "OUTPUT_GRANT_LICENSE_MISMATCH",
+        asset,
+        detail: "the declared license is incompatible with the provider output grant",
+      });
+    if (grant?.license === "CC-BY-4.0" && !grant.attribution?.trim())
+      refusals.push({
+        code: "OUTPUT_GRANT_ATTRIBUTION_REQUIRED",
+        asset,
+        detail: "a CC-BY-4.0 provider grant requires its credit line",
+      });
+  }
   return Object.freeze(refusals);
 }
 
@@ -331,7 +453,7 @@ export interface PackPresentationEffect {
 /** A world pack's versioned presentation metadata: its stable IDs bound to asset manifests. */
 export interface PackPresentation {
   readonly presentationVersion: 1;
-  readonly assetManifestVersion: 1;
+  readonly assetManifestVersion: 2;
   readonly pack: { readonly id: string; readonly version: string };
   /** Each binding has the wire `ScenePresentationBinding` shape; `animationFamily` is the default. */
   readonly bindings: readonly ScenePresentationBinding[];
@@ -381,7 +503,7 @@ export function decodePackPresentation(value: unknown, path = "presentation"): P
   });
   return Object.freeze({
     presentationVersion: 1,
-    assetManifestVersion: 1,
+    assetManifestVersion: 2,
     pack: Object.freeze({
       id: string(pack.id, `${path}.pack.id`),
       version: string(pack.version, `${path}.pack.version`),
