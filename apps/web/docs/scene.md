@@ -100,14 +100,16 @@ path. The reducer's committed projection is untouched.
 contract. The product uses `WebGPURenderer` (`three/webgpu`) and an orthographic 3D scene. It selects
 WebGPU where available and automatically falls back to WebGL2. Materials are node materials and
 post-processing uses TSL (`three/tsl`) so both backends compile the same shader graphs; raw GLSL
-`ShaderMaterial` and `onBeforeCompile` patches are excluded. Quads are the present visual geometry,
-so future 3D meshes can reuse the adapter, materials and lights.
+`ShaderMaterial` and `onBeforeCompile` patches are excluded. Projected atlas entries remain quads. Optional world content can supply skinned meshes and mapped
+geometry through the separate renderer contract below, sharing the same materials, lights and post pass.
 
-Material channels belong to the presentation contract. Until issue 66 supplies normal, height,
+Atlas material channels belong to the presentation contract. Until issue 66 supplies normal, height,
 emissive, roughness/wetness and wind maps, the current reviewed atlas binding is flat albedo.
 Missing channels use neutral defaults, rather than extracting a normal, height, emissive mask or
 light source from the art's brightness. Light activation and poses come from projection effects;
-clock/weather patches change the light rig without changing world state or rereading art.
+clock/weather patches change the light rig without changing world state or rereading art. World-supplied
+content brings its own maps through the renderer extension; it does not extend atlas bindings or decide
+issue 66's material model.
 
 The live canvas is 640×400 at DPR 1. Quality selection is conservative: software renderers
 (SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
@@ -143,6 +145,84 @@ screenshot or an unrun golden is not product qualification. ANGLE D3D11 and ANGL
 are the required hardware targets. Their working bake-off paths are evidence for the selection,
 not revalidation of the integrated adapter. CI's SwiftShader path supplies product correctness
 evidence when its journey runs; physical GPU timing is reserved for the maintainer step.
+
+## World scene content v1
+
+[`RendererContent`](../src/renderer-content.ts) is a separate, versioned renderer contract, outside
+world presentation v1. Supply an optional fifth argument to `new ThreeWorldSceneAdapter(parent,
+ready, unavailable, report, content)`. Omit it for the existing rendering path, including its existing
+sprite ordering. Packs do not declare models; the platform never discovers content from pack data.
+A composition root explicitly imports trusted world code. This is a visual extension, not a sandbox
+for hostile JavaScript.
+
+`content.version` is exactly `1`. After backend initialization, the renderer calls `create(context)`;
+it may return a promise. The result owns a `THREE.Group` named `root`, an `update(frame)` function,
+and an optional `dispose()` callback. Loading does not block the projected scene. The renderer owns
+attachment, rendering and retirement of the root. A rejected load removes only content, leaving the
+canvas, committed projection and shell working.
+
+The context supplies these values:
+
+| Value | Meaning |
+| --- | --- |
+| `THREE`, `TSL` | Curated constructors, constants and node helpers from the renderer's pinned Three.js installation. The same module also statically exports the full `THREE` and `TSL` namespaces for additional named use. |
+| `backend` | The selected `webgpu` or `webgl2` backend, after initialization. |
+| `signal` | Aborted on content failure or adapter destruction; use it to retire asynchronous work. |
+| `place(object, { x, y, elevation? })` | Set a content anchor in the projection frame's metres; elevation defaults to zero. |
+| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and a KTX2 loader detected against the initialized renderer/backend. Both paths are explicit URLs for matching pinned decoder files. |
+
+Import additional library types and values from `renderer-content.ts`, never another installed copy
+of Three. A world using this seam accepts coupling to Three **0.187.0** and the renderer contract of
+the exact Clockgrove commit it pins. Updating that pin requires rechecking its content. Neither
+React nor Three types enter world presentation v1 or the durable projection protocol.
+
+Meshes must use `MeshStandardNodeMaterial` or `MeshLambertNodeMaterial`, with depth testing and
+writing, fog and tone mapping enabled. Geometry can be skinned, textured or driven by TSL; a sprite
+is a textured mesh, not `THREE.Sprite`. The root may contain groups, ordinary object transforms and
+bones. Lights, cameras, scenes, render hooks and material overrides of lights, final fragment/output
+or backdrop nodes are rejected. The extension receives no renderer, scene, camera, lights,
+post-processing, projection, selection or command handles. It cannot replace or retune the product
+look. Quality selection converts supported lit materials between Standard and Lambert; world
+updates adapt detail to the selected tier rather than choosing another light rig or post pass.
+The configured GLTF loader converts decoded materials to lit node materials before attachment.
+
+`place` uses the existing fixed camera: scene X is `(x + y) * 12.5`, scene Y is
+`-(x - y) * 6.25 + elevation * 12.5`, and depth is `(x - y) * 0.01 + elevation * 0.005`.
+It sets local scale to `(12.5, 12.5, 0.01)`. Local content geometry therefore uses screen-aligned
+metres, Y upward and shallow local Z depth; rotate model geometry within an anchor group when
+needed. Local Y zero is the feet/ground anchor, not a separate physical ground simulation.
+With content attached, projected bodies write anchor depth too, so opaque and alpha-tested
+content interleaves with projected sprites through the same depth buffer. Normal maps affect the
+shared lighting; a TSL `depthNode` can apply a world-supplied per-fragment depth map. Content is
+absent from `pickOrder`, pointer candidates, selection and keyboard navigation.
+
+Each update receives a fresh read-only frame value: `backend`, `qualityTier`, `reducedMotion`,
+`simulationTime` (bigint), copied `weather` and `timeMs`. The latter is absolute visual milliseconds,
+**zero** under reduced motion, matching atlas frame zero. Set animation mixers from that absolute
+time instead of accumulating independent deltas. Clock and weather remain renderer inputs read
+from the loaded committed projection; content cannot mutate them. The renderer's frame cadence,
+p95 sampling and automatic tier downgrade include content work, including under reduced motion. `metrics.contentUpdateMs` records
+update cost, while `textureBytes` includes content textures alongside render targets and atlas maps.
+
+Stable failures are `content_load`, `content_contract`, `content_update` and `content_draw`.
+`metrics.contentStatus` is `none`, `loading`, `ready` or `failed`; `contentFailure`,
+`contentFailures` and `contentObjects` identify the bounded lifecycle outcome. The `renderer_content`
+measurement reports `ready` or the stable failure category, never exception text. On failure the
+renderer detaches content, retires its resources and draws the remaining scene again. On destruction,
+late async completion is retired too. The renderer disposes root geometries, materials, textures,
+skeletons and configured decoder workers; `dispose()` is for other world-owned external resources.
+Register textures created inside deferred shader callbacks in the instance’s optional `textures` array;
+these cannot be discovered from the persistent material graph. The renderer also accounts for and
+disposes these registered textures. Do not share disposable resources with another renderer instance.
+
+The generated [fixture content](../../../worlds/fixture/renderer/content.ts) supplies a looping
+skinned model and a sprite with normal and depth maps. Its [standalone page](../../../worlds/fixture/renderer/index.html)
+loads a [committed snapshot](../../../worlds/fixture/renderer/snapshot.json) and offers time, rain,
+motion and tier controls without a world session. The existing
+[renderer browser journey](../../../tests/ci/renderer-bakeoff.journey.browser.test.mjs) proves the seam
+under both software backends. Software rendering establishes correctness, not physical GPU timing.
+See [external renderer composition](../../../docs/protocols/world-presentation.md#external-renderer-composition)
+for the pinned-checkout recipe and frame capture.
 
 ## Budgets (§9.3)
 

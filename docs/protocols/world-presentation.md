@@ -11,7 +11,8 @@ The initial shell contract is version 1. A composition root supplies a world's J
 platform modules must not import a world directory. Omitted shell input selects the neutral
 platform theme. The fixture world demonstrates the same shell with its own name and copy.
 A world's DESIGN.md is implemented as tokens in its shell input, not as a platform stylesheet.
-Renderer material and presentation bindings remain independent of React and Three.js types.
+Renderer material and presentation bindings remain independent of React and Three.js types. Optional
+scene content uses a separate renderer contract, described below; it does not widen presentation v1.
 
 Runtime presentation and model inputs are supplied separately from browser branding. Credentials
 are environment references resolved by provider adapters and never belong in world JSON or the
@@ -113,6 +114,132 @@ This build checks browser composition; use the local session to observe the auth
 runtime, theme and presentation together. Inside a platform checkout the neutral development
 command is `pnpm dev:world`; `CLOCKGROVE_DEV_WORLD_HOURS` overrides its session bound.
 The world maintainer owns adding these commands to the external repository's workflow.
+
+## External renderer composition
+
+A world can compose the product renderer directly in its own page, without a running world session,
+database or sign-in. This is renderer content **version 1**, separate from shell/presentation v1:
+worlds accept coupling to the Three.js version (currently **0.187.0**) of the exact Clockgrove commit
+they pin. Packs declare no models and Clockgrove does not load model URLs from pack data. See the
+[scene contract](../../apps/web/docs/scene.md#world-scene-content-v1) for supported materials,
+coordinates, adaptation inputs, failure categories and resource ownership.
+
+Install the pinned checkout's frozen dependencies first. Use its rendering library through
+[`renderer-content.ts`](../../apps/web/src/renderer-content.ts), including its curated context or
+static `THREE`/`TSL` exports; do not install another Three copy in the world. A composition root can
+also pass `content` to the live `WorldApp` as an optional prop alongside its authentication port.
+The shell JSON, grants and renderer-neutral presentation records remain unchanged. Omitted content
+preserves the existing rendering path.
+
+The in-repository offline example runs from the pinned checkout:
+
+```sh
+pnpm --filter @clockgrove/web exec vite ../../worlds/fixture/renderer \
+  --config vite.config.ts
+```
+
+Open the printed URL. The [fixture page](../../worlds/fixture/renderer/index.html) reads its committed
+[snapshot](../../worlds/fixture/renderer/snapshot.json), generates a looping skinned mesh and normal/depth
+mapped sprite in code, and offers time, weather, reduced-motion and quality controls. No binaries,
+credentials or canonical commands are involved. Its diagnostic capture helpers are fixture code,
+not additional product renderer API.
+
+For a separate world repository beside `../clockgrove`, add a `vite.config.ts` that reuses the pinned
+web configuration. This retains its backend-compatible loader handling and resolves imported source
+against that checkout's own dependency installation:
+
+```ts
+import { fileURLToPath } from "node:url";
+import { mergeConfig } from "../clockgrove/apps/web/node_modules/vite/dist/node/index.js";
+import platform from "../clockgrove/apps/web/vite.config.ts";
+
+const world = fileURLToPath(new URL(".", import.meta.url));
+const pinned = fileURLToPath(new URL("../clockgrove", import.meta.url));
+export default mergeConfig(platform, {
+  root: world,
+  publicDir: `${world}/public`,
+  server: { fs: { allow: [world, pinned] } },
+});
+```
+
+Its HTML imports its own `main.ts` and contains a `#scene` element. A minimal content module can use
+only the library supplied at composition:
+
+```ts
+import type { RendererContent } from "../clockgrove/apps/web/src/renderer-content.ts";
+
+export const content: RendererContent = {
+  version: 1,
+  create({ THREE, place }) {
+    const root = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 2, 1).translate(0, 1, 0),
+      new THREE.MeshStandardNodeMaterial({ color: 0x889955 }),
+    );
+    const anchor = new THREE.Group();
+    anchor.add(body);
+    place(anchor, { x: 0, y: 0 });
+    root.add(anchor);
+    return { root, update(frame) { body.rotation.y = frame.timeMs / 1000; } };
+  },
+};
+```
+
+`main.ts` decodes an actual committed `SceneProjection` JSON snapshot, including its compatibility
+and scope fields, using the pinned contracts. It supplies that read-only snapshot and its content
+to the adapter:
+
+```ts
+import { decodeSceneProjection } from "../clockgrove/packages/contracts/src/index.ts";
+import { ThreeWorldSceneAdapter } from "../clockgrove/apps/web/src/renderer.ts";
+import committed from "./snapshot.json";
+import { content } from "./content.ts";
+
+let snapshot = decodeSceneProjection(committed);
+const adapter = new ThreeWorldSceneAdapter(
+  document.querySelector<HTMLElement>("#scene")!,
+  () => {
+    adapter.loadSnapshot(snapshot);
+    document.body.dataset.ready = "true";
+  },
+  () => { document.body.dataset.ready = "unavailable"; },
+  point => {
+    console.info(point);
+    if (point.name === "renderer_content" && point.category === "ready")
+      document.body.dataset.content = "ready";
+  },
+  content,
+);
+// Local capture controls change a copy of visual inputs; they issue no simulation command.
+export function chooseEnvironment(simulationTime: bigint, rainIntensity: number) {
+  snapshot = { ...snapshot, simulationTime, weather: { rainIntensity } };
+  adapter.loadSnapshot(snapshot);
+}
+adapter.setReducedMotion(true);
+window.addEventListener("pagehide", () => adapter.destroy(), { once: true });
+```
+
+Run the pinned Vite CLI from the world repository:
+
+```sh
+node ../clockgrove/apps/web/node_modules/vite/bin/vite.js --config vite.config.ts
+```
+
+For compressed assets, call `await context.loaders({ basis: "/decoders/basis/", draco:
+"/decoders/draco/" })` inside `create`. Serve `basis_transcoder.js` and `basis_transcoder.wasm`
+from the pinned installation's `apps/web/node_modules/three/examples/jsm/libs/basis/`, and the Draco
+WASM wrapper/decoder files from its `examples/jsm/libs/draco/gltf/`, at those world-owned URLs.
+Use the matching files from that exact installation. KTX2 support is detected against whichever
+backend Clockgrove selected; the GLTF loader is wired to KTX2, Draco and the same pinned Meshopt
+decoder. No external decoder CDN or second rendering library is needed. The composition root owns
+publication and access to these static assets.
+
+A browser automation tool can wait for both the page's ready marker and `data-content="ready"`,
+wait for a rendered canvas, and
+capture `page.locator("canvas").screenshot({ path: "frame.png" })`. Choose environment before
+capture and enable reduced motion for repeatable stills. Use ordinary animation frames when
+capturing motion. A canvas screenshot captures the product camera, lights, grade, bloom and tier;
+it does not need the authenticated local-session command above.
 
 ## Runtime inputs
 

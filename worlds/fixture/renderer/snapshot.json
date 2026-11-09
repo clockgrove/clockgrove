@@ -1,0 +1,25 @@
+{
+  "tenantId": "tenant-fixture",
+  "worldId": "world-fixture",
+  "timelineId": "timeline-fixture",
+  "spaceId": "space-fixture",
+  "privacyClass": "public_scene",
+  "compatibility": { "projectionVersion": 2, "assetManifestVersion": 2, "clientVersion": 1 },
+  "revision": "1",
+  "simulationTime": "43200000",
+  "weather": { "rainIntensity": 0 },
+  "hierarchy": [{ "spaceId": "space-fixture", "label": "Fixture ground" }],
+  "frames": [{
+    "frameId": "frame-fixture", "version": 1, "dimensions": 3,
+    "unit": { "name": "metre", "fractionalDigits": 2 },
+    "axes": { "axes": [{ "name": "x", "positiveDirection": "east" }, { "name": "y", "positiveDirection": "north" }, { "name": "z", "positiveDirection": "up" }] },
+    "origin": ["0", "0", "0"],
+    "gravity": { "kind": "constant-vector", "vector": ["0", "0", "-981"] }
+  }],
+  "entities": [{
+    "objectId": "object-fixture", "archetypeId": "fixture.marker",
+    "pose": { "frameId": "frame-fixture", "frameVersion": 1, "coordinates": ["0", "0", "0"] },
+    "presentation": { "kind": "placeholder", "label": "Projected marker" }
+  }],
+  "presentationBindings": [], "interactions": [], "feedCursor": "1", "audienceHash": "fixture-renderer"
+}
