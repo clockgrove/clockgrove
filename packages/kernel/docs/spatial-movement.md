@@ -213,7 +213,12 @@ Three things differ from `world.advance`:
 
 The event authority of every moving command (`movement.event-authority.<command>@3`,
 `portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits
-for the time it passes, other than `time.advanced`. `movement.events-ordered-and-unique@2` requires
+for the time it passes, other than `time.advanced`. The mover's movement events (those naming
+`payload.objectId`) are the command's alone: `movement.start` and `portal.use` own `started` and
+`completed`, `movement.interrupt` owns `interrupted`, `movement.replan` owns `replanned` and
+`completed`. The one other mover event is the death path's `movement.interrupted`, accepted only
+when the mover's `lifecycle.died` follows it at the same time. Other objects' movement events come
+from the world time. `movement.events-ordered-and-unique@2` requires
 time order and no repeated movement event; other events may repeat, as when two actors eat from one
 holder at one time. `movement.scope@3` refuses:
 

@@ -8,7 +8,7 @@ import {
 } from "@clockgrove/domain";
 import { describe, expect, it } from "vitest";
 import { routeAnchors } from "../src/index.js";
-import { executeWorldKernel, type WorldKernelInput } from "../src/world.js";
+import { checkWorldInvariants, executeWorldKernel, type WorldKernelInput } from "../src/world.js";
 import {
   anchorGraph,
   movementInput,
@@ -261,5 +261,68 @@ describe("portal navigation (graph 3)", () => {
     const linked = { ...graph, edges: [{ from: "a", to: "b", cost: fixedPoint(1000n) }] };
     expect(routeAnchors(linked, "a", "b", [portal("p")])?.via).toEqual([null]);
     expect(routeAnchors(graph, "a", "b")).toBeUndefined();
+  });
+});
+
+describe("movement event authority", () => {
+  const fake = (type: string, objectId: string, time = 5n) =>
+    ({ type, simulationTime: time, payload: { objectId } }) as never;
+  const check = async (command: string, events: readonly unknown[]) => {
+    const base = await spatialFixture([mover("mover", [0n, 0n]), mover("other", [1n, 1n])]);
+    const state = base.partition.state;
+    const refused = checkWorldInvariants(
+      state,
+      state,
+      events as never,
+      command as never,
+      undefined,
+      { objectId: "mover" },
+    );
+    // The fabricated events trip other invariants; only the event authority is under test.
+    return refused?.check?.includes("event-authority") ? refused.path : undefined;
+  };
+
+  it("keeps the mover's movement events to the command that owns them", async () => {
+    expect(await check("movement.start", [fake("movement.started", "mover")])).toBeUndefined();
+    expect(await check("movement.start", [fake("movement.replanned", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.start", [fake("movement.interrupted", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.interrupt", [fake("movement.completed", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.interrupt", [fake("movement.started", "mover")])).toBe(
+      "events[0].type",
+    );
+  });
+
+  it("takes other objects' movement events from the world time", async () => {
+    expect(
+      await check("movement.interrupt", [fake("movement.completed", "other")]),
+    ).toBeUndefined();
+  });
+
+  it("accepts the mover's death interruption only with its death at the same time", async () => {
+    const died = fake("lifecycle.died", "mover");
+    expect(
+      await check("movement.start", [fake("movement.interrupted", "mover"), died]),
+    ).toBeUndefined();
+    expect(await check("movement.start", [fake("movement.interrupted", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(
+      await check("movement.start", [
+        fake("movement.interrupted", "mover"),
+        fake("lifecycle.died", "mover", 6n),
+      ]),
+    ).toBe("events[0].type");
+    expect(
+      await check("movement.start", [
+        fake("movement.interrupted", "mover"),
+        fake("lifecycle.died", "other"),
+      ]),
+    ).toBe("events[0].type");
   });
 });

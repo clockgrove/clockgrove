@@ -275,18 +275,37 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "movement.region-remained",
   "movement.portal-crossed",
 ]);
-/** The events a movement or portal command's own handler may emit. */
-const MOVE_HANDLER_TYPES: ReadonlySet<string> = new Set([
-  "movement.started",
+/** The crossings a moving command's handler emits for its mover. */
+const CROSSING_TYPES: readonly string[] = Object.freeze([
   "movement.region-entered",
   "movement.region-exited",
+  "movement.region-remained",
   "movement.portal-crossed",
-  "movement.completed",
-  "movement.interrupted",
-  "movement.replanned",
-  "portal.opened",
-  "portal.closed",
 ]);
+/** The events of the mover's own movement that each moving command owns. */
+const OWN_MOVEMENT_TYPES: Readonly<Record<MovementCommandType | "portal.use", readonly string[]>> =
+  Object.freeze({
+    "movement.start": ["movement.started", "movement.completed"],
+    "movement.interrupt": ["movement.interrupted"],
+    "movement.replan": ["movement.replanned", "movement.completed"],
+    "portal.use": ["movement.started", "movement.completed"],
+  });
+/** The movement events that begin, change or end one mover's movement (not its crossings). */
+const MOVEMENT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
+  "movement.started",
+  "movement.replanned",
+  "movement.interrupted",
+  "movement.completed",
+]);
+/** The events a movement or portal command's own handler may emit. */
+function handlerTypes(command: string): readonly string[] {
+  if (command === "portal.open") return ["portal.opened"];
+  if (command === "portal.close") return ["portal.closed"];
+  return [
+    ...(OWN_MOVEMENT_TYPES[command as keyof typeof OWN_MOVEMENT_TYPES] ?? []),
+    ...CROSSING_TYPES,
+  ];
+}
 /**
  * The world time a moving command may pass (`movement.passed-time@1`): at most one decision interval
  * of the world policy, and no more events than one `world.advance` call.
@@ -2097,7 +2116,7 @@ function runWorld(
       indexFactory: input.spatialIndexFactory ?? createQuadtreeSpatialIndex,
       emit: (type, data, time) => {
         // The world time's events come only from its systems, never from the movement handler.
-        if (!MOVE_HANDLER_TYPES.has(type))
+        if (!handlerTypes(context.command.type).includes(type))
           throw new RangeError("a movement handler emitted an event its command does not own");
         if (ended) return;
         if (time - start > policy.decisionIntervalMs) passedTime("state.simulationTime");
@@ -2557,10 +2576,12 @@ export function checkWorldInvariants(
     | PortalCommandType = "world.advance",
   /** The policy `environment.state-matches-policy@1` compares the state with; omitted means none. */
   policy?: WorldBehaviorPolicy,
+  /** The payload of the command whose events are checked; omitted means an empty one. */
+  payload: unknown = {},
 ): Refusal | undefined {
   if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
   const kernel = WORLD_KERNEL.kernel;
-  const subject = Object.freeze({ initial, state: final, events });
+  const subject = Object.freeze({ payload, initial, state: final, events });
   return withActivePolicy(policy, () => {
     for (const invariant of kernel.definition.invariants.ordered(commandType)) {
       const name = `${invariant.name}@${invariant.version}`;
@@ -3230,22 +3251,42 @@ function namedObjects(event: WorldEvent): readonly string[] {
     .filter((value): value is string => typeof value === "string");
 }
 
+/**
+ * The path of the first event a moving command (`movement.*`, `portal.use`) may not emit, or
+ * undefined. The mover's own movement events belong to the command alone; the world time's events,
+ * including other objects' movement events, come from the systems that run with it. A mover's
+ * `movement.interrupted` is also allowed when its `lifecycle.died` follows at the same time.
+ */
+function movingEventAuthority(
+  type: MovementCommandType | "portal.use",
+  subject: WorldInvariantSubject,
+): string | undefined {
+  const mover = (subject.payload as { readonly objectId?: string }).objectId;
+  const { events } = subject;
+  const index = events.findIndex((event, at) => {
+    if (!WORLD_TIME_TYPES.includes(event.type)) return true;
+    if (!MOVEMENT_LIFECYCLE_TYPES.has(event.type)) return false;
+    if ((event.payload as { readonly objectId?: string }).objectId !== mover) return false;
+    if (OWN_MOVEMENT_TYPES[type].includes(event.type)) return false;
+    return !(
+      event.type === "movement.interrupted" &&
+      events
+        .slice(at + 1)
+        .some(
+          (later) =>
+            later.type === "lifecycle.died" &&
+            later.simulationTime === event.simulationTime &&
+            (later.payload as { readonly objectId?: string }).objectId === mover,
+        )
+    );
+  });
+  return index < 0 ? undefined : `events[${index}].type`;
+}
+
 function registerMovementChecks(
   preconditions: CheckRegistry<WorldPrecondition>,
   invariants: CheckRegistry<WorldInvariantSubject>,
 ): RegistrationResult {
-  const crossings = [
-    "movement.region-entered",
-    "movement.region-exited",
-    "movement.region-remained",
-    "movement.portal-crossed",
-    ...WORLD_TIME_TYPES,
-  ];
-  const allowed: Readonly<Record<MovementCommandType, readonly string[]>> = {
-    "movement.start": ["movement.started", ...crossings, "movement.completed"],
-    "movement.interrupt": [...crossings, "movement.interrupted"],
-    "movement.replan": [...crossings, "movement.replanned", "movement.completed"],
-  };
   /** `portal.use` moves its actor like `movement.start`, so it shares the movement invariants. */
   const moving = [...MOVEMENT_COMMAND_TYPES, "portal.use"] as const;
   const pre = (name: "active-object" | "route" | "timing") =>
@@ -3262,10 +3303,7 @@ function registerMovementChecks(
         name: `movement.event-authority.${type}`,
         version: 3,
         commands: [type],
-        check: ({ events }) => {
-          const index = events.findIndex((event) => !allowed[type].includes(event.type));
-          return index < 0 ? undefined : `events[${index}].type`;
-        },
+        check: (subject) => movingEventAuthority(type, subject),
       }),
     ),
     pre("active-object"),
@@ -3374,19 +3412,6 @@ function registerPortalChecks(
   preconditions: CheckRegistry<WorldPrecondition>,
   invariants: CheckRegistry<WorldInvariantSubject>,
 ): RegistrationResult {
-  const allowed: Readonly<Record<PortalCommandType, readonly string[]>> = {
-    "portal.open": ["portal.opened"],
-    "portal.close": ["portal.closed"],
-    "portal.use": [
-      "movement.started",
-      "movement.region-entered",
-      "movement.region-exited",
-      "movement.region-remained",
-      "movement.portal-crossed",
-      "movement.completed",
-      ...WORLD_TIME_TYPES,
-    ],
-  };
   const results = [
     ...PORTAL_CHECKS.map((name: PortalCheck) =>
       preconditions.register({
@@ -3409,8 +3434,10 @@ function registerPortalChecks(
         // `portal.use` allows the world time's events: those of `world.advance` since version 3.
         version: type === "portal.use" ? 3 : 1,
         commands: [type],
-        check: ({ events }) => {
-          const index = events.findIndex((event) => !allowed[type].includes(event.type));
+        check: (subject) => {
+          if (type === "portal.use") return movingEventAuthority(type, subject);
+          const only = type === "portal.open" ? "portal.opened" : "portal.closed";
+          const index = subject.events.findIndex((event) => event.type !== only);
           return index < 0 ? undefined : `events[${index}].type`;
         },
       }),
