@@ -26,7 +26,7 @@ env:
   FACTORY_HARNESS: claude # claude | codex | copilot
   FACTORY_MODEL: claude-opus-5-5
   FACTORY_SUBAGENT_MODEL: claude-sonnet-5-5
-  FACTORY_REVIEWER_MODEL: claude-fable-5-1
+  FACTORY_REVIEWER_MODEL: claude-fable-5-2
   FACTORY_CREDENTIAL: plan # api; plan only for your own repository
   FACTORY_MAX_CONCURRENT: 2
   FACTORY_DAILY_USD: 100
