@@ -92,10 +92,6 @@ export function validateSource(
     for (const colour of manifest.palette)
       if (!used.has(colour))
         problems.push(`${id}: STYLE_PALETTE: palette: ${colour} is listed but unused`);
-    if (profile.colour.strictness === "exact")
-      for (const colour of profile.colour.colours)
-        if (!used.has(colour))
-          problems.push(`${id}: STYLE_PALETTE: world palette colour ${colour} is unused`);
   }
   const b = manifest.bounds;
   if (
@@ -109,4 +105,20 @@ export function validateSource(
       `${id}: bounds: expected ${maxX < 0 ? "an opaque pixel" : `${minX},${minY} ${maxX - minX + 1}x${maxY - minY + 1}`}, found ${b.x},${b.y} ${b.width}x${b.height}`,
     );
   return problems;
+}
+
+/**
+ * `exact` palette strictness applies to the whole world: every declared colour appears in at
+ * least one manifest's palette. Run after `validateSource`, which proves each manifest palette
+ * lists exactly the colours its source uses.
+ */
+export function worldPaletteProblems(
+  manifests: readonly AssetManifest[],
+  profile: AssetStyleProfile,
+): string[] {
+  if (profile.colour.mode !== "palette" || profile.colour.strictness !== "exact") return [];
+  const used = new Set(manifests.flatMap((m) => m.palette));
+  return profile.colour.colours
+    .filter((colour) => !used.has(colour))
+    .map((colour) => `STYLE_PALETTE: world palette colour ${colour} is unused by every asset`);
 }

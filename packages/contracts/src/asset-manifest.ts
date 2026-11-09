@@ -421,7 +421,13 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
       });
     if (
       grant?.license !== undefined &&
-      ((grant.relabel === false && manifest.license !== grant.license) ||
+      ((grant.relabel === false &&
+        // Without relabelling, the declared licence must be a conjunct, and every other conjunct
+        // must be obligation-free (CC0-1.0): declaring one conjunct must not drop another's terms.
+        (!grantLicenses.includes(manifest.license) ||
+          grantLicenses.some(
+            (license) => license !== manifest.license && license !== "CC0-1.0",
+          ))) ||
         (requiresCredit && manifest.license !== "CC-BY-4.0") ||
         (manifest.license === "MIT" && grant.relabel !== true))
     )

@@ -42,9 +42,13 @@ Manifest and presentation shapes are owned by the
   Missing and malformed profiles are refused with `STYLE_PROFILE_REQUIRED` and `STYLE_PROFILE_INVALID`.
 - Binary alpha permits only 0 and 255; soft alpha accepts all byte values. Bounds use 255 for
   binary profiles and `boundsThreshold` for soft profiles, including pixels equal to the threshold.
-- Palette profiles check every nonzero-alpha colour against the world palette; `exact` requires
-  every declared world colour to appear, while `subset` permits unused world colours. Manifest
-  palettes still list exactly the colours used by that asset. Unrestricted profiles do not check
+- Palette profiles check every nonzero-alpha colour against the world palette. Manifest
+  palettes still list exactly the colours used by that asset. Strictness applies to the whole
+  world, not to each asset: `exact` requires every declared world colour to appear in at least
+  one of the world's manifests, while `subset` permits unused world colours. A single asset may
+  use part of an `exact` palette. `validateSource` checks one asset; `worldPaletteProblems`
+  checks the `exact` rule across the world's manifests, so `validate` (one manifest) cannot
+  report it and `check`, `build` and `update-golden` do. Unrestricted profiles do not check
   the manifest palette inventory, allowing full-colour art and binary placeholders side by side.
 - `transparent-pixel` requires a transparent pixel unless the role is `terrain`;
   `transparent-border` requires zero alpha on every outer edge of every frame, including terrain.
@@ -55,8 +59,9 @@ Manifest and presentation shapes are owned by the
 
 `validateSource(manifest, bytes, manifestPath, profile)` requires an explicit decoded profile;
 omission returns `STYLE_PROFILE_REQUIRED`. `check`, `build` and `update-golden` preflight every
-source against the profile and check atlas placements before writing any reviewed or golden output.
-Profile and source refusals exit 1; an unknown command exits 2.
+source against the profile, then the world palette rule, then atlas placements, before writing any
+reviewed or golden output. A world with no manifests under `assets/manifests` is refused with
+`ASSETS_REQUIRED`. Profile and source refusals exit 1; an unknown command exits 2.
 
 ## Packing
 
@@ -126,12 +131,17 @@ an asset's declared licence, and provenance never replaces human review.
 ## Golden approval
 
 `update-golden` re-renders each pack's scene (frame 0 of each binding, paths, selection, night and
-rain effects, integer math only). If the scene hash changed it resets approval to `pending`. A human
-edits `approval` to `approved` with `reviewer` and `approvedSceneSha256`. `check` fails on any
-rendering difference ("visual diff"), on a pack with `presentation.json` but no golden, and on a
-golden that is not approved for its current `sceneSha256`, so a re-rendered golden cannot merge
-without a human edit. The scene renders only deployable manifests, the ones upload ships; a binding
-to a pending or refused manifest fails the render.
+rain effects, integer math only). Each sprite pixel is composited source-over the opaque scene
+with integer arithmetic, `(src * a + dst * (255 - a) + 127) / 255` rounded down per channel, and
+the output alpha stays 255; alpha 0 leaves the scene unchanged and alpha 255 copies the colour, so
+binary-alpha art renders as before. If the scene hash changed it resets approval to `pending`. A
+human edits `approval` to `approved` with their `reviewer` login and `approvedSceneSha256`. `check`
+fails on any rendering difference ("visual diff"), on a pack with `presentation.json` but no golden,
+on a world with manifests but no presentation metadata (`GOLDEN_SCENE_REQUIRED`), on a golden that
+is not approved for its current `sceneSha256` (`GOLDEN_NOT_APPROVED`), and on an approval whose
+reviewer is null, blank or a GitHub `[bot]` account (`GOLDEN_REVIEWER_NOT_HUMAN`), so a
+re-rendered golden cannot merge without a human edit. The scene renders only deployable manifests,
+the ones upload ships; a binding to a pending or refused manifest fails the render.
 
 The fixture scene retains the issue 813 camera and effects coverage: origin (-2000 mm,
 3000 mm), 80 mm per pixel, 480 x 270 pixels, simulation time 79,200,000 ms (22:00),
@@ -142,7 +152,8 @@ world artwork still requires its own human approval.
 ## Upload
 
 `uploadReviewedAssets` throws, uploading nothing, if any manifest is refused or the golden is not
-approved for its current hash. Each output is stored at `sha256/<hex of its bytes>` (atlas PNG as
+approved by a human for its current hash (the same `GOLDEN_NOT_APPROVED` and
+`GOLDEN_REVIEWER_NOT_HUMAN` rule as `check`). Each output is stored at `sha256/<hex of its bytes>` (atlas PNG as
 `image/png`, animation manifest as `application/json`); existing keys are skipped. The R2 adapter
 takes a structural bucket binding, so no provider type enters the package.
 
@@ -202,11 +213,19 @@ Clockgrove checkout. Omitting `--world` preserves the fixture pipeline.
 `validate` reads only the named manifest, its media and the world's style
 profile, including provenance and licence refusals. Pending human review is accepted
 by this generation-tool hook; build and check retain the human review gate. It prints refusals on stderr and exits 1
-on refusal, 0 on success; invalid command usage or world directory exits 2,
-and unexpected internal errors exit 70. External success prints a JSON object
-with `status: "ok"` and the command name. `check` also refuses
+on refusal, 0 on success. Invalid command usage or world directory exits 2, as does a
+`validate` manifest that is missing or not a file (`ASSET_MANIFEST_REQUIRED`) or lies outside
+the world (`ASSET_PATH_INVALID`). Unexpected internal errors exit 70. External success prints a
+JSON object with `status: "ok"` and the command name. `check` also refuses
 undeployable external assets, stale reviewed output, stale licence reporting,
-missing or changed goldens and pending golden approval. `build` includes only
+missing or changed goldens and pending or non-human golden approval. Deploy refusals print as
+`<code> <assetId>/<animationFamily>: <detail>`.
+
+Malformed world input exits 1 with a stable code that names the file: `JSON_INVALID` for
+unparseable JSON, `ASSET_MANIFEST_INVALID` and `PRESENTATION_INVALID` for decoder refusals
+(with the field path), and `PACK_SCENE_INVALID` for an actor placement or anchor graph the scene
+cannot read (coordinates that are not integer `$bigint` values, or an edge naming an undeclared
+anchor). `build` includes only
 deployable assets; human review is still required. A changed golden resets to
 pending until a human records approval for the new scene hash. Existing
 external local sessions serve the world's reviewed directory; the shell loads every
