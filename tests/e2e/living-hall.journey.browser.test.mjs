@@ -2133,20 +2133,37 @@ const observeHall = async (backend) => {
               globalThis.hallHoldSnapshot = true;
             });
           let releaseAssets;
+          let assetsHeld;
           if (lateAssets) {
             const held = new Promise((resolve) => {
               releaseAssets = resolve;
             });
+            // Resolves once the route itself holds the renderer's atlas request.
+            let holding;
+            assetsHeld = new Promise((resolve) => {
+              holding = resolve;
+            });
             await viewer.route("**/fixture-world.png", async (route) => {
+              holding();
               await held;
               await route.continue();
             });
           }
           await viewer.addInitScript(() => {
+            // Each socket's path and whether it ever opened and has closed.
+            globalThis.hallSocketLog = [];
             globalThis.WebSocket = class extends WebSocket {
               constructor(...args) {
                 super(...args);
                 globalThis.hallCurrentSocket = this;
+                const entry = { path: new URL(this.url).pathname, opened: false, closed: false };
+                globalThis.hallSocketLog.push(entry);
+                EventTarget.prototype.addEventListener.call(this, "open", () => {
+                  entry.opened = true;
+                });
+                EventTarget.prototype.addEventListener.call(this, "close", () => {
+                  entry.closed = true;
+                });
               }
             };
           });
@@ -2184,7 +2201,7 @@ const observeHall = async (backend) => {
             );
           const memories = () =>
             viewer.getByRole("list", { name: "Private memories" }).getByRole("listitem");
-          return { viewer, frames, sockets, held, memories, releaseAssets };
+          return { viewer, frames, sockets, held, memories, releaseAssets, assetsHeld };
         };
         const kin = await observe("hall-inspect");
         const stranger = await observe("outsider-session-token");
@@ -2239,18 +2256,43 @@ const observeHall = async (backend) => {
         ).toBe(2);
         await dropped.viewer.context().close();
         // S4: the browser goes offline, reports recovery, and resumes the committed scene.
+        const offlineFrom = await stranger.viewer.evaluate(() => globalThis.hallSocketLog.length);
         await stranger.viewer.context().setOffline(true);
         await stranger.viewer.evaluate(() => globalThis.hallCurrentSocket.close());
         await expect
           .poll(() => stranger.viewer.locator("#rw-observation-status").textContent())
           .toContain("Recovering committed scene");
+        // A reconnect attempt runs while offline and fails without opening; the client keeps
+        // recovering rather than giving up.
+        await expect
+          .poll(() =>
+            stranger.viewer.evaluate(
+              (from) =>
+                globalThis.hallSocketLog
+                  .slice(from)
+                  .some(
+                    ({ path, opened, closed }) => path === "/v1/projection" && closed && !opened,
+                  ),
+              offlineFrom,
+            ),
+          )
+          .toBe(true);
+        expect([
+          await stranger.viewer.locator("#rw-observation-status").textContent(),
+          JSON.parse(await stranger.held()).status,
+        ]).toEqual([expect.stringContaining("degraded. Recovering committed scene"), "degraded"]);
         await stranger.viewer.context().setOffline(false);
         await expect.poll(async () => JSON.parse(await stranger.held()).status).toBe("ready");
         // F4: the stored session expires; an ordinary read denies it until a renewed session signs in.
+        // From here the shell's runtime reads verify credentials in the product's session store.
+        worker = new RuntimeWorker(
+          activeAuthentication.sessionStoreAuthenticator(fixture.environment),
+          bindings,
+          observerLogger,
+        );
         await native.sql(
           `UPDATE clockgrove_auth.session SET "expiresAt"=now()-interval '1 second' WHERE token='outsider-session-token'`,
         );
-        activeAuthentication.setStrangerExpired(true);
         expect(
           (
             await native.request(
@@ -2272,7 +2314,6 @@ const observeHall = async (backend) => {
         await native.sql(
           `UPDATE clockgrove_auth.session SET "expiresAt"=now()+interval '1 hour' WHERE token='outsider-session-token'`,
         );
-        activeAuthentication.setStrangerExpired(false);
         await stranger.viewer.getByLabel("Local session credential").fill("outsider-session-token");
         await stranger.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
         await stranger.viewer.getByRole("region", { name: "Living scene" }).waitFor();
@@ -2285,12 +2326,19 @@ const observeHall = async (backend) => {
           lateAssets: true,
         });
         const hall = touch.viewer;
-        await hall.getByText(/^Arrival: snapshot ready at revision /u).waitFor();
+        await touch.assetsHeld;
+        // While the route holds the atlas request: snapshot ready, no later milestone, no canvas.
         expect(
-          await hall.evaluate(() =>
-            globalThis.hallBoots.some(([boot]) => boot.state === "scene_ready"),
-          ),
-        ).toBe(false);
+          await hall.evaluate(() => [
+            globalThis.hallBoots.at(-1)[0].state,
+            globalThis.hallBoots.some(([boot]) =>
+              ["critical_assets_ready", "scene_ready", "text_ready"].includes(boot.state),
+            ),
+            globalThis.hallRendererPresentInvoked,
+            document.querySelector(".rw-shell").dataset.canvas,
+          ]),
+        ).toEqual(["snapshot_ready", false, false, "false"]);
+        await hall.getByText(/^Arrival: snapshot ready at revision /u).waitFor();
         touch.releaseAssets();
         await hall.getByText(/^Arrival: scene ready at revision /u).waitFor();
         await expect
@@ -2675,16 +2723,67 @@ const observeHall = async (backend) => {
           // window's bounds listeners no longer fire.
           await released(),
         ]).toEqual([heldBefore, "ready", [false, false, false]]);
-        // A4: retry rebuilds the canvas from the retained reducer projection, without another socket.
+        // The shell reports the text path it shows: arrival status, its announcement and the
+        // latest accessibility mode.
+        const heldRevision = JSON.parse(heldBefore).scene.revision;
+        const reportedMode = () =>
+          hall.evaluate(() => [
+            document.querySelector("#rw-arrival-status").textContent,
+            [...document.querySelectorAll('[role="status"]')]
+              .map(({ textContent }) => textContent)
+              .find((text) => text.startsWith("World arrival:")),
+            globalThis.hallMeasurements
+              .points()
+              .filter(
+                ({ name, category }) =>
+                  name === "accessibility_mode" && category !== "reduced_motion",
+              )
+              .at(-1)?.category,
+          ]);
+        const textMode = (reason) => [
+          `Arrival: text scene ready at revision ${heldRevision}; ${reason} unavailable.`,
+          expect.stringMatching(
+            new RegExp(
+              `^World arrival: text scene ready at revision \\d+; ${reason} unavailable\\.$`,
+              "u",
+            ),
+          ),
+          "text",
+        ];
+        await expect.poll(reportedMode).toEqual(textMode("renderer"));
+        // A4: a retry whose presentation fails stays on the text path.
         const socketsBeforeRebuild = touch.sockets.length;
         await hall.evaluate(() => {
+          globalThis.hallFailPresent = true;
+          globalThis.hallRendererPresentInvoked = false;
+        });
+        await hall.getByRole("button", { name: "Retry canvas", exact: true }).click();
+        await expect
+          .poll(() => hall.evaluate(() => globalThis.hallRendererPresentInvoked))
+          .toBe(true);
+        await hall
+          .getByText("Canvas unavailable. The complete scene is available below.", { exact: true })
+          .waitFor();
+        await expect.poll(reportedMode).toEqual(textMode("assets"));
+        expect(await hall.locator("canvas").count()).toBe(0);
+        // A4: retry rebuilds the canvas from the retained reducer projection, without another socket.
+        // The shell reports the canvas again.
+        await hall.evaluate(() => {
+          globalThis.hallFailPresent = false;
           globalThis.hallDrawnRevision = undefined;
         });
         await hall.getByRole("button", { name: "Retry canvas", exact: true }).click();
         await expect.poll(() => hall.locator("canvas").count()).toBe(1);
         await expect
           .poll(() => hall.evaluate(() => globalThis.hallDrawnRevision))
-          .toBe(JSON.parse(heldBefore).scene.revision);
+          .toBe(heldRevision);
+        await expect
+          .poll(reportedMode)
+          .toEqual([
+            `Arrival: scene ready at revision ${heldRevision}.`,
+            `World arrival: scene ready at revision ${heldRevision}.`,
+            "canvas",
+          ]);
         expect([
           await touch.held(),
           touch.sockets.length,

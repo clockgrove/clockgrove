@@ -93,15 +93,18 @@ export function reduceBoot(boot: WorldBootState, event: WorldBootEvent): WorldBo
           projectionRevision: event.revision,
         })
       : boot;
-  // Terminal states stay; a late renderer outcome of an earlier boot cannot touch this one.
-  if (
-    !("projectionRevision" in boot) ||
-    "terminal" in boot ||
-    !("requestId" in event) ||
-    event.requestId !== requestId
-  )
+  // A renderer outcome of an earlier boot cannot touch this one.
+  if (!("projectionRevision" in boot) || !("requestId" in event) || event.requestId !== requestId)
     return boot;
   const { projectionRevision } = boot;
+  // After arrival this boot's canvas still decides which ready state the shell reports: a retried
+  // canvas that presents restores scene_ready, and a lost or refused one falls back to text_ready.
+  if (
+    "terminal" in boot &&
+    !(event.type === "present" && boot.state === "text_ready") &&
+    !(event.type === "fallback" && (boot.state === "scene_ready" || boot.reason !== event.reason))
+  )
+    return boot;
   if (event.type === "assets" && boot.state === "snapshot_ready")
     return checked({
       requestId,
@@ -110,7 +113,10 @@ export function reduceBoot(boot: WorldBootState, event: WorldBootEvent): WorldBo
       scope,
       projectionRevision,
     });
-  if (event.type === "present" && boot.state === "critical_assets_ready")
+  if (
+    event.type === "present" &&
+    (boot.state === "critical_assets_ready" || boot.state === "text_ready")
+  )
     return checked({
       requestId,
       progress: at("scene_ready"),
