@@ -2659,7 +2659,11 @@ const observeHall = async (backend) => {
             adapter.lights.length === lights.length &&
               adapter.lights.every((light, index) => light === lights[index]),
           ];
-          await new Promise((resolve) => setTimeout(resolve, 600));
+          // The tween ends on the first frame after its 400 ms; a software-rendered frame can land
+          // much later on a busy runner, so wait for that frame rather than a fixed delay.
+          const deadline = performance.now() + 10_000;
+          while (adapter.motions.has(body) && performance.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 50));
           const settled = body.position.x;
           adapter.loadSnapshot(shifted(21));
           const snapped = [Number(adapter.motions.has(body)), body.position.x];
