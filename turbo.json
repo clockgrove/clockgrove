@@ -73,6 +73,7 @@
         "infra/**",
         "tests/infra/**",
         "scripts/infra-validate.mjs",
+        "scripts/lib/opentofu.mjs",
         "scripts/check-secrets.mjs",
         "apps/runtime/src/**",
         "vitest.workspace.ts",

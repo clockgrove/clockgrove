@@ -91,6 +91,13 @@ jobs:
         if: ${{ matrix.commands != '' }}
         run: node scripts/bootstrap.mjs "$CI_EVIDENCE_DIR" --only "${{ matrix.commands }}"
 
+      # Read-only and credential-free: the ci environment owns no cloud resources.
+      - name: Zero-resource infrastructure plan and cloud suite
+        if: ${{ matrix.share == 'checks' }}
+        run: |
+          pnpm run infra:plan ci
+          pnpm run test:cloud ci
+
       - name: Run test:runtime shard ${{ matrix.shard }}
         if: ${{ matrix.shard }}
         run: node scripts/bootstrap.mjs "$CI_EVIDENCE_DIR" --runtime-shard "${{ matrix.shard }}"

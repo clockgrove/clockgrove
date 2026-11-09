@@ -318,7 +318,7 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     security: canonicalResults(commandRoles.security),
     recovery: { status: "missing", evidence: [] },
     nativeRecovery: { status: "missing", evidence: [] },
-    cloudQualification: { status: "pending", dependencies: ["#329", "#358"], evidence: [] },
+    cloudQualification: { status: "pending", dependencies: ["#1", "#2"], evidence: [] },
     deployments: [],
     focusedReview: { status: "needs-human", evidence: [] },
     knownRisks: [

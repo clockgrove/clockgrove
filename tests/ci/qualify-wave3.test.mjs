@@ -91,11 +91,11 @@ it("passes local items from receipts, defers and reviews by the plan, and keeps 
     ...["passed", "passed", "passed", "pending", "deferred", "deferred", "pending", "review"],
     ...["pending", "pending"],
   ]);
-  expect(manifest.exitChecklist[18].pending.issues).toEqual([693]);
+  expect(manifest.exitChecklist[18].pending.issues).toEqual([2]);
   expect(manifest.exitChecklist[3].pending).toEqual({
     missing:
       "real Cloudflare staging qualification: plan §18.2 and the hosted rows of the §17 matrix",
-    issues: [881],
+    issues: [3],
   });
   expect(manifest.exitDecision.status).toBe("not-qualified");
   expect(manifest.cloudQualification.map((entry) => entry.disposition)).toEqual(
@@ -113,7 +113,7 @@ it("passes local items from receipts, defers and reviews by the plan, and keeps 
     [(m) => (m.scenarios.goldens = []), "committed goldens"],
     [(m) => Object.assign(m.cloudQualification[0], { disposition: "deferred" }), "§18.2"],
     [(m) => (m.cloudQualification[1].pending.issues = []), "§18.2"],
-    [(m) => (m.faults.cases = m.faults.cases.filter((e) => e.issue !== "#881")), "fault matrix"],
+    [(m) => (m.faults.cases = m.faults.cases.filter((e) => e.issue !== "#3")), "fault matrix"],
     [(m) => (m.faults.digest = digest("forged")), "fault matrix"],
   ];
   for (const [change, message] of forgeries) await refuses(manifest, change, message);

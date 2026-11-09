@@ -232,7 +232,7 @@ nonempty binding-derived material output alongside exact object IDs, 3D frames, 
 
 The local Chromium journey exercises native runtime/PostgreSQL committed delivery, the renderer and
 semantic output, and interruption recovery. It does not establish hosted Cloudflare hibernation,
-restart or deployment qualification. Full qualification remains pending under issue 853 and issue 693;
+restart or deployment qualification. Full qualification remains pending under issue 853 and issue 3;
 pilot evaluation remains deferred to issue 817. The predeclared pilot remains unevaluated and permits
 no recording.
 

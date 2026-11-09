@@ -550,7 +550,7 @@ composed store stores `public_scene` only and refuses every other class with
 R2 bucket: a JSON artifact one byte over the inline limit spills to its content-addressed key and
 round-trips, a rewritten object is `ArtifactIntegrityError('hash')`, another tenant's read is
 `ArtifactNotFoundError` and a private put is refused. The staging round trip stays pending on
-issue 329/issue 693.
+issue 3.
 
 ### Artifact key rotation
 

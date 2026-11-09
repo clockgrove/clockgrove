@@ -321,7 +321,7 @@ jobs:
     # The Wave 3 evidence manifest (plan §23, issue 853), built from the qualification job's receipts and
     # logs and the wave3-load-curves job's receipt and curves. It runs even when either failed:
     # missing or failed evidence is recorded as such, never as passed, and hosted items stay pending
-    # on issue 881 and issue 693, since nothing here deploys. It does not run when a scheduled run skipped an
+    # on issue 3 and issue 2, since nothing here deploys. It does not run when a scheduled run skipped an
     # already-qualified commit.
     needs: [qualification, wave3-load-curves]
     if: ${{ always() && !cancelled() && needs.qualification.result != 'skipped' }}
