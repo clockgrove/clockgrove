@@ -20,12 +20,18 @@ CREATE TABLE clockgrove.wake_triage (
 CREATE INDEX wake_triage_day ON clockgrove.wake_triage (tenant_id,world_id,timeline_id,day);
 ALTER TABLE clockgrove.wake_triage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clockgrove.wake_triage FORCE ROW LEVEL SECURITY;
+-- Memberships are private to their readers; RLS must not require the runtime to SELECT them.
+CREATE FUNCTION clockgrove.runtime_wake_triage_operator(t text,w text,tl text,s text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,clockgrove AS $$
+  SELECT clockgrove.runtime_can_access(t,'operator_evidence') AND EXISTS (
+    SELECT 1 FROM clockgrove.world_memberships m WHERE m.tenant_id=t AND m.world_id=w
+      AND m.timeline_id=tl AND m.space_id=s AND m.principal_id=clockgrove.runtime_principal_id()
+      AND m.revoked_at IS NULL AND 'runtime:world-command'=ANY(m.grants))
+$$;
+REVOKE ALL ON FUNCTION clockgrove.runtime_wake_triage_operator(text,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clockgrove.runtime_wake_triage_operator(text,text,text,text) TO clockgrove_runtime;
 CREATE POLICY wake_triage_operator ON clockgrove.wake_triage FOR SELECT USING (
-  clockgrove.runtime_can_access(tenant_id,'operator_evidence') AND EXISTS (
-    SELECT 1 FROM clockgrove.world_memberships m WHERE m.tenant_id=wake_triage.tenant_id
-      AND m.world_id=wake_triage.world_id AND m.timeline_id=wake_triage.timeline_id
-      AND m.space_id=wake_triage.space_id AND m.principal_id=clockgrove.runtime_principal_id()
-      AND m.revoked_at IS NULL AND 'runtime:world-command'=ANY(m.grants)));
+  clockgrove.runtime_wake_triage_operator(tenant_id,world_id,timeline_id,space_id));
 REVOKE ALL ON clockgrove.wake_triage FROM PUBLIC;
 GRANT SELECT ON clockgrove.wake_triage TO clockgrove_runtime;
 CREATE TRIGGER wake_triage_no_delete BEFORE DELETE OR TRUNCATE ON clockgrove.wake_triage
@@ -88,10 +94,7 @@ GRANT EXECUTE ON FUNCTION clockgrove.finish_wake_triage(text,text,text,jsonb) TO
 CREATE FUNCTION clockgrove.read_wake_triage_report(t text,w text,tl text,s text)
 RETURNS SETOF jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,clockgrove AS $$
 BEGIN
-  IF NOT clockgrove.runtime_can_access(t,'operator_evidence') OR NOT EXISTS (
-    SELECT 1 FROM clockgrove.world_memberships m WHERE m.tenant_id=t AND m.world_id=w AND m.timeline_id=tl
-      AND m.space_id=s AND m.principal_id=clockgrove.runtime_principal_id() AND m.revoked_at IS NULL
-      AND 'runtime:world-command'=ANY(m.grants)) THEN RAISE EXCEPTION 'wake triage report refused'; END IF;
+  IF NOT clockgrove.runtime_wake_triage_operator(t,w,tl,s) THEN RAISE EXCEPTION 'wake triage report refused'; END IF;
   RETURN QUERY SELECT jsonb_build_object('record',q.record,'phase',f.phase,
     'proposedCommand', f.proposal_artifact_id IS NOT NULL AND strpos(f.proposal_artifact_id,':command:')>0,
     'outputMessage',EXISTS(SELECT 1 FROM clockgrove.conversation_messages msg
