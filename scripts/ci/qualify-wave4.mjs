@@ -225,8 +225,22 @@ const resolve = async (row) => {
       : row.deviation;
   return { ...row, evidence: evidenceRows, status, ...(deviation ? { deviation } : {}) };
 };
-const scenarios = await Promise.all(matrix.scenarios.map(resolve));
-const failureMatrix = await Promise.all(matrix.failureMatrix.map(resolve));
+// Reviewer records (plan §19): rows a review did not accept as full, and the reviewed §19 items.
+const reviewRecords = await json(path.join(root, "scripts/ci/qualify-wave4-review.json"));
+const notFull = new Map(
+  reviewRecords.scenarioRowsNotReviewedFull.map(({ id, issue, reason }) => [id, { issue, reason }]),
+);
+const withReview = (row) =>
+  notFull.has(row.id)
+    ? { ...row, review: { status: "not-reviewed-full", ...notFull.get(row.id) } }
+    : row;
+const scenarios = (await Promise.all(matrix.scenarios.map(resolve))).map(withReview);
+const failureMatrix = (await Promise.all(matrix.failureMatrix.map(resolve))).map(withReview);
+for (const id of notFull.keys())
+  assert(
+    [...scenarios, ...failureMatrix].some((row) => row.id === id),
+    `${id}: no such scenario row`,
+  );
 
 // §15.3: capture hashes are taken from the files on disk and compared with human approvals.
 const captured = await optionalJson(path.join(evidence, "visual/captures.json"));
@@ -320,8 +334,20 @@ const deviations = [
       ]),
 ];
 /**
+ * A review item is `reviewed` only when its record covers this candidate and checked the whole item;
+ * a record for another candidate, or a partial one, is attached and the item stays `review`.
+ */
+const reviewed = (item, review) => {
+  const record = reviewRecords.reviews.find((entry) => entry.item === item);
+  if (record === undefined) return { item, status: "review", review };
+  return record.candidate === candidate.commit && record.result === "checked"
+    ? { item, status: "reviewed", review, reviewed: record }
+    : { item, status: "review", review, lastReview: record };
+};
+/**
  * The thirteen literal §19 items, each with a disposition (development.md): `passed`/`failed` from
- * the suites that prove it, `pending` on an owner issue, or `review` when a person must confirm it.
+ * the suites that prove it, `pending` on an owner issue, `review` when a person must confirm it, or
+ * `reviewed` once a reviewer's record in qualify-wave4-review.json covers this candidate.
  */
 const section19 = [
   [
@@ -380,8 +406,13 @@ const section19 = [
       ? { item, status: by.every(passed) ? "passed" : "failed", evidence: by }
       : by.pending
         ? { item, status: "pending", pending: by.pending }
-        : { item, status: "review", review: by.review },
+        : reviewed(item, by.review),
 );
+for (const { item } of reviewRecords.reviews)
+  assert(
+    section19.some((entry) => entry.item === item && entry.review !== undefined),
+    `review record for an item qualify:wave4 does not mark review: ${item}`,
+  );
 
 const blockers = [
   ...suites.filter(({ status }) => status !== "passed").map(({ name }) => `suite ${name} failed`),
@@ -391,7 +422,7 @@ const blockers = [
   ...deviations.map(({ id, reason }) => `${id}: ${reason}`),
   ...cloudflareQualification.map(({ item }) => `${item}: pending on issue 3`),
   ...section19
-    .filter(({ status }) => status !== "passed")
+    .filter(({ status }) => status !== "passed" && status !== "reviewed")
     .map(({ item, status }) => `§19 ${item} ${status}`),
   ...(accessibility?.runs?.every((run) => run.violations.length === 0)
     ? []
