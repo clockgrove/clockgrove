@@ -1205,6 +1205,8 @@ interface TurnFiberSnapshot {
 const RECOVERY_KEY = "actor-agent-recovery";
 const INBOX_KEY = "actor-agent-inbox";
 const ACTIVATION_ADDRESS_KEY = "activation-address";
+/** Prefix of the activation alarm keys, one per principal that armed this actor. */
+const ACTIVATION_ALARM_KEY = "activation-alarm";
 
 /** Why an activation arming runs, which decides how soon it plans the next check. */
 export interface ActivationArming {
@@ -1348,7 +1350,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     assertWorldCommandContext(context, scope);
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
-    // Persist a fallback before admitting canonical work, including unscheduled operator wakes.
+    // Persist a fallback before admitting canonical work, including unscheduled operator wakes. It
+    // is this principal's own alarm, so a wake refused for a policy it cannot see changes no other.
     await this.armActivations(address, { forceRecovery: true });
     return this.admitActivation(address, wake);
   }
@@ -1406,7 +1409,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   /**
    * A world commit wrote an event that one of this actor's enabled subscriptions or thresholds
    * names (`activationHintNotifier`). Plans a prompt check of the journal instead of the quiet
-   * poll, for the address its last arming stored. Hints coalesce into the one activation alarm.
+   * poll, for the address its last arming stored. Hints coalesce into that principal's alarm.
    */
   async hintActivations(): Promise<void> {
     const address = await this.objectState.storage.get<ActivationAddress>(ACTIVATION_ADDRESS_KEY);
@@ -1446,7 +1449,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           /* PostgreSQL checkpoints retain interrupted work. */
         }
       }
-      const events = await withActivations(this.environment, (store) => store.events(address));
+      // No configuration means no policy this principal can see, and so no journal cursor.
+      const events =
+        inspection.configurations.length === 0
+          ? []
+          : await withActivations(this.environment, (store) => store.events(address));
       fullPage = events.length === ACTIVATION_EVENT_PAGE;
       for (const event of events) {
         for (const configuration of inspection.configurations
@@ -1491,13 +1498,13 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /**
-   * Plans the one activation alarm from an inspection read inside this incarnation's single arming
-   * section, and answers that inspection. Configure, wake and the callback run concurrently between
-   * PostgreSQL round trips: a callback planning from an inspection taken before a configuration
-   * committed would cancel the alarm that configuration relied on, and its wake would wait for the
-   * next quiet poll, or forever with none. Every change commits before its own arming, so the last
-   * arming always reads it. An arming that shows the actor's configurations stores its address for
-   * journal hints.
+   * Plans the principal's activation alarm from an inspection read inside this incarnation's
+   * single arming section, and answers that inspection. Configure, wake and the callback run
+   * concurrently between PostgreSQL round trips: a callback planning from an inspection taken
+   * before a configuration committed would cancel the alarm that configuration relied on, and its
+   * wake would wait for the next quiet poll, or forever with none. Every change commits before its
+   * own arming, so the last arming always reads it. An arming that shows the actor's
+   * configurations stores its address for journal hints.
    */
   private armActivations(
     address: ActivationAddress,
@@ -1532,9 +1539,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       prompt = false,
     }: ActivationArming,
   ): Promise<void> {
-    const stored = await this.objectState.storage.get<{ id: string; at: number }>(
-      "activation-alarm",
-    );
+    // Each principal's arming plans only that principal's alarm: activation policies are private
+    // to their principal, so another principal's arming reads none of them and must not cancel or
+    // replace the wakes they need.
+    const key = `${ACTIVATION_ALARM_KEY}:${address.participant.principalId}`;
+    const stored = await this.objectState.storage.get<{ id: string; at: number }>(key);
     // Decision: unfinished turns retry after one second so an owner loss does not strand their
     // receipts behind quiet polling. A journal hint or a full page of unread events checks again
     // after one second too. Quiet subscription checks remain one minute apart; model retries still
@@ -1558,7 +1567,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         : null,
     ].filter((value): value is number => value !== null);
     if ((inspection.activations.length >= 1000 && !pending) || candidates.length === 0) {
-      await this.objectState.storage.put("activation-alarm", null);
+      await this.objectState.storage.put(key, null);
       if (stored) await this.cancelSchedule(stored.id);
       return;
     }
@@ -1570,7 +1579,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       { ...address, wakeAt: plannedAt },
       { idempotent: true },
     );
-    await this.objectState.storage.put("activation-alarm", { id: scheduled.id, at: plannedAt });
+    await this.objectState.storage.put(key, { id: scheduled.id, at: plannedAt });
     if (stored && stored.id !== scheduled.id) await this.cancelSchedule(stored.id);
   }
 

@@ -303,6 +303,18 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   async heldTest(): Promise<boolean> {
     return this.held !== undefined;
   }
+  /** Each pending activation callback, as `<principal>@<planned time>`. */
+  async activationAlarmsTest(): Promise<string[]> {
+    return (await this.listSchedules({ type: "scheduled" }))
+      .filter((schedule) => schedule.callback === "runScheduledActivations")
+      .map((schedule) => {
+        const payload = schedule.payload as {
+          readonly participant: { readonly principalId: string };
+          readonly wakeAt: number;
+        };
+        return `${payload.participant.principalId}@${payload.wakeAt}`;
+      });
+  }
   /** `hold:activation-planning` holds a scheduled callback's last arming before it plans. */
   protected override async activationPlanning(arming: ActivationArming): Promise<void> {
     if (!arming.fromCallback || arming.forceRecovery) return;
@@ -1070,6 +1082,7 @@ export default {
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
       if (body.op === "held") return Response.json(await actor.heldTest());
+      if (body.op === "alarms") return Response.json(await actor.activationAlarmsTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")

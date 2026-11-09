@@ -208,11 +208,19 @@ repeated empty opportunities until an operator reconfigures it. Subscriptions an
 events: after a world command commits, its space owner asks the owner of each actor whose enabled
 subscription or threshold names a committed event type for a check within one second
 (`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
-world's system principal). Repeated hints coalesce into the actor's one activation alarm, and a
+world's system principal). Repeated hints coalesce into the policy owner's activation alarm, and a
 check that reads a full page of 64 unread events checks again within one second. Quiet subscription
 polling, one minute apart, remains the backstop for a lost hint; unfinished turns retry after one
 second, subject to the model budget. These are explicit local bounds, rather than continuously
 running actor processes.
+
+An actor has one activation policy, and only the principal that configured it can read it. The
+actor's owner keeps one activation alarm per principal. Each configure, wake and check plans only
+the alarm of the principal it runs for, from the policy that principal can read. A wake arms its
+principal's recovery alarm before admission, so admitted work survives an owner loss. Another
+principal's wake reads no policy and is refused with `activation_not_found`. Its own alarm then
+finds nothing and clears. The policy owner's scheduled intentions, heartbeats and subscription
+checks stay armed.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
 logic owns evaluation of the physical condition. Event cursors start at the journal head when
