@@ -349,7 +349,9 @@ export function ConversationPanel({
                   <strong>{mine ? "You" : name}</strong>
                   {message.voiceMode && <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>}
                   <p>{message.text}</p>
-                  <time dateTime={message.createdAt}>{worldTime(message.createdAt)}</time>
+                  <time dateTime={message.createdAt} data-wall-clock>
+                    {worldTime(message.createdAt)}
+                  </time>
                   {outcome && (
                     <p className="rw-outcome" data-status={outcome.status}>
                       {outcome.status === "committed"
