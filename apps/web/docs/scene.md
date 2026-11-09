@@ -1,9 +1,8 @@
 # Lit isometric scene
 
 This is the contract for the world shell Three.js WebGPURenderer canvas (`src/renderer.ts`) and its bridge
-(`src/world-scene-adapter.ts`). The accepted [renderer ADR](../../../docs/adr/clockgrove-adr-renderer-bake-off.md)
-supersedes the initial Phaser implementation in
-[Wave 4 plan §9](../../../docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#9-phaser-scene-implementation).
+(`src/world-scene-adapter.ts`). The renderer choice is recorded in the accepted [renderer ADR](../../../docs/adr/clockgrove-adr-renderer-bake-off.md);
+the scene contract is [Wave 4 plan §9](../../../docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#9-scene-implementation).
 
 ## Adapter
 

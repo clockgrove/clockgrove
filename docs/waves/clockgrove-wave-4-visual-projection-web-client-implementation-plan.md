@@ -14,7 +14,7 @@
 
 ## 1. Outcome
 
-Wave 4 turns the qualified headless world into a shared, inspectable product. It implements the authenticated React shell, explicit browser-arrival readiness state, Phaser isometric scene, SpaceDO WebSocket projection path, deterministic client convergence, observer navigation, selection and universal interaction, event and causal inspection, accessible text projection, and the first reviewed asset set.
+Wave 4 turns the qualified headless world into a shared, inspectable product. It implements the authenticated React shell, explicit browser-arrival readiness state, Three.js isometric scene, SpaceDO WebSocket projection path, deterministic client convergence, observer navigation, selection and universal interaction, event and causal inspection, accessible text projection, and the first reviewed asset set.
 
 The wave exits only when:
 
@@ -106,9 +106,9 @@ Any missing projection field must be added to a versioned contract before UI cod
 ### 3.1 Ownership
 
 - React + Vite owns routing, authentication, HUD, panels, chat placeholder, event feed, inspector, accessibility, errors, and responsive layout.
-- Phaser owns canvas rendering, camera, depth order, picking, movement interpolation, animations, particles, weather, highlights, and local visual effects.
-- `WorldSceneAdapter` is the only React/Phaser bridge.
-- The bridge consumes renderer-neutral semantic scene data. A required headless 3D adapter fixture proves that a true 3D renderer can consume the same object IDs, spatial frames, presentation bindings, revisions, and intents without Phaser types.
+- Three.js owns canvas rendering, camera, depth order, picking, movement interpolation, animations, particles, weather, highlights, and local visual effects.
+- `WorldSceneAdapter` is the only React/Three.js bridge.
+- The bridge consumes renderer-neutral semantic scene data. A required headless 3D adapter fixture proves that a true 3D renderer can consume the same object IDs, spatial frames, presentation bindings, revisions, and intents without Three.js types.
 - TanStack Query owns HTTP server-state caches.
 - Zustand owns transient cross-panel selection and view state.
 - The projection reducer owns the last authorized server projection and revision.
@@ -245,7 +245,7 @@ docs/protocols/world-presentation.md
 
 Raccoon World's `assets/` (source, reviewed, manifests, goldens) and `docs/design/raccoon-world-ui.md` are owned in its repository (§1.2).
 
-Phaser cannot import runtime, persistence, cognition, authentication-provider, or database packages. Runtime cannot import React or Phaser.
+Three.js cannot import runtime, persistence, cognition, authentication-provider, or database packages. Runtime cannot import React or Three.js.
 
 ---
 
@@ -326,7 +326,7 @@ Backpressure policy coalesces replaceable projection fields, drops expired trans
 
 ## 8. Deterministic client convergence
 
-The pure reducer accepts snapshot/patch/reconnect actions and produces projection state plus recovery requests. It is independent of React and Phaser.
+The pure reducer accepts snapshot/patch/reconnect actions and produces projection state plus recovery requests. It is independent of React and Three.js.
 
 Required behavior:
 
@@ -343,7 +343,7 @@ Golden tests permute, duplicate, delay, and drop the same message set and compar
 
 ---
 
-## 9. Phaser scene implementation
+## 9. Scene implementation
 
 ### 9.1 Adapter
 
@@ -476,7 +476,7 @@ Implement provider-neutral authentication boundary, world route/selector, unifie
 
 Exit: the shell matches the reference composition at desktop and preserves all core functions at laptop/mobile breakpoints.
 
-### RW-0405 — Phaser isometric scene
+### RW-0405 — Three.js isometric scene
 
 Implement camera, coordinate conversion, layers, depth, anchors, picking, selection, interpolation, animation, wet-weather/day-night effects, typed adapter, cleanup, performance instrumentation, and a headless full-3D conformance fixture for the same adapter contract.
 
@@ -531,7 +531,7 @@ Safe parallel lanes:
 
 - projection contracts and asset-manifest contracts;
 - WebSocket runtime and React shell after envelope freeze;
-- asset preparation and Phaser adapter;
+- asset preparation and Three.js adapter;
 - inspector APIs and accessibility text projection;
 - fault/fanout harness and visual-regression fixtures.
 
@@ -571,7 +571,7 @@ pnpm qualify:wave4:staging
 - snapshot ready before critical assets, asset recovery, and no false `scene_ready`;
 - selected actor crosses a viewed-space boundary with each follow disposition;
 - private Caretaker Talk never appears as public spatial speech, while an explicit public-speech action does;
-- a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Phaser or quadtree identifiers.
+- a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Three.js or quadtree identifiers.
 
 ### 15.3 Visual regression matrix
 
@@ -595,7 +595,7 @@ Amended (2026-11-07): the owner delegated the review of the §15.3 golden captur
 
 ## 16. Failure, recovery, and security matrix
 
-Inject socket drop before/after snapshot, patch gap, stale join assertion, expired token, audience/grant change, SpaceDO hibernation, deploy, backpressure, corrupt cached metadata, asset 404/hash failure, React error boundary, Phaser context loss, and inspector authorization denial.
+Inject socket drop before/after snapshot, patch gap, stale join assertion, expired token, audience/grant change, SpaceDO hibernation, deploy, backpressure, corrupt cached metadata, asset 404/hash failure, React error boundary, WebGL context loss, and inspector authorization denial.
 
 Assert:
 
@@ -647,7 +647,7 @@ Wave 4 does not implement:
 - [ ] WebSocket authorization and audience filtering occur server-side.
 - [ ] Snapshot/patch reducer convergence suite passes.
 - [ ] Hibernation, restart, deploy, reconnect, and snapshot fallback pass on Cloudflare.
-- [ ] React/Phaser ownership boundary is enforced.
+- [ ] React/Three.js ownership boundary is enforced.
 - [ ] Reference composition and art-direction tokens are implemented.
 - [ ] Scene is data-driven; reference image is not a runtime background.
 - [ ] Selection, event feed, entity rail, Inspect, Influence, and Why use real contracts.

@@ -66,5 +66,5 @@ Consumer: the scene stream decides each socket's audience through the viewer pat
 
 Deferred (not part of RW-0105b): client delivery and networking (Wave 4 RW-0402, "Space WebSocket
 runtime"); cognition and memory (Wave 6 RW-0605 and RW-0606); rule dispatch (Wave 7 RW-0702,
-"Durable rule reactions"); rendering (Wave 4 RW-0405, "Phaser isometric scene"). The attention factor
+"Durable rule reactions"); rendering (Wave 4 RW-0405, "Three.js isometric scene"). The attention factor
 is built by Wave 6 RW-0605; partition mapping belongs to Wave 11's per-space state split.
