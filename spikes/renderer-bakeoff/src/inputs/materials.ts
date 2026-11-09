@@ -90,33 +90,18 @@ const inEllipse = (u: number, v: number, cu: number, cv: number, ru: number, rv:
 
 /** u right, v down, both 0..1 across the sprite. */
 const PAINTERS: Readonly<Record<AssetId, Painter>> = {
-  keeper(u, v, x, y) {
+  keeper(u, v) {
     const t = empty();
-    const fur = noise(x, y, 3, 11) * 30;
-    const body = inEllipse(u, v, 0.48, 0.68, 0.3, 0.22);
-    const head = inEllipse(u, v, 0.72, 0.42, 0.17, 0.15);
-    const tail = inEllipse(u, v, 0.18, 0.62, 0.16, 0.1);
-    const ear = Math.min(
-      inEllipse(u, v, 0.66, 0.27, 0.05, 0.06),
-      inEllipse(u, v, 0.8, 0.27, 0.05, 0.06),
-    );
-    const legs =
-      v > 0.82 && v < 0.96 && [0.32, 0.42, 0.58, 0.66].some((c) => Math.abs(u - c) < 0.035) ? 0 : 2;
-    const inside = Math.min(body, head, tail, ear, legs);
-    if (inside > 1) return t;
+    const edge = Math.min(u - 0.18, 0.82 - u, v - 0.18, 0.82 - v);
+    if (edge < 0) return t;
+    const bevel = Math.min(1, edge / 0.08);
     t.a = 255;
-    t.r = t.g = t.b = 118 + fur;
-    t.b += 6;
-    t.h = 255 * Math.sqrt(Math.max(0, 1 - Math.min(body, head, tail)));
-    t.rough = 0.85;
+    t.r = 32 + bevel * 24;
+    t.g = 112 + bevel * 48;
+    t.b = 128 + bevel * 48;
+    t.h = 80 + bevel * 160;
+    t.rough = 0.65;
     t.wet = 0.6;
-    if (tail <= 1 && Math.floor(u * 22) % 2 === 0) t.r = t.g = t.b = 40 + fur;
-    if (head <= 1 && v > 0.37 && v < 0.45 && u > 0.6) t.r = t.g = t.b = 28 + fur / 2;
-    if (inEllipse(u, v, 0.77, 0.41, 0.022, 0.022) <= 1) {
-      t.r = t.g = t.b = 230;
-      t.rough = 0.15;
-    }
-    if (head <= 1 && v > 0.47) t.r = t.g = t.b = 205 + fur / 2;
     return t;
   },
   "lantern-post"(u, v, x, y) {
