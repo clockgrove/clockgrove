@@ -164,7 +164,9 @@ provider ownership terms recorded as a `LicenseRef-<provider>-<plan>`. A
 `CC-BY-4.0` grant keeps `CC-BY-4.0` and requires a non-empty attribution; it cannot be declared MIT.
 Provider grants may use `AND` expressions: every conjunct applies. A grant that disallows
 relabelling permits a declared licence equal to one of its conjuncts when every conjunct is a
-permitted licence. A CC-BY conjunct requires licence retention and credit even when the grant
+permitted licence and every other conjunct is obligation-free (`CC0-1.0`), so the declared licence
+never drops another conjunct's terms: `CC-BY-4.0 AND CC0-1.0` may be declared `CC-BY-4.0`, but
+`CC0-1.0 AND MIT` cannot be declared `CC0-1.0`. A CC-BY conjunct requires licence retention and credit even when the grant
 claims `relabel: true`.
 Non-commercial and provider-retained grants are refused. The pipeline never silently relabels an
 asset. Missing or partial generated provenance is refused by the deploy gate with a stable reason;
@@ -176,7 +178,7 @@ Generated deploy refusals are:
 | --- | --- |
 | `GENERATED_PROVENANCE_INCOMPLETE` | Missing prompt, model, provider, route, terms version, grant or required grant fields |
 | `OUTPUT_GRANT_NOT_PERMITTED` | Commercial use is false, or the grant permits neither relicensing nor a permitted licence |
-| `OUTPUT_GRANT_LICENSE_MISMATCH` | Declared licence is not a conjunct of a grant that disallows relabelling, or a CC-BY grant claims MIT |
+| `OUTPUT_GRANT_LICENSE_MISMATCH` | Declared licence is not a conjunct of a grant that disallows relabelling, drops another conjunct's obligations, or a CC-BY grant claims MIT |
 | `OUTPUT_GRANT_ATTRIBUTION_REQUIRED` | A CC-BY-4.0 grant has no required credit line |
 
 `assetDeployRefusals` is the deploy gate. It returns `REVIEW_NOT_APPROVED` unless the review is approved,
