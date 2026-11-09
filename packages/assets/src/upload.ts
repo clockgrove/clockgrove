@@ -1,4 +1,4 @@
-import { type AssetManifest, assetDeployRefusals } from "@clockgrove/contracts";
+import { type AssetManifest, assetDeployRefusals } from "@clockgrove/contracts/asset-manifest";
 import { type AssetEntry, buildAtlases } from "./atlas.js";
 import { sha256Hex } from "./validate.js";
 
