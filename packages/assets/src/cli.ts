@@ -9,7 +9,13 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
-import { atlasLocationProblems, buildAtlases, packAtlas } from "./atlas.js";
+import {
+  ATLAS_INDEX,
+  atlasIndex,
+  atlasLocationProblems,
+  buildAtlases,
+  packAtlas,
+} from "./atlas.js";
 import { licenseReport } from "./license-report.js";
 import {
   decodeAs,
@@ -71,10 +77,12 @@ function preflight(): string[] {
 
 function expectedReviewed(): Map<string, Uint8Array> {
   const out = new Map<string, Uint8Array>();
-  for (const atlas of buildAtlases(deployable, layout)) {
+  const atlases = buildAtlases(deployable, layout);
+  for (const atlas of atlases) {
     out.set(`${atlas.atlasId}.png`, atlas.png);
     out.set(`${atlas.atlasId}.animations.json`, new TextEncoder().encode(atlas.animations));
   }
+  if (atlases.length > 0) out.set(ATLAS_INDEX, new TextEncoder().encode(atlasIndex(atlases)));
   return out;
 }
 
@@ -206,7 +214,7 @@ function validateOne(): string[] {
   const json = readJson(absolute);
   const manifest = decodeAs("ASSET_MANIFEST_INVALID", () => decodeAssetManifest(json, path));
   const profile = readAssetStyleProfile(root, referenceRoot);
-  // Check the platform strip budget without loading the world's other manifests.
+  // Check that every frame fits an atlas page, without loading the world's other manifests.
   packAtlas([manifest]);
   return [
     ...validateSource(

@@ -34,7 +34,7 @@
     "--cg-v1-feed-width": "min(320px, 24vw)"
   },
   "scene": {
-    "atlas": "fixture-world",
+    "atlases": true,
     "accent": 11060116,
     "panel": 1974550,
     "text": "#ece9d8"

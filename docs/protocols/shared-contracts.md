@@ -225,10 +225,11 @@ each frame to be fully transparent, including terrain. `unrestricted` adds no ed
 Role limits apply to frame dimensions. `object` covers props and `terrain` covers environment
 art. Widths are in 1..1024 (the existing issue-813 atlas shelf budget); heights are in
 1..2048 (WebGL's guaranteed minimum texture size). These are the platform envelope, not a
-world's mandatory values. These are per-frame limits; a horizontal strip's width is
-`frames.width * frames.count` and must separately fit the 2048 px atlas-page envelope.
-The packer uses a 1024 px baseline shelf width, widening a logical group for larger strips and
-splitting it into pages no taller than 2048 px; see the
+world's mandatory values. These are per-frame limits; a source strip is
+`frames.width * frames.count` wide. The packer wraps a strip wider than 2048 px onto further rows,
+and continues one whose rows pass 2048 px onto further pages, each frame keeping its own rectangle
+and page, so every strip within these limits and the 32-frame manifest limit builds. It uses a 1024 px baseline shelf width, widening a logical group for larger
+strips and splitting it into pages no taller than 2048 px; see the
 [packing contract](../../packages/assets/docs/pipeline.md#packing). The fixture profile declares
 256 by 256 for every role (the issue 813 pixel-art decision), binary
 alpha, transparent-pixel edges and its existing exact two-colour palette. All 36 fixture

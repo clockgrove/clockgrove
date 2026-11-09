@@ -32,13 +32,18 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
 - The adapter refreshes the canvas bounds when a pointer enters or presses the canvas, or the page
   or any element around the canvas scrolls. Pointer moves do not trigger repeated layout reads.
 
-The renderer loads the atlas manifest, then fetches the atlas image itself and compares the
-SHA-256 of its bytes with the manifest's `image.sha256` before any use. A copy is refused when the
-fetch fails, the response is not ok or the hash differs. A refused copy is discarded, reported as
-`asset_cache` `failed`, and fetched once more with `cache: "reload"`. A second refusal reports
-another `asset_cache` `failed` and `client_errors` `asset`, and the renderer is unavailable. Only a
-verified copy is loaded (through a blob URL, revoked once loaded) and reported ready, which advances
-boot to `critical_assets_ready`. The renderer also reports when it becomes unavailable, with a
+When the world shell sets `scene.atlases`, the renderer reads the reviewed output's `atlases.json`
+index and loads every page it lists, so a logical atlas split into `-page-N` pages and a world with
+several atlas ids both draw all their assets. For each page it loads the page's animation manifest,
+then fetches the page image itself and compares the SHA-256 of its bytes with the manifest's
+`image.sha256` before any use. A copy is refused when the fetch fails, the response is not ok or the
+hash differs. A refused copy is discarded, reported as `asset_cache` `failed`, and fetched once more
+with `cache: "reload"`. A second refusal fails the whole load. A missing or malformed index, a page
+that does not load, or an animation listed on two pages reports `asset_cache` `failed` and
+`client_errors` `asset`, and the renderer is unavailable. Only once every page is verified and loaded
+(each through a blob URL, revoked once loaded) are their animations merged into one map, keyed
+`assetId/animationFamily`, and reported ready as one `asset_cache` `loaded`, which advances boot to
+`critical_assets_ready`. The renderer also reports when it becomes unavailable, with a
 reason: a missing, unverifiable or unloadable reviewed atlas is `assets_unavailable` and a lost
 WebGL context is `renderer_unavailable`. The shell then destroys the adapter and shows the text
 path. The reducer's committed projection is untouched.
@@ -274,7 +279,11 @@ The right rail shows a cognitive actor's private conversation as chat bubbles un
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
 and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
 
-Atlas animation uses per-mesh UVs on one shared atlas Texture. Three r187's WebGPURenderer allocates
+Atlas animation uses per-mesh UVs on one shared Texture per atlas page; each animation's frames index
+the page it was loaded from, one rectangle per frame. A frame that names another page's `atlasId`
+indexes that page instead (a strip continued onto further pages), and showing it swaps the mesh's
+map, and its reflection's, to that page. A frame naming a page the index does not list makes the
+renderer unavailable, as a page that does not load does. Three r187's WebGPURenderer allocates
 GPU storage per Texture identity on both backends, so cloning textures that share an image would
 duplicate atlas storage. Reflections borrow their source texture and copy animated frame UVs; they
 dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts

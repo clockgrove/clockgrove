@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,8 +6,65 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
+import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+
+// Issue 137: a painterly world whose reviewed output has four pages. A 14-frame walk of 300x700 px
+// frames wraps into two rows of six on the `walker` page and continues its last two frames on
+// `walker-page-2`, and two 600x1100 px strips overflow the `sheet` atlas onto a second page.
+// The fixture's actors stand close together, so each strip paints its own colour in a 40 px square
+// at its own offset from the bottom-centre anchor, 4 px further right in each frame; frame edges
+// stay transparent.
+const STRIPS = [
+  ["walker", "walk", "walker", 300, 700, 14, [255, 0, 255], 10],
+  ["tall-a", "idle", "sheet", 600, 1100, 1, [0, 255, 255], 280],
+  ["tall-b", "idle", "sheet", 600, 1100, 1, [0, 0, 255], 550],
+];
+async function buildPagedWorld(world) {
+  const read = async (file) => JSON.parse(await readFile(path.join(root, file), "utf8"));
+  const template = await read("packages/contracts/test/fixtures/asset-manifest/approved.json");
+  const profile = await read("worlds/fixture/reference/asset-style.json");
+  Object.assign(profile, {
+    alpha: { mode: "soft", boundsThreshold: 128 },
+    colour: { mode: "unrestricted" },
+    edge: "unrestricted",
+  });
+  for (const limit of Object.values(profile.sizes))
+    Object.assign(limit, { maxWidth: 1024, maxHeight: 2048 });
+  await mkdir(path.join(world, "reference"), { recursive: true });
+  await writeFile(path.join(world, "reference/asset-style.json"), JSON.stringify(profile));
+  for (const [assetId, family, atlasId, width, height, count, colour, left] of STRIPS) {
+    const [side, top] = [40, height - 41];
+    const rgba = new Uint8Array(width * count * height * 4);
+    for (let f = 0; f < count; f++)
+      for (let y = top; y < top + side; y++)
+        for (let x = left + 4 * f; x < left + 4 * f + side; x++)
+          rgba.set([...colour, 255], (y * width * count + f * width + x) * 4);
+    const png = encodePng({ width: width * count, height, rgba });
+    const source = `assets/source/${assetId}/${family}.png`;
+    await mkdir(path.join(world, `assets/manifests/${assetId}`), { recursive: true });
+    await mkdir(path.dirname(path.join(world, source)), { recursive: true });
+    await writeFile(path.join(world, source), png);
+    await writeFile(
+      path.join(world, `assets/manifests/${assetId}/${family}.json`),
+      JSON.stringify({
+        ...template,
+        assetId,
+        animationFamily: family,
+        source: { ...template.source, path: source },
+        frames: { width, height, count, durationMs: count > 1 ? 100 : null },
+        anchor: { x: width / 2, y: height - 1 },
+        bounds: { x: left, y: top, width: side + 4 * (count - 1), height: side },
+        contentHash: sha256Hex(png),
+        atlas: { atlasId, x: 0, y: 0 },
+      }),
+    );
+  }
+  const cli = path.join(root, "packages/assets/bin/clockgrove-assets.mjs");
+  execFileSync(process.execPath, [cli, "build", "--world", world], { timeout: 30_000 });
+  return path.join(world, "assets/reviewed");
+}
 
 // issue 1002: `pnpm dev:world` serves fixture-hall@1 at the URL it prints, the printed credential signs
 // in there, and Ctrl-C removes the temporary database it created.
@@ -67,7 +124,7 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
   ]);
 }, 240_000);
 
-it("serves an external pack with its shell and static assets and cleans up on Ctrl-C", async () => {
+it("serves an external pack with its shell and every reviewed atlas page, and cleans up on Ctrl-C", async () => {
   const external = await mkdtemp(path.join(tmpdir(), "clockgrove-external-world-"));
   const launcher = path.join(root, "scripts/dev-world.mjs");
   let session;
@@ -85,9 +142,12 @@ it("serves an external pack with its shell and static assets and cleans up on Ct
       "presentations": [{
         "presentation": {"presentationVersion": 1, "assetManifestVersion": 2,
           "pack": {"id": "clockgrove.test-world", "version": "1.1.0"},
-          "bindings": [{"objectId": "beacon.master", "assetId": "external-lamp",
-            "animationFamily": "idle", "accessibilityLabel": "External keeper"}], "effects": []},
-        "drawable": ["external-lamp/idle"],
+          "bindings": [{"objectId": "beacon.master", "assetId": "walker",
+            "animationFamily": "walk", "accessibilityLabel": "External keeper"},
+            {"objectId": "beacon.lamp", "assetId": "tall-a", "animationFamily": "idle", "accessibilityLabel": "Lamp"},
+            {"objectId": "beacon.cistern", "assetId": "tall-b", "animationFamily": "idle", "accessibilityLabel": "Cistern"}],
+          "effects": []},
+        "drawable": ["walker/walk", "tall-a/idle", "tall-b/idle"],
         "activity": {"families": [], "moving": "idle", "shelter": "idle", "arrived": "idle", "seeking": "idle"}
       }]
     }`,
@@ -97,10 +157,14 @@ it("serves an external pack with its shell and static assets and cleans up on Ct
     );
     shell.name = "External Fixture";
     shell.wordmark = "External Fixture";
+    shell.scene.atlases = true;
     await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
-    await mkdir(path.join(external, "static"));
-    await writeFile(path.join(external, "static/fixture.txt"), "external fixture asset\n");
-    const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", "static"];
+    const reviewed = await buildPagedWorld(path.join(external, "world"));
+    expect(JSON.parse(await readFile(path.join(reviewed, "atlases.json"), "utf8")).atlases).toEqual(
+      ["sheet", "sheet-page-2", "walker", "walker-page-2"],
+    );
+    await writeFile(path.join(reviewed, "fixture.txt"), "external fixture asset\n");
+    const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", reviewed];
     for (const invalid of [
       args.slice(0, 2),
       [...args, "--pack", "external pack"],
@@ -156,6 +220,8 @@ it("serves an external pack with its shell and static assets and cleans up on Ct
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     const snapshots = [];
+    const requested = new Set();
+    page.on("request", (request) => requested.add(new URL(request.url()).pathname));
     page.on("websocket", (socket) => {
       if (new URL(socket.url()).pathname === "/v1/projection")
         socket.on("framereceived", ({ payload }) => snapshots.push(JSON.parse(String(payload))));
@@ -170,14 +236,44 @@ it("serves an external pack with its shell and static assets and cleans up on Ct
     );
     expect(
       snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
-    ).toEqual([
-      {
-        objectId: "beacon.master",
-        assetId: "external-lamp",
-        animationFamily: "idle",
-        accessibilityLabel: "External keeper",
-      },
-    ]);
+    ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
+    // The shell loads every page the index lists and draws each page's strip in its colour. Every
+    // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
+    // on its own page, across both wrapped rows and onto the continuation page.
+    for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
+      for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
+        expect(requested).toContain(`/${file}`);
+    const walked = new Set();
+    for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
+      const shot = (await page.locator("canvas").screenshot()).toString("base64");
+      const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const context = Object.assign(document.createElement("canvas"), {
+          width: image.width,
+          height: image.height,
+        }).getContext("2d");
+        context.drawImage(image, 0, 0);
+        const { data } = context.getImageData(0, 0, image.width, image.height);
+        const found = [0, 0, 0, image.width];
+        for (let i = 0; i < data.length; i += 4) {
+          const [r, g, b] = data.subarray(i, i + 3);
+          if (r > 2 * g + 40 && b > 2 * g + 40) {
+            found[0]++;
+            found[3] = Math.min(found[3], (i / 4) % image.width);
+          } else if (g > 2 * r + 40 && b > 2 * r + 40) found[1]++;
+          else if (b > 2 * (r + g) + 40) found[2]++;
+        }
+        return found;
+      }, shot);
+      expect(
+        [magenta, cyan, blue].every((count) => count >= 1200),
+        `${magenta} ${cyan} ${blue}`,
+      ).toBe(true);
+      walked.add(left);
+    }
+    expect(walked.size).toBe(14);
   } finally {
     await browser?.close();
     if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");

@@ -438,7 +438,7 @@ const captureGoldenStates = async (backend) => {
                     .map((drawn) => drawn.body),
                   ...adapter.effects.map(({ sprite }) => sprite),
                   ...adapter.reflections.filter((mirror) => mirror.userData.source.userData.key),
-                ].every((mesh) => mesh.material.map === adapter.atlasTexture),
+                ].every((mesh) => mesh.material.map === adapter.atlasTextures[0]),
                 reflectionBlending: adapter.reflections.map((mirror) => [
                   mirror.material.transparent,
                   mirror.material.opacity,

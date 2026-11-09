@@ -136,29 +136,6 @@ it.each(["pixel", "cartoon", "painterly"])(
         writeFileSync(path, JSON.stringify(manifest));
         writeFileSync(join(world, manifest.source.path), bytes);
       }
-      if (style === "painterly") {
-        profile.sizes.actor.maxWidth = 1024;
-        writeFileSync(profilePath, JSON.stringify(profile));
-        const stripManifest = structuredClone(manifest);
-        for (const count of [2, 3]) {
-          const strip = new Uint8Array(1024 * count * 4 * 4);
-          for (let frame = 0; frame < count; frame++)
-            strip.set([32, 32, 32, 255], (1024 * count + frame * 1024 + 1) * 4);
-          const png = encodePng({ width: 1024 * count, height: 4, rgba: strip });
-          Object.assign(stripManifest, {
-            frames: { width: 1024, height: 4, count, durationMs: 100 },
-            bounds: { x: 1, y: 1, width: 1, height: 1 },
-            contentHash: sha256Hex(png),
-          });
-          writeFileSync(path, JSON.stringify(stripManifest));
-          writeFileSync(join(world, manifest.source.path), png);
-          const result = run("validate", path);
-          expect(result.status).toBe(count === 2 ? 0 : 1);
-          if (count === 3) expect(result.stderr).toContain("ATLAS_SIZE: strip exceeds 2048 px");
-        }
-        writeFileSync(path, JSON.stringify(manifest));
-        writeFileSync(join(world, manifest.source.path), bytes);
-      }
       rmSync(unrelated);
       if (style === "pixel") {
         // A one-colour sprite passes the exact pixel-art profile on its own; `exact` is per world,
@@ -171,6 +148,42 @@ it.each(["pixel", "cartoon", "painterly"])(
         );
         expect(run("validate", path).status).toBe(0);
         expect(run("build").stderr).toContain("world palette colour #808080 is unused by every");
+        writeFileSync(path, JSON.stringify(manifest));
+        writeFileSync(join(world, manifest.source.path), bytes);
+      }
+      if (style === "painterly") {
+        Object.assign(profile.sizes.actor, { maxWidth: 1024, maxHeight: 2048 });
+        writeFileSync(profilePath, JSON.stringify(profile));
+        const stripManifest = structuredClone(manifest);
+        // Under a 1024x2048 actor limit, a 3072 px strip wraps onto two rows of one page. With
+        // 1025 px frames two rows pass 2048 px, so the third frame continues on a second page.
+        for (const height of [4, 1025]) {
+          const strip = new Uint8Array(1024 * 3 * height * 4);
+          for (let frame = 0; frame < 3; frame++)
+            strip.set([32, 32, 32, 255], (1024 * 3 + frame * 1024 + 1) * 4);
+          const png = encodePng({ width: 1024 * 3, height, rgba: strip });
+          Object.assign(stripManifest, {
+            frames: { width: 1024, height, count: 3, durationMs: 100 },
+            bounds: { x: 1, y: 1, width: 1, height: 1 },
+            contentHash: sha256Hex(png),
+          });
+          writeFileSync(path, JSON.stringify(stripManifest));
+          writeFileSync(join(world, manifest.source.path), png);
+          expect(run("validate", path).status).toBe(0);
+          expect(run("build").status).toBe(0);
+          const reviewed = join(world, "assets/reviewed");
+          const pages = JSON.parse(readFileSync(join(reviewed, "atlases.json"), "utf8")).atlases;
+          const { atlasId } = stripManifest.atlas;
+          expect(pages).toEqual(height === 4 ? [atlasId] : [atlasId, `${atlasId}-page-2`]);
+          const frames = JSON.parse(
+            readFileSync(join(reviewed, `${atlasId}.animations.json`), "utf8"),
+          ).animations[0].frames;
+          expect(frames.map((f: { atlasId?: string }) => f.atlasId ?? atlasId)).toEqual([
+            atlasId,
+            atlasId,
+            height === 4 ? atlasId : `${atlasId}-page-2`,
+          ]);
+        }
         writeFileSync(path, JSON.stringify(manifest));
         writeFileSync(join(world, manifest.source.path), bytes);
       }
