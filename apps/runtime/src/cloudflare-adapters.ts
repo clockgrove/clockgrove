@@ -2001,6 +2001,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       beforeModel: async (participant, fiber, input) => {
+        let autonomous = false;
         if (fiber.messageId.startsWith("activation:")) {
           const result = await withActivations(this.environment, (store) =>
             store.beforeModel(
@@ -2008,10 +2009,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
               fiber,
             ),
           );
+          autonomous = result !== undefined;
           if (result === "deferred" || result === "noop" || result === "completed")
             throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
         }
-        if (!fiber.messageId.startsWith("activation:")) {
+        if (!autonomous) {
           try {
             const policy = moderationShadowPolicy(this.environment.MODERATION_SHADOW_CONFIG);
             if (policy !== undefined)

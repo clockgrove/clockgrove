@@ -58,7 +58,11 @@ export class PostgreSqlModerationShadow {
         JOIN clockgrove.conversation_sessions sess ON sess.tenant_id=msg.tenant_id AND sess.session_id=msg.session_id
         LEFT JOIN clockgrove.moderation_shadow q ON q.tenant_id=msg.tenant_id AND q.session_id=msg.session_id AND q.message_id=msg.message_id
         WHERE sess.tenant_id=$1 AND sess.world_id=$2 AND sess.timeline_id=$3 AND sess.space_id=$4 AND sess.actor_id=$5
-          AND sess.state<>'deleted' AND NOT starts_with(msg.message_id,'activation:')
+          AND sess.state<>'deleted' AND NOT EXISTS (
+            SELECT 1 FROM clockgrove.actor_activations a
+            WHERE a.tenant_id=msg.tenant_id AND a.world_id=sess.world_id AND a.timeline_id=sess.timeline_id
+              AND a.actor_id=sess.actor_id AND a.session_id=msg.session_id AND a.message_id=msg.message_id
+              AND a.principal_id=clockgrove.runtime_principal_id())
         ORDER BY msg.created_at,msg.session_id,msg.message_id`,
         [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId, actorId],
       );

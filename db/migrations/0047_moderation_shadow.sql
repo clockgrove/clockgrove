@@ -35,7 +35,10 @@ BEGIN
   IF NOT FOUND OR f.principal_id<>clockgrove.runtime_principal_id()
     OR NOT clockgrove.runtime_can_access(t,'conversation')
     OR NOT clockgrove.runtime_conversation_participant(t,s)
-    OR starts_with(m,'activation:')
+    OR EXISTS (SELECT 1 FROM clockgrove.actor_activations a
+      WHERE a.tenant_id=t AND a.world_id=f.world_id AND a.timeline_id=f.timeline_id
+        AND a.actor_id=f.actor_id AND a.session_id=s AND a.message_id=m
+        AND a.principal_id=f.principal_id)
     THEN RAISE EXCEPTION 'moderation shadow refused'; END IF;
   SELECT * INTO sess FROM clockgrove.conversation_sessions WHERE tenant_id=t AND session_id=s AND state<>'deleted';
   IF NOT FOUND THEN RAISE EXCEPTION 'moderation shadow refused'; END IF;

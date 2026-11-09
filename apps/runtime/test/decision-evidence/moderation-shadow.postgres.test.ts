@@ -122,7 +122,11 @@ it("records private reversible shadow judgements and reports independent accurac
     ];
     const receipts = [];
     for (let index = 0; index < texts.length; index++) {
-      const receipt = await talk(sessionId, `moderation-${index}`, texts[index]!);
+      const receipt = await talk(
+        sessionId,
+        index === 1 ? "activation:human" : `moderation-${index}`,
+        texts[index]!,
+      );
       expect(receipt.reply.text).toBe(
         `Scripted fixture reply: you have said ${index + 1} ${index === 0 ? "thing" : "things"} to me in this conversation.`,
       );
@@ -195,7 +199,7 @@ it("records private reversible shadow judgements and reports independent accurac
     await owner.replace(false);
     const disabled = await talk(
       sessionId,
-      "moderation-disabled",
+      "activation:human-disabled",
       MODERATION_LABELLED_CASES[2]!.text,
     );
     expect(disabled.message.moderationShadow).toBeUndefined();
@@ -297,6 +301,71 @@ it("records private reversible shadow judgements and reports independent accurac
       );
     });
     expect(await report()).toMatchObject({ messages: 17, skipped: 3 });
+    const beforeActivation = await requests();
+    const autonomousSession = await create();
+    const activationPost = (op: string, fields: object) =>
+      owner.request(
+        `/v1/runtime/activations/${op}`,
+        { version: 1, scope: owner.scope, actorId: actor.objectId, ...fields },
+        MEMBER,
+      );
+    expect(
+      (
+        await activationPost("configure", {
+          actorId: actor.objectId,
+          configuration: {
+            id: "moderation-autonomous",
+            sessionId: autonomousSession,
+            kind: "heartbeat",
+            nextWakeAt: null,
+            intervalMs: null,
+            input: "Consider this wake",
+            priority: 1,
+            enabled: true,
+            compiledRoutine: "escalate",
+          },
+          policy: { allowModel: true, modelBudget: 1 },
+        })
+      ).status,
+    ).toBe(200);
+    const activation = await activationPost("wake", {
+      actorId: actor.objectId,
+      wake: {
+        configurationId: "moderation-autonomous",
+        causalRoot: "moderation-autonomous-root",
+        reason: { kind: "heartbeat", heartbeatId: "moderation-autonomous" },
+        evidence: "wake evidence",
+      },
+    });
+    expect(activation.status, JSON.stringify(activation.body)).toBe(200);
+    expect(activation.body).toMatchObject({ status: "completed" });
+    expect(await requests()).toEqual(beforeActivation);
+    expect(await report()).toMatchObject({ messages: 17, skipped: 3 });
+    await owner.withSqlClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        await client.query("SET LOCAL ROLE clockgrove_runtime");
+        await client.query(
+          "SELECT set_config('app.tenant_id',$1,true),set_config('app.principal_id','principal-runtime',true),set_config('app.privacy_ceiling','{\"version\":1,\"allowedCategories\":[\"conversation\"]}',true)",
+          [owner.scope.tenantId],
+        );
+        await client.query(
+          "SELECT set_config('test.session_id',$1,true),set_config('test.message_id',$2,true)",
+          [autonomousSession, (activation.body as { messageId: string }).messageId],
+        );
+        await client.query(`DO $test$ BEGIN
+          BEGIN
+            PERFORM clockgrove.reserve_moderation_shadow(current_setting('app.tenant_id'),current_setting('test.session_id'),current_setting('test.message_id'));
+          EXCEPTION WHEN raise_exception THEN
+            IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+            RETURN;
+          END;
+          RAISE EXCEPTION 'autonomous moderation reservation was accepted';
+        END $test$`);
+      } finally {
+        await client.query("ROLLBACK");
+      }
+    });
     expect((await requests()).at(-1)?.state).toBe(
       JSON.stringify({ message: "Another participant private secret." }),
     );
