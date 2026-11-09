@@ -1406,3 +1406,67 @@ code does not embed world content. The observation-only local hall credential do
 report access: use the authorized runtime/operator setup above. A maintainer runs each candidate
 against the chosen simulated-day workload with a real gateway key and records its alias, policy,
 world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
+
+## Offline decision shadow day
+
+Run this from a Clockgrove checkout pinned to a full commit with its frozen dependencies installed.
+The pack may live in another repository; paths resolve from the caller's working directory,
+following the [external pinned-checkout procedure](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout).
+The command reads the selected pack, runs the native pure simulation for the requested span,
+verifies event replay without a model, then asks the configured decision alias beside utility.
+It never changes a running world or starts a hosted service.
+
+Create a local alias JSON file (credential **reference**, never a credential value):
+
+```json
+{"alias":"operator.shadow","model":"perplexity/pplx-decider-v1.2","credential":"AI_GATEWAY_API_KEY","maxCostMicrousd":1000}
+```
+
+With the referenced provider credential in the environment:
+
+```sh
+pnpm shadow:decision --pack worlds/fixture/reference --alias /absolute/path/shadow-alias.json \
+  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 \
+  --out /absolute/path/shadow-report.json
+```
+
+From an external world repository, invoke the same pinned platform command directly:
+
+```sh
+node ../clockgrove/scripts/decision-shadow.mjs --pack worlds/sample --alias shadow-alias.json \
+  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 --out shadow-report.json
+```
+
+All span, margin and spend arguments are required. Span is elapsed simulation milliseconds from
+pack genesis, rather than an absolute timestamp. Margin is the operator-declared top-two utility
+score gap to sample; existing novelty conditions, world decision-point scopes and triggers still apply. Without world
+points, the command adds an operator-only observation point showing all native features. Alias
+configuration accepts `decisionAlias` options, including explicit token prices, byte bound, timeout,
+and per-call ceiling. The shown span is one day; the shown cap is $0.10 and each reservation is
+$0.001. These are example operator choices, not deployment policy. The kernel's existing
+1024-input/4096-event chunk limits and simulator finite-plan limits bound each simulation.
+
+The spend cap is shared by the labelled reference cases and the world observations. Each attempted
+call permanently reserves its configured ceiling for this run, including calls whose actual cost
+is unknown or lower. Reference cases run first. After the cap is reserved no further provider call
+is made. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
+more than configured; actual measured spend and unknown-cost counts are reported separately.
+`--models-off` writes the same simulation/replay result with no provider calls and no judgement
+accuracy. A zero cap is valid and permits no calls. No real provider invocation is required for an
+offline command smoke check.
+
+The JSON report separates `utilityAgreement` from `reference.accuracy`. Utility agreement is never
+accuracy. The three labelled references are generated in code from fixture state using the native
+utility scorer: a wet actor seeking shelter in rain, staying in dry weather, and avoiding a trip for
+negligible protection. Explicit counterfactual weather, needs, shelter protection and travel-weight
+settings make the score gap no more than the fixed declared reference margin of 2. Scores are
+computed by the native scorer, never assigned by the reference builder. Expected choices and one-line
+reasons are authored separately and excluded from model input; one case deliberately disagrees with
+utility's tie-breaking choice. These three calibration cases are a small judgement reference, not
+a claim of broad model accuracy. `--reference-pack` may select a compatible fixture copy; it needs
+an actor with needs/wellbeing and a reachable shelter away from it. The default reference fixture
+ships with the pinned platform. No selected external world's names are built into the runner.
+
+Reference calibration uses a confidence threshold of zero basis points, so any reported confidence
+can count as an answered pick. Missing confidence remains low-confidence. Reference accuracy counts
+answered picks, reports coverage separately, and is null when no case was answered.

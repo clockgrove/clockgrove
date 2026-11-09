@@ -151,7 +151,9 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       const cost =
         reply.reportedCostUsd !== null
           ? Math.round(reply.reportedCostUsd * 1_000_000)
-          : reply.inputTokens === null || reply.outputTokens === null
+          : alias.priceConfigured === false ||
+              reply.inputTokens === null ||
+              reply.outputTokens === null
             ? null
             : Math.round(
                 reply.inputTokens * route.priceUsdPerMTok.input +
