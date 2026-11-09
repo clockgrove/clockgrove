@@ -121,6 +121,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove_management', 'principals', 'none'),
   ('clockgrove_management', 'identity_links', 'none'),
   ('clockgrove_management', 'workspace_memberships', 'none'),
+  ('clockgrove_mcp', 'credentials', 'none'),
   ('clockgrove_birth', 'pack_artifacts', 'append_only'),
   ('clockgrove_birth', 'pack_artifact_resources', 'append_only'),
   ('clockgrove_birth', 'provisioning_cases', 'insert_update'),
@@ -146,7 +147,7 @@ BEGIN
    WHERE class.relkind IN ('r', 'p')
      AND class.relrowsecurity
      AND namespace.nspname IN (
-       'clockgrove', 'clockgrove_auth', 'clockgrove_management', 'clockgrove_birth'
+       'clockgrove', 'clockgrove_auth', 'clockgrove_management', 'clockgrove_birth', 'clockgrove_mcp'
      )
      AND NOT EXISTS (
        SELECT 1 FROM pg_temp.attack_surface AS surface
