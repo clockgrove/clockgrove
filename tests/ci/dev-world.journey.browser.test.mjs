@@ -10,13 +10,14 @@ import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
-// Issue 137: a painterly world whose reviewed output has three pages. An 8-frame walk of 300 px
-// frames wraps into two rows, and two 600x1100 px strips overflow the `sheet` atlas onto a second page.
+// Issue 137: a painterly world whose reviewed output has four pages. A 14-frame walk of 300x700 px
+// frames wraps into two rows of six on the `walker` page and continues its last two frames on
+// `walker-page-2`, and two 600x1100 px strips overflow the `sheet` atlas onto a second page.
 // The fixture's actors stand close together, so each strip paints its own colour in a 40 px square
 // at its own offset from the bottom-centre anchor, 4 px further right in each frame; frame edges
 // stay transparent.
 const STRIPS = [
-  ["walker", "walk", "walker", 300, 300, 8, [255, 0, 255], 10],
+  ["walker", "walk", "walker", 300, 700, 14, [255, 0, 255], 10],
   ["tall-a", "idle", "sheet", 600, 1100, 1, [0, 255, 255], 280],
   ["tall-b", "idle", "sheet", 600, 1100, 1, [0, 0, 255], 550],
 ];
@@ -160,7 +161,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
     await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
     const reviewed = await buildPagedWorld(path.join(external, "world"));
     expect(JSON.parse(await readFile(path.join(reviewed, "atlases.json"), "utf8")).atlases).toEqual(
-      ["sheet", "sheet-page-2", "walker"],
+      ["sheet", "sheet-page-2", "walker", "walker-page-2"],
     );
     await writeFile(path.join(reviewed, "fixture.txt"), "external fixture asset\n");
     const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", reviewed];
@@ -237,13 +238,13 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
       snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
     ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
     // The shell loads every page the index lists and draws each page's strip in its colour. Every
-    // sample shows all three, and the walk's square reaches all 8 positions: each frame's own rect,
-    // across both wrapped rows.
-    for (const name of ["sheet", "sheet-page-2", "walker"])
+    // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
+    // on its own page, across both wrapped rows and onto the continuation page.
+    for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
       for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
         expect(requested).toContain(`/${file}`);
     const walked = new Set();
-    for (let sample = 0; sample < 80 && walked.size < 8; sample++) {
+    for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
       const shot = (await page.locator("canvas").screenshot()).toString("base64");
       const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
         const image = new Image();
@@ -272,7 +273,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
       ).toBe(true);
       walked.add(left);
     }
-    expect(walked.size).toBe(8);
+    expect(walked.size).toBe(14);
   } finally {
     await browser?.close();
     if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");

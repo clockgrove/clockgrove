@@ -280,7 +280,10 @@ a Talk / Observe / Remember / Why? grid drawn only from the actions the interact
 and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
 
 Atlas animation uses per-mesh UVs on one shared Texture per atlas page; each animation's frames index
-the page it was loaded from, one rectangle per frame. Three r187's WebGPURenderer allocates
+the page it was loaded from, one rectangle per frame. A frame that names another page's `atlasId`
+indexes that page instead (a strip continued onto further pages), and showing it swaps the mesh's
+map, and its reflection's, to that page. A frame naming a page the index does not list makes the
+renderer unavailable, as a page that does not load does. Three r187's WebGPURenderer allocates
 GPU storage per Texture identity on both backends, so cloning textures that share an image would
 duplicate atlas storage. Reflections borrow their source texture and copy animated frame UVs; they
 dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts

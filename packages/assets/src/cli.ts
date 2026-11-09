@@ -202,7 +202,7 @@ function validateOne(): string[] {
   if (external && relative(root, absolute).startsWith("..")) throw new Error("ASSET_PATH_INVALID");
   const manifest = decodeAssetManifest(JSON.parse(readFileSync(absolute, "utf8")));
   const profile = readAssetStyleProfile(root, referenceRoot);
-  // Check the platform strip budget without loading the world's other manifests.
+  // Check that every frame fits an atlas page, without loading the world's other manifests.
   packAtlas([manifest]);
   return [
     ...validateSource(

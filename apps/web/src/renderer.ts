@@ -36,22 +36,25 @@ import {
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
 
+interface AtlasFrame {
+  /** Set when the frame continues the strip on a later page; otherwise on the listing page. */
+  readonly atlasId?: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
 interface AtlasAnimation {
   readonly assetId: string;
   readonly animationFamily: string;
   readonly anchor: { readonly x: number; readonly y: number };
   readonly footprint: { readonly width: number; readonly depth: number };
-  readonly frames: readonly {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-  }[];
+  readonly frames: readonly AtlasFrame[];
   readonly durationMs: number | null;
 }
-/** A reviewed animation and the page texture its frame rects index. */
-interface AtlasEntry extends AtlasAnimation {
-  readonly texture: THREE.Texture<HTMLImageElement>;
+/** A reviewed animation whose frames each hold the page texture their rect indexes. */
+interface AtlasEntry extends Omit<AtlasAnimation, "frames"> {
+  readonly frames: readonly (AtlasFrame & { readonly texture: THREE.Texture<HTMLImageElement> })[];
 }
 interface AtlasPage {
   readonly image: HTMLImageElement;
@@ -733,7 +736,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (pages.some((page) => !page) || new Set(keys).size !== keys.length)
         return this.failAssets();
       let bytes = 0;
-      for (const { image, animations } of pages as AtlasPage[]) {
+      const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+      (pages as AtlasPage[]).forEach(({ image }, n) => {
         const texture = new THREE.Texture(image);
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.magFilter = THREE.NearestFilter;
@@ -741,13 +745,22 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         texture.generateMipmaps = false;
         texture.needsUpdate = true;
         this.atlasTextures.push(texture);
-        for (const animation of animations)
+        textures.set(names[n] as string, texture);
+        bytes += image.width * image.height * 4;
+      });
+      // A strip that continues onto later pages names each of its frames' pages.
+      for (const [n, { animations }] of (pages as AtlasPage[]).entries())
+        for (const animation of animations) {
+          const frames = animation.frames.map((frame) => ({
+            ...frame,
+            texture: textures.get(frame.atlasId ?? (names[n] as string)),
+          }));
+          if (!frames.every((frame) => frame.texture)) return this.failAssets();
           this.atlas.set(`${animation.assetId}/${animation.animationFamily}`, {
             ...animation,
-            texture,
+            frames: frames as AtlasEntry["frames"],
           });
-        bytes += image.width * image.height * 4;
-      }
+        }
       this.updateTextureBytes();
       const digest = await crypto.subtle.digest(
         "SHA-256",
@@ -1002,7 +1015,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const frame = animation?.frames[0];
     if (!animation || !frame) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
     const material = this.litMaterial({
-      map: animation.texture,
+      map: frame.texture,
       transparent: true,
       alphaTest: 0.05,
       roughness: 1,
@@ -1037,7 +1050,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const uv = mesh.geometry.getAttribute("uv");
     const base = mesh.userData.baseUv as Float32Array | undefined;
     if (!uv || !base) return false;
-    const image = animation.texture.image;
+    if (mesh.material.map !== frame.texture) {
+      mesh.material.map = frame.texture;
+      mesh.material.needsUpdate = true;
+    }
+    const image = frame.texture.image;
     for (let i = 0; i < uv.count; i++)
       uv.setXY(
         i,
@@ -1569,6 +1586,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         const uv = mirror.geometry.getAttribute("uv");
         uv.array.set(source.geometry.getAttribute("uv").array);
         uv.needsUpdate = true;
+        // A frame on a continuation page swaps the source's map; the mirror borrows the same page.
+        if (mirror.material.map !== source.material.map) {
+          mirror.material.map = source.material.map;
+          mirror.material.needsUpdate = true;
+        }
         mirror.userData.frame = source.userData.frame;
         changed = true;
       }

@@ -87,11 +87,13 @@ it.each(["pixel", "cartoon", "painterly"])(
       const unrelated = join(world, "assets/manifests/fixture-critter/broken.json");
       writeFileSync(unrelated, "{}");
       expect(run("validate", path).status).toBe(0);
+      rmSync(unrelated);
       if (style === "painterly") {
-        profile.sizes.actor.maxWidth = 1024;
+        Object.assign(profile.sizes.actor, { maxWidth: 1024, maxHeight: 2048 });
         writeFileSync(profilePath, JSON.stringify(profile));
         const stripManifest = structuredClone(manifest);
-        // A 3072 px strip wraps onto two rows of one page; it is refused only when they pass 2048 px.
+        // Under a 1024x2048 actor limit, a 3072 px strip wraps onto two rows of one page. With
+        // 1025 px frames two rows pass 2048 px, so the third frame continues on a second page.
         for (const height of [4, 1025]) {
           const strip = new Uint8Array(1024 * 3 * height * 4);
           for (let frame = 0; frame < 3; frame++)
@@ -104,15 +106,24 @@ it.each(["pixel", "cartoon", "painterly"])(
           });
           writeFileSync(path, JSON.stringify(stripManifest));
           writeFileSync(join(world, manifest.source.path), png);
-          const result = run("validate", path);
-          expect(result.status).toBe(height === 4 ? 0 : 1);
-          if (height === 1025)
-            expect(result.stderr).toContain("ATLAS_SIZE: 3 frames of 1024x1025 px do not fit");
+          expect(run("validate", path).status).toBe(0);
+          expect(run("build").status).toBe(0);
+          const reviewed = join(world, "assets/reviewed");
+          const pages = JSON.parse(readFileSync(join(reviewed, "atlases.json"), "utf8")).atlases;
+          const { atlasId } = stripManifest.atlas;
+          expect(pages).toEqual(height === 4 ? [atlasId] : [atlasId, `${atlasId}-page-2`]);
+          const frames = JSON.parse(
+            readFileSync(join(reviewed, `${atlasId}.animations.json`), "utf8"),
+          ).animations[0].frames;
+          expect(frames.map((f: { atlasId?: string }) => f.atlasId ?? atlasId)).toEqual([
+            atlasId,
+            atlasId,
+            height === 4 ? atlasId : `${atlasId}-page-2`,
+          ]);
         }
         writeFileSync(path, JSON.stringify(manifest));
         writeFileSync(join(world, manifest.source.path), bytes);
       }
-      rmSync(unrelated);
       expect(run("build").status).toBe(0);
       expect(readFileSync(join(world, "assets/license-report.md"), "utf8")).toContain(
         manifest.assetId,
