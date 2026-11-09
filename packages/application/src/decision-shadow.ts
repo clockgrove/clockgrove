@@ -113,6 +113,12 @@ export interface DecisionShadowRecord {
     margin: string | null;
   }>;
   readonly candidates: readonly ShadowCandidate[];
+  /** Report evidence only, never included in model input. Absent on historical records. */
+  readonly utilityMargin?: Readonly<{
+    gap: string;
+    maxMargin: string | null;
+    withinDeclaredMargin: boolean | null;
+  }>;
   /** The utility choice actually taken: the physical decision, unchanged by the shadow. */
   readonly utilityChoice: string;
   readonly shadow: Readonly<{
@@ -154,12 +160,16 @@ export function decisionShadowDeclarations(
 export function matchingDecisionPoint(
   request: PlanningRequest,
   declaration: DecisionPointsDeclaration,
+  archetype?: string,
 ): DecisionPointDeclaration | undefined {
   return declaration.points.find(
     (point) =>
-      point.trigger.kind === "declared-ambiguity" ||
-      (request.condition.kind === "score-margin" &&
-        request.condition.margin <= point.trigger.maxMargin),
+      (point.scope === undefined ||
+        point.scope.actorIds?.includes(request.objectId) === true ||
+        (archetype !== undefined && point.scope.archetypes?.includes(archetype) === true)) &&
+      (point.trigger.kind === "declared-ambiguity" ||
+        (request.condition.kind === "score-margin" &&
+          request.condition.margin <= point.trigger.maxMargin)),
   );
 }
 
@@ -203,13 +213,13 @@ function shownCandidate(candidate: RoutineCandidate, features: readonly string[]
 }
 
 const INSTRUCTIONS =
-  "Choose the one routine action this animal should take now. Answer with exactly one option label.";
+  "Choose the one routine action this actor should take now. Answer with exactly one option label.";
 
 function describe(candidate: ShadowCandidate): string {
   const features = Object.entries(candidate.features)
     .map(([name, value]) => `${name}=${value}`)
     .join(", ");
-  return `score ${candidate.score}${features === "" ? "" : `; ${features}`} (fixed-point values)`;
+  return `${features || "no declared candidate features"} (fixed-point values)`;
 }
 
 /**
@@ -231,10 +241,28 @@ export async function runDecisionShadow(input: {
   for (const subject of input.subjects) {
     const request = planningRequestFor(subject.trace, declarations.ambiguity, subject.commandId);
     if (request === undefined || request.candidates.length < 2) continue;
-    const point = matchingDecisionPoint(request, declarations.decisionPoints);
+    const point = matchingDecisionPoint(request, declarations.decisionPoints, subject.archetype);
     if (point === undefined) continue;
-    const candidates = request.candidates.map((candidate) =>
-      shownCandidate(candidate, point.features),
+    const candidates = request.candidates
+      .map((candidate) => shownCandidate(candidate, point.features))
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const scores = candidates
+      .map((candidate) => BigInt(candidate.score))
+      .sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+    const gap = (scores[0] ?? 0n) - (scores[1] ?? 0n);
+    const declaredMargin = declarations.ambiguity.conditions.find(
+      (condition) => condition.kind === "score-margin",
+    );
+    const utilityMargin = {
+      gap: gap.toString(),
+      maxMargin: declaredMargin?.maxMargin.toString() ?? null,
+      withinDeclaredMargin: declaredMargin === undefined ? null : gap <= declaredMargin.maxMargin,
+    };
+    const actorFeatures = request.candidates[0]?.features ?? {};
+    const actorState = Object.fromEntries(
+      ["health", "hunger", "rain", "thirst", "uncomfortable", "wetness"].flatMap((key) =>
+        actorFeatures[key] === undefined ? [] : [[key, actorFeatures[key].toString()]],
+      ),
     );
     const utilityChoice = `${request.fallbackAction.kind}:${request.fallbackAction.targetObjectId ?? ""}`;
     const base = {
@@ -261,6 +289,7 @@ export async function runDecisionShadow(input: {
           request.condition.kind === "score-margin" ? request.condition.margin.toString() : null,
       },
       candidates,
+      utilityMargin,
       utilityChoice,
       modelAlias: point.modelAlias,
       confidenceThreshold: point.confidenceThreshold,
@@ -291,7 +320,7 @@ export async function runDecisionShadow(input: {
     const outcome = await decider.pick({
       alias: point.modelAlias,
       callId: `${request.requestId}:${request.objectId}:${request.simulationTime}:${point.id}`,
-      state: `Actor ${request.objectId}. Candidate actions, already valid in the world:\n${candidates.map((candidate) => `- ${candidate.key}: ${describe(candidate)}`).join("\n")}`,
+      state: `Actor ${request.objectId}. State (fixed-point values): ${JSON.stringify(actorState)}. Candidate actions, already valid in the world:\n${candidates.map((candidate) => `- ${candidate.key}: ${describe(candidate)}`).join("\n")}`,
       options,
       instructions: INSTRUCTIONS,
     });
@@ -462,6 +491,110 @@ export async function journalDecisionShadow(
   });
 }
 
+export async function journalWakeTriage(
+  journal: Journal,
+  scope: DecisionShadowScope,
+  record: import("./wake-triage.js").WakeTriageRecord,
+  outcomes: JournalOutcomeReader | undefined = readsStoredOutcomes(journal) ? journal : undefined,
+): Promise<void> {
+  const commandId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}wake-triage:${sha256Hex(canonicalBytes([record.requestId])).slice(0, 32)}`,
+    "CommandId",
+  );
+  const target = constructActorAddress({
+    tenantId: scope.tenantId,
+    worldId: scope.worldId,
+    timelineId: scope.timelineId,
+    kind: "space",
+    id: scope.spaceId,
+  } as never);
+  const raw = {
+    schemaVersion: 2,
+    commandId,
+    type: "WakeTriageRecord",
+    target,
+    expected: {},
+    issuedAt: TRUSTED_COMMAND_ISSUED_AT,
+    context: {
+      version: 1,
+      correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+      requestId: commandId,
+    },
+    attribution: {
+      effectiveActorId: "clockgrove:decision-shadow",
+      causalRootActionId: decodeOpaqueId(`action:${commandId}`, "ActionId"),
+    },
+    payload: record,
+  };
+  const command = raw as unknown as JournalExecuteRequest["command"];
+  const authorityDecision = allowDecision({
+    tenantId: command.target.tenantId,
+    worldId: command.target.worldId,
+    timelineId: command.target.timelineId,
+    commandId,
+    attribution: command.attribution,
+    inputs: {
+      principalId: scope.authorization.principalId,
+      roles: [],
+      grants: [],
+      privacyCeiling: scope.authorization.privacyCeiling,
+    },
+  });
+  const eventId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}decision-shadow-event:${sha256Hex(canonicalBytes([record.requestId])).slice(0, 32)}`,
+    "EventId",
+  );
+  const privacyClass = "operator_evidence" as PrivacyClass;
+  const commandBytes = new TextEncoder().encode(canonicalSerialize(raw));
+  // An exact retry is answered from the stored receipt, as every decided command is.
+  if (
+    outcomes !== undefined &&
+    (await outcomes.storedOutcome(scope.authorization, commandId, commandBytes)) !== undefined
+  )
+    return;
+  await journal.execute({
+    authorization: scope.authorization,
+    command,
+    commandBytes,
+    route: {
+      partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+      spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+      streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+    },
+    authorityDecision,
+    events: [
+      {
+        schemaVersion: 2,
+        eventId,
+        type: "WakeTriageRecorded",
+        partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+        spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+        streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+        simulationTime: BigInt(record.simulationTime) as never,
+        correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+        attribution: {
+          ...command.attribution,
+          authorityDecisionId: authorityDecision.authorityDecisionId,
+        },
+        policyVersions: { routine: record.policyVersion },
+        privacyClass,
+        payloadHash: computePayloadHash(record),
+        payload: record,
+      },
+    ],
+    dispatches: [],
+    stableResult: { recorded: true },
+    projectionDelta: null,
+  });
+}
+
+export interface DecisionShadowAgreement {
+  readonly decisions: number;
+  readonly answered: number;
+  readonly agreed: number;
+  readonly agreementRate: number | null;
+}
+
 export interface DecisionShadowPointReport {
   readonly pointId: string;
   readonly decisions: number;
@@ -477,6 +610,10 @@ export interface DecisionShadowPointReport {
   readonly failed: number;
   readonly overBudget: number;
   readonly costMicrousd: number;
+  readonly unknownCostCalls: number;
+  readonly withinMargin: DecisionShadowAgreement;
+  readonly outsideMargin: DecisionShadowAgreement;
+  readonly unclassifiedMargin: DecisionShadowAgreement;
   readonly meanLatencyMs: number | null;
   readonly p95LatencyMs: number | null;
 }
@@ -509,6 +646,17 @@ const answered = (record: DecisionShadowRecord): boolean =>
 const disagrees = (record: DecisionShadowRecord): boolean =>
   answered(record) && record.shadow.choice !== record.utilityChoice;
 
+function agreement(rows: readonly DecisionShadowRecord[]): DecisionShadowAgreement {
+  const answers = rows.filter(answered);
+  const agreed = answers.filter((row) => !disagrees(row)).length;
+  return {
+    decisions: rows.length,
+    answered: answers.length,
+    agreed,
+    agreementRate: answers.length === 0 ? null : agreed / answers.length,
+  };
+}
+
 /** Agreement, cost and latency per decision point, differing examples and repeat signatures. */
 export function decisionShadowReport(
   records: readonly DecisionShadowRecord[],
@@ -535,6 +683,18 @@ export function decisionShadowReport(
         failed: rows.filter((row) => row.shadow.status === "failed").length,
         overBudget: rows.filter((row) => row.shadow.status === "over-budget").length,
         costMicrousd: rows.reduce((sum, row) => sum + (row.costMicrousd ?? 0), 0),
+        unknownCostCalls: rows.filter(
+          (row) => row.shadow.status !== "over-budget" && row.costMicrousd === null,
+        ).length,
+        withinMargin: agreement(
+          rows.filter((row) => row.utilityMargin?.withinDeclaredMargin === true),
+        ),
+        outsideMargin: agreement(
+          rows.filter((row) => row.utilityMargin?.withinDeclaredMargin === false),
+        ),
+        unclassifiedMargin: agreement(
+          rows.filter((row) => row.utilityMargin?.withinDeclaredMargin == null),
+        ),
         meanLatencyMs:
           latencies.length === 0
             ? null

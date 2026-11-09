@@ -67,6 +67,8 @@ COMMIT;
 --                   0034; actor documents and context manifests, 0037; turn fibers, 0038)
 --   process         SELECT and INSERT, processes also UPDATE of their lease, only of the installed
 --                   tenant; a segment only under the current lease epoch (actor processes, 0038)
+--   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
+--                   through the wake-triage reservation and completion functions (0041)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -76,7 +78,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'participant', 'process', 'none'
+      'key_rewrap', 'participant', 'process', 'operator_read', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -113,6 +115,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'conversation_turn_fibers', 'participant'),
   ('clockgrove', 'actor_activation_policies', 'participant'),
   ('clockgrove', 'actor_activations', 'participant'),
+  ('clockgrove', 'wake_triage', 'operator_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
   ('clockgrove_management', 'principals', 'none'),
@@ -269,7 +272,8 @@ BEGIN
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
-        'clockgrove.actor_activation_policies', 'clockgrove.actor_activations'
+        'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
+        'clockgrove.wake_triage'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2038,6 +2042,114 @@ INSERT INTO clockgrove.conversation_turn_fibers (
   input_artifact_id
 ) VALUES ('tenant-a', 'session-f', 'message-f', 'world-a', 'timeline-a', 'keeper', 'principal-a',
           'persona-a', 'input-f');
+-- Wake triage (0041): participants may reserve and complete only their own wake, while the
+-- separate operator evidence reader needs a live command grant and never gains direct DML.
+DO $$
+DECLARE
+  reservation jsonb;
+  evidence constant jsonb := '{"pointId":"wake-triage","costMicrousd":250,"marker":"canonical-evidence"}';
+  context text[];
+  statement text;
+BEGIN
+  IF NOT has_table_privilege('clockgrove_runtime','clockgrove.wake_triage','SELECT')
+     OR has_table_privilege('clockgrove_runtime','clockgrove.wake_triage',
+          'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+     OR has_any_column_privilege('clockgrove_runtime','clockgrove.wake_triage','INSERT,UPDATE,REFERENCES') THEN
+    RAISE EXCEPTION 'wake triage runtime privileges are not exactly SELECT';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a','principal-a',
+    '{"version":1,"allowedCategories":["conversation"]}');
+  reservation := clockgrove.reserve_wake_triage('tenant-a','session-f','message-f',1000,1000,86400000);
+  IF reservation IS DISTINCT FROM '{"existing":false,"reserved":true,"simulationTime":"0", "reason":"direct_message","partitionId":"partition-a","streamId":"stream-a"}'::jsonb
+     OR (SELECT count(*) FROM clockgrove.wake_triage) <> 0 THEN
+    RAISE EXCEPTION 'participant reservation failed or granted operator evidence';
+  END IF;
+  BEGIN
+    PERFORM clockgrove.read_wake_triage_report('tenant-a','world-a','timeline-a','space-a');
+    RAISE EXCEPTION 'participant read operator report without ceiling' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'wake triage report refused' THEN RAISE; END IF;
+  END;
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation","operator_evidence"]}'],
+    ARRAY['tenant-b','principal-b','{"version":1,"allowedCategories":["conversation","operator_evidence"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2],context[3]);
+    IF (SELECT count(*) FROM clockgrove.wake_triage) <> 0 THEN
+      RAISE EXCEPTION 'foreign or low-ceiling context read wake triage';
+    END IF;
+    BEGIN
+      PERFORM clockgrove.reserve_wake_triage('tenant-a','session-f','message-f',1000,1000,86400000);
+      RAISE EXCEPTION 'foreign or low-ceiling context reserved wake triage' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'wake triage refused' THEN RAISE; END IF;
+    END;
+    BEGIN
+      PERFORM clockgrove.finish_wake_triage('tenant-a','session-f','message-f','{"marker":"forged"}');
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'wake triage refused' THEN RAISE; END IF;
+    END;
+    BEGIN
+      PERFORM clockgrove.read_wake_triage_report('tenant-a','world-a','timeline-a','space-a');
+      RAISE EXCEPTION 'foreign or low-ceiling context read wake report' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'wake triage report refused' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a',
+    '{"version":1,"allowedCategories":["operator_evidence"]}');
+  BEGIN
+    PERFORM clockgrove.reserve_wake_triage('tenant-a','session-f','message-f',1000,1000,86400000);
+    RAISE EXCEPTION 'operator reserved wake without conversation ceiling' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'wake triage refused' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM clockgrove.finish_wake_triage('tenant-a','session-f','message-f','{"marker":"forged"}');
+    RAISE EXCEPTION 'operator completed wake without conversation ceiling' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'wake triage refused' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  IF (SELECT record FROM clockgrove.wake_triage) IS NOT NULL THEN
+    RAISE EXCEPTION 'foreign or low-ceiling context completed pending wake evidence';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a','principal-a',
+    '{"version":1,"allowedCategories":["conversation"]}');
+  PERFORM clockgrove.finish_wake_triage('tenant-a','session-f','message-f',evidence);
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  IF (SELECT count(*) FROM clockgrove.wake_triage) <> 1
+     OR (SELECT record FROM clockgrove.wake_triage) IS DISTINCT FROM evidence
+     OR (SELECT jsonb_agg(report) FROM clockgrove.read_wake_triage_report('tenant-a','world-a','timeline-a','space-a') report)
+          IS DISTINCT FROM jsonb_build_array(jsonb_build_object('record',evidence,'phase','accepted',
+            'proposedCommand',false,'outputMessage',false,'costMicrousd',NULL)) THEN
+    RAISE EXCEPTION 'operator report or immutable wake evidence differs';
+  END IF;
+  FOREACH statement IN ARRAY ARRAY[
+    'INSERT INTO clockgrove.wake_triage SELECT * FROM clockgrove.wake_triage',
+    'UPDATE clockgrove.wake_triage SET record=''{}''',
+    'DELETE FROM clockgrove.wake_triage',
+    'TRUNCATE clockgrove.wake_triage'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'wake triage accepted direct write: %',statement USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  reservation := clockgrove.reserve_wake_triage('tenant-a','session-f','message-f',1000,1000,86400000);
+  IF reservation->>'existing' <> 'true' OR reservation->'record' IS DISTINCT FROM evidence
+     OR (SELECT reserved_microusd FROM clockgrove.wake_triage) <> 1000 THEN
+    RAISE EXCEPTION 'wake reservation retry changed budget or evidence';
+  END IF;
+  PERFORM clockgrove.finish_wake_triage('tenant-a','session-f','message-f','{"marker":"rewritten"}');
+  IF (SELECT record FROM clockgrove.wake_triage) IS DISTINCT FROM evidence THEN
+    RAISE EXCEPTION 'completed wake triage evidence changed';
+  END IF;
+END;
+$$;
+
 INSERT INTO clockgrove.actor_processes (
   tenant_id, process_id, world_id, timeline_id, actor_id, objective, target
 ) VALUES ('tenant-a', 'process-a', 'world-a', 'timeline-a', 'keeper', 'fixture-tally', 4);
@@ -2188,6 +2300,28 @@ BEGIN
   END;
   IF (SELECT count(*) FROM clockgrove.actor_activations) <> 1 THEN
     RAISE EXCEPTION 'refused activation changed durable receipt count';
+  END IF;
+  -- Commit hints (0042): only the world's own system principal learns which actors subscribe.
+  UPDATE clockgrove.actor_activation_policies SET configurations='[
+    {"id":"subscription-a","kind":"subscription","enabled":true,"eventType":"rain.started"},
+    {"id":"subscription-off","kind":"subscription","enabled":false,"eventType":"rain.stopped"}]';
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a'],
+    ARRAY['tenant-b','system:world:world-b'],
+    ARRAY['tenant-a','system:world:world-b']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2]);
+    IF EXISTS (SELECT 1 FROM clockgrove.activation_event_subscribers(
+        'tenant-a','world-a','timeline-a',ARRAY['rain.started'])) THEN
+      RAISE EXCEPTION 'foreign context read activation subscribers';
+    END IF;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','system:world:world-a','{"version":1,"allowedCategories":["public_scene"]}');
+  IF (SELECT string_agg(actor_id || '/' || space_id, ',') FROM clockgrove.activation_event_subscribers(
+      'tenant-a','world-a','timeline-a',ARRAY['rain.started','rain.stopped'])) IS DISTINCT FROM 'keeper/space-a'
+    OR EXISTS (SELECT 1 FROM clockgrove.activation_event_subscribers(
+      'tenant-a','world-a','timeline-a',ARRAY['rain.stopped'])) THEN
+    RAISE EXCEPTION 'world system principal did not read exactly its enabled subscribers';
   END IF;
 END;
 $$;

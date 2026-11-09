@@ -57,7 +57,7 @@ The document has these required fields:
 | `name`, `wordmark` | Plain text title and shell heading. |
 | `copy.worldLabel`, `copy.chooseWorld`, `copy.stopped` | Plain text world selector and error labels. |
 | `copy.provisioning`, `copy.ready` | Plain text readiness messages, preserving each world's place terminology. |
-| `tokens` | CSS property/value map; only versioned `--rw-v1-*` token names are accepted. Missing properties inherit neutral defaults. The prefix is the initial token ABI, independent of the world's identity. |
+| `tokens` | CSS property/value map; only versioned `--cg-v1-*` token names are accepted. Missing properties inherit neutral defaults. The prefix is the initial token ABI, independent of the world's identity. |
 | `scene.atlas` | Atlas basename, or `null` for neutral geometry without an atlas. |
 | `scene.accent`, `scene.panel` | Integer RGB colors used by renderer selection graphics. |
 | `scene.text` | Renderer label color. |

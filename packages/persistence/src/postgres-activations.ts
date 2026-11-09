@@ -5,11 +5,14 @@ import type {
   ActivationPolicy,
   ActivationWake,
   ActorActivation,
+  RuntimeAuthorizationContext,
   TurnFiber,
 } from "@clockgrove/application";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
+/** Journal events one activation check reads; a full page means more may be waiting. */
+export const ACTIVATION_EVENT_PAGE = 64;
 const KEY = "tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND actor_id=$4";
 const values = (a: ActivationAddress) => [
   a.scope.tenantId,
@@ -232,8 +235,14 @@ export class PostgreSqlActivations {
       const result = await this.client.query(
         `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,journal_position
         FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND journal_position>$4
-        ORDER BY journal_position LIMIT 64`,
-        [a.scope.tenantId, a.scope.worldId, a.scope.timelineId, policy.event_cursor],
+        ORDER BY journal_position LIMIT $5`,
+        [
+          a.scope.tenantId,
+          a.scope.worldId,
+          a.scope.timelineId,
+          policy.event_cursor,
+          ACTIVATION_EVENT_PAGE,
+        ],
       );
       return (result.rows as Row[]).map((r) => ({
         eventId: String(r.event_id),
@@ -290,6 +299,29 @@ export class PostgreSqlActivations {
   private transaction<T>(a: ActivationAddress, operation: () => Promise<T>): Promise<T> {
     return withClientTransaction(this.client, { authorization: a.participant }, operation);
   }
+}
+
+/**
+ * The actors of one world timeline whose enabled subscription or threshold names one of
+ * `eventTypes`, for the committing world's system principal (`authorization`). Answers each
+ * actor's route only: its ID and the space of its policy.
+ */
+export function activationEventSubscribers(
+  client: PostgreSqlClient,
+  authorization: RuntimeAuthorizationContext,
+  scope: { readonly worldId: string; readonly timelineId: string },
+  eventTypes: readonly string[],
+): Promise<readonly { readonly actorId: string; readonly spaceId: string }[]> {
+  return withClientTransaction(client, { authorization }, async () => {
+    const result = await client.query(
+      "SELECT actor_id, space_id FROM clockgrove.activation_event_subscribers($1,$2,$3,$4::text[])",
+      [authorization.tenantId, scope.worldId, scope.timelineId, eventTypes],
+    );
+    return (result.rows as Row[]).map((r) => ({
+      actorId: String(r.actor_id),
+      spaceId: String(r.space_id),
+    }));
+  });
 }
 
 function validateConfiguration(c: ActivationConfiguration, p: ActivationPolicy): void {

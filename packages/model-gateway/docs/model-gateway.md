@@ -190,11 +190,33 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   Observed confidences run 0.5 to 0.8 even when correct, so callers set a threshold per decision, not a global one.
 - **Record.** Every call records `DecisionCallRecord` through `ModelAccountingSink.recordDecision`: model,
   response model, outcome, label, confidence, latency, cost in microusd (reported cost, else tokens times price,
-  else null) and the request hash. Null means unknown, not zero.
+  else null) and the request hash. Null means unknown, not zero. `decisionAlias` leaves price
+  unconfigured unless `priceUsdPerMTok` is supplied: token usage alone then cannot establish cost.
+  An explicitly configured zero price is zero. Reported cost takes precedence over configured pricing.
+  Unknown cost settles the full reserved ceiling; it is never treated as free budget.
 - **Scripted decider.** `ScriptedDecider` answers from a per-route finite script of `answer` or `http` steps and
   refuses with `unavailable` when it runs out. Tests and replays use it; replay never calls a model.
 
 The runtime's shadow tier consumes it ([decision shadow](../../../docs/protocols/decision-shadow.md)).
+The [offline shadow command](../../../docs/runbooks/runtime.md#offline-decision-shadow-day) sends
+actor state and candidate features without utility scores or ranking. Reports separate utility
+agreement by the declared ambiguity margin from labelled fixture-reference accuracy, and count
+unknown costs beside known spend. It remains observational until the owner reads the numbers.
+
+Wake triage (issue 111) uses this same `decide` port and a configured decision alias; it does not
+route through generation. Runtime composition reads the optional `WAKE_TRIAGE_CONFIG` JSON binding.
+Its default alias is `wake.triage`, backed by `perplexity/pplx-decider-v1.2`; operators can measure
+`openai/gpt-6-luna-decisions` or `baseten/mammoth-1` by changing the configured model. These are the
+owner's candidate models, not a model selection made by the actor. The runtime durably reserves
+the per-call ceiling against a shared world/day budget before asking the gateway, in addition to
+this gateway's own bounds. The full ceiling stays reserved even when actual cost is lower or
+unknown, so a crash or concurrent actor cannot create unaccounted decision opportunities.
+
+The labels `suppress`, `compiled_routine`, `full_turn` and `cant_tell` are shadow evidence only.
+Unknown labels, absent or low confidence, unavailable credentials and provider failures retain
+today's full-turn path. Actual decision cost remains nullable in the report: a reserved ceiling
+is not measured spend. See [the runtime procedure](../../../docs/runbooks/runtime.md#wake-triage-shadow-report)
+for configuration, report access and the maintainer's real-model measurement step.
 
 ## Tests
 

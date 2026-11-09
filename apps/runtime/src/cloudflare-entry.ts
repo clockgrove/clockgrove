@@ -36,6 +36,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
+  activationEventSubscribers,
   PostgreSqlActivations,
   PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
@@ -362,6 +363,8 @@ export function composeActivationOwners(
       ),
     );
   return {
+    triageReport: async (scope, context, participant, actorId) =>
+      (await owner(scope, actorId)).wakeTriageReport(scope, context, participant, actorId),
     configure: async (scope, context, participant, actorId, configuration, policy) =>
       (await owner(scope, actorId)).configureActivation(
         scope,
@@ -507,6 +510,13 @@ export function withLifecycleWorkflowClient<T>(
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
 }
 
+export function withWakeTriageClient<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (client: PostgreSqlClient) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
+}
+
 /** Trusted Management/CLI composition entry; never exposed by the Runtime HTTP router. */
 export async function launchWorldProvisioning(
   env: RuntimeEnvironment,
@@ -613,6 +623,7 @@ export async function cancelWorldProvisioning(env: RuntimeEnvironment, input: un
 export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
+  readonly WAKE_TRIAGE_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   readonly MANAGEMENT_DATABASE_URL?: string;
@@ -661,6 +672,8 @@ export interface RuntimeEnvironment {
       | "configureActivation"
       | "wakeActivation"
       | "inspectActivations"
+      | "hintActivations"
+      | "wakeTriageReport"
     >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;
@@ -1490,6 +1503,90 @@ export function worldReactionNotifier(
     };
     waitUntil(sweep());
   });
+}
+
+/**
+ * In-flight activation hint passes per world timeline in this isolate, with the event types still
+ * to hint. An entry older than one pass deadline is stale and never blocks a hint.
+ */
+const activationHints = new Map<string, { types: Set<string>; passStartedAt: number }>();
+
+/**
+ * Post-commit wake for the actors whose enabled subscription or threshold names an event type the
+ * commit wrote (Wave 5 §5.2: subscriptions wake on events). It reads only which actors those are
+ * and asks each actor's owner for a prompt check; the owner reads the journal itself. It is
+ * scheduled with `waitUntil` and never awaited. A lost or failed hint costs latency only: the
+ * actor's quiet poll still reads the journal. Hints coalesce per world timeline: a commit during a
+ * running pass adds its event types to one more pass instead of another connection.
+ */
+export function activationHintNotifier(
+  env: RuntimeEnvironment,
+  waitUntil: (work: Promise<unknown>) => void,
+): JournalPostCommitNotifier {
+  return {
+    async notify(result) {
+      const [first] = result.events;
+      if (result.outcome === "rejected" || first === undefined) return;
+      const types = result.events.map((event) => event.type);
+      const key = JSON.stringify([first.tenantId, first.worldId, first.timelineId]);
+      const running = activationHints.get(key);
+      if (running !== undefined && Date.now() - running.passStartedAt < HINT_PASS_DEADLINE_MS) {
+        for (const type of types) running.types.add(type);
+        return;
+      }
+      const entry = { types: new Set(types), passStartedAt: Date.now() };
+      activationHints.set(key, entry);
+      const authorization: RuntimeAuthorizationContext = {
+        tenantId: first.tenantId,
+        principalId: decodeOpaqueId(`system:world:${first.worldId}`, "PrincipalId"),
+        privacyCeiling: { version: 1, allowedCategories: ["public_scene"] },
+      };
+      const pass = async (eventTypes: readonly string[]) => {
+        const actors = await withHyperdrivePostgreSqlClient(
+          env.HYPERDRIVE?.connectionString ?? "",
+          (client) => activationEventSubscribers(client, authorization, first, eventTypes),
+        );
+        await Promise.allSettled(
+          actors.map(async ({ actorId, spaceId }) => {
+            const route = await runtimeRouteName(
+              "actor-agent",
+              {
+                tenantId: first.tenantId,
+                worldId: first.worldId,
+                timelineId: first.timelineId,
+                spaceId: decodeOpaqueId(spaceId, "SpaceId"),
+              },
+              decodeOpaqueId(actorId, "SubjectId"),
+            );
+            await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).hintActivations();
+          }),
+        );
+      };
+      const hint = async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          while (entry.types.size > 0 && activationHints.get(key) === entry) {
+            const eventTypes = [...entry.types];
+            entry.types.clear();
+            entry.passStartedAt = Date.now();
+            const deadline = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error("hint deadline")), HINT_PASS_DEADLINE_MS);
+            });
+            try {
+              await Promise.race([pass(eventTypes), deadline]);
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+        } catch {
+          /* The actors' quiet polls still read these events. */
+        } finally {
+          if (activationHints.get(key) === entry) activationHints.delete(key);
+        }
+      };
+      waitUntil(hint());
+    },
+  };
 }
 
 /** Verification and durable disposition only: this handler executes no world effects. */

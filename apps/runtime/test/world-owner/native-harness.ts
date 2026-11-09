@@ -381,6 +381,22 @@ export async function withNativeWorldOwner(
         r2Buckets: { ARTIFACTS_BUCKET: "rw-local-artifacts" },
         bindings: {
           ...worldBindings,
+          ...(process.env.NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD === undefined
+            ? {}
+            : {
+                NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD:
+                  process.env.NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD,
+              }),
+          ...(process.env.WAKE_TRIAGE_CONFIG === undefined
+            ? {}
+            : { WAKE_TRIAGE_CONFIG: process.env.WAKE_TRIAGE_CONFIG }),
+          ...(process.env.NATIVE_WAKE_TRIAGE_SCRIPT === undefined
+            ? {}
+            : { NATIVE_WAKE_TRIAGE_SCRIPT: process.env.NATIVE_WAKE_TRIAGE_SCRIPT }),
+          ...(process.env.CLOCKGROVE_WAKE_TRIAGE_LIVE !== "1" ||
+          process.env.AI_GATEWAY_API_KEY === undefined
+            ? {}
+            : { AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY }),
           NATIVE_PROVISIONING_FAULTS_DISABLED: provisioningFaultsDisabled,
           AUTH_DATABASE_URL: connection("clockgrove_auth_verifier"),
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),

@@ -151,6 +151,24 @@ type ActivationReason =
 
 Wakeups are deduplicated, coalesced, prioritized, and budgeted. A heartbeat is an optional opportunity, not a guaranteed LLM turn. Policy checks and compiled routines run before model escalation. No-op wakes are recorded cheaply and suppressed.
 
+Amended (owner decision, 2026-11-09; issue 111): wake triage runs in shadow mode after those checks,
+for every wake that reaches model escalation, including direct messages. Through the existing
+`decide` port it chooses `suppress`, `compiled_routine`, `full_turn` or the explicit abstention
+`cant_tell`; the full turn still follows today's path. Disabling triage, removing the gateway key,
+abstention, low confidence, an exhausted per-world simulated-day budget or a model error cannot
+suppress that turn. Each result is journaled as cognitive evidence and replay never calls the model.
+**Any later enforcing mode will never suppress a person's direct message.** Shadow reports mark
+those wakes apart, including any proposed suppression. No enforcement is enabled by this amendment.
+
+The report compares each shadow answer with deterministic turn records: proposed commands,
+output messages and final dispositions. It shows counts, labels, confidence, latency and cost per
+activation reason; agreement and counterfactual savings; and misses where `suppress` or
+`compiled_routine` accompanied a material command or reply to a person. Abstentions and low
+confidence remain separate. Signatures include the activation reason, actor, suppression cause,
+and policy/model versions; repeated misses or low-confidence signatures are flagged for human
+review. See the [wake-triage contract](../protocols/decision-shadow.md#wake-triage) and
+[runtime report procedure](../runbooks/runtime.md#wake-triage-shadow-report).
+
 ### 5.3 Actor workspace abstraction
 
 Expose versioned logical resources, not an uncontrolled filesystem:

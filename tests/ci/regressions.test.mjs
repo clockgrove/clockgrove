@@ -1,7 +1,8 @@
 // CI guards nothing else exercises: the contract checker refuses drift, evidence never promotes an
 // unobserved or failed command to a pass, test:runtime shards run each file once and count only as
 // a complete set, Quality measures a pull request against the main it merges into, and deadlines
-// settle termination-resistant descendants; the license check reads SPDX expressions.
+// settle termination-resistant descendants; the license check reads SPDX expressions, npm's legacy
+// licenses array and exact-version verified records.
 import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -22,7 +23,7 @@ import {
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
 import { checkContractDrift } from "../../scripts/contract-drift.mjs";
-import { checkLicense } from "../../scripts/supply-chain.mjs";
+import { checkLicense, componentLicenses } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const run = (command, args, cwd = root) =>
@@ -272,6 +273,42 @@ it("license check evaluates SPDX OR, AND, precedence and WITH, and refuses garbl
     "refused",
     "refused",
     "refused",
+    "refused",
+  ]);
+});
+it("license check reads npm's legacy licenses array and verified records for the exact version only", () => {
+  const verdict = (key, metadata) => {
+    try {
+      checkLicense(componentLicenses(key, metadata)[0]?.expression, key);
+      return "allowed";
+    } catch (error) {
+      return error.message.endsWith("missing dependency license") ? "missing" : "refused";
+    }
+  };
+  const legacy = (...types) => ({ licenses: types.map((type) => ({ type, url: "x" })) });
+  expect([
+    verdict("format@0.2.2", legacy("MIT")),
+    verdict("dual@1.0.0", legacy("GPL-2.0", "MIT")),
+    verdict("gpl@1.0.0", legacy("GPL-2.0")),
+    verdict("empty@1.0.0", { licenses: [] }),
+    verdict("prose@1.0.0", legacy("Apache 2.0")),
+    verdict("operator@1.0.0", legacy("MIT", "OR")),
+    verdict("untyped@1.0.0", { licenses: [{ url: "x" }] }),
+    verdict("object@1.0.0", { licenses: { type: "MIT" } }),
+    verdict("@google/design.md@0.4.0", {}),
+    verdict("@google/design.md@0.4.1", {}),
+    verdict("@google/design.md@0.4.0", { license: "GPL-2.0" }),
+  ]).toEqual([
+    "allowed",
+    "allowed",
+    "refused",
+    "missing",
+    "missing",
+    "missing",
+    "missing",
+    "missing",
+    "allowed",
+    "missing",
     "refused",
   ]);
 });

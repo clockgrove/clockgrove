@@ -20,7 +20,7 @@ it("serves and builds an external world's theme and static assets, refusing inva
     );
     shell.name = "External Harbor & Light";
     shell.wordmark = "External Harbor";
-    shell.tokens = { "--rw-v1-bg": "#123abc" };
+    shell.tokens = { "--cg-v1-bg": "#123abc" };
     const shellFile = path.join(scratch, "shell.json");
     const assets = path.join(scratch, "reviewed");
     const outDir = path.join(scratch, "built");

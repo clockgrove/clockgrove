@@ -71,6 +71,7 @@ requires `ambiguity`; without it the policy keeps its encoding and hash and no s
 - `trigger` is `{kind: "score-margin", maxMargin}` (a bigint from 0 to `FIXED_POINT_LIMIT`; fires on a planning
   request whose margin is at most it) or `{kind: "declared-ambiguity"}` (fires on any planning request the
   `ambiguity` declaration raised). `DECISION_TRIGGER_KINDS` is the closed set.
+- Optional `scope: {actorIds?, archetypes?}` selects actor ids or archetypes. Each supplied selector list is nonempty, unique and lexically sorted; identifiers are trimmed nonempty strings of at most 256 characters (decision: a bounded pack identifier, not a provider name). Either list matching admits the actor. Omitted scope preserves universal matching and canonical bytes; an empty scope is invalid.
 - `candidates` is always `"kernel-valid"`: the model chooses among the kernel's eligible candidates and never adds one.
 - `signatureScope` (`"actor"` or `"archetype"`) says whose repeats share a signature, and `marginBuckets`
   `{noneMax, smallMax}` (bigints, `noneMax < smallMax`) bucket the top-two score gap as `none`, `small` or `large`

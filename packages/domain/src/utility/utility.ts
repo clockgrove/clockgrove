@@ -64,6 +64,8 @@ export type DecisionTrigger =
 export interface DecisionPointDeclaration {
   readonly id: string;
   readonly trigger: DecisionTrigger;
+  /** Omitted means every actor; supplied selectors match by actor id OR archetype. */
+  readonly scope?: Readonly<{ actorIds?: readonly string[]; archetypes?: readonly string[] }>;
   /** Always the kernel's valid (eligible) candidate set; the model never adds an option. */
   readonly candidates: "kernel-valid";
   /** Whose repeats share a signature: the actor itself, or every actor of its archetype. */
@@ -299,6 +301,9 @@ function validateDecisionPoints(value: unknown, path: string): void {
       point,
       [
         "id",
+        ...(point !== null && typeof point === "object" && Object.hasOwn(point, "scope")
+          ? ["scope"]
+          : []),
         "trigger",
         "candidates",
         "signatureScope",
@@ -311,6 +316,39 @@ function validateDecisionPoints(value: unknown, path: string): void {
       ],
       at,
     );
+    if (record.scope !== undefined) {
+      const value = record.scope;
+      const keys =
+        value !== null && typeof value === "object"
+          ? ["actorIds", "archetypes"].filter((key) => Object.hasOwn(value, key))
+          : [];
+      const scope = exactObject(value, keys, `${at}.scope`);
+      if (keys.length === 0) fail(`${at}.scope`, "expected actorIds or archetypes");
+      for (const key of keys) {
+        const selectors = scope[key];
+        if (
+          !Array.isArray(selectors) ||
+          Object.getPrototypeOf(selectors) !== Array.prototype ||
+          Reflect.ownKeys(selectors).length !== selectors.length + 1 ||
+          selectors.length === 0
+        )
+          fail(`${at}.scope.${key}`, "expected a nonempty dense array");
+        (selectors as unknown[]).forEach((selector, index, all) => {
+          if (
+            typeof selector !== "string" ||
+            selector.length === 0 ||
+            selector.length > 256 ||
+            selector.trim() !== selector
+          )
+            fail(
+              `${at}.scope.${key}[${index}]`,
+              "expected a nonempty identifier of at most 256 characters",
+            );
+          if (index > 0 && (selector as string) <= (all[index - 1] as string))
+            fail(`${at}.scope.${key}[${index}]`, "selectors must be unique and sorted");
+        });
+      }
+    }
     const id = record.id;
     if (typeof id !== "string" || !DECISION_POINT_ID.test(id))
       fail(`${at}.id`, "expected a lowercase identifier of at most 64 characters");

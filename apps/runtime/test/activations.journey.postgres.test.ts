@@ -232,14 +232,27 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ]),
       );
 
-      await configure("blocked", "scheduled_intention", { enabled: false }, 10);
+      // A callback that read its inspection before the daily configuration committed must not
+      // cancel the daily wake (issue 80): its last arming is held across that commit. Armings
+      // queue behind the held one, so neither configuration is awaited until the release.
+      await agent({ op: "fault", phase: "hold:activation-planning" });
+      const unblocked = configure("blocked", "scheduled_intention", { enabled: false }, 10);
+      await expect.poll(() => agent({ op: "held" })).toBe(true);
       await agent({ op: "fault", phase: "proposal_validating" });
       const dailyDue = Date.now() + 1_000;
-      await configure("daily", "scheduled_intention", {
+      const daily = configure("daily", "scheduled_intention", {
         nextWakeAt: dailyDue,
         intervalMs: 86_400_000,
         input: "Check the daily intention",
       });
+      await expect
+        .poll(() =>
+          owner.sql(`SELECT count(*) FROM clockgrove.actor_activation_policies,
+            jsonb_array_elements(configurations) c WHERE c->>'id' = 'daily'`),
+        )
+        .toBe("1");
+      await agent({ op: "release" });
+      await Promise.all([unblocked, daily]);
       await owner.sql(`INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id)
         SELECT tenant_id,'principal-outsider' FROM clockgrove.tenant_principals WHERE principal_id='principal-runtime';
         INSERT INTO clockgrove.world_memberships
@@ -262,6 +275,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // fault ends the incarnation at `proposal_validating`; the successor alarm the owner persisted
       // before the turn recovers it, and that alarm (floored to a whole second by the SDK) can fire
       // within milliseconds of the crash, so the crash is read from the durable runs, not the phase.
+      // The poll's 30 s ends before a quiet poll one minute out, so the wake keeps its due time.
       await expect
         .poll(() =>
           owner.sql(
@@ -306,6 +320,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
         eventType: "ClockPolicyChanged",
         compiledRoutine: "noop",
       });
+      // The event commits after the subscription's first check: its commit hint wakes the actor.
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
       expect(
         (
           await owner.submit({

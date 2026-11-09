@@ -1,3 +1,8 @@
+import type {
+  ConversationResponder,
+  ShadowDecider,
+  WakeTriagePolicy,
+} from "@clockgrove/application";
 import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
@@ -22,6 +27,13 @@ import {
   NO_SCENE_INTEREST,
 } from "@clockgrove/contracts";
 import {
+  createModelGateway,
+  decisionAlias,
+  InMemoryModelBudget,
+  ScriptedDecider,
+  type ScriptedDecisionStep,
+} from "@clockgrove/model-gateway";
+import {
   type PostgreSqlClient,
   PostgreSqlWorldProvisioningStore,
   ProvisioningFaultInjectedError,
@@ -30,6 +42,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
+  type ActivationArming,
   type BirthWorkflowStepConfig,
   type DurableObjectState,
   ActorAgentDO as ProductionActorAgentDO,
@@ -50,6 +63,7 @@ import worker, {
   sweepPartitionSnapshots,
   type WorldProvisioningEntrypoint,
 } from "../../src/cloudflare-entry.js";
+import { gatewayShadowDecider } from "../../src/decision-shadow.js";
 import { withHyperdrivePostgreSqlClient } from "../../src/hyperdrive-postgres.js";
 import type { OwnerMailboxBounds } from "../../src/mailbox.js";
 import { stableRuntimeRouteName } from "../../src/routing.js";
@@ -213,6 +227,67 @@ interface NativeEnvironment extends RuntimeEnvironment {
  * once per turn and phase, as an eviction or crash there would.
  */
 export class ActorAgentDO extends ProductionActorAgentDO {
+  private readonly triageScript: string | undefined;
+  private readonly triageTurnCost: number | undefined;
+  constructor(...args: ConstructorParameters<typeof ProductionActorAgentDO>) {
+    super(...args);
+    const cost = (
+      args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD?: string }
+    ).NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD;
+    this.triageTurnCost = cost === undefined ? undefined : Number(cost);
+    this.triageScript = (
+      args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_SCRIPT?: string }
+    ).NATIVE_WAKE_TRIAGE_SCRIPT;
+  }
+  protected override responder(): ConversationResponder {
+    const respond = super.responder();
+    return async (...args) => {
+      const response = await respond(...args);
+      return this.triageTurnCost === undefined
+        ? response
+        : {
+            ...response,
+            usage: { inputTokens: null, outputTokens: null, costMicrousd: this.triageTurnCost },
+          };
+    };
+  }
+  protected override triageDecider(
+    policy: WakeTriagePolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    const source = this.triageScript;
+    if (source === undefined) return super.triageDecider(policy, fiber);
+    return {
+      pick: async (request) => {
+        const steps = JSON.parse(source) as ScriptedDecisionStep[];
+        const count = (await this.objectState.storage.get<number>("triage-calls")) ?? 0;
+        await this.objectState.storage.put("triage-calls", count + 1);
+        const alias = decisionAlias({
+          alias: policy.modelAlias,
+          model: policy.model,
+          maxCostMicrousd: policy.maxCostMicrousd,
+        });
+        const decider = new ScriptedDecider({
+          [alias.route.id]:
+            steps[count] === undefined ? [] : [steps[count] as ScriptedDecisionStep],
+        });
+        const gateway = createModelGateway({
+          aliases: [],
+          adapters: {},
+          decisionAliases: [alias],
+          decisionAdapters: { "vercel-ai-gateway": decider },
+          budget: new InMemoryModelBudget(() => policy.maxCostMicrousd),
+          accounting: { record: () => undefined },
+        });
+        return gatewayShadowDecider(gateway, {
+          tenantId: fiber.scope.tenantId,
+          worldId: fiber.scope.worldId,
+          actorId: fiber.actorId,
+        }).pick(request);
+      },
+    };
+  }
+
   private held: (() => void) | undefined;
   async injectTurnFault(phase: string | null): Promise<void> {
     await this.objectState.storage.put("test-turn-fault", phase);
@@ -220,9 +295,22 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   async modelCallsTest(): Promise<number> {
     return (await this.objectState.storage.get<number>("test-model-calls")) ?? 0;
   }
-  /** Releases a turn held by a `hold:<phase>` fault. */
+  /** Releases a turn held by a `hold:<phase>` fault, or a callback held at activation planning. */
   async releaseTurn(): Promise<void> {
     this.held?.();
+    this.held = undefined;
+  }
+  async heldTest(): Promise<boolean> {
+    return this.held !== undefined;
+  }
+  /** `hold:activation-planning` holds a scheduled callback's last arming before it plans. */
+  protected override async activationPlanning(arming: ActivationArming): Promise<void> {
+    if (!arming.fromCallback || arming.forceRecovery) return;
+    if ((await this.objectState.storage.get("test-turn-fault")) !== "hold:activation-planning")
+      return;
+    await new Promise<void>((resolve) => {
+      this.held = resolve;
+    });
   }
   protected override async turnCheckpointed(fiber: TurnFiber, phase: string): Promise<void> {
     const storage = this.objectState.storage;
@@ -981,6 +1069,7 @@ export default {
       if (body.op === "fault")
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
+      if (body.op === "held") return Response.json(await actor.heldTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")

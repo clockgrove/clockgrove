@@ -19,7 +19,7 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - `spikes/renderer-bakeoff`: [renderer bake-off spike](spikes/renderer-bakeoff/README.md).
 - `apps/runtime`: [README](apps/runtime/README.md), [runtime runbook](docs/runbooks/runtime.md).
 - World inputs: [theme and presentation](docs/protocols/world-presentation.md).
-- `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md).
+- `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md), [shell UI tokens](DESIGN.md).
 
 ## Documentation conventions
 

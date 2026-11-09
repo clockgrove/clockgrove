@@ -20,6 +20,7 @@ import {
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
+  type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
   ProvisioningCaseConflictError,
@@ -29,9 +30,11 @@ import {
   type RuntimeLogger,
   recordMetric,
   runtimeLogRecord,
+  type ShadowDecider,
   type StoredCommandProposal,
   type TurnCommandRecord,
   type TurnFiber,
+  type WakeTriagePolicy,
   type WorldCommandResult,
   WorldGenesisDefectError,
   type WorldProvisioningPorts,
@@ -63,8 +66,10 @@ import {
   type TrustedExecutionContext,
 } from "@clockgrove/contracts/trusted";
 import {
+  ACTIVATION_EVENT_PAGE,
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
+  PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
@@ -84,6 +89,7 @@ import {
   actorResponder,
 } from "./actor-model.js";
 import {
+  activationHintNotifier,
   composeConversations,
   composeRuntime,
   perceiveScene,
@@ -95,6 +101,7 @@ import {
   withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
+  withWakeTriageClient,
   worldReactionNotifier,
 } from "./cloudflare-entry.js";
 import { analyticsEngineMetrics } from "./cloudflare-metrics.js";
@@ -137,6 +144,7 @@ import type {
   RuntimeScope,
 } from "./types.js";
 import { RuntimeRouteKeyMismatchError } from "./types.js";
+import { shadowActorWake, wakeTriageDecider, wakeTriagePolicy } from "./wake-triage.js";
 import * as workflows from "./workflows.js";
 import {
   assertWorldCommandContext,
@@ -986,7 +994,8 @@ export class SpaceDO extends OwnerAdapter {
   }
   /**
    * The partition owner over one connection, whose statements count toward the active entry. With
-   * `journal` its world commands record their points there too and notify world reactions.
+   * `journal` its world commands record their points there too and notify world reactions and the
+   * actors subscribed to the events they wrote.
    */
   private withOwner<T>(
     operation: (owner: PostgreSqlCommandOwner) => Promise<T>,
@@ -996,12 +1005,20 @@ export class SpaceDO extends OwnerAdapter {
       this.environment.HYPERDRIVE?.connectionString ?? "",
       operation,
       journal ? (this.activation ?? this.metrics) : undefined,
-      journal
-        ? worldReactionNotifier(this.environment, (work) => this.state.waitUntil(work))
-        : undefined,
+      journal ? this.committed : undefined,
       this.activation,
     );
   }
+  /** Each hint only schedules its work; one failing never skips the other. */
+  private readonly committed: JournalPostCommitNotifier = {
+    notify: async (result) => {
+      const waitUntil = (work: Promise<unknown>) => this.state.waitUntil(work);
+      await Promise.allSettled([
+        worldReactionNotifier(this.environment, waitUntil).notify(result),
+        activationHintNotifier(this.environment, waitUntil).notify(result),
+      ]);
+    },
+  };
 
   /** The physical lane (§8): every SpaceDO operation that touches the partition is admitted here. */
   private readonly mailbox = new OwnerMailbox({
@@ -1187,6 +1204,19 @@ interface TurnFiberSnapshot {
 
 const RECOVERY_KEY = "actor-agent-recovery";
 const INBOX_KEY = "actor-agent-inbox";
+const ACTIVATION_ADDRESS_KEY = "activation-address";
+
+/** Why an activation arming runs, which decides how soon it plans the next check. */
+export interface ActivationArming {
+  /** A configuration changed: check within one second. */
+  readonly initial?: boolean;
+  /** The SDK callback consuming the current alarm: always replace it. */
+  readonly fromCallback?: boolean;
+  /** Admitted work may be interrupted: keep a recovery check one second out. */
+  readonly forceRecovery?: boolean;
+  /** Unread journal events may match a subscription: check within one second. */
+  readonly prompt?: boolean;
+}
 
 /**
  * The per-actor cognitive owner (Wave 5 §7, RW-0503 with RW-0307), on the pinned Agents SDK. It runs
@@ -1208,6 +1238,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return this.#talkContexts.get(`${who.principalId}:${who.personaId}`);
   }
   #arming: Promise<unknown> = Promise.resolve();
+  /** Journal hints this incarnation received; a callback compares it across its scan. */
+  #journalHints = 0;
 
   /** The SDK's `ctx` and `env`, typed by this module's portable declarations. */
   protected get objectState(): DurableObjectState {
@@ -1259,6 +1291,24 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     });
   }
 
+  async wakeTriageReport(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ) {
+    assertWorldCommandContext(context, scope);
+    if (!context.privacyCeiling.allowedCategories.includes("operator_evidence"))
+      throw new AuthorizationRefusedError("triage report refused");
+    await this.ready(scope, context, actorId);
+    return withWakeTriageClient(this.environment, (client) =>
+      new PostgreSqlWakeTriage(client).report(participant, scope as BrowserScope),
+    );
+  }
+  protected triageDecider(policy: WakeTriagePolicy, fiber: TurnFiber): ShadowDecider | undefined {
+    return wakeTriageDecider(this.environment, policy, fiber);
+  }
+
   async configureActivation(
     scope: RuntimeScope,
     context: TrustedExecutionContext,
@@ -1273,7 +1323,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const result = await withActivations(this.environment, (store) =>
       store.configure(address, configuration, policy),
     );
-    await this.armActivations(address, true);
+    await this.armActivations(address, { initial: true });
     return result;
   }
 
@@ -1299,7 +1349,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
     // Persist a fallback before admitting canonical work, including unscheduled operator wakes.
-    await this.armActivations(address, false, false, true);
+    await this.armActivations(address, { forceRecovery: true });
     return this.admitActivation(address, wake);
   }
 
@@ -1353,11 +1403,29 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     }
   }
 
+  /**
+   * A world commit wrote an event that one of this actor's enabled subscriptions or thresholds
+   * names (`activationHintNotifier`). Plans a prompt check of the journal instead of the quiet
+   * poll, for the address its last arming stored. Hints coalesce into the one activation alarm.
+   */
+  async hintActivations(): Promise<void> {
+    const address = await this.objectState.storage.get<ActivationAddress>(ACTIVATION_ADDRESS_KEY);
+    if (address === undefined) return;
+    this.#journalHints += 1;
+    await this.armActivations(address, { prompt: true });
+  }
+
   /** SDK scheduler callback: bounded journal scan and due configurations, ordered by priority. */
   async runScheduledActivations(address: ActivationAddress): Promise<void> {
+    // A hint from here on may name an event the scan below has already passed, or not yet reached.
+    const hints = this.#journalHints;
+    let fullPage = false;
     // The current one-shot is being consumed. Persist its successor before any turn can abort
     // this incarnation; a finally block cannot create the only recovery alarm after owner loss.
-    const inspection = await this.armActivations(address, false, true, true);
+    const inspection = await this.armActivations(address, {
+      fromCallback: true,
+      forceRecovery: true,
+    });
     try {
       for (const deferred of inspection.activations.filter((a) => a.status === "deferred")) {
         try {
@@ -1379,6 +1447,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         }
       }
       const events = await withActivations(this.environment, (store) => store.events(address));
+      fullPage = events.length === ACTIVATION_EVENT_PAGE;
       for (const event of events) {
         for (const configuration of inspection.configurations
           .filter((c) => c.enabled && c.eventType === event.eventType)
@@ -1414,7 +1483,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         });
       }
     } finally {
-      await this.armActivations(address, false, true);
+      await this.armActivations(address, {
+        fromCallback: true,
+        prompt: fullPage || this.#journalHints !== hints,
+      });
     }
   }
 
@@ -1424,36 +1496,49 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
    * PostgreSQL round trips: a callback planning from an inspection taken before a configuration
    * committed would cancel the alarm that configuration relied on, and its wake would wait for the
    * next quiet poll, or forever with none. Every change commits before its own arming, so the last
-   * arming always reads it.
+   * arming always reads it. An arming that shows the actor's configurations stores its address for
+   * journal hints.
    */
   private armActivations(
     address: ActivationAddress,
-    initial = false,
-    fromCallback = false,
-    forceRecovery = false,
+    arming: ActivationArming,
   ): Promise<ActivationInspection> {
     const armed = this.#arming.then(async () => {
       const inspection = await withActivations(this.environment, (store) => store.inspect(address));
-      await this.planActivationAlarm(address, inspection, initial, fromCallback, forceRecovery);
+      if (inspection.configurations.length > 0)
+        await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
+      await this.activationPlanning(arming);
+      await this.planActivationAlarm(address, inspection, arming);
       return inspection;
     });
     this.#arming = armed.catch(() => undefined);
     return armed;
   }
 
+  /**
+   * Called inside the arming section, after its inspection is read and before it plans. Production
+   * does nothing more. The native test owner holds a callback's arming here to order a
+   * configuration's commit between the two.
+   */
+  protected async activationPlanning(_arming: ActivationArming): Promise<void> {}
+
   private async planActivationAlarm(
     address: ActivationAddress,
     inspection: ActivationInspection,
-    initial: boolean,
-    fromCallback: boolean,
-    forceRecovery: boolean,
+    {
+      initial = false,
+      fromCallback = false,
+      forceRecovery = false,
+      prompt = false,
+    }: ActivationArming,
   ): Promise<void> {
     const stored = await this.objectState.storage.get<{ id: string; at: number }>(
       "activation-alarm",
     );
     // Decision: unfinished turns retry after one second so an owner loss does not strand their
-    // receipts behind quiet polling. Quiet subscription checks remain one minute apart; model retries
-    // still require a budget reservation at the model boundary.
+    // receipts behind quiet polling. A journal hint or a full page of unread events checks again
+    // after one second too. Quiet subscription checks remain one minute apart; model retries still
+    // require a budget reservation at the model boundary.
     const poll = inspection.configurations.some((c) => c.enabled && c.eventType !== undefined);
     const pending = forceRecovery || inspection.activations.some((a) => a.status === "pending");
     const blocked = new Set(
@@ -1469,7 +1554,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const candidates = [
       next,
       poll || pending || (initial && inspection.activations.some((a) => a.status === "deferred"))
-        ? Date.now() + (initial || pending ? 1000 : 60000)
+        ? Date.now() + (initial || pending || (poll && prompt) ? 1000 : 60000)
         : null,
     ].filter((value): value is number => value !== null);
     if ((inspection.activations.length >= 1000 && !pending) || candidates.length === 0) {
@@ -1741,7 +1826,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   };
 
   /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
-  private responder(): ConversationResponder {
+  protected responder(): ConversationResponder {
     const gateway = actorGateway(this.environment);
     if (gateway !== undefined)
       return actorResponder({
@@ -1860,16 +1945,41 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         this.submitCommand(participant, fiber, proposal, offer),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
-      beforeModel: async (participant, fiber) => {
-        if (!fiber.messageId.startsWith("activation:")) return;
-        const result = await withActivations(this.environment, (store) =>
-          store.beforeModel(
-            { scope: scope as ActivationAddress["scope"], participant, actorId },
-            fiber,
-          ),
-        );
-        if (result === "deferred" || result === "noop" || result === "completed")
-          throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+      beforeModel: async (participant, fiber, input) => {
+        if (fiber.messageId.startsWith("activation:")) {
+          const result = await withActivations(this.environment, (store) =>
+            store.beforeModel(
+              { scope: scope as ActivationAddress["scope"], participant, actorId },
+              fiber,
+            ),
+          );
+          if (result === "deferred" || result === "noop" || result === "completed")
+            throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+        }
+        try {
+          const policy = wakeTriagePolicy(this.environment.WAKE_TRIAGE_CONFIG);
+          if (policy !== undefined)
+            await withWakeTriageClient(this.environment, (client) =>
+              shadowActorWake(
+                client,
+                participant,
+                fiber,
+                input,
+                policy,
+                this.triageDecider(policy, fiber),
+              ),
+            );
+        } catch {
+          // Shadow evidence must never prevent the existing full turn, including database outages.
+          console.warn(
+            JSON.stringify({
+              event: "wake-triage-evidence-failed",
+              actorId: fiber.actorId,
+              sessionId: fiber.sessionId,
+              messageId: fiber.messageId,
+            }),
+          );
+        }
       },
       durable: (fiber, participant, run) =>
         this.runFiber(`turn:${fiber.sessionId}:${fiber.messageId}`, async (fiberContext) => {
