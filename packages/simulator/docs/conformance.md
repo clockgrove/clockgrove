@@ -185,3 +185,7 @@ with a reason) or bundle hash is missing.
 section-hall simulator fixture (`fixture-pack.ts`) and requires each planted defect to fail with a message
 naming the pack and the check: a mismatched golden, a missing golden, and an engine source that uses a
 pack identity or a reference-world name.
+
+
+For external asset validation, atlas builds and golden approval from the same
+pinned checkout, use the [asset command guide](../../assets/docs/pipeline.md#external-world-commands).

@@ -434,6 +434,19 @@ This is a first-class client projection, not accessibility alt text generated fr
 
 ## 12. Asset pipeline
 
+Amended (2026-11-09, issue 61): the pipeline is style-agnostic. Versioned world
+presentation data declares alpha/opacity threshold, colour, edge and per-role
+size rules, outside simulation content hashes. The fixture declares pixel art;
+external worlds can use painterly or flat-cartoon profiles. The issue 813
+256 px frame-edge decision is the pixel-art profile's value, within the shared
+WebGL/atlas envelope. Generated manifest v2 provenance records provider output
+grants; MIT requires permission to relicense, CC-BY retains attribution, and
+non-commercial or provider-retained outputs cannot deploy. External authors use
+[world-location asset commands](../../packages/assets/docs/pipeline.md#external-world-commands)
+from a pinned checkout, including single-asset validation, reviewed atlas and
+licence builds, and human-approved golden rendering.
+
+
 Every asset manifest records source, creator/tool, license, prompt/reference provenance when generated, review status, semantic entity/archetype, animation family, anchor, footprint, bounds, palette, content hash, atlas location, and accessibility label.
 
 Pipeline:
@@ -507,6 +520,10 @@ Exit: every Wave 4 journey is completable without the canvas.
 Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, the fixture world's placeholder set and license report here, and the reference world's first character/environment set in its own repository.
 
 Exit: staging scene is reproducible from approved source/manifests; no unreviewed asset can deploy.
+The local pipeline is proven on generated pixel, cartoon and painterly external
+worlds; reviewed output is served by the external local shell. Human approval,
+provider-grant enforcement and scene-diff review remain required for every style.
+Staging upload evidence remains pending on issue 3.
 
 Amended (2026-10-27): RW-0409 inherits from Wave 1 (Wave 1 §5.2) the registration of the Presentation component, whose first consumer is the world-pack presentation binding.
 

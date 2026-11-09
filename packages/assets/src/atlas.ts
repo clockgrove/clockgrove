@@ -1,4 +1,4 @@
-import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts";
+import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts/asset-manifest";
 import { decodePng, encodePng } from "./png.js";
 import { sha256Hex } from "./validate.js";
 

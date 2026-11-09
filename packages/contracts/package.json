@@ -12,6 +12,14 @@
     "./trusted": {
       "types": "./src/trusted.ts",
       "import": "./src/trusted.ts"
+    },
+    "./asset-manifest": {
+      "types": "./src/asset-manifest.ts",
+      "import": "./src/asset-manifest.ts"
+    },
+    "./asset-style-profile": {
+      "types": "./src/asset-style-profile.ts",
+      "import": "./src/asset-style-profile.ts"
     }
   },
   "scripts": {
