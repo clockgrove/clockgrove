@@ -590,7 +590,7 @@
       "id": "A4",
       "section": "16",
       "scenario": "scene can rebuild from reducer state",
-      "coverage": "full",
+      "coverage": "partial",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -604,7 +604,8 @@
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A4: retry rebuilds the canvas from the retained reducer projection, without another socket."
         }
-      ]
+      ],
+      "deviation": "WebGL2 loses the canvas through the real WEBGL_lose_context; the WebGPU run calls the renderer's onDeviceLost callback directly, because a page has no standard way to lose a WebGPU device other than GPUDevice.destroy(), and Three ignores a destroyed device's loss. The path from a real WebGPU device loss to that callback is not exercised."
     },
     {
       "id": "A5",

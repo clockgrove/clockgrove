@@ -176,10 +176,15 @@ Neither a cue nor public speech can carry an arbitrary canonical repair payload.
 
 `WorldBootState` represents the ordered milestones `route_resolving`, `identity_resolved`,
 `membership_authorized`, `joining_space`, `snapshot_ready`, `critical_assets_ready` and
-`scene_ready`, with resumable progress. `text_ready` is a terminal success state: semantic
-projection is usable when visual assets or the scene renderer are unavailable. Progress is the one
-each state implies: `total` is 6, the milestones after `route_resolving`, and `completed` is the
-state's position, from 0 for `route_resolving` to 6; both terminal states are complete.
+`scene_ready`, with resumable progress. `text_ready` is the other ready state: semantic
+projection is usable when visual assets or the scene renderer are unavailable. Once a boot reaches
+`scene_ready` or `text_ready` it has arrived (`terminal`), and from then on only its canvas moves
+it between the two: a canvas that is lost or refused moves `scene_ready` to `text_ready`, and a
+retried canvas that presents moves `text_ready` back to `scene_ready`. The shell never reports a
+canvas as ready while it shows the text scene only. Each move carries the revision of the
+projection the shell holds at that moment. Progress is the one each state implies: `total` is 6,
+the milestones after `route_resolving`, and `completed` is the state's position, from 0 for
+`route_resolving` to 6; both ready states are complete.
 
 Snapshots declare projection, asset-manifest and client compatibility versions. Strict decoding
 refuses incompatible values with stable distinguishable error codes suitable for a visible recovery

@@ -1323,11 +1323,16 @@ const observeHall = async (backend) => {
         ]) {
           await page.setViewportSize({ width, height });
           // Media-query change events fire in the rendering step after a resize, before animation
-          // frame callbacks: after two frames the layout panels have followed the breakpoint.
+          // frame callbacks: after two frames the layout panels have followed the breakpoint. The
+          // window scrolls the narrow layout and the scene column scrolls the desktop frame.
           await page.evaluate(
             () =>
               new Promise((resolve) => {
-                scrollTo(0, 0);
+                for (const scroller of [
+                  document.scrollingElement,
+                  ...document.querySelectorAll(".rw-main"),
+                ])
+                  scroller.scrollTo(0, 0);
                 requestAnimationFrame(() => requestAnimationFrame(resolve));
               }),
           );
@@ -2654,7 +2659,11 @@ const observeHall = async (backend) => {
             adapter.lights.length === lights.length &&
               adapter.lights.every((light, index) => light === lights[index]),
           ];
-          await new Promise((resolve) => setTimeout(resolve, 600));
+          // The tween ends on the first frame after its 400 ms; a software-rendered frame can land
+          // much later on a busy runner, so wait for that frame rather than a fixed delay.
+          const deadline = performance.now() + 10_000;
+          while (adapter.motions.has(body) && performance.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 50));
           const settled = body.position.x;
           adapter.loadSnapshot(shifted(21));
           const snapped = [Number(adapter.motions.has(body)), body.position.x];
@@ -2742,12 +2751,7 @@ const observeHall = async (backend) => {
           ]);
         const textMode = (reason) => [
           `Arrival: text scene ready at revision ${heldRevision}; ${reason} unavailable.`,
-          expect.stringMatching(
-            new RegExp(
-              `^World arrival: text scene ready at revision \\d+; ${reason} unavailable\\.$`,
-              "u",
-            ),
-          ),
+          `World arrival: text scene ready at revision ${heldRevision}; ${reason} unavailable.`,
           "text",
         ];
         await expect.poll(reportedMode).toEqual(textMode("renderer"));
