@@ -78,3 +78,7 @@ bindings and actor revision invalidation remain the next integration work of iss
 The owner-decided remote effect classes are `read`, `world-write`, `external-write`, `destructive`,
 `network` and `cost`. Unreviewed tools start at `external-write`, regardless of provider hints.
 This additive vocabulary does not rename the existing internal `world_command` effect.
+
+The isolated PostgreSQL credential provider stores sealed envelopes under a dedicated role and
+forced scope RLS. It does not confer capability authority or alter registry grants. Provider
+session loss fences existing credentials and requires reconnect; see the [provider contract](mcp.md#postgresql-secret-provider).

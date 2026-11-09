@@ -1503,11 +1503,11 @@ answered picks, reports coverage separately, and is null when no case was answer
 ## Remote MCP installation readiness
 
 Issue 164's [MCP foundation](../protocols/mcp.md) is an application-level transport and credential
-boundary. It is not composed into the deployed Worker, and there is no installation endpoint or
+boundary with an isolated PostgreSQL secret adapter. It is not composed into the deployed Worker, and there is no installation endpoint or
 capabilities screen yet. Do not grant actor access by inserting remote names into internal grants.
 
 Before enabling the operator flow, integrate canonical Journal installation/review/binding events,
-forced scoped RLS and retention, the separate owner installation grant, encrypted secret storage,
+forced scoped RLS and retention, the separate owner installation grant, trusted secret-provider composition,
 the actor capability revision hook and the operator browser journey. Verify Cloudflare egress
 behavior at that consumer; DNS preflight alone does not prove address pinning. A local fixture
 adapter must never become a production loopback switch.
@@ -1517,3 +1517,9 @@ token through the isolated credential provider, inspect identity/protocol and sc
 review and enable only selected tools, and bind them through scoped grants. Refresh must disable
 only drifted versions; revoke must invalidate grants immediately and keep uncertain credentials
 unusable. These procedures remain pending integration, rather than commands available today.
+
+The secret adapter is deliberately session-owned: provider takeover fences all existing credentials
+in its installation scope, and operators must reconnect them. Never construct it per request or
+allow a connection pool to reconnect behind it. Provisioning prerequisites and the isolated role
+are documented in the [database runbook](database.md#mcp-secret-provider-prerequisite). The
+PostgreSQL secret proof does not establish that the operator/runtime flow is ready.

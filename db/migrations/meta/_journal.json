@@ -309,6 +309,13 @@
       "when": 1794952800000,
       "tag": "0044_activation_transaction_horizon",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795039200000,
+      "tag": "0045_mcp_secret_storage",
+      "breakpoints": true
     }
   ]
 }
