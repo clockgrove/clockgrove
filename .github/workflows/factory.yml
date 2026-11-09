@@ -42,7 +42,7 @@ env:
   # local sandbox may create, so locally Factory runs these; the required quality check runs the full set.
   FACTORY_LOCAL_VALIDATION: 'pnpm check, parallel: pnpm test, parallel: pnpm run verify:docs'
   FACTORY_BUDGET_COMMAND: node scripts/check-test-budget.mjs
-  FACTORY_PROTECTED_PATHS: scripts/test-budget.json
+  FACTORY_PROTECTED_PATHS: scripts/test-budget.json, scripts/ci/toolchain.sh, scripts/ci/browser-toolchain.mjs # the test budget, and every repository file FACTORY_SETUP and FACTORY_INSTALL run (they run beside the App key)
   FACTORY_CI_CHECKS: quality
   FACTORY_NODE_VERSION: 24.21.0 # the Node.js your CI uses
 permissions: # the job token reads code and Actions; every write goes through the App's token
