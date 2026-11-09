@@ -245,7 +245,7 @@ export async function assertNoUnrecordedDuplicates(config, env, inventory, targe
   assert(
     !first,
     first &&
-      `state does not record ${[first, ...rest].map(({ kind, name, ids }) => `the existing ${kind} ${name} (${ids.join(", ")})`).join(", ")}; a deploy would create a second copy. Restore the latest state backup (\`pnpm infra:state backups ${target}\`, then \`pnpm infra:state restore ${target} <key>\`) or import the resources before deploying`,
+      `state does not record ${[first, ...rest].map(({ kind, name, ids }) => `the existing ${kind} ${name} (${ids.join(", ")})`).join(", ")}; a deploy would create a second copy. Restore the latest state backup (\`pnpm infra:state backups ${target}\`, then \`pnpm infra:state restore ${target} <key> --replace\`) or import the resources before deploying`,
   );
 }
 

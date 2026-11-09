@@ -52,8 +52,15 @@ export function signV4({ method, url, headers, payloadHash, credentials, region,
 export function stateStore(backend, credentials, fetcher = fetch) {
   assert(credentials.accessKeyId && credentials.secretAccessKey, "missing state credentials");
   const base = backend.endpoints.s3.replace(/\/$/u, "");
+  const bucketPath = `${new URL(base).pathname.replace(/\/$/u, "")}/${backend.bucket}`;
   async function request(method, key, { body, headers = {}, query } = {}) {
     const url = new URL(key ? `${base}/${backend.bucket}/${key}` : `${base}/${backend.bucket}`);
+    // URL parsing resolves `..` and `%2e` segments, turns `\` into `/` and drops tabs and
+    // newlines, so a request goes out only when its path names exactly the bucket and key given.
+    assert(
+      decodedPath(url.pathname) === (key ? `${bucketPath}/${key}` : bucketPath),
+      "state bucket key refused",
+    );
     for (const [name, value] of Object.entries(query ?? {})) url.searchParams.set(name, value);
     const payloadHash = sha256(body ?? "");
     const signed = {
@@ -76,19 +83,33 @@ export function stateStore(backend, credentials, fetcher = fetch) {
   }
   const failed = (operation, key, response) =>
     new Error(`state bucket ${operation} of ${key} failed (HTTP ${response.status})`);
+  // The object's bytes and ETag, or null when it does not exist.
+  async function read(key) {
+    const response = await request("GET", key);
+    if (response.status === 404) return null;
+    if (!response.ok) throw failed("read", key, response);
+    return { body: Buffer.from(await response.arrayBuffer()), etag: response.headers.get("etag") };
+  }
   return {
     bucket: backend.bucket,
+    read,
     // The object's bytes, or null when it does not exist.
     async get(key) {
-      const response = await request("GET", key);
-      if (response.status === 404) return null;
-      if (!response.ok) throw failed("read", key, response);
-      return Buffer.from(await response.arrayBuffer());
+      return (await read(key))?.body ?? null;
     },
     // Writes only when no object holds the key, so nothing is ever overwritten.
     async create(key, body) {
       const response = await request("PUT", key, { body, headers: { "if-none-match": "*" } });
       if (response.status === 412) throw new Error(`state bucket object ${key} already exists`);
+      if (!response.ok) throw failed("write", key, response);
+    },
+    // Overwrites only the exact object version that was read (its ETag), so a change made since
+    // the read is never overwritten.
+    async replace(key, body, etag) {
+      assert(etag, `no ETag for ${key}`);
+      const response = await request("PUT", key, { body, headers: { "if-match": etag } });
+      if (response.status === 412 || response.status === 404)
+        throw new Error(`state bucket object ${key} changed since it was read`);
       if (!response.ok) throw failed("write", key, response);
     },
     async delete(key) {
@@ -117,6 +138,13 @@ export function stateStore(backend, credentials, fetcher = fetch) {
     },
   };
 }
+const decodedPath = (pathname) => {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return undefined;
+  }
+};
 const unescapeXml = (value) =>
   value.replace(
     /&(lt|gt|quot|apos|amp);/gu,
@@ -131,10 +159,19 @@ export const stateKeys = (target) => ({
   backups: `${target}/backups/`,
 });
 
-// OpenTofu's lock record (ID, Operation, Who, Version, Created), or null when no lock is held.
+// A backup key: one plain file name directly under the environment's backups prefix, so no `..`,
+// `%2e`, `/` or `\` can lead outside it.
+export const isBackupKey = (target, key) =>
+  typeof key === "string" &&
+  key.startsWith(stateKeys(target).backups) &&
+  /^[A-Za-z0-9][A-Za-z0-9._-]*\.tfstate$/u.test(key.slice(stateKeys(target).backups.length));
+
+// OpenTofu's lock record (ID, Operation, Who, Version, Created) and the lock object's ETag, or null
+// when no lock is held.
 export async function readLock(store, target) {
-  const body = await store.get(stateKeys(target).lock);
-  if (body === null) return null;
+  const object = await store.read(stateKeys(target).lock);
+  if (object === null) return null;
+  const { body, etag } = object;
   let info;
   try {
     info = JSON.parse(body.toString("utf8"));
@@ -146,20 +183,27 @@ export async function readLock(store, target) {
     operation: typeof info.Operation === "string" ? info.Operation : "unknown",
     who: typeof info.Who === "string" ? info.Who : "unknown",
     created: typeof info.Created === "string" ? info.Created : "",
+    etag,
   };
 }
 
-// One line naming the lock object, its holder and its age. Holds no state or plan content.
+// One line naming the lock object, its holder and its age. Holds no state or plan content. OpenTofu
+// records the holder as user@hostname; only the user is named, since deploy logs are public.
 export function describeLock(target, store, lock, now = new Date()) {
   const created = Date.parse(lock.created);
   const age = Number.isNaN(created)
     ? "of unknown age"
     : `for ${Math.max(0, Math.round((now - created) / 60_000))} min (since ${lock.created})`;
-  return `state lock ${store.bucket}/${stateKeys(target).lock} held by ${lock.who} (${lock.operation}) ${age}, lock ID ${lock.id || "unknown"}`;
+  return `state lock ${store.bucket}/${stateKeys(target).lock} held by ${lock.who.split("@")[0] || "unknown"} (${lock.operation}) ${age}, lock ID ${lock.id || "unknown"}`;
 }
 
-// The deploy job's timeout. A younger lock may belong to a run that is still going.
-export const liveLockMinutes = 45;
+// The deploy job's 45-minute timeout plus 15 minutes for clock skew between the holder and the owner
+// and for OpenTofu's shutdown after a cancel. A younger lock may belong to a run still going. The
+// owner's own plans and cloud tests have no timeout, so age alone never proves a lock stale.
+export const liveLockMinutes = 60;
+
+// Dated backups kept per environment, five deploys of three stages each; older ones are deleted.
+export const keptBackups = 15;
 
 // Refuses with the holder's name and age when the environment's state is locked.
 export async function assertUnlocked(store, target) {
@@ -167,7 +211,7 @@ export async function assertUnlocked(store, target) {
   assert(
     !lock,
     lock &&
-      `${describeLock(target, store, lock)}; if no deploy or plan is running, the owner clears it with \`pnpm infra:state unlock ${target} <lock ID>\``,
+      `${describeLock(target, store, lock)}; if no deploy, plan or cloud test is running, the owner clears it with \`pnpm infra:state unlock ${target} <lock ID>\``,
   );
 }
 
@@ -176,7 +220,17 @@ export async function backupState(store, target, label, now = new Date()) {
   const keys = stateKeys(target);
   const state = await store.get(keys.state);
   assert(state, `state object ${keys.state} missing after apply`);
+  return saveBackup(store, target, label, state, now);
+}
+
+// Writes one dated backup, then deletes all but the newest `keptBackups`, never the one just written
+// or one in `keep`. Backup names start with their UTC time, so name order is age order.
+export async function saveBackup(store, target, label, state, now = new Date(), keep = []) {
+  const keys = stateKeys(target);
   const key = `${keys.backups}${now.toISOString().replace(/[:.]/gu, "-")}-${label}.tfstate`;
   await store.create(key, state);
+  const backups = (await store.list(keys.backups)).filter((name) => isBackupKey(target, name));
+  for (const old of backups.slice(0, -keptBackups))
+    if (old !== key && !keep.includes(old)) await store.delete(old);
   return key;
 }
