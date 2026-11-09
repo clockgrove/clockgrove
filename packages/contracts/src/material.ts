@@ -95,13 +95,14 @@ export function decodeAssetMaterial(value: unknown, path = "material"): AssetMat
   });
   if (
     renditions[0]?.density !== 1 ||
+    renditions[1]?.density !== 2 ||
     renditions.some(
       (r, i) => i > 0 && (renditions[i - 1] as MaterialRendition).density >= r.density,
     )
   )
     throw new ContractDecodeError(
       `${path}.renditions`,
-      "expected sorted, unique densities starting with 1",
+      "expected sorted, unique densities starting with 1 and 2",
     );
   const channels = Object.keys((renditions[0] as MaterialRendition).channels).join(",");
   if (renditions.some((r) => Object.keys(r.channels).join(",") !== channels))

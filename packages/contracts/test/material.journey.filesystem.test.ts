@@ -65,11 +65,11 @@ it("refuses malformed material declarations at the public decoder boundary", () 
     [{ ...base, extra: true }, "material.extra: unknown field"],
     [
       { ...base, renditions: [] },
-      "material.renditions: expected sorted, unique densities starting with 1",
+      "material.renditions: expected sorted, unique densities starting with 1 and 2",
     ],
     [
       { ...base, renditions: [one, one] },
-      "material.renditions: expected sorted, unique densities starting with 1",
+      "material.renditions: expected sorted, unique densities starting with 1 and 2",
     ],
     [
       { ...base, renditions: [{ ...one, density: 3 }] },

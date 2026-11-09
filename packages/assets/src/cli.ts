@@ -14,6 +14,7 @@ import {
   atlasIndex,
   atlasLocationProblems,
   buildAtlases,
+  materialAtlasFiles,
   packAtlas,
 } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
@@ -27,6 +28,7 @@ import {
   readGolden,
   readJson,
   readManifests,
+  readMaterialSources,
   readPackScenes,
   repositoryRoot,
 } from "./repository.js";
@@ -68,7 +70,13 @@ function preflight(): string[] {
     return [`ASSETS_REQUIRED: no asset manifests under ${join(root, assetRoot, "manifests")}`];
   const profile = readAssetStyleProfile(root, referenceRoot);
   const problems = files.flatMap((f) =>
-    validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", ""), profile),
+    validateSource(
+      f.manifest,
+      f.bytes,
+      f.path.replace("worlds/fixture/", ""),
+      profile,
+      f.materialSources,
+    ),
   );
   if (problems.length > 0) return problems;
   const palette = worldPaletteProblems(layout, profile);
@@ -82,6 +90,7 @@ function expectedReviewed(): Map<string, Uint8Array> {
     out.set(`${atlas.atlasId}.png`, atlas.png);
     out.set(`${atlas.atlasId}.animations.json`, new TextEncoder().encode(atlas.animations));
   }
+  for (const file of materialAtlasFiles(atlases)) out.set(file.name, file.bytes);
   if (atlases.length > 0) out.set(ATLAS_INDEX, new TextEncoder().encode(atlasIndex(atlases)));
   return out;
 }
@@ -222,6 +231,7 @@ function validateOne(): string[] {
       readFileSync(join(root, external ? "." : "worlds/fixture", manifest.source.path)),
       relative(join(root, external ? "." : "worlds/fixture"), absolute),
       profile,
+      readMaterialSources(root, external ? "." : "worlds/fixture", manifest),
     ),
     ...assetDeployRefusals(manifest)
       .filter((r) => r.code !== "REVIEW_NOT_APPROVED")
