@@ -190,7 +190,10 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   Observed confidences run 0.5 to 0.8 even when correct, so callers set a threshold per decision, not a global one.
 - **Record.** Every call records `DecisionCallRecord` through `ModelAccountingSink.recordDecision`: model,
   response model, outcome, label, confidence, latency, cost in microusd (reported cost, else tokens times price,
-  else null) and the request hash. Null means unknown, not zero.
+  else null) and the request hash. Null means unknown, not zero. `decisionAlias` leaves price
+  unconfigured unless `priceUsdPerMTok` is supplied: token usage alone then cannot establish cost.
+  An explicitly configured zero price is zero. Reported cost takes precedence over configured pricing.
+  Unknown cost settles the full reserved ceiling; it is never treated as free budget.
 - **Scripted decider.** `ScriptedDecider` answers from a per-route finite script of `answer` or `http` steps and
   refuses with `unavailable` when it runs out. Tests and replays use it; replay never calls a model.
 
