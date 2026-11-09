@@ -53,7 +53,7 @@ BEGIN
     UPDATE clockgrove.events AS e
     SET transaction_id = r.cursors_at_or_below::text::xid8
     FROM ranked AS r
-    WHERE r.is_cursor = 0 AND e.event_id = r.event_id
+    WHERE r.is_cursor = 0 AND e.tenant_id = r.tenant_id AND e.event_id = r.event_id
   )
   UPDATE clockgrove.actor_activation_policies AS p
   SET event_cursor_transaction = (r.cursors_at_or_below - 1)::text::xid8,

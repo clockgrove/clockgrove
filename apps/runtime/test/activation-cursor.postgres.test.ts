@@ -45,6 +45,7 @@ const address = {
 } as unknown as ActivationAddress;
 const warden = { ...address, actorId: "warden" } as ActivationAddress;
 const TIMELINE = "tenant_id='tenant-c' AND world_id='world-c' AND timeline_id='timeline-c'";
+const OTHER_TENANT = "tenant-d";
 
 /** A subscription to every `Recorded` event for the actor of `a`, through its conversation. */
 const subscribe = (activations: PostgreSqlActivations, a: ActivationAddress, id: string) =>
@@ -77,26 +78,28 @@ let cluster: Awaited<ReturnType<typeof holdCluster>>;
 beforeAll(async () => {
   cluster = await holdCluster(async (fixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    await truthOf(fixture)(`
-      INSERT INTO clockgrove.tenants (tenant_id, display_name) VALUES ('tenant-c', 'C');
-      INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-c', 'principal-c');
-      INSERT INTO clockgrove.worlds (tenant_id, world_id, lifecycle_status) VALUES ('tenant-c', 'world-c', 'ready');
-      INSERT INTO clockgrove.timelines (tenant_id, world_id, timeline_id) VALUES ('tenant-c', 'world-c', 'timeline-c');
-      INSERT INTO clockgrove.timeline_partitions (tenant_id, world_id, timeline_id, partition_id, space_id)
-        SELECT 'tenant-c', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s FROM unnest(ARRAY['a','b']) s;
-      INSERT INTO clockgrove.streams (tenant_id, world_id, timeline_id, partition_id, space_id, stream_id)
-        SELECT 'tenant-c', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s, 'stream-' || s FROM unnest(ARRAY['a','b']) s;
-      INSERT INTO clockgrove.world_memberships (tenant_id, world_id, timeline_id, space_id, principal_id,
-        membership_id, persona_id, roles, grants, privacy_ceiling, committed_at)
-        VALUES ('tenant-c', 'world-c', 'timeline-c', 'space-a', 'principal-c', 'membership-c', 'persona-c',
-        ARRAY['member'], ARRAY['runtime:world-command'],
-        '{"version":1,"allowedCategories":["public_scene","conversation"]}', statement_timestamp());
-      INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
-        SELECT 'tenant-c', 'session-' || a, 'principal-c', 'persona-c' FROM unnest(ARRAY['keeper','warden']) a;
-      INSERT INTO clockgrove.conversation_sessions (tenant_id, session_id, world_id, timeline_id,
-        partition_id, space_id, actor_id, voice_mode)
-        SELECT 'tenant-c', 'session-' || a, 'world-c', 'timeline-c', 'partition-a', 'space-a', a, 'cognitive'
-        FROM unnest(ARRAY['keeper','warden']) a`);
+    // A second tenant reuses every ID of the first: IDs are unique per tenant only (0003).
+    for (const tenant of [BASE.tenantId, OTHER_TENANT])
+      await truthOf(fixture)(`
+        INSERT INTO clockgrove.tenants (tenant_id, display_name) VALUES ('${tenant}', '${tenant}');
+        INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('${tenant}', 'principal-c');
+        INSERT INTO clockgrove.worlds (tenant_id, world_id, lifecycle_status) VALUES ('${tenant}', 'world-c', 'ready');
+        INSERT INTO clockgrove.timelines (tenant_id, world_id, timeline_id) VALUES ('${tenant}', 'world-c', 'timeline-c');
+        INSERT INTO clockgrove.timeline_partitions (tenant_id, world_id, timeline_id, partition_id, space_id)
+          SELECT '${tenant}', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s FROM unnest(ARRAY['a','b']) s;
+        INSERT INTO clockgrove.streams (tenant_id, world_id, timeline_id, partition_id, space_id, stream_id)
+          SELECT '${tenant}', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s, 'stream-' || s FROM unnest(ARRAY['a','b']) s;
+        INSERT INTO clockgrove.world_memberships (tenant_id, world_id, timeline_id, space_id, principal_id,
+          membership_id, persona_id, roles, grants, privacy_ceiling, committed_at)
+          VALUES ('${tenant}', 'world-c', 'timeline-c', 'space-a', 'principal-c', 'membership-c', 'persona-c',
+          ARRAY['member'], ARRAY['runtime:world-command'],
+          '{"version":1,"allowedCategories":["public_scene","conversation"]}', statement_timestamp());
+        INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+          SELECT '${tenant}', 'session-' || a, 'principal-c', 'persona-c' FROM unnest(ARRAY['keeper','warden']) a;
+        INSERT INTO clockgrove.conversation_sessions (tenant_id, session_id, world_id, timeline_id,
+          partition_id, space_id, actor_id, voice_mode)
+          SELECT '${tenant}', 'session-' || a, 'world-c', 'timeline-c', 'partition-a', 'space-a', a, 'cognitive'
+          FROM unnest(ARRAY['keeper','warden']) a`);
   });
 }, 60_000);
 afterAll(() => cluster?.close());
@@ -240,6 +243,10 @@ it("refuses a restore whose transaction IDs are ahead of the cluster, and a reba
     await new PostgreSqlJournal(source).execute(request(A, "restore-read"));
     expect(await check(before)).toEqual({ seen: ["restore-read"], more: false });
     await new PostgreSqlJournal(source).execute(request(A, "restore-unread"));
+    // The other tenant appends the same event ID on a timeline with no cursor, so its ID becomes 0.
+    await new PostgreSqlJournal(source).execute(
+      request({ ...A, tenantId: OTHER_TENANT }, "restore-unread"),
+    );
 
     // A cluster whose counter is behind the dump's IDs refuses the rows, before anything reads them.
     const original = dump();
@@ -254,9 +261,9 @@ it("refuses a restore whose transaction IDs are ahead of the cluster, and a reba
     // The repair: two distinct cursors, so every ID becomes 0, 1 or 2, below any cluster's counter.
     await sql("SELECT clockgrove.rebase_activation_order()");
     expect(
-      await sql(`SELECT string_agg(event_id || '=' || transaction_id, ',' ORDER BY journal_position)
-        FROM clockgrove.events WHERE event_id LIKE 'restore-%'`),
-    ).toBe("restore-read=1,restore-unread=2");
+      await sql(`SELECT string_agg(tenant_id || ':' || event_id || '=' || transaction_id, ','
+        ORDER BY journal_position) FROM clockgrove.events WHERE event_id LIKE 'restore-%'`),
+    ).toBe(`tenant-c:restore-read=1,tenant-c:restore-unread=2,${OTHER_TENANT}:restore-unread=0`);
     expect(
       await sql(`SELECT string_agg(actor_id || '=' || event_cursor_transaction, ',' ORDER BY actor_id)
         FROM clockgrove.actor_activation_policies`),
