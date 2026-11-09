@@ -1,7 +1,7 @@
 # Model gateway
 
 `@clockgrove/model-gateway` is the one path from Clockgrove cognition to a language model. Callers
-name an alias, such as `stevie.conversation`. The alias pins the provider routes, bounds, timeouts
+name an alias, such as `resident.conversation`. The alias pins the provider routes, bounds, timeouts
 and fallback. The gateway reserves budget and checks breakers before any prompt is sent, validates
 structured output, and returns every provider failure as an explicit, recoverable outcome. It never
 throws one, so a model outage degrades cognition and the world keeps running.

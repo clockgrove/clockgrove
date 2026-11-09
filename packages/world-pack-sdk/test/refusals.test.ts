@@ -48,7 +48,7 @@ const frame = () => ({
 });
 
 const space = (): Json => ({
-  id: "unit.yard",
+  id: "unit.hall",
   version: 1,
   frame: frame(),
   regions: [
@@ -132,7 +132,7 @@ async function build(edit: (context: Context) => void = () => undefined) {
       traits: [{ id: "unit.needs", version: 1 }],
       components: {},
     },
-    "spaces/yard.json": space(),
+    "spaces/hall.json": space(),
     "rules/chime.json": rule(),
     "actors/resident.json": {
       id: "unit.actor",
@@ -140,7 +140,7 @@ async function build(edit: (context: Context) => void = () => undefined) {
       traits: [],
       overrides: [],
       capabilities: [{ id: "unit.look", version: 1 }],
-      placement: { space: { id: "unit.yard", version: 1 }, coordinates: [10n, 20n] },
+      placement: { space: { id: "unit.hall", version: 1 }, coordinates: [10n, 20n] },
     },
     "policies/clock.json": {
       type: "clockgrove.clock-policy",
@@ -171,7 +171,7 @@ async function build(edit: (context: Context) => void = () => undefined) {
     components: [{ type: "clockgrove.needs", version: 1 }],
     archetypes: [{ id: "unit.resident", version: 1, path: "archetypes/resident.json" }],
     traits: [{ id: "unit.needs", version: 1, path: "traits/needs.json" }],
-    spaces: [{ id: "unit.yard", version: 1, path: "spaces/yard.json" }],
+    spaces: [{ id: "unit.hall", version: 1, path: "spaces/hall.json" }],
     actors: [{ id: "unit.actor", version: 1, path: "actors/resident.json" }],
     rules: [{ id: "unit.chime", version: 1, path: "rules/chime.json" }],
     capabilities: [capability()],
@@ -248,27 +248,27 @@ const cases: Case[] = [
   [
     "RESOURCE_IDENTITY_MISMATCH",
     "manifest.spaces[0]",
-    (c) => (doc(c, "spaces/yard.json").id = "unit.other"),
+    (c) => (doc(c, "spaces/hall.json").id = "unit.other"),
   ],
   [
     "UNKNOWN_FIELD",
     "manifest.spaces[0].colour",
-    (c) => (doc(c, "spaces/yard.json").colour = "red"),
+    (c) => (doc(c, "spaces/hall.json").colour = "red"),
   ],
   [
     "UNKNOWN_PARENT",
     "manifest.spaces[0].parent",
-    (c) => (doc(c, "spaces/yard.json").parent = { id: "unit.town", version: 1 }),
+    (c) => (doc(c, "spaces/hall.json").parent = { id: "unit.town", version: 1 }),
   ],
   [
     "UNKNOWN_PARENT",
     "manifest.spaces[0]#regions[0].parent.regionId",
-    (c) => (doc(c, "spaces/yard.json").regions[0].parent = { regionId: "porch", version: 1 }),
+    (c) => (doc(c, "spaces/hall.json").regions[0].parent = { regionId: "porch", version: 1 }),
   ],
   [
     "PARENT_CYCLE",
     "manifest.spaces[0]#regions[0].parent",
-    (c) => (doc(c, "spaces/yard.json").regions[0].parent = { regionId: "den", version: 1 }),
+    (c) => (doc(c, "spaces/hall.json").regions[0].parent = { regionId: "den", version: 1 }),
   ],
   [
     "INVALID_RULE",
@@ -395,7 +395,7 @@ describe("artifact identity", () => {
   it("binds every collection into the content hash and keeps seed command order", async () => {
     const base = (await built()).artifact.contentHash;
     const edits: ((context: Context) => void)[] = [
-      (c) => (doc(c, "spaces/yard.json").regions[0].shape.max = [3000n, 1000n]),
+      (c) => (doc(c, "spaces/hall.json").regions[0].shape.max = [3000n, 1000n]),
       (c) => (doc(c, "rules/chime.json").budget.maxFanout = 3),
       ({ manifest }) => (manifest.capabilities[0].kind = "influence"),
       ({ manifest }) => manifest.seedCommands.reverse(),

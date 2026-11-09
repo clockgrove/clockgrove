@@ -7,7 +7,7 @@ import {
   ScriptedDecider,
 } from "../src/index.js";
 
-const attribution = { tenantId: "t", worldId: "w", actorId: "stevie" };
+const attribution = { tenantId: "t", worldId: "w", actorId: "resident" };
 const alias = decisionAlias({ alias: "shadow.default", model: "perplexity/pplx-decider-v1.2" });
 const question = { type: "choice", options: { stay: null, "seek-food:bin": "the bin" } } as const;
 

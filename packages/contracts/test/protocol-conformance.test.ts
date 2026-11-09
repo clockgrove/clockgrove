@@ -11,7 +11,7 @@ const binding = decodeActorTargetBinding({
   worldId: "world-a",
   timelineId: "timeline-main",
   kind: "space",
-  id: "space-yard",
+  id: "space-hall",
 });
 const attribution = { effectiveActorId: "persona-caretaker", causalRootActionId: "action-1" };
 const identity = (payload: unknown) => payload;
@@ -42,7 +42,7 @@ it("refuses an event whose actor scope differs from the event scope", () => {
     tenantId: "tenant-a",
     worldId: "world-b",
     timelineId: "timeline-main",
-    partitionId: "partition-yard",
+    partitionId: "partition-hall",
     streamId: "stream-chest",
     streamSequence: "4",
     partitionSequence: "9",

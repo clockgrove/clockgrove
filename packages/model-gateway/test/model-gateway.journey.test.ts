@@ -102,8 +102,8 @@ const SECRETS: Record<string, string> = {
   PRIMARY_KEY: "local primary credential",
   FALLBACK_KEY: "local fallback credential",
 };
-const attribution = { tenantId: "tenant-a", worldId: "world-a", actorId: "stevie" };
-const ask = { system: "You are Stevie.", messages: [{ role: "user" as const, text: "Hi" }] };
+const attribution = { tenantId: "tenant-a", worldId: "world-a", actorId: "resident" };
+const ask = { system: "You are Resident.", messages: [{ role: "user" as const, text: "Hi" }] };
 
 function localGateway(
   records: ModelCallRecord[],
@@ -119,8 +119,8 @@ function localGateway(
     priceUsdPerMTok: { input: 4, output: 20 },
   });
   const alias: ModelAliasDefinition = {
-    alias: "stevie.local",
-    policyVersion: "stevie.local@1",
+    alias: "resident.local",
+    policyVersion: "resident.local@1",
     routes: [route("primary", "PRIMARY_KEY"), route("fallback", "FALLBACK_KEY")],
     maxInputTokens: 1_000,
     maxOutputTokens: 100,
@@ -141,7 +141,7 @@ describe("model gateway through the AI SDK adapter", () => {
     received.length = 0;
     const deltas: string[] = [];
     const outcome = await localGateway(records).stream(
-      { alias: "stevie.local", callId: "call-1", attribution, ...ask },
+      { alias: "resident.local", callId: "call-1", attribution, ...ask },
       undefined,
       (delta) => deltas.push(delta),
     );
@@ -151,8 +151,8 @@ describe("model gateway through the AI SDK adapter", () => {
     expect(records).toEqual([outcome.record]);
     expect(outcome.record).toMatchObject({
       callId: "call-1",
-      alias: "stevie.local",
-      policyVersion: "stevie.local@1",
+      alias: "resident.local",
+      policyVersion: "resident.local@1",
       attribution,
       decision: "primary",
       reservedMicrousd: 6_000, // 1,000 × 4 + 100 × 20
@@ -189,7 +189,7 @@ describe("model gateway through the AI SDK adapter", () => {
     queues.primary = [{ stallAfter: [] }, { stallAfter: ["Hal"] }, { overloadAfter: ["Hel"] }];
     queues.fallback = [{ reply: ["Fine."], input: 5, output: 2 }];
     const before = await gateway.stream({
-      alias: "stevie.local",
+      alias: "resident.local",
       callId: "c-1",
       attribution,
       ...ask,
@@ -202,7 +202,7 @@ describe("model gateway through the AI SDK adapter", () => {
     ]);
     const deltas: string[] = [];
     const after = await gateway.stream(
-      { alias: "stevie.local", callId: "c-2", attribution, ...ask },
+      { alias: "resident.local", callId: "c-2", attribution, ...ask },
       undefined,
       (delta) => deltas.push(delta),
     );
@@ -214,7 +214,7 @@ describe("model gateway through the AI SDK adapter", () => {
     expect(after.record.costMicrousd).toBeNull();
     expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 6_000);
     const overloaded = await gateway.stream(
-      { alias: "stevie.local", callId: "c-3", attribution, ...ask },
+      { alias: "resident.local", callId: "c-3", attribution, ...ask },
       undefined,
       (delta) => deltas.push(delta),
     );
@@ -228,7 +228,7 @@ describe("model gateway through the AI SDK adapter", () => {
     queues.primary = [{ reply: ['{"mood":', '"calm"}'], input: 9, output: 6 }];
     received.length = 0;
     const mood = z.object({ mood: z.enum(["calm", "curious"]) });
-    const request = { alias: "stevie.local", callId: "o-1", attribution, ...ask, schema: mood };
+    const request = { alias: "resident.local", callId: "o-1", attribution, ...ask, schema: mood };
     const outcome = await localGateway([]).generateObject(request);
     expect(outcome.status === "completed" && outcome.value).toEqual({ mood: "calm" });
     expect(received[0]?.body).toContain('"required":["mood"]');
@@ -246,7 +246,12 @@ describe("model gateway through the AI SDK adapter", () => {
     queues.fallback = Array.from({ length: 4 }, () => ({ reply: ["ok"], input: 1, output: 1 }));
     received.length = 0;
     for (const callId of ["b-1", "b-2", "b-3", "b-4"]) {
-      const outcome = await gateway.stream({ alias: "stevie.local", callId, attribution, ...ask });
+      const outcome = await gateway.stream({
+        alias: "resident.local",
+        callId,
+        attribution,
+        ...ask,
+      });
       expect(outcome.status).toBe("completed");
     }
     expect(records[0]?.attempts[0]).toMatchObject({ outcome: "unavailable", httpStatus: 529 });
@@ -255,7 +260,7 @@ describe("model gateway through the AI SDK adapter", () => {
       "completed",
     ]);
     expect(received.filter((request) => request.route === "primary")).toHaveLength(3);
-    expect(gateway.inspect("stevie.local").routes.map((route) => route.breaker)).toEqual([
+    expect(gateway.inspect("resident.local").routes.map((route) => route.breaker)).toEqual([
       "open",
       "closed",
     ]);
@@ -265,7 +270,7 @@ describe("model gateway through the AI SDK adapter", () => {
     const records: ModelCallRecord[] = [];
     received.length = 0;
     const outcome = await localGateway(records, {}).stream({
-      alias: "stevie.local",
+      alias: "resident.local",
       callId: "d-1",
       attribution,
       ...ask,
@@ -282,8 +287,8 @@ describe("model gateway through the AI SDK adapter", () => {
 
 describe("model gateway with the scripted provider", () => {
   const alias: ModelAliasDefinition = {
-    alias: "stevie.scripted",
-    policyVersion: "stevie.scripted@1",
+    alias: "resident.scripted",
+    policyVersion: "resident.scripted@1",
     routes: [
       {
         id: "scripted/a",
@@ -315,7 +320,7 @@ describe("model gateway with the scripted provider", () => {
       budget,
       accounting: { record: (record) => void records.push(record) },
     });
-    const request = { alias: "stevie.scripted", attribution, ...ask, schema: mood };
+    const request = { alias: "resident.scripted", attribution, ...ask, schema: mood };
     const valid = await gateway.generateObject({ ...request, callId: "s-1" });
     expect(valid.status === "completed" && valid.value).toEqual({ mood: "calm" });
     expect(scripted.calls[0]?.jsonSchema).toMatchObject({ required: ["mood"] });

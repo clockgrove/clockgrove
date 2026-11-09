@@ -33,7 +33,7 @@ it("commits complete validated projections atomically and distinguishes input re
     expect(deliver(committed.state, message).state).toEqual(committed.state);
   refusal({
     ...patch,
-    payload: { ...patch.payload, operations: [{ op: "remove_frame", frameId: "yard-frame" }] },
+    payload: { ...patch.payload, operations: [{ op: "remove_frame", frameId: "hall-frame" }] },
   }).toThrow(ContractDecodeError);
   expect(semantic(initial.projection)).toEqual(golden.initial);
   refusal({ ...patch, extra: true }).toThrowError(

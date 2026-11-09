@@ -3,22 +3,22 @@
   "contentHash": "sha256-manifest-content",
   "assets": [
     {
-      "assetId": "stevie-reviewed",
+      "assetId": "keeper-reviewed",
       "provenance": {
         "source": "original-clockgrove",
         "creator": "Clockgrove artists",
         "license": "CC0-1.0",
         "tool": "fixture-tool",
         "generated": {
-          "prompt": "Resting raccoon",
+          "prompt": "Resting resident",
           "references": [
             "original-study"
           ]
         }
       },
       "reviewStatus": "approved",
-      "semanticEntityId": "stevie",
-      "semanticArchetypeId": "raccoon",
+      "semanticEntityId": "keeper",
+      "semanticArchetypeId": "resident",
       "animationFamily": "idle",
       "anchor": [
         "0",
@@ -38,9 +38,9 @@
         "brown",
         "gray"
       ],
-      "contentHash": "sha256-stevie-content",
-      "atlasLocation": "atlas/stevie",
-      "accessibilityLabel": "Stevie resting"
+      "contentHash": "sha256-keeper-content",
+      "atlasLocation": "atlas/keeper",
+      "accessibilityLabel": "Keeper resting"
     }
   ]
 }

@@ -35,7 +35,7 @@ it("accepts exactly each closed scene vocabulary, and each boot state only its o
   const boots: Record<string, unknown>[] = await fixture("boot-resume");
   const { outcomes } = await fixture("navigation");
   const interaction = {
-    entityId: "stevie",
+    entityId: "keeper",
     mode: "cognitive",
     actions: [{ kind: "inspect", availability: "enabled" }],
   };

@@ -56,7 +56,7 @@ it("refuses every authority broadening and accepts a strict trusted-context narr
       "executionContextNarrowing.principalId: immutable field changed",
     ],
     [{ worldId: "world-b" }, "executionContextNarrowing.worldId: cannot change or add scope"],
-    [{ spaceId: "space-yard" }, "executionContextNarrowing.spaceId: cannot change or add scope"],
+    [{ spaceId: "space-hall" }, "executionContextNarrowing.spaceId: cannot change or add scope"],
     [
       { roles: ["participant", "operator"] },
       "executionContextNarrowing.roles: cannot add authority",

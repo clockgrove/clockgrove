@@ -15,21 +15,21 @@ const live =
     environmentCredentials("ANTHROPIC_API_KEY") !== undefined);
 
 describe.skipIf(!live)("production model route (live)", () => {
-  it("answers through stevie.conversation and records model, tokens and cost", async () => {
+  it("answers through resident.conversation and records model, tokens and cost", async () => {
     const adapter = new AiSdkRouteAdapter(environmentCredentials);
     const gateway = createModelGateway({
-      aliases: productionAliases("stevie.conversation", "stevie.pilot"),
+      aliases: productionAliases("resident.conversation", "resident.pilot"),
       adapters: { "vercel-ai-gateway": adapter, anthropic: adapter },
       // One call's ceiling: 16,000 × 4 + 1,024 × 20 microdollars, about $0.08.
       budget: new InMemoryModelBudget(() => 84_480),
       accounting: { record: (record) => console.log(JSON.stringify(record, null, 2)) },
     });
     const outcome = await gateway.stream({
-      alias: "stevie.conversation",
+      alias: "resident.conversation",
       callId: `live-${Date.now()}`,
-      attribution: { tenantId: "local", worldId: "live-check", actorId: "stevie" },
-      system: "You are Stevie, a raccoon. Answer in one short sentence.",
-      messages: [{ role: "user", text: "What did you find in the yard today?" }],
+      attribution: { tenantId: "local", worldId: "live-check", actorId: "resident" },
+      system: "You are Resident, a visitor. Answer in one short sentence.",
+      messages: [{ role: "user", text: "What did you find in the hall today?" }],
     });
     const answered = outcome.record.attempts.at(-1);
     expect(outcome.status, JSON.stringify(outcome.record.attempts)).toBe("completed");

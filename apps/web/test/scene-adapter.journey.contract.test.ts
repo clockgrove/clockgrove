@@ -13,16 +13,16 @@ import { sceneSession } from "./scene-socket-fixture.js";
 const scene = decodeLivingScene({
   version: 1,
   privacyClass: "public_scene",
-  tenantId: "tenant-yard",
-  worldId: "green-lake-yard",
-  timelineId: "timeline-yard",
-  spaceId: "space-yard",
+  tenantId: "tenant-hall",
+  worldId: "fixture-hall",
+  timelineId: "timeline-hall",
+  spaceId: "space-hall",
   revision: "9007199254740993",
   simulationTime: "9007199254740995",
   weather: { rainIntensity: 400 },
   frames: [
     {
-      frameId: "frame-yard",
+      frameId: "frame-hall",
       version: 2,
       dimensions: 3,
       axes: {
@@ -39,10 +39,10 @@ const scene = decodeLivingScene({
   ],
   entities: [
     {
-      objectId: "object-raccoon",
-      archetypeId: "raccoon",
-      pose: { frameId: "frame-yard", frameVersion: 2, coordinates: ["125", "250", "375"] },
-      presentation: { kind: "placeholder", label: "Raccoon" },
+      objectId: "object-resident",
+      archetypeId: "resident",
+      pose: { frameId: "frame-hall", frameVersion: 2, coordinates: ["125", "250", "375"] },
+      presentation: { kind: "placeholder", label: "Resident" },
     },
   ],
 });
@@ -87,7 +87,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
   const first = await fixture.deliver(
     scene,
     JSON.parse(
-      '[{"objectId":"object-raccoon","assetId":"raccoon-mesh","animationFamily":"rest","accessibilityLabel":"Resting raccoon"}]',
+      '[{"objectId":"object-resident","assetId":"resident-mesh","animationFamily":"rest","accessibilityLabel":"Resting resident"}]',
     ),
   );
   expect(session.getSnapshot().scene).toEqual(scene);
@@ -101,27 +101,27 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
   expect(adapter.revision).toBe(9007199254740993n);
   adapter.pick(decodeOpaqueId("object-unknown", "ObjectId"));
   expect(useSceneView.getState().selected).toBeUndefined();
-  adapter.pick(decodeOpaqueId("object-raccoon", "ObjectId"));
-  expect(useSceneView.getState().selected).toBe("object-raccoon");
+  adapter.pick(decodeOpaqueId("object-resident", "ObjectId"));
+  expect(useSceneView.getState().selected).toBe("object-resident");
   // Shared selection and keyboard focus reach the 3D consumer as emphasis on its existing nodes.
   const stopEmphasis = followEmphasis(({ selected, focused }) => {
     adapter.setSelection(selected);
     adapter.focus(focused);
   });
   useEntityFocus.getState().focus(decodeOpaqueId("object-unknown", "ObjectId"));
-  expect(adapter.emphasized).toEqual({ selected: "object-raccoon", focused: undefined });
-  useEntityFocus.getState().focus(decodeOpaqueId("object-raccoon", "ObjectId"));
+  expect(adapter.emphasized).toEqual({ selected: "object-resident", focused: undefined });
+  useEntityFocus.getState().focus(decodeOpaqueId("object-resident", "ObjectId"));
   // The headless consumer builds a 3D scene graph: frame groups, and nodes at frame-local x, y, z.
   expect([...adapter.groups]).toEqual([
-    ["frame-yard@2", { frame: scene.frames[0], children: ["object-raccoon"] }],
+    ["frame-hall@2", { frame: scene.frames[0], children: ["object-resident"] }],
   ]);
   expect([...adapter.nodes.values()]).toEqual([
     {
-      objectId: "object-raccoon",
-      group: "frame-yard@2",
+      objectId: "object-resident",
+      group: "frame-hall@2",
       position: [1.25, 2.5, 3.75],
-      presentation: { kind: "placeholder", label: "Raccoon" },
-      material: { resource: "raccoon-mesh", animation: "rest", label: "Resting raccoon" },
+      presentation: { kind: "placeholder", label: "Resident" },
+      material: { resource: "resident-mesh", animation: "rest", label: "Resting resident" },
     },
   ]);
   await vi.advanceTimersByTimeAsync(11000);
@@ -150,13 +150,13 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
   expect(session.getSnapshot().scene).toEqual(advanced);
   adapter.loadSnapshot(committed);
   expect(adapter.scene?.revision).toBe("9007199254740997");
-  expect(adapter.emphasized).toEqual({ selected: "object-raccoon", focused: "object-raccoon" });
-  expect(adapter.nodes.get(decodeOpaqueId("object-raccoon", "ObjectId"))?.position).toEqual([
+  expect(adapter.emphasized).toEqual({ selected: "object-resident", focused: "object-resident" });
+  expect(adapter.nodes.get(decodeOpaqueId("object-resident", "ObjectId"))?.position).toEqual([
     1.25, 2.5, 5,
   ]);
   // A contiguous patch moves the node; replaying it is stale and changes nothing.
-  const [raccoon] = advanced.entities;
-  if (!raccoon) throw new Error("missing raccoon");
+  const [resident] = advanced.entities;
+  if (!resident) throw new Error("missing resident");
   const move = {
     fromRevision: 9007199254740997n,
     toRevision: 9007199254740998n,
@@ -165,13 +165,13 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
     operations: [
       {
         op: "upsert_entity" as const,
-        entity: { ...raccoon, pose: { ...raccoon.pose, coordinates: ["125", "250", "600"] } },
+        entity: { ...resident, pose: { ...resident.pose, coordinates: ["125", "250", "600"] } },
       },
     ],
   };
   for (let replay = 0; replay < 2; replay++) {
     adapter.applyPatch(move);
-    expect([adapter.revision, adapter.nodes.get(raccoon.objectId)?.position[2]]).toEqual([
+    expect([adapter.revision, adapter.nodes.get(resident.objectId)?.position[2]]).toEqual([
       9007199254740998n,
       6,
     ]);
@@ -356,7 +356,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
     ...scope,
     entity: scene.entities[0],
     ...JSON.parse(
-      '{"version":1,"privacyClass":"public_scene","evidence":{"entity":"canonical","physical":"canonical","derived":"derived","history":"canonical"},"objectId":"object-raccoon","revision":"9007199254740993","simulationTime":"9007199254740995","physical":{"needs":null,"wellbeing":null,"plant":null,"resource":null,"shelter":null,"locationId":null,"selectedAction":null,"lifecycle":null},"derived":{"canonical":false,"simulationTime":"9007199254740995","needs":null,"wellbeing":null,"plant":null},"history":{"observedRevision":"9007199254740993","beforeSequence":null,"actions":[{"eventId":"event-yard","actionId":"action-yard","commandId":"command-yard","type":"routine","partitionSequence":"1","simulationTime":"9007199254740995","recordedAt":"2026-10-31T00:00:00.000Z"}]}}',
+      '{"version":1,"privacyClass":"public_scene","evidence":{"entity":"canonical","physical":"canonical","derived":"derived","history":"canonical"},"objectId":"object-resident","revision":"9007199254740993","simulationTime":"9007199254740995","physical":{"needs":null,"wellbeing":null,"plant":null,"resource":null,"shelter":null,"locationId":null,"selectedAction":null,"lifecycle":null},"derived":{"canonical":false,"simulationTime":"9007199254740995","needs":null,"wellbeing":null,"plant":null},"history":{"observedRevision":"9007199254740993","beforeSequence":null,"actions":[{"eventId":"event-hall","actionId":"action-hall","commandId":"command-hall","type":"routine","partitionSequence":"1","simulationTime":"9007199254740995","recordedAt":"2026-10-31T00:00:00.000Z"}]}}',
     ),
   });
   for (const type of ["snapshot", "patch"] as const)
@@ -369,7 +369,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
       session.select(selection.objectId);
       const selectionKey = session.getSelectionKey();
       session.queries.setQueryData(selectionKey, selection);
-      session.explain(decodeOpaqueId("command-yard", "CommandId"));
+      session.explain(decodeOpaqueId("command-hall", "CommandId"));
       expect([session.getSelectionSnapshot().status, session.getWhySnapshot().status]).toEqual([
         "ready",
         "loading",
@@ -409,7 +409,7 @@ it("observes socket revisions, recovers gaps and supplies renderer-neutral 3D se
     undefined,
     { selected: undefined, focused: undefined },
   ]);
-  adapter.pick(decodeOpaqueId("object-raccoon", "ObjectId"));
+  adapter.pick(decodeOpaqueId("object-resident", "ObjectId"));
   expect(useSceneView.getState().selected).toBeUndefined();
   session.replace(undefined, undefined);
 });

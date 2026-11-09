@@ -123,7 +123,7 @@ admits about a quarter of the token budget in English.
 The gateway then reserves the alias's cost ceiling against the scope
 `<tenantId>/<worldId>` through `ModelBudgetPort`. The ceiling is the highest, over the alias's
 routes, of `maxInputTokens × input price + maxOutputTokens × output price`. For
-`stevie.conversation` that is 84,480 microdollars.
+`resident.conversation` that is 84,480 microdollars.
 
 A refused reservation ends the call as `budget_exceeded` before any provider is contacted. After
 the call, the reservation is settled with the summed cost of its attempts. A route that streamed
@@ -213,7 +213,7 @@ Messages streaming protocol. It also drives the `ScriptedModelProvider`. It show
 It also checks that the key appears only in the outbound request's header.
 
 The live check (`test/production-route.journey.test.ts`) sends one bounded request through
-`stevie.conversation` and prints its accounting record: the model the provider reported, the tokens
+`resident.conversation` and prints its accounting record: the model the provider reported, the tokens
 and the cost. When Vercel AI Gateway reports its charge, the pinned price must agree with it
 within 10%. It runs
 only with `CLOCKGROVE_MODEL_LIVE=1` and a provider key, through
