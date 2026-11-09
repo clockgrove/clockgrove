@@ -91,7 +91,8 @@ refused with `STYLE_PROFILE_REQUIRED`; malformed profile data is `STYLE_PROFILE_
 Manifest v2 permits frame edges up to the 2048 px platform envelope, within the profile's
 role limits and atlas strip budget. Generated art requires the complete provenance and provider
 grant described in the [manifest contract](../../../docs/protocols/shared-contracts.md#generated-provenance). External
-asset commands are subsequent parts of issue 61, not current SDK capabilities. This presentation profile does not replace the SDK's
+asset commands support validation, atlas builds and golden review from a pinned checkout.
+This presentation profile does not replace the SDK's
 simulation asset-resource provenance and dimension fields described above.
 
 

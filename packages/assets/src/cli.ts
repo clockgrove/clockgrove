@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
-import { atlasLocationProblems, buildAtlases } from "./atlas.js";
+import { atlasLocationProblems, buildAtlases, packAtlas } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
 import {
   type GoldenRecord,
@@ -194,6 +194,8 @@ function validateOne(): string[] {
   if (external && relative(root, absolute).startsWith("..")) throw new Error("ASSET_PATH_INVALID");
   const manifest = decodeAssetManifest(JSON.parse(readFileSync(absolute, "utf8")));
   const profile = readAssetStyleProfile(root, referenceRoot);
+  // Check the platform strip budget without loading the world's other manifests.
+  packAtlas([manifest]);
   return [
     ...validateSource(
       manifest,
