@@ -244,11 +244,30 @@ profile declares channel encoding, RGB byte ranges and a maximum adjacent-frame 
 including the loop seam; alpha represents coverage separately. Those limits belong to the world,
 with no implicit platform defaults.
 
-This first part establishes decoded declarations only. `AssetManifest` and the asset CLI do not
-yet accept material source declarations, and existing flat sprites build as before. Decoding a
-material or style policy does not decode images or enforce grid, bounds, range or temporal
-acceptance. Later parts wire those checks into the real build, pack every supplied channel and
-density, encode deterministic GPU-compressed atlas delivery with a fallback, and carry the result
-through projection to renderers. The atlas build owns compressed output because it creates new
-packed textures; it must not require per-asset compressed input from a generation tool.
-Clockgrove never derives, paints, estimates or upscales a missing map or rendition.
+`AssetManifest.material` opts an asset into material acceptance. The owning manifest supplies
+role, frame count, frame dimensions and bounds; every channel uses those dimensions scaled by
+its supplied density. Both 1× and 2× are required; 4× is optional. The CLI reads each declared
+source under the world directory. Missing sources, hash mismatches, grid or coverage mismatch,
+out-of-range values and excessive adjacent-frame change are refused. The loop seam is checked
+with the same world-declared bound. The pipeline never repairs a refused map.
+
+The atlas build packs channels and renditions into aligned pages and encodes BC3 DDS GPU
+textures with lossless PNG fallbacks. Compression uses fixed deterministic block choices, with
+no timestamps or external encoder state. BC3 uses 4×4 blocks with explicit alpha; see the
+[Microsoft block-compression specification](https://learn.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-block-compression)
+and [DDS header layout](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header). Delivery records include content hashes, dimensions,
+byte sizes, per-page references and frame rectangles, so adapters can select within their device and memory budgets.
+Both fallback and compressed page dimensions are padded transparently to multiples of four;
+frame rectangles and logical dimensions stay intact. BC3 is lossy, while PNG preserves the exact
+source pixels. The reviewed build and content-addressed upload include companion outputs. Existing flat assets
+retain their existing PNG output. Compressed files belong to packed atlas output, never a
+world's per-asset source declaration. Clockgrove never derives, paints, estimates or upscales a
+missing map or rendition.
+
+The reviewed `materials.json` index is the `assetId/animationFamily` delivery map extracted from
+built animation manifests (`atlasMaterials`). World composition passes it as `materials` in its
+runtime presentation input; per-family lookup preserves correct frame metadata as an actor's
+activity changes. The CLI passes the world's style profile to the builder so each delivered
+channel retains its declared `srgb` or `linear` encoding. Programmatic builders can supply the
+same profile as the third `buildAtlases` argument. The product renderer uses the albedo encoding;
+other maps remain available to adapters that support them.

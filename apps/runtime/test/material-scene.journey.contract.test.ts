@@ -60,7 +60,7 @@ it("projects generated material bindings, time-of-day lights and weather without
     material: {
       materialVersion: 1,
       roles: Object.fromEntries(
-        ["actor", "object"].map((role) => [
+        ["actor", "object", "terrain", "effect"].map((role) => [
           role,
           Object.fromEntries(
             ["albedo", "normal", "roughness"].map((channel) => [

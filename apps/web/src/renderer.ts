@@ -1296,6 +1296,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.scene.userData.weatherIntensity = projection.lighting.weatherIntensity;
     } else {
       while (this.sky.length > 1) this.sky.pop()?.removeFromParent();
+      if (!this.sky[0]) {
+        const sky = new THREE.DirectionalLight();
+        this.sky.push(sky);
+        this.scene.add(sky);
+      }
       const sky = this.sky[0];
       if (sky) {
         sky.color.set(0xcbdcff);

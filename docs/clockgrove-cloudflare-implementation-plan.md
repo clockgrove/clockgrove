@@ -2912,10 +2912,12 @@ Dynamic lights, weather intensity and grading keys must arrive through scene pro
 never be inferred from artwork. Renderers consume supported channels and retain albedo fallback,
 the text path and reduced-motion behaviour.
 
-The first part establishes the standalone
-[material source and style-policy contracts](protocols/shared-contracts.md#lit-material-source-declarations).
-Image acceptance, manifest/build integration, compressed atlas delivery and projection/renderer
-consumption remain later parts of issue 66; these declarations alone do not enable lit assets.
+The [material source and style-policy contracts](protocols/shared-contracts.md#lit-material-source-declarations)
+connect world-supplied sources to owning asset roles and frame metadata. Image acceptance checks
+coverage, ranges and temporal stability before aligned channel/rendition packing. Packed output
+includes deterministic BC3 DDS textures and PNG fallbacks. Scene delivery exposes every channel;
+the product adapter can draw albedo while ignoring unsupported maps. Projected light parameters,
+weather intensity and grading provide the renderer-neutral lighting seam without inspecting art.
 
 ### 20.8 World theme and presentation seam
 

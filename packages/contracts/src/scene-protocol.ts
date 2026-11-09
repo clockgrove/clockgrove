@@ -362,6 +362,7 @@ export function decodeSceneLighting(value: unknown, path = "lighting"): SceneLig
       const l = record(value, p);
       exactKeys(l, ["kind", "direction", "colour", "intensity"], [], p);
       const direction = array(l.direction, `${p}.direction`, (v, p) => number(v, p, -1, 1));
+      // Decision: 1e-6 admits Float32 unit-vector roundoff while refusing non-normalized data.
       if (direction.length !== 3 || Math.abs(Math.hypot(...direction) - 1) > 0.000001)
         throw new ContractDecodeError(p, "expected unit direction vector");
       return {

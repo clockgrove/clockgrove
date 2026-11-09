@@ -249,12 +249,11 @@ is implemented. Worlds outside this repository run the same checks through the
 
 `AssetMaterial`, decoded by `decodeAssetMaterial`, is a renderer-neutral source contract with
 `materialVersion: 1`. It describes lossless maps supplied by a world; Clockgrove does not derive
-maps or generate higher-resolution renditions. It is currently a standalone declaration, not a
-field accepted by `AssetManifest`, `PackPresentation` or the scene wire protocol. Existing flat
-sprite manifests and profiles retain their decoded shapes and behaviour.
+maps or generate higher-resolution renditions. An optional `AssetManifest.material` binds it to the owning semantic role and frame metadata.
+Presentation bindings carry delivery references through `PackPresentation` and the scene wire
+protocol. Existing flat sprite manifests and profiles retain their decoded shapes and behaviour.
 
-A material has a `renditions` array, ordered by increasing `density`: `1` is required, and `2`
-and `4` are optional (issue 66's pixel-density choices). Each rendition has `channels`, with
+A material has a `renditions` array, ordered by increasing `density`: `1` and `2` are required, and `4` is optional (issue 66's pixel-density choices). Each rendition has `channels`, with
 required `albedo` and optional `normal`, `height`, `emissive`, `roughness`, `wetness`, `wind`,
 `flow`, `ao` and `translucency`. Every rendition declares the same channel set. Each channel
 source is `{ "path": "assets/source/example/idle-normal.png", "sha256": "<64 lowercase hex digits>" }`.
@@ -262,10 +261,10 @@ Paths are world-relative PNG paths under `assets/source/`, without absolute path
 traversal or empty segments. The hash identifies the exact source bytes. Compressed source files
 are not part of this contract: compressed delivery belongs to the atlas build.
 
-Channels have no independent frame metadata. The intended consuming pipeline uses the asset's
-frame grid and bounds, scaled by the rendition density, for every channel. Source media are
-lossless RGBA8 PNGs. Per-frame animation alignment and decoded image acceptance are later parts
-of issue 66; decoding this declaration does not inspect media or prove those conditions.
+Channels share the owning asset's frame grid and bounds, scaled by density. Source media are
+lossless RGBA8 PNGs. Image acceptance checks the declared hashes, dimensions, coverage, value
+ranges and adjacent-frame stability, including the last-to-first loop seam. Contract decoding
+checks declarations; the asset pipeline inspects the actual images before building delivery.
 
 An optional `AssetStyleProfile.material` declares the world's policies:
 
@@ -285,14 +284,15 @@ All four roles are required. Each role requires `albedo` and may declare the oth
 Every policy declares `encoding` (`srgb` or `linear`), inclusive RGB byte bounds `min` and `max`,
 and `maxFrameChange`, all integers in `0..255`, with `min <= max`. The byte envelope comes from
 RGBA8; the illustrated bounds and change limits are example world choices, not platform defaults.
-The temporal policy means the maximum absolute RGB byte change at corresponding pixels between
-adjacent frames, including the last-to-first loop seam. Alpha represents coverage and is intended
-to be checked separately against albedo. The profile supplies the same explicit limit to producers
+RGB ranges apply where alpha is nonzero. The temporal policy compares pixels where either
+adjacent frame has nonzero coverage and means the maximum absolute RGB byte change at corresponding pixels between
+adjacent frames, including the last-to-first loop seam. Alpha represents coverage and is checked separately against albedo. The profile supplies the same explicit limit to producers
 and consumers; Clockgrove must refuse an over-limit source rather than repair it.
 
 The material and policy decoders reject unknown fields and malformed declarations and freeze
 their results. Omitting `material` preserves the existing version-1 style-profile shape exactly.
-This part of issue 66 establishes declarations only. Image validation, material manifest wiring,
-channel/rendition atlas packing, deterministic compressed output with fallback, client selection
-and projection/renderer consumption remain later parts; the current asset build cannot consume
-these standalone material declarations.
+The atlas build packs supplied channel images at each density, emitting deterministic BC3 DDS
+textures and lossless PNG fallbacks. Delivery metadata identifies content hashes and frame
+rectangles. Clients select renditions by device pixel ratio and a texture-byte budget, and
+renderers may consume only albedo while retaining the other channel references for capable
+adapters. No per-asset compressed inputs are accepted.
