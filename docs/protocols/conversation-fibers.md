@@ -210,9 +210,11 @@ subscription or threshold names a committed event type for a check within one se
 (`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
 world's system principal). Repeated hints coalesce into the actor's one activation alarm. A check
 that reads a full page of 64 unread events, or sees an event whose transaction has not settled,
-checks again within one second. Quiet subscription polling, one minute apart, remains the backstop
-for a lost hint; unfinished turns retry after one second, subject to the model budget. These are
-explicit local bounds, rather than continuously running actor processes.
+checks again within one second. A failed hint pass logs `activation_hint_failed`; when a commit
+during it asked for another pass, that pass hints the failed pass's event types too. Quiet
+subscription polling, one minute apart, remains the backstop for a lost or failed hint; unfinished
+turns retry after one second, subject to the model budget. These are explicit local bounds, rather
+than continuously running actor processes.
 
 Each committed event a subscription or threshold can match is read by its check exactly once,
 however partitions interleave their commits. Partitions of one timeline commit in parallel, so a

@@ -92,7 +92,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
       ).toEqual([
         {
           event: "scene_observation_answered",
-          schemaVersion: 5,
+          schemaVersion: 6,
           status: 401,
           authorization: "unauthenticated",
           outcome: "refused",
@@ -101,7 +101,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
         },
         {
           event: "scene_observation_answered",
-          schemaVersion: 5,
+          schemaVersion: 6,
           status: 401,
           authorization: "unauthenticated",
           outcome: "refused",
@@ -110,7 +110,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
         },
         {
           event: "scene_observation_answered",
-          schemaVersion: 5,
+          schemaVersion: 6,
           status: 403,
           authorization: "denied",
           outcome: "refused",
@@ -119,7 +119,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
         },
         {
           event: "scene_observation_answered",
-          schemaVersion: 5,
+          schemaVersion: 6,
           status: 200,
           authorization: "authorized",
           outcome: "read",
@@ -172,7 +172,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
       ).toEqual([
         {
           event: "scene_observation_failed",
-          schemaVersion: 5,
+          schemaVersion: 6,
           commandId: undefined,
           correlationId: "correlation-hall-read",
           failureClass: "internal",
@@ -182,7 +182,7 @@ it("authorizes durable living-hall observations, redacts failures and logs reads
         },
         {
           event: "scene_observation_answered",
-          schemaVersion: 5,
+          schemaVersion: 6,
           commandId: undefined,
           correlationId: "correlation-hall-read",
           failureClass: "internal",

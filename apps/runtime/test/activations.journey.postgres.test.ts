@@ -233,11 +233,14 @@ it.skipIf(!isNativeWorldOwnerChild())(
       );
 
       // A callback that read its inspection before the daily configuration committed must not
-      // cancel the daily wake (issue 80): its last arming is held across that commit. Armings
-      // queue behind the held one, so neither configuration is awaited until the release.
+      // cancel the daily wake (issue 80): its last arming is held across that commit. The hold is
+      // released once both configure armings are requested and only the held one is inside the
+      // arming section. With the section, both still wait for it; without it (before PR #90), both
+      // have planned, and the released callback then plans last from its stale inspection.
+      const { configured } = (await agent({ op: "arming" })) as { configured: number };
       await agent({ op: "fault", phase: "hold:activation-planning" });
       const unblocked = configure("blocked", "scheduled_intention", { enabled: false }, 10);
-      await expect.poll(() => agent({ op: "held" })).toBe(true);
+      await expect.poll(() => agent({ op: "arming" })).toMatchObject({ held: true });
       await agent({ op: "fault", phase: "proposal_validating" });
       const dailyDue = Date.now() + 1_000;
       const daily = configure("daily", "scheduled_intention", {
@@ -246,11 +249,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
         input: "Check the daily intention",
       });
       await expect
-        .poll(() =>
-          owner.sql(`SELECT count(*) FROM clockgrove.actor_activation_policies,
-            jsonb_array_elements(configurations) c WHERE c->>'id' = 'daily'`),
-        )
-        .toBe("1");
+        .poll(() => agent({ op: "arming" }))
+        .toEqual({ held: true, configured: configured + 2, running: 1 });
       await agent({ op: "release" });
       await Promise.all([unblocked, daily]);
       await owner.sql(`INSERT INTO clockgrove.tenant_principals (tenant_id,principal_id)
@@ -343,6 +343,67 @@ it.skipIf(!isNativeWorldOwnerChild())(
         );
       expect(await counts()).toBe("8/3/6");
       expect(await agent({ op: "model-calls" })).toBe(3);
+
+      // A failed hint pass is logged, and a commit during it asks for one more pass, which hints
+      // the failed pass's event types too (issue 130). The first subscriber read waits until that
+      // commit, whose events no subscription names, has asked, and then fails transiently.
+      await configure("retry", "subscription", {
+        eventType: "ClockPolicyChanged",
+        compiledRoutine: "noop",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      const subscribers = "clockgrove.activation_event_subscribers(text,text,text,text[])";
+      await owner.sql(`CREATE TABLE clockgrove.hint_release (released boolean);
+        CREATE SEQUENCE clockgrove.hint_reads;
+        ALTER FUNCTION ${subscribers} RENAME TO hint_subscribers;
+        CREATE FUNCTION clockgrove.activation_event_subscribers(t text, w text, tl text, types text[])
+        RETURNS TABLE (actor_id text, space_id text) LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN
+          IF nextval('clockgrove.hint_reads') = 1 THEN
+            WHILE NOT EXISTS (SELECT 1 FROM clockgrove.hint_release) LOOP
+              PERFORM pg_sleep(0.01);
+            END LOOP;
+            RAISE EXCEPTION USING ERRCODE = '40001';
+          END IF;
+          RETURN QUERY SELECT * FROM clockgrove.hint_subscribers(t, w, tl, types);
+        END $$;
+        GRANT EXECUTE ON FUNCTION ${subscribers} TO clockgrove_runtime`);
+      const paused = BigInt(await owner.sql("SELECT max(simulation_time) FROM clockgrove.events"));
+      expect(
+        (
+          await owner.submit({
+            ...advanceCommand(owner.world, "hint-failed", 0n, null),
+            type: "PauseWorld",
+            payload: { schemaVersion: 1 },
+          })
+        ).status,
+      ).toBe(200);
+      await expect
+        .poll(() => owner.sql("SELECT is_called::text FROM clockgrove.hint_reads"))
+        .toBe("true");
+      // A command answers only after its post-commit hint is scheduled.
+      expect(
+        (await owner.submit(advanceCommand(owner.world, "hint-retry", paused + 1_000n, null)))
+          .status,
+      ).toBe(200);
+      await owner.sql("INSERT INTO clockgrove.hint_release VALUES (true)");
+      await expect
+        .poll(() =>
+          owner.sql(
+            `SELECT reason->>'eventId' || '/' || status
+           FROM clockgrove.actor_activations WHERE configuration_id = 'retry'`,
+          ),
+        )
+        .toBe("hint-failed:event:0/noop");
+      await owner.sql(`DROP FUNCTION ${subscribers};
+        ALTER FUNCTION clockgrove.hint_subscribers(text,text,text,text[])
+          RENAME TO activation_event_subscribers;
+        DROP TABLE clockgrove.hint_release; DROP SEQUENCE clockgrove.hint_reads`);
+      expect(
+        owner
+          .logs()
+          .filter((log) => log.includes("activation_hint_failed"))
+          .map((log) => log.match(/failureClass: '(\w+)'.*disposition: '([\w-]+)'/su)?.slice(1)),
+      ).toEqual([["transient", "recovered-by-poll"]]);
 
       await configure("recheck", "heartbeat", {}, 3);
       const recheckReason = { kind: "heartbeat", heartbeatId: "recheck" };
