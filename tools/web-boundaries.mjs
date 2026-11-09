@@ -13,6 +13,7 @@ const web = path.join(app, "src");
 // Zustand stay in the shell.
 const adapter = path.join(web, "renderer.ts");
 const bridge = path.join(web, "world-scene-adapter");
+const content = path.join(web, "renderer-content.ts");
 export function assertBrowserSource(source, file) {
   const ast = ts.createSourceFile(
     file,
@@ -54,7 +55,12 @@ export function assertBrowserSource(source, file) {
             target === "three/tsl" ||
             target === "three/addons/tsl/display/BloomNode.js" ||
             local === `${bridge}.js` ||
-            local === path.join(web, "shell.js")
+            local === path.join(web, "shell.js") ||
+            local === path.join(web, "renderer-content.js")
+          : path.resolve(file) === content
+            ? target === "three/webgpu" || target === "three/tsl" ||
+              /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js)$/u.test(target) ||
+              local === path.join(web, "renderer.js")
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
               target === "zustand" ||

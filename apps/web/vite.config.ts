@@ -22,6 +22,29 @@ export default defineConfig({
   publicDir,
   plugins: [
     {
+      name: "explicit-content-decoders",
+      enforce: "pre",
+      transform(source, id) {
+        const loader = id.match(
+          /\/three\/examples\/jsm\/loaders\/(DRACOLoader|KTX2Loader)\.js$/u,
+        )?.[1];
+        if (!loader) return;
+        // Three 0.187 defaults eagerly emit every decoder variant. Content always supplies pinned URLs,
+        // so omit only those unused defaults, keeping decoder assets out of the neutral shell bundle.
+        let count = 0;
+        const code = source.replace(
+          /new URL\( '\.\.\/libs\/(?:draco|basis)\/[^']+', import\.meta\.url \)\.toString\(\)/gu,
+          () => {
+            count += 1;
+            return '""';
+          },
+        );
+        if (count !== (loader === "DRACOLoader" ? 5 : 2))
+          throw new Error(`Pinned ${loader} decoder defaults changed`);
+        return { code, map: null };
+      },
+    },
+    {
       name: "world-shell-title",
       transformIndexHtml: (html) =>
         html.replace(
