@@ -302,6 +302,13 @@
       "when": 1794866400000,
       "tag": "0043_activation_commit_order",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794952800000,
+      "tag": "0044_activation_transaction_horizon",
+      "breakpoints": true
     }
   ]
 }

@@ -54,6 +54,13 @@ export async function capturePriorRelease(
       if (main?.run !== "main" || database === undefined) throw new Error("no main run database");
       const world = await cluster.world(pack);
       const sql = (query: string) => admin(fixture, query, database);
+      // The fixture is restored into other clusters: drop this cluster's transaction IDs first
+      // (docs/runbooks/database.md, "Restoring into another cluster"). Older tags lack the function.
+      await sql(`DO $$ BEGIN
+        IF to_regprocedure('clockgrove.rebase_activation_order()') IS NOT NULL THEN
+          PERFORM clockgrove.rebase_activation_order();
+        END IF;
+      END $$`);
       const manifest: PriorReleaseManifest = {
         release,
         commit,

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import type { ActivationAddress } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
 import {
@@ -42,30 +43,63 @@ const address = {
     }),
   },
 } as unknown as ActivationAddress;
+const warden = { ...address, actorId: "warden" } as ActivationAddress;
+const TIMELINE = "tenant_id='tenant-c' AND world_id='world-c' AND timeline_id='timeline-c'";
+const OTHER_TENANT = "tenant-d";
+
+/** A subscription to every `Recorded` event for the actor of `a`, through its conversation. */
+const subscribe = (activations: PostgreSqlActivations, a: ActivationAddress, id: string) =>
+  activations.configure(
+    a,
+    {
+      id,
+      sessionId: `session-${a.actorId}`,
+      kind: "subscription",
+      nextWakeAt: null,
+      intervalMs: null,
+      eventType: "Recorded",
+      input: "",
+      priority: 1,
+      enabled: true,
+      compiledRoutine: "noop",
+    },
+    { allowModel: false, modelBudget: 0 },
+  );
+/** One subscription check as the owner runs it: read the page, acknowledge each event. */
+const check = async (activations: PostgreSqlActivations, a = address) => {
+  const { events, more } = await activations.events(a);
+  for (const event of events) await activations.acknowledgeEvent(a, event.eventId);
+  return { seen: events.map((e) => e.eventId), more };
+};
+const request = (s: FixtureScope, id: string) =>
+  fixtureRequest(s, `command-${id}`, [fixtureDraft(s, id)]);
 
 let cluster: Awaited<ReturnType<typeof holdCluster>>;
 beforeAll(async () => {
   cluster = await holdCluster(async (fixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    await truthOf(fixture)(`
-      INSERT INTO clockgrove.tenants (tenant_id, display_name) VALUES ('tenant-c', 'C');
-      INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-c', 'principal-c');
-      INSERT INTO clockgrove.worlds (tenant_id, world_id, lifecycle_status) VALUES ('tenant-c', 'world-c', 'ready');
-      INSERT INTO clockgrove.timelines (tenant_id, world_id, timeline_id) VALUES ('tenant-c', 'world-c', 'timeline-c');
-      INSERT INTO clockgrove.timeline_partitions (tenant_id, world_id, timeline_id, partition_id, space_id)
-        SELECT 'tenant-c', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s FROM unnest(ARRAY['a','b']) s;
-      INSERT INTO clockgrove.streams (tenant_id, world_id, timeline_id, partition_id, space_id, stream_id)
-        SELECT 'tenant-c', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s, 'stream-' || s FROM unnest(ARRAY['a','b']) s;
-      INSERT INTO clockgrove.world_memberships (tenant_id, world_id, timeline_id, space_id, principal_id,
-        membership_id, persona_id, roles, grants, privacy_ceiling, committed_at)
-        VALUES ('tenant-c', 'world-c', 'timeline-c', 'space-a', 'principal-c', 'membership-c', 'persona-c',
-        ARRAY['member'], ARRAY['runtime:world-command'],
-        '{"version":1,"allowedCategories":["public_scene","conversation"]}', statement_timestamp());
-      INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
-        VALUES ('tenant-c', 'session-c', 'principal-c', 'persona-c');
-      INSERT INTO clockgrove.conversation_sessions (tenant_id, session_id, world_id, timeline_id,
-        partition_id, space_id, actor_id, voice_mode)
-        VALUES ('tenant-c', 'session-c', 'world-c', 'timeline-c', 'partition-a', 'space-a', 'keeper', 'cognitive')`);
+    // A second tenant reuses every ID of the first: IDs are unique per tenant only (0003).
+    for (const tenant of [BASE.tenantId, OTHER_TENANT])
+      await truthOf(fixture)(`
+        INSERT INTO clockgrove.tenants (tenant_id, display_name) VALUES ('${tenant}', '${tenant}');
+        INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('${tenant}', 'principal-c');
+        INSERT INTO clockgrove.worlds (tenant_id, world_id, lifecycle_status) VALUES ('${tenant}', 'world-c', 'ready');
+        INSERT INTO clockgrove.timelines (tenant_id, world_id, timeline_id) VALUES ('${tenant}', 'world-c', 'timeline-c');
+        INSERT INTO clockgrove.timeline_partitions (tenant_id, world_id, timeline_id, partition_id, space_id)
+          SELECT '${tenant}', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s FROM unnest(ARRAY['a','b']) s;
+        INSERT INTO clockgrove.streams (tenant_id, world_id, timeline_id, partition_id, space_id, stream_id)
+          SELECT '${tenant}', 'world-c', 'timeline-c', 'partition-' || s, 'space-' || s, 'stream-' || s FROM unnest(ARRAY['a','b']) s;
+        INSERT INTO clockgrove.world_memberships (tenant_id, world_id, timeline_id, space_id, principal_id,
+          membership_id, persona_id, roles, grants, privacy_ceiling, committed_at)
+          VALUES ('${tenant}', 'world-c', 'timeline-c', 'space-a', 'principal-c', 'membership-c', 'persona-c',
+          ARRAY['member'], ARRAY['runtime:world-command'],
+          '{"version":1,"allowedCategories":["public_scene","conversation"]}', statement_timestamp());
+        INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+          SELECT '${tenant}', 'session-' || a, 'principal-c', 'persona-c' FROM unnest(ARRAY['keeper','warden']) a;
+        INSERT INTO clockgrove.conversation_sessions (tenant_id, session_id, world_id, timeline_id,
+          partition_id, space_id, actor_id, voice_mode)
+          SELECT '${tenant}', 'session-' || a, 'world-c', 'timeline-c', 'partition-a', 'space-a', a, 'cognitive'
+          FROM unnest(ARRAY['keeper','warden']) a`);
   });
 }, 60_000);
 afterAll(() => cluster?.close());
@@ -85,28 +119,20 @@ it.each([
     ];
     const activations = new PostgreSqlActivations(reader);
     const run = higherBeganFirst ? "began-high" : "began-low";
+    const sql = truthOf(cluster.fixture);
     try {
-      await activations.configure(
-        address,
-        {
-          id: `watch-${run}`,
-          sessionId: "session-c",
-          kind: "subscription",
-          nextWakeAt: null,
-          intervalMs: null,
-          eventType: "Recorded",
-          input: "",
-          priority: 1,
-          enabled: true,
-          compiledRoutine: "noop",
-        },
-        { allowModel: false, modelBudget: 0 },
+      await subscribe(activations, address, `watch-${run}`);
+      // The reader before #132, adapted to this test (issue 138): a position cursor that moves to
+      // the highest position read. The interleaving must defeat it, or this test proves nothing.
+      let position = await sql(
+        `SELECT coalesce(max(journal_position), 0) FROM clockgrove.events WHERE ${TIMELINE}`,
       );
-      /** One subscription check as the owner runs it: read the page, acknowledge each event. */
-      const check = async () => {
-        const { events, more } = await activations.events(address);
-        for (const event of events) await activations.acknowledgeEvent(address, event.eventId);
-        return { seen: events.map((e) => e.eventId), more };
+      const positionCheck = async () => {
+        const rows = await sql(`SELECT event_id, journal_position FROM clockgrove.events
+          WHERE ${TIMELINE} AND journal_position > ${position} ORDER BY journal_position`);
+        const read = rows ? rows.split("\n").map((row) => row.split("|")) : [];
+        for (const [, at] of read) position = String(Math.max(Number(position), Number(at)));
+        return read.map(([id]) => id);
       };
       // Partition A draws the lower position and holds its transaction open before COMMIT.
       let drawn!: () => void;
@@ -122,8 +148,6 @@ it.each([
           return low.query(text, values);
         },
       };
-      const request = (s: FixtureScope, id: string) =>
-        fixtureRequest(s, `command-${id}`, [fixtureDraft(s, id)]);
       const lowId = `${run}-low`;
       const highId = `${run}-high`;
       let highBegun!: () => void;
@@ -144,13 +168,16 @@ it.each([
         new PostgreSqlJournal(lowHeld).execute(request(A, lowId)),
       );
       await highCommit;
-      const whileHeld = await check();
+      const whileHeld = await check(activations);
+      const positionWhileHeld = await positionCheck();
       release();
       await lowCommit;
-      const afterCommit = await check();
-      const again = await check();
+      const afterCommit = await check(activations);
+      const again = await check(activations);
 
-      const positions = await truthOf(cluster.fixture)(
+      expect([...positionWhileHeld, ...(await positionCheck())]).toEqual([highId]);
+
+      const positions = await sql(
         `SELECT string_agg(event_id, ',' ORDER BY journal_position) FROM clockgrove.events
           WHERE event_id IN ('${lowId}', '${highId}')`,
       );
@@ -166,3 +193,96 @@ it.each([
     }
   },
 );
+
+/** `dump` with `column` of `table` one transaction ID epoch ahead, as a busier cluster wrote it. */
+function ahead(dump: string, table: string, column: string): string {
+  let field = -1;
+  return dump
+    .split("\n")
+    .map((line) => {
+      const copy = /^COPY clockgrove\.(\w+) \((.*)\) FROM stdin;$/u.exec(line);
+      if (copy) field = copy[1] === table ? (copy[2] ?? "").split(", ").indexOf(column) : -1;
+      if (line === "\\.") field = -1;
+      if (copy || field < 0) return line;
+      const values = line.split("\t");
+      values[field] = String(BigInt(values[field] ?? "") + 2n ** 32n);
+      return values.join("\t");
+    })
+    .join("\n");
+}
+
+it("refuses a restore whose transaction IDs are ahead of the cluster, and a rebased dump keeps every cursor exact", async () => {
+  const { tools, environment } = cluster.fixture as {
+    tools: { psql: string; pg_dump: string };
+    environment: Record<string, string>;
+  };
+  const sql = truthOf(cluster.fixture);
+  const tool = (name: string, args: string[], database: string, input?: string) =>
+    spawnSync(name, args, {
+      env: { ...environment, PGDATABASE: database },
+      input,
+      encoding: "utf8",
+      maxBuffer: 1 << 28,
+    });
+  const dump = () => tool(tools.pg_dump, ["--format=plain"], "clockgrove").stdout;
+  /** Restores `text` into a new `database` as psql does; returns psql's errors. */
+  const restore = async (database: string, text: string) => {
+    await truthOf(
+      cluster.fixture,
+      "postgres",
+    )(`CREATE DATABASE ${database} OWNER clockgrove_migrator TEMPLATE template0 ENCODING 'UTF8'`);
+    const psql = ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--output=/dev/null", "--file=-"];
+    return tool(tools.psql, psql, database, text).stderr;
+  };
+  const [source, target] = [connect(environment), connect(environment, "clockgrove_rebased")];
+  try {
+    const before = new PostgreSqlActivations(source);
+    await subscribe(before, address, "watch-restore");
+    await check(before);
+    await subscribe(before, warden, "watch-restore");
+    await new PostgreSqlJournal(source).execute(request(A, "restore-read"));
+    expect(await check(before)).toEqual({ seen: ["restore-read"], more: false });
+    await new PostgreSqlJournal(source).execute(request(A, "restore-unread"));
+    // The other tenant appends the same event ID on a timeline with no cursor, so its ID becomes 0.
+    await new PostgreSqlJournal(source).execute(
+      request({ ...A, tenantId: OTHER_TENANT }, "restore-unread"),
+    );
+
+    // A cluster whose counter is behind the dump's IDs refuses the rows, before anything reads them.
+    const original = dump();
+    for (const [table, column, constraint] of [
+      ["actor_activation_policies", "event_cursor_transaction", "cursor_not_ahead"],
+      ["events", "transaction_id", "transaction_not_ahead"],
+    ] as const)
+      expect(await restore(`clockgrove_${table}_ahead`, ahead(original, table, column))).toContain(
+        `violates check constraint "${table}_${constraint}"`,
+      );
+
+    // The repair: two distinct cursors, so every ID becomes 0, 1 or 2, below any cluster's counter.
+    await sql("SELECT clockgrove.rebase_activation_order()");
+    expect(
+      await sql(`SELECT string_agg(tenant_id || ':' || event_id || '=' || transaction_id, ','
+        ORDER BY journal_position) FROM clockgrove.events WHERE event_id LIKE 'restore-%'`),
+    ).toBe(`tenant-c:restore-read=1,tenant-c:restore-unread=2,${OTHER_TENANT}:restore-unread=0`);
+    expect(
+      await sql(`SELECT string_agg(actor_id || '=' || event_cursor_transaction, ',' ORDER BY actor_id)
+        FROM clockgrove.actor_activation_policies`),
+    ).toBe("keeper=1,warden=0");
+    expect(await restore("clockgrove_rebased", dump())).toBe("");
+
+    // After the restore, each cursor reads its unread events and every new one, each once.
+    const after = new PostgreSqlActivations(target);
+    await new PostgreSqlJournal(target).execute(request(A, "restore-after"));
+    expect(await check(after)).toEqual({ seen: ["restore-unread", "restore-after"], more: false });
+    expect(await check(after, warden)).toEqual({
+      seen: ["restore-read", "restore-unread", "restore-after"],
+      more: false,
+    });
+    expect([await check(after), await check(after, warden)]).toEqual([
+      { seen: [], more: false },
+      { seen: [], more: false },
+    ]);
+  } finally {
+    await Promise.all([source.close(), target.close()]);
+  }
+});

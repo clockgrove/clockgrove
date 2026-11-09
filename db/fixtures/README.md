@@ -9,7 +9,8 @@ temporary worktree. There it migrates a fresh cluster, provisions a world and ru
 scenario through the Journal (`apps/runtime/test/prior-release.ts`). Every parity check against the
 tag's golden must pass. It then writes:
 
-- `database.sql`: a plain `pg_dump` of that database, schema and data;
+- `database.sql`: a plain `pg_dump` of that database, schema and data, taken after
+  `clockgrove.rebase_activation_order()` (when the tag has it) so that it restores into any cluster;
 - `manifest.json`: the tag's commit, its migration head, the world scope, event and snapshot
   counts, the digest of every stored event's bytes, and the final state hash.
 

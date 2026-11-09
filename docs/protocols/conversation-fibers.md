@@ -223,7 +223,9 @@ orders events by the transaction that appended them, then by position, and a che
 only once every older transaction has ended (migration 0043). An event can wait behind an open
 transaction, so a wake can be late under load, but the cursor never passes an event that can still
 appear. Acknowledging an event moves the cursor forward only, and causal-root receipts still
-coalesce a repeated delivery into one activation.
+coalesce a repeated delivery into one activation. Those transaction IDs belong to the cluster that
+wrote them: a restore into a cluster whose counter is behind them is refused, and the repair rebases
+them first (migration 0044, [database runbook](../runbooks/database.md#restoring-into-another-cluster)).
 
 An actor has one activation policy, and only the principal that configured it can read it. The
 actor's owner keeps one activation alarm per principal. Each configure, wake and check plans only
