@@ -208,8 +208,8 @@ repeated empty opportunities until an operator reconfigures it. Subscriptions an
 events: after a world command commits, its space owner asks the owner of each actor whose enabled
 subscription or threshold names a committed event type for a check within one second
 (`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
-world's system principal). Repeated hints coalesce into the actor's one activation alarm. A check
-that reads a full page of 64 unread events, or sees an event whose transaction has not settled,
+world's system principal). Repeated hints coalesce into the policy owner's activation alarm. A
+check that reads a full page of 64 unread events, or sees an event whose transaction has not settled,
 checks again within one second. A failed hint pass logs `activation_hint_failed`; when a commit
 during it asked for another pass, that pass hints the failed pass's event types too. Quiet
 subscription polling, one minute apart, remains the backstop for a lost or failed hint; unfinished
@@ -224,6 +224,14 @@ only once every older transaction has ended (migration 0043). An event can wait 
 transaction, so a wake can be late under load, but the cursor never passes an event that can still
 appear. Acknowledging an event moves the cursor forward only, and causal-root receipts still
 coalesce a repeated delivery into one activation.
+
+An actor has one activation policy, and only the principal that configured it can read it. The
+actor's owner keeps one activation alarm per principal. Each configure, wake and check plans only
+the alarm of the principal it runs for, from the policy that principal can read. A wake arms its
+principal's recovery alarm before admission, so admitted work survives an owner loss. Another
+principal's wake reads no policy and is refused with `activation_not_found`. Its own alarm then
+finds nothing and clears. The policy owner's scheduled intentions, heartbeats and subscription
+checks stay armed.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
 logic owns evaluation of the physical condition. An event cursor starts when the actor's policy is
