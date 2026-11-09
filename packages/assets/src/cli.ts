@@ -12,18 +12,24 @@ import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/
 import { atlasLocationProblems, buildAtlases, packAtlas } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
 import {
+  decodeAs,
   type GoldenRecord,
   goldenPaths,
   type ManifestFile,
   type PackScene,
   readAssetStyleProfile,
   readGolden,
+  readJson,
   readManifests,
   readPackScenes,
   repositoryRoot,
 } from "./repository.js";
 import { renderScene } from "./scene.js";
-import { sha256Hex, validateSource } from "./validate.js";
+import { goldenApprovalRefusal } from "./upload.js";
+import { sha256Hex, validateSource, worldPaletteProblems } from "./validate.js";
+
+/** Invalid command usage: exits 2, like a malformed command line. */
+class UsageError extends Error {}
 
 const args = process.argv.slice(3);
 const worldIndex = args.indexOf("--world");
@@ -50,12 +56,17 @@ function preflight(): string[] {
   files = readManifests(root, assetRoot);
   deployable = files.filter((f) => assetDeployRefusals(f.manifest).length === 0);
   layout = files.map((f) => f.manifest);
-  if (files.length === 0) return [];
+  // A world with no manifests would otherwise pass while checking nothing (wrong directory,
+  // or assets kept elsewhere while presentation metadata binds them).
+  if (files.length === 0)
+    return [`ASSETS_REQUIRED: no asset manifests under ${join(root, assetRoot, "manifests")}`];
   const profile = readAssetStyleProfile(root, referenceRoot);
   const problems = files.flatMap((f) =>
     validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", ""), profile),
   );
-  return problems.length > 0 ? problems : atlasLocationProblems(layout);
+  if (problems.length > 0) return problems;
+  const palette = worldPaletteProblems(layout, profile);
+  return palette.length > 0 ? palette : atlasLocationProblems(layout);
 }
 
 function expectedReviewed(): Map<string, Uint8Array> {
@@ -89,7 +100,9 @@ const reviewedDir = join(root, assetRoot, "reviewed");
 
 function check(): string[] {
   const problems: string[] = external
-    ? files.flatMap((f) => assetDeployRefusals(f.manifest).map((r) => `${r.code}: ${r.detail}`))
+    ? files.flatMap((f) =>
+        assetDeployRefusals(f.manifest).map((r) => `${r.code} ${r.asset}: ${r.detail}`),
+      )
     : [];
   for (const [name, code] of [
     ["unreviewed", "REVIEW_NOT_APPROVED"],
@@ -121,11 +134,11 @@ function check(): string[] {
         for (const r of refusals)
           problems.push(`${assetRoot}/reviewed/${name}: ${r.code} ${r.asset}: ${r.detail}`);
   }
-  if (files.length > 0 && !same(read(reportPath), Buffer.from(licenseReport(layout))))
+  if (!same(read(reportPath), Buffer.from(licenseReport(layout))))
     problems.push(`${assetRoot}/license-report.md: stale, run the asset build command`);
 
-  const scenes = files.length > 0 ? readPackScenes(root, worldRoot) : [];
-  if (external && files.length > 0 && scenes.length === 0)
+  const scenes = readPackScenes(root, worldRoot);
+  if (scenes.length === 0)
     problems.push("GOLDEN_SCENE_REQUIRED: world presentation metadata is missing");
   for (const scene of scenes) {
     const paths = goldenPaths(root, scene.packDir, assetRoot);
@@ -136,15 +149,10 @@ function check(): string[] {
     }
     try {
       const png = render(scene, golden);
+      const refusal = goldenApprovalRefusal(golden);
       if (!same(read(paths.image), png) || sha256Hex(png) !== golden.sceneSha256)
         problems.push(`visual diff: ${scene.packDir} golden scene changed; ${regenerate}`);
-      else if (
-        golden.approval.status !== "approved" ||
-        golden.approval.approvedSceneSha256 !== golden.sceneSha256
-      )
-        problems.push(
-          `golden ${scene.packDir}: not human-approved for sceneSha256 ${golden.sceneSha256}`,
-        );
+      else if (refusal !== null) problems.push(`golden ${scene.packDir}: ${refusal}`);
     } catch (error) {
       problems.push(`golden ${scene.packDir}: ${(error as Error).message}`);
     }
@@ -157,7 +165,7 @@ function build(): void {
   rmSync(reviewedDir, { recursive: true, force: true });
   if (expected.size > 0) mkdirSync(reviewedDir, { recursive: true });
   for (const [name, bytes] of expected) writeFileSync(join(reviewedDir, name), bytes);
-  if (files.length > 0) writeFileSync(reportPath, licenseReport(layout));
+  writeFileSync(reportPath, licenseReport(layout));
 }
 
 function updateGolden(): void {
@@ -189,10 +197,14 @@ function updateGolden(): void {
 
 function validateOne(): string[] {
   const path = external ? positional[0] : args[0];
-  if (!path || path.startsWith("--")) throw new Error("ASSET_MANIFEST_REQUIRED");
+  if (!path || path.startsWith("--")) throw new UsageError("ASSET_MANIFEST_REQUIRED");
   const absolute = resolve(path);
-  if (external && relative(root, absolute).startsWith("..")) throw new Error("ASSET_PATH_INVALID");
-  const manifest = decodeAssetManifest(JSON.parse(readFileSync(absolute, "utf8")));
+  if (external && relative(root, absolute).startsWith(".."))
+    throw new UsageError(`ASSET_PATH_INVALID: ${absolute} is outside the world ${root}`);
+  if (!existsSync(absolute) || !statSync(absolute).isFile())
+    throw new UsageError(`ASSET_MANIFEST_REQUIRED: ${absolute} is not a file`);
+  const json = readJson(absolute);
+  const manifest = decodeAs("ASSET_MANIFEST_INVALID", () => decodeAssetManifest(json, path));
   const profile = readAssetStyleProfile(root, referenceRoot);
   // Check the platform strip budget without loading the world's other manifests.
   packAtlas([manifest]);
@@ -205,7 +217,7 @@ function validateOne(): string[] {
     ),
     ...assetDeployRefusals(manifest)
       .filter((r) => r.code !== "REVIEW_NOT_APPROVED")
-      .map((r) => `${r.code}: ${r.detail}`),
+      .map((r) => `${r.code} ${r.asset}: ${r.detail}`),
   ];
 }
 const command = process.argv[2];
@@ -237,6 +249,6 @@ if (
     const internal =
       !(error instanceof Error) || error instanceof TypeError || error instanceof RangeError;
     console.error(error instanceof Error ? error.message : "unexpected internal error");
-    process.exitCode = external && internal ? 70 : 1;
+    process.exitCode = error instanceof UsageError ? 2 : external && internal ? 70 : 1;
   }
 }

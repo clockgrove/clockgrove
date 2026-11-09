@@ -133,6 +133,20 @@ it("accepts larger painterly generated art and enforces provider output grants w
     expect(retained.license).toBe("CC-BY-4.0");
     expect(licenseReport([retained])).toContain("fixture-critter/idle: Credit test-provider");
   }
+  // Without relabelling, the declared licence may be any conjunct of a fully permitted AND grant.
+  const both = { ...credit, license: "CC-BY-4.0 AND CC0-1.0" };
+  expect(codes({ license: "CC-BY-4.0", provenance: { ...provenance, outputGrant: both } })).toEqual(
+    [],
+  );
+  expect(codes({ license: "CC0-1.0", provenance: { ...provenance, outputGrant: both } })).toEqual([
+    "OUTPUT_GRANT_LICENSE_MISMATCH",
+  ]);
+  // Declaring the CC0 conjunct of a non-relabel MIT grant would drop MIT's notice obligation.
+  const withMit = { ...outputGrant, license: "CC0-1.0 AND MIT", relabel: false };
+  for (const license of ["CC0-1.0", "MIT"])
+    expect(codes({ license, provenance: { ...provenance, outputGrant: withMit } })).toEqual([
+      "OUTPUT_GRANT_LICENSE_MISMATCH",
+    ]);
   expect(() =>
     decodeAssetManifest({ ...input, provenance: { ...provenance, references: ["not-a-hash"] } }),
   ).toThrow("lowercase SHA-256 reference hash");

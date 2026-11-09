@@ -1,8 +1,8 @@
 {
-  "version": 31,
+  "version": 32,
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
-    "asset-manifest.ts": "d32502df8ff3bb1c49a98b50768c1a707ebb5e89bae0b5f0a27b09c744fb75c4",
+    "asset-manifest.ts": "b4990bd116b49e8cad9edae762384dc81b0f8ac99a58a690de94cb838f36fd4c",
     "asset-style-profile.ts": "79f8014b139752cb98dbe0e38aa65fd98d7b0bc6d382db942ccd8b06a03ea3e4",
     "browser-protocol.ts": "10feb095897784241168a0d747a56ac79ec8cae9ad9c5c21280fb4d57e912e5f",
     "cognition.ts": "c5b2361398760b18215b2795297dd13cb2e1f8a51b3e9a7834c8948b7517848b",

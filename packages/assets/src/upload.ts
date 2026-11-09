@@ -34,8 +34,23 @@ export interface GoldenApproval {
   readonly sceneSha256: string;
   readonly approval: {
     readonly status: "pending" | "approved";
+    readonly reviewer: string | null;
     readonly approvedSceneSha256: string | null;
   };
+}
+
+/**
+ * Why a golden scene may not ship; null when a human approved its current hash. A null, blank or
+ * GitHub `[bot]` reviewer is not a human approval.
+ */
+export function goldenApprovalRefusal(golden: GoldenApproval): string | null {
+  const { approval, sceneSha256 } = golden;
+  if (approval.status !== "approved" || approval.approvedSceneSha256 !== sceneSha256)
+    return `GOLDEN_NOT_APPROVED: not human-approved for sceneSha256 ${sceneSha256}`;
+  const reviewer: unknown = approval.reviewer;
+  if (typeof reviewer !== "string" || reviewer.trim() === "" || reviewer.endsWith("[bot]"))
+    return `GOLDEN_REVIEWER_NOT_HUMAN: reviewer ${JSON.stringify(reviewer ?? null)} is not a human login`;
+  return null;
 }
 
 /** Refuses (uploading nothing) unless every manifest may deploy and the golden scene is approved as it stands. */
@@ -47,14 +62,12 @@ export async function uploadReviewedAssets(
     layout?: readonly AssetManifest[];
   },
 ): Promise<{ uploaded: string[]; skipped: string[] }> {
+  const golden = goldenApprovalRefusal(input.golden);
   const refusals = [
     ...input.entries.flatMap((e) =>
       assetDeployRefusals(e.manifest).map((r) => `${r.code} ${r.asset}: ${r.detail}`),
     ),
-    ...(input.golden.approval.status === "approved" &&
-    input.golden.approval.approvedSceneSha256 === input.golden.sceneSha256
-      ? []
-      : ["GOLDEN_NOT_APPROVED: the golden scene is not approved for its current hash"]),
+    ...(golden === null ? [] : [golden]),
   ];
   if (refusals.length > 0) throw new Error(`upload refused:\n${refusals.join("\n")}`);
   const outputs = buildAtlases(input.entries, input.layout).flatMap((atlas) => [
