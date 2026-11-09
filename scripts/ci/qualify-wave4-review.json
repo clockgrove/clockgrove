@@ -1,0 +1,74 @@
+{
+  "note": "Reviewer records for the plan §19 items that qualify:wave4 marks review. A record names the literal item, the candidate commit and qualification run it reviewed, who reviewed it and the evidence checked. qualify:wave4 marks an item reviewed only when the record's candidate is the manifest's candidate and its result is checked; otherwise the record is attached as lastReview and the item stays review. scenarioRowsNotReviewedFull names the §15.2 rows whose browser step the review did not accept as full proof; the manifest attaches that finding to the row and leaves its suite status as it is. A person records a review in a reviewed change, or an agent does on the owner's explicit delegation, named in reviewer; CI never records one.",
+  "scenarioRowsNotReviewedFull": [
+    {
+      "id": "S12",
+      "issue": 136,
+      "reason": "the step never holds the atlas while it checks boot state, so it passes by construction"
+    },
+    {
+      "id": "S4",
+      "issue": 136,
+      "reason": "the browser is back online before any reconnect attempt runs offline"
+    }
+  ],
+  "reviews": [
+    {
+      "item": "RW-0401 through RW-0410 are merged.",
+      "candidate": "7e7e5fbba2344bc5a2541ceecba268048f7b3597",
+      "qualificationRun": 42609718552,
+      "reviewer": "Claude agent, on the owner's delegation of 2026-11-07 (plan §15.3), for #23",
+      "result": "checked",
+      "evidence": [
+        "Every packet's deliverable is on the candidate: RW-0401 packages/contracts/src/scene-protocol.ts and scene-connection.ts; RW-0402 apps/runtime/test/scene-admission.postgres.test.ts and scene-delivery.postgres.test.ts; RW-0403 apps/web/src/convergence.ts; RW-0404 apps/web/src/world-boot.ts and hud.tsx; RW-0405 apps/web/src/renderer.ts and world-scene-adapter.ts; RW-0406 apps/runtime/test/observer-authority.postgres.test.ts; RW-0407 apps/web/src/interaction-card.tsx and why.tsx; RW-0408 apps/web/src/timeline.tsx and text-scene.tsx; RW-0409 packages/assets and worlds/fixture/assets; RW-0410 scripts/ci/qualify-wave4.mjs and its suites (#23, PR #134).",
+        "All eight §15.1 suites passed in qualification run 42609718552 on the candidate, with a clean tree.",
+        "No Wave 4 packet issue is open. Exits that need hosted Cloudflare or staging (RW-0402, RW-0409) stay with their own §19 items on #3 and #2. RW-0410's exit, a qualified manifest, is this qualification and is not met yet."
+      ]
+    },
+    {
+      "item": "Reference composition and art-direction tokens are implemented.",
+      "candidate": "7e7e5fbba2344bc5a2541ceecba268048f7b3597",
+      "qualificationRun": 42609718552,
+      "reviewer": "Claude agent, on the owner's delegation of 2026-11-07 (plan §15.3), for #23",
+      "result": "partial",
+      "evidence": [
+        "Tokens, checked: DESIGN.md (#81, PR #114) generates the --cg-v1-* defaults in apps/web/src/world-shell-tokens.css, and pnpm check runs its drift check and lint. The fixture theme's tokens in worlds/fixture/reference/shell.json override them through the theme seam (#86, PR #100; apps/web/src/main.tsx). The fixture palette shows in every capture of run 42609718552.",
+        "Reference composition, not reviewed here: the fixture world is a test world with no reference composition. A reference world's composition is reviewed in that world's own repository, which is blocked by #121."
+      ]
+    },
+    {
+      "item": "Scene is data-driven; reference image is not a runtime background.",
+      "candidate": "7e7e5fbba2344bc5a2541ceecba268048f7b3597",
+      "qualificationRun": 42609718552,
+      "reviewer": "Claude agent, on the owner's delegation of 2026-11-07 (plan §15.3), for #23",
+      "result": "checked",
+      "evidence": [
+        "git ls-files on the candidate holds no reference or mockup image. Its only images are the Clockgrove brand marks (assets/brand/clockgrove), the fixture source strips (worlds/fixture/assets/source), the built atlas (worlds/fixture/assets/reviewed/fixture-world.png) and the asset pipeline's rendered camera golden (worlds/fixture/assets/goldens/fixture-reference.scene.png).",
+        "The web client serves only worlds/fixture/assets/reviewed (publicDir in apps/web/vite.config.ts), and apps/web/src loads no golden or reference image.",
+        "The run's captures show the scene drawn from the atlas (every tier comparison in captures.json has atlasShared true), changing with the committed state: dry daylight at revision 18, rain and 7 puddles at revision 39, lantern and window lit at night, and the selection ring on the selected entity."
+      ]
+    },
+    {
+      "item": "Entity mode disclosure distinguishes inspectable/reactive/cognitive/interpreted.",
+      "candidate": "7e7e5fbba2344bc5a2541ceecba268048f7b3597",
+      "qualificationRun": 42609718552,
+      "reviewer": "Claude agent, on the owner's delegation of 2026-11-07 (plan §15.3), for #23",
+      "result": "checked",
+      "evidence": [
+        "Inspectable and reactive are disclosed: INTERACTION_DISCLOSURES in packages/contracts/src/scene-interactions.ts; tests/accessibility/text-path.journey.browser.test.mjs asserts both; tests/e2e/living-hall.journey.browser.test.mjs asserts reactive. The approved captures selected-actor-rail@390x844 and selected-inspectable-object@390x844 show 'Deterministic/reactive object' and 'Inspection from world evidence'.",
+        "Cognitive and interpreted stay deviation V3 until the fixture world has a cognitive actor; V3 remains a blocker of its own."
+      ]
+    },
+    {
+      "item": "Asset provenance/review/license gates pass.",
+      "candidate": "7e7e5fbba2344bc5a2541ceecba268048f7b3597",
+      "qualificationRun": 42609718552,
+      "reviewer": "Claude agent, on the owner's delegation of 2026-11-07 (plan §15.3), for #23",
+      "result": "checked",
+      "evidence": [
+        "pnpm check runs turbo check, which runs @clockgrove/assets check (node bin/clockgrove-assets.mjs check): it refuses unreviewed and unlicensed manifests (REVIEW_NOT_APPROVED, LICENSE_NOT_PERMITTED), stale reviewed atlases, a stale license report and unapproved scene goldens.",
+        "Quality's checks job on the candidate (merge_group run 42607527077) executed @clockgrove/assets:check on a turbo cache miss and passed."
+      ]
+    }
+  ]
+}
