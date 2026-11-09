@@ -15,7 +15,7 @@ const binding = decodeActorTargetBinding({
   worldId: "world-a",
   timelineId: "timeline-main",
   kind: "space",
-  id: "space-yard",
+  id: "space-hall",
 });
 const fixture = (name: string): Record<string, unknown> =>
   JSON.parse(

@@ -64,7 +64,7 @@ it("decodes the observer clock and material feed and refuses raw payloads, open 
     text: "A resource was offered.",
     sourceEventIds: ["event-1"],
     category: "resource",
-    objectId: "grove.snack-dish",
+    objectId: "fixture.resource",
   };
   const status = { version: 1, privacyClass: "public_scene", ...scope, revision: "3", clock };
   const decoded = decodeWorldStatus({ ...status, feed: [item] });
@@ -108,7 +108,7 @@ it("decodes lossless public observation and excludes private fields at every nes
   const { decodeLivingScene, decodeObservationRequest } = await import("../src/index.js");
   const request = { ...scope, version: 1 };
   const frame = {
-    frameId: "yard-frame",
+    frameId: "hall-frame",
     version: 1,
     dimensions: 2,
     unit: { name: "millimetre", fractionalDigits: 0 },
@@ -122,10 +122,10 @@ it("decodes lossless public observation and excludes private fields at every nes
     gravity: { kind: "constant-vector", vector: ["0", "-9800"] },
   };
   const entity = {
-    objectId: "raccoon",
-    archetypeId: "raccoon",
-    pose: { frameId: "yard-frame", frameVersion: 1, coordinates: ["-9007199254740993", "2"] },
-    presentation: { kind: "placeholder", label: "Raccoon" },
+    objectId: "resident",
+    archetypeId: "resident",
+    pose: { frameId: "hall-frame", frameVersion: 1, coordinates: ["-9007199254740993", "2"] },
+    presentation: { kind: "placeholder", label: "Resident" },
   };
   const scene = {
     ...request,
@@ -210,7 +210,7 @@ it("decodes lossless public observation and excludes private fields at every nes
       ["0", "1"],
     ],
   };
-  const child = { ...frame, frameId: "child", parentFrameId: "yard-frame", parentTransform };
+  const child = { ...frame, frameId: "child", parentFrameId: "hall-frame", parentTransform };
   expect(decodeLivingScene({ ...scene, frames: [frame, child] }).frames).toEqual([frame, child]);
   expect(() =>
     decodeLivingScene({
@@ -225,7 +225,7 @@ it("decodes closed selected state with lossless time and descending command-bear
   const request = {
     ...scope,
     version: 1,
-    objectId: "raccoon",
+    objectId: "resident",
     cursor: { observedRevision: "9007199254740993", beforeSequence: "12" },
   };
   const needs = {
@@ -262,7 +262,7 @@ it("decodes closed selected state with lossless time and descending command-bear
   const selection = {
     ...scope,
     version: 1,
-    objectId: "raccoon",
+    objectId: "resident",
     privacyClass: "public_scene",
     evidence: {
       entity: "canonical",
@@ -273,10 +273,10 @@ it("decodes closed selected state with lossless time and descending command-bear
     revision: "9007199254740993",
     simulationTime: "9007199254740995",
     entity: {
-      objectId: "raccoon",
-      archetypeId: "raccoon@1",
+      objectId: "resident",
+      archetypeId: "resident@1",
       pose: { frameId: "frame", frameVersion: 1, coordinates: ["-1", "2"] },
-      presentation: { kind: "placeholder", label: "Raccoon" },
+      presentation: { kind: "placeholder", label: "Resident" },
     },
     physical: {
       needs,
@@ -480,7 +480,7 @@ it("preserves immutable recorded Why evidence and distinguishes absent, redacted
   const trace = {
     draftIndex: 2,
     schemaVersion: 1,
-    objectId: "raccoon",
+    objectId: "resident",
     inputRevision: "9007199254740993",
     simulationTime: "9007199254740995",
     policyVersion: "routine-v1",
@@ -533,7 +533,7 @@ it("preserves immutable recorded Why evidence and distinguishes absent, redacted
     kind: "routine",
     decision: {
       schemaVersion: 1,
-      objectId: "raccoon",
+      objectId: "resident",
       inputRevision: 9007199254740993n,
       simulationTime: 9007199254740995n,
       policyVersion: "routine-v1",

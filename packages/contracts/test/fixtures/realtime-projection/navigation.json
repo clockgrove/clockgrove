@@ -6,7 +6,7 @@
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "targetSpaceId": "room",
     "selectedEntityId": "actor"
@@ -31,7 +31,7 @@
         "tenantId": "tenant",
         "worldId": "world",
         "timelineId": "timeline",
-        "spaceId": "yard"
+        "spaceId": "hall"
       },
       "disposition": "stayed_within_space",
       "selectedEntityId": "actor",
@@ -61,7 +61,7 @@
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "principalId": "caretaker-principal",
     "caretakerId": "caretaker-persona",
@@ -77,7 +77,7 @@
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "speakerId": "actor",
     "text": "Public greeting",

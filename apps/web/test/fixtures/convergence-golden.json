@@ -1,7 +1,7 @@
 {
   "initial": {
     "content": {
-      "audienceHash": "audience-yard-observer",
+      "audienceHash": "audience-hall-observer",
       "compatibility": {
         "assetManifestVersion": 1,
         "clientVersion": 1,
@@ -13,7 +13,7 @@
           "assetId": "puddle",
           "pose": {
             "coordinates": ["4", "5"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "role": "puddle"
@@ -21,16 +21,16 @@
       ],
       "entities": [
         {
-          "archetypeId": "raccoon",
-          "objectId": "stevie",
+          "archetypeId": "resident",
+          "objectId": "keeper",
           "pose": {
             "coordinates": ["-9007199254740993", "2"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "presentation": {
             "kind": "placeholder",
-            "label": "Stevie"
+            "label": "Keeper"
           }
         }
       ],
@@ -50,7 +50,7 @@
             ]
           },
           "dimensions": 2,
-          "frameId": "yard-frame",
+          "frameId": "hall-frame",
           "gravity": {
             "kind": "constant-vector",
             "vector": ["0", "-9800"]
@@ -66,12 +66,12 @@
       "hierarchy": [
         {
           "label": "Den",
-          "parentSpaceId": "yard",
+          "parentSpaceId": "hall",
           "spaceId": "den"
         },
         {
-          "label": "Yard",
-          "spaceId": "yard"
+          "label": "Hall",
+          "spaceId": "hall"
         }
       ],
       "interactions": [
@@ -94,34 +94,34 @@
               "kind": "talk"
             }
           ],
-          "entityId": "stevie",
+          "entityId": "keeper",
           "mode": "cognitive"
         }
       ],
       "presentationBindings": [
         {
-          "accessibilityLabel": "Stevie resting",
+          "accessibilityLabel": "Keeper resting",
           "animationFamily": "idle",
-          "assetId": "stevie-reviewed",
-          "objectId": "stevie"
+          "assetId": "keeper-reviewed",
+          "objectId": "keeper"
         }
       ],
       "privacyClass": "public_scene",
       "revision": "9007199254740993",
       "simulationTime": "9007199254740995",
-      "spaceId": "yard",
+      "spaceId": "hall",
       "tenantId": "tenant-scene",
       "timelineId": "timeline-main",
       "weather": {
         "rainIntensity": 6000
       },
-      "worldId": "world-yard"
+      "worldId": "world-hall"
     },
-    "hash": "bad8bbc24bf1b509541bbbcbbd8c174c37f3a6fc15f7b86837e2cbfdeee4ff09"
+    "hash": "56e2d5cc3aa1007dcebdb21978f5f8a344f6cd3016d5732128d7e58f4eee412e"
   },
   "commit": {
     "content": {
-      "audienceHash": "audience-yard-observer",
+      "audienceHash": "audience-hall-observer",
       "compatibility": {
         "assetManifestVersion": 1,
         "clientVersion": 1,
@@ -133,7 +133,7 @@
           "assetId": "puddle",
           "pose": {
             "coordinates": ["4", "5"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "role": "puddle"
@@ -141,16 +141,16 @@
       ],
       "entities": [
         {
-          "archetypeId": "raccoon",
-          "objectId": "stevie",
+          "archetypeId": "resident",
+          "objectId": "keeper",
           "pose": {
             "coordinates": ["-9007199254740993", "2"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "presentation": {
             "kind": "placeholder",
-            "label": "Stevie"
+            "label": "Keeper"
           }
         }
       ],
@@ -170,7 +170,7 @@
             ]
           },
           "dimensions": 2,
-          "frameId": "yard-frame",
+          "frameId": "hall-frame",
           "gravity": {
             "kind": "constant-vector",
             "vector": ["0", "-9800"]
@@ -186,17 +186,17 @@
       "hierarchy": [
         {
           "label": "Den",
-          "parentSpaceId": "yard",
+          "parentSpaceId": "hall",
           "spaceId": "den"
         },
         {
-          "label": "Porch",
-          "parentSpaceId": "yard",
-          "spaceId": "porch"
+          "label": "Hall",
+          "spaceId": "hall"
         },
         {
-          "label": "Yard",
-          "spaceId": "yard"
+          "label": "Porch",
+          "parentSpaceId": "hall",
+          "spaceId": "porch"
         }
       ],
       "interactions": [
@@ -219,34 +219,34 @@
               "kind": "talk"
             }
           ],
-          "entityId": "stevie",
+          "entityId": "keeper",
           "mode": "cognitive"
         }
       ],
       "presentationBindings": [
         {
-          "accessibilityLabel": "Stevie resting",
+          "accessibilityLabel": "Keeper resting",
           "animationFamily": "idle",
-          "assetId": "stevie-reviewed",
-          "objectId": "stevie"
+          "assetId": "keeper-reviewed",
+          "objectId": "keeper"
         }
       ],
       "privacyClass": "public_scene",
       "revision": "9007199254740994",
       "simulationTime": "9007199254740997",
-      "spaceId": "yard",
+      "spaceId": "hall",
       "tenantId": "tenant-scene",
       "timelineId": "timeline-main",
       "weather": {
         "rainIntensity": 7000
       },
-      "worldId": "world-yard"
+      "worldId": "world-hall"
     },
-    "hash": "2c4cf72bcd8a2e64e9d30a46984bd3e34b7f97dd0ffaa78b3c52e7b64ab131ca"
+    "hash": "d641132448e74b94f5ee4e2c47d1a44bb2c7230be1154e691df616828ab19afc"
   },
   "final": {
     "content": {
-      "audienceHash": "audience-yard-observer",
+      "audienceHash": "audience-hall-observer",
       "compatibility": {
         "assetManifestVersion": 1,
         "clientVersion": 1,
@@ -258,7 +258,7 @@
           "assetId": "puddle",
           "pose": {
             "coordinates": ["4", "5"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "role": "puddle"
@@ -266,16 +266,16 @@
       ],
       "entities": [
         {
-          "archetypeId": "raccoon",
-          "objectId": "stevie",
+          "archetypeId": "resident",
+          "objectId": "keeper",
           "pose": {
             "coordinates": ["-9007199254740993", "2"],
-            "frameId": "yard-frame",
+            "frameId": "hall-frame",
             "frameVersion": 1
           },
           "presentation": {
             "kind": "placeholder",
-            "label": "Stevie"
+            "label": "Keeper"
           }
         }
       ],
@@ -295,7 +295,7 @@
             ]
           },
           "dimensions": 2,
-          "frameId": "yard-frame",
+          "frameId": "hall-frame",
           "gravity": {
             "kind": "constant-vector",
             "vector": ["0", "-9800"]
@@ -311,17 +311,17 @@
       "hierarchy": [
         {
           "label": "Den",
-          "parentSpaceId": "yard",
+          "parentSpaceId": "hall",
           "spaceId": "den"
         },
         {
-          "label": "Porch",
-          "parentSpaceId": "yard",
-          "spaceId": "porch"
+          "label": "Hall",
+          "spaceId": "hall"
         },
         {
-          "label": "Yard",
-          "spaceId": "yard"
+          "label": "Porch",
+          "parentSpaceId": "hall",
+          "spaceId": "porch"
         }
       ],
       "interactions": [
@@ -344,29 +344,29 @@
               "kind": "talk"
             }
           ],
-          "entityId": "stevie",
+          "entityId": "keeper",
           "mode": "cognitive"
         }
       ],
       "presentationBindings": [
         {
-          "accessibilityLabel": "Stevie resting",
+          "accessibilityLabel": "Keeper resting",
           "animationFamily": "idle",
-          "assetId": "stevie-reviewed",
-          "objectId": "stevie"
+          "assetId": "keeper-reviewed",
+          "objectId": "keeper"
         }
       ],
       "privacyClass": "public_scene",
       "revision": "9007199254740996",
       "simulationTime": "9007199254740997",
-      "spaceId": "yard",
+      "spaceId": "hall",
       "tenantId": "tenant-scene",
       "timelineId": "timeline-main",
       "weather": {
         "rainIntensity": 7000
       },
-      "worldId": "world-yard"
+      "worldId": "world-hall"
     },
-    "hash": "2fbdaa91ab478c44161ff4792230795dd88db1175b665735d0db17cce9642bf1"
+    "hash": "f566972a7293c273e9b96a9cdc21e66273fbf1bce32f92555c461458c65c2887"
   }
 }

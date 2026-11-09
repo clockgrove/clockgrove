@@ -5,9 +5,9 @@
     "progress": {
       "completed": 0,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
-    "route": "/world/yard"
+    "route": "/world/hall"
   },
   {
     "requestId": "arrival-request",
@@ -15,13 +15,13 @@
     "progress": {
       "completed": 1,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     }
   },
   {
@@ -30,13 +30,13 @@
     "progress": {
       "completed": 2,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     }
   },
   {
@@ -45,13 +45,13 @@
     "progress": {
       "completed": 3,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     }
   },
   {
@@ -60,13 +60,13 @@
     "progress": {
       "completed": 4,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "projectionRevision": "9007199254740993"
   },
@@ -76,13 +76,13 @@
     "progress": {
       "completed": 5,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "projectionRevision": "9007199254740993"
   },
@@ -92,13 +92,13 @@
     "progress": {
       "completed": 6,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "projectionRevision": "9007199254740993",
     "terminal": true
@@ -109,13 +109,13 @@
     "progress": {
       "completed": 6,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "projectionRevision": "9007199254740993",
     "terminal": true,
@@ -127,13 +127,13 @@
     "progress": {
       "completed": 6,
       "total": 6,
-      "resumeToken": "resume-yard"
+      "resumeToken": "resume-hall"
     },
     "scope": {
       "tenantId": "tenant",
       "worldId": "world",
       "timelineId": "timeline",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "projectionRevision": "9007199254740993",
     "terminal": true,

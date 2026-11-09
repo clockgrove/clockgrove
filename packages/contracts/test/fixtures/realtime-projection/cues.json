@@ -1,49 +1,49 @@
 [
   {
     "kind": "footstep",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-footstep",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-footstep"
   },
   {
     "kind": "splash",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-splash",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-splash"
   },
   {
     "kind": "particle",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-particle",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-particle"
   },
   {
     "kind": "sound",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-sound",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-sound"
   },
   {
     "kind": "emote",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-emote",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-emote"
   },
   {
     "kind": "hover_hint",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-hover_hint",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-hover_hint"
   },
   {
     "kind": "animation_transition",
-    "objectId": "stevie",
+    "objectId": "keeper",
     "reference": "cue-animation_transition",
     "expiresAt": "2026-10-30T22:00:01Z",
     "dedupeKey": "dedupe-animation_transition"

@@ -5,7 +5,7 @@ import { decodeActorAddress, decodeActorTargetBinding } from "../src/index.js";
 const scope = { tenantId: "tenant-a", worldId: "world-a", timelineId: "timeline-main" };
 
 it("rejects an actor address outside its tenant, world, timeline or identity binding", () => {
-  const binding = decodeActorTargetBinding({ ...scope, kind: "space", id: "space-yard" });
+  const binding = decodeActorTargetBinding({ ...scope, kind: "space", id: "space-hall" });
   expect(decodeActorAddress({ version: 1, ...binding }, binding)).toEqual({
     version: 1,
     ...binding,

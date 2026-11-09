@@ -12,14 +12,14 @@
     "messageId": "private-message",
     "scope": {
       "tenantId": "tenant-scene",
-      "worldId": "world-yard",
+      "worldId": "world-hall",
       "timelineId": "timeline-main",
-      "spaceId": "yard"
+      "spaceId": "hall"
     },
     "principalId": "principal-caretaker",
     "caretakerId": "caretaker-persona",
     "caretakerName": "Named Caretaker",
-    "actorId": "stevie",
+    "actorId": "keeper",
     "text": "sentinel-private-cognition",
     "sentAt": "2026-10-30T22:00:00Z"
   }

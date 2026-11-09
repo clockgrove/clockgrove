@@ -158,7 +158,7 @@ it("accepts the prior projection version 1 only without version 2's effects", as
 });
 
 it("freezes strict audience and complete reviewed asset metadata", async () => {
-  const audience = { kind: "observer", hash: "audience-yard-observer", spaceIds: ["yard", "den"] };
+  const audience = { kind: "observer", hash: "audience-hall-observer", spaceIds: ["hall", "den"] };
   expect(decodeSceneAudience(audience)).toEqual(audience);
   expect(() => decodeSceneAudience({ ...audience, grants: ["operator"] })).toThrow(
     ContractDecodeError,
@@ -175,25 +175,25 @@ it("freezes strict audience and complete reviewed asset metadata", async () => {
     contentHash: "sha256-manifest-content",
     assets: [
       {
-        assetId: "stevie-reviewed",
+        assetId: "keeper-reviewed",
         provenance: {
           source: "original-clockgrove",
           creator: "Clockgrove artists",
           license: "CC0-1.0",
           tool: "fixture-tool",
-          generated: { prompt: "Resting raccoon", references: ["original-study"] },
+          generated: { prompt: "Resting resident", references: ["original-study"] },
         },
         reviewStatus: "approved",
-        semanticEntityId: "stevie",
-        semanticArchetypeId: "raccoon",
+        semanticEntityId: "keeper",
+        semanticArchetypeId: "resident",
         animationFamily: "idle",
         anchor: ["0", "0"],
         footprint: ["1", "1"],
         bounds: ["0", "0", "1", "1"],
         palette: ["brown", "gray"],
-        contentHash: "sha256-stevie-content",
-        atlasLocation: "atlas/stevie",
-        accessibilityLabel: "Stevie resting",
+        contentHash: "sha256-keeper-content",
+        atlasLocation: "atlas/keeper",
+        accessibilityLabel: "Keeper resting",
       },
     ],
   });

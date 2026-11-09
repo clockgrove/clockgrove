@@ -140,7 +140,7 @@ it("serializes every droppable cue family with exact expiry and dedupe identity,
       "animation_transition",
     ].map((kind) => ({
       kind,
-      objectId: "stevie",
+      objectId: "keeper",
       reference: `cue-${kind}`,
       expiresAt: "2026-10-30T22:00:01Z",
       dedupeKey: `dedupe-${kind}`,
@@ -149,9 +149,9 @@ it("serializes every droppable cue family with exact expiry and dedupe identity,
   for (const cue of cues) {
     const message = {
       tenantId: "tenant-scene",
-      worldId: "world-yard",
+      worldId: "world-hall",
       timelineId: "timeline-main",
-      spaceId: "yard",
+      spaceId: "hall",
       protocolVersion: 1,
       messageId: `message-${cue.kind}`,
       sentAt: "2026-10-30T22:00:00Z",
@@ -227,15 +227,15 @@ it("refuses invalid timestamps, traceparents and snapshots whose collections dis
     ],
     [spaces({ spaceId: "den", label: "Den" }), "projection.hierarchy: missing the projected space"],
     [spaces(projection.hierarchy[0], projection.hierarchy[0]), "hierarchy[1].spaceId: duplicate"],
-    [spaces({ spaceId: "yard", label: "Yard", parentSpaceId: "yard" }), "cyclic hierarchy"],
+    [spaces({ spaceId: "hall", label: "Hall", parentSpaceId: "hall" }), "cyclic hierarchy"],
     [
       spaces(
-        { spaceId: "yard", label: "Yard", parentSpaceId: "den" },
-        { spaceId: "den", label: "Den", parentSpaceId: "yard" },
+        { spaceId: "hall", label: "Hall", parentSpaceId: "den" },
+        { spaceId: "den", label: "Den", parentSpaceId: "hall" },
       ),
       "projection.hierarchy[0]: cyclic hierarchy",
     ],
-    [spaces({ spaceId: "yard", label: "Yard", parentSpaceId: "vault" }), "unknown parent"],
+    [spaces({ spaceId: "hall", label: "Hall", parentSpaceId: "vault" }), "unknown parent"],
   ] as [unknown, string][])
     expect(() => decodeObserverSceneMessage(message), error).toThrow(error);
 });

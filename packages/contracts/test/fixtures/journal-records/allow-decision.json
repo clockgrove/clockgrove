@@ -14,7 +14,7 @@
     "initiatorId": "human:caretaker",
     "effectiveActorId": "persona-caretaker",
     "causalRootActionId": "action-open-1",
-    "sessionId": "session-stevie"
+    "sessionId": "session-keeper"
   },
   "inputs": {
     "principalId": "principal-alex",

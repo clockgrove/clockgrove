@@ -38,8 +38,8 @@ it("preserves resumable arrival, terminal semantic fallback and authorized viewi
   const textReady = {
     requestId: "arrival-request",
     state: "text_ready",
-    progress: { completed: 6, total: 6, resumeToken: "resume-yard" },
-    scope: { tenantId: "tenant", worldId: "world", timelineId: "timeline", spaceId: "yard" },
+    progress: { completed: 6, total: 6, resumeToken: "resume-hall" },
+    scope: { tenantId: "tenant", worldId: "world", timelineId: "timeline", spaceId: "hall" },
     projectionRevision: 9007199254740993n,
     terminal: true,
     reason: "assets_unavailable",
@@ -58,7 +58,7 @@ it("preserves resumable arrival, terminal semantic fallback and authorized viewi
     [boots[7], 5, 6],
   ] as const)
     expect(() =>
-      decodeWorldBootState({ ...boot, progress: { completed, total, resumeToken: "resume-yard" } }),
+      decodeWorldBootState({ ...boot, progress: { completed, total, resumeToken: "resume-hall" } }),
     ).toThrow(ContractDecodeError);
   expect(() => decodeWorldBootState({ ...boots[0], privateState: "hidden" })).toThrow(
     ContractDecodeError,
@@ -168,7 +168,7 @@ it("keeps material summaries and all disclosed interaction modes closed", () => 
       ],
     },
     {
-      entityId: "stevie",
+      entityId: "keeper",
       mode: "cognitive",
       actions: [
         { kind: "observe", availability: "enabled" },
