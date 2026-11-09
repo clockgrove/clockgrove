@@ -36,9 +36,25 @@ Manifest and presentation shapes are owned by the
 - `contentHash` equals the SHA-256 of the source bytes.
 - The PNG is 8-bit RGBA ("transparency") of `frames.width * frames.count` by `frames.height`
   ("dimensions").
-- Every alpha is 0 or 255, and at least one pixel is transparent unless the role is `terrain`.
-- Every opaque colour is in `palette` and every palette colour is used.
-- `bounds` equals the opaque bounding box of the union of all frames, in frame coordinates.
+- A declared `reference/asset-style.json` supplies alpha, colour, edge and per-role frame limits.
+  Missing and malformed profiles are refused with `STYLE_PROFILE_REQUIRED` and `STYLE_PROFILE_INVALID`.
+- Binary alpha permits only 0 and 255; soft alpha accepts all byte values. Bounds use 255 for
+  binary profiles and `boundsThreshold` for soft profiles, including pixels equal to the threshold.
+- Palette profiles check every nonzero-alpha colour against the world palette; `exact` requires
+  every declared world colour to appear, while `subset` permits unused world colours. Manifest
+  palettes still list exactly the colours used by that asset. Unrestricted profiles do not check
+  the manifest palette inventory, allowing full-colour art and binary placeholders side by side.
+- `transparent-pixel` requires a transparent pixel unless the role is `terrain`;
+  `transparent-border` requires zero alpha on every outer edge of every frame, including terrain.
+  `unrestricted` imposes no edge requirement.
+- `bounds` equals the thresholded bounding box of the union of all frames, in frame coordinates.
+- Profile failures use `STYLE_ALPHA`, `STYLE_PALETTE`, `STYLE_EDGE` and `STYLE_SIZE`; hash,
+  frame grid, naming, PNG decoding and bounds remain platform checks under every profile.
+
+`validateSource(manifest, bytes, manifestPath, profile)` requires an explicit decoded profile;
+omission returns `STYLE_PROFILE_REQUIRED`. `check`, `build` and `update-golden` preflight every
+source against the profile and check atlas placements before writing any reviewed or golden output.
+Profile and source refusals exit 1; an unknown command exits 2.
 
 ## Packing
 
@@ -96,7 +112,7 @@ contract fixtures. These records test the approved branch of the deploy gate; th
 represent a human review of external world artwork. Unreviewed and unlicensed negative controls,
 source validation, exact atlas rebuilding and golden refusal checks remain enabled.
 
-## World style data (issue 61, first part)
+## World style data
 
 World authors can declare `reference/asset-style.json` beside their presentation metadata.
 The [style-profile contract](../../../docs/protocols/shared-contracts.md#world-asset-style-profile)
@@ -107,6 +123,8 @@ rule and 256 px frame limits for every role. Other profiles can declare soft alp
 bounds threshold, unrestricted colour, palette subsets, transparent borders and larger
 frames within the platform envelope.
 
-This first part supplies the format and fixture declaration. The validator, atlas builder
-and CLI still use the pixel-art rules above; profile enforcement, larger manifest frames
-and external-world asset commands land in subsequent parts of issue 61.
+The validator and fixture CLI enforce the declared profile. Manifest version 1 still limits
+frames to 256 px independently of the declared role limits. The manifest-version migration
+for larger frames and generated provenance, bounded multi-atlas packing and external-world
+commands remain subsequent parts of issue 61. Upload retains its existing review/licence and
+golden gate; it does not itself perform source/profile validation.
