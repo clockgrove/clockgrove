@@ -45,7 +45,8 @@
     "qualify:wave3": "node scripts/ci/qualify-wave3.mjs",
     "qualify:wave3:load-curves": "node scripts/ci/qualify-wave3-load-curves.mjs",
     "qualify:wave4": "node scripts/ci/qualify-wave4.mjs",
-    "dev:world": "node scripts/dev-world.mjs"
+    "dev:world": "node scripts/dev-world.mjs",
+    "shadow:decision": "node scripts/decision-shadow.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

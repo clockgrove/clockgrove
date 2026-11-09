@@ -198,6 +198,10 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   refuses with `unavailable` when it runs out. Tests and replays use it; replay never calls a model.
 
 The runtime's shadow tier consumes it ([decision shadow](../../../docs/protocols/decision-shadow.md)).
+The [offline shadow command](../../../docs/runbooks/runtime.md#offline-decision-shadow-day) sends
+actor state and candidate features without utility scores or ranking. Reports separate utility
+agreement by the declared ambiguity margin from labelled fixture-reference accuracy, and count
+unknown costs beside known spend. It remains observational until the owner reads the numbers.
 
 Wake triage (issue 111) uses this same `decide` port and a configured decision alias; it does not
 route through generation. Runtime composition reads the optional `WAKE_TRIAGE_CONFIG` JSON binding.

@@ -34,6 +34,8 @@ The `signature` hashes the point id, the actor (or its archetype when the point'
 
 Agreement is comparison with the deterministic policy, never accuracy. Each summary counts candidate answers, including low-confidence answers, with abstentions and failures shown separately. Historical records without margin evidence are unclassified. Known cost is summed separately from unknown-cost calls; an uncalled over-budget record is not an unknown-cost call.
 
+The supported [offline shadow command](../runbooks/runtime.md#offline-decision-shadow-day) runs a selected pack and a labelled native-scored fixture reference set under one conservative spend cap. The reference report includes expected picks, one-line reasons, coverage and accuracy independently of utility agreement; those labels and reasons never reach the model.
+
 ## Proof
 
 `apps/runtime/test/decision-evidence/shadow.postgres.test.ts`: PostgreSQL, the native owner and a scripted decider. A real-model run on an operator-selected world is a maintainer step; its numbers go on issue 76.
