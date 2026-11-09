@@ -1,26 +1,35 @@
-# Dependabot PRs merge themselves: this turns on auto-merge, and the merge queue and the required checks still decide.
-# fetch-metadata refuses a PR whose commits are not Dependabot's, so a push by anyone else to its branch stops here.
-# Part of the clockgrove repository standard (~/work/ops/repo-standard.sh).
+# Dependabot PRs merge themselves: every hour this turns on auto-merge for each open Dependabot PR whose commits are
+# all Dependabot's, pinned to the head it checked; the merge queue and the required checks still decide. It runs on a
+# schedule on the default branch, never on a pull_request event, and checks out no PR code: Factory refuses any
+# PR-triggered job holding a write token. Part of the clockgrove repository standard (~/work/ops/repo-standard.sh).
 name: Dependabot auto-merge
-on: pull_request
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
 permissions: {}
+concurrency:
+  group: dependabot-automerge
 jobs:
   automerge:
-    if: github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        id: meta
-      - name: Queue the PR once the required checks pass
+      - name: Turn on auto-merge for each Dependabot PR
         run: |
-          echo "$UPDATE_TYPE update of $DEPS"
-          gh pr merge --auto --squash "$PR"
-        env:
-          PR: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ github.token }}
-          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
-          DEPS: ${{ steps.meta.outputs.dependency-names }}
+          for pr in $(gh pr list --author app/dependabot --state open --json number,isDraft,isCrossRepository \
+              --jq '.[] | select((.isDraft | not) and (.isCrossRepository | not)) | .number'); do
+            info=$(gh pr view "$pr" --json headRefOid,autoMergeRequest,commits)
+            head=$(jq -r .headRefOid <<<"$info")
+            others=$(jq '[.commits[].authors[].login | select(. != "dependabot[bot]" and . != "dependabot")] | length' <<<"$info")
+            if [ "$others" != 0 ]; then echo "#$pr has commits from someone other than Dependabot; skipped"; continue; fi
+            if [ "$(jq '.autoMergeRequest != null' <<<"$info")" = true ]; then echo "#$pr already set"; continue; fi
+            gh pr merge "$pr" --auto --squash --match-head-commit "$head" || echo "::warning::#$pr: auto-merge not set"
+          done
