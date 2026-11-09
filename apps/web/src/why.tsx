@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SceneSession } from "./scene-api.js";
 import { useWhyQuery } from "./scene-queries.js";
 
@@ -54,6 +54,7 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
       </button>
       {value && (
         <>
+          <InspectionAccess key={`${session.getIntent()}:${why.commandId}`} session={session} />
           <p>
             Started from{" "}
             {value.entry.kind === "command"
@@ -163,6 +164,32 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
           <p>Child commands: {value.links.children.join(", ") || "None"}</p>
         </>
       )}
+    </section>
+  );
+}
+
+function InspectionAccess({ session }: { readonly session: SceneSession }) {
+  const [status, show] = useState<string>();
+  const request = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => request.current?.abort(), []);
+  async function inspect() {
+    request.current?.abort();
+    const current = new AbortController();
+    request.current = current;
+    show("Loading inspector.");
+    try {
+      const answer = await session.inspectRecordedWhy(current.signal);
+      if (!current.signal.aborted) show(answer);
+    } catch {
+      if (!current.signal.aborted) show("Inspector unavailable.");
+    }
+  }
+  return (
+    <section aria-label="Inspector">
+      <button type="button" onClick={() => void inspect()}>
+        Inspect command
+      </button>
+      {status && <p role="status">{status}</p>}
     </section>
   );
 }

@@ -180,6 +180,9 @@ Multisampling is off. Texture accounting conservatively includes the renderer ou
 RGBA16F/depth-stencil target, the tier-scaled scene pass, the scaled bright target and both
 five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
 WebGPU device loss follows the same text fallback as WebGL context loss.
+After renderer or asset failure, **Retry canvas** creates a fresh renderer and loads
+the latest retained reducer projection. The text scene remains available throughout;
+retrying does not reconnect the observation or issue a world command.
 
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
@@ -191,3 +194,9 @@ duplicate atlas storage. Reflections borrow their source texture and copy animat
 dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts
 unique material-map Texture identities across the whole scene, including effects, reflections and
 generated labels, plus the conservative render-target allocations above.
+
+The Recorded Why panel's **Inspect command** action requests the existing operator
+causal-chain read under `runtime:world-inspect`. Observation alone shows an explicit
+inspection denial. An authorized response displays the recorded command receipt
+identity and status; public Why remains available under `runtime:world-observe`.
+Closing or changing the panel cancels pending inspection work.

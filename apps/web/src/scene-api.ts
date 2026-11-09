@@ -2,6 +2,7 @@ import {
   type BrowserScope,
   type ClientViewTrace,
   type ClientViewTraceRequest,
+  COMMAND_RECEIPT_STATUSES,
   type CommandId,
   decodeClientViewTrace,
   decodeConversationList,
@@ -299,6 +300,47 @@ export class SceneSession {
     whyProjection(this.entry, this.queries.getQueryState<RecordedWhy>(this.whyKey));
   readonly getViewTraceSnapshot = () =>
     viewTraceProjection(this.viewOpen, this.queries.getQueryState<ClientViewTrace>(this.viewKey));
+  async inspectRecordedWhy(signal: AbortSignal): Promise<string> {
+    const { scope } = this.getSnapshot();
+    const credential = this.credential;
+    const commandId = this.getWhySnapshot().value?.commandId;
+    const intent = this.intent;
+    const whyIntent = this.whyIntent;
+    if (!scope || !credential || !commandId) return "Inspector unavailable.";
+    const response = await fetch(new URL("/v1/runtime/causal-chain", this.origin), {
+      method: "POST",
+      signal,
+      cache: "no-store",
+      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+      body: JSON.stringify({ schemaVersion: 1, ...scope, commandId }),
+    });
+    if (intent !== this.intent || whyIntent !== this.whyIntent) throw new ApiRefusal(409);
+    if (response.status === 403)
+      return "Inspector denied. This session lacks inspection authority.";
+    if (!response.ok) return "Inspector unavailable.";
+    const field = (node: unknown, key: string): unknown =>
+      Array.isArray(node) && node.length === 2 && node[0] === "record" && Array.isArray(node[1])
+        ? node[1].find(
+            (pair: unknown) => Array.isArray(pair) && pair.length === 2 && pair[0] === key,
+          )?.[1]
+        : undefined;
+    const text = (node: unknown): string | undefined =>
+      Array.isArray(node) &&
+      node.length === 2 &&
+      node[0] === "string" &&
+      typeof node[1] === "string"
+        ? node[1]
+        : undefined;
+    const receipt = field(await response.json(), "receipt");
+    const id = text(field(receipt, "commandId"));
+    const status = text(field(receipt, "status"));
+    if (signal.aborted || intent !== this.intent || whyIntent !== this.whyIntent)
+      throw new ApiRefusal(409);
+    return id === commandId && COMMAND_RECEIPT_STATUSES.some((known) => known === status)
+      ? `Inspector command ${id}: ${status}.`
+      : "Inspector unavailable.";
+  }
+
   explain(commandId: CommandId | undefined): void {
     const action = this.getSelectionSnapshot().value?.history.actions.find(
       (candidate) => candidate.commandId === commandId,

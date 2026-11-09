@@ -1,11 +1,11 @@
 {
-  "source": "docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md §15.2, §16",
+  "source": "docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md \u00a715.2, \u00a716",
   "scenarios": [
     {
       "id": "S1",
       "section": "15.2",
       "scenario": "two observers join before/after an event and converge",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -14,9 +14,12 @@
         {
           "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
           "marker": "// A new transport's resume reads the already committed endpoint."
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// S1: an observer before the event and an observer after it converge on the same view."
         }
-      ],
-      "deviation": "No browser journey joins one observer before and one after an event; the reducer contract covers a late join."
+      ]
     },
     {
       "id": "S2",
@@ -62,7 +65,7 @@
       "id": "S4",
       "section": "15.2",
       "scenario": "network offline/online, token expiry, hibernation, DO restart, Worker deploy",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
@@ -83,26 +86,33 @@
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// S4: the browser goes offline, reports recovery, and resumes the committed scene."
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// F4: the stored session expires; an ordinary read denies it until a renewed session signs in."
         }
       ],
-      "deviation": "Local workerd equivalents only; hosted hibernation, restart and deploy are pending on issue 3. No browser offline/online or browser token-expiry step."
+      "deviation": "Local browser offline/online and session expiry are covered; hosted hibernation, restart and deploy remain pending on issue 3."
     },
     {
       "id": "S5",
       "section": "15.2",
       "scenario": "world pauses/resumes/speeds up",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The HUD shows PostgreSQL's paused clock, the pack's speed and 86 400 000 ms day, and rain."
         },
         {
-          "file": "packages/application/test/timeline-clock.test.ts",
-          "marker": "preserves earned backlog through pause, speed changes and resume without earning paused time"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// S5: pause, resume and speed changes are transitions in the browser HUD."
         }
-      ],
-      "deviation": "The browser shows the paused clock and speed; pause, resume and speed-up transitions are proven below the browser."
+      ]
     },
     {
       "id": "S6",
@@ -204,7 +214,7 @@
         },
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
-          "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+          "marker": "// \u00a716 asset 404: the reviewed atlas is missing behind a loaded renderer."
         },
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
@@ -260,7 +270,7 @@
       "id": "S12",
       "section": "15.2",
       "scenario": "snapshot ready before critical assets, asset recovery, and no false scene_ready",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -269,9 +279,12 @@
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Signed out, the routed boot holds route_resolving; scene_ready follows the presentation."
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// S12: snapshot arrives before the held atlas, with no false scene_ready; release recovers."
         }
-      ],
-      "deviation": "No false scene_ready is proven; asset recovery after a snapshot-first arrival is not."
+      ]
     },
     {
       "id": "S13",
@@ -297,7 +310,7 @@
       "evidence": [
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
-          "marker": "// Talk is a scripted fixture: private talk stays private, public speech is explicit, nothing is stored."
+          "marker": "// Public Say is explicit and scripted; private Talk lives in conversation sessions, which"
         },
         {
           "file": "packages/contracts/test/scene-privacy.test.ts",
@@ -327,7 +340,7 @@
       "id": "F1",
       "section": "16",
       "scenario": "socket drop before/after snapshot",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -336,9 +349,12 @@
         {
           "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
           "marker": "commits before notification and fences retired transport work"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// F1: deliberately close the first socket before its snapshot reaches the client."
         }
-      ],
-      "deviation": "Drop before the snapshot is proven only in the reducer contract."
+      ]
     },
     {
       "id": "F2",
@@ -364,7 +380,7 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-admission.postgres.test.ts",
-          "marker": "// §16 stale join assertion: one signed under the stale epoch 1 is refused and admits"
+          "marker": "// \u00a716 stale join assertion: one signed under the stale epoch 1 is refused and admits"
         },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
@@ -376,7 +392,7 @@
       "id": "F4",
       "section": "16",
       "scenario": "expired token",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/scene-admission.postgres.test.ts",
@@ -385,9 +401,12 @@
         {
           "file": "apps/web/test/query-state.journey.contract.test.ts",
           "marker": "retires scope and credential lifetimes, refusal and sign-out without late interference"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// F4: the stored session expires; an ordinary read denies it until a renewed session signs in."
         }
-      ],
-      "deviation": "No browser journey with an expired token."
+      ]
     },
     {
       "id": "F5",
@@ -453,7 +472,7 @@
       "scenario": "corrupt cached metadata",
       "coverage": "not_applicable",
       "evidence": [],
-      "reason": "The web client keeps no persistent metadata cache (owner decision 2026-11-07, plan §16 amendment); a later wave that adds one owns this test."
+      "reason": "The web client keeps no persistent metadata cache (owner decision 2026-11-07, plan \u00a716 amendment); a later wave that adds one owns this test."
     },
     {
       "id": "F10",
@@ -467,7 +486,7 @@
         },
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
-          "marker": "// §16 asset 404: the reviewed atlas is missing behind a loaded renderer."
+          "marker": "// \u00a716 asset 404: the reviewed atlas is missing behind a loaded renderer."
         },
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
@@ -487,7 +506,7 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// §16 React error boundary: a throwing hall component leaves a focused, announced error"
+          "marker": "// \u00a716 React error boundary: a throwing hall component leaves a focused, announced error"
         }
       ]
     },
@@ -507,7 +526,7 @@
       "id": "F13",
       "section": "16",
       "scenario": "inspector authorization denial",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/observer-authority.postgres.test.ts",
@@ -516,9 +535,12 @@
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A held obsolete authorization failure cannot erase a newer entity selection."
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// F13: an observer without inspect authority sees the inspector denial."
         }
-      ],
-      "deviation": "Server denial is proven; no inspector-denied browser step."
+      ]
     },
     {
       "id": "A1",
@@ -568,7 +590,7 @@
       "id": "A4",
       "section": "16",
       "scenario": "scene can rebuild from reducer state",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -577,15 +599,18 @@
         {
           "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
           "marker": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// A4: retry rebuilds the canvas from the retained reducer projection, without another socket."
         }
-      ],
-      "deviation": "No journey rebuilds the canvas from reducer state after a loss."
+      ]
     },
     {
       "id": "A5",
       "section": "16",
       "scenario": "browser errors do not corrupt or mutate the world",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
@@ -594,9 +619,12 @@
         {
           "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
           "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// A5: browser error-boundary handling leaves exact PostgreSQL world facts unchanged."
         }
-      ],
-      "deviation": "A React error boundary failure is not exercised (F11)."
+      ]
     },
     {
       "id": "A6",
@@ -630,7 +658,7 @@
         },
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// The renderer never loads, so the whole journey runs with no canvas at all (§16)."
+          "marker": "// The renderer never loads, so the whole journey runs with no canvas at all (\u00a716)."
         }
       ]
     }

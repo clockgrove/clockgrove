@@ -12,22 +12,42 @@
       "scenario": "real-cloudflare-hibernation",
       "status": "pending",
       "ownerIssue": 3,
-      "blockedOn": [1, 2],
+      "blockedOn": [
+        1,
+        2
+      ],
       "evidence": null
     },
     {
       "scenario": "real-cloudflare-restart",
       "status": "pending",
       "ownerIssue": 3,
-      "blockedOn": [1, 2],
+      "blockedOn": [
+        1,
+        2
+      ],
       "evidence": null
     },
     {
       "scenario": "real-cloudflare-redeploy",
       "status": "pending",
       "ownerIssue": 3,
-      "blockedOn": [1, 2],
+      "blockedOn": [
+        1,
+        2
+      ],
       "evidence": null
     }
-  ]
+  ],
+  "localBrowser": {
+    "environment": "local-shell-workerd-postgresql",
+    "world": "fixture/reference",
+    "source": "tests/e2e/living-hall.journey.browser.test.mjs",
+    "backends": [
+      "webgpu",
+      "webgl2"
+    ],
+    "scenarioMatrix": "scripts/ci/qualify-wave4-scenarios.json",
+    "hostedQualification": false
+  }
 }
