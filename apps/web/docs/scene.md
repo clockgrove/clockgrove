@@ -48,6 +48,21 @@ reason: a missing, unverifiable or unloadable reviewed atlas is `assets_unavaila
 WebGL context is `renderer_unavailable`. The shell then destroys the adapter and shows the text
 path. The reducer's committed projection is untouched.
 
+## Material delivery
+
+A material-enabled atlas animation exposes every named channel and supplied density. Both 1× and
+2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and BC3
+DDS texture, dimensions, byte sizes and frame rectangles. Selection considers device pixel ratio
+and the available texture budget. A smaller rendition preserves the same logical frame size,
+anchor and world footprint. The product renderer loads the selected albedo PNG with the same
+hash verification as flat sprites and honours its declared colour encoding; channels it cannot shade remain available through the shared
+adapter data and do not prevent drawing albedo. The existing text fallback and reduced-motion
+policy apply to material-enabled assets too.
+
+Projected `lighting` carries sun/moon directions and colours, placed light properties, weather
+intensity and a grading key. Renderer implementations consume supported parameters from this
+committed data. Legacy projections without lighting retain their existing environment policy.
+
 ## Isometric rules (§9.2)
 
 - **Camera.** The camera is fixed at 2:1 isometric, with east running down-right and north running

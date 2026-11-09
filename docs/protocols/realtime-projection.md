@@ -83,6 +83,28 @@ version 1 through `set_compatibility` must not carry `set_effects`. Any other pr
 refused with `unsupported_projection_version`. A version-1 client therefore refuses a version-2
 snapshot or patch with that stable code and its recovery surface, instead of a generic field error.
 
+Material-enabled presentation bindings optionally carry `material`, versioned independently as
+`materialVersion: 1`. Each density carries named channel textures, PNG and BC3 DDS content hashes
+and byte sizes, image dimensions and frame rectangles. The owning binding supplies the asset and
+animation family. Runtime family changes use delivery metadata for the selected family; they do
+not reuse another family's frame grid. Legacy bindings retain the flat-sprite path. The asset build's reviewed
+`materials.json` maps `assetId/animationFamily` to this delivery data. Composition passes that map
+as `materials` alongside `presentation`, `drawable` and `activity` in `WORLD_PRESENTATION` (or
+local `runtime.json` presentations). `decodeScenePresentations` decodes each entry before the
+producer attaches the selected family's material. A binding may also carry delivery directly;
+family lookup takes precedence, and changing family never retains stale metadata.
+
+Material-enabled presentations opt into the optional `lighting` projection field. Legacy flat
+presentations retain their existing snapshot and patch shapes. The field carries renderer-neutral `directional` sources (`sun`
+and `moon`, unit direction vectors, RGB hex colours and intensity), `placed` lantern/window
+sources (pose, colour, intensity and range in metres), `weatherIntensity` and `gradingKey`.
+The projection producer derives these from committed time, weather and visible effect placements,
+never painted artwork. Light poses follow the same visibility filtering as effects. Lighting is
+presentation data and grants no simulation authority. Patch delivery replaces the lighting value
+atomically so time/weather changes cannot leave stale parameters in the client. The
+`set_lighting` operation accepts `null` to clear the optional field when returning to a legacy
+presentation. A snapshot without lighting restores the product renderer’s legacy light rig.
+
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
 fields they change; arbitrary JSON extensions and whole-entity-list replacements are excluded.

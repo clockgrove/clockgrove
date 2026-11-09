@@ -864,3 +864,207 @@ it.each(BACKENDS)(
   captureGoldenStates,
   240_000,
 );
+
+it("draws generated material albedo at DPR 2 while retaining unsupported channels and reduced motion", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const { buildAtlases, encodePng, materialAtlasFiles, atlasIndex, validateSource, sha256Hex } =
+    await import("../../packages/assets/src/index.ts");
+  const { decodeAssetManifest, decodeAssetStyleProfile } = await import(
+    "../../packages/contracts/src/index.ts"
+  );
+  const assets = await mkdtemp(path.join(os.tmpdir(), "clockgrove-material-renderer-"));
+  const template = JSON.parse(
+    await readFile(
+      path.join(root, "packages/contracts/test/fixtures/asset-manifest/approved.json"),
+      "utf8",
+    ),
+  );
+  const style = JSON.parse(
+    await readFile(path.join(root, "worlds/fixture/reference/asset-style.json"), "utf8"),
+  );
+  const policy = {
+    albedo: { encoding: "linear", min: 0, max: 255, maxFrameChange: 0 },
+    normal: { encoding: "linear", min: 0, max: 255, maxFrameChange: 0 },
+  };
+  const profile = decodeAssetStyleProfile({
+    ...style,
+    colour: { mode: "unrestricted" },
+    material: {
+      materialVersion: 1,
+      roles: Object.fromEntries(
+        ["actor", "object", "terrain", "effect"].map((role) => [role, policy]),
+      ),
+    },
+  });
+  const sources = {};
+  const renditions = [1, 2].map((density) => ({
+    density,
+    channels: Object.fromEntries(
+      ["albedo", "normal"].map((channel) => {
+        const width = 8 * density,
+          height = 4 * density,
+          rgba = new Uint8Array(width * height * 4);
+        for (let frame = 0; frame < 2; frame++)
+          for (let y = density; y < 3 * density; y++)
+            for (let x = density; x < 3 * density; x++)
+              rgba.set(
+                channel === "albedo" ? [128, 96, 64, 255] : [128, 128, 255, 255],
+                (y * width + frame * 4 * density + x) * 4,
+              );
+        const source =
+          density === 1 && channel === "albedo"
+            ? "assets/source/material-actor/idle.png"
+            : `assets/source/material-actor/idle-${density}x-${channel}.png`;
+        const bytes = encodePng({ width, height, rgba });
+        sources[source] = bytes;
+        return [channel, { path: source, sha256: sha256Hex(bytes) }];
+      }),
+    ),
+  }));
+  const bytes = sources["assets/source/material-actor/idle.png"];
+  const manifest = decodeAssetManifest({
+    ...template,
+    assetId: "material-actor",
+    animationFamily: "idle",
+    source: { ...template.source, path: "assets/source/material-actor/idle.png" },
+    semantic: { ...template.semantic, role: "actor" },
+    frames: { width: 4, height: 4, count: 2, durationMs: 100 },
+    anchor: { x: 2, y: 3 },
+    bounds: { x: 1, y: 1, width: 2, height: 2 },
+    palette: ["#806040"],
+    contentHash: sha256Hex(bytes),
+    atlas: { atlasId: "material", x: 0, y: 0 },
+    material: { materialVersion: 1, renditions },
+  });
+  expect(validateSource(manifest, bytes, undefined, profile, sources)).toEqual([]);
+  const atlases = buildAtlases([{ manifest, bytes, materialSources: sources }], undefined, profile);
+  const outputs = [
+    ...materialAtlasFiles(atlases),
+    ...atlases.flatMap((atlas) => [
+      { name: `${atlas.atlasId}.png`, bytes: atlas.png },
+      { name: `${atlas.atlasId}.animations.json`, bytes: atlas.animations },
+    ]),
+    { name: "atlases.json", bytes: atlasIndex(atlases) },
+  ];
+  for (const output of outputs) await writeFile(path.join(assets, output.name), output.bytes);
+  expect(outputs.reduce((n, output) => n + Buffer.byteLength(output.bytes), 0)).toBeLessThan(
+    262144,
+  );
+  const material = JSON.parse(atlases[0].animations).animations[0].material;
+  const wire = JSON.parse(
+    await readFile(
+      path.join(root, "packages/contracts/test/fixtures/realtime-projection/snapshot.golden.json"),
+      "utf8",
+    ),
+  ).payload;
+  wire.entities[0].pose.coordinates = ["0", "0"];
+  wire.presentationBindings = [
+    {
+      objectId: wire.entities[0].objectId,
+      assetId: manifest.assetId,
+      animationFamily: "idle",
+      accessibilityLabel: "Generated actor",
+      material,
+    },
+  ];
+  wire.weather.rainIntensity = 0;
+  wire.effects = [];
+  const shell = JSON.parse(
+    await readFile(path.join(root, "worlds/fixture/reference/shell.json"), "utf8"),
+  );
+  let server, browser;
+  try {
+    server = await createServer({
+      root: path.join(root, "apps/web"),
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      publicDir: assets,
+      define: { __WORLD_SHELL__: JSON.stringify(shell) },
+      server: { host: "127.0.0.1", port: 0 },
+      plugins: [
+        {
+          name: "material-proof-webgl",
+          transform(code, id) {
+            if (id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts"))
+              return {
+                code: code.replace(
+                  "new THREE.WebGPURenderer({",
+                  "new THREE.WebGPURenderer({ forceWebGL: true,",
+                ),
+                map: null,
+              };
+          },
+        },
+      ],
+    });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+    const page = await browser.newPage({
+      viewport: { width: 960, height: 540 },
+      deviceScaleFactor: 2,
+      reducedMotion: "reduce",
+    });
+    await page.addInitScript((shell) => {
+      globalThis.__WORLD_SHELL__ = shell;
+    }, shell);
+    const requested = [];
+    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+    await page.route("**/material-proof", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<div id='scene'></div>" }),
+    );
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/material-proof`);
+    const result = await page.evaluate(async (wire) => {
+      const { ThreeWorldSceneAdapter } = await new Function('return import("/src/renderer.ts")')();
+      let adapter;
+      await new Promise((resolve, reject) => {
+        adapter = new ThreeWorldSceneAdapter(document.querySelector("#scene"), resolve, (reason) =>
+          reject(new Error(reason)),
+        );
+      });
+      adapter.setReducedMotion(true);
+      adapter.loadSnapshot({
+        ...wire,
+        revision: BigInt(wire.revision),
+        simulationTime: BigInt(wire.simulationTime),
+      });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const animation = adapter.atlas.get("material-actor/idle");
+      if (!animation) throw new Error("Missing material animation");
+      const body = adapter.drawn.get(wire.entities[0].objectId).body;
+      const result = {
+        density: animation.density,
+        image: [body.material.map.image.width, body.material.map.image.height],
+        frame: [body.userData.width, body.userData.height, body.userData.frame],
+        albedoDrawn: body.material.map === animation.frames[0].texture,
+        colourSpace: body.material.map.colorSpace,
+        normalIgnored: !body.material.normalMap,
+        channels: Object.keys(
+          adapter.projection.presentationBindings[0].material.renditions[1].channels,
+        ),
+        textureBytes: adapter.metrics.textureBytes,
+        canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+        entityCount: adapter.metrics.entityCount,
+      };
+      adapter.destroy();
+      return result;
+    }, wire);
+    expect(result).toMatchObject({
+      density: 2,
+      image: [16, 8],
+      frame: [4, 4, 0],
+      albedoDrawn: true,
+      colourSpace: "",
+      normalIgnored: true,
+      channels: ["albedo", "normal"],
+      canvas: [640, 400],
+      entityCount: 1,
+    });
+    expect(result.textureBytes).toBeLessThanOrEqual(16777216);
+    expect(requested).toContain("/material-2x-albedo.png");
+    expect(requested.some((url) => /normal|\.dds$/u.test(url))).toBe(false);
+  } finally {
+    await browser?.close();
+    await server?.close();
+    const { rm } = await import("node:fs/promises");
+    await rm(assets, { recursive: true, force: true });
+  }
+}, 60_000);

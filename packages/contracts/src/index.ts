@@ -13,6 +13,7 @@ export {
 } from "./execution-context.js";
 export * from "./ids.js";
 export * from "./journal-records.js";
+export * from "./material.js";
 export * from "./privacy.js";
 export * from "./protocol.js";
 export * from "./runs.js";

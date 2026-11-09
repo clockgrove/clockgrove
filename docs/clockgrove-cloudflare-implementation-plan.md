@@ -2901,6 +2901,24 @@ Pipeline stages:
 
 Generated assets are never accepted without provenance and review state.
 
+#### Issue 66 amendment: lit 2.5D materials
+
+The direction is lit 2.5D now, with renderer-neutral contracts ready for a future 3D adapter.
+World tools produce the lossless material maps and pixel-density renditions; Clockgrove never
+derives, paints, estimates or upscales them. Clockgrove owns source acceptance, channel and
+rendition atlas packing, and deterministic GPU-compressed delivery with a fallback. Compression
+belongs to the atlas build because packing creates new textures, not to per-asset generation.
+Dynamic lights, weather intensity and grading keys must arrive through scene projection data,
+never be inferred from artwork. Renderers consume supported channels and retain albedo fallback,
+the text path and reduced-motion behaviour.
+
+The [material source and style-policy contracts](protocols/shared-contracts.md#lit-material-source-declarations)
+connect world-supplied sources to owning asset roles and frame metadata. Image acceptance checks
+coverage, ranges and temporal stability before aligned channel/rendition packing. Packed output
+includes deterministic BC3 DDS textures and PNG fallbacks. Scene delivery exposes every channel;
+the product adapter can draw albedo while ignoring unsupported maps. Projected light parameters,
+weather intensity and grading provide the renderer-neutral lighting seam without inspecting art.
+
 ### 20.8 World theme and presentation seam
 
 The shell, the renderer and the renderer-neutral scene protocol are Clockgrove's and name no world. A world supplies its own presentation as inputs at composition: its name and wordmark, design tokens and copy (a versioned shell document), its reviewed static assets and atlas binding, its scene presentation bindings and its model configuration. The [world presentation protocol](protocols/world-presentation.md) defines each input and its version.
