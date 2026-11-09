@@ -67,6 +67,9 @@ export function ConversationPanel({
   const closeRail = useEntityRail((rail) => rail.toggle);
   const [sessions, setSessions] = useState<readonly ConversationSession[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
+  // The chosen conversation and a creation in flight, read by a send before the next render.
+  const chosen = useRef<string>(undefined);
+  const creating = useRef<Promise<ConversationSession | { readonly refused: string }>>(undefined);
   const [current, setCurrent] = useState<ConversationSession>();
   const [messages, setMessages] = useState<readonly ConversationMessage[]>([]);
   const [next, setNext] = useState<number | null>(null);
@@ -93,26 +96,34 @@ export function ConversationPanel({
     setRefusal(value.refused);
   };
 
+  const choose = useCallback((id: string | undefined) => {
+    chosen.current = id;
+    setSelectedId(id);
+  }, []);
+
   const reload = useCallback(
     async (preferred?: string) => {
       const list = await session.listConversations(actorId);
       if ("refused" in list) return setRefusal(list.refused);
       setSessions(list.sessions);
-      setSelectedId((id) => {
-        const wanted = preferred ?? id;
-        return list.sessions.some((s) => s.sessionId === wanted)
-          ? wanted
-          : list.sessions[0]?.sessionId;
-      });
+      // On opening, the conversation whose reply this tab left in progress comes first: a turn's
+      // acceptance does not make its conversation the most recently updated.
+      const wanted =
+        preferred ??
+        chosen.current ??
+        list.sessions.find((s) => session.hasPendingTurn(s.sessionId))?.sessionId;
+      choose(
+        list.sessions.some((s) => s.sessionId === wanted) ? wanted : list.sessions[0]?.sessionId,
+      );
     },
-    [session, actorId],
+    [session, actorId, choose],
   );
 
   useEffect(() => {
     setRefusal(undefined);
-    setSelectedId(undefined);
+    choose(undefined);
     void reload();
-  }, [reload]);
+  }, [reload, choose]);
 
   useEffect(() => {
     setMessages([]);
@@ -161,9 +172,22 @@ export function ConversationPanel({
     setMessages((all) => [...all, ...page.messages]);
     setNext(page.nextAfterSequence);
   };
+  /** Creates a conversation and chooses it; a send while it is in flight waits for it. */
+  const startConversation = async () => {
+    const pending = session.createConversation(actorId).then((created) => {
+      if (!("refused" in created)) choose(created.sessionId);
+      return created;
+    });
+    creating.current = pending;
+    try {
+      return await pending;
+    } finally {
+      if (creating.current === pending) creating.current = undefined;
+    }
+  };
   const create = async () => {
     setRefusal(undefined);
-    const created = await session.createConversation(actorId);
+    const created = await startConversation();
     if ("refused" in created) return refuse(created);
     await reload(created.sessionId);
   };
@@ -179,29 +203,31 @@ export function ConversationPanel({
     setRefusal(undefined);
     const result = await session.deleteConversation(current.sessionId);
     if (result !== true) return refuse(result);
-    setSelectedId(undefined);
+    choose(undefined);
     await reload();
   };
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
     setRefusal(undefined);
-    let target = current;
-    if (!target) {
-      const created = await session.createConversation(actorId);
+    // The message goes to the chosen conversation, or to the one being created, even before it has
+    // loaded; only with neither is a conversation created for it.
+    const started = await creating.current;
+    if (started !== undefined && "refused" in started) return refuse(started);
+    let sessionId = chosen.current;
+    if (sessionId === undefined) {
+      const created = await startConversation();
       if ("refused" in created) return refuse(created);
-      target = created;
-      setCurrent(created);
-      setSelectedId(created.sessionId);
+      sessionId = created.sessionId;
     }
     setDraft("");
-    const receipt = await session.talk(target.sessionId, text, hooks);
+    const receipt = await session.talk(sessionId, text, hooks);
     setPhase(undefined);
     if ("refused" in receipt) {
       setDraft(text);
       return refuse(receipt);
     }
-    if ("reloaded" in receipt) return settled(target.sessionId);
+    if ("reloaded" in receipt) return settled(sessionId);
     const command = receipt.command;
     if (command) {
       if (command.commandId !== null) setLastCommand(command.commandId);
@@ -267,7 +293,7 @@ export function ConversationPanel({
         Conversation
         <select
           value={selectedId ?? ""}
-          onChange={(event) => setSelectedId(event.target.value || undefined)}
+          onChange={(event) => choose(event.target.value || undefined)}
         >
           {sessions.length === 0 && <option value="">No conversations yet</option>}
           {sessions.map((s) => (
