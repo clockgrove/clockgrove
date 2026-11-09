@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertNoSecretValues } from "../check-secrets.mjs";
 import { databaseIsolationQuery } from "../database/isolation.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
+  assertRoutingMetadata,
   authenticatedFact,
+  externalPath,
+  externalStateConfiguration,
+  hostedTofuEnv,
   ownedInventory,
+  prepareStateWorkspace,
   resourceAddresses,
   roleConnections,
   verifyPlan,
@@ -26,13 +30,7 @@ const required = (name) => {
   assert(env[name]?.trim(), `missing ${name}`);
   return env[name];
 };
-const outside = async (name) => {
-  const value = required(name);
-  assert(path.isAbsolute(value), `${name} must be an absolute owner-approved external path`);
-  const resolved = await realpath(value);
-  assert(resolved !== root && !resolved.startsWith(`${root}/`), `${name} must be outside checkout`);
-  return resolved;
-};
+const outside = (name) => externalPath(env, name);
 export async function verifyDatabaseIsolation(connectionString) {
   const client = new Client({ connectionString });
   // Do not leak URLs, provider errors or parameters to release logs.
@@ -132,15 +130,13 @@ async function runDeployment() {
       cwd: work,
       env: {
         ...env,
-        ...(executable === "tofu"
-          ? { TMPDIR: providerIpc, TF_DATA_DIR: path.join(work, ".terraform"), TF_ENCRYPTION: "" }
-          : {}),
+        ...(executable === "tofu" ? hostedTofuEnv(env, providerIpc, work) : {}),
       },
       ...options,
     });
   };
   try {
-    assert.equal(required("OWNER_SETUP_READY"), "true", "owner setup issue 329 remains pending");
+    assert.equal(required("OWNER_SETUP_READY"), "true", "owner setup issue 1 remains pending");
     for (const name of consumedSecrets) required(name);
     const declarations = JSON.parse(
       await readFile(path.join(root, `infra/environments/${target}.secrets.json`), "utf8"),
@@ -153,14 +149,11 @@ async function runDeployment() {
     const config = JSON.parse(
       await readFile(path.join(root, `infra/environments/${target}.json`), "utf8"),
     );
-    for (const [name, value] of Object.entries(config.safeIds))
-      assert(!/^0+$/u.test(value), `missing routing metadata ${target}.${name}`);
-    for (const [name, value] of Object.entries(config.domains))
-      assert(!value.endsWith("example.org"), `missing routing metadata ${target}.${name}`);
+    assertRoutingMetadata(config, target);
     assert.equal(
       required("ACTIVATION_PREREQUISITES_READY"),
       "true",
-      "activation prerequisite issue 358 remains pending",
+      "activation prerequisite issue 2 remains pending",
     );
     const acceptanceKey = await outside("OWNER_ACCEPTANCE_PUBLIC_KEY_FILE");
     const keyDigest = required("OWNER_ACCEPTANCE_PUBLIC_KEY_DIGEST");
@@ -175,52 +168,13 @@ async function runDeployment() {
       ((await stat(stateDirectory)).mode & 0o077) === 0,
       "INFRA_STATE_DIRECTORY must be private to its owner",
     );
-    const backendFile = await outside("INFRA_BACKEND_CONFIG_FILE");
-    const encryptionFile = await outside("INFRA_ENCRYPTION_CONFIG_FILE");
-    const recoveryFile = await outside("INFRA_RECOVERY_EVIDENCE_FILE");
-    const backendBytes = await readFile(backendFile);
-    const encryptionBytes = await readFile(encryptionFile);
-    assert.equal(
-      digest(Buffer.concat([backendBytes, encryptionBytes])),
-      required("INFRA_CONFIGURATION_DIGEST"),
-      "owner-approved encrypted external-state configuration mismatch",
-    );
-    const backend = JSON.parse(backendBytes);
-    const encryption = JSON.parse(encryptionBytes);
-    assertNoSecretValues(backendBytes.toString(), "external backend configuration");
-    assertNoSecretValues(encryptionBytes.toString(), "external encryption configuration");
-    assert.equal(backend.environment, target, "external backend environment isolation mismatch");
-    assert.equal(
-      encryption.environment,
+    const { backend, encryption } = await externalStateConfiguration(
       target,
-      "external encryption environment isolation mismatch",
+      await outside("INFRA_BACKEND_CONFIG_FILE"),
+      await outside("INFRA_ENCRYPTION_CONFIG_FILE"),
+      required("INFRA_CONFIGURATION_DIGEST"),
     );
-    assert(
-      backend.terraform?.backend && Object.keys(backend.terraform.backend).length === 1,
-      "missing owner-approved external backend destination",
-    );
-    assert(!backend.terraform.backend.local, "external persisted-state backend required");
-    const crypt = encryption.terraform?.encryption;
-    assert(
-      crypt?.key_provider && crypt?.method?.aes_gcm,
-      "missing owner-approved external encryption key provider and AES-GCM method",
-    );
-    assert(
-      Object.keys(crypt.key_provider).every((name) =>
-        ["aws_kms", "gcp_kms", "azure_key_vault", "openbao"].includes(name),
-      ),
-      "external encryption must use owner-managed key identity; no new static credential catalog entry",
-    );
-    assert.equal(Object.keys(crypt.method).length, 1, "unencrypted encryption methods forbidden");
-    for (const name of ["state", "plan"]) {
-      assert.equal(crypt[name]?.enforced, true, `${name} encryption must be enforced`);
-      assert(
-        !crypt[name].fallback &&
-          typeof crypt[name].method === "string" &&
-          crypt[name].method.includes("method.aes_gcm."),
-        `${name} encryption method required without plaintext fallback`,
-      );
-    }
+    const recoveryFile = await outside("INFRA_RECOVERY_EVIDENCE_FILE");
     const recovery = await authenticatedFact(recoveryFile, acceptanceKey, keyDigest);
     assert.equal(recovery.environment, target, "encrypted state recovery environment mismatch");
     assert.equal(
@@ -234,24 +188,7 @@ async function runDeployment() {
     );
     work = path.join(stateDirectory, `${target}-${candidate}-${required("GITHUB_RUN_ID")}`);
     await mkdir(work, { mode: 0o700 });
-    await cp(path.join(root, "infra/opentofu"), work, { recursive: true });
-    await cp(path.join(root, "infra/environments"), path.join(work, "environments"), {
-      recursive: true,
-    });
-    // Keep the original manifest path semantics when running outside checkout.
-    const source = (await readFile(path.join(work, "main.tf"), "utf8")).replace(
-      "/../environments/",
-      "/environments/",
-    );
-    await writeFile(path.join(work, "main.tf"), source);
-    await writeFile(
-      path.join(work, "external-backend.tf.json"),
-      JSON.stringify({ terraform: backend.terraform }),
-    );
-    await writeFile(
-      path.join(work, "external-encryption.tf.json"),
-      JSON.stringify({ terraform: encryption.terraform }),
-    );
+    await prepareStateWorkspace(work, backend, encryption);
     await withProviderIpc(work, async (ipc) => {
       providerIpc = ipc;
       phase("OpenTofu initialization", "tofu", ["init", "-input=false", "-lockfile=readonly"]);

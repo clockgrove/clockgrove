@@ -85,7 +85,7 @@
           "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
         }
       ],
-      "deviation": "Local workerd equivalents only; hosted hibernation, restart and deploy are pending on issue 881. No browser offline/online or browser token-expiry step."
+      "deviation": "Local workerd equivalents only; hosted hibernation, restart and deploy are pending on issue 3. No browser offline/online or browser token-expiry step."
     },
     {
       "id": "S5",
@@ -416,7 +416,7 @@
           "marker": "// This drops the production stream service, retaining only workerd socket attachments."
         }
       ],
-      "deviation": "Local workerd only; hosted hibernation pending on issue 881."
+      "deviation": "Local workerd only; hosted hibernation pending on issue 3."
     },
     {
       "id": "F7",
@@ -429,7 +429,7 @@
           "marker": "scene-before-redeploy"
         }
       ],
-      "deviation": "Local equivalent only; hosted redeploy pending on issue 881."
+      "deviation": "Local equivalent only; hosted redeploy pending on issue 3."
     },
     {
       "id": "F8",

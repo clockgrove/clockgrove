@@ -141,6 +141,8 @@ export interface PreconditionContext<TState, TInput> {
 }
 
 export interface InvariantContext<TState, TEvent> {
+  /** The decoded payload of the command whose events are checked. */
+  readonly payload: unknown;
   readonly initial: TState;
   readonly events: readonly EmittedEvent<TEvent>[];
 }

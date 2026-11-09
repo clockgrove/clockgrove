@@ -4,7 +4,7 @@
 // Runs the §15.1 suites on this checkout with CLOCKGROVE_WAVE4_EVIDENCE set, so the browser suites
 // write their captures, accessibility report, Web Vitals and load evidence beside the manifest. Then
 // it maps the §15.2 scenarios and the §16 matrix to the tests that prove them, compares the golden
-// captures with human approvals and keeps hosted Cloudflare items pending on issue 881. The manifest and
+// captures with human approvals and keeps hosted Cloudflare items pending on issue 3. The manifest and
 // its evidence are written once to a directory this run owns and made read-only; a second run never
 // overwrites them. Exit 0 when the manifest is written, whatever the exit decision.
 import assert from "node:assert/strict";
@@ -17,7 +17,7 @@ import { digest, root } from "./evidence.mjs";
 export const MANIFEST_FILE = "wave4-manifest.json";
 const PLAN = "docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md";
 /** Hosted qualification of Waves 2-4, blocked on staging and the deploy of main. */
-const HOSTED = { ownerIssue: 881, blockedOn: [329, 693] };
+const HOSTED = { ownerIssue: 3, blockedOn: [1, 2] };
 /**
  * The §15.1 suites in plan order, with the files each runs. A browser suite needs CI=true, the
  * guard of tests/ci/vitest.browser.config.ts. Decision: 15 minutes per suite, three times the
@@ -282,7 +282,7 @@ const measurements = {
   server: { assertedBy: "test:realtime:load", status: performance.realtimeLoad.status },
 };
 
-// Hosted items stay pending on issue 881 and are never relabelled by local evidence.
+// Hosted items stay pending on issue 3 and are never relabelled by local evidence.
 const runtimeEvidence = await json(
   path.join(root, "docs/waves/clockgrove-wave-4-runtime-evidence.json"),
 );
@@ -371,7 +371,7 @@ const section19 = [
   ],
   [
     "Main remains deployable and local setup remains reproducible.",
-    { pending: { ownerIssue: 693, reason: "the deploy of main" } },
+    { pending: { ownerIssue: 2, reason: "the deploy of main" } },
   ],
 ].map(([item, by]) =>
   by === null
@@ -389,7 +389,7 @@ const blockers = [
     .filter(({ approval }) => approval !== "approved")
     .map(({ file, state, approval }) => `${file ?? state}: ${approval}`),
   ...deviations.map(({ id, reason }) => `${id}: ${reason}`),
-  ...cloudflareQualification.map(({ item }) => `${item}: pending on issue 881`),
+  ...cloudflareQualification.map(({ item }) => `${item}: pending on issue 3`),
   ...section19
     .filter(({ status }) => status !== "passed")
     .map(({ item, status }) => `§19 ${item} ${status}`),
@@ -448,7 +448,7 @@ for (const entry of section19)
   process.stdout.write(`${entry.status.padEnd(8)} §19 ${entry.item}\n`);
 process.stdout.write(
   `golden captures: ${goldenCaptures.filter(({ approval }) => approval === "approved").length}/${goldenCaptures.length} approved\n` +
-    `deviations: ${deviations.length}; Cloudflare items pending on issue 881: ${cloudflareQualification.length}\n` +
+    `deviations: ${deviations.length}; Cloudflare items pending on issue 3: ${cloudflareQualification.length}\n` +
     `exit decision: ${manifest.exitDecision.status}\n` +
     `Wave 4 manifest: ${path.join(out, MANIFEST_FILE)} ${digest(await readFile(path.join(out, MANIFEST_FILE)))}\n`,
 );

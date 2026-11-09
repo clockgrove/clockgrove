@@ -616,7 +616,7 @@ workerd/PostgreSQL harness, firing the snapshot Cron Trigger:
   `snapshot_create_ms`; the composed artifact store records a spilled put, another tenant's refused
   read and a corrupt R2 object; every point has the Analytics Engine shape below and a closed label.
 
-The staging round trip stays pending on issue 329/issue 693.
+The staging round trip stays pending on issue 3.
 
 ## Runtime budgets and load curves
 
@@ -1045,7 +1045,7 @@ dashboard or a database role:
    `workers_trace_events` export, per environment, and fires at 1 or more in any 5-minute window.
    Decision: one is enough, because each is a failure that no retry recovers and that waits for an
    operator; 5 minutes is the recoveries cron's interval. Delivering the alert to a notification
-   destination is issue 329/issue 693.
+   destination is pending on issue 1 and issue 2.
 2. **Diagnose.** `POST /v1/runtime/runtime-state` for the scope lists its unconsumed messages: a
    failed publication (`status: failed`, its attempts and `last_error_class`) and a dead-lettered one
    (`status: delivered`, `deadLetter` with the failure class), with the message IDs the actions take.
@@ -1157,7 +1157,7 @@ and a `disposition`:
 - `deferred`, with the owning `wave`: the ActorAgentDO row to Wave 5 and the transfer row to Wave
   11 (plan §9.3, §13);
 - `pending`, with the owning `issue`: hosted Cloudflare behavior (eviction and deployment, Hyperdrive
-  latency and pool reuse, a deployed route-name version change, Workflow deployment) on issue 881.
+  latency and pool reuse, a deployed route-name version change, Workflow deployment) on issue 3.
 
 `test` is the title as written in the file, not Vitest's full name, which adds the `describe`
 titles; an `it.each` title keeps its `%s`. A Vitest JSON report is not a per-case result: a test in
@@ -1199,7 +1199,7 @@ refuses first with 401 (`hyperdrive.postgres.test.ts`). Restoring the limit ends
   intents equal an uninterrupted run's.
 
 These are local results. Real Hyperdrive refusal, pooling and latency, and Cloudflare eviction and
-deployment, stay pending on issue 881.
+deployment, stay pending on issue 3.
 
 ## Remaining qualification
 
@@ -1291,7 +1291,7 @@ an upgrade beyond `SCENE_SOCKET_BOUNDS` answers 503 `scene_connections_full`.
 Native qualification lives in `apps/runtime/test/scene-delivery.postgres.test.ts`. It is local
 workerd/PostgreSQL evidence, not hosted eviction or redeploy evidence. The partial
 [Wave 4 manifest](../waves/clockgrove-wave-4-runtime-evidence.json) keeps actual Cloudflare hibernation,
-restart and redeploy pending on issue 881, blocked on issue 329 and issue 693. No staging qualification is claimed.
+restart and redeploy pending on issue 3, blocked on issue 1 and issue 2. No staging qualification is claimed.
 
 ## Proactive actor activation
 

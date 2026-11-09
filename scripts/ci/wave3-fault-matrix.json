@@ -31,7 +31,7 @@
       "row": "DO creation, eviction, restart, local migration, and deployment",
       "case": "Cloudflare eviction and deployment of a Durable Object",
       "disposition": "pending",
-      "issue": "#881"
+      "issue": "#3"
     },
     {
       "row": "concurrent requests around awaited PostgreSQL I/O",
@@ -109,7 +109,7 @@
       "row": "Hyperdrive connection refusal, interruption, latency, and pool reuse",
       "case": "Hyperdrive latency and pool reuse",
       "disposition": "pending",
-      "issue": "#881"
+      "issue": "#3"
     },
     {
       "row": "stale routing epoch and namespace version",
@@ -131,7 +131,7 @@
       "row": "stale routing epoch and namespace version",
       "case": "an instance under a superseded route-name version after a Cloudflare deployment",
       "disposition": "pending",
-      "issue": "#881"
+      "issue": "#3"
     },
     {
       "row": "alarm duplicate, late, stale generation, crash mid-batch, and catch-up overflow",
@@ -257,7 +257,7 @@
       "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",
       "case": "Cloudflare Workflow deployment compatibility",
       "disposition": "pending",
-      "issue": "#881"
+      "issue": "#3"
     },
     {
       "row": "Workflow step crash, retry, cancel, deploy, and result reconciliation",

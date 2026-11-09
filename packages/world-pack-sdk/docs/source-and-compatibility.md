@@ -74,3 +74,18 @@ projection hash) before seeding.
 `test/historic-upcast.test.ts` upcasts committed fixtures under `test/fixtures/historic/`: a
 schema-1 manifest, a `clockgrove.needs` version-1 component snapshot and a version-1 event. Each
 result is compared with a committed literal SHA-256.
+
+## Asset style presentation data
+
+A world's `reference/asset-style.json` sits beside `reference/presentation.json`, outside
+`source.resources` and the simulation manifest. It is versioned independently with
+`styleProfileVersion: 1`; changing it does not change the pack content hash or simulation
+goldens. Tools can read it with `decodeAssetStyleProfile` from `@clockgrove/contracts`.
+See the [complete format](../../../docs/protocols/shared-contracts.md#world-asset-style-profile)
+for alpha modes and bounds thresholds, palette strictness, edge kinds and limits for
+actor, object, terrain and effect frames. The fixture profile is the pixel-art example.
+
+Issue 61 introduces this declaration before pipeline enforcement. Existing manifest-v1
+validation remains in effect; larger frames and external asset commands are subsequent
+parts, not current SDK capabilities. This presentation profile does not replace the SDK's
+simulation asset-resource provenance and dimension fields described above.

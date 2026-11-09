@@ -681,6 +681,10 @@ export class SceneSession {
     const result = await this.runTurn(pending, hooks, true);
     return "refused" in result ? result : { reloaded: true };
   }
+  /** Whether this tab left a turn of the session in flight (a reload mid-turn). */
+  hasPendingTurn(sessionId: string): boolean {
+    return readPendingTurn(sessionId) !== undefined;
+  }
   turnStatus(sessionId: string, messageId: string) {
     return this.conversationCall(
       "/v1/runtime/turns/status",

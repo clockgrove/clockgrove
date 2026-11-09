@@ -81,7 +81,7 @@ approved for its current hash. Each output is stored at `sha256/<hex of its byte
 `image/png`, animation manifest as `application/json`); existing keys are skipped. The R2 adapter
 takes a structural bucket binding, so no provider type enters the package.
 
-Staging upload and the RW-0409 exit stay pending on issue 881.
+Staging upload and the RW-0409 exit stay pending on issue 3.
 
 ## Fixture placeholders
 
@@ -95,3 +95,18 @@ The manifests and scene record use the synthetic `fixture-reviewer` identity alr
 contract fixtures. These records test the approved branch of the deploy gate; they do not
 represent a human review of external world artwork. Unreviewed and unlicensed negative controls,
 source validation, exact atlas rebuilding and golden refusal checks remain enabled.
+
+## World style data (issue 61, first part)
+
+World authors can declare `reference/asset-style.json` beside their presentation metadata.
+The [style-profile contract](../../../docs/protocols/shared-contracts.md#world-asset-style-profile)
+documents the version-1 JSON format and its strict decoder. This file is presentation data,
+not simulation-pack content, so editing it does not change simulation hashes or goldens.
+The fixture declares binary alpha, its existing exact palette, a transparent-pixel edge
+rule and 256 px frame limits for every role. Other profiles can declare soft alpha with a
+bounds threshold, unrestricted colour, palette subsets, transparent borders and larger
+frames within the platform envelope.
+
+This first part supplies the format and fixture declaration. The validator, atlas builder
+and CLI still use the pixel-art rules above; profile enforcement, larger manifest frames
+and external-world asset commands land in subsequent parts of issue 61.

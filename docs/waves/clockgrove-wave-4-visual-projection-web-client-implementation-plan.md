@@ -68,7 +68,7 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
 
 **Replay conditions** (recorded 2026-11-01 for issue 817; Claude Code, delegated by the maintainer): the session starts from the deterministic `green-lake-yard@1` seed. It records the candidate commit and the canonical world revision at its start. The pilot runs once. A replay from the same commit and revision is allowed only to clarify an observed misunderstanding, never to re-score a task.
 
-**Qualification carry-forward:** The Wave 3 evidence manifest (`pnpm qualify:wave3`, issue 853) keeps its hosted items pending: real Cloudflare qualification, owned by issue 881, and the deploy of main, owned by issue 693. This checkpoint uses the incremental-delivery ADR's local-development readiness exception; local acceptance does not qualify Wave 3 or Wave 4. The pending hosted obligations and the full wave-exit evidence remain required. The pilot was evaluated on 2026-11-01; its results are above.
+**Qualification carry-forward:** The Wave 3 evidence manifest (`pnpm qualify:wave3`, issue 853) keeps its hosted items pending: real Cloudflare qualification, owned by issue 3, and the deploy of main, owned by issue 2. This checkpoint uses the incremental-delivery ADR's local-development readiness exception; local acceptance does not qualify Wave 3 or Wave 4. The pending hosted obligations and the full wave-exit evidence remain required. The pilot was evaluated on 2026-11-01; its results are above.
 
 ---
 
@@ -612,8 +612,8 @@ Measure connection admission, handshake, current/acked revision, patch bytes, fa
 Analytics use opaque IDs and action categories. They do not record private conversation fixture text or hidden projection payloads.
 
 The [partial runtime evidence manifest](clockgrove-wave-4-runtime-evidence.json) keeps
-real Cloudflare hibernation, restart and redeploy qualification pending on issue 881,
-blocked on staging issue 329 and hosted predecessor qualification issue 693. Local workerd/PostgreSQL checks establish
+real Cloudflare hibernation, restart and redeploy qualification pending on issue 3,
+blocked on owner setup issue 1 and the Wave 0 hosted half, issue 2. Local workerd/PostgreSQL checks establish
 only local native behavior; they do not qualify hosted Cloudflare or the whole wave.
 `tests/ci/scene-evidence.test.mjs`, included in ordinary Testkit discovery, checks the
 manifest's pending scenarios, owners, blockers and absent hosted evidence exactly,
