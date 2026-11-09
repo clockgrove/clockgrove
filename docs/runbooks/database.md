@@ -694,6 +694,36 @@ must not skip an event when partitions commit out of journal-position order (iss
   `pg_snapshot_xmax` of its configuring statement and position 0.
 - **Cost:** the wait is bounded by the oldest open writing transaction in the cluster, not by this
   timeline's. A long write delays wakes and loses none.
+- **Cluster-bound IDs:** both `transaction_id` and `event_cursor_transaction` are transaction IDs of
+  the cluster that wrote them. Migration `0044_activation_transaction_horizon.sql` refuses any row
+  whose ID is ahead of the transaction that stores it (`events_transaction_not_ahead`,
+  `actor_activation_policies_cursor_not_ahead`). In-cluster writes always pass.
+
+### Restoring into another cluster
+
+Rule: a database restores only into a cluster whose transaction counter is past every stored
+activation transaction ID. Otherwise each new event would sort at or before a restored cursor and
+never be read, and restored events would stay unsettled until the counter caught up.
+
+- **Safe as is:** PITR, branches, physical replicas and `pg_upgrade` keep the counter. A logical
+  restore into the same cluster (the W0-010 roundtrip) runs after the IDs it restores.
+- **Refused:** a logical dump (`pg_dump`, `pg_restore`, logical replication) applied to a cluster
+  that is behind. COPY fails on the first such row with a `*_not_ahead` check violation, so the
+  table stays empty and the restore exits non-zero. Nothing is silently broken.
+- **Repair: rebase before dumping.** With the runtime stopped, run
+  `SELECT clockgrove.rebase_activation_order();` as the migrator or an administrator, in a read
+  committed transaction, on the source. Then dump and restore. The function locks `events` and
+  `actor_activation_policies`. Per timeline, each event's ID becomes the number of distinct cursors
+  below it, and each cursor of rank r becomes `(r - 1, highest journal position)`. Every cursor keeps
+  exactly the events it had read and the ones it had not, and each new event, whose ID is larger,
+  is read once. The source stays consistent and can keep running.
+- **Only a dump left:** restore it into a disposable cluster whose counter is ahead (stopped,
+  `pg_resetwal --epoch=<above the dump's>`; an ID's epoch is its value divided by 2^32), rebase there,
+  dump again and restore that.
+- **A rebased dump can still be refused** if the target's counter is below the number of distinct
+  cursors in a timeline (a freshly created cluster with thousands of subscribed actors). Run that many
+  short transactions on the target first, such as `SELECT pg_current_xact_id();` each, and retry.
+- Prior-release fixtures are rebased before their dump (`apps/runtime/test/prior-release.ts`).
 
 ## Snapshots
 
