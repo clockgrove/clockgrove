@@ -147,3 +147,40 @@ at most once. Its `effects` bind the scene roles `path`, `rain`, `puddle`, `lant
 `selection` to manifests, optionally at an object. Pack conformance validates it
 ([presentation-bindings](../../packages/simulator/docs/conformance.md#checks)), and the asset pipeline
 ([pipeline](../../packages/assets/docs/pipeline.md)) builds, renders and uploads through it.
+
+### World asset style profile
+
+`AssetStyleProfile` is standalone presentation data, decoded by `decodeAssetStyleProfile`.
+A world stores `reference/asset-style.json` beside `reference/presentation.json`; it is
+not a simulation-pack resource and does not participate in the pack content hash.
+`styleProfileVersion` is `1`. Unknown fields, missing fields, unsupported versions and
+invalid values are refused with `ContractDecodeError` carrying the exact field path.
+
+| Field | Values |
+| --- | --- |
+| `alpha` | `{ "mode": "binary" }` or `{ "mode": "soft", "boundsThreshold": 16 }`; soft threshold is an integer from 1 through 255 |
+| `colour` | `{ "mode": "unrestricted" }` or `{ "mode": "palette", "colours": ["#202020", "#808080"], "strictness": "exact" }` |
+| `edge` | `unrestricted`, `transparent-pixel` or `transparent-border` |
+| `sizes` | All four keys `actor`, `object`, `terrain`, `effect`, each with integer `maxWidth` and `maxHeight` |
+
+Binary alpha means 0 or 255 and uses 255 for bounds. Soft alpha allows every byte value;
+bounds include pixels whose alpha is at least `boundsThreshold`. Palette colours are
+non-empty, sorted, unique lowercase `#rrggbb` values. `subset` allows any subset of the
+declared colours; `exact` also requires every declared colour to appear. Colour membership
+concerns every pixel with nonzero alpha, including antialiased pixels below the bounds threshold.
+`transparent-pixel` requires at least one fully transparent pixel in each non-terrain strip,
+preserving the existing pixel-art rule; `transparent-border` requires all border pixels of
+each frame to be fully transparent, including terrain. `unrestricted` adds no edge constraint.
+
+Role limits apply to frame dimensions. `object` covers props and `terrain` covers environment
+art. Widths are in 1..1024 (the existing issue-813 atlas shelf budget); heights are in
+1..2048 (WebGL's guaranteed minimum texture size). These are the platform envelope, not a
+world's mandatory values. These are per-frame limits; a horizontal strip's width is
+`frames.width * frames.count` and must separately fit the atlas budget. The fixture profile declares 256 by 256 for every role, binary
+alpha, transparent-pixel edges and its existing exact two-colour palette. All 36 fixture
+manifests currently declare that same palette.
+
+This contract is introduced separately from enforcement in issue 61: the asset pipeline
+still enforces its existing manifest-v1 pixel-art rules until the profile migration lands.
+Declaring a profile does not yet change which assets the pipeline accepts. Neither the
+asset-manifest version nor scene compatibility changes with this independent data format.
