@@ -281,5 +281,6 @@ it.each(["pixel", "cartoon", "painterly"])(
       rmSync(world, { recursive: true, force: true });
     }
   },
-  30_000,
+  // About 30 CLI processes per world; shared CI runners take 3-9x the local time.
+  120_000,
 );
