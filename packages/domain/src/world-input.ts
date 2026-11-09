@@ -597,12 +597,29 @@ function decisionPointsDeclaration(input: unknown, path: string): DecisionPoints
           "fallback",
         ],
         at,
+        ["scope"],
       );
+      const scope =
+        point.scope === undefined
+          ? undefined
+          : object(point.scope, [], `${at}.scope`, ["actorIds", "archetypes"]);
       const trigger = object(point.trigger, ["kind"], `${at}.trigger`, ["maxMargin"]);
       const budget = object(point.budget, ["maxCalls", "maxMicrousd"], `${at}.budget`);
       const buckets = object(point.marginBuckets, ["noneMax", "smallMax"], `${at}.marginBuckets`);
       return {
         id: point.id,
+        ...(scope === undefined
+          ? {}
+          : {
+              scope: {
+                ...(scope.actorIds === undefined
+                  ? {}
+                  : { actorIds: list(scope.actorIds, `${at}.scope.actorIds`, (id) => id) }),
+                ...(scope.archetypes === undefined
+                  ? {}
+                  : { archetypes: list(scope.archetypes, `${at}.scope.archetypes`, (id) => id) }),
+              },
+            }),
         trigger:
           trigger.maxMargin === undefined
             ? { kind: trigger.kind }

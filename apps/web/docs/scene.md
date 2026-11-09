@@ -1,9 +1,8 @@
 # Lit isometric scene
 
 This is the contract for the world shell Three.js WebGPURenderer canvas (`src/renderer.ts`) and its bridge
-(`src/world-scene-adapter.ts`). The accepted [renderer ADR](../../../docs/adr/clockgrove-adr-renderer-bake-off.md)
-supersedes the initial Phaser implementation in
-[Wave 4 plan §9](../../../docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#9-phaser-scene-implementation).
+(`src/world-scene-adapter.ts`). The renderer choice is recorded in the accepted [renderer ADR](../../../docs/adr/clockgrove-adr-renderer-bake-off.md);
+the scene contract is [Wave 4 plan §9](../../../docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md#9-scene-implementation).
 
 ## Adapter
 
@@ -87,9 +86,9 @@ path. The reducer's committed projection is untouched.
 - **Selection.** The renderer draws it from projection data, never into art (decisions, in
   `SELECTION` and the token constants of `renderer.ts`): a 2:1 ellipse at the feet (32x16, 3 px
   stroke, 0.18 fill) with two wider glow ellipses (40x20 with a 6 px stroke at alpha 0.35, 48x24 with a
-  10 px stroke at alpha 0.15), all in the `--rw-v1-accent` token; and a pill with fully round ends
-  filled with `--rw-v1-panel` (`rgb(30 33 22 / 92%)`, so alpha 0.92) and a 1 px `--rw-v1-accent`
-  hairline at alpha 0.6, holding the name in 13 px `--rw-v1-text` with 10 px side and 4 px top and
+  10 px stroke at alpha 0.15), all in the `--cg-v1-primary` token; and a pill with fully round ends
+  filled with `--cg-v1-panel` (`rgb(30 33 22 / 92%)`, so alpha 0.92) and a 1 px `--cg-v1-primary`
+  hairline at alpha 0.6, holding the name in 13 px `--cg-v1-text` with 10 px side and 4 px top and
   bottom padding, its bottom edge 6 px above the sprite's anchor height. The ring and pill are built
   once per selected entity, label and sprite height, and later draws only move them. Hover (24x12) and
   focus (40x20) are 1 px ellipses and the hover label is plain text without a pill, so both stay
@@ -181,6 +180,9 @@ Multisampling is off. Texture accounting conservatively includes the renderer ou
 RGBA16F/depth-stencil target, the tier-scaled scene pass, the scaled bright target and both
 five-level bloom chains (Three r187 allocation layout), plus atlas and generated UI textures.
 WebGPU device loss follows the same text fallback as WebGL context loss.
+After renderer or asset failure, **Retry canvas** creates a fresh renderer and loads
+the latest retained reducer projection. The text scene remains available throughout;
+retrying does not reconnect the observation or issue a world command.
 
 The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
 a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
@@ -192,3 +194,9 @@ duplicate atlas storage. Reflections borrow their source texture and copy animat
 dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts
 unique material-map Texture identities across the whole scene, including effects, reflections and
 generated labels, plus the conservative render-target allocations above.
+
+The Recorded Why panel's **Inspect command** action requests the existing operator
+causal-chain read under `runtime:world-inspect`. Observation alone shows an explicit
+inspection denial. An authorized response displays the recorded command receipt
+identity and status; public Why remains available under `runtime:world-observe`.
+Closing or changing the panel cancels pending inspection work.

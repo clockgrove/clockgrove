@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { type AssetManifest, decodeAssetManifest } from "@clockgrove/contracts";
+import {
+  type AssetManifest,
+  decodeAssetManifest,
+  decodeAssetStyleProfile,
+} from "@clockgrove/contracts";
 import { afterAll, expect, it } from "vitest";
 import {
   type AssetEntry,
@@ -57,6 +61,14 @@ function entry(assetId: string, count: number, x: number): AssetEntry {
   return { manifest, bytes };
 }
 
+const profileData = JSON.parse(
+  readFileSync(
+    new URL("../../../worlds/fixture/reference/asset-style.json", import.meta.url),
+    "utf8",
+  ),
+);
+profileData.colour.strictness = "subset";
+const subsetProfile = decodeAssetStyleProfile(profileData);
 const entries = [entry("critter-a", 2, 0), entry("critter-b", 1, 8)];
 const golden = {
   sceneSha256: "scene",
@@ -72,7 +84,9 @@ const mf = new Miniflare(
 afterAll(() => mf.dispose());
 
 it("builds identical atlases in any order and uploads them once to R2, refusing unreviewed assets", async () => {
-  expect(entries.flatMap((e) => validateSource(e.manifest, e.bytes))).toEqual([]);
+  expect(
+    entries.flatMap((e) => validateSource(e.manifest, e.bytes, undefined, subsetProfile)),
+  ).toEqual([]);
   const [forward] = buildAtlases(entries);
   const [reversed] = buildAtlases([...entries].reverse());
   expect(Buffer.from(forward?.png ?? [])).toEqual(Buffer.from(reversed?.png ?? []));

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AssetManifest } from "@clockgrove/contracts";
+import type { AssetManifest, AssetStyleProfile } from "@clockgrove/contracts";
 import { decodePng } from "./png.js";
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -15,9 +15,17 @@ export function validateSource(
   manifest: AssetManifest,
   bytes: Uint8Array,
   manifestPath?: string,
+  profile?: AssetStyleProfile,
 ): string[] {
   const id = `${manifest.assetId}/${manifest.animationFamily}`;
   const problems: string[] = [];
+  if (profile === undefined)
+    return [`${id}: STYLE_PROFILE_REQUIRED: a declared world style profile is required`];
+  const limit = profile.sizes[manifest.semantic.role];
+  if (manifest.frames.width > limit.maxWidth || manifest.frames.height > limit.maxHeight)
+    problems.push(
+      `${id}: STYLE_SIZE: ${manifest.semantic.role} frames exceed ${limit.maxWidth}x${limit.maxHeight}`,
+    );
   const expectedPath = `assets/manifests/${id}.json`;
   if (manifestPath !== undefined && manifestPath !== expectedPath)
     problems.push(`${id}: naming: manifest must be at ${expectedPath}, found ${manifestPath}`);
@@ -38,6 +46,8 @@ export function validateSource(
   const used = new Set<string>();
   let transparent = false;
   let badAlpha = false;
+  let paintedBorder = false;
+  const threshold = profile.alpha.mode === "binary" ? 255 : profile.alpha.boundsThreshold;
   let minX = fw;
   let minY = fh;
   let maxX = -1;
@@ -47,8 +57,10 @@ export function validateSource(
       const i = (y * image.width + x) * 4;
       const alpha = image.rgba[i + 3] as number;
       if (alpha === 0) transparent = true;
-      else if (alpha !== 255) badAlpha = true;
-      else {
+      if (alpha !== 0 && alpha !== 255) badAlpha = true;
+      const fx = x % fw;
+      if (alpha > 0 && (fx === 0 || fx === fw - 1 || y === 0 || y === fh - 1)) paintedBorder = true;
+      if (alpha > 0) {
         used.add(
           hexColour(
             image.rgba[i] as number,
@@ -56,21 +68,35 @@ export function validateSource(
             image.rgba[i + 2] as number,
           ),
         );
-        const fx = x % fw;
+      }
+      if (alpha >= threshold) {
         minX = Math.min(minX, fx);
         maxX = Math.max(maxX, fx);
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
       }
     }
-  if (badAlpha) problems.push(`${id}: transparency: every pixel alpha must be 0 or 255`);
-  if (!transparent && manifest.semantic.role !== "terrain")
-    problems.push(`${id}: transparency: a non-terrain asset needs a transparent pixel`);
-  for (const colour of used)
-    if (!manifest.palette.includes(colour))
-      problems.push(`${id}: palette: ${colour} is not listed`);
-  for (const colour of manifest.palette)
-    if (!used.has(colour)) problems.push(`${id}: palette: ${colour} is listed but unused`);
+  if (profile.alpha.mode === "binary" && badAlpha)
+    problems.push(`${id}: STYLE_ALPHA: transparency: every pixel alpha must be 0 or 255`);
+  if (profile.edge === "transparent-pixel" && !transparent && manifest.semantic.role !== "terrain")
+    problems.push(`${id}: STYLE_EDGE: transparency: a non-terrain asset needs a transparent pixel`);
+  if (profile.edge === "transparent-border" && paintedBorder)
+    problems.push(`${id}: STYLE_EDGE: every frame needs a transparent border`);
+  if (profile.colour.mode === "palette") {
+    for (const colour of used) {
+      if (!profile.colour.colours.includes(colour))
+        problems.push(`${id}: STYLE_PALETTE: ${colour} is not in the world palette`);
+      if (!manifest.palette.includes(colour))
+        problems.push(`${id}: STYLE_PALETTE: palette: ${colour} is not listed`);
+    }
+    for (const colour of manifest.palette)
+      if (!used.has(colour))
+        problems.push(`${id}: STYLE_PALETTE: palette: ${colour} is listed but unused`);
+    if (profile.colour.strictness === "exact")
+      for (const colour of profile.colour.colours)
+        if (!used.has(colour))
+          problems.push(`${id}: STYLE_PALETTE: world palette colour ${colour} is unused`);
+  }
   const b = manifest.bounds;
   if (
     maxX < 0 ||

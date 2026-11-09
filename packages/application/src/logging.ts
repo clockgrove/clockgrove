@@ -12,9 +12,10 @@
  * `partitionId` and `integrityCheck`. 4 was assigned twice, on parallel branches, to different sets
  * (answered scene observations and their server failures; the runtime-state inspection and operator
  * action routes' events, the two world-reactions alert events, and `messageId`). 5: the union of
- * both, so a version-5 record's shape is unambiguous.
+ * both, so a version-5 record's shape is unambiguous. 6: `activation_hint_failed` and its
+ * `recovered-by-poll` disposition.
  */
-export const RUNTIME_LOG_SCHEMA_VERSION = 5;
+export const RUNTIME_LOG_SCHEMA_VERSION = 6;
 
 export type RuntimeLogEvent =
   // A server failure, written once by the component that caught its cause.
@@ -35,6 +36,8 @@ export type RuntimeLogEvent =
   // Queue deliveries and scheduled Queue and Workflow recovery.
   | "world_reactions_delivery_failed"
   | "world_reactions_sweep_failed"
+  // A post-commit activation hint pass failed; the actors' quiet polls still read its events.
+  | "activation_hint_failed"
   // Alert signals: a terminal failure no retry recovers, which waits for an operator action.
   | "world_reactions_dead_lettered"
   | "world_reactions_publication_failed"
@@ -218,6 +221,7 @@ export interface RuntimeLogFields extends RuntimeLogIds {
   readonly disposition?:
     | "retry-or-dlq"
     | "recovered-by-cron"
+    | "recovered-by-poll"
     | "retried-by-cron"
     | "reported-not-repaired"
     | "awaiting-replay"

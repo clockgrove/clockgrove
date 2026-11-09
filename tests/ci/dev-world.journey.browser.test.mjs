@@ -83,7 +83,7 @@ it("serves an external pack with its shell and static assets and cleans up on Ct
       `{
       "presentationVersion": 1,
       "presentations": [{
-        "presentation": {"presentationVersion": 1, "assetManifestVersion": 1,
+        "presentation": {"presentationVersion": 1, "assetManifestVersion": 2,
           "pack": {"id": "clockgrove.test-world", "version": "1.1.0"},
           "bindings": [{"objectId": "beacon.master", "assetId": "external-lamp",
             "animationFamily": "idle", "accessibilityLabel": "External keeper"}], "effects": []},

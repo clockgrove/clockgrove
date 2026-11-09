@@ -87,6 +87,16 @@ export function livingHallAuthentication(
   };
   return {
     scope,
+    setStrangerExpired: (expired: boolean) => {
+      provider.applyEvent({
+        eventId: expired ? "hall-stranger-expired" : "hall-stranger-renewed",
+        revision: expired ? 2 : 3,
+        credential: "outsider-session-token",
+        identity: stranger,
+        expiresAt: expired ? 99 : 200,
+        revoked: false,
+      });
+    },
     revoke: () => {
       world = { ...world, grants: [] };
     },

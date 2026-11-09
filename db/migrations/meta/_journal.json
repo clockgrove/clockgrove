@@ -288,6 +288,20 @@
       "when": 1794693600000,
       "tag": "0041_wake_triage",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794780000000,
+      "tag": "0042_activation_event_hints",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794866400000,
+      "tag": "0043_activation_commit_order",
+      "breakpoints": true
     }
   ]
 }

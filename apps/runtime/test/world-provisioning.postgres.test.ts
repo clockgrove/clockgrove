@@ -83,6 +83,7 @@ const VOLATILE_COLUMNS = [
   "installed_at",
   "stored_at",
   "journal_position",
+  "transaction_id",
   "event_bytes",
   "result",
   "attempts",

@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Version:** 1.0  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12, and implementation Waves 1, 5, 6, 7 and 8
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md) v3.12, and implementation Waves 1, 5, 6, 7 and 8
 **Scope:** How an actor's decisions move from deterministic tiers to model tiers, and the bounded decision-model tier between compiled policy and open-ended LLM cognition
 
 ---
@@ -88,7 +88,7 @@ Dreaming is also where the learning loop of §4 runs: consolidation distills log
 
 ## Rollout
 
-Shadow mode first. The first decision point runs beside today's path: the decision model's pick is journaled and compared, and never changes the physical decision. Agreement, cost and latency numbers are reported on issue 76 before any default changes. The implementation Objective is [issue 92](https://github.com/clockgrove/clockgrove/issues/92) (decision-model tier, `decide` port and shadow-mode ambiguity decisions).
+Shadow mode first. The first decision point runs beside today's path: the decision model's pick is journaled and compared, and never changes the physical decision. Judgement, cost and latency numbers are reported on issue 76 before any default changes. The owner decided on 2026-11-09 (issue 115) to hide utility scores and ranking from the decision request: the model receives actor state and declared candidate features in score-independent order. Utility agreement is a comparison, never accuracy; reports separate cases whose top-two utility gap is within the declared margin from other cases. Accuracy is measured separately against a small authored reference set of ambiguous fixture situations, each with an expected pick and a one-line reason withheld from the model. Unknown model costs remain unknown and are counted. The [runtime runbook](../runbooks/runtime.md) documents the bounded offline shadow command. Shadow mode remains in force until the owner reads these numbers. The implementation Objective is [issue 92](https://github.com/clockgrove/clockgrove/issues/92) (decision-model tier, `decide` port and shadow-mode ambiguity decisions).
 
 ## Ownership
 

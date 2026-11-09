@@ -450,7 +450,7 @@ hashes.
 This is native-local evidence (workerd through Miniflare). Hosted qualification is a separate,
 deferred step.
 
-From [docs/raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
+From [docs/clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
 
 Logical world identity is never a synonym for a live server process. Placement is explicit:
 
@@ -885,13 +885,14 @@ these fields, and nothing else:
   for MCP discovery) and `outcome` (`succeeded`, `refused`, `failed`).
 - `error`: a server failure's class name and redacted, capped message and stack.
 
-The event set is closed. `schemaVersion` is 5 (3 added the two snapshot-sweep events,
+The event set is closed. `schemaVersion` is 6 (3 added the two snapshot-sweep events,
 `partitionId` and `integrityCheck`; 4 was assigned on two parallel branches to different sets, so 5
 is their union: the scene observation answered and failure events
 (`scene_observation_answered`, `scene_observation_failed`), the runtime-state and operator-action
 routes' events (`runtime_state_inspection_answered`, `runtime_state_inspection_failed`,
 `runtime_action_answered`, `runtime_action_failed`), the two world-reactions alert events
-(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`); it
+(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`; 6 added
+`activation_hint_failed` and its `recovered-by-poll` disposition); it
 increases whenever an event or field is added,
 removed or changes meaning, so queries can tell record shapes apart. Filter Workers Logs by
 `correlationId` or `commandId` to follow one request across the Worker and its owners.
@@ -915,6 +916,7 @@ removed or changes meaning, so queries can tell record shapes apart. Filter Work
 | `world_reactions_dead_lettered` | the Queue consumer, per failed last delivery attempt (`attempt` above the consumer's `max_retries`, 3), which sends the message to the DLQ: an alert | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: awaiting-replay` |
 | `world_reactions_publication_failed` | the hint or cron publication sweep, per publication it settles `failed` after its attempt budget: an alert | `tenantId`, `worldId`, `timelineId`, `messageId`, `channel`, `attempt`, failure class, `disposition: awaiting-repair` |
 | `world_reactions_sweep_failed` | the hint or cron publication sweep, per failed principal | `channel`, `trigger`, failure class, `disposition: recovered-by-cron` |
+| `activation_hint_failed` | the post-commit activation hint, per failed pass over a world timeline | `tenantId`, `worldId`, `timelineId`, failure class, `disposition: recovered-by-poll` |
 | `world_provisioning_reconcile_failed` | the cron provisioning reconcile, per failed case | `tenantId`, `runId`, failure class, `disposition: retried-by-cron` |
 | `world_catch_up_reconcile_failed` | the cron catch-up reconcile, per failed case | scope, `runId`, failure class, `disposition: retried-by-cron` |
 | `partition_replay_verification_failed` | the cron snapshot sweep, per mismatch or typed integrity error | `tenantId`, `worldId`, `timelineId`, `partitionId`; `failureClass: integrity`, `integrityCheck`, `disposition: reported-not-repaired`, error for a typed error |
@@ -1406,3 +1408,67 @@ code does not embed world content. The observation-only local hall credential do
 report access: use the authorized runtime/operator setup above. A maintainer runs each candidate
 against the chosen simulated-day workload with a real gateway key and records its alias, policy,
 world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
+
+## Offline decision shadow day
+
+Run this from a Clockgrove checkout pinned to a full commit with its frozen dependencies installed.
+The pack may live in another repository; paths resolve from the caller's working directory,
+following the [external pinned-checkout procedure](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout).
+The command reads the selected pack, runs the native pure simulation for the requested span,
+verifies event replay without a model, then asks the configured decision alias beside utility.
+It never changes a running world or starts a hosted service.
+
+Create a local alias JSON file (credential **reference**, never a credential value):
+
+```json
+{"alias":"operator.shadow","model":"perplexity/pplx-decider-v1.2","credential":"AI_GATEWAY_API_KEY","maxCostMicrousd":1000}
+```
+
+With the referenced provider credential in the environment:
+
+```sh
+pnpm shadow:decision --pack worlds/fixture/reference --alias /absolute/path/shadow-alias.json \
+  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 \
+  --out /absolute/path/shadow-report.json
+```
+
+From an external world repository, invoke the same pinned platform command directly:
+
+```sh
+node ../clockgrove/scripts/decision-shadow.mjs --pack worlds/sample --alias shadow-alias.json \
+  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 --out shadow-report.json
+```
+
+All span, margin and spend arguments are required. Span is elapsed simulation milliseconds from
+pack genesis, rather than an absolute timestamp. Margin is the operator-declared top-two utility
+score gap to sample; existing novelty conditions, world decision-point scopes and triggers still apply. Without world
+points, the command adds an operator-only observation point showing all native features. Alias
+configuration accepts `decisionAlias` options, including explicit token prices, byte bound, timeout,
+and per-call ceiling. The shown span is one day; the shown cap is $0.10 and each reservation is
+$0.001. These are example operator choices, not deployment policy. The kernel's existing
+1024-input/4096-event chunk limits and simulator finite-plan limits bound each simulation.
+
+The spend cap is shared by the labelled reference cases and the world observations. Each attempted
+call permanently reserves its configured ceiling for this run, including calls whose actual cost
+is unknown or lower. Reference cases run first. After the cap is reserved no further provider call
+is made. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
+more than configured; actual measured spend and unknown-cost counts are reported separately.
+`--models-off` writes the same simulation/replay result with no provider calls and no judgement
+accuracy. A zero cap is valid and permits no calls. No real provider invocation is required for an
+offline command smoke check.
+
+The JSON report separates `utilityAgreement` from `reference.accuracy`. Utility agreement is never
+accuracy. The three labelled references are generated in code from fixture state using the native
+utility scorer: a wet actor seeking shelter in rain, staying in dry weather, and avoiding a trip for
+negligible protection. Explicit counterfactual weather, needs, shelter protection and travel-weight
+settings make the score gap no more than the fixed declared reference margin of 2. Scores are
+computed by the native scorer, never assigned by the reference builder. Expected choices and one-line
+reasons are authored separately and excluded from model input; one case deliberately disagrees with
+utility's tie-breaking choice. These three calibration cases are a small judgement reference, not
+a claim of broad model accuracy. `--reference-pack` may select a compatible fixture copy; it needs
+an actor with needs/wellbeing and a reachable shelter away from it. The default reference fixture
+ships with the pinned platform. No selected external world's names are built into the runner.
+
+Reference calibration uses a confidence threshold of zero basis points, so any reported confidence
+can count as an answered pick. Missing confidence remains low-confidence. Reference accuracy counts
+answered picks, reports coverage separately, and is null when no case was answered.

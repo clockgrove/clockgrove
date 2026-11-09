@@ -4,7 +4,7 @@
     {
       "presentation": {
         "presentationVersion": 1,
-        "assetManifestVersion": 1,
+        "assetManifestVersion": 2,
         "pack": {
           "id": "clockgrove.fixture-hall",
           "version": "1.1.0"

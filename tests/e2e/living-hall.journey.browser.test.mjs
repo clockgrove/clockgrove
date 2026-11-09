@@ -110,7 +110,16 @@ globalThis.WebSocket = class extends globalThis.WebSocket {
     super.addEventListener(
       type,
       type === "message"
-        ? (event) => listener(globalThis.hallSkew ? { data: globalThis.hallSkewed(event.data) } : event)
+        ? (event) => {
+            if (globalThis.hallDropSnapshot && JSON.parse(event.data).type === "snapshot") {
+              globalThis.hallDropSnapshot = false;
+              this.close();
+              return;
+            }
+            const deliver = () => listener(globalThis.hallSkew ? { data: globalThis.hallSkewed(event.data) } : event);
+            if (globalThis.hallHoldSnapshot && JSON.parse(event.data).type === "snapshot") globalThis.hallReleaseSnapshot = deliver;
+            else deliver();
+          }
         : listener,
       options,
     );
@@ -167,6 +176,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
             "/v1/runtime/scene",
             "/v1/runtime/entity",
             "/v1/runtime/why",
+            "/v1/runtime/causal-chain",
             "/v1/runtime/world-directory",
             "/v1/runtime/world-readiness",
             "/v1/runtime/viewed-space",
@@ -358,6 +368,10 @@ const observeHall = async (backend) => {
     await withClient(fixture.environment, async (client) => {
       const bindings = {
         inspector: {
+          inspect: (...args) =>
+            withClient(fixture.environment, (requestClient) =>
+              new PostgreSqlCausalInspector(requestClient).inspect(...args),
+            ),
           recordedWhy: (...args) =>
             withClient(fixture.environment, (requestClient) =>
               new PostgreSqlCausalInspector(requestClient).recordedWhy(...args),
@@ -407,7 +421,8 @@ const observeHall = async (backend) => {
       };
       const observerTelemetry = [];
       const observerLogger = { log: (record) => observerTelemetry.push(record) };
-      let worker = new RuntimeWorker(auth.authenticator, bindings, observerLogger);
+      let activeAuthentication = auth;
+      let worker = new RuntimeWorker(activeAuthentication.authenticator, bindings, observerLogger);
       const resume = {
         ...advanceCommand(world, "browser-clock-resume", 0n, null),
         type: "ResumeWorld",
@@ -1432,8 +1447,8 @@ const observeHall = async (backend) => {
             .filter((message) => message.type === "resume")
             .map((message) => [message.lastAppliedRevision, message.assetManifestVersion]),
         ).toEqual([
-          [null, 1],
-          [ordinaryRevision, 1],
+          [null, 2],
+          [ordinaryRevision, 2],
         ]);
         expect(sceneRequests).toBe(0);
         expect(navigations).toBe(1);
@@ -1464,11 +1479,8 @@ const observeHall = async (backend) => {
           "UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime'",
         );
         expect(JSON.parse(await truth(membershipGrants))).toEqual(["runtime:world-observe"]);
-        worker = new RuntimeWorker(
-          livingHallAuthentication(provisioned).authenticator,
-          bindings,
-          observerLogger,
-        );
+        activeAuthentication = livingHallAuthentication(provisioned);
+        worker = new RuntimeWorker(activeAuthentication.authenticator, bindings, observerLogger);
         // Cross the documented 100-sequence window; history has no lifetime cutoff.
         for (let index = 0; index < 102; index++) {
           await withClient(fixture.environment, async (commandClient) => {
@@ -2113,7 +2125,23 @@ const observeHall = async (backend) => {
           UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe') WHERE principal_id='principal-outsider'`,
         );
         const observe = async (credential, options = {}) => {
-          const viewer = await (await browser.newContext(options)).newPage();
+          const { lateAssets, dropSnapshot, ...contextOptions } = options;
+          const viewer = await (await browser.newContext(contextOptions)).newPage();
+          if (dropSnapshot)
+            await viewer.addInitScript(() => {
+              globalThis.hallDropSnapshot = true;
+              globalThis.hallHoldSnapshot = true;
+            });
+          let releaseAssets;
+          if (lateAssets) {
+            const held = new Promise((resolve) => {
+              releaseAssets = resolve;
+            });
+            await viewer.route("**/fixture-world.png", async (route) => {
+              await held;
+              await route.continue();
+            });
+          }
           await viewer.addInitScript(() => {
             globalThis.WebSocket = class extends WebSocket {
               constructor(...args) {
@@ -2131,6 +2159,18 @@ const observeHall = async (backend) => {
           await viewer.goto(`${origin}${routeOf(auth.scope)}`);
           await viewer.getByLabel("Local session credential").fill(credential);
           await viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+          if (dropSnapshot) {
+            await expect
+              .poll(() => viewer.locator("#rw-observation-status").textContent())
+              .toContain("degraded");
+            await expect
+              .poll(() => viewer.evaluate(() => typeof globalThis.hallReleaseSnapshot))
+              .toBe("function");
+            await viewer.evaluate(() => {
+              globalThis.hallHoldSnapshot = false;
+              globalThis.hallReleaseSnapshot();
+            });
+          }
           await viewer
             .getByRole("region", { name: "Living scene" })
             .getByRole("heading", { name: auth.scope.worldId, exact: true })
@@ -2144,7 +2184,7 @@ const observeHall = async (backend) => {
             );
           const memories = () =>
             viewer.getByRole("list", { name: "Private memories" }).getByRole("listitem");
-          return { viewer, frames, sockets, held, memories };
+          return { viewer, frames, sockets, held, memories, releaseAssets };
         };
         const kin = await observe("hall-inspect");
         const stranger = await observe("outsider-session-token");
@@ -2168,10 +2208,91 @@ const observeHall = async (backend) => {
         expect(await stranger.memories().count()).toBe(0);
         for (const secret of ["scripted:", "privateCognition", "belief about", "memory about"])
           expect(JSON.stringify(await strangerOutput()).includes(secret)).toBe(false);
+        // F13: an observer without inspect authority sees the inspector denial.
+        await kin.viewer.evaluate(() =>
+          globalThis.hallSession.explainReceipt("browser-why-original"),
+        );
+        await kin.viewer.getByRole("button", { name: "Inspect command", exact: true }).click();
+        await kin.viewer
+          .getByText("Inspector denied. This session lacks inspection authority.", { exact: true })
+          .waitFor();
+        activeAuthentication.grant("runtime:world-inspect");
+        await kin.viewer.getByRole("button", { name: "Inspect command", exact: true }).click();
+        await kin.viewer
+          .getByText("Inspector command browser-why-original: committed.", { exact: true })
+          .waitFor();
+        activeAuthentication.revoke();
+        activeAuthentication.grant("runtime:world-observe");
+        await kin.viewer.getByRole("button", { name: "Close Why", exact: true }).click();
+        // F1: deliberately close the first socket before its snapshot reaches the client.
+        const dropped = await observe("hall-inspect", { dropSnapshot: true });
+        await expect
+          .poll(() =>
+            dropped.viewer.evaluate(() =>
+              globalThis.hallTransitions.map(([status]) => status).includes("degraded"),
+            ),
+          )
+          .toBe(true);
+        expect(
+          dropped.sockets.filter((socket) => new URL(socket.url()).pathname === "/v1/projection")
+            .length,
+        ).toBe(2);
+        await dropped.viewer.context().close();
+        // S4: the browser goes offline, reports recovery, and resumes the committed scene.
+        await stranger.viewer.context().setOffline(true);
+        await stranger.viewer.evaluate(() => globalThis.hallCurrentSocket.close());
+        await expect
+          .poll(() => stranger.viewer.locator("#rw-observation-status").textContent())
+          .toContain("Recovering committed scene");
+        await stranger.viewer.context().setOffline(false);
+        await expect.poll(async () => JSON.parse(await stranger.held()).status).toBe("ready");
+        // F4: the stored session expires; an ordinary read denies it until a renewed session signs in.
+        await native.sql(
+          `UPDATE clockgrove_auth.session SET "expiresAt"=now()-interval '1 second' WHERE token='outsider-session-token'`,
+        );
+        activeAuthentication.setStrangerExpired(true);
+        expect(
+          (
+            await native.request(
+              "/v1/runtime/scene",
+              { version: 1, ...auth.scope },
+              "outsider-session-token",
+            )
+          ).status,
+        ).toBe(401);
+        await stranger.viewer
+          .getByRole("region", { name: "Living scene" })
+          .getByRole("listitem")
+          .getByRole("button")
+          .first()
+          .click();
+        await expect
+          .poll(() => stranger.viewer.locator("#rw-observation-status").textContent())
+          .toContain("Authorization lost");
+        await native.sql(
+          `UPDATE clockgrove_auth.session SET "expiresAt"=now()+interval '1 hour' WHERE token='outsider-session-token'`,
+        );
+        activeAuthentication.setStrangerExpired(false);
+        await stranger.viewer.getByLabel("Local session credential").fill("outsider-session-token");
+        await stranger.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
+        await stranger.viewer.getByRole("region", { name: "Living scene" }).waitFor();
         // issue 809: the golden hall with rain, on a touch viewer that prefers reduced motion.
         const attached = (await attachments(auth.scope)).length;
-        const touch = await observe("hall-inspect", { hasTouch: true, reducedMotion: "reduce" });
+        // S12: snapshot arrives before the held atlas, with no false scene_ready; release recovers.
+        const touch = await observe("hall-inspect", {
+          hasTouch: true,
+          reducedMotion: "reduce",
+          lateAssets: true,
+        });
         const hall = touch.viewer;
+        await hall.getByText(/^Arrival: snapshot ready at revision /u).waitFor();
+        expect(
+          await hall.evaluate(() =>
+            globalThis.hallBoots.some(([boot]) => boot.state === "scene_ready"),
+          ),
+        ).toBe(false);
+        touch.releaseAssets();
+        await hall.getByText(/^Arrival: scene ready at revision /u).waitFor();
         await expect
           .poll(() => hall.evaluate(() => globalThis.hallAdapter?.atlasTexture !== undefined))
           .toBeTruthy();
@@ -2554,6 +2675,29 @@ const observeHall = async (backend) => {
           // window's bounds listeners no longer fire.
           await released(),
         ]).toEqual([heldBefore, "ready", [false, false, false]]);
+        // A4: retry rebuilds the canvas from the retained reducer projection, without another socket.
+        const socketsBeforeRebuild = touch.sockets.length;
+        await hall.evaluate(() => {
+          globalThis.hallDrawnRevision = undefined;
+        });
+        await hall.getByRole("button", { name: "Retry canvas", exact: true }).click();
+        await expect.poll(() => hall.locator("canvas").count()).toBe(1);
+        await expect
+          .poll(() => hall.evaluate(() => globalThis.hallDrawnRevision))
+          .toBe(JSON.parse(heldBefore).scene.revision);
+        expect([
+          await touch.held(),
+          touch.sockets.length,
+          await hall.evaluate(
+            () => globalThis.hallAdapter.renderer.domElement === globalThis.hallCanvas,
+          ),
+        ]).toEqual([heldBefore, socketsBeforeRebuild, false]);
+        // A5: browser error-boundary handling leaves exact PostgreSQL world facts unchanged.
+        const errorFacts = () =>
+          truth(
+            "SELECT jsonb_agg(to_jsonb(state) ORDER BY partition_id)::text FROM clockgrove.partition_states state",
+          );
+        const beforeError = [await errorFacts(), await commands()];
         // §16 React error boundary: a throwing hall component leaves a focused, announced error
         // screen, not a blank page, recorded only as client_errors:shell; Reload recovers.
         const failingEntity = hall
@@ -2590,6 +2734,7 @@ const observeHall = async (backend) => {
           0,
           1,
         ]);
+        expect([await errorFacts(), await commands()]).toEqual(beforeError);
         // Reload starts a fresh client: the shell's sign-in is back, with the world route kept.
         await stopped.getByRole("button", { name: "Reload", exact: true }).click();
         await hall.getByLabel("Local session credential").waitFor();
@@ -2932,6 +3077,63 @@ const observeHall = async (backend) => {
         expect([scenes.length, scenes.filter((socket) => !socket.isClosed()).length]).toEqual([
           1, 1,
         ]);
+        navigationAuth.grant("runtime:world-observe");
+        // S1: an observer before the event and an observer after it converge on the same view.
+        const beforeLateObserver = (await durable()).split("|")[0];
+        await commit({
+          ...weather,
+          commandId: "browser-late-observer",
+          payload: { schemaVersion: 2, rainIntensity: 5000 },
+        });
+        const afterLateObserver = (await durable()).split("|")[0];
+        expect(BigInt(afterLateObserver)).toBeGreaterThan(BigInt(beforeLateObserver));
+        const lateObserver = await observe("outsider-session-token");
+        for (const viewer of [kin.viewer, lateObserver.viewer]) {
+          await viewer
+            .getByText(`Canonical revision: ${afterLateObserver}`, { exact: true })
+            .waitFor();
+          await viewer.getByText("Rain intensity: 5000", { exact: true }).waitFor();
+        }
+        await expect
+          .poll(async () => JSON.parse(await kin.held()).scene.revision)
+          .toBe(afterLateObserver);
+        expect(JSON.parse(await lateObserver.held()).scene).toEqual(
+          JSON.parse(await kin.held()).scene,
+        );
+        expect(JSON.parse(await lateObserver.held()).scene.weather.rainIntensity).toBe(5000);
+        expect(JSON.parse(await lateObserver.held()).scene.revision).toBe(afterLateObserver);
+        await lateObserver.viewer.context().close();
+        // S5: pause, resume and speed changes are transitions in the browser HUD.
+        const clock = kin.viewer.getByRole("region", { name: "World clock", exact: true });
+        for (const [type, payload, state, speed] of [
+          ["ResumeWorld", { schemaVersion: 1 }, "Running", "Speed ×1"],
+          [
+            "SetClockPolicy",
+            {
+              schemaVersion: 1,
+              simulationMillisecondsPerWallMillisecond: 2,
+              catchUpCapMs: 1000000000n,
+            },
+            "Running",
+            "Speed ×2",
+          ],
+          ["PauseWorld", { schemaVersion: 1 }, "Paused", "Speed ×2"],
+          [
+            "SetClockPolicy",
+            {
+              schemaVersion: 1,
+              simulationMillisecondsPerWallMillisecond: 1,
+              catchUpCapMs: 1000000000n,
+            },
+            "Paused",
+            "Speed ×1",
+          ],
+        ]) {
+          await commit({ ...resume, commandId: `browser-clock-${state}-${speed}`, type, payload });
+          await commit({ ...weather, commandId: `browser-clock-notify-${state}-${speed}` });
+          await clock.getByText(state, { exact: true }).waitFor();
+          await clock.getByText(speed, { exact: true }).waitFor();
+        }
       } finally {
         try {
           await browser?.close();

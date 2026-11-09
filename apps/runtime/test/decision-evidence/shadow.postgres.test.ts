@@ -7,7 +7,7 @@ import {
   VerifiedJournal,
 } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
-import { validateUtilityPolicy } from "@clockgrove/domain";
+import { type DecisionTrace, decodeWorldScenario, validateUtilityPolicy } from "@clockgrove/domain";
 import { planningRequestFor } from "@clockgrove/kernel";
 import {
   createModelGateway,
@@ -83,7 +83,7 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           .filter((draft) => draft.kind === "routine")
           .map((draft) => ({
             commandId: command.commandId,
-            trace: draft.decision as never,
+            trace: draft.decision as DecisionTrace,
           }));
         expect((await owner.submit(command)).status).toBe(200);
         const policy = declaredFromPack(world.behavior.policy);
@@ -128,6 +128,10 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
               answer: { type: "choice", label: other[1] ?? "", confidence: 0.55 },
               costUsd: 0.000028,
             },
+            {
+              kind: "answer",
+              answer: { type: "choice", label: utility[0] ?? "", confidence: 0.8 },
+            },
           ],
         });
         let calls = 0;
@@ -163,6 +167,16 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           subjects,
           declarations: policy,
           decider: shadow,
+        });
+        const sent = decider.calls[0];
+        expect(sent?.state).toContain('State (fixed-point values): {"health":');
+        expect(sent?.state).not.toContain("score");
+        expect(JSON.stringify(sent?.question)).not.toContain("score");
+        const options = sent?.question.type === "choice" ? Object.keys(sent.question.options) : [];
+        expect(options).toEqual([...(keys[0] ?? [])].sort().concat("cant_tell"));
+        expect(records[0]?.utilityMargin).toMatchObject({
+          maxMargin: "1000000000000",
+          withinDeclaredMargin: true,
         });
         expect(records.map((record) => record.shadow.status)).toEqual(["picked", "low-confidence"]);
         expect(records.map((record) => record.utilityChoice)).toEqual(utility);
@@ -232,6 +246,92 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           lowConfidence: 2,
           cantTell: 1,
         });
+        expect(report.points[0]?.withinMargin).toEqual({
+          decisions: 4,
+          answered: 3,
+          agreed: 1,
+          agreementRate: 1 / 3,
+        });
+        expect(report.points[0]?.outsideMargin.decisions).toBe(0);
+        expect(report.points[0]?.unknownCostCalls).toBe(0);
+        const scoped = (scope: {
+          actorIds?: readonly string[];
+          archetypes?: readonly string[];
+        }) => ({
+          ...policy,
+          decisionPoints: {
+            ...policy.decisionPoints,
+            points: policy.decisionPoints.points.map((point) => ({ ...point, scope })),
+          },
+        });
+        const decodePolicy = (declarations: typeof policy) => {
+          const { contentHash, ...pack } = world.behavior;
+          const wire = JSON.parse(
+            JSON.stringify(
+              {
+                schemaVersion: 1,
+                pack: {
+                  ...pack,
+                  policy: { ...pack.policy, utility: { ...pack.policy.utility, ...declarations } },
+                },
+                initialState: {
+                  schemaVersion: 1,
+                  tenantId: scope.tenantId,
+                  worldId: scope.worldId,
+                  timelineId: scope.timelineId,
+                  partitionId: world.birth.state.partitionId,
+                  revision: "0",
+                  simulationTime: "0",
+                  weather: { rainIntensity: 0 },
+                  spatialFrames: world.birth.state.spatialFrames,
+                  entities: [],
+                },
+              },
+              (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+            ),
+          );
+          return decodeWorldScenario(wire, contentHash).pack.policy.utility;
+        };
+        expect(decodePolicy(policy)?.decisionPoints?.points[0]).not.toHaveProperty("scope");
+        expect(
+          decodePolicy(scoped({ actorIds: ["actor-not-present"] }))?.decisionPoints?.points[0]
+            ?.scope,
+        ).toEqual({ actorIds: ["actor-not-present"] });
+        const outside = records.map((record) => ({
+          ...record,
+          utilityMargin: { gap: "2", maxMargin: "1", withinDeclaredMargin: false },
+        }));
+        expect(decisionShadowReport(outside).points[0]?.outsideMargin).toEqual({
+          decisions: 2,
+          answered: 2,
+          agreed: 1,
+          agreementRate: 0.5,
+        });
+        const historical = records.map(({ utilityMargin: _margin, ...record }) => record);
+        expect(decisionShadowReport(historical).points[0]?.unclassifiedMargin.decisions).toBe(2);
+        const excluded = scoped({ actorIds: ["actor-not-present"] });
+        validateUtilityPolicy(
+          { ...(world.behavior.policy.utility as object), ...excluded },
+          world.behavior.policy.wellbeing as never,
+        );
+        expect(
+          await runDecisionShadow({ subjects, declarations: excluded, decider: shadow }),
+        ).toEqual([]);
+        const chosen = subjects[0];
+        if (chosen === undefined) throw new Error("fixture decision missing");
+        const onlyActor = await runDecisionShadow({
+          subjects: [chosen],
+          declarations: scoped({ actorIds: [chosen.trace.objectId] }),
+          decider: shadow,
+        });
+        expect(onlyActor.map((record) => record.objectId)).toEqual([chosen.trace.objectId]);
+        expect(decisionShadowReport(onlyActor).points[0]?.unknownCostCalls).toBe(1);
+        const archetype = await runDecisionShadow({
+          subjects: [{ ...chosen, archetype: "fixture-needs-actor" }],
+          declarations: scoped({ archetypes: ["fixture-needs-actor"] }),
+          decider: shadow,
+        });
+        expect(archetype.map((record) => record.objectId)).toEqual([chosen.trace.objectId]);
         expect(report.review).toHaveLength(2);
         expect(report.review.find((row) => row.signature === records[0]?.signature)).toEqual({
           signature: records[0]?.signature,

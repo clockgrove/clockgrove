@@ -204,14 +204,32 @@ capacity refuses additional admission rather
 than forgetting an old receipt and risking duplicate execution.
 
 A compiled `noop` decision disables that configuration and clears its next wake, suppressing
-repeated empty opportunities until an operator reconfigures it. Quiet subscription polling uses
-a one-minute cadence; unfinished turns retry after one second, subject to the model budget. These are
-explicit local bounds, rather than continuously running actor processes.
+repeated empty opportunities until an operator reconfigures it. Subscriptions and thresholds wake on
+events: after a world command commits, its space owner asks the owner of each actor whose enabled
+subscription or threshold names a committed event type for a check within one second
+(`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
+world's system principal). Repeated hints coalesce into the actor's one activation alarm. A check
+that reads a full page of 64 unread events, or sees an event whose transaction has not settled,
+checks again within one second. A failed hint pass logs `activation_hint_failed`; when a commit
+during it asked for another pass, that pass hints the failed pass's event types too. Quiet
+subscription polling, one minute apart, remains the backstop for a lost or failed hint; unfinished
+turns retry after one second, subject to the model budget. These are explicit local bounds, rather
+than continuously running actor processes.
+
+Each committed event a subscription or threshold can match is read by its check exactly once,
+however partitions interleave their commits. Partitions of one timeline commit in parallel, so a
+lower journal position can become visible after a higher one. The actor's event cursor therefore
+orders events by the transaction that appended them, then by position, and a check reads an event
+only once every older transaction has ended (migration 0043). An event can wait behind an open
+transaction, so a wake can be late under load, but the cursor never passes an event that can still
+appear. Acknowledging an event moves the cursor forward only, and causal-root receipts still
+coalesce a repeated delivery into one activation.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
-logic owns evaluation of the physical condition. Event cursors start at the journal head when
-the actor's policy is first configured. Recurring intentions retain their scheduled cadence and
-skip missed opportunities instead of producing an unbounded catch-up burst.
+logic owns evaluation of the physical condition. An event cursor starts when the actor's policy is
+first configured: it skips the events of every transaction already under way or finished by then.
+Recurring intentions retain their scheduled cadence and skip missed opportunities instead of
+producing an unbounded catch-up burst.
 
 The model boundary rechecks the current policy, compiled decision, membership and fiber lease.
 Recovery after the answer checkpoint reuses the answer. Deferred evidence keeps its causal

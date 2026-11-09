@@ -63,6 +63,8 @@ export interface DecisionAliasDefinition {
   readonly alias: string;
   readonly policyVersion: string;
   readonly route: ModelRoute;
+  /** False when the alias builder has no price; omitted for existing explicitly priced routes. */
+  readonly priceConfigured?: boolean;
   /** Largest request the alias accepts, in UTF-8 bytes of state and options. */
   readonly maxInputBytes: number;
   readonly timeoutMs: number;
@@ -94,7 +96,8 @@ export interface DecisionAdapter {
 
 /**
  * An alias for one decision model, built from configuration. Prices are optional: when the gateway
- * reports a cost it is used, otherwise the cost is unknown.
+ * reports a cost it is used, otherwise configured prices and reported tokens determine cost.
+ * With neither a reported cost nor a configured price, cost remains unknown.
  */
 export function decisionAlias(config: {
   readonly alias: string;
@@ -109,6 +112,7 @@ export function decisionAlias(config: {
   return {
     alias: config.alias,
     policyVersion: `${config.alias}@1`,
+    priceConfigured: config.priceUsdPerMTok !== undefined,
     route: {
       id: `vercel-ai-gateway/${config.model}`,
       provider: "vercel-ai-gateway",

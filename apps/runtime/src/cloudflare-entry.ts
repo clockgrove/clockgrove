@@ -36,6 +36,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
+  activationEventSubscribers,
   PostgreSqlActivations,
   PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
@@ -68,6 +69,7 @@ import {
 import type { ActorAgentDO, SpaceDO, WorldDO } from "./cloudflare-adapters.js";
 import {
   consoleRuntimeLogger,
+  logActivationHintFailure,
   logPartitionSnapshotFailure,
   logPublicationFailure,
   logQueueDeadLetter,
@@ -671,6 +673,7 @@ export interface RuntimeEnvironment {
       | "configureActivation"
       | "wakeActivation"
       | "inspectActivations"
+      | "hintActivations"
       | "wakeTriageReport"
     >
   >;
@@ -1501,6 +1504,105 @@ export function worldReactionNotifier(
     };
     waitUntil(sweep());
   });
+}
+
+/**
+ * In-flight activation hint passes per world timeline in this isolate, with the event types still
+ * to hint. An entry older than one pass deadline is stale and never blocks a hint.
+ */
+const activationHints = new Map<string, { types: Set<string>; passStartedAt: number }>();
+
+/**
+ * Post-commit wake for the actors whose enabled subscription or threshold names an event type the
+ * commit wrote (Wave 5 §5.2: subscriptions wake on events). It reads only which actors those are
+ * and asks each actor's owner for a prompt check; the owner reads the journal itself. It is
+ * scheduled with `waitUntil` and never awaited. A lost or failed hint costs latency only: the
+ * actor's quiet poll still reads the journal. Hints coalesce per world timeline: a commit during a
+ * running pass adds its event types to one more pass instead of another connection. A failed pass
+ * logs `activation_hint_failed`; one more pass, if a commit asked for it, also retries the failed
+ * pass's types, as the world-reactions hint does. A timed-out pass ends the loop.
+ */
+export function activationHintNotifier(
+  env: RuntimeEnvironment,
+  waitUntil: (work: Promise<unknown>) => void,
+): JournalPostCommitNotifier {
+  return {
+    async notify(result) {
+      const [first] = result.events;
+      if (result.outcome === "rejected" || first === undefined) return;
+      const types = result.events.map((event) => event.type);
+      const key = JSON.stringify([first.tenantId, first.worldId, first.timelineId]);
+      const running = activationHints.get(key);
+      if (running !== undefined && Date.now() - running.passStartedAt < HINT_PASS_DEADLINE_MS) {
+        for (const type of types) running.types.add(type);
+        return;
+      }
+      const entry = { types: new Set(types), passStartedAt: Date.now() };
+      activationHints.set(key, entry);
+      const authorization: RuntimeAuthorizationContext = {
+        tenantId: first.tenantId,
+        principalId: decodeOpaqueId(`system:world:${first.worldId}`, "PrincipalId"),
+        privacyCeiling: { version: 1, allowedCategories: ["public_scene"] },
+      };
+      const pass = async (eventTypes: readonly string[]) => {
+        const actors = await withHyperdrivePostgreSqlClient(
+          env.HYPERDRIVE?.connectionString ?? "",
+          (client) => activationEventSubscribers(client, authorization, first, eventTypes),
+        );
+        await Promise.allSettled(
+          actors.map(async ({ actorId, spaceId }) => {
+            const route = await runtimeRouteName(
+              "actor-agent",
+              {
+                tenantId: first.tenantId,
+                worldId: first.worldId,
+                timelineId: first.timelineId,
+                spaceId: decodeOpaqueId(spaceId, "SpaceId"),
+              },
+              decodeOpaqueId(actorId, "SubjectId"),
+            );
+            await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).hintActivations();
+          }),
+        );
+      };
+      const hint = async () => {
+        const logger = runtimeLogger(env);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          while (entry.types.size > 0 && activationHints.get(key) === entry) {
+            const eventTypes = [...entry.types];
+            entry.types.clear();
+            entry.passStartedAt = Date.now();
+            const deadline = new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(Object.assign(new Error("hint deadline"), { code: "ETIMEDOUT" })),
+                HINT_PASS_DEADLINE_MS,
+              );
+            });
+            try {
+              await Promise.race([pass(eventTypes), deadline]);
+            } catch (error) {
+              logActivationHintFailure(
+                logger,
+                { tenantId: first.tenantId, worldId: first.worldId, timelineId: first.timelineId },
+                queueFailureClass(error),
+              );
+              // A timed-out pass is abandoned, not retried: the database is likely unavailable.
+              // The actors' quiet polls still read every event its types named.
+              if ((error as { code?: unknown }).code === "ETIMEDOUT") break;
+              // A commit during the failed pass asked for one more: it retries these types too.
+              if (entry.types.size > 0) for (const type of eventTypes) entry.types.add(type);
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+        } finally {
+          if (activationHints.get(key) === entry) activationHints.delete(key);
+        }
+      };
+      waitUntil(hint());
+    },
+  };
 }
 
 /** Verification and durable disposition only: this handler executes no world effects. */

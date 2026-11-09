@@ -1,0 +1,27 @@
+/* Generated from DESIGN.md by scripts/design-tokens.mjs. Do not edit; run: node scripts/design-tokens.mjs --write */
+[data-tokens="world-shell@1"] {
+  --cg-v1-bg: #14181e;
+  --cg-v1-panel: rgb(32 38 48 / 92%);
+  --cg-v1-panel-solid: #202630;
+  --cg-v1-control: #303947;
+  --cg-v1-border: #7e8b9e;
+  --cg-v1-text: #edf1f5;
+  --cg-v1-text-muted: #b7c1cf;
+  --cg-v1-primary: #9bbce0;
+  --cg-v1-rain: #8ec1ea;
+  --cg-v1-event: #e8b84e;
+  --cg-v1-affection: #f4958a;
+  --cg-v1-warning: #e39a62;
+  --cg-v1-error: #ff8f86;
+  --cg-v1-font: "Segoe UI", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --cg-v1-line-height: 1.4;
+  --cg-v1-radius-md: 6px;
+  --cg-v1-radius-full: 9999px;
+  --cg-v1-space-1: 4px;
+  --cg-v1-space-2: 8px;
+  --cg-v1-space-3: 16px;
+  --cg-v1-hud-height: 60px;
+  --cg-v1-rail-width: 20%;
+  --cg-v1-sheet-bar: 56px;
+  --cg-v1-feed-width: min(320px, 24vw);
+}

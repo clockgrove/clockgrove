@@ -49,7 +49,7 @@ export const snapshotRequest = {
   audienceHash: snapshot.payload.audienceHash,
 } as const;
 export const resumeMessage = (lastAppliedRevision: string | null) =>
-  ({ protocolVersion: 1, type: "resume", lastAppliedRevision, assetManifestVersion: 1 }) as const;
+  ({ protocolVersion: 1, type: "resume", lastAppliedRevision, assetManifestVersion: 2 }) as const;
 export const ackMessage = (revision: string, connectionVersion: number) =>
   ({ protocolVersion: 1, type: "ack", revision, connectionVersion }) as const;
 export const later = (offset: bigint) => ({

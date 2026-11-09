@@ -3,7 +3,7 @@
 **Status:** Optional post-GA implementation specification  
 **Version:** 2.5  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9 plus Waves 0–10  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9 plus Waves 0–10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Decision source:** `clockgrove-adr-world-personas-and-object-mobility-policy.md`  
 **Wave:** 11, after provider-neutral signup and workspace tenancy  
@@ -668,7 +668,7 @@ The sponsor may be the world owner, participant workspace, promotional grant, op
 ## 18. Current primary references
 
 - `clockgrove-prd-v0.5.md`
-- `raccoon-world-cloudflare-implementation-plan.md` v3.9
+- `clockgrove-cloudflare-implementation-plan.md` v3.9
 - `clockgrove-adr-world-personas-and-object-mobility-policy.md`
 - Better Auth documentation: https://www.better-auth.com/docs
 - Cloudflare Durable Objects documentation: https://developers.cloudflare.com/durable-objects/
