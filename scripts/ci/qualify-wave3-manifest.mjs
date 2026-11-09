@@ -42,11 +42,11 @@ export const HOSTED = {
   cloudflare: {
     scope:
       "real Cloudflare staging qualification: plan §18.2 and the hosted rows of the §17 matrix",
-    issues: [881],
+    issues: [3],
   },
   deployable: {
     scope: "a deploy of main to real staging and the authenticated staging path",
-    issues: [693],
+    issues: [2],
   },
 };
 /** Scope the plan's dated amendments moved out of Wave 3, with the wave that owns it. */
@@ -347,7 +347,7 @@ export function exitChecklist(manifest, items) {
     {
       evidence: [...receipts("test-runtime", "test"), "faults"],
       needs: ["test-runtime", "test"],
-      // Its §17 row's superseded route-name version after a Cloudflare deployment is pending on issue 881.
+      // Its §17 row's superseded route-name version after a Cloudflare deployment is pending on issue 3.
       hosted: "cloudflare",
       observed:
         "As amended: stale supplied epochs are refused against the shared routing epoch before mutation, also after hydration, and stale incarnations are fenced by owner generation",
@@ -649,7 +649,7 @@ export async function validateWave3Manifest(manifest, root, decode) {
   assert.deepEqual(
     manifest.cloudQualification,
     cloudQualification(hosted),
-    "every literal §18.2 item stays pending on issue 881",
+    "every literal §18.2 item stays pending on issue 3",
   );
   assert.deepEqual(
     manifest.exitChecklist.map((entry) => entry.item),

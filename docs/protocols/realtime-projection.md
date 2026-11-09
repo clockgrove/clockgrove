@@ -535,4 +535,4 @@ survives in its state or DOM.
 The local replacement fixture restarts workerd and explicitly models platform attachment restoration
 before resuming from PostgreSQL. Separate held-read checks replace delivery intent while an earlier
 success or error is pending. These checks do not exercise Cloudflare's hosted eviction mechanism;
-real hibernation, restart and redeploy qualification remains pending on issue 881.
+real hibernation, restart and redeploy qualification remains pending on issue 3.

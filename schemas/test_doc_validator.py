@@ -71,7 +71,7 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
 
 **Replay conditions** (recorded 2026-11-01 for issue 817; Claude Code, delegated by the maintainer): the session starts from the deterministic `green-lake-yard@1` seed. It records the candidate commit and the canonical world revision at its start. The pilot runs once. A replay from the same commit and revision is allowed only to clarify an observed misunderstanding, never to re-score a task.
 
-**Qualification carry-forward:** The Wave 3 evidence manifest (`pnpm qualify:wave3`, issue 853) keeps its hosted items pending: real Cloudflare qualification, owned by issue 881, and the deploy of main, owned by issue 693. This checkpoint uses the incremental-delivery ADR's local-development readiness exception; local acceptance does not qualify Wave 3 or Wave 4. The pending hosted obligations and the full wave-exit evidence remain required. The pilot was evaluated on 2026-11-01; its results are above.""",
+**Qualification carry-forward:** The Wave 3 evidence manifest (`pnpm qualify:wave3`, issue 853) keeps its hosted items pending: real Cloudflare qualification, owned by issue 3, and the deploy of main, owned by issue 2. This checkpoint uses the incremental-delivery ADR's local-development readiness exception; local acceptance does not qualify Wave 3 or Wave 4. The pending hosted obligations and the full wave-exit evidence remain required. The pilot was evaluated on 2026-11-01; its results are above.""",
         )
 
     def test_missing_required_field_is_rejected(self) -> None:

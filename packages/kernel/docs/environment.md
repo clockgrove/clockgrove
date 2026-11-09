@@ -3,7 +3,7 @@
 A world behavior policy may carry an optional, versioned `environment` record. `world.advance`
 then emits the day/night phase changes, the authored weather transitions and the moisture
 exposure crossings through the RW-0106 engine. A movement or portal command that moves the world
-time emits the phase changes and weather transitions it passes the same way
+time emits the phase changes, weather transitions and exposure crossings it passes the same way
 ([spatial movement](spatial-movement.md#world-time-a-move-passes)). Policies and states without it are
 unchanged.
 

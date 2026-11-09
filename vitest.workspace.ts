@@ -19,6 +19,16 @@ export default defineConfig({
       },
       {
         test: {
+          name: "cloud",
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+          expect: { poll: { timeout: 30_000 } },
+          environment: "node",
+          include: ["tests/cloud/**/*.test.mjs"],
+        },
+      },
+      {
+        test: {
           name: "ci-controls",
           testTimeout: 30_000,
           hookTimeout: 30_000,

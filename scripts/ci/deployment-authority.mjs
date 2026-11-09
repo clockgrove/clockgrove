@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { verify } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { digest } from "./evidence.mjs";
+import { cp, readFile, realpath, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { assertNoSecretValues } from "../check-secrets.mjs";
+import { digest, root } from "./evidence.mjs";
 
 export const reviewScope = [
   "credential exposure",
@@ -29,6 +31,109 @@ export async function authenticatedFact(file, keyFile, keyDigest) {
   );
   return JSON.parse(bytes.toString("utf8"));
 }
+
+// An owner-approved location named by a protected variable: absolute and outside the checkout.
+export async function externalPath(env, name) {
+  const value = env[name];
+  assert(value?.trim(), `missing ${name}`);
+  assert(path.isAbsolute(value), `${name} must be an absolute owner-approved external path`);
+  const resolved = await realpath(value);
+  assert(resolved !== root && !resolved.startsWith(`${root}/`), `${name} must be outside checkout`);
+  return resolved;
+}
+
+// The zero account/zone IDs and example.org domains are publication-safe placeholders.
+export function assertRoutingMetadata(config, target) {
+  for (const [name, value] of Object.entries(config.safeIds))
+    assert(!/^0+$/u.test(value), `missing routing metadata ${target}.${name}`);
+  for (const [name, value] of Object.entries(config.domains))
+    assert(!/(?:^|\.)example\.org$/u.test(value), `missing routing metadata ${target}.${name}`);
+}
+
+// The owner-approved external state configuration: INFRA_CONFIGURATION_DIGEST pins the backend
+// file's bytes followed by the encryption file's bytes. Both name the target environment, the
+// backend is not local, and state and plans are AES-GCM encrypted with no plaintext fallback.
+export async function externalStateConfiguration(target, backendFile, encryptionFile, pinned) {
+  const backendBytes = await readFile(backendFile);
+  const encryptionBytes = await readFile(encryptionFile);
+  assert.equal(
+    configurationDigest(backendBytes, encryptionBytes),
+    pinned,
+    "owner-approved encrypted external-state configuration mismatch",
+  );
+  const backend = JSON.parse(backendBytes);
+  const encryption = JSON.parse(encryptionBytes);
+  assertNoSecretValues(backendBytes.toString(), "external backend configuration");
+  assertNoSecretValues(encryptionBytes.toString(), "external encryption configuration");
+  assert.equal(backend.environment, target, "external backend environment isolation mismatch");
+  assert.equal(
+    encryption.environment,
+    target,
+    "external encryption environment isolation mismatch",
+  );
+  assert(
+    backend.terraform?.backend && Object.keys(backend.terraform.backend).length === 1,
+    "missing owner-approved external backend destination",
+  );
+  assert(!backend.terraform.backend.local, "external persisted-state backend required");
+  const crypt = encryption.terraform?.encryption;
+  assert(
+    crypt?.key_provider && crypt?.method?.aes_gcm,
+    "missing owner-approved external encryption key provider and AES-GCM method",
+  );
+  assert(
+    Object.keys(crypt.key_provider).every((name) =>
+      ["aws_kms", "gcp_kms", "azure_key_vault", "openbao"].includes(name),
+    ),
+    "external encryption must use owner-managed key identity; no new static credential catalog entry",
+  );
+  assert.equal(Object.keys(crypt.method).length, 1, "unencrypted encryption methods forbidden");
+  for (const name of ["state", "plan"]) {
+    assert.equal(crypt[name]?.enforced, true, `${name} encryption must be enforced`);
+    assert(
+      !crypt[name].fallback &&
+        typeof crypt[name].method === "string" &&
+        crypt[name].method.includes("method.aes_gcm."),
+      `${name} encryption method required without plaintext fallback`,
+    );
+  }
+  return { backend, encryption };
+}
+
+export const configurationDigest = (backendBytes, encryptionBytes) =>
+  digest(Buffer.concat([backendBytes, encryptionBytes]));
+
+// An OpenTofu working directory outside the checkout, wired to the external backend and encryption.
+export async function prepareStateWorkspace(work, backend, encryption) {
+  await cp(path.join(root, "infra/opentofu"), work, { recursive: true });
+  await cp(path.join(root, "infra/environments"), path.join(work, "environments"), {
+    recursive: true,
+  });
+  // Keep the original manifest path semantics when running outside checkout.
+  const source = (await readFile(path.join(work, "main.tf"), "utf8")).replace(
+    "/../environments/",
+    "/environments/",
+  );
+  await writeFile(path.join(work, "main.tf"), source);
+  await writeFile(
+    path.join(work, "external-backend.tf.json"),
+    JSON.stringify({ terraform: backend.terraform }),
+  );
+  await writeFile(
+    path.join(work, "external-encryption.tf.json"),
+    JSON.stringify({ terraform: encryption.terraform }),
+  );
+}
+
+// The provider credentials OpenTofu reads: the Cloudflare provider reads CLOUDFLARE_API_TOKEN
+// itself, and the Neon provider reads NEON_TOKEN, which carries the declared NEON_API_KEY.
+export const hostedTofuEnv = (env, ipc, work) => ({
+  ...env,
+  TMPDIR: ipc,
+  TF_DATA_DIR: path.join(work, ".terraform"),
+  TF_ENCRYPTION: "",
+  NEON_TOKEN: env.NEON_API_KEY,
+});
 
 export function verifyReview(fact, candidate, tree, reviewer) {
   assert(fact.outcome !== "refused", "independent review refused candidate");

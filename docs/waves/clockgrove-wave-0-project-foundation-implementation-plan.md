@@ -241,7 +241,7 @@ All required CI commands are noninteractive and runnable from a clean checkout.
 
 Amended (2026-10-19): the list matches the real root scripts, with their order and coverage in `docs/runbooks/development.md`.
 
-- `pnpm test:cloud` and a real `pnpm infra:plan <environment>` are deferred to the hosted half; they need real staging. Today `pnpm infra:validate` runs the backend-free OpenTofu validation and Wrangler dry-runs, with no credentials.
+- `pnpm infra:plan <environment>` makes a read-only plan; Quality runs the zero-resource `ci` plan. `pnpm test:cloud [environment]` checks that the plan is reproducible with no pending change and probes a hosted environment's deployed origin. Their staging passes belong to the hosted half (issue 2), since they need a staging deploy. `pnpm infra:validate` runs the backend-free OpenTofu validation and Wrangler dry-runs, with no credentials.
 - `pnpm test:e2e` is the browser journey Quality runs with `tests/ci/vitest.browser.config.ts`. It stays out of offline `pnpm test`, so it has no root script.
 - `pnpm verify` is dropped: the gate is the ordered command list in the development runbook, which Quality records in one evidence manifest.
 - `pnpm dev` is dropped at the root: the shell runs with `pnpm --filter @clockgrove/web dev`, and the runtime runs through `pnpm test:runtime`.
@@ -665,7 +665,7 @@ Bootstrap from a clean Linux environment, recreate databases/fixtures, destroy r
 
 **Exit:** publish Wave 0 evidence manifest and handoff to Wave 1.
 
-Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 and W0-010 moves to Wave 3 entry, owned by issue 693. It covers the real staging deploy, the authenticated staging browser path with enrollment and the world-grant/privacy handoff, Queue and webhook duplicate safety on real infrastructure, a reproducible real infrastructure plan, and acceptance of the Wave 0 evidence manifest. The staging deploy was already deferred until accounts and secrets exist; issue 693 now owns it. Wave 3 is the first wave that runs the real service.
+Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 and W0-010 moves to Wave 3 entry, owned by issue 2. It covers the real staging deploy, the authenticated staging browser path with enrollment and the world-grant/privacy handoff, Queue and webhook duplicate safety on real infrastructure, a reproducible real infrastructure plan, and acceptance of the Wave 0 evidence manifest. The staging deploy was already deferred until accounts and secrets exist; issue 2 now owns it. Wave 3 is the first wave that runs the real service.
 
 ---
 
@@ -689,7 +689,7 @@ Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 
 - [ ] Clean Linux bootstrap and recovery qualification pass.
 - [ ] Wave 0 evidence manifest is accepted before Wave 1 product work begins.
 
-Amended (2026-10-19): the hosted items ("Worker/DO composition route is deployed", the staging browser path and "Wave 0 evidence manifest is accepted") are Wave 3 entry conditions owned by issue 693, with staging accounts tracked in issue 329. Waves 1 and 2 proceed under the readiness exception.
+Amended (2026-10-19): the hosted items ("Worker/DO composition route is deployed", the staging browser path and "Wave 0 evidence manifest is accepted") are Wave 3 entry conditions owned by issue 2, with staging accounts tracked in issue 1. Waves 1 and 2 proceed under the readiness exception.
 
 ---
 

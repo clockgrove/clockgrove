@@ -730,7 +730,7 @@ Amended (2026-10-19): "prior fixture matrices" and "every supported historic fix
 
 Evidence: for "All migrations pass empty/current/prior fixture matrices" and "Replay/rebuild/upcasters pass every supported historic fixture", `test:db` migrates every prior fixture to head and replays it. Replay from birth and in the offline bundle reaches the hash recorded at capture. A snapshot is then taken at that head under the current registry and one `world.advance` appends kernel events above it: replay from the snapshot plus that suffix, from birth and in the bundle reach the new live hash, and the snapshot's checkpoint holds the recorded hash. The fixtures are restored from the captured dumps, without hosted backups or restore points. `db:verify` covers the empty and current databases. Every migration path refuses an undeclared contract step.
 
-Amended (2026-10-19): "Main remains deployable" is accepted under the readiness exception; no hosted deploy exists yet. The hosted proof is issue 693, a Wave 3 entry condition.
+Amended (2026-10-19): "Main remains deployable" is accepted under the readiness exception; no hosted deploy exists yet. The hosted proof is issue 2, a Wave 3 entry condition.
 
 Amended: RW-0209 was delivered, so the evidence manifest no longer defers "prior fixture matrices" or "every supported historic fixture". It takes both from `test:db`'s prior-release fixture cases (`apps/runtime/test/prior-release-fixtures.postgres.test.ts`): passed only when the cases passed, `failed` when one failed and `missing` when one is absent. Only the timeline and re-execution part of "Replay/rebuild/upcasters pass every supported historic fixture" stays deferred, to Wave 7.
 

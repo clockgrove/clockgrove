@@ -42,21 +42,12 @@ The repository root lists these names, without values, in two examples generated
 
 Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets can enter OpenTofu state even when marked sensitive. Keep state and saved plans outside the checkout with encryption, access control and environment isolation. No backend is prescribed here; select the approved protected backend before real operations. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
 
-After credentials and approved account/domain metadata exist, an authorized operator can plan any canonical environment with the following sequence. Replace the environment with `local`, `ci`, `development`, `staging` or `production`. Choose a separate externally protected state directory for each. No command below was applied as part of W0-008.
+`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does.
 
-```bash
-ENVIRONMENT=development
-# INFRA_STATE_DIR must be an existing protected absolute directory outside this checkout.
-tofu -chdir=infra/opentofu init -backend=false -input=false -lockfile=readonly
-tofu -chdir=infra/opentofu plan -input=false -var="environment=$ENVIRONMENT" \
-  -state="$INFRA_STATE_DIR/$ENVIRONMENT.tfstate" \
-  -out="$INFRA_STATE_DIR/$ENVIRONMENT.tfplan"
-# Review the saved plan, identities, grants, policies and destructive changes first.
-# Apply only with that environment's release authorization:
-tofu -chdir=infra/opentofu apply -input=false \
-  -state="$INFRA_STATE_DIR/$ENVIRONMENT.tfstate" \
-  "$INFRA_STATE_DIR/$ENVIRONMENT.tfplan"
-```
+- `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
+- `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the owner-approved external state below (`INFRA_STATE_DIRECTORY`, `INFRA_BACKEND_CONFIG_FILE`, `INFRA_ENCRYPTION_CONFIG_FILE`, `INFRA_CONFIGURATION_DIGEST`), checked as the deploy checks them. The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. The encrypted saved plan stays in a new `<environment>-plan-*` directory under `INFRA_STATE_DIRECTORY`; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
+
+`pnpm test:cloud [environment]` (default `staging`) runs `tests/cloud`: the environment plans twice with the same change-set digest and no pending change, and a hosted environment's deployed origin serves the web shell over HTTPS and refuses an unauthenticated runtime request with 401. It needs what `infra:plan` needs. Quality runs it for `ci`; the staging pass needs a staging deploy (issue 2).
 
 The Worker route requires the named Worker to exist before route application; coordinate its dependency order with the later release workstream. OpenTofu creates shared resources; Wrangler later owns Worker publication and Queue consumers. Keep queue names, DLQ targets and names in `_QUEUE_NAME` variables identical. The runtime binds the artifacts and assets buckets (`resources.buckets.artifacts`, `resources.buckets.assets`) as `ARTIFACTS_BUCKET` and `ASSETS_BUCKET` in every Wrangler manifest, as `runtimeBindingManifest.r2Buckets` declares and `pnpm check` verifies; the backups bucket and Hyperdrive remain unbound until the runtime exposes their composition contract. Do not add bindings or deploy from this runbook to bypass that missing prerequisite.
 
@@ -102,6 +93,9 @@ runtime origin and `PROVIDER_ENVIRONMENT` is the canonical manifest environment 
 configurations. Local/CI declare no required secrets and remain refusing until explicitly composed. No secret-writer permission or additional destination
 is granted. Support, backup, model, Turnstile, Access and observability consumers remain pending
 unless explicitly composed; declarations alone do not release them.
+
+The deploy hands `NEON_API_KEY` to the Neon provider as `NEON_TOKEN`, the name the provider reads;
+the Cloudflare provider reads `CLOUDFLARE_API_TOKEN` itself.
 
 The runner requires protected metadata naming `INFRA_STATE_DIRECTORY`,
 `INFRA_BACKEND_CONFIG_FILE`, `INFRA_ENCRYPTION_CONFIG_FILE`, `INFRA_CONFIGURATION_DIGEST` and
@@ -173,3 +167,22 @@ qualification require an authorized bounded enrollment/provisioning path with de
 or the planned provisioning path, before hosted capability claims. Local controlled rows prove readers
 only. Integration requires the operator-appointed exact-candidate independent review; final Objective
 review verifies final commands and fresh protected Quality/browser/artifact evidence.
+
+## Owner setup helpers
+
+`pnpm infra:owner <command>` prepares the owner's protected inputs. It computes digests and writes
+unsigned payloads; it never generates or uses a private key and never signs. Every file it
+writes goes outside the checkout, created new with mode 0600, since these are external facts and are
+never committed.
+
+| Command | Output |
+| --- | --- |
+| `key-digest <public.pem>` | `OWNER_ACCEPTANCE_PUBLIC_KEY_DIGEST` of an Ed25519 public key; a private key file is refused. |
+| `configuration-digest <environment> <backend.json> <encryption.json>` | `INFRA_CONFIGURATION_DIGEST`: `sha256:` and the hex SHA-256 of the backend file's bytes followed by the encryption file's bytes, after the checks the deploy makes on both. |
+| `recovery-payload <environment> --configuration-digest <digest> --operator <name> --evidence <text> --out <file>` | The unsigned first-deploy recovery payload: no state, no owned resources, `emptyEnvironmentVerified: true`. |
+| `review-payload --commit <sha> --reviewer <name> --evidence <text> --outcome passed\|refused --out <file>` | The unsigned independent review payload for that exact commit and its tree, with every required scope. |
+| `envelope <payload> <signature> --key <public.pem> --key-digest <digest> --out <file>` | The envelope the deploy reads, written only if the signature verifies against the pinned key. |
+
+The owner reads each payload, then signs its exact bytes with the acceptance key held outside this
+repository, for example `openssl pkeyutl -sign -rawin -inkey <private.pem> -in <payload> -out <signature>`,
+and passes the raw 64-byte signature to `envelope`.
