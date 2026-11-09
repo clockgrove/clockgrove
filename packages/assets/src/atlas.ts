@@ -1,4 +1,4 @@
-import type { MaterialChannel } from "@clockgrove/contracts";
+import type { AssetStyleProfile, MaterialChannel } from "@clockgrove/contracts";
 import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts/asset-manifest";
 import { encodeBc3Dds } from "./bc3.js";
 import { decodePng, encodePng } from "./png.js";
@@ -263,12 +263,14 @@ function buildFlatAtlases(
 export function buildAtlases(
   entries: readonly AssetEntry[],
   layout: readonly AssetManifest[] = entries.map((entry) => entry.manifest),
+  profile?: AssetStyleProfile,
 ): BuiltAtlas[] {
   const atlases = buildFlatAtlases(entries, layout);
   const materialEntries = entries.filter((entry) => entry.manifest.material !== undefined);
   if (materialEntries.length === 0) return atlases;
   const textures: BuiltMaterialTexture[] = [];
   type TextureReference = {
+    encoding?: "srgb" | "linear";
     image: { sha256: string; width: number; height: number; bytes: number };
     compressed: { sha256: string; format: "bc3-dds"; bytes: number };
     frames: Segment[];
@@ -388,7 +390,12 @@ export function buildAtlases(
         }
         const p = placements.get(key) as Placement;
         const first = textures.find((t) => t.atlasId === p.atlasId) as BuiltMaterialTexture;
+        const role = materialEntries.find((e) => assetKey(e.manifest) === key)?.manifest.semantic
+          .role;
+        const encoding =
+          role === undefined ? undefined : profile?.material?.roles[role][channel]?.encoding;
         rendition.channels[channel] = {
+          ...(encoding === undefined ? {} : { encoding }),
           image: {
             sha256: sha256Hex(first.png),
             width: first.width,
@@ -456,4 +463,18 @@ export function materialAtlasFiles(
       },
     ]),
   );
+}
+
+/** Runtime world presentation configuration consumes this map under its `materials` field. */
+export function atlasMaterials(atlases: readonly BuiltAtlas[]): Readonly<Record<string, unknown>> {
+  const materials: Record<string, unknown> = {};
+  for (const atlas of atlases) {
+    const metadata = JSON.parse(atlas.animations) as {
+      animations: { assetId: string; animationFamily: string; material?: unknown }[];
+    };
+    for (const animation of metadata.animations)
+      if (animation.material !== undefined)
+        materials[`${animation.assetId}/${animation.animationFamily}`] = animation.material;
+  }
+  return materials;
 }

@@ -148,8 +148,8 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 30_000 },
     );
     expect(JSON.parse(output)).toEqual({ status: "ok", command: "validate" });
-    const atlases = buildAtlases(entries);
-    expect(buildAtlases([...entries].reverse())).toEqual(atlases);
+    const atlases = buildAtlases(entries, undefined, profile);
+    expect(buildAtlases([...entries].reverse(), undefined, profile)).toEqual(atlases);
     const textures = atlases.flatMap((atlas) => atlas.materialTextures ?? []);
     expect(textures).toHaveLength(20);
     expect(materialAtlasFiles(atlases)).toHaveLength(40);
@@ -167,7 +167,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       });
     expect(JSON.parse(build())).toEqual({ status: "ok", command: "build" });
     const firstBuild = built();
-    expect(Object.keys(firstBuild)).toHaveLength(43);
+    expect(Object.keys(firstBuild)).toHaveLength(44);
     expect(JSON.parse(build())).toEqual({ status: "ok", command: "build" });
     expect(built()).toEqual(firstBuild);
     expect(
@@ -210,6 +210,29 @@ it("validates generated fixture-style actor and prop images through CLI, packing
     expect(Number((alphaBits >> 15n) & 7n)).toBe(0);
     expect(normal.compressed[128]).toBe(255);
     const metadata = JSON.parse(atlases[0]!.animations);
+    const materials = JSON.parse(
+      readFileSync(join(root, "assets/reviewed/materials.json"), "utf8"),
+    );
+    expect(materials["material-actor/idle"]).toEqual(metadata.animations[0].material);
+    expect(materials["material-actor/idle"].renditions[0].channels.albedo.encoding).toBe("srgb");
+    expect(materials["material-actor/idle"].renditions[0].channels.normal.encoding).toBe("linear");
+    const linear = {
+      ...profile,
+      material: {
+        ...profile.material!,
+        roles: {
+          ...profile.material!.roles,
+          actor: {
+            ...profile.material!.roles.actor,
+            albedo: { ...profile.material!.roles.actor.albedo, encoding: "linear" as const },
+          },
+        },
+      },
+    };
+    expect(
+      JSON.parse(buildAtlases(entries, undefined, linear)[0]!.animations).animations[0].material
+        .renditions[0].channels.albedo.encoding,
+    ).toBe("linear");
     expect(
       metadata.animations.map((a: { material: { renditions: { density: number }[] } }) =>
         a.material.renditions.map((r) => r.density),
@@ -238,6 +261,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       },
       {
         entries,
+        profile,
         golden: {
           sceneSha256: "a".repeat(64),
           approval: {

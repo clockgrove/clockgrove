@@ -1,5 +1,12 @@
+import type { AssetStyleProfile } from "@clockgrove/contracts";
 import { type AssetManifest, assetDeployRefusals } from "@clockgrove/contracts/asset-manifest";
-import { type AssetEntry, buildAtlases, materialAtlasFiles } from "./atlas.js";
+import {
+  type AssetEntry,
+  atlasMaterials,
+  buildAtlases,
+  canonicalJson,
+  materialAtlasFiles,
+} from "./atlas.js";
 import { sha256Hex } from "./validate.js";
 
 export interface ContentAddressedAssetStore {
@@ -60,6 +67,7 @@ export async function uploadReviewedAssets(
     entries: readonly AssetEntry[];
     golden: GoldenApproval;
     layout?: readonly AssetManifest[];
+    profile?: AssetStyleProfile;
   },
 ): Promise<{ uploaded: string[]; skipped: string[] }> {
   const golden = goldenApprovalRefusal(input.golden);
@@ -70,12 +78,18 @@ export async function uploadReviewedAssets(
     ...(golden === null ? [] : [golden]),
   ];
   if (refusals.length > 0) throw new Error(`upload refused:\n${refusals.join("\n")}`);
-  const atlases = buildAtlases(input.entries, input.layout);
+  const atlases = buildAtlases(input.entries, input.layout, input.profile);
   const outputs = atlases.flatMap((atlas) => [
     { bytes: atlas.png, contentType: "image/png" },
     { bytes: new TextEncoder().encode(atlas.animations), contentType: "application/json" },
   ]);
   outputs.push(...materialAtlasFiles(atlases));
+  const materials = atlasMaterials(atlases);
+  if (Object.keys(materials).length > 0)
+    outputs.push({
+      bytes: new TextEncoder().encode(canonicalJson(materials)),
+      contentType: "application/json",
+    });
   const uploaded = new Set<string>();
   const skipped = new Set<string>();
   for (const { bytes, contentType } of outputs) {
