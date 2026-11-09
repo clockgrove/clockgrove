@@ -39,7 +39,9 @@ schedule item, interrupts an active movement (`movement.interrupted` immediately
 removes the actor from every later system. Each birth upserts the child's `world.decision` item due at
 `bornAt + decisionIntervalMs`. The dead stay in `state.entities` with unchanged `objectId` and `archetypeId`
 and their lifecycle entry is kept. Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
-random state equals the input.
+random state equals the input. A movement or portal command that moves the world time plans the lifecycle times it
+passes the same way and in the same stream order, and a mover's death ends its move
+([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 
 **Ids.** `lifecycleChildId(gestatingParentId, ordinal)`, `lifecycleScheduleId(childId)` and
 `lifecycleSuccessorId(predecessorId, rule)` are pure functions of their arguments, independent of the command id,

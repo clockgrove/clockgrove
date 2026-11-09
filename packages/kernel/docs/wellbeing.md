@@ -36,7 +36,10 @@ A decision is brought forward when a hunger or thirst crossing, a change to unco
 entry into critical health happens for its actor before the queued due time: the engine call reports the
 crossing, the decision is moved to that time by a single upsert, the same saved system states are drained
 again, and the decision then runs at the crossing time with the unchanged `chooseRoutine`. The next
-decision is due one `decisionIntervalMs` after the time it ran. A decision is never moved later.
+decision is due one `decisionIntervalMs` after the time it ran. A decision is never moved later. A
+movement or portal command that moves the world time runs these systems for the time it passes, except
+that the mover's decision waits for its end
+([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 Same-time order: phase, weather, exposure, spoilage, appearance, stage change, needs crossings (hunger
 before thirst, each in object-id order), comfort changes, health crossings, decision.
 

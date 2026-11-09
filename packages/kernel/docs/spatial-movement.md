@@ -43,9 +43,9 @@ hashed. The domain reducers validate against every region, so a faulty index is 
 
 | Command | Payload | Events | Preconditions | Invariants |
 | --- | --- | --- | --- | --- |
-| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@2`, `movement.events-ordered-and-unique@1`, `movement.crossings-consistent@1`, `movement.scope@2` |
-| `movement.interrupt` | `objectId`, `at` | crossings up to `at`, then `movement.interrupted` | `movement.active-object@1` (active movement), `movement.timing@1` (`at` inside the active segment), `movement.passed-time@1` | `movement.event-authority.movement.interrupt@2` plus the shared three |
-| `movement.replan` | `objectId`, `at`, `destination`, `unitsPerSecond`, `observeUntil?` | crossings of the prior movement up to `at`, `movement.replanned`, new crossings, `movement.completed` if reached | `movement.active-object@1` (unfinished movement), `movement.route@1`, `movement.timing@1`, `movement.passed-time@1` | `movement.event-authority.movement.replan@2` plus the shared three |
+| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@3`, `movement.events-ordered-and-unique@2`, `movement.crossings-consistent@1`, `movement.scope@3` |
+| `movement.interrupt` | `objectId`, `at` | crossings up to `at`, then `movement.interrupted` | `movement.active-object@1` (active movement), `movement.timing@1` (`at` inside the active segment), `movement.passed-time@1` | `movement.event-authority.movement.interrupt@3` plus the shared three |
+| `movement.replan` | `objectId`, `at`, `destination`, `unitsPerSecond`, `observeUntil?` | crossings of the prior movement up to `at`, `movement.replanned`, new crossings, `movement.completed` if reached | `movement.active-object@1` (unfinished movement), `movement.route@1`, `movement.timing@1`, `movement.passed-time@1` | `movement.event-authority.movement.replan@3` plus the shared three |
 
 Refusals (always returned, never thrown):
 
@@ -57,8 +57,8 @@ Refusals (always returned, never thrown):
 | `precondition-failed` | `payload.objectId` (unknown, retired or dead object; start while active; interrupt without an active movement; replan without an unfinished movement) | `movement.active-object@1` |
 | `precondition-failed` | `payload.destination.anchorId`, `payload.destination.graphVersion`, `payload.destination.pose.frameId` (unknown frame or frame mismatch with the object), `payload.destination.pose.frameVersion`, `payload.destination.pose.coordinates`, `payload.destination` (unreachable) | `movement.route@1` |
 | `precondition-failed` | `payload.at` (before world time or outside the active segment), `payload.observeUntil` (before the start) | `movement.timing@1` |
-| `precondition-failed` | `payload.at` (more than the policy's `decisionIntervalMs` after the world time), `state.simulationTime`, `schedules`, `state.lifecycle`, `events` (the time a move passes; see [World time a move passes](#world-time-a-move-passes)) | `movement.passed-time@1` |
-| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering and uniqueness), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events`, `state.<collection>`, `state.entities` (scope) | `movement.event-authority.<command>@2`, `movement.events-ordered-and-unique@1`, `movement.crossings-consistent@1`, `movement.scope@2` |
+| `precondition-failed` | `payload.at` (more than the policy's `decisionIntervalMs` after the world time), `state.simulationTime`, `events` (the time a move passes; see [World time a move passes](#world-time-a-move-passes)) | `movement.passed-time@1` |
+| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering, and uniqueness of movement events), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events[i].simulationTime`, `state.<collection>`, `state.entities`, `state.entities[i]` (scope) | `movement.event-authority.<command>@3`, `movement.events-ordered-and-unique@2`, `movement.crossings-consistent@1`, `movement.scope@3` |
 
 `parseSpatialRegionAtBoundary`, `parseAnchorGraphAtBoundary`, `parseMovementRecordAtBoundary`
 and `parseMovementPayloadAtBoundary` wrap the throwing domain validators and return an
@@ -139,8 +139,8 @@ Refusals are `precondition-failed` with the `portal.<check>@1` check (malformed 
 | `portal.timing@1` | `payload.observeUntil` | `use`: before the world time |
 | `portal.transit@1` | `payload.portalId` | `close` while an active movement still has to cross the portal |
 
-Invariants: `portal.event-authority.<command>@1` (`events[i].type`; `@2` for `portal.use`);
-`portal.use` also runs `movement.events-ordered-and-unique@1` and `movement.scope@2`, and is bound
+Invariants: `portal.event-authority.<command>@1` (`events[i].type`; `@3` for `portal.use`);
+`portal.use` also runs `movement.events-ordered-and-unique@2` and `movement.scope@3`, and is bound
 by `movement.passed-time@1` like a move; and the global
 `portal.transit-open@1` refuses any command after which an active movement still has to cross a
 portal that is not open (`state.entities[i].movement.portalSteps[j]`), for example retiring the
@@ -176,10 +176,7 @@ earliest queued dwell as it does to a lifecycle time, fires it, and continues; a
 arm a dwell inside it restarts there. A movement or portal command fires every object's dwells
 inside its event stream: before any of its events at a later time, and, when it moved the world
 time, at its end for those due by its final time. A command therefore never leaves a dwell due in
-the past. It does not run the utility system, so a `world.decision` due before its final time is
-moved to that time, with the matching idempotency key, and the next `world.advance` runs it first;
-no decision is left due in the past either. `movement.scope@2` lets a remain event name an object
-other than the mover, since the event changes only revision and time. The
+the past, nor a decision ([World time a move passes](#world-time-a-move-passes)). The
 reducer accepts the event only for an active object that has stayed inside a declared dwell region
 for exactly one dwell since the entry its movement lineage last made, by the same rule, so replay
 validates itself. The queue check accepts these items beside one
@@ -189,22 +186,42 @@ one that re-enters, with equal events under live and fast-forward progression.
 
 ## World time a move passes
 
-A movement or portal command that moves the world time also applies every environment and ecology
-time it passes, inside its own events: day/night phase changes, weather transitions (with every
-actor and plant integrated first), spoilage, appearance and plant stage changes. They come from a
-run of the phase, weather and ecology systems over the command's span and are emitted by the same
-group emitter `world.advance` uses, so each lands at its exact time, before the command's own
-events at that time, and live stepping and fast-forward stay identical. The actors' exposure and
-wellbeing crossings, routine movers, lifecycle and decisions stay with `world.advance` (issue 98
-covers the mover's own crossings). The event authority of every moving command
-(`movement.event-authority.<command>@2`, `portal.event-authority.portal.use@2`) allows these events
-(`environment.phase-changed`, `weather.transitioned`, `needs.changed`, `wellbeing.integrated`,
-`growth.integrated`, `growth.stage-changed`, `resource.spoiled`, `resource.appeared`); the movement
-handler itself may emit none of them (`handler-failed`). `movement.scope@2` lets them name other
-objects and change their needs or resource, and the weather, each only at the boundary that owns
-it: needs and wellbeing at a weather transition, a plant at a weather transition or its own stage
-change, an appearance at its source's appearance time, a spoilage when its holder's shelf life ends
-(`events[i].simulationTime` otherwise).
+A movement or portal command that moves the world time runs the time it passes as `world.advance`
+would, inside its own events. Up to each of the command's events it applies, through the same
+systems, group emitter and decision loop as `world.advance`: day/night phase changes, weather
+transitions (with every actor and plant integrated first), every actor's exposure, need, comfort
+and health crossings, spoilage, appearance and plant stage changes, lifecycle actions, routine
+movers' crossings and arrivals, dwells, and other actors' due decisions, including those a
+crossing brings forward. Each lands at its exact time, before the command's own events at that
+time. Lifecycle draws from the `lifecycle` random stream in the same order as `world.advance`, and
+the command returns the stream's new position and the decision drafts, so live stepping,
+fast-forward and replay stay identical.
+
+Three things differ from `world.advance`:
+
+- The mover's movement events come only from the command's handler. The routine-movement systems
+  leave it out, and the handler may emit only movement and portal events (`handler-failed`
+  otherwise).
+- The mover's decision, and any decision already due when the command starts (as after
+  `world.weather.set`), is not run inside it. It falls due at the command's final time, with the
+  matching idempotency key, and the next `world.advance` runs it first. A crossing that would
+  change the mover's decision, such as becoming uncomfortable, does not stop the move: it is
+  journaled at its time and brings the mover's decision forward to the end.
+- When the mover dies, its movement is interrupted at that time (its pending crossings, then
+  `movement.interrupted`, then `lifecycle.died`) and the move ends there. The handler's later
+  events are dropped, and nothing after that time is emitted.
+
+The event authority of every moving command (`movement.event-authority.<command>@3`,
+`portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits
+for the time it passes, other than `time.advanced`. `movement.events-ordered-and-unique@2` requires
+time order and no repeated movement event; other events may repeat, as when two actors eat from one
+holder at one time. `movement.scope@3` refuses:
+
+- an appearance or spoilage at a time its ecology does not own (`events[i].simulationTime`);
+- any change to the frames, regions or anchor graphs, or to the weather without a
+  `weather.transitioned` (`state.<collection>`);
+- a removed entity, or a new one that no `lifecycle.born` names (`state.entities`);
+- a changed entity that no event names (`state.entities[i]`).
 
 The time a move passes is bounded by `movement.passed-time@1` (`precondition-failed`):
 
@@ -212,21 +229,20 @@ The time a move passes is bounded by `movement.passed-time@1` (`precondition-fai
   world time, checked before the move runs.
 - `state.simulationTime`: any move that would end more than `decisionIntervalMs` after it began.
   The bound is the world's own decision cadence, so a move never outlasts one decision period of
-  its mover; the mover's decisions it passes are moved to its end as above.
-- `schedules`: a move that would pass a due `world.decision` of another actor (due after its start
-  and before its end). Only `world.advance` runs decisions; a decision due at the start, as after
-  `world.weather.set`, is moved to the end.
-- `state.lifecycle`: a move that would reach a lifecycle time; lifecycle actions draw from the
-  lifecycle random stream, which a move does not return.
-- `events`: more events than one `world.advance` call may journal (4096).
+  its mover.
+- `events`: more events or decisions than one `world.advance` call may take (4096 and 1024).
 
-The raccoon pack's `boundary-walk` scenario moves Stevie across 6:00 while his dwell falls due and
-every actor's deferred decision waits for the move's end (`movement.start`), dusk
+The reference fixture's `boundary-walk` scenario moves the keeper across 6:00 while its dwell falls
+due and every actor's decision due at the start waits for the move's end (`movement.start`), dusk
 (`movement.start`), midnight as the rain begins (`movement.start`), dawn with spoilage and
 appearance (`movement.start`), the end of the rain (`movement.interrupt`), a herb stage change
-(`movement.replan`) and dusk as rain begins again (`portal.use`), live and fast-forward, with equal
-final states. It also records a replan two days ahead refused at `payload.at` and a walk across
-the other raccoons' decision time refused at `schedules`.
+(`movement.replan`), dusk as rain begins again (`portal.use`), and the other two actors' decisions
+at midnight while the keeper's waits for the walk's end (`movement.start`), live and fast-forward,
+with equal final states. It also records a replan two days ahead refused at `payload.at`. Its
+`walk-crossings` scenario walks the keeper across its own uncomfortable crossing (and the next
+`world.advance` runs), across a conception with its `lifecycle` draw and another actor's decision,
+and across its lifespan death, which interrupts the walk. A control run without the walks ends
+with the same `lifecycle` stream position.
 
 Perception and audiences are built ([Perception and audiences](perception.md), RW-0105b).
 
