@@ -199,6 +199,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let compatibility = scene.compatibility;
   let privateCognition = scene.privateCognition;
   let effects = scene.effects;
+  let lighting = scene.lighting;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -246,6 +247,9 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_private_cognition":
         privateCognition = operation.entries;
         break;
+      case "set_lighting":
+        lighting = operation.lighting;
+        break;
       case "set_effects":
         effects = operation.effects;
         break;
@@ -258,6 +262,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       privateCognition: privateCognition.filter((entry) => entities.has(entry.actorId)),
     }),
     ...(effects && { effects }),
+    ...(lighting && { lighting }),
     revision: patch.toRevision,
     simulationTime,
     weather,

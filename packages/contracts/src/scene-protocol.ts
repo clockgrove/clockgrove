@@ -15,6 +15,7 @@ import {
 } from "./browser-protocol.js";
 import type { EventId, ObjectId, PrincipalId, SpaceId } from "./ids.js";
 import { decodeOpaqueId } from "./ids.js";
+import { decodeMaterialChannels } from "./material.js";
 import type { InteractionSummary } from "./scene-interactions.js";
 import { decodeInteractionSummary } from "./scene-interactions.js";
 import {
@@ -141,11 +142,247 @@ export interface VisibleSpace {
   readonly label: string;
   readonly parentSpaceId?: SpaceId;
 }
+export interface SceneMaterialTexture {
+  readonly pages?: readonly {
+    readonly atlasId: string;
+    readonly image: SceneMaterialTexture["image"];
+    readonly compressed: SceneMaterialTexture["compressed"];
+  }[];
+  readonly image: {
+    readonly sha256: string;
+    readonly width: number;
+    readonly height: number;
+    readonly bytes: number;
+  };
+  readonly compressed: {
+    readonly sha256: string;
+    readonly format: "bc3-dds";
+    readonly bytes: number;
+  };
+  readonly frames: readonly {
+    readonly atlasId?: string;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }[];
+}
+export interface SceneMaterialDelivery {
+  readonly materialVersion: 1;
+  readonly renditions: readonly {
+    readonly density: 1 | 2 | 4;
+    readonly channels: import("./material.js").MaterialChannels<SceneMaterialTexture>;
+  }[];
+}
+export function decodeSceneMaterialDelivery(
+  value: unknown,
+  path = "material",
+): SceneMaterialDelivery {
+  const v = record(value, path);
+  exactKeys(v, ["materialVersion", "renditions"], [], path);
+  if (v.materialVersion !== 1) throw new ContractDecodeError(path, "expected material version 1");
+  const renditions = array(v.renditions, `${path}.renditions`, (value, p) => {
+    const r = record(value, p);
+    exactKeys(r, ["density", "channels"], [], p);
+    const density = integer(r.density, `${p}.density`);
+    if (density !== 1 && density !== 2 && density !== 4)
+      throw new ContractDecodeError(`${p}.density`, "expected density 1, 2 or 4");
+    const channels = decodeMaterialChannels(
+      r.channels,
+      `${p}.channels`,
+      (value, p): SceneMaterialTexture => {
+        const t = record(value, p);
+        exactKeys(t, ["image", "compressed", "frames"], ["pages"], p);
+        const image = record(t.image, `${p}.image`),
+          compressed = record(t.compressed, `${p}.compressed`);
+        exactKeys(image, ["sha256", "width", "height", "bytes"], [], `${p}.image`);
+        exactKeys(compressed, ["sha256", "format", "bytes"], [], `${p}.compressed`);
+        const hash = (value: unknown, p: string): string => {
+          const h = string(value, p);
+          if (!/^[0-9a-f]{64}$/u.test(h)) throw new ContractDecodeError(p, "expected SHA-256");
+          return h;
+        };
+        const positive = (value: unknown, p: string): number => {
+          const n = nonNegativeInteger(value, p);
+          if (n === 0) throw new ContractDecodeError(p, "expected positive integer");
+          return n;
+        };
+        const width = positive(image.width, `${p}.image.width`),
+          height = positive(image.height, `${p}.image.height`);
+        const pages =
+          t.pages === undefined
+            ? undefined
+            : array(t.pages, `${p}.pages`, (value, p) => {
+                const page = record(value, p);
+                exactKeys(page, ["atlasId", "image", "compressed"], [], p);
+                const image = record(page.image, `${p}.image`),
+                  compressed = record(page.compressed, `${p}.compressed`);
+                exactKeys(image, ["sha256", "width", "height", "bytes"], [], `${p}.image`);
+                exactKeys(compressed, ["sha256", "format", "bytes"], [], `${p}.compressed`);
+                return {
+                  atlasId: string(page.atlasId, `${p}.atlasId`),
+                  image: {
+                    sha256: hash(image.sha256, `${p}.image.sha256`),
+                    width: positive(image.width, `${p}.image.width`),
+                    height: positive(image.height, `${p}.image.height`),
+                    bytes: positive(image.bytes, `${p}.image.bytes`),
+                  },
+                  compressed: {
+                    sha256: hash(compressed.sha256, `${p}.compressed.sha256`),
+                    format: literal(compressed.format, ["bc3-dds"], `${p}.compressed.format`),
+                    bytes: positive(compressed.bytes, `${p}.compressed.bytes`),
+                  },
+                };
+              });
+        if (pages && new Set(pages.map((page) => page.atlasId)).size !== pages.length)
+          throw new ContractDecodeError(p, "duplicate texture page");
+        return {
+          ...(pages === undefined ? {} : { pages }),
+          image: {
+            sha256: hash(image.sha256, `${p}.image.sha256`),
+            width,
+            height,
+            bytes: positive(image.bytes, `${p}.image.bytes`),
+          },
+          compressed: {
+            sha256: hash(compressed.sha256, `${p}.compressed.sha256`),
+            format: literal(compressed.format, ["bc3-dds"], `${p}.compressed.format`),
+            bytes: positive(compressed.bytes, `${p}.compressed.bytes`),
+          },
+          frames: array(t.frames, `${p}.frames`, (value, p) => {
+            const f = record(value, p);
+            exactKeys(f, ["x", "y", "width", "height"], ["atlasId"], p);
+            const x = nonNegativeInteger(f.x, `${p}.x`),
+              y = nonNegativeInteger(f.y, `${p}.y`);
+            const fw = positive(f.width, `${p}.width`),
+              fh = positive(f.height, `${p}.height`);
+            if (t.pages === undefined && (x + fw > width || y + fh > height))
+              throw new ContractDecodeError(p, "frame exceeds texture bounds");
+            return {
+              x,
+              y,
+              width: fw,
+              height: fh,
+              ...(f.atlasId === undefined ? {} : { atlasId: string(f.atlasId, `${p}.atlasId`) }),
+            };
+          }),
+        };
+      },
+    );
+    return { density: density as 1 | 2 | 4, channels };
+  });
+  if (
+    renditions[0]?.density !== 1 ||
+    renditions[1]?.density !== 2 ||
+    renditions.some((r, i) => i > 0 && r.density <= renditions[i - 1]!.density)
+  )
+    throw new ContractDecodeError(path, "expected sorted unique densities 1, 2 and optional 4");
+  for (const rendition of renditions)
+    for (const texture of Object.values(rendition.channels)) {
+      if (!texture.pages) continue;
+      for (const frame of texture.frames) {
+        const page = texture.pages.find((page) => page.atlasId === frame.atlasId);
+        if (
+          !page ||
+          frame.x + frame.width > page.image.width ||
+          frame.y + frame.height > page.image.height
+        )
+          throw new ContractDecodeError(path, "frame exceeds texture page bounds");
+      }
+    }
+  const keys = Object.keys(renditions[0]!.channels).join(",");
+  const count = renditions[0]!.channels.albedo.frames.length;
+  if (
+    !count ||
+    renditions.some(
+      (r) =>
+        Object.keys(r.channels).join(",") !== keys ||
+        Object.values(r.channels).some((t) => t.frames.length !== count),
+    )
+  )
+    throw new ContractDecodeError(path, "expected matching channels and frame counts");
+  for (const rendition of renditions) {
+    const albedo = rendition.channels.albedo;
+    for (const texture of Object.values(rendition.channels))
+      texture.frames.forEach((frame, index) => {
+        const reference = albedo.frames[index]!;
+        if (frame.width !== reference.width || frame.height !== reference.height)
+          throw new ContractDecodeError(path, "channels must share frame dimensions");
+        const base = renditions[0]!.channels.albedo.frames[index]!;
+        if (
+          frame.width !== base.width * rendition.density ||
+          frame.height !== base.height * rendition.density
+        )
+          throw new ContractDecodeError(path, "rendition frame dimensions must scale by density");
+      });
+  }
+  return { materialVersion: 1, renditions };
+}
+export interface SceneLighting {
+  readonly directional: readonly {
+    readonly kind: "sun" | "moon";
+    readonly direction: readonly [number, number, number];
+    readonly colour: string;
+    readonly intensity: number;
+  }[];
+  readonly placed: readonly {
+    readonly kind: "lantern" | "window";
+    readonly pose: LivingPose;
+    readonly colour: string;
+    readonly intensity: number;
+    readonly rangeMetres: number;
+  }[];
+  readonly weatherIntensity: number;
+  readonly gradingKey: string;
+}
+export function decodeSceneLighting(value: unknown, path = "lighting"): SceneLighting {
+  const v = record(value, path);
+  exactKeys(v, ["directional", "placed", "weatherIntensity", "gradingKey"], [], path);
+  const number = (value: unknown, p: string, min = 0, max = Number.MAX_VALUE): number => {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max)
+      throw new ContractDecodeError(p, "expected finite number within range");
+    return value;
+  };
+  const colour = (value: unknown, p: string): string => {
+    const c = string(value, p);
+    if (!/^#[0-9a-f]{6}$/u.test(c)) throw new ContractDecodeError(p, "expected RGB hex colour");
+    return c;
+  };
+  return {
+    directional: array(v.directional, `${path}.directional`, (value, p) => {
+      const l = record(value, p);
+      exactKeys(l, ["kind", "direction", "colour", "intensity"], [], p);
+      const direction = array(l.direction, `${p}.direction`, (v, p) => number(v, p, -1, 1));
+      if (direction.length !== 3 || Math.abs(Math.hypot(...direction) - 1) > 0.000001)
+        throw new ContractDecodeError(p, "expected unit direction vector");
+      return {
+        kind: literal(l.kind, ["sun", "moon"], `${p}.kind`),
+        direction: direction as [number, number, number],
+        colour: colour(l.colour, `${p}.colour`),
+        intensity: number(l.intensity, `${p}.intensity`),
+      };
+    }),
+    placed: array(v.placed, `${path}.placed`, (value, p) => {
+      const l = record(value, p);
+      exactKeys(l, ["kind", "pose", "colour", "intensity", "rangeMetres"], [], p);
+      return {
+        kind: literal(l.kind, ["lantern", "window"], `${p}.kind`),
+        pose: decodeLivingPose(l.pose, `${p}.pose`),
+        colour: colour(l.colour, `${p}.colour`),
+        intensity: number(l.intensity, `${p}.intensity`),
+        rangeMetres: number(l.rangeMetres, `${p}.rangeMetres`),
+      };
+    }),
+    weatherIntensity: number(v.weatherIntensity, `${path}.weatherIntensity`, 0, 1),
+    gradingKey: string(v.gradingKey, `${path}.gradingKey`),
+  };
+}
 export interface ScenePresentationBinding {
   readonly objectId: ObjectId;
   readonly assetId: string;
   readonly animationFamily: string;
   readonly accessibilityLabel: string;
+  readonly material?: SceneMaterialDelivery;
 }
 export type SceneProjectedEntity = LivingEntity;
 /** The placed presentation effects the live scene may show; the client decides from weather and clock. */
@@ -226,6 +463,7 @@ export interface SceneProjection extends BrowserScope {
   readonly privateCognition?: readonly ScenePrivateCognition[];
   /** Absent when the installed pack places no effect in this scene. */
   readonly effects?: readonly SceneEffect[];
+  readonly lighting?: SceneLighting;
 }
 export function decodeVisibleSpace(value: unknown, path = "space"): VisibleSpace {
   const v = record(value, path);
@@ -284,12 +522,20 @@ export function decodeScenePresentationBinding(
   path = "binding",
 ): ScenePresentationBinding {
   const v = record(value, path);
-  exactKeys(v, ["objectId", "assetId", "animationFamily", "accessibilityLabel"], [], path);
+  exactKeys(
+    v,
+    ["objectId", "assetId", "animationFamily", "accessibilityLabel"],
+    ["material"],
+    path,
+  );
   return {
     objectId: decodeOpaqueId(v.objectId, "ObjectId", `${path}.objectId`),
     assetId: string(v.assetId, `${path}.assetId`),
     animationFamily: string(v.animationFamily, `${path}.animationFamily`),
     accessibilityLabel: string(v.accessibilityLabel, `${path}.accessibilityLabel`),
+    ...(v.material === undefined
+      ? {}
+      : { material: decodeSceneMaterialDelivery(v.material, `${path}.material`) }),
   };
 }
 export function decodeSceneProjection(value: unknown, path = "projection"): SceneProjection {
@@ -315,11 +561,16 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
       "feedCursor",
       "audienceHash",
     ],
-    ["privateCognition", "effects"],
+    ["privateCognition", "effects", "lighting"],
     path,
   );
   if (compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION && v.effects !== undefined)
     throw new ContractDecodeError(`${path}.effects`, "absent from projection version 1");
+  if (
+    compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION &&
+    v.lighting !== undefined
+  )
+    throw new ContractDecodeError(`${path}.lighting`, "absent from projection version 1");
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
   const simulationTime = unsignedDecimal(v.simulationTime, `${path}.simulationTime`);
   const living = decodeLivingScene({
@@ -345,6 +596,9 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
     revision,
     simulationTime,
     weather: living.weather,
+    ...(v.lighting === undefined
+      ? {}
+      : { lighting: decodeSceneLighting(v.lighting, `${path}.lighting`) }),
     hierarchy: decodeHierarchy(v.hierarchy, living.spaceId, `${path}.hierarchy`),
     frames: living.frames,
     entities: living.entities,
@@ -395,7 +649,8 @@ export type ScenePatchOperation =
       readonly op: "set_private_cognition";
       readonly entries: readonly ScenePrivateCognition[];
     }
-  | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] };
+  | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] }
+  | { readonly op: "set_lighting"; readonly lighting: SceneLighting };
 export interface ScenePatch {
   readonly fromRevision: bigint;
   readonly toRevision: bigint;
@@ -459,6 +714,9 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
         op: v.op,
         entries: array(v.entries, `${path}.entries`, decodeScenePrivateCognition),
       };
+    case "set_lighting":
+      exactKeys(v, ["op", "lighting"], [], path);
+      return { op: v.op, lighting: decodeSceneLighting(v.lighting, `${path}.lighting`) };
     case "set_effects":
       exactKeys(v, ["op", "effects"], [], path);
       return { op: v.op, effects: array(v.effects, `${path}.effects`, decodeSceneEffect) };
@@ -504,7 +762,7 @@ export function decodeScenePatch(value: unknown, path = "patch"): ScenePatch {
     )
   )
     operations.forEach((operation, index) => {
-      if (operation.op === "set_effects")
+      if (operation.op === "set_effects" || operation.op === "set_lighting")
         throw new ContractDecodeError(
           `${path}.operations[${index}].op`,
           "absent from projection version 1",
