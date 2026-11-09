@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "companion",
+  "animationFamily": "walk",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/companion/walk.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.companion",
+    "archetype": "fixture.resident-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 650,
+    "depth": 380
+  },
+  "bounds": {
+    "x": 0,
+    "y": 10,
+    "width": 29,
+    "height": 22
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "03db7a510f36c9903f788f67377bbcb6b83b25eaf6ba9c3ae4b6d06bdc50cbcb",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 640,
+    "y": 0
+  },
+  "accessibilityLabel": "Companion walking"
+}

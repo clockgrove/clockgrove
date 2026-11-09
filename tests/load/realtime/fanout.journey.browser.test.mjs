@@ -34,7 +34,7 @@ const sum = (points) => points.reduce((total, point) => total + point.value, 0);
 // of a space, and the server's scene measurements agree with what the sockets themselves received.
 it("fans one committed change out to every scene socket and measures it per turn", async () => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       vitestConfig: "tests/ci/vitest.browser.config.ts",
       timeoutMs: 150_000,
       inheritOutput: true,
@@ -55,7 +55,7 @@ it("fans one committed change out to every scene socket and measures it per turn
             ARRAY['runtime:world-observe'],privacy_ceiling,committed_at
             FROM clockgrove.world_memberships, generate_series(1,${PRINCIPALS}) n WHERE principal_id='principal-runtime';
           UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command'] WHERE principal_id='principal-runtime';
-          UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
+          UPDATE clockgrove_auth.session SET token='hall-inspect' WHERE token='local-reader-session'`,
         ),
     });
     return;
@@ -149,7 +149,7 @@ it("fans one committed change out to every scene socket and measures it per turn
           payload: { schemaVersion: 2, rainIntensity: 7000 },
         },
         {},
-        "yard-inspect",
+        "hall-inspect",
       );
       expect(status, JSON.stringify(body)).toBe(200);
       const changed = await revision();

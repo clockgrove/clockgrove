@@ -67,12 +67,12 @@ have no goldens and they are not in the pack artifact.
 `decodeResource`: key-sorted JSON, bigints written as `{"$bigint":"n"}`). Resource files are the bytes the
 manifest `sha256` values cover, stored under `resources/` at the manifest `path`. A golden is not JSON text
 but the kernel `canonicalBytes` of the scenario bundle, byte for byte. The committed packs are
-`worlds/fixture/` (`clockgrove.test-world@1.1.0`) and `worlds/raccoons/`
-(`clockgrove.green-lake-yard@1.1.0`).
+`worlds/fixture/` (`clockgrove.test-world@1.1.0`) and `worlds/fixture/reference/`
+(`clockgrove.fixture-hall@1.1.0`).
 
 ## Discovery
 
-Every directory directly under `worlds/` that contains a `manifest.json` is a committed pack. Nothing
+Every directory recursively under `worlds/` that contains a `manifest.json` is a committed pack. Nothing
 else is discovered; there is no registry or configuration. The suite loads the manifest, every file under
 `resources/`, every `scenarios/*.json` and every `goldens/*.json` byte-exact (copies, never rewritten) and
 builds the SDK source `{ manifest, resources, dependencyArtifacts: [] }`; packs with dependencies are not

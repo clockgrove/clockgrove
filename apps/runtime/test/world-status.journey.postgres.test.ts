@@ -9,7 +9,7 @@ import {
 } from "../../../scripts/database/lib.mjs";
 import { PostgreSqlWorldStatusReader } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -23,9 +23,9 @@ import {
 it("feed is derived from authorized semantic events, not raw logs, beside the canonical clock", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-status");
-    const auth = livingYardAuthentication(provisioned);
+    const auth = livingHallAuthentication(provisioned);
     const truth = truthOf(fixture);
     await withClient(fixture.environment, async (client) => {
       const reader = new PostgreSqlWorldStatusReader(client);
@@ -40,7 +40,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
           status: (scope, context) => reader.read(scope, context),
         },
       });
-      const read = (credential = "yard-inspect", scope = auth.scope) =>
+      const read = (credential = "hall-inspect", scope = auth.scope) =>
         worker.fetch(
           new Request("http://local.test/v1/runtime/world-status", {
             method: "POST",
@@ -99,7 +99,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
         "resource.offer",
         {
           schemaVersion: 1,
-          objectId: "grove.snack-dish",
+          objectId: "fixture.snack-dish",
           kind: "food",
           quantity: 1,
         },
@@ -114,11 +114,19 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       ]).toEqual([
         clock("paused", 1, 1n),
         [
-          ["movement", "grove.kit", "grove.kit arrived."],
-          ["routine", "grove.stevie", "grove.stevie is staying put."],
-          ["routine", "grove.kit", "grove.kit is looking for shelter at grove.den."],
-          ["routine", "grove.gracie", "grove.gracie is looking for shelter at grove.den."],
-          ["resource", "grove.snack-dish", "Food was offered at grove.snack-dish."],
+          ["movement", "fixture.dependent", "fixture.dependent arrived."],
+          ["routine", "fixture.keeper", "fixture.keeper is staying put."],
+          [
+            "routine",
+            "fixture.dependent",
+            "fixture.dependent is looking for shelter at fixture.den.",
+          ],
+          [
+            "routine",
+            "fixture.companion",
+            "fixture.companion is looking for shelter at fixture.den.",
+          ],
+          ["resource", "fixture.snack-dish", "Food was offered at fixture.snack-dish."],
           ["weather", null, "It is raining."],
         ],
       ]);

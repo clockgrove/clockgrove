@@ -9,6 +9,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { digest } from "./evidence.mjs";
 import { RECEIPTS, receipt } from "./qualify-wave1-manifest.mjs";
+import { worldPackDirectories } from "./world-packs.mjs";
 
 export { RECEIPTS };
 export const MANIFEST_FILE = "wave2-evidence-manifest.json";
@@ -22,8 +23,8 @@ export const TEST_DB_REPORT = "test-db.vitest.json";
 /** The long runs the journal parity runs, each as its `main` and `aggregate` plans. */
 export const JOURNAL_LONG_RUNS = [
   "fixture/long-run-30-days",
-  "raccoons/long-run-30-days",
-  "raccoons/long-run-one-year",
+  "fixture/reference/long-run-30-days",
+  "fixture/reference/long-run-one-year",
 ];
 /** Checks every journal run must report passed: parity, replay (item 9) and the bundle (item 12). */
 export const REQUIRED_CHECKS = [
@@ -116,7 +117,7 @@ const files = async (root, list) =>
 /** Every committed golden: file digest, bundle hash and each run's final state hash. */
 async function scenarios(root, decode) {
   const found = [];
-  for (const pack of (await readdir(path.join(root, "worlds"))).sort()) {
+  for (const pack of await worldPackDirectories(root)) {
     const directory = path.join("worlds", pack, "goldens");
     const names = await readdir(path.join(root, directory)).catch(() => []);
     for (const name of names

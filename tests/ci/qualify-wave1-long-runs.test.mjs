@@ -23,7 +23,7 @@ async function shortRun(pack, epoch, hours, stepMs) {
   const to = { $bigint: String(epoch + BigInt(hours) * HOUR) };
   document.steps[0] = { ...document.steps[0], to, stepMs: { $bigint: String(stepMs) } };
   document.variants[0].steps[0].to = to;
-  const scenarioFile = path.join(directory, `${pack}-${hours}.json`);
+  const scenarioFile = path.join(directory, `${pack.replaceAll("/", "-")}-${hours}.json`);
   await writeFile(scenarioFile, JSON.stringify(document));
   return {
     packDirectory: path.join(root, "worlds", pack),
@@ -35,7 +35,7 @@ async function shortRun(pack, epoch, hours, stepMs) {
 beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "clockgrove-wave1-long-runs-test-"));
   const plan = [
-    await shortRun("raccoons", 8_640_000_000n, 72, 24n * HOUR),
+    await shortRun("fixture/reference", 8_640_000_000n, 72, 24n * HOUR),
     await shortRun("fixture", 100_000n, 1, 600_000n),
   ];
   const tiny = { durationMs: 1, peakMemoryBytes: 1 };
@@ -46,9 +46,9 @@ beforeAll(async () => {
     concurrency: 4,
     log: () => {},
   });
-  const raccoons = result.runs.find((run) => run.pack === "clockgrove.green-lake-yard@1.1.0");
+  const residents = result.runs.find((run) => run.pack === "clockgrove.fixture-hall@1.1.0");
   const bytes = await readFile(
-    path.join(directory, "evidence", raccoons.runtimes.node.bundle.path),
+    path.join(directory, "evidence", residents.runtimes.node.bundle.path),
   );
   bundle = decodeCanonicalBytes(new Uint8Array(bytes)).value;
 }, 120_000);
@@ -58,7 +58,7 @@ afterAll(async () => {
 
 it("short horizons pass every observable check with identical Node and workerd bundles", async () => {
   expect(result.runs.map((run) => [run.pack, run.horizonMs])).toEqual([
-    ["clockgrove.green-lake-yard@1.1.0", String(72n * HOUR)],
+    ["clockgrove.fixture-hall@1.1.0", String(72n * HOUR)],
     ["clockgrove.test-world@1.1.0", String(HOUR)],
   ]);
   for (const run of result.runs) {

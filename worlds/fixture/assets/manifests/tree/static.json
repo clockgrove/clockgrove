@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "tree",
+  "animationFamily": "static",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/tree/static.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "object",
+    "entity": "fixture.cedar",
+    "archetype": "fixture.cedar-kind"
+  },
+  "frames": {
+    "width": 64,
+    "height": 96,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 32,
+    "y": 94
+  },
+  "footprint": {
+    "width": 2000,
+    "depth": 2000
+  },
+  "bounds": {
+    "x": 0,
+    "y": 5,
+    "width": 64,
+    "height": 91
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "d3ce2856765d57398baf213ea8685406ef64e687975e1bc4917bdf43339328a9",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 832,
+    "y": 80
+  },
+  "accessibilityLabel": "The cedar tree"
+}

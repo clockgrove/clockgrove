@@ -63,11 +63,11 @@ stopped call's state time lies before it. Nothing in Wave 1 executes, dispatches
 `ActorAgentDO` model-escalation path is its consumer (Wave 5 plan: policy checks and compiled routines run
 before model escalation). Without the declaration no request is ever produced and outputs are byte-identical.
 `WorldKernelResult.decisionDrafts` keeps its declared `DecisionDraft<DecisionTrace>` type; readers select by
-`kind` (the application keeps only `routine` drafts as receipt evidence). Evidence: `green-lake-yard@1` opts
+`kind` (the application keeps only `routine` drafts as receipt evidence). Evidence: `fixture-hall@1` opts
 in. Its committed `cedar-growth` scenario compares small-step with aggregate progression: the live run
-(12-hour steps) records Stevie's and the kit's `unperceived-target` requests in calls 2 and 6, the
+(12-hour steps) records Keeper's and Dependent's `unperceived-target` requests in calls 2 and 6, the
 fast-forward run records both in its one call 0, and the scenario pins each record literally in both runs
-together with those call indexes. `street-dwell` pins Gracie's `score-margin` tie request literally in both
+together with those call indexes. `street-dwell` pins Companion's `score-margin` tie request literally in both
 of its runs, which both reach it in their opening fast-forward step. The conformance suite reproduces these
 bytes in Node and workerd. Opting in changed no raccoon golden's events, schedules, random state or final
 state, only its artifact hashes and recorded decisions.

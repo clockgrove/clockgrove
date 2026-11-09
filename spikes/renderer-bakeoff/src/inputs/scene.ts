@@ -1,4 +1,4 @@
-// The one reference yard slice every candidate draws: the committed projection, the two lighting
+// The one reference hall slice every candidate draws: the committed projection, the two lighting
 // patches, the shared light rig and the shared camera. Candidates read only these, never their own copy.
 import {
   decodeScenePatch,
@@ -24,7 +24,7 @@ export const DUSK_RAIN = 8_000;
 export const NIGHT_RAIN = 3_000;
 
 const pose = (x: number, y: number, z: number) => ({
-  frameId: "yard-frame",
+  frameId: "hall-frame",
   frameVersion: 1,
   coordinates: [String(x), String(y), String(z)],
 });
@@ -35,21 +35,21 @@ const effect = (role: SceneEffect["role"], assetId: string, at: [number, number,
   pose: pose(...at),
 });
 
-/** The committed snapshot: dusk in rain, Stevie between a lantern post and a shrub before the house. */
+/** The committed snapshot: dusk in rain, Keeper between a lantern post and a shrub before the house. */
 export const SNAPSHOT: SceneProjection = decodeSceneProjection({
   tenantId: "tenant-bakeoff",
   worldId: "world-bakeoff",
   timelineId: "timeline-bakeoff",
-  spaceId: "yard",
+  spaceId: "hall",
   privacyClass: "public_scene",
   compatibility: { projectionVersion: 2, assetManifestVersion: 1, clientVersion: 1 },
   revision: "1",
   simulationTime: String(DUSK_TIME),
   weather: { rainIntensity: DUSK_RAIN },
-  hierarchy: [{ spaceId: "yard", label: "Yard" }],
+  hierarchy: [{ spaceId: "hall", label: "Hall" }],
   frames: [
     {
-      frameId: "yard-frame",
+      frameId: "hall-frame",
       version: 1,
       dimensions: 3,
       unit: { name: "millimetre", fractionalDigits: 0 },
@@ -66,10 +66,10 @@ export const SNAPSHOT: SceneProjection = decodeSceneProjection({
   ],
   entities: [
     {
-      objectId: "stevie",
-      archetypeId: "raccoon",
+      objectId: "keeper",
+      archetypeId: "resident",
       pose: pose(0, 0, 0),
-      presentation: { kind: "placeholder", label: "Stevie" },
+      presentation: { kind: "placeholder", label: "Keeper" },
     },
     {
       objectId: "lantern-post",
@@ -86,10 +86,10 @@ export const SNAPSHOT: SceneProjection = decodeSceneProjection({
   ],
   presentationBindings: [
     {
-      objectId: "stevie",
-      assetId: "stevie",
+      objectId: "keeper",
+      assetId: "keeper",
       animationFamily: "idle",
-      accessibilityLabel: "Stevie",
+      accessibilityLabel: "Keeper",
     },
     {
       objectId: "lantern-post",
@@ -130,7 +130,7 @@ export type LightingState = (typeof LIGHTING_STATES)[number];
 export interface SpritePlacement {
   readonly objectId: string;
   readonly assetId: AssetId;
-  /** Ground position in metres of the yard frame (x east, y north, z up). */
+  /** Ground position in metres of the hall frame (x east, y north, z up). */
   readonly x: number;
   readonly y: number;
   readonly z: number;
@@ -144,7 +144,7 @@ export const GROUND = { assetId: "ground" as AssetId, centreX: 0, centreY: 0, wi
 export const WALL = { assetId: "house-wall" as AssetId, y: 3, x0: -4.5, x1: 4.5, height: 3.2 };
 
 const SIZES: Readonly<Record<string, readonly [number, number]>> = {
-  stevie: [0.9, 0.9],
+  keeper: [0.9, 0.9],
   "lantern-post": [0.5, 2.0],
   shrub: [1.4, 1.3],
 };
@@ -286,7 +286,7 @@ export const CAMERA_PATH: readonly CameraState[] = [
 export const SCREENSHOT_CAMERA: CameraState = { panX: 0, panY: 0.5, zoom: 1 };
 
 /**
- * The shared projection from yard metres to canvas pixels. A 3D candidate's orthographic camera
+ * The shared projection from hall metres to canvas pixels. A 3D candidate's orthographic camera
  * reproduces it: right = (x + y)/√2, up = z·cos(e) + (y − x)/√2·sin(e), depth = x − y (nearer is larger).
  */
 export function isoProject(

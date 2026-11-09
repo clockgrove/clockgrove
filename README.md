@@ -1,6 +1,6 @@
 # Clockgrove
 
-Clockgrove is an open-source persistent artificial-life world and conversational-actor platform. **Raccoon World** is its first reference world and demo-quality application.
+Clockgrove is an open-source persistent artificial-life world and conversational-actor platform. [Raccoon World](https://github.com/clockgrove/raccoon-world) is its first reference world and demo-quality application.
 
 The core thesis is simple:
 
@@ -10,7 +10,7 @@ A Clockgrove world can keep time, change while nobody is watching, remember what
 
 ## Try it
 
-There is no hosted demo yet. To watch the reference world on your own machine, follow the bootstrap below, then run `pnpm dev:yard`: it needs PostgreSQL 18.6 with pgvector 0.8.7 (the set `pnpm test:db` uses), and it prints a URL and a sign-in credential. See [development.md](docs/runbooks/development.md#local-living-yard-checkpoint).
+There is no hosted demo yet. To explore the neutral fixture world on your own machine, follow the bootstrap below, then run `pnpm dev:world`: it needs PostgreSQL 18.6 with pgvector 0.8.7 (the set `pnpm test:db` uses), and it prints a URL and a sign-in credential. See [development.md](docs/runbooks/development.md#local-living-yard-checkpoint).
 
 ## What Clockgrove is exploring
 
@@ -21,7 +21,7 @@ There is no hosted demo yet. To watch the reference world on your own machine, f
 - bounded model/tool/MCP capabilities behind typed application authority;
 - natural-language authoring through validated preview timelines rather than direct live mutation;
 - realtime browser projection over persistent world state;
-- reusable world packs and a non-raccoon conformance path;
+- reusable world packs and a neutral fixture conformance path;
 - shared-world identity, attribution and world-local inventory without coupling world truth to billing or provider state.
 
 ## Repository map
@@ -63,7 +63,7 @@ Start with [`docs/clockgrove-documentation-index.md`](docs/clockgrove-documentat
 Current top-level product baselines are:
 
 - [`docs/clockgrove-prd-v0.5.md`](docs/clockgrove-prd-v0.5.md) — **PRD v0.5.10**;
-- [`docs/raccoon-world-cloudflare-implementation-plan.md`](docs/raccoon-world-cloudflare-implementation-plan.md) — **architecture v3.12**.
+- [`docs/raccoon-world-cloudflare-implementation-plan.md`](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) — **architecture v3.12**.
 
 Key public-facing documents also include:
 
@@ -89,9 +89,10 @@ A few boundaries are intentionally strong:
 
 ## Reference world
 
-The first executable world is a cozy isometric Pacific Northwest raccoon neighborhood. It is deliberately emotionally legible while exercising the reusable engine contracts: rain changes comfort and resources, food appears and disappears, plants grow, actors learn from experience and one another, relationships matter, and later behavior can be explained from stored evidence.
-
-The engine itself must remain theme-agnostic. A small non-raccoon world is used to catch accidental reference-world assumptions.
+Clockgrove supplies the platform for any world. The committed `worlds/fixture` inputs exercise
+engine, runtime and browser behavior without product-world content. The reference world lives in
+[clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), which consumes a pinned
+Clockgrove source checkout through the [external-world commands](docs/protocols/world-presentation.md#external-local-session).
 
 ## Clean-room and publication boundary
 

@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "path",
+  "animationFamily": "static",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/path/static.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "terrain",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 16,
+    "height": 16,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 8,
+    "y": 8
+  },
+  "footprint": {
+    "width": 800,
+    "depth": 800
+  },
+  "bounds": {
+    "x": 0,
+    "y": 0,
+    "width": 16,
+    "height": 16
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "4a7d3c9dccd4488e7db62b94db704485b38cf4abdcf58061d5bd318e1ab65c39",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 560,
+    "y": 80
+  },
+  "accessibilityLabel": "A dirt path"
+}

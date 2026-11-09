@@ -1,0 +1,18 @@
+{
+  "camera": {
+    "originXMm": -2000,
+    "originYMm": 3000,
+    "mmPerPixel": 80,
+    "width": 480,
+    "height": 270
+  },
+  "simulationTimeMs": 79200000,
+  "rainIntensity": 6000,
+  "selectedObjectId": "fixture.keeper",
+  "sceneSha256": "6bb114238ae5a0d57e855f8887ac519e3efcbd896b811fdd40c5c8f8a263789f",
+  "approval": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "approvedSceneSha256": "6bb114238ae5a0d57e855f8887ac519e3efcbd896b811fdd40c5c8f8a263789f"
+  }
+}

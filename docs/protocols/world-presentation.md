@@ -24,11 +24,10 @@ Worlds may consume platform packages; platform code may not import non-fixture w
 boundary checks inspect imports and package dependency declarations, and dependency-cruiser
 checks resolved module edges. The fixture is the deliberate test-world exception.
 
-The configurable world-identifier check reports remaining references until the world extraction
-lands. Its enforcement switch is intentionally off pending clockgrove/raccoon-world#1. Matching
-identifiers must not confuse the platform's `clockgrove.` protocol namespace with a world's
-`grove.` namespace. No broad world-name exceptions are implied by report-only mode. The scan includes JSON source;
-its own identifier configuration is explicitly allowlisted in `scripts/world-boundaries.json`.
+The world-identifier check fails the build when platform source contains a configured world
+identifier. It distinguishes the platform's `clockgrove.` protocol namespace from a world's
+namespace. The scan includes JSON source; its identifier configuration is explicitly allowlisted
+in `scripts/world-boundaries.json`. Only `worlds/fixture` is a permitted platform world input.
 
 ## Browser shell v1
 
@@ -38,7 +37,7 @@ Without it the shell uses its neutral default, with no atlas. Set `CLOCKGROVE_WO
 to the world's reviewed static-asset directory, containing atlas files at the paths requested
 by the renderer. An explicit path must name an existing directory; relative paths resolve from
 Vite's working directory. Without this input the current compatibility default is
-Clockgrove's `assets/reviewed`. Use absolute paths when invoking pnpm from another repository.
+the world's reviewed asset directory. Use absolute paths when invoking pnpm from another repository.
 For example, from an external world repository beside the pinned Clockgrove checkout:
 
 ```sh
@@ -76,7 +75,7 @@ The local runtime also needs the repository's pinned PostgreSQL and pgvector too
 see the [development reference](../runbooks/development.md). From the world repository:
 
 ```sh
-node ../clockgrove/scripts/dev-yard.mjs \
+node ../clockgrove/scripts/dev-world.mjs \
   --pack worlds/sample --shell worlds/sample/shell.json --assets assets/reviewed
 ```
 

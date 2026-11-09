@@ -1,0 +1,96 @@
+{
+  "presentationVersion": 1,
+  "assetManifestVersion": 1,
+  "pack": {
+    "id": "clockgrove.fixture-hall",
+    "version": "1.1.0"
+  },
+  "bindings": [
+    {
+      "objectId": "fixture.keeper",
+      "assetId": "keeper",
+      "animationFamily": "idle",
+      "accessibilityLabel": "Keeper, a resident"
+    },
+    {
+      "objectId": "fixture.companion",
+      "assetId": "companion",
+      "animationFamily": "idle",
+      "accessibilityLabel": "Companion, a resident"
+    },
+    {
+      "objectId": "fixture.dependent",
+      "assetId": "dependent",
+      "animationFamily": "idle",
+      "accessibilityLabel": "A resident kit"
+    },
+    {
+      "objectId": "fixture.den",
+      "assetId": "den",
+      "animationFamily": "static",
+      "accessibilityLabel": "The den"
+    },
+    {
+      "objectId": "fixture.trash-can",
+      "assetId": "trash-can",
+      "animationFamily": "static",
+      "accessibilityLabel": "The trash can"
+    },
+    {
+      "objectId": "fixture.snack-dish",
+      "assetId": "feeder",
+      "animationFamily": "static",
+      "accessibilityLabel": "The snack feeder"
+    },
+    {
+      "objectId": "fixture.cedar",
+      "assetId": "tree",
+      "animationFamily": "static",
+      "accessibilityLabel": "The cedar tree"
+    },
+    {
+      "objectId": "fixture.herb",
+      "assetId": "plant",
+      "animationFamily": "static",
+      "accessibilityLabel": "The herb patch"
+    }
+  ],
+  "effects": [
+    {
+      "role": "path",
+      "assetId": "path",
+      "animationFamily": "static",
+      "objectId": null
+    },
+    {
+      "role": "rain",
+      "assetId": "rain",
+      "animationFamily": "loop",
+      "objectId": null
+    },
+    {
+      "role": "puddle",
+      "assetId": "puddle",
+      "animationFamily": "loop",
+      "objectId": null
+    },
+    {
+      "role": "lantern",
+      "assetId": "lantern",
+      "animationFamily": "loop",
+      "objectId": "fixture.porch"
+    },
+    {
+      "role": "window",
+      "assetId": "window",
+      "animationFamily": "static",
+      "objectId": "fixture.porch"
+    },
+    {
+      "role": "selection",
+      "assetId": "selection",
+      "animationFamily": "loop",
+      "objectId": null
+    }
+  ]
+}

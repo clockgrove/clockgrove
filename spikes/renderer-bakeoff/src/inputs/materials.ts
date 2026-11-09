@@ -2,7 +2,7 @@
 // aren't ready"). Generated deterministically in code, identically for every candidate: no image files,
 // so nothing goes through Git LFS and a file:// page never taints a WebGL canvas.
 
-export const ASSET_IDS = ["stevie", "lantern-post", "shrub", "ground", "house-wall"] as const;
+export const ASSET_IDS = ["keeper", "lantern-post", "shrub", "ground", "house-wall"] as const;
 export type AssetId = (typeof ASSET_IDS)[number];
 
 /** One asset's maps, each RGBA8 row-major from the top-left, `width × height` texels. */
@@ -90,7 +90,7 @@ const inEllipse = (u: number, v: number, cu: number, cv: number, ru: number, rv:
 
 /** u right, v down, both 0..1 across the sprite. */
 const PAINTERS: Readonly<Record<AssetId, Painter>> = {
-  stevie(u, v, x, y) {
+  keeper(u, v, x, y) {
     const t = empty();
     const fur = noise(x, y, 3, 11) * 30;
     const body = inEllipse(u, v, 0.48, 0.68, 0.3, 0.22);
@@ -225,7 +225,7 @@ const PAINTERS: Readonly<Record<AssetId, Painter>> = {
   },
 };
 const DIMENSIONS: Readonly<Record<AssetId, readonly [number, number]>> = {
-  stevie: [128, 128],
+  keeper: [128, 128],
   "lantern-post": [64, 256],
   shrub: [128, 128],
   ground: [256, 256],

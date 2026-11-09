@@ -9,7 +9,7 @@ import {
 import { DeterministicTestAuthProvider, LOCAL_TEST_PRINCIPALS } from "../local/test-auth.js";
 import { readWorldDirectory, readWorldReadiness } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
-import { observationAuthenticator } from "./living-yard-fixture.js";
+import { observationAuthenticator } from "./living-hall-fixture.js";
 import { type DatabaseFixture, truthOf, withClient } from "./world-fixture.js";
 
 // Privacy and authority: the directory lists only the principal's own committed, unrevoked
@@ -34,7 +34,7 @@ it("lists exactly the authenticated principal's observable scopes in byte order,
        INSERT INTO clockgrove.world_memberships (tenant_id, world_id, timeline_id, space_id,
          principal_id, membership_id, persona_id, roles, grants, privacy_ceiling, committed_at, revoked_at)
        VALUES ${[
-         membership("'world-b', 'timeline-b', 'yard'", observer, "runtime:world-observe"),
+         membership("'world-b', 'timeline-b', 'hall'", observer, "runtime:world-observe"),
          membership("'world-a', 'timeline-a', 'attic'", observer, "runtime:world-observe"),
          membership("'world-a', 'timeline-a', 'Den'", observer, "runtime:world-observe"),
          membership(
@@ -115,7 +115,7 @@ it("lists exactly the authenticated principal's observable scopes in byte order,
     expect(response.status).toBe(200);
     expect(decodeWorldDirectory(await response.json())).toEqual({
       version: 1,
-      entries: [entry("world-a", "Den"), entry("world-a", "attic"), entry("world-b", "yard")],
+      entries: [entry("world-a", "Den"), entry("world-a", "attic"), entry("world-b", "hall")],
     });
     const otherResponse = await read("Bearer local-operator");
     expect(decodeWorldDirectory(await otherResponse.json()).entries).toEqual([

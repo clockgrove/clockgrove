@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Wave 1 long-run qualification (plan §9.3, §10, §13): the 30-day and one-year scenarios of
-// green-lake-yard@1 and test-world@1, each on Node and on workerd with summarised recording.
+// fixture-hall@1 and test-world@1, each on Node and on workerd with summarised recording.
 // Usage: pnpm run qualify:wave1:long-runs [<evidence-dir>] [--concurrency <n>]
 // It checks the long-run invariants and the declared small-step versus aggregate equivalence,
 // requires byte-identical Node and workerd bundles and records each run's wall time and peak
@@ -31,9 +31,9 @@ const longRun = (pack, scenario, days) => ({
 /** Longest first, so the one-year test-world runs start together and bound the wall time. */
 export const WAVE1_LONG_RUNS = [
   longRun("fixture", "long-run-one-year", 365),
-  longRun("raccoons", "long-run-one-year", 365),
+  longRun("fixture/reference", "long-run-one-year", 365),
   longRun("fixture", "long-run-30-days", 30),
-  longRun("raccoons", "long-run-30-days", 30),
+  longRun("fixture/reference", "long-run-30-days", 30),
 ];
 
 export const BUDGET_SOURCE =
@@ -44,10 +44,10 @@ export const BUDGET_SOURCE =
  */
 const BUDGET_TABLE = [
   // pack id, scenario, runtime, wall time (s), peak memory (MiB)
-  ["clockgrove.green-lake-yard", "long-run-30-days", "node", 12.8, 448],
-  ["clockgrove.green-lake-yard", "long-run-30-days", "workers", 11.4, 320],
-  ["clockgrove.green-lake-yard", "long-run-one-year", "node", 134.4, 760],
-  ["clockgrove.green-lake-yard", "long-run-one-year", "workers", 127.2, 524],
+  ["clockgrove.fixture-hall", "long-run-30-days", "node", 12.8, 448],
+  ["clockgrove.fixture-hall", "long-run-30-days", "workers", 11.4, 320],
+  ["clockgrove.fixture-hall", "long-run-one-year", "node", 134.4, 760],
+  ["clockgrove.fixture-hall", "long-run-one-year", "workers", 127.2, 524],
   ["clockgrove.test-world", "long-run-30-days", "node", 73.6, 912],
   ["clockgrove.test-world", "long-run-30-days", "workers", 73.2, 1126],
   ["clockgrove.test-world", "long-run-one-year", "node", 851.2, 934],

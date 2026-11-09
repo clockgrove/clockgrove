@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "idle",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/idle.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 18,
+    "width": 24,
+    "height": 14
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "6403bf18799cb0f4ee991a13749dd69ceab4012e7f61610e22e0ee7c44e4da65",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 0,
+    "y": 48
+  },
+  "accessibilityLabel": "The kit standing"
+}

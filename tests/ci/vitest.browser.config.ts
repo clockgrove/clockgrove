@@ -13,17 +13,15 @@ export default defineConfig({
     environment: "node",
     // The Wave 4 §15.1 browser suites: test:e2e, test:a11y, test:visual, test:realtime:load.
     include: [
-      "tests/e2e/living-yard.journey.browser.test.mjs",
+      "tests/e2e/living-hall.journey.browser.test.mjs",
       "tests/e2e/arrival-truth.journey.browser.test.mjs",
       "tests/accessibility/text-path.journey.browser.test.mjs",
       "tests/visual/golden-states.journey.browser.test.mjs",
       "tests/load/realtime/fanout.journey.browser.test.mjs",
-      // pnpm dev:yard: the local checkpoint command serves and tears down.
-      "tests/ci/dev-yard.journey.browser.test.mjs",
+      // pnpm dev:world: the local checkpoint command serves and tears down.
+      "tests/ci/dev-world.journey.browser.test.mjs",
       // Issue 67: the renderer bake-off measurement page and script, under SwiftShader.
       "tests/ci/renderer-bakeoff.journey.browser.test.mjs",
-      // Issue 77: the 3D Stevie comparison page and report script, under SwiftShader.
-      "tests/ci/stevie-3d.journey.browser.test.mjs",
     ],
     // Journeys run one at a time, so neither one's measured deadline shares the host with the other.
     fileParallelism: false,

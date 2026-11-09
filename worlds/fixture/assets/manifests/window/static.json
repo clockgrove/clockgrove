@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "window",
+  "animationFamily": "static",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/window/static.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": "fixture.porch",
+    "archetype": "fixture.porch-kind"
+  },
+  "frames": {
+    "width": 16,
+    "height": 16,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 8,
+    "y": 15
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 1,
+    "width": 16,
+    "height": 15
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "518e3d6353d46e153272c51a19ab4e076a465af773422c6cbe70071a5909aba0",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 640,
+    "y": 176
+  },
+  "accessibilityLabel": "A lit porch window"
+}

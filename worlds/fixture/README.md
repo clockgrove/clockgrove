@@ -3,7 +3,7 @@
 ## Purpose
 
 A tiny, deliberately non-reference pack. It exists to catch accidental reference-world assumptions: the
-shared conformance suite runs it next to the reference pack, so any engine code that quietly depends on
+shared conformance suite runs it next to the neutral reference variant, so any engine code that quietly depends on
 reference-world names, places or actors fails here. Its theme is a lighthouse hall, and every identity
 uses the `beacon.` prefix.
 
@@ -22,7 +22,7 @@ uses the `beacon.` prefix.
 
 ## Scenario
 
-`scenarios/non-raccoon-conformance.json` submits one weather command through the lamp's `beacon.speak`
+`scenarios/neutral-conformance.json` submits one weather command through the lamp's `beacon.speak`
 binding, two commands that binding refuses, then advances 70 seconds. It asserts what that run does: the
 weather command is accepted through `beacon.lamp`'s `beacon.speak@1` (an `embodied-dialogue` capability)
 and its events are attributed to the lamp, initiated by the scenario; a `movement.interrupt` through the
@@ -32,7 +32,7 @@ binding, is refused `CAPABILITY_NOT_HELD`; the subject eats once from the larder
 cistern (leaving it with 4 units), finally chooses to seek water using the scripted memory of the cistern and
 reaches it; the choice rule and the tide rule each record a weather intent, which is recorded and not
 executed (disposition `recorded-not-executed`); and replay reproduces the final state. Its reviewed golden
-is `goldens/non-raccoon-conformance.json`.
+is `goldens/neutral-conformance.json`.
 
 The larder and the lamp's rain shelter are part of the pack for contract coverage and for the subject's
 choices.

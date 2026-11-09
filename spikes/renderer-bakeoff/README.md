@@ -1,6 +1,6 @@
 # Renderer bake-off (spike)
 
-Issue 67's throwaway spike. It draws the same lit yard slice in Phaser 4 and in Three.js, each behind
+Issue 67's throwaway spike. It draws the same lit hall slice in Phaser 4 and in Three.js, each behind
 the product's `WorldSceneAdapter` ([`apps/web/src/world-scene-adapter.ts`](../../apps/web/src/world-scene-adapter.ts)),
 and measures each one. It is not the product path. Nothing in `apps/web` imports it, and production
 rendering does not change. The decision record is the draft
@@ -11,7 +11,7 @@ integrates the winner.
 
 Every candidate reads the same inputs, in `src/inputs/`:
 
-- `scene.ts` holds the committed projection: Stevie, a lantern post and a shrub in front of the house wall, a
+- `scene.ts` holds the committed projection: Keeper, a lantern post and a shrub in front of the house wall, a
   lantern and a window light, and two puddles. The snapshot is dusk in rain (18:15), just after the product's
   18:00 night rule lights the lantern and the window, as the reference mockup shows them at dusk; the sky
   stays a dusk sky until 20:00. The `TO_NIGHT` patch (22:00, lighter rain) arrives through `applyPatch`. The file also holds the shared light rig, the camera path and `isoProject`, which is the camera
@@ -57,8 +57,7 @@ clock, and receives the JSON record by POST. It writes:
 
 - `results.json`, with every number beside its host, browser user agent and renderer string;
 - one PNG per candidate, state and tier;
-- `report.html`, which puts the high-tier screenshots beside the
-  [reference mockup](../../docs/design/reference/raccoon-world-reference.png).
+- `report.html`, which compares the candidates’ high-tier screenshots.
 
 A browser that cannot start fails the script with its own error (the spawn error or its stderr). On a
 Linux host that forbids unprivileged user namespaces, add `--browser-arg=--no-sandbox`. The script also
@@ -102,11 +101,4 @@ exposes `window.bakeoffDrive` (`open`, `setReducedMotion`, and `frameAt` and `st
 the frame's capture), so the test steps the page clock by a fixed amount and compares two captures: identical with
 reduced motion on, different with it off. It also checks the dumped-DOM path from `file://`.
 
-## 3D Stevie (issue 77)
-
-A second page, `stevie.html` (`src/stevie/`), draws Stevie as real-time 3D, 2D sheet sprites and 3D rendered to
-sprites in this same lit slice, with `scripts/generate.mjs` and `scripts/ship.mjs` producing the git-ignored models.
-
-Subsystem contracts:
-
-- [3D Stevie spike](docs/stevie-3d.md): the arms, shots, generation, ship step, maintainer steps and CI check.
+The world-specific 3D comparison moved to [raccoon-world](https://github.com/clockgrove/raccoon-world/tree/main/spikes/stevie-3d).

@@ -46,7 +46,7 @@ exercises this.
 - A **turn** joins one input message to its answer. Without a model key bound, the scripted model
   fixture (`scripted-fixture-v1`) answers deterministically and only from its own session: "you
   have said N things to me in this conversation". With a key, the actor's owner answers through the
-  ModelGateway's `stevie.pilot` alias and the turn records the route's model name (`^[a-z0-9][a-z0-9._-]{0,127}$`).
+  ModelGateway's `actor.pilot` alias and the turn records the route's model name (`^[a-z0-9][a-z0-9._-]{0,127}$`).
   Each turn is a recoverable fiber in the actor's runtime owner
   ([recoverable turn fibers](conversation-fibers.md)).
 - A turn's answer may carry one **command proposal**: a typed capability call decided by the actor's

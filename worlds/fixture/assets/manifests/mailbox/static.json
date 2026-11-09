@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "mailbox",
+  "animationFamily": "static",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/mailbox/static.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "object",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 16,
+    "height": 32,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 8,
+    "y": 30
+  },
+  "footprint": {
+    "width": 300,
+    "depth": 300
+  },
+  "bounds": {
+    "x": 1,
+    "y": 0,
+    "width": 15,
+    "height": 32
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "074e36d041590e408e1080dfac4e785d8bdd16a207c1a29b9cb97b4beb86c7a2",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 544,
+    "y": 80
+  },
+  "accessibilityLabel": "A mailbox"
+}

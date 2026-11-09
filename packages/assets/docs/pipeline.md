@@ -13,8 +13,8 @@ Manifest and presentation shapes are owned by the
 3. Validate the source PNG against the manifest (validator rules below).
 4. A human reviews the asset and sets `review` to `approved` with their login.
 5. Check the license against `PERMITTED_ASSET_LICENSES` and the reviewer against the deploy gate.
-6. Pack approved assets into atlases and write `assets/reviewed`.
-7. Regenerate `assets/license-report.md`.
+6. Pack approved assets into atlases and write `worlds/fixture/assets/reviewed`.
+7. Regenerate `worlds/fixture/assets/license-report.md`.
 8. Render the golden scene and get its diff approved by a human.
 9. Upload the reviewed output content-addressed to the asset store.
 
@@ -22,12 +22,12 @@ Manifest and presentation shapes are owned by the
 
 | Path | Content |
 | --- | --- |
-| `assets/manifests/<assetId>/<animationFamily>.json` | one manifest per strip |
-| `assets/source/<assetId>/<animationFamily>.png` | the source strip: `frames.count` frames side by side |
-| `assets/reviewed/<atlasId>.png`, `<atlasId>.animations.json` | build output, approved and licensed assets only |
-| `assets/license-report.md` | generated table of every manifest |
-| `assets/goldens/<packdir>.scene.png`, `.scene.json` | golden scene image and record |
-| `worlds/<packdir>/presentation.json` | pack presentation metadata |
+| `worlds/fixture/assets/manifests/<assetId>/<animationFamily>.json` | one manifest per strip |
+| `worlds/fixture/assets/source/<assetId>/<animationFamily>.png` | the source strip: `frames.count` frames side by side |
+| `worlds/fixture/assets/reviewed/<atlasId>.png`, `<atlasId>.animations.json` | build output, approved and licensed assets only |
+| `worlds/fixture/assets/license-report.md` | generated table of every manifest |
+| `worlds/fixture/assets/goldens/fixture-reference.scene.png`, `.scene.json` | golden scene image and record |
+| `worlds/fixture/reference/presentation.json` | pack presentation metadata |
 
 ## Validator rules
 
@@ -55,7 +55,7 @@ any order produce identical bytes (deflate level 9, filter 0, sorted-key JSON).
 ## Deploy gate
 
 `pnpm check` proves the gate on the committed `unreviewed` and `unlicensed` contract fixtures,
-requires `assets/reviewed` to equal a fresh build of exactly the manifests with no
+requires `worlds/fixture/assets/reviewed` to equal a fresh build of exactly the manifests with no
 `assetDeployRefusals`, and requires the license report to be current.
 
 ## Golden approval
@@ -68,14 +68,11 @@ golden that is not approved for its current `sceneSha256`, so a re-rendered gold
 without a human edit. The scene renders only deployable manifests, the ones upload ships; a binding
 to a pending or refused manifest fails the render.
 
-Golden parameters (issue 813 decisions). `assets/goldens/raccoons.scene.json` fixes the camera at origin
-(-2000 mm, 3000 mm), 80 mm per pixel and 480 x 270 pixels, so the whole yard layout fits a 16:9
-frame at a scale where 64-pixel sprites read at their footprints; the time at 79,200,000 ms (22:00)
-with rain intensity 6000, so the night lighting, lantern and window glow, rain and puddles all appear
-in the one approved image; and `grove.stevie` selected, so the selection effect appears too. For a
-pack with no golden, `update-golden` starts from origin (0, 0), 50 mm per pixel, 800 x 600 pixels,
-noon (43,200,000 ms), no rain and the first binding selected: a neutral daylight starting point that
-a human adjusts in the record before approving.
+The fixture scene retains the issue 813 camera and effects coverage: origin (-2000 mm,
+3000 mm), 80 mm per pixel, 480 x 270 pixels, simulation time 79,200,000 ms (22:00),
+rain intensity 6000 and `fixture.keeper` selected. Its geometric placeholder image exercises
+night, rain, lighting and selection rendering. The approval is synthetic test data; external
+world artwork still requires its own human approval.
 
 ## Upload
 
@@ -86,16 +83,15 @@ takes a structural bucket binding, so no provider type enters the package.
 
 Staging upload and the RW-0409 exit stay pending on issue 881.
 
-## First set and how to approve it
+## Fixture placeholders
 
-`node worlds/raccoons/tools/generate-assets.mjs` (from the repository root) regenerates the first Raccoon World set
-deterministically from the world-owned `worlds/raccoons/tools/generate-assets.ts`: Stevie, the Gracie and Juniper placeholder
-variants and the kit in the `idle`, `walk`, `sniff`, `eat`, `play` and `shelter` families; the den,
-trash can, feeder, mailbox, tree, plant and path tile; and the rain, puddle, lantern, window and
-selection effects. The generator writes every manifest with `review.status: "pending"`, because
-review is human-owned; the committed set was approved by kirkmarple-clockgrove on 2026-11-05
-(issue 813 owner decision). To approve, a human reviewer inspects each source and the golden scene and sets
-`review` to `{"status": "approved", "reviewer": "<login>", "reviewedAt": "<UTC time>", "notes": ...}`
-in each manifest they approve. They then set the golden record's `approval` to approved for its
-`sceneSha256`, and run `pnpm --filter @clockgrove/assets run build`, which writes the approved
-atlases into `assets/reviewed/`. `pnpm check` and the upload refuse anything else.
+`node worlds/fixture/tools/generate-assets.mjs` regenerates neutral checkerboard rectangles
+from the committed manifest frame sizes and bounds. It preserves review records, writes sources
+under `worlds/fixture/assets/source`, and updates content hashes and atlas placements.
+`pnpm --filter @clockgrove/assets run build` rebuilds the fixture atlas and license report;
+`update-golden` renders its scene and resets changed approval as usual.
+
+The manifests and scene record use the synthetic `fixture-reviewer` identity already used by
+contract fixtures. These records test the approved branch of the deploy gate; they do not
+represent a human review of external world artwork. Unreviewed and unlicensed negative controls,
+source validation, exact atlas rebuilding and golden refusal checks remain enabled.

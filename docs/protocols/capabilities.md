@@ -47,15 +47,15 @@ still proposes only through this decision, so it cannot widen a grant.
 ## Executing a world command
 
 An accepted `world.command` proposal becomes the ordinary command `resource.offer`, built by the
-server (`apps/runtime/src/stevie.ts`), never taken from the model's text:
+server (`apps/runtime/src/actor-model.ts`), never taken from the model's text:
 
-- Effective actor: the Stevie actor. Initiator persona, principal and membership are sealed from
+- Effective actor: the configured actor. Initiator persona, principal and membership are sealed from
   the member's trusted context, as for the member's own Influence. The causal root is
   `action-<commandId>`.
-- Command ID: `stevie:<principal>:<session>:<message>`. A retried turn rebuilds the same bytes
+- Command ID: `actor:<principal>:<session>:<message>`. A retried turn rebuilds the same bytes
   from its checkpointed proposal (issue time and perceived revision), so it replays the stored
   receipt.
-- `expected.partitionRevision` is the scene revision Stevie perceived when it proposed.
+- `expected.partitionRevision` is the scene revision the actor perceived when it proposed.
 - The world DO validates and commits it through the Journal. A refusal is a stored receipt.
 
 ## Evidence

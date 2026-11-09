@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "rain",
+  "animationFamily": "loop",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/rain/loop.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 3,
+    "durationMs": 100
+  },
+  "anchor": {
+    "x": 16,
+    "y": 31
+  },
+  "footprint": {
+    "width": 2000,
+    "depth": 2000
+  },
+  "bounds": {
+    "x": 1,
+    "y": 0,
+    "width": 28,
+    "height": 32
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "ba0c1022006e3afd5c340782ee67ea3dec1bc509f2082e4f3fddf6f2fb5fa0b0",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 648,
+    "y": 80
+  },
+  "accessibilityLabel": "Falling rain"
+}

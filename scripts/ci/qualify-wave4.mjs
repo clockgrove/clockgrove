@@ -118,8 +118,8 @@ const versions = {
   },
   assets: {
     assetManifestVersion: constants.SCENE_ASSET_MANIFEST_VERSION,
-    manifests: await treeDigest("assets/manifests"),
-    reviewed: await treeDigest("assets/reviewed"),
+    manifests: await treeDigest("worlds/fixture/assets/manifests"),
+    reviewed: await treeDigest("worlds/fixture/assets/reviewed"),
   },
 };
 assert(
@@ -306,7 +306,7 @@ const deviations = [
     item: "selected cognitive actor rail (§15.3)",
     status: "deviation",
     reason:
-      "green-lake-yard has no cognitive actor before Wave 5; the capture is the selected actor Stevie, whose mode is reactive",
+      "fixture-hall has no cognitive actor before Wave 5; the capture is the selected actor Keeper, whose mode is reactive",
   },
   ...(candidate.clean
     ? []

@@ -16,7 +16,7 @@ type Rec = Record<string, any>;
  */
 export async function checkPresentationBindings(
   pack: LoadedPack,
-  assetsRoot = join(REPO_ROOT, "assets", "manifests"),
+  assetsRoot = join(REPO_ROOT, "worlds", "fixture", "assets", "manifests"),
 ): Promise<void> {
   const file = join(pack.directory, "presentation.json");
   if (!existsSync(file)) return;

@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "eat",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/eat.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 18,
+    "width": 28,
+    "height": 14
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "0a501fbe614941d6c1e0baabcef89f333805326b788801c5edc0dfac5f5d7508",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 832,
+    "y": 0
+  },
+  "accessibilityLabel": "The kit eating"
+}

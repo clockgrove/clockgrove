@@ -20,8 +20,8 @@ import {
 
 const FILE = "apps/runtime/test/autonomous-parity.postgres.test.ts";
 const REPRESENTATIVES = [
-  ["fixture", "non-raccoon-conformance"],
-  ["raccoons", "food-decay-and-conservation"],
+  ["fixture", "neutral-conformance"],
+  ["fixture/reference", "food-decay-and-conservation"],
 ] as const;
 
 it.skipIf(isNativeWorldOwnerChild())(
@@ -146,8 +146,8 @@ describe("autonomous native parity representative", () => {
           `${owner.packName}/${scenario}:main:headless semantic ${first.semantic} != reference ${wrong}`,
           `${owner.packName}/${scenario}:main:headless revision ${first.revision} != journal ${extra}`,
         ]);
-        if (owner.packName === "raccoons") {
-          const commandId = "commandid_2561a54f3536fd00";
+        if (owner.packName === "fixture/reference") {
+          const commandId = "commandid_2b70e8ab97864d8f";
           // Caught up through the first delivery (an environment boundary) and run at earned
           // time, the scenario's first consume is accepted in every mode.
           expect(

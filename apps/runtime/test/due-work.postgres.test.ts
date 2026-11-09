@@ -162,25 +162,29 @@ describe("durable schedules and due-work advancement", () => {
         );
 
       // The birth queue is durable, and the due query's order (the due index) equals the kernel
-      // queue's. The raccoons world's queue has several items due at one time, so the order is
+      // queue's. The residents world's queue has several items due at one time, so the order is
       // decided by priority and tie-break key.
       expect(await pendingRows()).toEqual(kernelQueue());
-      const raccoons = await provisionTestWorld(fixture, await testWorld("raccoons"), PRINCIPAL);
-      const raccoonQueue = createScheduleQueue(
-        raccoons.world.birth.schedules as ScheduleQueue<WorldScheduledPayload>,
+      const residents = await provisionTestWorld(
+        fixture,
+        await testWorld("fixture/reference"),
+        PRINCIPAL,
       );
-      expect(new Set(raccoonQueue.map((item) => item.dueAt)).size).toBeLessThan(
-        raccoonQueue.length,
+      const residentQueue = createScheduleQueue(
+        residents.world.birth.schedules as ScheduleQueue<WorldScheduledPayload>,
       );
-      const raccoonDue = await withClient(fixture.environment, (client) =>
+      expect(new Set(residentQueue.map((item) => item.dueAt)).size).toBeLessThan(
+        residentQueue.length,
+      );
+      const residentDue = await withClient(fixture.environment, (client) =>
         new PostgreSqlDueWorkReader(client).dueSchedules(
-          raccoons.authorization,
-          { ...raccoons.partition.target, partitionId: raccoons.partition.route.partitionId },
+          residents.authorization,
+          { ...residents.partition.target, partitionId: residents.partition.route.partitionId },
           MAX_TIME,
         ),
       );
-      expect(raccoonDue.map((entry) => entry.scheduleId)).toEqual(
-        raccoonQueue.map((item) => item.id),
+      expect(residentDue.map((entry) => entry.scheduleId)).toEqual(
+        residentQueue.map((item) => item.id),
       );
       const birthPending = await withClient(fixture.environment, (client) =>
         new PostgreSqlDueWorkReader(client).pendingWork(authorization, scope),

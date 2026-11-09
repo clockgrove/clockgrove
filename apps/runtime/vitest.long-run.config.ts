@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 // pnpm test:long-run: the Journal parity of every committed Wave 1 scenario, the 30-day long runs
-// and the raccoons one-year run against real PostgreSQL. The qualification workflow runs it, not
+// and the reference-fixture one-year run against real PostgreSQL. The qualification workflow runs it, not
 // per-PR CI. The files run in parallel, each on disposable PostgreSQL clusters of its own; the
 // global setup joins their results into the Wave 2 evidence. The Wave 3 load curves run alone,
 // under vitest.load-curves.config.ts.

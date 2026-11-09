@@ -72,8 +72,8 @@ path. The reducer's committed projection is untouched.
   radius (§4.4). A repeated tap within 8 px on the same candidate set picks the next candidate and
   wraps around.
 - **Movement.** A committed move of up to 16 m interpolates over 400 ms. Sixteen metres is beyond
-  the longest green-lake-yard path edge (14.2 m, `den-mouth` to `tree-base` in
-  `worlds/raccoons/resources/spaces/neighborhood.json`), so a one-edge step interpolates. A longer move, or a
+  the longest reference-fixture path edge (14.2 m, `den-mouth` to `tree-base` in
+  `worlds/fixture/reference/resources/spaces/neighborhood.json`), so a one-edge step interpolates. A longer move, or a
   change of frame, snaps. There is no physics engine.
 - **Environment.** Lighting and weather read only the committed projection, never painted highlights
   in the art. Night remains before 06:00 or from 18:00 of the canonical 86 400 000 ms day.
@@ -160,7 +160,7 @@ evidence when its journey runs; physical GPU timing is reserved for the maintain
 | Patch application | 8 ms | Chromium journey |
 | Reconnect, from observed drop to ready | 3 000 ms | Chromium journey |
 
-The Chromium journey (`tests/e2e/living-yard.journey.browser.test.mjs`) measures the runtime budgets on the golden yard
+The Chromium journey (`tests/e2e/living-hall.journey.browser.test.mjs`) measures the runtime budgets on the golden yard
 with rain and puddles showing, from the adapter's `metrics`. The settled cadence window starts after the
 additional viewer's first render, so its initial shader compilation is accounted for by the separate
 first-render budget. These are local checks on the CI runner. They are

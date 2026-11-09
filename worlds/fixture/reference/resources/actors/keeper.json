@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.resident-kind","version":1},"capabilities":[{"id":"fixture.inspect","version":1}],"id":"fixture.keeper","lifecycle":{"bornAt":{"$bigint":"0"},"generation":0,"householdId":"fixture.household","parentIds":[]},"overrides":[],"placement":{"coordinates":[{"$bigint":"15000"},{"$bigint":"8000"}],"space":{"id":"fixture.neighborhood","version":1}},"traits":[]}

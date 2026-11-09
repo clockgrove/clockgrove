@@ -17,6 +17,7 @@ import {
   longRunBudget,
   WAVE1_LONG_RUN_BUDGETS,
 } from "./qualify-wave1-long-runs.mjs";
+import { worldPackDirectories } from "./world-packs.mjs";
 
 export const MANIFEST_FILE = "wave1-evidence-manifest.json";
 export const PLAN = "docs/waves/clockgrove-wave-1-world-kernel-implementation-plan.md";
@@ -59,10 +60,8 @@ export async function receipt(directory, name, command, candidate) {
 /** Every committed golden: file digest, bundle hash and the pack artifact it was built from. */
 async function goldens(root, decode) {
   const found = [];
-  const entries = await readdir(path.join(root, "worlds"), { withFileTypes: true });
-  for (const pack of entries.sort((left, right) => left.name.localeCompare(right.name, "en"))) {
-    if (!pack.isDirectory()) continue;
-    const directory = path.join("worlds", pack.name, "goldens");
+  for (const pack of await worldPackDirectories(root)) {
+    const directory = path.join("worlds", pack, "goldens");
     const names = await readdir(path.join(root, directory)).catch(() => []);
     for (const name of names
       .filter((file) => file.endsWith(".json") && !file.endsWith(".actual.json"))
@@ -83,8 +82,8 @@ async function goldens(root, decode) {
 
 /** The required Wave 1 long runs: both packs at 30 days and one year. */
 export const REQUIRED_LONG_RUNS = [
-  "clockgrove.green-lake-yard@1.1.0:30",
-  "clockgrove.green-lake-yard@1.1.0:365",
+  "clockgrove.fixture-hall@1.1.0:30",
+  "clockgrove.fixture-hall@1.1.0:365",
   "clockgrove.test-world@1.1.0:30",
   "clockgrove.test-world@1.1.0:365",
 ];
@@ -97,9 +96,8 @@ async function packEpochs(root) {
       ? BigInt(value.$bigint)
       : value;
   const epochs = new Map();
-  for (const entry of await readdir(path.join(root, "worlds"), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const directory = path.join(root, "worlds", entry.name);
+  for (const pack of await worldPackDirectories(root)) {
+    const directory = path.join(root, "worlds", pack);
     const manifest = JSON.parse(
       await readFile(path.join(directory, "manifest.json"), "utf8"),
       revive,
@@ -318,7 +316,7 @@ export function exitChecklist(manifest, items) {
       evidence: [...receipts("test", "test-long-run"), "goldens"],
       passed: passedReceipt(manifest, "test") && passedReceipt(manifest, "test-long-run"),
       observed:
-        "pnpm test runs every committed scenario against its golden in Node (and the fixture pack in workerd); test:long-run runs the raccoon scenarios in workerd",
+        "pnpm test runs every committed scenario against its golden in Node (and the fixture pack in workerd); test:long-run runs the resident scenarios in workerd",
       pending: "Passing test and test:long-run receipts at the candidate",
     },
     {

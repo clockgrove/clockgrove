@@ -39,17 +39,11 @@ describe("simulate scenario through the executable", () => {
   });
 
   it("reports the same whole result in workerd as in Node, and only the observations differ", async () => {
-    const node = await invoke([
-      "simulate",
-      "scenario",
-      "non-raccoon-conformance",
-      "--runtime",
-      "node",
-    ]);
+    const node = await invoke(["simulate", "scenario", "neutral-conformance", "--runtime", "node"]);
     const workers = await invoke([
       "simulate",
       "scenario",
-      "non-raccoon-conformance",
+      "neutral-conformance",
       "--runtime",
       "workers",
     ]);

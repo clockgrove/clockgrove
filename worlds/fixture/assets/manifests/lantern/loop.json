@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "lantern",
+  "animationFamily": "loop",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/lantern/loop.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": "fixture.porch",
+    "archetype": "fixture.porch-kind"
+  },
+  "frames": {
+    "width": 16,
+    "height": 16,
+    "count": 2,
+    "durationMs": 300
+  },
+  "anchor": {
+    "x": 8,
+    "y": 15
+  },
+  "footprint": {
+    "width": 300,
+    "depth": 300
+  },
+  "bounds": {
+    "x": 1,
+    "y": 1,
+    "width": 15,
+    "height": 15
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "e318f71d702c09d5fdd86868944baed2a76651f62a53a236fb587232b9911966",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 512,
+    "y": 80
+  },
+  "accessibilityLabel": "The porch lantern"
+}

@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Version:** 1.0  
 **Date:** October 01, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.9, `raccoon-world-cloudflare-implementation-plan.md` v3.10, and implementation Waves 4–9  
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.9, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.10, and implementation Waves 4–9
 **Scope:** Resident-authored knowledge sharing and bounded decision counterfactuals
 
 ---

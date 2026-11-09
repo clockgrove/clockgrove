@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Version:** 0.4  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, `raccoon-world-cloudflare-implementation-plan.md` v3.12 §20, and implementation Wave 4 §9.1  
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
 **Scope:** Evidence for the owner's choice of how Raccoon World draws characters while environments stay painted 2.5D (issue 77); the owner picks, and a later Objective builds the chosen path
 
 ---
@@ -13,10 +13,10 @@
 The owner decided on 2026-11-07 to try a 3D Stevie before investing heavily in 2D character sheets (issue 77). The spike draws three versions of Stevie in the #67 lit yard slice, the same Three.js WebGL2 adapter the [renderer bake-off](clockgrove-adr-renderer-bake-off.md) measured, at dusk in rain and at night:
 
 - **3D:** a rigged model playing idle and walk clips, with toon shading and an outline, lit by the scene's own lights.
-- **2D:** frames cut from [Jimothy's sheet](../design/reference/jimothy-sprite-sheet.png), drawn as lit sprites with derived normal maps. The sheet is Jimothy, the short-spine raccoon, not Stevie (owner's correction, 2026-11-07). No Stevie sprite sheet exists yet, so **the 2D and 3D arms show different characters**. Each arm is judged on technique (lighting, cohesion, animation), not on matching the other.
+- **2D:** frames cut from [Jimothy's sheet](https://github.com/clockgrove/raccoon-world/blob/main/docs/design/reference/jimothy-sprite-sheet.png), drawn as lit sprites with derived normal maps. The sheet is Jimothy, the short-spine raccoon, not Stevie (owner's correction, 2026-11-07). No Stevie sprite sheet exists yet, so **the 2D and 3D arms show different characters**. Each arm is judged on technique (lighting, cohesion, animation), not on matching the other.
 - **3D rendered to sprites:** the 3D arm's model and clips rendered offline to sprite frames, with exact albedo, normal and depth maps taken from the geometry.
 
-The spike is in [`spikes/renderer-bakeoff`](../../spikes/renderer-bakeoff/docs/stevie-3d.md). Nothing in `apps/` imports it. It commits no media: models and frames go to a git-ignored directory or an output directory outside git, and the report records their sha256 and provenance.
+The spike is in [`spikes/renderer-bakeoff`](https://github.com/clockgrove/raccoon-world/blob/main/spikes/stevie-3d/docs/stevie-3d.md). Nothing in `apps/` imports it. It commits no media: models and frames go to a git-ignored directory or an output directory outside git, and the report records their sha256 and provenance.
 
 ## The generation run
 

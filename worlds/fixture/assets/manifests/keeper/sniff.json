@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "keeper",
+  "animationFamily": "sniff",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/keeper/sniff.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.keeper",
+    "archetype": "fixture.resident-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 700,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 11,
+    "width": 31,
+    "height": 21
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "9d02b0cc8bf7e52a2194efd54c792a038f3cd8b20bd9007f26a9742e44c79f84",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 256,
+    "y": 80
+  },
+  "accessibilityLabel": "Keeper sniffing"
+}

@@ -109,8 +109,8 @@ Avoid wallpaper-like detail where everything competes equally.
 
 Each broad scene should ideally contain several independent but related stories. For example:
 
-- Stevie is investigating a tipped trash bin;
-- Gracie is guiding kits across a wet path;
+- an inhabitant is investigating a tipped container;
+- a parent is guiding young inhabitants across a wet path;
 - a squirrel is repairing a wheel under a small awning;
 - a crow watches a shiny spoon from a roof edge;
 - a rabbit carries vegetables toward a stall;
@@ -126,7 +126,7 @@ The viewer should be able to imagine causal links without captions.
 
 ### 5.1 Preferred view
 
-For the Raccoon World reference experience, favor:
+For platform illustrations that need to show spatial relationships, favor:
 
 - isometric or lightly isometric 2.5D perspective;
 - elevated three-quarter view;
@@ -211,19 +211,11 @@ Use:
 
 Avoid making every surface highly saturated.
 
-### 7.2 Pacific Northwest reference palette
+### 7.2 World palettes
 
-Raccoon World especially should evoke Seattle/Green Lake through:
-
-- dense greenery;
-- wet wood;
-- overcast blue-gray ambient light;
-- cedar trunks and fences;
-- moss;
-- garden plants;
-- puddles;
-- warm porch light against cool rain;
-- occasional bright rain gear, fruit, flowers, or signs as focal accents.
+Each world owns its setting and palette. Platform illustrations should use the general color
+principles above; the [reference world's style guide](https://github.com/clockgrove/raccoon-world/blob/main/docs/design/raccoon-world-ui.md)
+contains its setting-specific palette.
 
 ### 7.3 Lighting
 
@@ -318,28 +310,14 @@ This visually reinforces Clockgrove's memory and social-learning thesis.
 
 Buildings should feel purpose-built by or adapted for animal inhabitants while remaining grounded in recognizable architecture.
 
-For Raccoon World, blend:
-
-- Pacific Northwest craftsman houses;
-- porches;
-- sheds;
-- garden structures;
-- tree hollows;
-- dens;
-- fences;
-- tiny neighborhood stalls;
-- covered feeders;
-- hand-painted signs;
-- improvised shelters;
-- utility structures repurposed by animals.
-
-Avoid generic medieval fantasy villages unless a particular world pack calls for them.
+World-specific architecture belongs in each world’s style guide. For platform illustrations,
+choose functional buildings, shelters, signs and paths that make the depicted activity readable.
 
 ### 9.2 Functional exaggeration
 
 Scale can bend gently for readability.
 
-A cart handle may fit a raccoon better than real-world engineering would. A shop door may accommodate several species. A mailbox may sit lower. A ladder may be chunky and simple.
+A cart handle may fit an inhabitant better than real-world engineering would. A shop door may accommodate several species. A mailbox may sit lower. A ladder may be chunky and simple.
 
 The rule is **storybook functionalism**: objects should look usable inside the world even when proportions are charmingly adjusted.
 
@@ -383,7 +361,7 @@ Vehicles may be whimsical, but their function should remain visually obvious.
 
 Mechanical devices are allowed. **Robots are not.**
 
-The distinction is important: a squirrel using a hand-cranked machine or raccoon driving a tiny delivery cart reinforces world activity; an autonomous humanoid robot changes the entire visual language into generic technology fiction.
+The distinction is important: a squirrel using a hand-cranked machine or inhabitant driving a tiny delivery cart reinforces world activity; an autonomous humanoid robot changes the entire visual language into generic technology fiction.
 
 ---
 
@@ -516,7 +494,7 @@ When generating a Clockgrove environmental illustration, specify these layers ex
 
 Use this as a base and append the specific scene request:
 
-> Create an original Clockgrove world illustration: a warm, highly readable, busy storybook environment populated entirely by expressive anthropomorphic animals, with no humans and no robots. Use an elevated three-quarter or isometric-like view, hand-drawn ink outlines with slight organic variation, matte watercolor/gouache-like color, subtle paper texture, rounded practical architecture, small functional vehicles, signs, tools, food, gardens, paths, porches, and many tiny environmental details. The scene should contain several simultaneous everyday stories, each character actively doing something rather than posing. Make weather, time of day, recent events, object state, relationships, and cause-and-effect visibly influence the activity. Favor cozy Pacific Northwest naturalism for Raccoon World: cedar, moss, wet wood, gardens, rain, puddles, slate-blue atmosphere, warm windows, muted vintage color with small cheerful accents. The image should reward close inspection and make the viewer feel that every creature, object, and place could be clicked, questioned, remembered, and followed through a persistent history. Avoid glossy 3D rendering, photorealism, cinematic depth of field, cyberpunk, neon AI motifs, humanoid anatomy with animal heads, mascot posing, and empty decorative backgrounds.
+> Create an original Clockgrove world illustration: a warm, highly readable, busy storybook environment populated entirely by expressive anthropomorphic animals, with no humans and no robots. Use an elevated three-quarter or isometric-like view, hand-drawn ink outlines with slight organic variation, matte watercolor/gouache-like color, subtle paper texture, rounded practical architecture, small functional vehicles, signs, tools, food, gardens, paths, porches, and many tiny environmental details. The scene should contain several simultaneous everyday stories, each character actively doing something rather than posing. Make weather, time of day, recent events, object state, relationships, and cause-and-effect visibly influence the activity. Use the selected world’s own setting and palette. The image should reward close inspection and make the viewer feel that every creature, object, and place could be clicked, questioned, remembered, and followed through a persistent history. Avoid glossy 3D rendering, photorealism, cinematic depth of field, cyberpunk, neon AI motifs, humanoid anatomy with animal heads, mascot posing, and empty decorative backgrounds.
 
 ---
 
@@ -565,13 +543,12 @@ no giant mascot portrait, no characters merely posing for the viewer
 
 ---
 
-## 17. Example: rainy Raccoon World key art
+## 17. World-specific key art
 
-A strong prompt would describe:
-
-> An elevated isometric-like view of a cozy Green Lake Seattle backyard during a steady afternoon rain. Stevie, an adult raccoon, is investigating a tipped trash container near the fence while muddy pawprints show the route she already took. Gracie guides two kits across stepping stones toward the covered porch; one kit is distracted by a shiny spoon watched closely by a crow on the gutter. A squirrel under a tiny awning repairs the wheel of a vegetable cart. Water overflows from a gutter into a growing puddle. A rabbit carries a basket of greens toward a small neighborhood stall. The cedar and garden are lush and wet, warm porch lights contrast with cool slate-blue rain, and several signs and practical objects suggest the neighborhood has been active all day. Every character is occupied with a specific task. Dense visual storytelling but clean readable silhouettes. Original hand-drawn busy animal-town storybook art with organic ink outlines, matte watercolor/gouache fills, subtle paper texture, cozy Pacific Northwest colors. No humans, no robots, no cyberpunk, no futuristic AI symbols, no photorealism, no glossy 3D.
-
-This is preferable to simply asking for “cute raccoons in a rainy yard” because it encodes the Clockgrove thesis: many actors, state, causality, history, and inspectable activity.
+World-specific character prompts and key-art examples belong with their world. See the
+[reference world's style guide](https://github.com/clockgrove/raccoon-world/blob/main/docs/design/raccoon-world-ui.md)
+for its own setting, cast and scene examples. Platform prompts should describe activity, state,
+causality and history using the general recipe above.
 
 ---
 

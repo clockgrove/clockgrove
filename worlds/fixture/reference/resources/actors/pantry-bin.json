@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.food-source-kind","version":1},"capabilities":[],"id":"fixture.pantry-bin","overrides":[],"placement":{"coordinates":[{"$bigint":"38000"},{"$bigint":"28000"}],"space":{"id":"fixture.neighborhood","version":1}},"traits":[]}

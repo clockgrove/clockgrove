@@ -1,6 +1,6 @@
-# Living-yard observation
+# World observation
 
-The living-yard observation vocabulary is version 1, independently versioned from the legacy
+The world observation vocabulary is version 1, independently versioned from the legacy
 `ProjectionMessage` diagnostic socket protocol. `ObservationRequest` contains exactly `version`
 and `BrowserScope` (`tenantId`, `worldId`, `timelineId`, `spaceId`). Authentication and scoped
 `runtime:world-observe` authorization are resolved by the runtime. A read grants no command authority.
@@ -64,7 +64,7 @@ or label. Each response is logged once as `scene_observation_answered`.
 ## World readiness
 
 `POST /v1/runtime/world-readiness` tells a browser whether a world it may observe is ready, still
-provisioning, or failed provisioning, so arrival can say so instead of showing an empty yard. The
+provisioning, or failed provisioning, so arrival can say so instead of showing an empty scene. The
 body is the version-1 `ObservationRequest`. The Worker authenticates first, as for the directory,
 then decodes the body.
 
@@ -156,7 +156,7 @@ outside the caller's privacy ceiling are absent from that window and never appea
 
 ## Authorized scene stream
 
-The default living-yard observer uses one WebSocket at `/v1/projection`, with exactly the four
+The default world observer uses one WebSocket at `/v1/projection`, with exactly the four
 scope IDs as URL query parameters. The credential is carried in the dedicated
 `clockgrove.bearer.` WebSocket subprotocol alongside `clockgrove.scene.v1`; it is never a URL
 parameter or cookie session. Every upgrade verifies the provider session and scoped
@@ -167,7 +167,7 @@ unavailable on this public stream and rejected by `decodeObserverSceneMessage`.
 
 The observer decodes the public successor `SceneProjection` and `ScenePatch` vocabulary through
 the observer codecs. It preserves lossless revisions, scope, audience and compatibility. Applied
-scene fields retain the renderer-neutral `LivingScene` meaning above for Phaser and semantic text.
+scene fields retain the renderer-neutral `LivingScene` meaning above for the renderer and semantic text.
 Duplicate or stale state is ignored. A patch must start at the last applied revision; gaps request
 recovery instead of changing the scene. Only compatible successfully applied revisions are
 acknowledged, bound to the current connection version. Resume declares the last applied revision
@@ -185,22 +185,22 @@ resumes version their acknowledgments; buffered endpoints from an older version 
 as newly delivered. Transport loss retains `SCENE_RECONNECT` jittered backoff and serialized retirement,
 with degraded, connecting and ready statuses. Authorization refusal exposes unavailable with an
 authorization explanation and clears authorized projection, entity and Why reads. Incompatibility
-clears the projection and permits explicit retry through **Observe yard**.
+clears the projection and permits explicit retry through **Retry observation**.
 
-`YardSession` coordinates observation across credential replacement, scope changes, sign-out, authorization
+`SceneSession` coordinates observation across credential replacement, scope changes, sign-out, authorization
 loss and reconnect. It retires the old socket before activating a successor, including handoff to
 another authorized SpaceDO. Obsolete session and connection callbacks cannot install a scene,
 clear newer selection or Why, reconnect, or close the current socket. A refusal, incompatibility
 or unrecoverable lag removes the live scene; authorization loss clears dependent selection and Why.
 Entity and Why reads remain separate HTTP operations. `/v1/runtime/scene` remains a supported HTTP
 snapshot endpoint. The explicit diagnostic entrypoint retains its legacy wire codecs and no-op
-operation and does not open a second scene connection beside living-yard observation.
+operation and does not open a second scene connection beside world observation.
 
 ## Browser ownership and retirement
 
 TanStack Query owns the browser's replaceable server-state data and query status. The projection
 reducer determines the committed authorized projection; its output is published to the
-`living-yard` projection query and consumed from that cache by React. `YardSession` retains
+`living-scene` projection query and consumed from that cache by React. `SceneSession` retains
 transport handles, credentials and transient intent identities, with no independent projection,
 entity, Why, loading or failure fields. Entity selection and recorded Why are queries, including
 their pending, success and error states. Compatibility snapshot methods derive their values from
@@ -219,18 +219,18 @@ Cancelled queries cannot publish late completions; lifetime and intent checks pr
 or transport cleanup from retiring a successor. Recorded receipt evidence is not recomputed.
 
 React + Vite owns routing, authentication, HUD, panels, chat placeholder, event feed, inspector,
-accessibility, errors, and responsive layout. Phaser owns canvas rendering, camera, depth order,
+accessibility, errors, and responsive layout. Three.js owns canvas rendering, camera, depth order,
 picking, movement interpolation, animations, particles, weather, highlights, and local visual
-effects. `WorldSceneAdapter` remains the only React/Phaser bridge and consumes renderer-neutral
+effects. `WorldSceneAdapter` remains the only React/renderer bridge and consumes renderer-neutral
 semantic scene data. Zustand owns transient cross-panel selection and view state through
-`useYardView` and `useWhyView`; neither store contains server responses, query status or credentials.
+`useSceneView` and `useWhyView`; neither store contains server responses, query status or credentials.
 
 The renderer-neutral `scenePresentations` adapter resolves committed presentation bindings by
 semantic object ID into placeholder and material resource, animation and accessibility-label choices.
 The headless 3D fixture uses those choices to construct frame-local scene nodes; its journey asserts
 nonempty binding-derived material output alongside exact object IDs, 3D frames, revisions and intents.
 
-The local Chromium journey exercises native runtime/PostgreSQL committed delivery, Phaser and
+The local Chromium journey exercises native runtime/PostgreSQL committed delivery, the renderer and
 semantic output, and interruption recovery. It does not establish hosted Cloudflare hibernation,
 restart or deployment qualification. Full qualification remains pending under issue 853 and issue 693;
 pilot evaluation remains deferred to issue 817. The predeclared pilot remains unevaluated and permits

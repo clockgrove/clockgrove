@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { decodeCanonicalBytes } from "../src/canonical-decode.js";
 import { isRecord } from "../src/scenario/support.js";
 import { type BundleDifference, bytesEqual, describeDifference } from "./difference.js";
@@ -32,13 +32,17 @@ export type Resolution =
  */
 export async function resolveScenario(packRoot: string, name: string): Promise<Resolution> {
   const found: ScenarioLocation[] = [];
-  for (const entry of await directoryEntries(packRoot)) {
-    if (!entry.isDirectory()) continue;
-    const directory = join(packRoot, entry.name);
-    const scenarios = await directoryEntries(join(directory, "scenarios"));
-    if (scenarios.some((file) => file.isFile() && file.name === `${name}.json`))
-      found.push({ pack: entry.name, directory });
+  async function visit(root: string): Promise<void> {
+    for (const entry of await directoryEntries(root)) {
+      if (!entry.isDirectory()) continue;
+      const directory = join(root, entry.name);
+      const scenarios = await directoryEntries(join(directory, "scenarios"));
+      if (scenarios.some((file) => file.isFile() && file.name === `${name}.json`))
+        found.push({ pack: relative(packRoot, directory), directory });
+      await visit(directory);
+    }
   }
+  await visit(packRoot);
   const [only] = found;
   if (found.length === 1 && only !== undefined) return { ok: true, location: only };
   return {

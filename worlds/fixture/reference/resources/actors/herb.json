@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.herb-kind","version":1},"capabilities":[],"id":"fixture.herb","overrides":[],"placement":{"coordinates":[{"$bigint":"23000"},{"$bigint":"8000"}],"space":{"id":"fixture.neighborhood","version":1}},"traits":[]}

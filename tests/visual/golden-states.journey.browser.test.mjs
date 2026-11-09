@@ -64,14 +64,14 @@ const captureGoldenStates = async (backend) => {
     const previous = process.env.CLOCKGROVE_RENDERER_PROOF;
     process.env.CLOCKGROVE_RENDERER_PROOF = backend;
     try {
-      await runNativeWorldOwnerProcess(FILE, "raccoons", {
+      await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
         vitestConfig: "tests/ci/vitest.browser.config.ts",
         timeoutMs: 210_000,
         inheritOutput: true,
         prepare: (fixture) =>
           truthOf(fixture)(
             `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-inspect','runtime:world-command'] WHERE principal_id='principal-runtime';
-          UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
+          UPDATE clockgrove_auth.session SET token='hall-inspect' WHERE token='local-reader-session'`,
           ),
       });
     } finally {
@@ -96,10 +96,10 @@ const captureGoldenStates = async (backend) => {
       );
     const scene = async () =>
       decodeLivingScene(
-        (await native.request("/v1/runtime/scene", { version: 1, ...scope }, "yard-inspect")).body,
+        (await native.request("/v1/runtime/scene", { version: 1, ...scope }, "hall-inspect")).body,
       );
     const commit = async (command) => {
-      const { status, body } = await native.submit(command, {}, "yard-inspect");
+      const { status, body } = await native.submit(command, {}, "hall-inspect");
       expect(status, JSON.stringify(body)).toBe(200);
     };
     const advanceTo = async (key, hour, minute = 0n) => {
@@ -120,7 +120,7 @@ const captureGoldenStates = async (backend) => {
         : path.join(process.env.CLOCKGROVE_WAVE4_EVIDENCE, "visual");
     const out = backend === "webgpu" ? evidenceRoot : path.join(evidenceRoot, "webgl2");
     await mkdir(out, { recursive: true });
-    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
+    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
@@ -135,12 +135,12 @@ const captureGoldenStates = async (backend) => {
           transform(code, id) {
             if (id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts"))
               return {
-                code: `${backend === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}\nconst load = ThreeWorldSceneAdapter.prototype.loadSnapshot;\nThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.yardAdapter = this; return load.apply(this, args); };`,
+                code: `${backend === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}\nconst load = ThreeWorldSceneAdapter.prototype.loadSnapshot;\nThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.hallAdapter = this; return load.apply(this, args); };`,
                 map: null,
               };
             if (id.split("?")[0] === path.join(root, "apps/web/src/measurements.ts"))
               return {
-                code: `${code}\nglobalThis.yardMeasurements = clientMeasurements;`,
+                code: `${code}\nglobalThis.hallMeasurements = clientMeasurements;`,
                 map: null,
               };
           },
@@ -164,7 +164,7 @@ const captureGoldenStates = async (backend) => {
             constructor(...args) {
               super(...args);
               if (new URL(this.url).pathname === "/v1/projection")
-                globalThis.yardSceneSocket = this;
+                globalThis.hallSceneSocket = this;
             }
           };
         });
@@ -177,11 +177,11 @@ const captureGoldenStates = async (backend) => {
         // §16 asset 404: the reviewed atlas is missing behind a loaded renderer.
         if (missingAtlas)
           await page.route(
-            (url) => url.pathname === "/raccoon-world.png",
+            (url) => url.pathname === "/fixture-world.png",
             (route) => route.fulfill({ status: 404 }),
           );
         await page.goto(`http://127.0.0.1:${port}/`);
-        await page.getByLabel("Local session credential").fill("yard-inspect");
+        await page.getByLabel("Local session credential").fill("hall-inspect");
         await page.getByRole("button", { name: "Sign in", exact: true }).click();
         await page
           .getByLabel("World", { exact: true })
@@ -194,7 +194,7 @@ const captureGoldenStates = async (backend) => {
           )
           .waitFor();
         if (!text && !missingAtlas)
-          expect(await page.evaluate(() => globalThis.yardAdapter.tier)).toBe("low");
+          expect(await page.evaluate(() => globalThis.hallAdapter.tier)).toBe("low");
         // Web Vitals the arrival produced (§19): paint, layout shift and first byte, from the page's
         // own buffered performance entries.
         vitals.push({
@@ -283,7 +283,7 @@ const captureGoldenStates = async (backend) => {
             await living(page)
               .getByText(`Canonical revision: ${committed.revision}`, { exact: true })
               .waitFor();
-            await page.evaluate((quality) => globalThis.yardAdapter.setQuality(quality), tier);
+            await page.evaluate((quality) => globalThis.hallAdapter.setQuality(quality), tier);
             return living(page);
           });
           for (const page of pages) {
@@ -292,7 +292,7 @@ const captureGoldenStates = async (backend) => {
             const canvasPixels = async () =>
               Buffer.from(
                 await page.evaluate(() => {
-                  const adapter = globalThis.yardAdapter;
+                  const adapter = globalThis.hallAdapter;
                   if (adapter.composer) adapter.composer.render();
                   else adapter.renderer.render(adapter.scene, adapter.camera);
                   return adapter.renderer.domElement.toDataURL("image/png").split(",")[1];
@@ -328,7 +328,7 @@ const captureGoldenStates = async (backend) => {
                 if (r >= 250 && g >= 250 && b >= 250) clipped += 1;
                 luminance += 0.2126 * r + 0.7152 * g + 0.0722 * b;
               }
-              const adapter = globalThis.yardAdapter;
+              const adapter = globalThis.hallAdapter;
               const sources = adapter.effects
                 .filter(({ role, sprite }) => role !== "puddle" && sprite.visible)
                 .map(({ role, key, sprite }) => {
@@ -496,11 +496,11 @@ const captureGoldenStates = async (backend) => {
           `${night.tier}: night darkens the committed dusk projection`,
         ).toBeLessThan(dusk.meanLuminance);
       }
-      for (const page of pages) await page.evaluate(() => globalThis.yardAdapter.setQuality("low"));
+      for (const page of pages) await page.evaluate(() => globalThis.hallAdapter.setQuality("low"));
 
-      // green-lake-yard has no cognitive actor before Wave 5: Stevie, an actor, discloses reactive.
+      // fixture-hall has no cognitive actor before Wave 5: Keeper, an actor, discloses reactive.
       await each("selected-actor-rail", async (page) => {
-        await living(page).getByRole("button", { name: "grove.stevie", exact: true }).click();
+        await living(page).getByRole("button", { name: "fixture.keeper", exact: true }).click();
         await openRail(page);
         await expect.poll(() => rail(page).innerText()).toContain("Deterministic/reactive object");
         await selected(page)
@@ -523,7 +523,7 @@ const captureGoldenStates = async (backend) => {
         // The DOM click reaches the control wherever the narrow layout scrolled it.
         await page.getByRole("button", { name: "Close Why" }).evaluate((button) => button.click());
         await living(page)
-          .getByRole("button", { name: "grove.den", exact: true })
+          .getByRole("button", { name: "fixture.den", exact: true })
           .evaluate((button) => button.click());
         await openRail(page);
         await expect.poll(() => rail(page).innerText()).toContain("Inspection from world evidence");
@@ -535,14 +535,14 @@ const captureGoldenStates = async (backend) => {
         // Every new scene socket is refused, then the live one drops: the shell keeps the committed
         // scene and says it is recovering.
         await page.routeWebSocket(/\/v1\/projection/u, (socket) => socket.close());
-        await page.evaluate(() => globalThis.yardSceneSocket.close());
+        await page.evaluate(() => globalThis.hallSceneSocket.close());
         await page.getByText("Observation: degraded. Recovering committed scene.").waitFor();
       });
       // A principal holds at most four scene sockets (SCENE_SOCKET_BOUNDS.perPrincipal), so each
       // canvas viewer hands in its measurements and closes before the text viewers open.
       const points = [];
       for (const page of pages.splice(0)) {
-        points.push(...(await page.evaluate(() => globalThis.yardMeasurements.points())));
+        points.push(...(await page.evaluate(() => globalThis.hallMeasurements.points())));
         await page.close();
       }
       // The missing atlas ends in the text scene with assets named, and the client reports the failure.
@@ -550,7 +550,7 @@ const captureGoldenStates = async (backend) => {
       await missing
         .getByText(/^Arrival: text scene ready at revision \d+; assets unavailable\.$/u)
         .waitFor();
-      const failed = await missing.evaluate(() => globalThis.yardMeasurements.points());
+      const failed = await missing.evaluate(() => globalThis.hallMeasurements.points());
       expect(
         ["asset_cache:failed", "client_errors:asset"].map((key) =>
           failed.some(({ name, category }) => `${name}:${category}` === key),
@@ -563,7 +563,7 @@ const captureGoldenStates = async (backend) => {
         await capture("text-access", page, async () => {
           expect(await page.locator("canvas").count()).toBe(0);
         });
-        points.push(...(await page.evaluate(() => globalThis.yardMeasurements.points())));
+        points.push(...(await page.evaluate(() => globalThis.hallMeasurements.points())));
         await page.close();
       }
       expect(captures.map(({ state, viewport }) => `${state}@${viewport.width}`)).toEqual(
@@ -608,9 +608,9 @@ const captureGoldenStates = async (backend) => {
       const serialized = JSON.stringify(points);
       for (const hidden of [
         "principal-runtime",
-        "yard-inspect",
-        "grove.stevie",
-        "Stevie",
+        "hall-inspect",
+        "fixture.keeper",
+        "Keeper",
         "scripted:",
       ])
         expect(serialized.includes(hidden), hidden).toBe(false);

@@ -10,7 +10,7 @@ This policy points at the plans that build each disclosure. It does not change t
 
 Assets made with AI before shipping: sprites, art, audio, text.
 
-- **World pack.** A pack discloses its AI-made assets in its asset provenance and license report. For Raccoon World that is [`assets/license-report.md`](../../assets/license-report.md), generated from each asset's manifest (creator, tool, source, review).
+- **World pack.** A pack discloses its AI-made assets in its asset provenance and license report. For Raccoon World that is [`assets/license-report.md`](https://github.com/clockgrove/raccoon-world/blob/main/assets/license-report.md), generated from each asset's manifest (creator, tool, source, review).
 - **Per asset.** Each asset records how it was made as an [IPTC Digital Source Type](https://cv.iptc.org/newscodes/digitalsourcetype/) (`trainedAlgorithmicMedia`, `compositeWithTrainedAlgorithmicMedia` or `digitalCreation`), in its provenance record and embedded in the file's XMP, so any tool or store can read it. Assetforge writes it ([clockgrove/assetforge#29](https://github.com/clockgrove/assetforge/issues/29)).
 - **Review.** AI-made assets go through the same human review as any other asset: a named reviewer approves each one before it ships ([asset pipeline](../../packages/assets/docs/pipeline.md#steps)). Assetforge never approves an asset.
 - **Requirement.** The PRD requires provenance on every asset ([PRD §6.4](../clockgrove-prd-v0.5.md#64-asset-pipeline)).

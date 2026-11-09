@@ -17,8 +17,8 @@ let initial = 0;
 for (const name of chunks)
   initial += gzipSync(await readFile(path.join(built, name)), { level: 9 }).length;
 let assets = 0;
-for (const name of await readdir(path.join(root, "assets/reviewed")))
-  assets += (await readFile(path.join(root, "assets/reviewed", name))).length;
+for (const name of await readdir(path.join(root, "worlds/fixture/assets/reviewed")))
+  assets += (await readFile(path.join(root, "worlds/fixture/assets/reviewed", name))).length;
 const measured = { initialJsGzipBytes: initial, assetBytes: assets };
 const over = Object.entries(measured).filter(([name, value]) => value > budgets[name].limit);
 if (over.length)

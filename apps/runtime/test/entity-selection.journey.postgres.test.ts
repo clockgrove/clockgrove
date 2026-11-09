@@ -15,7 +15,7 @@ import {
 } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { PostgreSqlCommandOwner } from "../src/world-commands.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -29,9 +29,9 @@ import {
 it("observes canonical entity state and earned values without writes, pages recorded public actions and isolates superseded selection lifetimes", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-selection");
-    const auth = livingYardAuthentication(provisioned);
+    const auth = livingHallAuthentication(provisioned);
     const sql = truthOf(fixture);
     await withClient(fixture.environment, async (client) => {
       const owner = new PostgreSqlCommandOwner(client);
@@ -46,7 +46,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           select: (input, context) => selectedReader.select(input, context, 100n),
         },
       });
-      const request = (objectId: string, extra = {}, credential = "yard-inspect") =>
+      const request = (objectId: string, extra = {}, credential = "hall-inspect") =>
         new Request("http://local.test/v1/runtime/entity", {
           method: "POST",
           headers: {
@@ -58,7 +58,7 @@ it("observes canonical entity state and earned values without writes, pages reco
       const state =
         "SELECT jsonb_build_object('state',(SELECT jsonb_agg(to_jsonb(s)) FROM clockgrove.partition_states s),'receipts',(SELECT jsonb_agg(to_jsonb(r)) FROM clockgrove.command_receipts r),'schedules',(SELECT jsonb_agg(to_jsonb(q) ORDER BY schedule_id,idempotency_key) FROM clockgrove.partition_schedules q))::text";
       const before = await sql(state);
-      const pausedResponse = await worker.fetch(request("grove.gracie"));
+      const pausedResponse = await worker.fetch(request("fixture.companion"));
       expect(pausedResponse.status).toBe(200);
       const paused = decodeEntitySelection(await pausedResponse.json());
       expect([
@@ -67,7 +67,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         paused.simulationTime,
         paused.derived.simulationTime,
         paused.derived.canonical,
-      ]).toEqual(["grove.gracie", "0", "8640000000", "8640000000", false]);
+      ]).toEqual(["fixture.companion", "0", "8640000000", "8640000000", false]);
       expect(paused.physical.needs).toEqual({
         hunger: 3000,
         wetness: 0,
@@ -83,8 +83,10 @@ it("observes canonical entity state and earned values without writes, pages reco
         thirstRemainder: "0",
         healthRemainder: "0",
       });
-      const born = world.birth.state.entities.find((entity) => entity.objectId === "grove.gracie");
-      if (born === undefined) throw new Error("fixture requires Gracie");
+      const born = world.birth.state.entities.find(
+        (entity) => entity.objectId === "fixture.companion",
+      );
+      if (born === undefined) throw new Error("fixture requires Companion");
       expect(paused.entity).toEqual({
         objectId: born.objectId,
         archetypeId: born.archetypeId,
@@ -93,7 +95,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           frameVersion: born.pose.frameVersion,
           coordinates: born.pose.coordinates.map(String),
         },
-        presentation: { kind: "placeholder", label: "grove.gracie" },
+        presentation: { kind: "placeholder", label: "fixture.companion" },
       });
       expect([
         paused.physical.resource,
@@ -132,7 +134,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         ).outcome,
       ).toBe("committed");
       const runningBefore = await sql(state);
-      const earnedResponse = await worker.fetch(request("grove.gracie"));
+      const earnedResponse = await worker.fetch(request("fixture.companion"));
       const earned = decodeEntitySelection(await earnedResponse.json());
       expect(earned.derived).toEqual({
         canonical: false,
@@ -154,7 +156,7 @@ it("observes canonical entity state and earned values without writes, pages reco
       });
       expect(earned.physical).toEqual(paused.physical);
       const plant = decodeEntitySelection(
-        await (await worker.fetch(request("grove.cedar"))).json(),
+        await (await worker.fetch(request("fixture.cedar"))).json(),
       );
       expect(plant.physical.plant).toEqual({
         stage: 0,
@@ -165,7 +167,7 @@ it("observes canonical entity state and earned values without writes, pages reco
       });
       expect(plant.derived.plant).toEqual({ growingMs: "0", wetness: 0, wetnessRemainder: "0" });
       expect([plant.derived.needs, plant.derived.wellbeing]).toEqual([null, null]);
-      await worker.fetch(request("grove.gracie"));
+      await worker.fetch(request("fixture.companion"));
       expect(await sql(state)).toBe(runningBefore);
       const unknown = await worker.fetch(request("unknown"));
       expect([unknown.status, await unknown.json()]).toEqual([
@@ -184,7 +186,7 @@ it("observes canonical entity state and earned values without writes, pages reco
               state: {
                 ...inspected.document.state,
                 entities: inspected.document.state.entities.map((entity) =>
-                  entity.objectId === "grove.gracie"
+                  entity.objectId === "fixture.companion"
                     ? { ...entity, spaceId: decodeOpaqueId("space-not-projected", "SpaceId") }
                     : entity,
                 ),
@@ -193,7 +195,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           };
         });
       try {
-        const hidden = await worker.fetch(request("grove.gracie"));
+        const hidden = await worker.fetch(request("fixture.companion"));
         expect([hidden.status, await hidden.json()]).toEqual([
           409,
           { error: "selection_unavailable" },
@@ -201,12 +203,14 @@ it("observes canonical entity state and earned values without writes, pages reco
       } finally {
         unprojectable.mockRestore();
       }
-      const foreign = await worker.fetch(request("grove.gracie", { spaceId: "foreign-space" }));
+      const foreign = await worker.fetch(
+        request("fixture.companion", { spaceId: "foreign-space" }),
+      );
       expect([foreign.status, await foreign.json()]).toEqual([
         403,
         { error: "authorization_refused" },
       ]);
-      const anonymous = await worker.fetch(request("grove.gracie", {}, "invalid"));
+      const anonymous = await worker.fetch(request("fixture.companion", {}, "invalid"));
       expect([anonymous.status, await anonymous.json()]).toEqual([
         401,
         { error: "authentication_refused" },
@@ -226,7 +230,7 @@ it("observes canonical entity state and earned values without writes, pages reco
       ).toBe("committed");
       const rainyBefore = await sql(state);
       const rainyPlant = decodeEntitySelection(
-        await (await worker.fetch(request("grove.cedar"))).json(),
+        await (await worker.fetch(request("fixture.cedar"))).json(),
       );
       expect(rainyPlant.derived.plant).toEqual({
         growingMs: "0",
@@ -241,7 +245,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         const command = {
           ...advanceCommand(world, `selection-${index}`, 0n, current.document.state.revision),
           type: index % 2 === 0 ? "resource.offer" : "resource.consume",
-          payload: { schemaVersion: 1, objectId: "grove.snack-dish", kind: "food", quantity: 1 },
+          payload: { schemaVersion: 1, objectId: "fixture.snack-dish", kind: "food", quantity: 1 },
         };
         const result = await executeWorldCommand(commandRequest(provisioned, command), {
           journal: new PostgreSqlWorldCommandJournal(client),
@@ -250,7 +254,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         expect(result.outcome).toBe("committed");
       }
       const recent = decodeEntitySelection(
-        await (await worker.fetch(request("grove.snack-dish"))).json(),
+        await (await worker.fetch(request("fixture.snack-dish"))).json(),
       );
       expect(recent.physical.resource).toEqual({ kind: "food", quantity: 0 });
       expect(
@@ -292,7 +296,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         ]),
       );
       const earlierResponse = await worker.fetch(
-        request("grove.snack-dish", {
+        request("fixture.snack-dish", {
           cursor: {
             observedRevision: recent.revision,
             beforeSequence: recent.history.beforeSequence,
@@ -313,7 +317,12 @@ it("observes canonical entity state and earned values without writes, pages reco
           const newer = {
             ...advanceCommand(world, "selection-newer", 0n, current.document.state.revision),
             type: "resource.offer",
-            payload: { schemaVersion: 1, objectId: "grove.snack-dish", kind: "food", quantity: 1 },
+            payload: {
+              schemaVersion: 1,
+              objectId: "fixture.snack-dish",
+              kind: "food",
+              quantity: 1,
+            },
           };
           expect(
             (
@@ -327,7 +336,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         });
       try {
         const frozen = decodeEntitySelection(
-          await (await worker.fetch(request("grove.snack-dish"))).json(),
+          await (await worker.fetch(request("fixture.snack-dish"))).json(),
         );
         expect(frozen.history).toEqual(recent.history);
         expect(frozen.revision).toBe(recent.revision);
@@ -335,7 +344,7 @@ it("observes canonical entity state and earned values without writes, pages reco
         appendDuringRead.mockRestore();
       }
       const stale = await worker.fetch(
-        request("grove.snack-dish", {
+        request("fixture.snack-dish", {
           cursor: {
             observedRevision: recent.revision,
             beforeSequence: recent.history.beforeSequence,
@@ -344,12 +353,12 @@ it("observes canonical entity state and earned values without writes, pages reco
       );
       expect([stale.status, await stale.json()]).toEqual([409, { error: "selection_unavailable" }]);
       auth.revoke();
-      const denied = await worker.fetch(request("grove.snack-dish"));
+      const denied = await worker.fetch(request("fixture.snack-dish"));
       expect([denied.status, await denied.json()]).toEqual([
         403,
         { error: "authorization_refused" },
       ]);
-      const sceneAuth = livingYardAuthentication(provisioned);
+      const sceneAuth = livingHallAuthentication(provisioned);
       const sceneWorker = new RuntimeWorker(sceneAuth.authenticator, {
         getSpace: () => {
           throw new Error("read only");
@@ -362,7 +371,7 @@ it("observes canonical entity state and earned values without writes, pages reco
             new Request("http://local.test/v1/runtime/scene", {
               method: "POST",
               headers: {
-                authorization: "Bearer yard-inspect",
+                authorization: "Bearer hall-inspect",
                 "content-type": "application/json",
               },
               body: JSON.stringify({ version: 1, ...auth.scope }),
@@ -384,10 +393,10 @@ it("observes canonical entity state and earned values without writes, pages reco
       vi.stubGlobal("fetch", transport);
       const fixture = sceneSession();
       const { session, sockets } = fixture;
-      const gracie = decodeOpaqueId("grove.gracie", "ObjectId");
-      const snack = decodeOpaqueId("grove.snack-dish", "ObjectId");
+      const companion = decodeOpaqueId("fixture.companion", "ObjectId");
+      const snack = decodeOpaqueId("fixture.snack-dish", "ObjectId");
       try {
-        session.replace("yard-inspect", auth.scope);
+        session.replace("hall-inspect", auth.scope);
         await fixture.deliver(scene);
         const adapter = new Headless3DAdapter();
         const committed = session.getSnapshot().projection;
@@ -401,15 +410,15 @@ it("observes canonical entity state and earned values without writes, pages reco
             presentation,
           })),
         ).toEqual(scene.entities.map(({ objectId, presentation }) => ({ objectId, presentation })));
-        expect(adapter.nodes.get(gracie)).toEqual({
-          objectId: "grove.gracie",
+        expect(adapter.nodes.get(companion)).toEqual({
+          objectId: "fixture.companion",
           group: "frame-grove@1",
           position: [8, 22, 0],
-          presentation: { kind: "placeholder", label: "grove.gracie" },
+          presentation: { kind: "placeholder", label: "fixture.companion" },
         });
-        adapter.pick(gracie);
+        adapter.pick(companion);
         expect(session.getSelectionSnapshot()).toEqual({
-          objectId: gracie,
+          objectId: companion,
           status: "loading",
           value: undefined,
         });
@@ -421,11 +430,11 @@ it("observes canonical entity state and earned values without writes, pages reco
         pending[0]?.reject(new Error("obsolete selection failure"));
         await vi.advanceTimersByTimeAsync(0);
         expect(session.getSelectionSnapshot()).toEqual(selected);
-        session.select(gracie);
+        session.select(companion);
         pending[2]?.resolve(Response.json(earned));
         await vi.advanceTimersByTimeAsync(0);
         expect(session.getSelectionSnapshot()).toEqual({
-          objectId: gracie,
+          objectId: companion,
           status: "ready",
           value: earned,
         });
@@ -441,11 +450,11 @@ it("observes canonical entity state and earned values without writes, pages reco
         pending[4]?.resolve(Response.json(recent));
         await vi.advanceTimersByTimeAsync(0);
         expect(session.getSelectionSnapshot()).toEqual(selected);
-        session.select(gracie);
+        session.select(companion);
         sockets[0]?.receive({
           ...scene,
           revision: (BigInt(scene.revision) + 1n).toString(),
-          entities: scene.entities.filter((entity) => entity.objectId !== gracie),
+          entities: scene.entities.filter((entity) => entity.objectId !== companion),
         });
         await vi.advanceTimersByTimeAsync(0);
         expect(session.getSelectionSnapshot()).toEqual({
@@ -486,7 +495,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           status: "none",
           value: undefined,
         });
-        session.replace("yard-inspect", auth.scope);
+        session.replace("hall-inspect", auth.scope);
         await fixture.deliver(scene);
         session.select(snack);
         pending[8]?.reject(new Error("current selection failed"));
@@ -525,11 +534,11 @@ it("observes canonical entity state and earned values without writes, pages reco
         });
         session.earlierActions();
         expect(transport.mock.calls.length).toBe(11);
-        session.select(gracie);
+        session.select(companion);
         pending[11]?.resolve(Response.json(earned));
         await vi.advanceTimersByTimeAsync(0);
         expect(session.getSelectionSnapshot()).toEqual({
-          objectId: gracie,
+          objectId: companion,
           status: "ready",
           value: earned,
         });

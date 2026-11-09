@@ -6,7 +6,7 @@ import {
 } from "./world-owner/native-harness.js";
 import { nativeScenarioParity, reportNativeParity } from "./world-owner/native-parity.js";
 
-// The per-PR native-owner parity subset: one raccoons scenario per command path, in one bounded
+// The per-PR native-owner parity subset: one residents scenario per command path, in one bounded
 // native process. Every scenario, variant and the continuation-heavy 30-day runs are in
 // native-parity.long-run.test.ts (pnpm test:long-run); the owner's continuation RPC is also
 // exercised per PR by world-owner.postgres.test.ts.
@@ -21,7 +21,7 @@ describe("Wave 1 scenarios through the native owner match the pure simulator", (
     async () => {
       await runNativeWorldOwnerProcess(
         "apps/runtime/test/native-parity.postgres.test.ts",
-        "raccoons",
+        "fixture/reference",
       );
     },
     210_000,
@@ -44,7 +44,7 @@ describe("Wave 1 scenarios through the native owner match the pure simulator", (
         if (first === undefined) throw new Error("no native run");
         const wrong = "0".repeat(64);
         expect(reportNativeParity([{ ...first, expected: wrong }])).toEqual([
-          `raccoons/birth-and-parentage:main actual ${first.actual} != expected ${wrong}`,
+          `fixture/reference/birth-and-parentage:main actual ${first.actual} != expected ${wrong}`,
         ]);
       });
     },

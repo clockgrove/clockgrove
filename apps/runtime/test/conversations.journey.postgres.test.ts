@@ -21,7 +21,7 @@ const OTHER_MEMBER = "outsider-session-token";
 it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       // Both members observe the world with the conversation category and their own persona.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
@@ -45,14 +45,15 @@ it.skipIf(isNativeWorldOwnerChild())(
 );
 
 it.skipIf(!isNativeWorldOwnerChild())(
-  "keeps two private Stevie sessions separate across browser restart and owner eviction",
+  "keeps two private Keeper sessions separate across browser restart and owner eviction",
   async () => {
     await withNativeWorldOwner(async (owner) => {
       const post = async (path: string, fields: object, credential = MEMBER) =>
         owner.request(path, { version: 1, ...owner.scope, ...fields }, credential);
       const create = async (title: string) =>
         decodeConversationSession(
-          (await post("/v1/runtime/conversations/create", { actorId: "grove.stevie", title })).body,
+          (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper", title }))
+            .body,
         );
       const talk = async (sessionId: string, messageId: string, text: string) => {
         const answer = await post("/v1/runtime/talk", { sessionId, messageId, text });
@@ -78,12 +79,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(rain.participants).toEqual([
         { principalId: "principal-runtime", personaId: "persona-runtime" },
       ]);
-      const first = await talk(rain.sessionId, "rain-1", "Stay dry under the porch, Stevie.");
+      const first = await talk(rain.sessionId, "rain-1", "Stay dry under the porch, Keeper.");
       await talk(snacks.sessionId, "snacks-1", "The compost bin has apple cores.");
       const second = await talk(rain.sessionId, "rain-2", "The storm passes by evening.");
       expect([first.message.authorId, first.message.voiceMode]).toEqual(["persona-runtime", null]);
       expect([first.reply.authorId, first.reply.voiceMode, first.reply.text]).toEqual([
-        "grove.stevie",
+        "fixture.keeper",
         "cognitive",
         "Scripted fixture reply: you have said 1 thing to me in this conversation.",
       ]);
@@ -94,7 +95,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "Scripted fixture reply: you have said 2 things to me in this conversation.",
       );
       // An exact retry answers the stored message, reply and turn; other words are refused.
-      const retry = await talk(rain.sessionId, "rain-1", "Stay dry under the porch, Stevie.");
+      const retry = await talk(rain.sessionId, "rain-1", "Stay dry under the porch, Keeper.");
       expect([retry.message, retry.reply, retry.turn]).toEqual([
         first.message,
         first.reply,
@@ -113,9 +114,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
 
       // Public Say is a distinct command with its own receipt; it never enters a session.
       const say = await post("/v1/runtime/say", {
-        actorId: "grove.stevie",
+        actorId: "fixture.keeper",
         messageId: "say-1",
-        text: "Speak up, Stevie!",
+        text: "Speak up, Keeper!",
       });
       const spoken = decodeSayReceipt(say.body);
       expect([say.status, spoken.type, spoken.speech.text, spoken.attribution]).toEqual([
@@ -129,9 +130,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
       const scene = await post("/v1/runtime/scene", {});
       expect(scene.status).toBe(200);
       const journal = await owner.sql(
-        "SELECT count(*) FROM clockgrove.events WHERE payload::text LIKE '%porch, Stevie%' OR payload::text LIKE '%apple cores%'",
+        "SELECT count(*) FROM clockgrove.events WHERE payload::text LIKE '%porch, Keeper%' OR payload::text LIKE '%apple cores%'",
       );
-      expect([JSON.stringify(scene.body).includes("porch, Stevie"), journal.trim()]).toEqual([
+      expect([JSON.stringify(scene.body).includes("porch, Keeper"), journal.trim()]).toEqual([
         false,
         "0",
       ]);
@@ -172,7 +173,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ["Snack plans", 2],
       ]);
       expect(await lines(rain.sessionId)).toEqual([
-        [1, "caretaker", "Stay dry under the porch, Stevie."],
+        [1, "caretaker", "Stay dry under the porch, Keeper."],
         [2, "actor", "Scripted fixture reply: you have said 1 thing to me in this conversation."],
         [3, "caretaker", "The storm passes by evening."],
         [4, "actor", "Scripted fixture reply: you have said 2 things to me in this conversation."],

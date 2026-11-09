@@ -27,9 +27,9 @@ The technology should disappear behind a charming, bustling place full of small 
 
 Clockgrove lets people observe, converse with, understand, influence, and eventually author living worlds populated by durable actors.
 
-The first reference world is Raccoon World: a cozy Pacific Northwest neighborhood where raccoons, other animals, homes, gardens, trees, weather, food sources, paths, and places participate in an ongoing life.
-
-Clockgrove should always feel broader than one game or one species. Raccoon World proves the idea; Clockgrove is the world-making system underneath it.
+Clockgrove is the platform for independently authored worlds. Each world supplies its own
+inhabitants, setting and presentation. The [reference world's creative guidance](https://github.com/clockgrove/raccoon-world/blob/main/README.md)
+lives with that world; this document describes the platform brand.
 
 ---
 
@@ -57,7 +57,7 @@ The target feeling is:
 
 Clockgrove is never a static scene.
 
-Every image, demo, and description should suggest activity before, during, and after the depicted moment. Someone is carrying something. Someone is headed somewhere. Rain is filling a puddle. A cart is arriving. A squirrel is balancing a stack of parcels. A raccoon is peering into a bin. A bird is posting a notice. A fox shopkeeper is opening an awning.
+Every image, demo, and description should suggest activity before, during, and after the depicted moment. Someone is carrying something. Someone is headed somewhere. Rain is filling a puddle. A cart is arriving. A squirrel is balancing a stack of parcels. An inhabitant is peering into a bin. A bird is posting a notice. A fox shopkeeper is opening an awning.
 
 The image should imply **systems in motion**.
 
@@ -73,7 +73,7 @@ The world feels coherent because things are not merely decorative; they appear t
 
 Characters should have recognizable jobs, routines, relationships, preferences, and immediate intentions.
 
-A raccoon should not just stand smiling at the viewer. It should be dragging a grocery sack, checking a map, carrying kits across a puddle, inspecting a broken wheel, sneaking a snack, talking to a neighbor, or hurrying home before the rain gets worse.
+An inhabitant should not just stand smiling at the viewer. It should be dragging a grocery sack, checking a map, carrying kits across a puddle, inspecting a broken wheel, sneaking a snack, talking to a neighbor, or hurrying home before the rain gets worse.
 
 Clockgrove characters are **actors inside a world**, not brand mascots posing outside it.
 
@@ -127,30 +127,11 @@ The absence of robots prevents the visual world from collapsing into generic “
 
 ---
 
-## 6. Reference-world character language
+## 6. World character language
 
-Raccoon World centers on raccoons but should feel ecologically and socially broader.
-
-Suitable inhabitants include:
-
-- raccoons;
-- squirrels;
-- rabbits;
-- foxes;
-- crows and songbirds;
-- ducks;
-- otters;
-- possums;
-- mice and rats;
-- chipmunks;
-- frogs;
-- turtles;
-- neighborhood cats or dogs when contextually appropriate;
-- insects used as tiny environmental characters rather than humanoid mascots.
-
-Species may occupy familiar social roles without becoming rigid stereotypes. A crow may be a courier in one scene and an eccentric collector in another. A raccoon may be a parent, scavenger, gardener, shopkeeper, explorer, or neighborhood busybody.
-
-Avoid creating a species caste system where every animal always has the same profession or personality.
+Each world owns its character identities, species, relationships and visual language. Platform
+illustrations should show inhabitants with readable intentions without making one world’s cast
+part of the Clockgrove identity. World-specific guidance belongs in the world repository.
 
 ---
 
@@ -184,12 +165,12 @@ Clockgrove imagery should not merely show a cute town. It should suggest **state
 
 Good scenes contain multiple visible chains such as:
 
-- dark clouds → rain → puddles → umbrellas → wet raccoon footprints → sheltered food stall;
-- tipped trash bin → scattered snacks → investigating raccoon → annoyed crow → neighbor carrying a broom;
+- dark clouds → rain → puddles → umbrellas → wet footprints → sheltered food stall;
+- tipped trash bin → scattered snacks → investigating inhabitant → annoyed crow → neighbor carrying a broom;
 - fallen branch → blocked path → detour sign → cart taking another route;
 - growing vegetable patch → harvested basket → market stall → family dinner preparation;
 - missing wheel → broken cart → mechanic squirrel → delayed delivery;
-- mother raccoon → kits following → one distracted kit → sibling looking back;
+- parent → kits following → one distracted kit → sibling looking back;
 - porch feeder → regular visitors → empty bowl → caretaker note or refill activity.
 
 Each scene should imply that the world has a **before** and an **after**.
@@ -213,7 +194,7 @@ Prefer concrete language over AI jargon.
 ### Prefer
 
 - “The world keeps going while you're away.”
-- “Ask Stevie why she went to the porch.”
+- “Ask an inhabitant why they went to the porch.”
 - “See what changed overnight.”
 - “Every actor has a history.”
 - “Fork the world and see what happens.”
@@ -238,7 +219,7 @@ Preferred terms include:
 
 - world;
 - neighborhood;
-- yard;
+- place;
 - room;
 - actor;
 - inhabitant;

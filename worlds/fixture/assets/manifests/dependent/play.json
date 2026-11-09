@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "play",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/play.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 12,
+    "width": 24,
+    "height": 20
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "1c89e9ec8caaf80eadcabdf0f16cb58eb8a4afb21e813d0566810b2aa03fbc8e",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 128,
+    "y": 48
+  },
+  "accessibilityLabel": "The kit playing"
+}

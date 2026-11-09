@@ -1550,7 +1550,7 @@ BEGIN
   INSERT INTO clockgrove.conversation_sessions (
     tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
   ) VALUES ('tenant-a', 'session-orphan', 'world-a', 'timeline-a', 'partition-a', 'space-a',
-            'stevie', 'cognitive');
+            'keeper', 'cognitive');
   RAISE EXCEPTION 'session opened without a participant' USING ERRCODE = 'XX999';
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END;
@@ -1559,7 +1559,7 @@ INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, princip
   VALUES ('tenant-a', 'session-a', 'principal-a', 'persona-a');
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
-) VALUES ('tenant-a', 'session-a', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'session-a', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
           'cognitive');
 INSERT INTO clockgrove.conversation_messages (
   tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
@@ -1567,7 +1567,7 @@ INSERT INTO clockgrove.conversation_messages (
 ) VALUES
   ('tenant-a', 'session-a', 'principal-a', 1, 'message-1', 'caretaker', 'persona-a', NULL,
    'conversation-text-1'),
-  ('tenant-a', 'session-a', NULL, 2, 'message-1:reply', 'actor', 'stevie', 'cognitive',
+  ('tenant-a', 'session-a', NULL, 2, 'message-1:reply', 'actor', 'keeper', 'cognitive',
    'conversation-text-2');
 INSERT INTO clockgrove.conversation_turns (
   tenant_id, session_id, principal_id, turn, input_sequence, output_sequence, model, state
@@ -1623,7 +1623,7 @@ BEGIN
       INSERT INTO clockgrove.conversation_messages (
         tenant_id, session_id, principal_id, sequence, message_id, role, author_id, voice_mode,
         content_artifact_id
-      ) VALUES ('tenant-a', 'session-a', NULL, 3, 'forged:reply', 'actor', 'stevie', 'cognitive',
+      ) VALUES ('tenant-a', 'session-a', NULL, 3, 'forged:reply', 'actor', 'keeper', 'cognitive',
                 'conversation-text-2');
       RAISE EXCEPTION 'answer forged into a foreign conversation by %', context::text
         USING ERRCODE = 'XX999';
@@ -1714,13 +1714,13 @@ BEGIN
     INSERT INTO clockgrove.conversation_sessions (
       tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
     ) VALUES ('tenant-a', 'session-' || i, 'world-a', 'timeline-a', 'partition-a', 'space-a',
-              'stevie', 'cognitive');
+              'keeper', 'cognitive');
   END LOOP;
   BEGIN
     INSERT INTO clockgrove.conversation_sessions (
       tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
     ) VALUES ('tenant-a', 'session-101', 'world-a', 'timeline-a', 'partition-a', 'space-a',
-              'stevie', 'cognitive');
+              'keeper', 'cognitive');
     RAISE EXCEPTION 'conversation session limit not enforced' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG021' THEN NULL;
   END;
@@ -1739,7 +1739,7 @@ INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, princip
   VALUES ('tenant-a', 'session-r', 'principal-a', 'persona-a');
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
-) VALUES ('tenant-a', 'session-r', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'session-r', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
           'cognitive');
 CREATE FUNCTION pg_temp.new_run(run text, root text, parent text, parent_step integer, st text)
 RETURNS void LANGUAGE sql AS $$
@@ -1747,7 +1747,7 @@ RETURNS void LANGUAGE sql AS $$
     tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
     principal_id, persona_id, activation, input_message_id, parent_run_id, parent_step, root_run_id,
     model, prompt_version, input_revision, status, summary
-  ) VALUES ('tenant-a', run, 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-r', 'stevie',
+  ) VALUES ('tenant-a', run, 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-r', 'keeper',
             'principal-a', 'persona-a', 'conversation_message', 'message-r', parent, parent_step,
             root, 'scripted-fixture-v1', 'v1', 0, st, 'attempt')
 $$;
@@ -1868,57 +1868,57 @@ INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, princip
   VALUES ('tenant-a', 'session-d2', 'principal-a2', 'persona-a');
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
-) VALUES ('tenant-a', 'session-d2', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'session-d2', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
           'cognitive');
 SELECT pg_temp.act_as('tenant-a', 'principal-a');
 INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
   VALUES ('tenant-a', 'session-d1', 'principal-a', 'persona-a');
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
-) VALUES ('tenant-a', 'session-d1', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'session-d1', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
           'cognitive');
 INSERT INTO clockgrove.agent_runs (
   tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
   principal_id, persona_id, activation, input_message_id, root_run_id, model, prompt_version,
   input_revision, status, summary
 ) VALUES ('tenant-a', 'run-d', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-d1',
-          'stevie', 'principal-a', 'persona-a', 'conversation_message', 'message-d', 'run-d',
+          'keeper', 'principal-a', 'persona-a', 'conversation_message', 'message-d', 'run-d',
           'scripted-fixture-v1', 'v1', 0, 'running', 'attempt');
 INSERT INTO clockgrove.document_change_sets (
   tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, status,
   operation_count
-) VALUES ('tenant-a', 'cs-op', 'world-a', 'timeline-a', 'stevie', 'operator', 'principal-a',
+) VALUES ('tenant-a', 'cs-op', 'world-a', 'timeline-a', 'keeper', 'operator', 'principal-a',
           'committed', 1);
 INSERT INTO clockgrove.document_change_sets (
   tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, run_id,
   session_id, status, operation_count
-) VALUES ('tenant-a', 'cs-model', 'world-a', 'timeline-a', 'stevie', 'model', 'principal-a',
+) VALUES ('tenant-a', 'cs-model', 'world-a', 'timeline-a', 'keeper', 'model', 'principal-a',
           'run-d', 'session-d1', 'committed', 1);
 INSERT INTO clockgrove.actor_documents (
   tenant_id, document_id, world_id, timeline_id, actor_id, path, kind, write_class, session_id
 ) VALUES
-  ('tenant-a', 'doc-identity', 'world-a', 'timeline-a', 'stevie', 'identity.md', 'identity', 'protected', NULL),
-  ('tenant-a', 'doc-policy', 'world-a', 'timeline-a', 'stevie', 'policy.md', 'policy', 'protected', NULL),
-  ('tenant-a', 'doc-working', 'world-a', 'timeline-a', 'stevie', 'working-context.md', 'working_context', 'actor_writable', NULL),
-  ('tenant-a', 'doc-sum-1', 'world-a', 'timeline-a', 'stevie', 'sessions/session-d1/summary.md', 'session_summary', 'actor_writable', 'session-d1'),
-  ('tenant-a', 'doc-sum-2', 'world-a', 'timeline-a', 'stevie', 'sessions/session-d2/summary.md', 'session_summary', 'actor_writable', 'session-d2');
+  ('tenant-a', 'doc-identity', 'world-a', 'timeline-a', 'keeper', 'identity.md', 'identity', 'protected', NULL),
+  ('tenant-a', 'doc-policy', 'world-a', 'timeline-a', 'keeper', 'policy.md', 'policy', 'protected', NULL),
+  ('tenant-a', 'doc-working', 'world-a', 'timeline-a', 'keeper', 'working-context.md', 'working_context', 'actor_writable', NULL),
+  ('tenant-a', 'doc-sum-1', 'world-a', 'timeline-a', 'keeper', 'sessions/session-d1/summary.md', 'session_summary', 'actor_writable', 'session-d1'),
+  ('tenant-a', 'doc-sum-2', 'world-a', 'timeline-a', 'keeper', 'sessions/session-d2/summary.md', 'session_summary', 'actor_writable', 'session-d2');
 CREATE FUNCTION pg_temp.new_version(doc text, n integer, change text, body text, session text, hash text DEFAULT NULL)
 RETURNS void LANGUAGE sql AS $$
   INSERT INTO clockgrove.actor_document_versions (
     tenant_id, document_id, version, world_id, timeline_id, actor_id, session_id, state, content,
     byte_length, source_hash, change_set_id
-  ) VALUES ('tenant-a', doc, n, 'world-a', 'timeline-a', 'stevie', session, 'active', body,
+  ) VALUES ('tenant-a', doc, n, 'world-a', 'timeline-a', 'keeper', session, 'active', body,
             octet_length(body),
             COALESCE(hash, encode(sha256(convert_to(body, 'UTF8')), 'hex')), change)
 $$;
-SELECT pg_temp.new_version('doc-identity', 1, 'cs-op', 'I am Stevie.', NULL);
+SELECT pg_temp.new_version('doc-identity', 1, 'cs-op', 'I am Keeper.', NULL);
 SELECT pg_temp.new_version('doc-policy', 1, 'cs-op', 'Be kind.', NULL);
 SELECT pg_temp.new_version('doc-sum-1', 1, 'cs-op', 'Talked about tea.', 'session-d1');
 SELECT pg_temp.new_version('doc-sum-2', 1, 'cs-op', 'Talked about rain.', 'session-d2');
 INSERT INTO clockgrove.context_manifests (
   tenant_id, run_id, session_id, world_id, timeline_id, space_id, actor_id, input_message_id,
   input_revision, token_budget, tokens_used, manifest_hash, entries
-) VALUES ('tenant-a', 'run-d', 'session-d1', 'world-a', 'timeline-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'run-d', 'session-d1', 'world-a', 'timeline-a', 'space-a', 'keeper',
           'message-d', 0, 1000, 10, repeat('a', 64), '[{"source":"input"}]');
 DO $$
 BEGIN
@@ -1934,7 +1934,7 @@ BEGIN
     INSERT INTO clockgrove.document_change_sets (
       tenant_id, change_set_id, world_id, timeline_id, actor_id, proposer, principal_id, status,
       operation_count
-    ) VALUES ('tenant-a', 'cs-op-low', 'world-a', 'timeline-a', 'stevie', 'operator', 'principal-a',
+    ) VALUES ('tenant-a', 'cs-op-low', 'world-a', 'timeline-a', 'keeper', 'operator', 'principal-a',
               'committed', 1);
     RAISE EXCEPTION 'operator change set without private_cognition' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -1992,7 +1992,7 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'CG024' THEN NULL;
   END;
   BEGIN
-    PERFORM pg_temp.new_version('doc-identity', 2, 'cs-op', 'I am Stevie.', NULL, repeat('0', 64));
+    PERFORM pg_temp.new_version('doc-identity', 2, 'cs-op', 'I am Keeper.', NULL, repeat('0', 64));
     RAISE EXCEPTION 'version with a forged hash' USING ERRCODE = 'XX999';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
@@ -2021,7 +2021,7 @@ INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, princip
   VALUES ('tenant-a', 'session-f', 'principal-a', 'persona-a');
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
-) VALUES ('tenant-a', 'session-f', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'stevie',
+) VALUES ('tenant-a', 'session-f', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
           'cognitive');
 INSERT INTO clockgrove.artifact_data_keys (
   tenant_id, world_id, privacy_class, key_version, kek_id, wrapped_key
@@ -2036,11 +2036,11 @@ INSERT INTO clockgrove.artifact_references (
 INSERT INTO clockgrove.conversation_turn_fibers (
   tenant_id, session_id, message_id, world_id, timeline_id, actor_id, principal_id, persona_id,
   input_artifact_id
-) VALUES ('tenant-a', 'session-f', 'message-f', 'world-a', 'timeline-a', 'stevie', 'principal-a',
+) VALUES ('tenant-a', 'session-f', 'message-f', 'world-a', 'timeline-a', 'keeper', 'principal-a',
           'persona-a', 'input-f');
 INSERT INTO clockgrove.actor_processes (
   tenant_id, process_id, world_id, timeline_id, actor_id, objective, target
-) VALUES ('tenant-a', 'process-a', 'world-a', 'timeline-a', 'stevie', 'fixture-tally', 4);
+) VALUES ('tenant-a', 'process-a', 'world-a', 'timeline-a', 'keeper', 'fixture-tally', 4);
 DO $$
 BEGIN
   PERFORM pg_temp.act_as('tenant-a', 'principal-a2',
@@ -2112,14 +2112,14 @@ INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, princip
 INSERT INTO clockgrove.conversation_sessions (
   tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
 ) VALUES ('tenant-a', 'activation-session', 'world-a', 'timeline-a', 'partition-a', 'space-a',
-          'stevie', 'cognitive');
+          'keeper', 'cognitive');
 INSERT INTO clockgrove.actor_activation_policies (
   tenant_id, world_id, timeline_id, space_id, actor_id, principal_id, allow_model, model_budget
-) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'stevie', 'principal-a', true, 1);
+) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'keeper', 'principal-a', true, 1);
 INSERT INTO clockgrove.actor_activations (
   tenant_id, world_id, timeline_id, space_id, actor_id, causal_root, activation_id, principal_id,
   configuration_id, reason, evidence, session_id, message_id, input, status, outcome
-) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'stevie', 'root-activation',
+) VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'keeper', 'root-activation',
   'activation-a', 'principal-a', 'subscription-a', '{"kind":"subscription","subscriptionId":"subscription-a","eventId":"rain-a"}',
   'journal:rain-a', 'activation-session', 'wake-a', 'rain starts', 'pending', 'admitted');
 DO $$
@@ -2155,7 +2155,7 @@ BEGIN
       INSERT INTO clockgrove.actor_activations (
         tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
         configuration_id,reason,evidence,session_id,message_id,input,status,outcome
-      ) VALUES ('tenant-a','world-a','timeline-a','space-a','stevie','forged-root','forged',
+      ) VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','forged-root','forged',
         'principal-a','subscription-a','{}','forged','activation-session','forged','x','pending','admitted');
       RAISE EXCEPTION 'foreign context inserted activation receipt' USING ERRCODE='XX999';
     EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -2181,7 +2181,7 @@ BEGIN
     INSERT INTO clockgrove.actor_activations (
       tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
       configuration_id,reason,evidence,session_id,message_id,input,status,outcome
-    ) VALUES ('tenant-a','world-a','timeline-a','space-a','stevie','overflow','overflow',
+    ) VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','overflow','overflow',
       'principal-a','subscription-a','{}','overflow','activation-session','overflow','x','pending','admitted');
     RAISE EXCEPTION 'activation receipt bound exceeded' USING ERRCODE='XX999';
   EXCEPTION WHEN check_violation THEN NULL;

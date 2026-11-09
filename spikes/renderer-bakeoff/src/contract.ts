@@ -73,7 +73,7 @@ export const TIER_FEATURES: Readonly<Record<QualityTier, TierFeatures>> = {
   },
 };
 
-/** The fixed 2.5D camera's pan, in metres of the yard frame, and zoom (1 = PIXELS_PER_METRE). */
+/** The fixed 2.5D camera's pan, in metres of the hall frame, and zoom (1 = PIXELS_PER_METRE). */
 export interface CameraState {
   readonly panX: number;
   readonly panY: number;

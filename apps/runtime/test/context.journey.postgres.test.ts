@@ -16,7 +16,7 @@ const FILE = "apps/runtime/test/context.journey.postgres.test.ts";
 const MEMBER = "local-reader-session";
 const OPERATOR = "outsider-session-token";
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
-const IDENTITY = "# Stevie\nA careful raccoon.\n";
+const IDENTITY = "# Keeper\nA careful resident.\n";
 const POLICY = "Keep each conversation private. ".repeat(256);
 const GOALS = "Find acorns before winter.";
 const LEDGER = "Acorn ledger. ".repeat(585);
@@ -26,8 +26,8 @@ const REFUSED = "fixture:propose policy.md\nShare everything.";
 it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
-      // The member talks; the operator governs Stevie's documents and inspects, but talks to no one.
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
+      // The member talks; the operator governs Keeper's documents and inspects, but talks to no one.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -61,19 +61,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
       const change = (changeSetId: string, operations: object[], credential = OPERATOR) =>
         post(
           "/v1/runtime/actor-documents/change",
-          { actorId: "grove.stevie", changeSetId, operations },
+          { actorId: "fixture.keeper", changeSetId, operations },
           credential,
         );
       const read = async (path: string) =>
         (
           await post(
             "/v1/runtime/actor-documents/read",
-            { actorId: "grove.stevie", path },
+            { actorId: "fixture.keeper", path },
             OPERATOR,
           )
         ).body as DocumentVersionView;
 
-      // An operator writes Stevie's documents in one change set; each version's hash is its text's.
+      // An operator writes Keeper's documents in one change set; each version's hash is its text's.
       const created = await change("cs-1", [
         { op: "create", path: "identity.md", content: IDENTITY },
         { op: "create", path: "policy.md", content: POLICY },
@@ -117,7 +117,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // policy is refused with evidence while its turn still answers.
       const open = async () =>
         decodeConversationSession(
-          (await post("/v1/runtime/conversations/create", { actorId: "grove.stevie" })).body,
+          (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper" })).body,
         ).sessionId;
       const a = await open();
       const b = await open();
@@ -209,13 +209,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         promptOrder: null,
       });
       expect([manifest.inputRevision, manifest.tokenBudget, manifest.tokensUsed]).toEqual([
-        2, 4096, 2089,
+        2, 4096, 2090,
       ]);
       expect(manifest.entries).toEqual([
         {
           ...doc("identity.md", 1, "protected", sha(IDENTITY)),
           state: "active",
-          tokens: 7,
+          tokens: 8,
           ...included("protected", 1),
         },
         {
@@ -272,7 +272,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         manifest,
       ]);
 
-      // The prompt includes Stevie's documents, so it is private cognition: a conversation-only
+      // The prompt includes Keeper's documents, so it is private cognition: a conversation-only
       // inspector sees its manifest above and its class here, never its text.
       const walkOf = async () =>
         (await post("/v1/runtime/runs/inspect", { runId: manifest.runId }, MEMBER)).body as RunWalk;
@@ -292,7 +292,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           text: null,
         },
       ]);
-      expect(JSON.stringify(hidden).includes("careful raccoon")).toBe(false);
+      expect(JSON.stringify(hidden).includes("careful resident")).toBe(false);
 
       // With `private_cognition` too, the participant reads the exact prompt: protected policy only
       // in the protected section, untrusted parts labelled.
@@ -325,11 +325,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // Private cognition never enters scene state or the journal.
       const scene = await post("/v1/runtime/scene", {});
       const journal = await owner.sql(
-        "SELECT count(*) FROM clockgrove.events WHERE payload::text LIKE '%careful raccoon%' OR payload::text LIKE '%snacks%'",
+        "SELECT count(*) FROM clockgrove.events WHERE payload::text LIKE '%careful resident%' OR payload::text LIKE '%snacks%'",
       );
       expect([
         scene.status,
-        JSON.stringify(scene.body).includes("careful raccoon"),
+        JSON.stringify(scene.body).includes("careful resident"),
         JSON.stringify(scene.body).includes("Acorn ledger"),
         journal.trim(),
       ]).toEqual([200, false, false, "0"]);

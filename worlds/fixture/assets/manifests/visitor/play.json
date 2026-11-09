@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "visitor",
+  "animationFamily": "play",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/visitor/play.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": null,
+    "archetype": "fixture.resident-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 650,
+    "depth": 380
+  },
+  "bounds": {
+    "x": 0,
+    "y": 6,
+    "width": 29,
+    "height": 26
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "065b0756ee252da3108e1ee7e1124b5d202a0ed66b0a6b6c8ed6c77a7315fa1f",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 128,
+    "y": 176
+  },
+  "accessibilityLabel": "Visitor playing"
+}

@@ -82,14 +82,16 @@ async function writeJournal(edit = (runs) => runs) {
     replay: { events: 12, ms: 3 },
   });
   const runs = [];
-  for (const pack of ["fixture", "raccoons"])
+  for (const pack of ["fixture", "fixture/reference"])
     for (const name of await readdir(path.join(root, "worlds", pack, "goldens"))) {
       const golden = decode(await readFile(path.join(root, "worlds", pack, "goldens", name)));
       for (const entry of golden.runs)
         runs.push(run("scenarios", pack, name.slice(0, -5), entry.name, entry.finalStateHash));
     }
   for (const name of JOURNAL_LONG_RUNS) {
-    const [pack, scenario] = name.split("/");
+    const index = name.lastIndexOf("/");
+    const pack = name.slice(0, index);
+    const scenario = name.slice(index + 1);
     for (const plan of ["main", "aggregate"])
       runs.push(run("long-runs", pack, scenario, plan, digest(name)));
   }

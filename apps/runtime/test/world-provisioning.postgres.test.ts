@@ -255,7 +255,7 @@ function expectedEventTypes(birth: GenesisBirth): string[] {
 describe("world provisioning into PostgreSQL", () => {
   it("births shipped and fixture worlds idempotently, immutably and tenant-isolated", async () => {
     const packs = {
-      raccoons: await testWorld("raccoons"),
+      residents: await testWorld("fixture/reference"),
       fixture: await testWorld("fixture"),
       lamp: await packWorld(await lampSource()),
     };

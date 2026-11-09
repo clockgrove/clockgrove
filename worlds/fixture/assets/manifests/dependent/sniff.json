@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "sniff",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/sniff.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 18,
+    "width": 25,
+    "height": 14
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "353b88baea2cd73287b8739d24c0e88d6632aa442df9369eba4abf9e2fa591a3",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 384,
+    "y": 48
+  },
+  "accessibilityLabel": "The kit sniffing"
+}

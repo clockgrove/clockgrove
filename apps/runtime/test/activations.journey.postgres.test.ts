@@ -9,12 +9,12 @@ import {
 
 const FILE = "apps/runtime/test/activations.journey.postgres.test.ts";
 const MEMBER = "local-reader-session";
-const ACTOR = "grove.stevie";
+const ACTOR = "fixture.keeper";
 
 it.skipIf(isNativeWorldOwnerChild())(
   "owns proactive PostgreSQL and native runtime",
   async () => {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(

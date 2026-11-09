@@ -6,12 +6,12 @@ only Node built-ins and the shared contracts.
 
 ```sh
 pnpm --filter @clockgrove/assets run check          # CI gate, also part of `pnpm check`
-pnpm --filter @clockgrove/assets run build          # assets/reviewed and assets/license-report.md
+pnpm --filter @clockgrove/assets run build          # fixture atlas and license report
 pnpm --filter @clockgrove/assets run update-golden  # re-render the golden scenes (resets approval)
 ```
 
-Art lives outside the package: `assets/manifests`, `assets/source`, `assets/reviewed`,
-`assets/goldens`, `assets/license-report.md`. Packs bind stable IDs to assets in
+Art lives outside the package: `worlds/fixture/assets/manifests`, `worlds/fixture/assets/source`, `worlds/fixture/assets/reviewed`,
+`worlds/fixture/assets/goldens`, `worlds/fixture/assets/license-report.md`. Packs bind stable IDs to assets in
 `worlds/<pack>/presentation.json`.
 
 The public API (`encodePng`, `validateSource`, `buildAtlases`, `renderScene`,

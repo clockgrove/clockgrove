@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "selection",
+  "animationFamily": "loop",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/selection/loop.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 32,
+    "height": 12,
+    "count": 2,
+    "durationMs": 400
+  },
+  "anchor": {
+    "x": 16,
+    "y": 6
+  },
+  "footprint": {
+    "width": 900,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 1,
+    "y": 1,
+    "width": 31,
+    "height": 11
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "799bb855708e2e50f76ea3c2b01b8b8a42a1c56cfb2ebb103519320af4ddc032",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 744,
+    "y": 80
+  },
+  "accessibilityLabel": "Selection ring"
+}
