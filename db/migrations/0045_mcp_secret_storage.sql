@@ -5,7 +5,7 @@ REVOKE ALL ON SCHEMA clockgrove_mcp FROM PUBLIC;
 GRANT USAGE ON SCHEMA clockgrove_mcp TO clockgrove_mcp_secrets;
 
 CREATE TABLE clockgrove_mcp.credentials (
-  reference uuid PRIMARY KEY,
+  reference uuid NOT NULL,
   tenant_id text NOT NULL,
   world_id text NOT NULL,
   timeline_id text NOT NULL,
@@ -18,6 +18,7 @@ CREATE TABLE clockgrove_mcp.credentials (
   envelope jsonb NOT NULL CHECK (jsonb_typeof(envelope) = 'object'),
   created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+  PRIMARY KEY (tenant_id, world_id, timeline_id, installation_id, owner_principal_id, reference),
   FOREIGN KEY (tenant_id, world_id, timeline_id)
     REFERENCES clockgrove.timelines (tenant_id, world_id, timeline_id),
   FOREIGN KEY (tenant_id, owner_principal_id)

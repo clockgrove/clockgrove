@@ -47,12 +47,13 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
     const provider = new PostgreSqlMcpSecretStorage(client, scope);
     try {
       const result = await client.query(
-        `SELECT pg_backend_pid() AS pid,
+        `SELECT pg_backend_pid() AS pid, current_user AS role,
                 pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired`,
         [provider.lockIdentity],
       );
-      const row = result.rows[0] as { pid: number; acquired: boolean };
-      if (row.acquired !== true) throw new McpCredentialError();
+      const row = result.rows[0] as { pid: number; role: string; acquired: boolean };
+      if (row.acquired !== true || row.role !== "clockgrove_mcp_secrets")
+        throw new McpCredentialError();
       provider.backendPid = row.pid;
       await provider.transaction(async () => {
         await client.query(`UPDATE clockgrove_mcp.credentials SET revocation_requested = true
@@ -84,7 +85,7 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
     try {
       return await withClientTransaction(this.client, {}, async () => {
         const checked = await this.client.query(
-          `SELECT pg_backend_pid() AS pid, EXISTS (
+          `SELECT pg_backend_pid() AS pid, current_user AS role, EXISTS (
              SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted
                AND pid = pg_backend_pid() AND objsubid = 1
                AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
@@ -93,8 +94,12 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
            ) AS held`,
           [this.lockIdentity],
         );
-        const session = checked.rows[0] as { pid: number; held: boolean };
-        if (session.pid !== this.backendPid || session.held !== true)
+        const session = checked.rows[0] as { pid: number; role: string; held: boolean };
+        if (
+          session.pid !== this.backendPid ||
+          session.role !== "clockgrove_mcp_secrets" ||
+          session.held !== true
+        )
           throw new McpCredentialError();
         const scope = this.scope;
         await this.client.query(
@@ -182,7 +187,8 @@ export class PostgreSqlMcpSecretStorage implements McpSecretStorage {
                 (reference, tenant_id, world_id, timeline_id, installation_id, owner_principal_id,
                  revision, state, envelope)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-               ON CONFLICT (reference) DO NOTHING RETURNING reference`,
+               ON CONFLICT (tenant_id, world_id, timeline_id, installation_id, owner_principal_id, reference)
+               DO NOTHING RETURNING reference`,
               [
                 reference,
                 this.scope.tenantId,

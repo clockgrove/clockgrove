@@ -111,6 +111,18 @@ it("isolates encrypted MCP credentials and preserves revocation across provider 
         const other = await open(context);
         try {
           expect(await other.read(reference)).toBeUndefined();
+          if (context.installationId !== scope.installationId) {
+            const sealed = (await provider.read(reference))!;
+            expect(await other.compareAndSwap(reference, null, sealed)).toBe(true);
+            // A reference collision is isolated; copying ciphertext cannot change its authenticated scope.
+            await expect(
+              new McpCredentialVault(other, "credential-key-v1", keys).use(
+                context,
+                reference,
+                async () => true,
+              ),
+            ).rejects.toThrow("MCP credential unavailable");
+          }
         } finally {
           await other.close();
         }
@@ -168,7 +180,7 @@ it("isolates encrypted MCP credentials and preserves revocation across provider 
       await vault.revoke(scope, reference);
       expect(
         await truth(
-          "SELECT state || '/' || revocation_requested || '/' || (envelope->'ciphertext') || '/' || (envelope->'wrappedKey') FROM clockgrove_mcp.credentials",
+          "SELECT state || '/' || revocation_requested || '/' || (envelope->'ciphertext') || '/' || (envelope->'wrappedKey') FROM clockgrove_mcp.credentials WHERE installation_id = 'installation-one'",
         ),
       ).toBe("revoked/true/[]/[]");
       const fresh = await vault.store(scope, canary);
@@ -227,6 +239,9 @@ it("isolates encrypted MCP credentials and preserves revocation across provider 
       try {
         await expect(ordinary.query("SELECT * FROM clockgrove_mcp.credentials")).rejects.toThrow();
         await expect(ordinary.query("SET ROLE clockgrove_mcp_secrets")).rejects.toThrow();
+        await expect(PostgreSqlMcpSecretStorage.open(ordinary, scope)).rejects.toThrow(
+          "MCP credential unavailable",
+        );
       } finally {
         await ordinary.close();
       }
