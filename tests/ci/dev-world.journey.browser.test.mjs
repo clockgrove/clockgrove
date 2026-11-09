@@ -13,6 +13,15 @@ import { readPackDirectory, sdkSource } from "../../packages/simulator/cli/pack-
 import { previewSeedProjection } from "../../packages/simulator/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+// The golden suite's SwiftShader flags (owner findings on #74): WebGPU and forced WebGL2 both draw.
+const GPU_FLAGS = [
+  "--enable-unsafe-webgpu",
+  "--enable-unsafe-swiftshader",
+  "--use-webgpu-adapter=swiftshader",
+  "--use-angle=swiftshader",
+  "--enable-features=Vulkan",
+  "--use-vulkan=swiftshader",
+];
 
 // Issue 137: a painterly world whose reviewed output has four pages. A 14-frame walk of 300x700 px
 // frames wraps into two rows of six on the `walker` page and continues its last two frames on
@@ -221,63 +230,95 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
       `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
       "hall-observer",
     ]);
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    const snapshots = [];
-    const requested = new Set();
-    page.on("request", (request) => requested.add(new URL(request.url()).pathname));
-    page.on("websocket", (socket) => {
-      if (new URL(socket.url()).pathname === "/v1/projection")
-        socket.on("framereceived", ({ payload }) => snapshots.push(JSON.parse(String(payload))));
-    });
-    await page.goto(url.toString());
-    expect(await page.title()).toBe("External Fixture");
-    await page.getByLabel("Local session credential").fill(credential);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
-    expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
-      "Arrival: scene ready at revision 0.",
+    // Issue 153: the same session under WebGPU and forced WebGL2, both on SwiftShader, as the
+    // golden suite runs them. A route rewrites the served renderer module to force the backend and
+    // expose the adapter, whose texture accounting must sum every page against the budgets.
+    const { budgets } = JSON.parse(
+      await readFile(path.join(root, "apps/web/scene-budgets.json"), "utf8"),
     );
-    expect(
-      snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
-    ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
-    // The shell loads every page the index lists and draws each page's strip in its colour. Every
-    // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
-    // on its own page, across both wrapped rows and onto the continuation page.
-    for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
-      for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
-        expect(requested).toContain(`/${file}`);
-    const walked = new Set();
-    for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
-      const shot = (await page.locator("canvas").screenshot()).toString("base64");
-      const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
-        const image = new Image();
-        image.src = `data:image/png;base64,${encoded}`;
-        await image.decode();
-        const context = Object.assign(document.createElement("canvas"), {
-          width: image.width,
-          height: image.height,
-        }).getContext("2d");
-        context.drawImage(image, 0, 0);
-        const { data } = context.getImageData(0, 0, image.width, image.height);
-        const found = [0, 0, 0, image.width];
-        for (let i = 0; i < data.length; i += 4) {
-          const [r, g, b] = data.subarray(i, i + 3);
-          if (r > 2 * g + 40 && b > 2 * g + 40) {
-            found[0]++;
-            found[3] = Math.min(found[3], (i / 4) % image.width);
-          } else if (g > 2 * r + 40 && b > 2 * r + 40) found[1]++;
-          else if (b > 2 * (r + g) + 40) found[2]++;
-        }
-        return found;
-      }, shot);
-      expect(
-        [magenta, cyan, blue].every((count) => count >= 1200),
-        `${magenta} ${cyan} ${blue}`,
-      ).toBe(true);
-      walked.add(left);
+    let pageBytes = 0;
+    for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"]) {
+      const png = await readFile(path.join(reviewed, `${name}.png`));
+      pageBytes += png.readUInt32BE(16) * png.readUInt32BE(20) * 4;
     }
-    expect(walked.size).toBe(14);
+    expect([pageBytes, pageBytes <= budgets.atlasTextureBytes.limit]).toEqual([17_040_000, true]);
+    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+    for (const backend of ["webgpu", "webgl2"]) {
+      const page = await browser.newPage();
+      await page.route(/\/src\/renderer\.ts(\?.*)?$/u, async (route) => {
+        const response = await route.fetch();
+        const code = await response.text();
+        const create = "new THREE.WebGPURenderer({";
+        await route.fulfill({
+          response,
+          body: `${backend === "webgl2" ? code.replace(create, `${create} forceWebGL: true,`) : code}
+const load = ThreeWorldSceneAdapter.prototype.loadSnapshot;
+ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.hallAdapter = this; return load.apply(this, args); };`,
+        });
+      });
+      const snapshots = [];
+      const requested = new Set();
+      page.on("request", (request) => requested.add(new URL(request.url()).pathname));
+      page.on("websocket", (socket) => {
+        if (new URL(socket.url()).pathname === "/v1/projection")
+          socket.on("framereceived", ({ payload }) => snapshots.push(JSON.parse(String(payload))));
+      });
+      await page.goto(url.toString());
+      expect(await page.title()).toBe("External Fixture");
+      await page.getByLabel("Local session credential").fill(credential);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+      expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
+        "Arrival: scene ready at revision 0.",
+      );
+      expect(
+        snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
+      ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
+      // The shell loads every page the index lists and draws each page's strip in its colour. Every
+      // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
+      // on its own page, across both wrapped rows and onto the continuation page.
+      for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
+        for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
+          expect(requested).toContain(`/${file}`);
+      const walked = new Set();
+      for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
+        const shot = (await page.locator("canvas").screenshot()).toString("base64");
+        const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${encoded}`;
+          await image.decode();
+          const context = Object.assign(document.createElement("canvas"), {
+            width: image.width,
+            height: image.height,
+          }).getContext("2d");
+          context.drawImage(image, 0, 0);
+          const { data } = context.getImageData(0, 0, image.width, image.height);
+          const found = [0, 0, 0, image.width];
+          for (let i = 0; i < data.length; i += 4) {
+            const [r, g, b] = data.subarray(i, i + 3);
+            if (r > 2 * g + 40 && b > 2 * g + 40) {
+              found[0]++;
+              found[3] = Math.min(found[3], (i / 4) % image.width);
+            } else if (g > 2 * r + 40 && b > 2 * r + 40) found[1]++;
+            else if (b > 2 * (r + g) + 40) found[2]++;
+          }
+          return found;
+        }, shot);
+        expect(
+          [magenta, cyan, blue].every((count) => count >= 1200),
+          `${backend}: ${magenta} ${cyan} ${blue}`,
+        ).toBe(true);
+        walked.add(left);
+      }
+      expect([backend, walked.size]).toEqual([backend, 14]);
+      const measured = await page.evaluate(() => {
+        const { backend, metrics } = globalThis.hallAdapter;
+        return { backend, textureBytes: metrics.textureBytes, atlas: metrics.atlasTextureBytes };
+      });
+      expect(measured).toMatchObject({ backend, atlas: pageBytes });
+      expect(measured.textureBytes).toBeLessThanOrEqual(budgets.textureBytes.limit);
+      await page.close();
+    }
   } finally {
     await browser?.close();
     if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");

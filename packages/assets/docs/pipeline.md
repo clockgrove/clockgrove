@@ -153,9 +153,15 @@ world artwork still requires its own human approval.
 
 `uploadReviewedAssets` throws, uploading nothing, if any manifest is refused or the golden is not
 approved by a human for its current hash (the same `GOLDEN_NOT_APPROVED` and
-`GOLDEN_REVIEWER_NOT_HUMAN` rule as `check`). Each output is stored at `sha256/<hex of its bytes>` (atlas PNG as
-`image/png`, animation manifest as `application/json`); existing keys are skipped. The R2 adapter
-takes a structural bucket binding, so no provider type enters the package.
+`GOLDEN_REVIEWER_NOT_HUMAN` rule as `check`). It stores every file `build` writes to `reviewed/`
+(page PNGs as `image/png`, animation manifests, `materials.json` and the `atlases.json` page index
+as `application/json`, material files) at `sha256/<hex of its bytes>`; existing keys are skipped.
+The store's keys are content hashes, while the shell requests files by name, so upload stores one
+more object last: the reviewed directory, `{"files": {"<name>": "sha256/<hex>"}}`, naming each
+file's key. It returns that object's key as `directory`. A composition root that serves the shell
+from the store resolves each requested name (`atlases.json`, then every listed page's
+`.animations.json` and `.png`) through the directory. The R2 adapter takes a structural bucket
+binding, so no provider type enters the package.
 
 Staging upload and the RW-0409 exit stay pending on issue 3.
 

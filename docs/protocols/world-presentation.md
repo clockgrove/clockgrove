@@ -65,7 +65,9 @@ The document has these required fields:
 
 The shell does not interpret HTML in names or copy. Presentation data is trusted deployment
 configuration, rather than player-authored content. Static asset publication remains the
-composition root's responsibility. The renderer verifies each atlas page's image digest
+composition root's responsibility. The asset upload stores the reviewed output by content hash with
+a directory that maps each file name the shell requests to its key
+([upload](../../packages/assets/docs/pipeline.md#upload)). The renderer verifies each atlas page's image digest
 before using it, as described in the [scene contract](../../apps/web/docs/scene.md).
 
 ## External local session

@@ -1,12 +1,6 @@
 import type { AssetStyleProfile } from "@clockgrove/contracts";
 import { type AssetManifest, assetDeployRefusals } from "@clockgrove/contracts/asset-manifest";
-import {
-  type AssetEntry,
-  atlasMaterials,
-  buildAtlases,
-  canonicalJson,
-  materialAtlasFiles,
-} from "./atlas.js";
+import { type AssetEntry, buildAtlases, canonicalJson, reviewedFiles } from "./atlas.js";
 import { sha256Hex } from "./validate.js";
 
 export interface ContentAddressedAssetStore {
@@ -60,7 +54,16 @@ export function goldenApprovalRefusal(golden: GoldenApproval): string | null {
   return null;
 }
 
-/** Refuses (uploading nothing) unless every manifest may deploy and the golden scene is approved as it stands. */
+/** The store object that names each reviewed file's content key: `{ files: { <name>: "sha256/<hex>" } }`. */
+export interface ReviewedDirectory {
+  readonly files: Readonly<Record<string, string>>;
+}
+
+/**
+ * Refuses (uploading nothing) unless every manifest may deploy and the golden scene is approved as
+ * it stands. Stores every reviewed file at its content key, then the directory that maps each
+ * file's name (`atlases.json`, `<page>.png`, ...) to that key; `directory` is the directory's key.
+ */
 export async function uploadReviewedAssets(
   store: ContentAddressedAssetStore,
   input: {
@@ -69,7 +72,7 @@ export async function uploadReviewedAssets(
     layout?: readonly AssetManifest[];
     profile?: AssetStyleProfile;
   },
-): Promise<{ uploaded: string[]; skipped: string[] }> {
+): Promise<{ uploaded: string[]; skipped: string[]; directory: string }> {
   const golden = goldenApprovalRefusal(input.golden);
   const refusals = [
     ...input.entries.flatMap((e) =>
@@ -78,18 +81,11 @@ export async function uploadReviewedAssets(
     ...(golden === null ? [] : [golden]),
   ];
   if (refusals.length > 0) throw new Error(`upload refused:\n${refusals.join("\n")}`);
-  const atlases = buildAtlases(input.entries, input.layout, input.profile);
-  const outputs = atlases.flatMap((atlas) => [
-    { bytes: atlas.png, contentType: "image/png" },
-    { bytes: new TextEncoder().encode(atlas.animations), contentType: "application/json" },
-  ]);
-  outputs.push(...materialAtlasFiles(atlases));
-  const materials = atlasMaterials(atlases);
-  if (Object.keys(materials).length > 0)
-    outputs.push({
-      bytes: new TextEncoder().encode(canonicalJson(materials)),
-      contentType: "application/json",
-    });
+  const outputs = reviewedFiles(buildAtlases(input.entries, input.layout, input.profile));
+  const files: Record<string, string> = {};
+  for (const { name, bytes } of outputs) files[name] = `sha256/${sha256Hex(bytes)}`;
+  const directory = new TextEncoder().encode(canonicalJson({ files } satisfies ReviewedDirectory));
+  outputs.push({ name: "", bytes: directory, contentType: "application/json" });
   const uploaded = new Set<string>();
   const skipped = new Set<string>();
   for (const { bytes, contentType } of outputs) {
@@ -102,5 +98,9 @@ export async function uploadReviewedAssets(
       uploaded.add(key);
     }
   }
-  return { uploaded: [...uploaded].sort(), skipped: [...skipped].sort() };
+  return {
+    uploaded: [...uploaded].sort(),
+    skipped: [...skipped].sort(),
+    directory: `sha256/${sha256Hex(directory)}`,
+  };
 }

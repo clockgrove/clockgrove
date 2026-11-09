@@ -53,7 +53,7 @@ path. The reducer's committed projection is untouched.
 A material-enabled atlas animation exposes every named channel and supplied density. Both 1× and
 2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and BC3
 DDS texture, dimensions, byte sizes and frame rectangles. Selection considers device pixel ratio
-and the available texture budget. A smaller rendition preserves the same logical frame size,
+and what remains of the atlas page texture budget. A smaller rendition preserves the same logical frame size,
 anchor and world footprint. The product renderer loads the selected albedo PNG with the same
 hash verification as flat sprites and honours its declared colour encoding; channels it cannot shade remain available through the shared
 adapter data and do not prevent drawing albedo. The existing text fallback and reduced-motion
@@ -226,7 +226,8 @@ Each update receives a fresh read-only frame value: `backend`, `qualityTier`, `r
 time instead of accumulating independent deltas. Clock and weather remain renderer inputs read
 from the loaded committed projection; content cannot mutate them. The renderer's frame cadence,
 p95 sampling and automatic tier downgrade include content work, including under reduced motion. `metrics.contentUpdateMs` records
-update cost, while `textureBytes` includes content textures alongside render targets and atlas maps.
+update cost, while `textureBytes` includes content textures alongside render targets; atlas pages count
+in `atlasTextureBytes`.
 
 Stable failures are `content_load`, `content_contract`, `content_update` and `content_draw`.
 `metrics.contentStatus` is `none`, `loading`, `ready` or `failed`; `contentFailure`,
@@ -256,7 +257,8 @@ for the pinned-checkout recipe and frame capture.
 | --- | --- | --- |
 | Initial JS (gzip, every built chunk: entry plus scene chunk) | 512 000 B | `tools/scene-budget.mjs` in `pnpm check` |
 | Reviewed asset bytes | 256 KiB | `tools/scene-budget.mjs` in `pnpm check` |
-| Texture memory | 16 MiB | Chromium journey |
+| Texture memory, apart from atlas pages | 16 MiB | Chromium journeys |
+| Atlas page texture memory | 32 MiB | Chromium journeys |
 | First scene render | 2 500 ms | Chromium journey |
 | Frame time, 95th percentile | 33.4 ms | Chromium journey |
 | Entity count | 256 | Chromium journey |
@@ -267,7 +269,10 @@ The Chromium journey (`tests/e2e/living-hall.journey.browser.test.mjs`) measures
 with rain and puddles showing, from the adapter's `metrics`. The settled cadence window starts after the
 additional viewer's first render, so its initial shader compilation is accounted for by the separate
 first-render budget. These are local checks on the CI runner. They are
-not a measurement on the supported laptop baseline.
+not a measurement on the supported laptop baseline. The golden yard has one atlas page, so the
+multi-page world in `tests/ci/dev-world.journey.browser.test.mjs` also measures both texture budgets,
+under WebGPU and forced WebGL2: its four pages (17 040 000 B) must all be counted in
+`atlasTextureBytes`.
 
 Frame time is the unsmoothed interval between animation-frame callbacks, bounded to the latest
 120 samples. It measures visible cadence, not GPU-complete latency. The bake-off's reference
@@ -283,7 +288,8 @@ framebuffer behavior identified in the spike. Product GPU-complete timing remain
 Multisampling is off. Texture accounting conservatively includes the renderer output
 RGBA16F/depth-stencil target, the tier-scaled scene pass, the low tier's full-resolution RGBA16F
 label target, the scaled bright target and both five-level bloom chains (Three r187 allocation
-layout), plus atlas and generated UI textures.
+layout), plus generated UI and content textures, in `textureBytes`. `atlasTextureBytes` is the
+decoded size of every atlas page Texture: each page the index lists and each selected material page.
 WebGPU device loss follows the same text fallback as WebGL context loss.
 After renderer or asset failure, **Retry canvas** creates a fresh renderer and loads
 the latest retained reducer projection. The text scene remains available throughout;
@@ -303,7 +309,8 @@ GPU storage per Texture identity on both backends, so cloning textures that shar
 duplicate atlas storage. Reflections borrow their source texture and copy animated frame UVs; they
 dispose their own geometry/material without disposing the borrowed texture. Texture accounting counts
 unique material-map Texture identities across the whole scene, including effects, reflections and
-generated labels, plus the conservative render-target allocations above.
+generated labels, plus the conservative render-target allocations above; each atlas page counts
+once, in `atlasTextureBytes`.
 
 The Recorded Why panel's **Inspect command** action requests the existing operator
 causal-chain read under `runtime:world-inspect`. Observation alone shows an explicit
