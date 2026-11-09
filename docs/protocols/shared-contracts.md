@@ -162,6 +162,8 @@ The manifest's top-level `license` remains the licence the asset declares. Compl
 provenance permits MIT only when the commercial provider grant permits relicensing, including
 provider ownership terms recorded as a `LicenseRef-<provider>-<plan>`. A
 `CC-BY-4.0` grant keeps `CC-BY-4.0` and requires a non-empty attribution; it cannot be declared MIT.
+Provider grants may use `AND` expressions: every conjunct applies. A CC-BY conjunct requires
+licence retention and credit even when the grant claims `relabel: true`.
 Non-commercial and provider-retained grants are refused. The pipeline never silently relabels an
 asset. Missing or partial generated provenance is refused by the deploy gate with a stable reason;
 malformed field types remain decoder errors. Human review remains a separate requirement.

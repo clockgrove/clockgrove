@@ -386,6 +386,8 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
   if (manifest.source.kind === "generated") {
     const provenance = manifest.provenance;
     const grant = provenance.outputGrant;
+    const grantLicenses = grant?.license?.split(" AND ") ?? [];
+    const requiresCredit = grantLicenses.includes("CC-BY-4.0");
     if (
       !provenance.prompt?.trim() ||
       !provenance.model?.trim() ||
@@ -407,7 +409,9 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
       grant?.commercial === false ||
       (grant?.license !== undefined &&
         grant.relabel !== true &&
-        !(PERMITTED_ASSET_LICENSES as readonly string[]).includes(grant.license))
+        !grantLicenses.every((license) =>
+          (PERMITTED_ASSET_LICENSES as readonly string[]).includes(license),
+        ))
     )
       refusals.push({
         code: "OUTPUT_GRANT_NOT_PERMITTED",
@@ -418,7 +422,7 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
     if (
       grant?.license !== undefined &&
       ((grant.relabel === false && manifest.license !== grant.license) ||
-        (grant.license === "CC-BY-4.0" && manifest.license !== "CC-BY-4.0") ||
+        (requiresCredit && manifest.license !== "CC-BY-4.0") ||
         (manifest.license === "MIT" && grant.relabel !== true))
     )
       refusals.push({
@@ -426,7 +430,7 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
         asset,
         detail: "the declared license is incompatible with the provider output grant",
       });
-    if (grant?.license === "CC-BY-4.0" && !grant.attribution?.trim())
+    if (requiresCredit && !grant?.attribution?.trim())
       refusals.push({
         code: "OUTPUT_GRANT_ATTRIBUTION_REQUIRED",
         asset,

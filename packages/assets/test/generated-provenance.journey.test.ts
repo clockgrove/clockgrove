@@ -115,6 +115,24 @@ it("accepts larger painterly generated art and enforces provider output grants w
   expect(
     codes({ license: "CC-BY-4.0", provenance: { ...provenance, outputGrant: withoutCredit } }),
   ).toEqual(["OUTPUT_GRANT_ATTRIBUTION_REQUIRED"]);
+  for (const license of ["CC-BY-4.0 AND MIT", "MIT AND CC-BY-4.0"]) {
+    const compound = { ...withoutCredit, license, relabel: true };
+    expect(codes({ provenance: { ...provenance, outputGrant: compound } })).toEqual([
+      "OUTPUT_GRANT_LICENSE_MISMATCH",
+      "OUTPUT_GRANT_ATTRIBUTION_REQUIRED",
+    ]);
+    expect(
+      codes({ license: "CC-BY-4.0", provenance: { ...provenance, outputGrant: compound } }),
+    ).toEqual(["OUTPUT_GRANT_ATTRIBUTION_REQUIRED"]);
+    const retained = decodeAssetManifest({
+      ...input,
+      license: "CC-BY-4.0",
+      provenance: { ...provenance, outputGrant: { ...compound, attribution: credit.attribution } },
+    });
+    expect(assetDeployRefusals(retained)).toEqual([]);
+    expect(retained.license).toBe("CC-BY-4.0");
+    expect(licenseReport([retained])).toContain("fixture-critter/idle: Credit test-provider");
+  }
   expect(() =>
     decodeAssetManifest({ ...input, provenance: { ...provenance, references: ["not-a-hash"] } }),
   ).toThrow("lowercase SHA-256 reference hash");
