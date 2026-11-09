@@ -18,6 +18,7 @@ import {
   type PlanningRequest,
   planningRequestFor,
   sha256Hex,
+  UTILITY_FEATURE_SCALES,
 } from "@clockgrove/kernel";
 import { allowDecision, TRUSTED_ID_PREFIX } from "./authority-decision.js";
 import { DECISION_SHADOW_RECORDED } from "./event-registry.js";
@@ -40,7 +41,13 @@ import { TRUSTED_COMMAND_ISSUED_AT } from "./world-command.js";
 
 export const DECISION_SHADOW_RECORD_VERSION = 1;
 
-/** One bounded model answer, as the runtime adapts it from the ModelGateway `decide` outcome. */
+/**
+ * One bounded model answer, as the runtime adapts it from the ModelGateway `decide` outcome.
+ * `reservedMicrousd` is what the gateway reserved for the call (its per-call ceiling): an unknown
+ * cost is charged to the point's spend budget at it, or, without it, exhausts that budget.
+ * A `failed` outcome with code `budget_exceeded` made no provider call: a budget beyond the point
+ * (the gateway's, or an operator run's cap) refused it.
+ */
 export type ShadowModelOutcome =
   | Readonly<{
       status: "completed";
@@ -49,6 +56,7 @@ export type ShadowModelOutcome =
       model: string;
       latencyMs: number;
       costMicrousd: number | null;
+      reservedMicrousd?: number;
     }>
   | Readonly<{
       status: "failed";
@@ -56,7 +64,11 @@ export type ShadowModelOutcome =
       model: string;
       latencyMs: number;
       costMicrousd: number | null;
+      reservedMicrousd?: number;
     }>;
+
+/** The failure code of a call a budget refused before any provider call. */
+export const SHADOW_BUDGET_REFUSED = "budget_exceeded";
 
 /** The application's view of a decision model; the runtime adapts the ModelGateway to it. */
 export interface ShadowDecider {
@@ -127,7 +139,10 @@ export interface DecisionShadowRecord {
     choice: string | null;
     /** Probability of the answer in basis points (0..10000), null when the model reported none. */
     confidenceBp: number | null;
-    /** Why the model abstained, failed or was not called. */
+    /**
+     * Why the model abstained, failed or was not called. `over-budget` names the budget: the point's
+     * `calls` or `spend`, or `shared-budget` (the gateway's budget or the run's spend cap).
+     */
     detail: string | null;
   }>;
   readonly modelAlias: string;
@@ -140,8 +155,15 @@ export interface DecisionShadowRecord {
 }
 
 export interface DecisionShadowDeclarations {
+  /** Samples: the kernel raises a planning request only where one of its conditions holds. */
   readonly ambiguity: AmbiguityDeclaration;
   readonly decisionPoints: DecisionPointsDeclaration;
+  /**
+   * Classifies, apart from sampling: a record is within the margin when its top-two score gap is
+   * at most this bound, else outside it. Absent, the `ambiguity` score-margin bound is used; null
+   * (or no score-margin condition) leaves every record unclassified.
+   */
+  readonly cohortMargin?: bigint | null;
 }
 
 /** The shadow declarations of a utility policy, or undefined when it declares none (tier off). */
@@ -156,6 +178,26 @@ export function decisionShadowDeclarations(
     : { ambiguity: policy.ambiguity, decisionPoints: policy.decisionPoints };
 }
 
+function inPointScope(
+  point: DecisionPointDeclaration,
+  objectId: string,
+  archetype: string | undefined,
+): boolean {
+  return (
+    point.scope === undefined ||
+    point.scope.actorIds?.includes(objectId) === true ||
+    (archetype !== undefined && point.scope.archetypes?.includes(archetype) === true)
+  );
+}
+
+function triggerHolds(point: DecisionPointDeclaration, request: PlanningRequest): boolean {
+  return (
+    point.trigger.kind === "declared-ambiguity" ||
+    (request.condition.kind === "score-margin" &&
+      request.condition.margin <= point.trigger.maxMargin)
+  );
+}
+
 /** The first point whose trigger the request meets, or undefined. */
 export function matchingDecisionPoint(
   request: PlanningRequest,
@@ -163,14 +205,83 @@ export function matchingDecisionPoint(
   archetype?: string,
 ): DecisionPointDeclaration | undefined {
   return declaration.points.find(
-    (point) =>
-      (point.scope === undefined ||
-        point.scope.actorIds?.includes(request.objectId) === true ||
-        (archetype !== undefined && point.scope.archetypes?.includes(archetype) === true)) &&
-      (point.trigger.kind === "declared-ambiguity" ||
-        (request.condition.kind === "score-margin" &&
-          request.condition.margin <= point.trigger.maxMargin)),
+    (point) => inPointScope(point, request.objectId, archetype) && triggerHolds(point, request),
   );
+}
+
+/**
+ * Why a committed decision got no shadow record, in the order they are checked: `not-utility-tier`
+ * (a reflex or other non-utility choice), `single-candidate` (fewer than two eligible candidates),
+ * `no-ambiguity-condition` (no sampling condition holds), `out-of-point-scope` (no point's actor or
+ * archetype scope admits the actor) or `trigger-not-met` (a point admits the actor but no
+ * admitting point's trigger holds).
+ */
+export const DECISION_SHADOW_SKIP_REASONS = [
+  "not-utility-tier",
+  "single-candidate",
+  "no-ambiguity-condition",
+  "out-of-point-scope",
+  "trigger-not-met",
+] as const;
+export type DecisionShadowSkipReason = (typeof DECISION_SHADOW_SKIP_REASONS)[number];
+
+export interface DecisionShadowSkip {
+  readonly commandId: string;
+  readonly objectId: string;
+  readonly simulationTime: string;
+  readonly reason: DecisionShadowSkipReason;
+}
+
+type Selection =
+  | Readonly<{ kind: "sampled"; request: PlanningRequest; point: DecisionPointDeclaration }>
+  | Readonly<{ kind: "skipped"; reason: DecisionShadowSkipReason }>;
+
+function selectSubject(
+  subject: ShadowSubject,
+  declarations: DecisionShadowDeclarations,
+): Selection {
+  if (subject.trace.selectionTier !== "utility")
+    return { kind: "skipped", reason: "not-utility-tier" };
+  if (
+    subject.trace.candidates.filter((candidate) => candidate.excludedReason === undefined).length <
+    2
+  )
+    return { kind: "skipped", reason: "single-candidate" };
+  const request = planningRequestFor(subject.trace, declarations.ambiguity, subject.commandId);
+  if (request === undefined) return { kind: "skipped", reason: "no-ambiguity-condition" };
+  const point = matchingDecisionPoint(request, declarations.decisionPoints, subject.archetype);
+  if (point !== undefined) return { kind: "sampled", request, point };
+  return {
+    kind: "skipped",
+    reason: declarations.decisionPoints.points.some((candidate) =>
+      inPointScope(candidate, request.objectId, subject.archetype),
+    )
+      ? "trigger-not-met"
+      : "out-of-point-scope",
+  };
+}
+
+/**
+ * Every committed decision `runDecisionShadow` gives no record, with its reason, in subject order.
+ * Pure: it calls no model, so it holds with models off too.
+ */
+export function decisionShadowSkips(input: {
+  readonly subjects: readonly ShadowSubject[];
+  readonly declarations: DecisionShadowDeclarations;
+}): readonly DecisionShadowSkip[] {
+  return input.subjects.flatMap((subject) => {
+    const selection = selectSubject(subject, input.declarations);
+    return selection.kind === "sampled"
+      ? []
+      : [
+          {
+            commandId: subject.commandId,
+            objectId: subject.trace.objectId,
+            simulationTime: subject.trace.simulationTime.toString(),
+            reason: selection.reason,
+          },
+        ];
+  });
 }
 
 export type MarginBucket = "none" | "small" | "large";
@@ -215,19 +326,89 @@ function shownCandidate(candidate: RoutineCandidate, features: readonly string[]
 const INSTRUCTIONS =
   "Choose the one routine action this actor should take now. Answer with exactly one option label.";
 
-function describe(candidate: ShadowCandidate): string {
-  const features = Object.entries(candidate.features)
-    .map(([name, value]) => `${name}=${value}`)
+function featureScale(name: string) {
+  const scale = UTILITY_FEATURE_SCALES[name];
+  // Every feature the kernel scorer records has a scale; a value without one is never shown bare.
+  if (scale === undefined) throw new RangeError(`decision shadow feature has no scale: ${name}`);
+  return scale;
+}
+
+/** One feature value with its unit: a share, a flag as yes/no, or a duration. */
+function featureValue(name: string, value: string): string {
+  const scale = featureScale(name);
+  if (scale.unit === "flag") return value === "10000" ? "yes" : value === "0" ? "no" : value;
+  if (scale.unit === "milliseconds") return `${value} ms`;
+  if (scale.min === 0n && scale.max === 10000n) return `${value}/10000 (${Number(value) / 100}%)`;
+  return `${value} (range ${scale.min} to ${scale.max})`;
+}
+
+/** The unit, range and meaning of each named feature, once per request. */
+function featureLegend(names: readonly string[]): string {
+  return names
+    .map((name) => {
+      const scale = featureScale(name);
+      const unit =
+        scale.unit === "flag"
+          ? "yes or no"
+          : scale.unit === "milliseconds"
+            ? "milliseconds, 0 or more"
+            : `basis points from ${scale.min} to ${scale.max}`;
+      return `- ${name}: ${unit}; ${scale.meaning}`;
+    })
+    .join("\n");
+}
+
+function describeFeatures(features: Readonly<Record<string, string>>): string {
+  return Object.entries(features)
+    .map(([name, value]) => `${name} ${featureValue(name, value)}`)
     .join(", ");
-  return `${features || "no declared candidate features"} (fixed-point values)`;
+}
+
+function describe(candidate: ShadowCandidate): string {
+  return describeFeatures(candidate.features) || "no declared candidate features";
+}
+
+/** Percentile by nearest rank over ascending values, or null with none. */
+function percentile(sorted: readonly number[], fraction: number): number | null {
+  return sorted.length === 0
+    ? null
+    : (sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))] ??
+        null);
+}
+
+export interface DecisionShadowLatency {
+  /** Records with a measured call latency (over-budget records made no call). */
+  readonly calls: number;
+  readonly meanMs: number | null;
+  readonly p50Ms: number | null;
+  readonly p95Ms: number | null;
+}
+
+/** Mean, p50 and p95 (nearest rank) of the measured call latencies of these records. */
+export function decisionShadowLatency(
+  records: readonly DecisionShadowRecord[],
+): DecisionShadowLatency {
+  const latencies = records
+    .flatMap((record) => (record.latencyMs === null ? [] : [record.latencyMs]))
+    .sort((a, b) => a - b);
+  return {
+    calls: latencies.length,
+    meanMs:
+      latencies.length === 0
+        ? null
+        : latencies.reduce((sum, value) => sum + value, 0) / latencies.length,
+    p50Ms: percentile(latencies, 0.5),
+    p95Ms: percentile(latencies, 0.95),
+  };
 }
 
 /**
  * Runs the shadow tier over committed decisions. Pure of the world: it reads traces and calls the
  * decider, never writing physical state. Without a decider (models off) it returns nothing, so the
- * world runs exactly as without the tier. Per-point budgets count calls and spend within one run.
- * Failures, `cant_tell`, low confidence and exhausted budgets each fall back to the
- * deterministic fallback, which is always the utility choice already taken.
+ * world runs exactly as without the tier. Per-point budgets count calls and spend within one run;
+ * an unknown cost is charged conservatively, never as free. Failures, `cant_tell`, low confidence
+ * and exhausted budgets each fall back to the deterministic fallback, which is always the utility
+ * choice already taken. `decisionShadowSkips` names every decision this gives no record.
  */
 export async function runDecisionShadow(input: {
   readonly subjects: readonly ShadowSubject[];
@@ -238,11 +419,15 @@ export async function runDecisionShadow(input: {
   if (decider === undefined) return [];
   const used = new Map<string, { calls: number; microusd: number }>();
   const records: DecisionShadowRecord[] = [];
+  const cohortMargin =
+    declarations.cohortMargin !== undefined
+      ? declarations.cohortMargin
+      : (declarations.ambiguity.conditions.find((condition) => condition.kind === "score-margin")
+          ?.maxMargin ?? null);
   for (const subject of input.subjects) {
-    const request = planningRequestFor(subject.trace, declarations.ambiguity, subject.commandId);
-    if (request === undefined || request.candidates.length < 2) continue;
-    const point = matchingDecisionPoint(request, declarations.decisionPoints, subject.archetype);
-    if (point === undefined) continue;
+    const selection = selectSubject(subject, declarations);
+    if (selection.kind === "skipped") continue;
+    const { request, point } = selection;
     const candidates = request.candidates
       .map((candidate) => shownCandidate(candidate, point.features))
       .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -250,13 +435,10 @@ export async function runDecisionShadow(input: {
       .map((candidate) => BigInt(candidate.score))
       .sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
     const gap = (scores[0] ?? 0n) - (scores[1] ?? 0n);
-    const declaredMargin = declarations.ambiguity.conditions.find(
-      (condition) => condition.kind === "score-margin",
-    );
     const utilityMargin = {
       gap: gap.toString(),
-      maxMargin: declaredMargin?.maxMargin.toString() ?? null,
-      withinDeclaredMargin: declaredMargin === undefined ? null : gap <= declaredMargin.maxMargin,
+      maxMargin: cohortMargin?.toString() ?? null,
+      withinDeclaredMargin: cohortMargin === null ? null : gap <= cohortMargin,
     };
     const actorFeatures = request.candidates[0]?.features ?? {};
     const actorState = Object.fromEntries(
@@ -297,34 +479,42 @@ export async function runDecisionShadow(input: {
     } as const;
     const spent = used.get(point.id) ?? { calls: 0, microusd: 0 };
     used.set(point.id, spent);
-    if (spent.calls >= point.budget.maxCalls || spent.microusd >= point.budget.maxMicrousd) {
-      records.push({
+    const overBudget = (detail: string) =>
+      ({
         ...base,
-        shadow: {
-          status: "over-budget",
-          choice: null,
-          confidenceBp: null,
-          detail: spent.calls >= point.budget.maxCalls ? "calls" : "spend",
-        },
+        shadow: { status: "over-budget", choice: null, confidenceBp: null, detail },
         model: null,
         latencyMs: null,
         costMicrousd: null,
-      } as DecisionShadowRecord);
+      }) as DecisionShadowRecord;
+    if (spent.calls >= point.budget.maxCalls || spent.microusd >= point.budget.maxMicrousd) {
+      records.push(overBudget(spent.calls >= point.budget.maxCalls ? "calls" : "spend"));
       continue;
     }
-    spent.calls += 1;
     const options = {
       ...Object.fromEntries(candidates.map((candidate) => [candidate.key, describe(candidate)])),
       [CANT_TELL_OPTION]: "none of the candidates can be preferred; defer to the default choice",
     };
+    const shownNames = [
+      ...new Set([
+        ...Object.keys(actorState),
+        ...candidates.flatMap((candidate) => Object.keys(candidate.features)),
+      ]),
+    ].sort();
     const outcome = await decider.pick({
       alias: point.modelAlias,
       callId: `${request.requestId}:${request.objectId}:${request.simulationTime}:${point.id}`,
-      state: `Actor ${request.objectId}. State (fixed-point values): ${JSON.stringify(actorState)}. Candidate actions, already valid in the world:\n${candidates.map((candidate) => `- ${candidate.key}: ${describe(candidate)}`).join("\n")}`,
+      state: `Actor ${request.objectId}. State: ${describeFeatures(actorState) || "none recorded"}.\nCandidate actions, already valid in the world:\n${candidates.map((candidate) => `- ${candidate.key}: ${describe(candidate)}`).join("\n")}\nFeature scales:\n${featureLegend(shownNames)}`,
       options,
       instructions: INSTRUCTIONS,
     });
-    spent.microusd += outcome.costMicrousd ?? 0;
+    if (outcome.status === "failed" && outcome.code === SHADOW_BUDGET_REFUSED) {
+      // A budget beyond the point refused the call before any provider call: not a model failure.
+      records.push(overBudget("shared-budget"));
+      continue;
+    }
+    spent.calls += 1;
+    spent.microusd += outcome.costMicrousd ?? outcome.reservedMicrousd ?? point.budget.maxMicrousd;
     const accounting = {
       model: outcome.model,
       latencyMs: Math.round(outcome.latencyMs),
@@ -615,6 +805,7 @@ export interface DecisionShadowPointReport {
   readonly outsideMargin: DecisionShadowAgreement;
   readonly unclassifiedMargin: DecisionShadowAgreement;
   readonly meanLatencyMs: number | null;
+  readonly p50LatencyMs: number | null;
   readonly p95LatencyMs: number | null;
 }
 
@@ -630,6 +821,11 @@ export interface DecisionShadowReview {
 export interface DecisionShadowReport {
   readonly schemaVersion: 1;
   readonly points: readonly DecisionShadowPointReport[];
+  /** Committed decisions given no record, by reason (every reason listed, zero included). */
+  readonly skipped: Readonly<{
+    decisions: number;
+    reasons: Readonly<Record<DecisionShadowSkipReason, number>>;
+  }>;
   /** Answers that differ from the utility choice, with their candidates, in record order. */
   readonly differing: readonly DecisionShadowRecord[];
   /**
@@ -657,9 +853,13 @@ function agreement(rows: readonly DecisionShadowRecord[]): DecisionShadowAgreeme
   };
 }
 
-/** Agreement, cost and latency per decision point, differing examples and repeat signatures. */
+/**
+ * Agreement, cost and latency per decision point, skipped decisions by reason, differing examples
+ * and repeat signatures.
+ */
 export function decisionShadowReport(
   records: readonly DecisionShadowRecord[],
+  skips: readonly DecisionShadowSkip[] = [],
 ): DecisionShadowReport {
   const byPoint = new Map<string, DecisionShadowRecord[]>();
   for (const record of records)
@@ -667,9 +867,7 @@ export function decisionShadowReport(
   const points = [...byPoint.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([pointId, rows]): DecisionShadowPointReport => {
-      const latencies = rows
-        .flatMap((row) => (row.latencyMs === null ? [] : [row.latencyMs]))
-        .sort((a, b) => a - b);
+      const latency = decisionShadowLatency(rows);
       const answers = rows.filter(answered);
       const agreed = answers.filter((row) => !disagrees(row)).length;
       return {
@@ -695,15 +893,9 @@ export function decisionShadowReport(
         unclassifiedMargin: agreement(
           rows.filter((row) => row.utilityMargin?.withinDeclaredMargin == null),
         ),
-        meanLatencyMs:
-          latencies.length === 0
-            ? null
-            : latencies.reduce((sum, value) => sum + value, 0) / latencies.length,
-        p95LatencyMs:
-          latencies.length === 0
-            ? null
-            : (latencies[Math.min(latencies.length - 1, Math.ceil(latencies.length * 0.95) - 1)] ??
-              null),
+        meanLatencyMs: latency.meanMs,
+        p50LatencyMs: latency.p50Ms,
+        p95LatencyMs: latency.p95Ms,
       };
     });
   const bySignature = new Map<string, DecisionShadowRecord[]>();
@@ -728,6 +920,15 @@ export function decisionShadowReport(
   return {
     schemaVersion: 1,
     points,
+    skipped: {
+      decisions: skips.length,
+      reasons: Object.fromEntries(
+        DECISION_SHADOW_SKIP_REASONS.map((reason) => [
+          reason,
+          skips.filter((skip) => skip.reason === reason).length,
+        ]),
+      ) as Record<DecisionShadowSkipReason, number>,
+    },
     differing: records.filter(disagrees).slice(0, EXAMPLE_LIMIT),
     review,
   };

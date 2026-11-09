@@ -1,4 +1,4 @@
-import { ProviderFailure } from "./adapter.js";
+import { httpFailureBilling, NOTHING_BILLED, ProviderFailure } from "./adapter.js";
 import type {
   DecisionAdapter,
   DecisionAdapterResult,
@@ -15,7 +15,9 @@ export type ScriptedDecisionStep =
       /** Simulated provider latency, awaited before the answer. */
       delayMs?: number;
     }>
-  | Readonly<{ kind: "http"; status: number }>;
+  | Readonly<{ kind: "http"; status: number }>
+  /** The model answered with a refusal; `costUsd` is the cost the gateway reported for it. */
+  | Readonly<{ kind: "refusal"; costUsd?: number }>;
 
 /**
  * The deterministic decider for tests, CI and evals. Each alias route plays its own finite script
@@ -32,14 +34,23 @@ export class ScriptedDecider implements DecisionAdapter {
   async decide(call: DecisionCall): Promise<DecisionAdapterResult> {
     this.calls.push(call);
     const step = this.scripts.get(call.route.id)?.shift();
-    if (step === undefined) throw new ProviderFailure("unavailable", null, false);
+    // An exhausted script made no provider call.
+    if (step === undefined) throw new ProviderFailure("unavailable", null, false, NOTHING_BILLED);
     if (step.kind === "http") {
       throw new ProviderFailure(
         step.status === 429 ? "rate_limited" : "unavailable",
         step.status,
         step.status === 429 || step.status >= 500,
+        httpFailureBilling(step.status),
       );
     }
+    if (step.kind === "refusal")
+      throw new ProviderFailure("refused", null, false, {
+        kind: "usage",
+        inputTokens: null,
+        outputTokens: null,
+        reportedCostUsd: step.costUsd ?? null,
+      });
     if (step.delayMs !== undefined)
       await new Promise((resolve) => setTimeout(resolve, step.delayMs));
     return {

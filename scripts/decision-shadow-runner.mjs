@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { decisionShadowReport, runDecisionShadow } from "../packages/application/src/index.ts";
+import {
+  decisionShadowLatency,
+  decisionShadowReport,
+  decisionShadowSkips,
+  runDecisionShadow,
+} from "../packages/application/src/index.ts";
 import { executeWorldKernel, scoreUtility } from "../packages/kernel/src/index.ts";
 import {
   AiSdkDecisionAdapter,
@@ -85,15 +90,78 @@ export async function simulate(directory, spanMs) {
   return { subjects, pack: validated.value, run, artifact: built.value.artifact };
 }
 
-function declarations(simulation, alias, margin, maxCalls, spend) {
+/** The top-two eligible score gap of each decision with at least two eligible candidates. */
+function topTwoGaps(subjects) {
+  return subjects.flatMap(({ trace }) => {
+    const scores = trace.candidates
+      .filter((candidate) => candidate.excludedReason === undefined)
+      .map((candidate) => candidate.score)
+      .sort((left, right) => (left > right ? -1 : left < right ? 1 : 0));
+    return scores.length < 2 ? [] : [scores[0] - scores[1]];
+  });
+}
+
+/**
+ * Sampling and cohort classification, kept apart. Sampling: the operator's margin when stated;
+ * else the pack's own decision points under its own ambiguity declaration; else, by default,
+ * every utility decision (the margin is the span's largest top-two gap). Classification: the
+ * operator's cohort margin when stated, else the pack's declared score-margin, else none.
+ */
+function shadowMargins(simulation, margin, cohortMargin) {
   const utility = simulation.pack.behaviorPolicy?.utility;
   if (utility === undefined) throw new Error("World needs a utility policy");
+  const declared = utility.ambiguity?.conditions.find(
+    (condition) => condition.kind === "score-margin",
+  );
+  const novelty =
+    utility.ambiguity?.conditions.filter((condition) => condition.kind !== "score-margin") ?? [];
+  const cohort =
+    cohortMargin !== undefined
+      ? { margin: cohortMargin, source: "operator" }
+      : declared !== undefined
+        ? { margin: declared.maxMargin, source: "pack" }
+        : { margin: null, source: "none" };
+  if (margin !== undefined)
+    return {
+      sampling: { rule: "operator-margin", margin },
+      ambiguity: {
+        schemaVersion: 1,
+        conditions: [{ kind: "score-margin", maxMargin: margin }, ...novelty],
+      },
+      cohort,
+    };
+  if (utility.decisionPoints !== undefined && utility.ambiguity !== undefined)
+    return {
+      sampling: { rule: "pack-decision-points", margin: declared?.maxMargin ?? null },
+      ambiguity: utility.ambiguity,
+      cohort,
+    };
+  const widest = topTwoGaps(simulation.subjects).reduce(
+    (left, right) => (left > right ? left : right),
+    0n,
+  );
+  return {
+    sampling: { rule: "every-decision", margin: widest },
+    ambiguity: {
+      schemaVersion: 1,
+      conditions: [{ kind: "score-margin", maxMargin: widest }, ...novelty],
+    },
+    cohort,
+  };
+}
+
+function declarations(simulation, alias, margins, maxCalls, spend) {
+  const utility = simulation.pack.behaviorPolicy?.utility;
+  if (utility === undefined) throw new Error("World needs a utility policy");
+  const bucket = margins.cohort.margin ?? margins.sampling.margin ?? 0n;
+  // Without world points the operator point takes every request the sampling declaration raises,
+  // novelty (an unperceived target) included, so no decision is dropped by the point's trigger.
   const fallback = {
     id: "operator.shadow",
-    trigger: { kind: "score-margin", maxMargin: margin },
+    trigger: { kind: "declared-ambiguity" },
     candidates: "kernel-valid",
     signatureScope: "actor",
-    marginBuckets: { noneMax: 0n, smallMax: margin > 0n ? margin : 1n },
+    marginBuckets: { noneMax: 0n, smallMax: bucket > 0n ? bucket : 1n },
     features: [
       ...new Set(
         simulation.subjects.flatMap(({ trace }) =>
@@ -105,15 +173,8 @@ function declarations(simulation, alias, margin, maxCalls, spend) {
     fallback: "utility-top-pick",
   };
   return {
-    ambiguity: {
-      schemaVersion: 1,
-      conditions: [
-        { kind: "score-margin", maxMargin: margin },
-        ...(utility.ambiguity?.conditions.filter(
-          (condition) => condition.kind !== "score-margin",
-        ) ?? []),
-      ],
-    },
+    ambiguity: margins.ambiguity,
+    cohortMargin: margins.cohort.margin,
     decisionPoints: {
       schemaVersion: 1,
       points: (utility.decisionPoints?.points ?? [fallback]).map((point) => ({
@@ -242,7 +303,9 @@ export function referenceSituations(subjects) {
 export async function runShadowDay(config, adapter) {
   if (!/^\d+$/.test(String(config.spanMs)) || BigInt(config.spanMs) <= 0n)
     throw new Error("span-ms must be a positive integer");
-  if (!/^\d+$/.test(String(config.margin))) throw new Error("margin must be a nonnegative integer");
+  for (const name of ["margin", "cohortMargin"])
+    if (config[name] !== undefined && !/^\d+$/.test(String(config[name])))
+      throw new Error(`${name} must be a nonnegative integer`);
   if (!Number.isSafeInteger(config.spendMicrousd) || config.spendMicrousd < 0)
     throw new Error("spend-microusd must be a nonnegative safe integer");
   if (typeof config.alias?.alias !== "string" || typeof config.alias?.model !== "string")
@@ -273,13 +336,14 @@ export async function runShadowDay(config, adapter) {
     ? undefined
     : {
         pick: async (request) => {
+          // The run's cap is reserved: no provider call, reported as over budget, not a failure.
           if (reservations >= maxCalls)
             return {
               status: "failed",
               code: "budget_exceeded",
               model: alias.route.model,
               latencyMs: 0,
-              costMicrousd: 0,
+              costMicrousd: null,
             };
           reservations += 1;
           const outcome = await gateway.decide({
@@ -299,6 +363,7 @@ export async function runShadowDay(config, adapter) {
             model: outcome.record.model,
             latencyMs: outcome.record.latencyMs,
             costMicrousd: outcome.record.costMicrousd,
+            reservedMicrousd: outcome.record.reservedMicrousd,
           };
           return outcome.status === "completed"
             ? {
@@ -310,13 +375,12 @@ export async function runShadowDay(config, adapter) {
             : { status: "failed", code: outcome.code, ...accounting };
         },
       };
-  const declared = declarations(
+  const margins = shadowMargins(
     simulation,
-    alias,
-    BigInt(config.margin),
-    maxCalls,
-    config.spendMicrousd,
+    config.margin === undefined ? undefined : BigInt(config.margin),
+    config.cohortMargin === undefined ? undefined : BigInt(config.cohortMargin),
   );
+  const declared = declarations(simulation, alias, margins, maxCalls, config.spendMicrousd);
   // Judge reference cases first, so a day with many observations cannot starve calibration.
   const labelled = [];
   for (const entry of reference) {
@@ -374,6 +438,7 @@ export async function runShadowDay(config, adapter) {
     declarations: declared,
     decider,
   });
+  const skips = decisionShadowSkips({ subjects: simulation.subjects, declarations: declared });
   const referenceAnswered = labelled.filter((entry) => entry.status === "picked").length;
   return {
     schemaVersion: 1,
@@ -381,7 +446,14 @@ export async function runShadowDay(config, adapter) {
     spanMs: String(config.spanMs),
     alias: alias.alias,
     model: alias.route.model,
-    ambiguityMargin: String(config.margin),
+    sampling: {
+      rule: margins.sampling.rule,
+      margin: margins.sampling.margin === null ? null : String(margins.sampling.margin),
+    },
+    cohortMargin: {
+      margin: margins.cohort.margin === null ? null : String(margins.cohort.margin),
+      source: margins.cohort.source,
+    },
     modelsOff: Boolean(config.modelsOff),
     budget: {
       capMicrousd: config.spendMicrousd,
@@ -391,8 +463,13 @@ export async function runShadowDay(config, adapter) {
     },
     replay: simulation.run.replay,
     finalStateHash: simulation.run.finalStateHash,
-    utilityAgreement: decisionShadowReport(records),
+    utilityAgreement: decisionShadowReport(records, skips),
+    latency: {
+      world: decisionShadowLatency(records),
+      reference: decisionShadowLatency(labelled.flatMap((entry) => entry.record ?? [])),
+    },
     records,
+    skipped: skips,
     reference: {
       kind: "labelled-fixture-state-variations",
       total: labelled.length,
