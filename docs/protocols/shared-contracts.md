@@ -122,17 +122,60 @@ The successor `SceneProjection` is distinct from diagnostic v1 and the separatel
 
 ## Asset manifests and pack presentation
 
-`packages/contracts/src/asset-manifest.ts` freezes asset-manifest version 1, the version a scene
+`packages/contracts/src/asset-manifest.ts` freezes asset-manifest version 2, the version a scene
 snapshot's `compatibility.assetManifestVersion` names. One `AssetManifest` describes one sprite strip,
 identified by `assetId` and `animationFamily` (`idle`, `walk`, `sniff`, `eat`, `play`, `shelter`,
 `static`, `loop`). It records the Wave 4 plan §12 fields: `source` (kind, path
 `assets/source/<assetId>/<animationFamily>.png`, creator, tool), the SPDX `license`, `provenance`
-(generation prompt or parameters, and references; a generated asset needs one of them), `review`
+(described below), `review`
 (status `pending`, `approved` or `rejected`, the human reviewer's login and time, both null exactly
-when pending), `semantic` (role, entity, archetype), `frames` (width and height up to 256 px, count up to
+when pending), `semantic` (role, entity, archetype), `frames` (width and height up to 2048 px, count up to
 32, and a duration exactly when animated), `anchor`, `footprint` in millimetres, opaque `bounds`, a sorted
 `palette`, the source `contentHash`, the `atlas` location of frame 0 and an `accessibilityLabel`.
-`decodeAssetManifest` refuses unknown or missing fields and non-kebab-case ids.
+`decodeAssetManifest` refuses unknown fields, missing structural fields and non-kebab-case ids.
+Version 1 is no longer accepted; repository manifests and presentations use version 2, and scene
+snapshots advertise `compatibility.assetManifestVersion: 2`. Simulation-pack versions and hashes
+are independent of this presentation migration. The 2048 px frame envelope is WebGL's guaranteed
+minimum texture size; each world's style profile and the atlas strip budget impose tighter limits.
+
+#### Generated provenance
+
+Every provenance record keeps `prompt` (generation prompt or serialized generator parameters,
+or null) and `references`. A generated asset also records non-empty `model`, `provider`, `route`
+and `providerTermsVersion`, plus `outputGrant`. Reference entries are lowercase SHA-256 hashes
+of the input references. An empty references array records that no references were used; it does
+not replace the prompt or parameters. Authored and imported assets retain the prompt/references
+shape without generated fields.
+
+`outputGrant` uses [Assetforge issue 47](https://github.com/clockgrove/assetforge/issues/47)'s field
+names directly:
+
+| Field | Meaning |
+| --- | --- |
+| `license` | SPDX identifier granted by the provider, or `LicenseRef-<provider>-<plan>` for other terms |
+| `plan` | Provider plan or route used for this output |
+| `commercial` | Boolean: whether the grant permits commercial use |
+| `relabel` | Boolean: whether ownership permits declaring the target's own licence |
+| `attribution` | Required credit line when the grant requires one; optional otherwise |
+
+The manifest's top-level `license` remains the licence the asset declares. Complete generated
+provenance permits MIT only when the commercial provider grant permits relicensing, including
+provider ownership terms recorded as a `LicenseRef-<provider>-<plan>`. A
+`CC-BY-4.0` grant keeps `CC-BY-4.0` and requires a non-empty attribution; it cannot be declared MIT.
+Provider grants may use `AND` expressions: every conjunct applies. A CC-BY conjunct requires
+licence retention and credit even when the grant claims `relabel: true`.
+Non-commercial and provider-retained grants are refused. The pipeline never silently relabels an
+asset. Missing or partial generated provenance is refused by the deploy gate with a stable reason;
+malformed field types remain decoder errors. Human review remains a separate requirement.
+
+Generated deploy refusals are:
+
+| Code | Reason |
+| --- | --- |
+| `GENERATED_PROVENANCE_INCOMPLETE` | Missing prompt, model, provider, route, terms version, grant or required grant fields |
+| `OUTPUT_GRANT_NOT_PERMITTED` | Commercial use is false, or the grant permits neither relicensing nor a permitted licence |
+| `OUTPUT_GRANT_LICENSE_MISMATCH` | Declared licence differs from a grant that disallows relabelling, or a CC-BY grant claims MIT |
+| `OUTPUT_GRANT_ATTRIBUTION_REQUIRED` | A CC-BY-4.0 grant has no required credit line |
 
 `assetDeployRefusals` is the deploy gate. It returns `REVIEW_NOT_APPROVED` unless the review is approved,
 `REVIEWER_NOT_HUMAN` for a `[bot]` reviewer, and `LICENSE_NOT_PERMITTED` unless the license is `MIT`,
@@ -141,7 +184,8 @@ redistributable Creative Commons licenses). The committed negative fixtures
 `packages/contracts/test/fixtures/asset-manifest/unreviewed.json` and `unlicensed.json` each fail it.
 
 `PackPresentation` (`presentationVersion: 1`) is a world pack's presentation metadata, stored as
-`worlds/<dir>/presentation.json` beside, not inside, the pack source. It names the pack's id and
+`worlds/<dir>/reference/presentation.json` beside, not inside, the pack source. It declares
+`assetManifestVersion: 2` and names the pack's id and
 version. Its `bindings` have the wire `ScenePresentationBinding` shape and bind each stable object ID
 at most once. Its `effects` bind the scene roles `path`, `rain`, `puddle`, `lantern`, `window` and
 `selection` to manifests, optionally at an object. Pack conformance validates it
@@ -184,6 +228,6 @@ The asset source validator and fixture CLI enforce this profile. Palette profile
 manifest palette inventory checks; unrestricted colour profiles do not require a full-colour
 inventory in the manifest. Missing world profiles are refused with `STYLE_PROFILE_REQUIRED`,
 malformed ones with `STYLE_PROFILE_INVALID`; rule failures use `STYLE_ALPHA`, `STYLE_PALETTE`,
-`STYLE_EDGE` and `STYLE_SIZE`. Manifest version 1 still independently caps frame dimensions
-at 256 px; larger frames and generated provenance require the subsequent manifest migration
-in issue 61. Neither the asset-manifest version nor scene compatibility changes in this part.
+`STYLE_EDGE` and `STYLE_SIZE`. Manifest version 2 admits frames up to the 2048 px platform
+envelope; the fixture's pixel-art profile supplies its 256 px limits. Bounded multi-atlas packing
+and external-world asset commands remain the next part of issue 61.

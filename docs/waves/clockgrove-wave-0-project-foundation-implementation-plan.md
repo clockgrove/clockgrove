@@ -3,7 +3,7 @@
 **Status:** Current implementation specification  
 **Version:** 2.2  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Development tooling:** `clockgrove/factory` may operate this repository but is not a product/runtime dependency
 **Wave:** 0 of 13 — foundation workstream for product implementation waves 1–12
@@ -120,8 +120,8 @@ packages/
   testkit/                 fakes, clocks, IDs, fixtures, fault helpers
 
 worlds/
-  raccoons/                reference world content introduced incrementally
-  fixture/                 tiny non-raccoon conformance pack
+  fixture/                 Clockgrove's own test worlds: the tiny non-raccoon conformance
+                           pack and the neutral reference variant (reference/)
 
 db/
   migrations/

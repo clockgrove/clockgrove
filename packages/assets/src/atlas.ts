@@ -127,7 +127,7 @@ export function buildAtlases(
     });
     const png = encodePng({ width, height, rgba });
     const animations = canonicalJson({
-      assetManifestVersion: 1,
+      assetManifestVersion: 2,
       atlasId,
       image: { sha256: sha256Hex(png), width, height },
       animations: members.map((e, n) => {

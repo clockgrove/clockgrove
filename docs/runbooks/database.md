@@ -675,6 +675,26 @@ Migration `0038_turn_fibers.sql` (Wave 5 RW-0503, issue 18) holds `conversation_
   a process's lease. Segments never change.
 - DELETE and TRUNCATE are refused on all three. Retention: see `db/retention.json`.
 
+## Actor activation event cursors
+
+Migration `0039_actor_activations.sql` holds one `actor_activation_policies` row per actor. See
+[proactive activation](../protocols/conversation-fibers.md#proactive-activation). Its event cursor
+must not skip an event when partitions commit out of journal-position order (issue 128):
+
+- **Appending transaction:** migration `0043_activation_commit_order.sql` adds
+  `events.transaction_id` (`xid8`). The `events_transaction_stamp` trigger sets it to
+  `pg_current_xact_id()` on every insert, so no writer chooses it. Events written before 0043 read
+  `0`.
+- **Cursor:** the pair `(event_cursor_transaction, event_cursor)`. A check reads the events after
+  it in `(transaction_id, journal_position)` order through `events_commit_order_idx`. It takes an
+  event only when `transaction_id` is below `pg_snapshot_xmin(pg_current_snapshot())`: every such
+  transaction has ended, so no later commit can land at or before the cursor. A visible event of a
+  newer transaction waits for the next check, and the check reports that more may be waiting.
+- **Acknowledgement** moves the cursor to the event's pair, and only forward. A new policy starts at
+  `pg_snapshot_xmax` of its configuring statement and position 0.
+- **Cost:** the wait is bounded by the oldest open writing transaction in the cluster, not by this
+  timeline's. A long write delays wakes and loses none.
+
 ## Snapshots
 
 Migration `0013_partition_snapshots.sql` (RW-0208, issue 677) constrains `snapshots`.

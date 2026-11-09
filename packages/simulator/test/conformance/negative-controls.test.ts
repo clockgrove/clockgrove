@@ -67,7 +67,7 @@ describe("conformance negative controls", () => {
       join(directory, "presentation.json"),
       JSON.stringify({
         presentationVersion: 1,
-        assetManifestVersion: 1,
+        assetManifestVersion: 2,
         pack: { id: "clockgrove.test-world", version: "9.0.0" },
         bindings: [
           { ...binding, objectId: "beacon.ghost" },

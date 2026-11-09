@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.6  
 **Date:** October 01, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 1 of the first three substantive implementation waves  
 **Assumption:** Wave 0 repository, contracts, ports, CI, local database, and Cloudflare skeleton are complete  
@@ -144,7 +144,6 @@ packages/
   simulator/
     cli/
 worlds/
-  raccoons/
   fixture/
 tests/
   contract/
@@ -476,6 +475,8 @@ Prove birth exactly once across repeated inputs, stage threshold ordering, death
 
 **Consumes:** all prior Wave 1 packets.  
 **Produces:** `green-lake-yard@1`, `test-world@1`, immutable pack artifacts, headless simulator, deterministic genesis bundle, complete golden/evidence bundle.
+
+The reference pack `green-lake-yard@1`, with its goldens and long runs, moved with [raccoon-world#1](https://github.com/clockgrove/raccoon-world/issues/1) to [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world). That repository runs Clockgrove's world-pack check on it in its own CI against a pinned Clockgrove commit. Clockgrove's qualification scripts (`qualify:wave1`, `qualify:wave1:long-runs` and the later waves' `qualify:*`) reference no reference-world path. They run on `worlds/fixture`: the `test-world@1` beacon pack and the neutral reference variant under `worlds/fixture/reference`, which carries every named scenario with its exact physical values.
 
 CLI commands:
 

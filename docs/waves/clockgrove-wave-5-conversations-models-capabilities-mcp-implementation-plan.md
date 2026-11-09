@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.9  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.10  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 5 of 13  
 **Assumptions:** Waves 0–4 are qualified; web projection and ActorAgentDO seams are stable  

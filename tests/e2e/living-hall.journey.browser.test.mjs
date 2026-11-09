@@ -1432,8 +1432,8 @@ const observeHall = async (backend) => {
             .filter((message) => message.type === "resume")
             .map((message) => [message.lastAppliedRevision, message.assetManifestVersion]),
         ).toEqual([
-          [null, 1],
-          [ordinaryRevision, 1],
+          [null, 2],
+          [ordinaryRevision, 2],
         ]);
         expect(sceneRequests).toBe(0);
         expect(navigations).toBe(1);

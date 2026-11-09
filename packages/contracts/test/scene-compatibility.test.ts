@@ -67,7 +67,9 @@ it("rejects incompatible serialized protocol, projection, asset and client versi
       } catch (error) {
         expect(error).toBeInstanceOf(SceneCompatibilityError);
         if (!(error instanceof SceneCompatibilityError)) throw error;
-        const expected = mismatch.field === "projectionVersion" ? 2 : 1;
+        const expected = ["projectionVersion", "assetManifestVersion"].includes(mismatch.field)
+          ? 2
+          : 1;
         expect({ code: error.code, actual: error.actual, expected: error.expected }).toEqual({
           code: mismatch.code,
           actual: 9,
@@ -99,7 +101,7 @@ it("refuses a patch declaring a newer projection version with its stable code, w
   );
   const newer = {
     op: "set_compatibility",
-    compatibility: { projectionVersion: 9, assetManifestVersion: 1, clientVersion: 1 },
+    compatibility: { projectionVersion: 9, assetManifestVersion: 2, clientVersion: 1 },
   };
   for (const payload of [
     { ...patch.payload, operations: [newer] },
@@ -123,7 +125,7 @@ it("accepts the prior projection version 1 only without version 2's effects", as
       ),
     ),
   );
-  const v1 = { projectionVersion: 1, assetManifestVersion: 1, clientVersion: 1 };
+  const v1 = { projectionVersion: 1, assetManifestVersion: 2, clientVersion: 1 };
   const { effects: _effects, ...prior } = snapshot.payload;
   const decoded = decodeObserverSceneMessage({
     ...snapshot,
@@ -171,7 +173,7 @@ it("freezes strict audience and complete reviewed asset metadata", async () => {
     ),
   );
   expect(decodeSceneAssetManifest(manifest)).toEqual({
-    version: 1,
+    version: 2,
     contentHash: "sha256-manifest-content",
     assets: [
       {
@@ -202,7 +204,7 @@ it("freezes strict audience and complete reviewed asset metadata", async () => {
       decodeSceneAssetManifest(
         JSON.parse(JSON.stringify({ ...manifest, ...reshaped, version: 9 })),
       ),
-    ).toThrow("unsupported_asset_manifest_version; actual=9; expected=1");
+    ).toThrow("unsupported_asset_manifest_version; actual=9; expected=2");
   expect(() => decodeSceneAssetManifest({ contentHash: "x", assets: [] })).toThrow(
     "manifest.version: missing field",
   );

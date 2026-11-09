@@ -1,7 +1,8 @@
 # Clockgrove Visual Style
 
 **Status:** Canonical visual direction  
-**Applies to:** Image generation, concept art, world-pack art, website illustrations, product marketing, demo key art, UI scene treatment, icons, diagrams representing the world, and AI-assisted asset creation
+**Applies to:** Clockgrove's own brand art: website and documentation illustrations, product marketing, platform demo key art, the neutral platform shell's scene treatment, icons and diagrams, including image generation for them  
+**Does not apply to:** world-pack art, including AI-assisted asset creation for a pack. A world's art follows that world's style bible in its own repository, in [Assetforge's](https://github.com/clockgrove/assetforge) bible format (Raccoon World: [clockgrove/raccoon-world#2](https://github.com/clockgrove/raccoon-world/issues/2)).
 
 ---
 

@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.9  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.10  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Visual reference:** `6897ED26-A7B5-4F5E-8D90-B6524B538626.jpeg`  
 **Wave:** 4 of 13  
@@ -14,7 +14,7 @@
 
 ## 1. Outcome
 
-Wave 4 turns the qualified headless world into a shared, inspectable product. It implements the authenticated React shell, explicit browser-arrival readiness state, Phaser isometric scene, SpaceDO WebSocket projection path, deterministic client convergence, observer navigation, selection and universal interaction, event and causal inspection, accessible text projection, and the first reviewed asset set.
+Wave 4 turns the qualified headless world into a shared, inspectable product. It implements the authenticated React shell, explicit browser-arrival readiness state, Three.js isometric scene, SpaceDO WebSocket projection path, deterministic client convergence, observer navigation, selection and universal interaction, event and causal inspection, accessible text projection, and the first reviewed asset set.
 
 The wave exits only when:
 
@@ -72,6 +72,14 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
 
 ---
 
+### 1.2 Platform and reference-world ownership
+
+The shell is world-agnostic. Clockgrove delivers the React shell, the Three.js scene adapter, the projection and realtime path, the asset pipeline and the browser suites, and proves them on its fixture world: the neutral reference variant under `worlds/fixture/reference` with its placeholder atlas, and an atlas-free neutral run. A world themes the shell through the [world presentation inputs](../protocols/world-presentation.md); platform code names no world's content.
+
+Raccoon World's theme (wordmark, tokens and copy), its reviewed art, its reference image and UI description, its goldens and its browser journeys live in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world). That repository runs them in its own CI against a pinned Clockgrove commit. Where this plan names Raccoon World content, such as the reference composition, the wordmark, `green-lake-yard@1`, Stevie or the first reviewed set, the world half of the obligation is met there through those inputs, and the platform half is met here on the fixture world. Every exit item still holds; each is proven in the repository that owns it.
+
+---
+
 ## 2. Entry conditions
 
 These are the full-wave/default entry conditions. A named local-development Objective may consume only accepted prerequisite capabilities under the ADR's recorded readiness exception; its Issue must preserve pending qualification obligations and the selected path's mandatory safety evidence.
@@ -98,9 +106,9 @@ Any missing projection field must be added to a versioned contract before UI cod
 ### 3.1 Ownership
 
 - React + Vite owns routing, authentication, HUD, panels, chat placeholder, event feed, inspector, accessibility, errors, and responsive layout.
-- Phaser owns canvas rendering, camera, depth order, picking, movement interpolation, animations, particles, weather, highlights, and local visual effects.
-- `WorldSceneAdapter` is the only React/Phaser bridge.
-- The bridge consumes renderer-neutral semantic scene data. A required headless 3D adapter fixture proves that a true 3D renderer can consume the same object IDs, spatial frames, presentation bindings, revisions, and intents without Phaser types.
+- Three.js owns canvas rendering, camera, depth order, picking, movement interpolation, animations, particles, weather, highlights, and local visual effects.
+- `WorldSceneAdapter` is the only React/Three.js bridge.
+- The bridge consumes renderer-neutral semantic scene data. A required headless 3D adapter fixture proves that a true 3D renderer can consume the same object IDs, spatial frames, presentation bindings, revisions, and intents without Three.js types.
 - TanStack Query owns HTTP server-state caches.
 - Zustand owns transient cross-panel selection and view state.
 - The projection reducer owns the last authorized server projection and revision.
@@ -228,18 +236,18 @@ packages/application/src/projections/
 packages/application/src/inspection/
 packages/testkit/src/realtime/
 packages/testkit/src/browser/
-assets/source/
-assets/reviewed/
-assets/manifests/
+worlds/fixture/assets/
 tests/e2e/
 tests/visual/
 tests/accessibility/
 tests/load/realtime/
-docs/design/raccoon-world-ui.md
 docs/protocols/realtime-projection.md
+docs/protocols/world-presentation.md
 ```
 
-Phaser cannot import runtime, persistence, cognition, authentication-provider, or database packages. Runtime cannot import React or Phaser.
+Raccoon World's `assets/` (source, reviewed, manifests, goldens) and `docs/design/raccoon-world-ui.md` are owned in its repository (§1.2).
+
+Three.js cannot import runtime, persistence, cognition, authentication-provider, or database packages. Runtime cannot import React or Three.js.
 
 ---
 
@@ -320,7 +328,7 @@ Backpressure policy coalesces replaceable projection fields, drops expired trans
 
 ## 8. Deterministic client convergence
 
-The pure reducer accepts snapshot/patch/reconnect actions and produces projection state plus recovery requests. It is independent of React and Phaser.
+The pure reducer accepts snapshot/patch/reconnect actions and produces projection state plus recovery requests. It is independent of React and Three.js.
 
 Required behavior:
 
@@ -337,7 +345,7 @@ Golden tests permute, duplicate, delay, and drop the same message set and compar
 
 ---
 
-## 9. Phaser scene implementation
+## 9. Scene implementation
 
 ### 9.1 Adapter
 
@@ -440,7 +448,7 @@ Pipeline:
 8. render golden scene at fixed camera/time/weather;
 9. approve visual diff.
 
-First reviewed set: Stevie, Gracie/Juniper placeholder variants, kits, idle/walk/sniff/eat/play/shelter animations, den, trash can, feeder, mailbox, tree, paths, plants, rain, puddles, lantern/window lighting, and selection/interaction effects.
+First reviewed set, delivered in the reference world's repository (§1.2): Stevie, Gracie/Juniper placeholder variants, kits, idle/walk/sniff/eat/play/shelter animations, den, trash can, feeder, mailbox, tree, paths, plants, rain, puddles, lantern/window lighting, and selection/interaction effects.
 
 ---
 
@@ -470,7 +478,7 @@ Implement provider-neutral authentication boundary, world route/selector, unifie
 
 Exit: the shell matches the reference composition at desktop and preserves all core functions at laptop/mobile breakpoints.
 
-### RW-0405 — Phaser isometric scene
+### RW-0405 — Three.js isometric scene
 
 Implement camera, coordinate conversion, layers, depth, anchors, picking, selection, interpolation, animation, wet-weather/day-night effects, typed adapter, cleanup, performance instrumentation, and a headless full-3D conformance fixture for the same adapter contract.
 
@@ -496,7 +504,7 @@ Exit: every Wave 4 journey is completable without the canvas.
 
 ### RW-0409 — Deterministic asset pipeline
 
-Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, first raccoon/environment set, and license report.
+Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, the fixture world's placeholder set and license report here, and the reference world's first character/environment set in its own repository.
 
 Exit: staging scene is reproducible from approved source/manifests; no unreviewed asset can deploy.
 
@@ -525,7 +533,7 @@ Safe parallel lanes:
 
 - projection contracts and asset-manifest contracts;
 - WebSocket runtime and React shell after envelope freeze;
-- asset preparation and Phaser adapter;
+- asset preparation and Three.js adapter;
 - inspector APIs and accessibility text projection;
 - fault/fanout harness and visual-regression fixtures.
 
@@ -556,7 +564,7 @@ pnpm qualify:wave4:staging
 - duplicate, reordered, stale, missing, and incompatible patches;
 - network offline/online, token expiry, hibernation, DO restart, Worker deploy;
 - world pauses/resumes/speeds up;
-- rain begins, puddles update, Stevie moves, event feed records, Why explains;
+- rain begins, puddles update, an actor moves, event feed records, Why explains (on the fixture world here; with Stevie in the reference world's journeys);
 - keyboard-only and screen-reader-equivalent interaction;
 - reduced motion and high zoom/text scale;
 - scene asset missing/corrupt/version mismatch;
@@ -565,7 +573,7 @@ pnpm qualify:wave4:staging
 - snapshot ready before critical assets, asset recovery, and no false `scene_ready`;
 - selected actor crosses a viewed-space boundary with each follow disposition;
 - private Caretaker Talk never appears as public spatial speech, while an explicit public-speech action does;
-- a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Phaser or quadtree identifiers.
+- a 3D spatial-frame fixture passes through the headless adapter with semantic IDs and no Three.js or quadtree identifiers.
 
 ### 15.3 Visual regression matrix
 
@@ -589,7 +597,7 @@ Amended (2026-11-07): the owner delegated the review of the §15.3 golden captur
 
 ## 16. Failure, recovery, and security matrix
 
-Inject socket drop before/after snapshot, patch gap, stale join assertion, expired token, audience/grant change, SpaceDO hibernation, deploy, backpressure, corrupt cached metadata, asset 404/hash failure, React error boundary, Phaser context loss, and inspector authorization denial.
+Inject socket drop before/after snapshot, patch gap, stale join assertion, expired token, audience/grant change, SpaceDO hibernation, deploy, backpressure, corrupt cached metadata, asset 404/hash failure, React error boundary, WebGL context loss, and inspector authorization denial.
 
 Assert:
 
@@ -641,7 +649,7 @@ Wave 4 does not implement:
 - [ ] WebSocket authorization and audience filtering occur server-side.
 - [ ] Snapshot/patch reducer convergence suite passes.
 - [ ] Hibernation, restart, deploy, reconnect, and snapshot fallback pass on Cloudflare.
-- [ ] React/Phaser ownership boundary is enforced.
+- [ ] React/Three.js ownership boundary is enforced.
 - [ ] Reference composition and art-direction tokens are implemented.
 - [ ] Scene is data-driven; reference image is not a runtime background.
 - [ ] Selection, event feed, entity rail, Inspect, Influence, and Why use real contracts.

@@ -49,14 +49,14 @@ describe("native authenticated hibernatable scene admission", () => {
           protocolVersion: 1,
           type: "resume",
           lastAppliedRevision: null,
-          assetManifestVersion: 1,
+          assetManifestVersion: 2,
         } as const;
         expect(encodeSceneConnectionControl(resume)).toBe(
-          '{"protocolVersion":1,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":1}',
+          '{"protocolVersion":1,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":2}',
         );
         expect(
           parseSceneClientControl(
-            '{"protocolVersion":1,"type":"resume","lastAppliedRevision":"0","assetManifestVersion":1}',
+            '{"protocolVersion":1,"type":"resume","lastAppliedRevision":"0","assetManifestVersion":2}',
           ),
         ).toEqual({ ...resume, lastAppliedRevision: 0n });
         expect(
@@ -88,7 +88,7 @@ describe("native authenticated hibernatable scene admission", () => {
           expect(() => parseSceneClientControl(wire)).toThrow(ContractDecodeError);
         expect(() =>
           parseSceneClientControl(
-            '{"protocolVersion":2,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":1}',
+            '{"protocolVersion":2,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":2}',
           ),
         ).toThrow(SceneCompatibilityError);
         expect(
@@ -361,7 +361,7 @@ describe("native authenticated hibernatable scene admission", () => {
             "malformed_control",
           ],
           [
-            '{"protocolVersion":2,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":1}',
+            '{"protocolVersion":2,"type":"resume","lastAppliedRevision":null,"assetManifestVersion":2}',
             "unsupported_protocol",
           ],
         ] as const) {
