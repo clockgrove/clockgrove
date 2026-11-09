@@ -12,6 +12,30 @@
       "outputs": [],
       "env": ["CONTRACT_BASE_COMMIT"]
     },
+    "@clockgrove/assets#check": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../tsconfig.base.json",
+        "$TURBO_ROOT$/examples/world-packs/**",
+        "$TURBO_ROOT$/assets/**",
+        "$TURBO_ROOT$/worlds/**"
+      ],
+      "outputs": [],
+      "env": ["CONTRACT_BASE_COMMIT"]
+    },
+    "@clockgrove/web#check": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../tsconfig.base.json",
+        "$TURBO_ROOT$/examples/world-packs/**",
+        "$TURBO_ROOT$/assets/**",
+        "$TURBO_ROOT$/worlds/*/assets/reviewed/**",
+        "$TURBO_ROOT$/tools/web-boundaries.mjs",
+        "$TURBO_ROOT$/tools/scene-budget.mjs"
+      ],
+      "outputs": [],
+      "env": ["CONTRACT_BASE_COMMIT"]
+    },
     "test": {
       "dependsOn": ["check"],
       "inputs": [

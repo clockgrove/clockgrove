@@ -89,7 +89,9 @@ filter 0, sorted-key JSON).
 
 `pnpm check` proves the gate on the committed `unreviewed` and `unlicensed` contract fixtures,
 requires `worlds/fixture/assets/reviewed` to equal a fresh build of exactly the manifests with no
-`assetDeployRefusals`, and requires the license report to be current.
+`assetDeployRefusals`, and requires the license report to be current. Turbo caches this `check`
+with every file under `worlds/` among its inputs (`turbo.json`), so an asset-only change re-runs the
+gate on a warm local cache instead of replaying an earlier pass.
 
 Generated assets use manifest version 2's complete provenance: `model`, `provider`, `route`,
 `providerTermsVersion`, prompt or serialized parameters, reference hashes and `outputGrant`.
