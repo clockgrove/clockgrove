@@ -213,7 +213,12 @@ license allowlist, inventories the full workspace lockfile in a CycloneDX SBOM, 
 bulk vulnerability advisory endpoint without suppression, and scans the complete repository
 secret surface. It needs the npm registry (license metadata and advisories), so it runs in CI's
 Quality job, not in offline agent or Factory validation; don't list it as a Work Item
-validation command. Dependency policy and contract inventory drift also run through the existing
+validation command. A package's licence is its registry `license` string; without one, npm's
+legacy `licenses` array, whose types become one `OR` expression; without either, an entry in
+`verifiedLicenses` in `scripts/supply-chain.mjs`. That entry is keyed by exact `name@version`
+and names the upstream licence file it was verified from, so a version bump fails until someone
+re-verifies it. Every expression still goes through the allowlist, and a malformed array counts
+as no licence. Dependency policy and contract inventory drift also run through the existing
 boundary checker. `pnpm check` proves the boundary rules reject their negative fixtures, and
 `tests/infra/secrets.test.mjs` proves the scanner finds a constructed credential in the
 committed tree, the index and untracked files. `tests/ci/regressions.test.mjs` proves the
