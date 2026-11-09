@@ -344,6 +344,46 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(await counts()).toBe("8/3/6");
       expect(await agent({ op: "model-calls" })).toBe(3);
 
+      // Policies are private to their principal (issue 129). Another commanding participant's
+      // wake reads no policy and is refused: the policy owner's due wakes stay armed and fire.
+      await owner.sql(`UPDATE clockgrove.world_memberships
+        SET grants = array_append(grants, 'runtime:world-command')
+        WHERE principal_id = 'principal-outsider'`);
+      const errandDue = Date.now() + 10_000;
+      await configure("errand", "scheduled_intention", {
+        nextWakeAt: errandDue,
+        compiledRoutine: "noop",
+      });
+      await configure("tick", "heartbeat", { nextWakeAt: errandDue, compiledRoutine: "noop" });
+      const armed = `principal-runtime@${errandDue}`;
+      await expect.poll(() => agent({ op: "alarms" })).toContain(armed);
+      const blind = await owner.request(
+        "/v1/runtime/activations/wake",
+        {
+          version: 1,
+          scope: owner.scope,
+          actorId: ACTOR,
+          wake: {
+            configurationId: "errand",
+            causalRoot: "blind-root",
+            reason: { kind: "scheduled_intention", scheduleId: "errand" },
+            evidence: "evidence:blind-root",
+          },
+        },
+        "outsider-session-token",
+      );
+      expect(blind.status).toBe(404);
+      expect(await agent({ op: "alarms" })).toContain(armed);
+      await expect
+        .poll(() =>
+          owner.sql(
+            `SELECT string_agg(principal_id || '/' || (reason->>'kind') || '/' || status, ' '
+               ORDER BY configuration_id)
+             FROM clockgrove.actor_activations WHERE configuration_id IN ('errand', 'tick')`,
+          ),
+        )
+        .toBe("principal-runtime/scheduled_intention/noop principal-runtime/heartbeat/noop");
+
       // A failed hint pass is logged, and a commit during it asks for one more pass, which hints
       // the failed pass's event types too (issue 130). The first subscriber read waits until that
       // commit, whose events no subscription names, has asked, and then fails transiently.

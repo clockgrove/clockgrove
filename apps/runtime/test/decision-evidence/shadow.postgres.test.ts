@@ -169,7 +169,11 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           decider: shadow,
         });
         const sent = decider.calls[0];
-        expect(sent?.state).toContain('State (fixed-point values): {"health":');
+        // Every shown value carries its scale; the legend states unit, range and meaning once.
+        expect(sent?.state).toMatch(/State: health \d+\/10000 \([\d.]+%\), hunger \d+\/10000/);
+        expect(sent?.state).toContain(
+          "Feature scales:\n- health: basis points from 0 to 10000; the actor's health",
+        );
         expect(sent?.state).not.toContain("score");
         expect(JSON.stringify(sent?.question)).not.toContain("score");
         const options = sent?.question.type === "choice" ? Object.keys(sent.question.options) : [];
@@ -297,16 +301,46 @@ describe("decision-model shadow tier over PostgreSQL and the native owner", () =
           decodePolicy(scoped({ actorIds: ["actor-not-present"] }))?.decisionPoints?.points[0]
             ?.scope,
         ).toEqual({ actorIds: ["actor-not-present"] });
-        const outside = records.map((record) => ({
-          ...record,
-          utilityMargin: { gap: "2", maxMargin: "1", withinDeclaredMargin: false },
-        }));
-        expect(decisionShadowReport(outside).points[0]?.outsideMargin).toEqual({
-          decisions: 2,
-          answered: 2,
-          agreed: 1,
-          agreementRate: 0.5,
+        // Sampling stays at the declared 1e12 margin; a separate cohort margin between the two real
+        // gaps classifies one decision within and the other outside, through the real path.
+        const cohortDecider = new ScriptedDecider({
+          [alias.route.id]: [
+            {
+              kind: "answer",
+              answer: { type: "choice", label: utility[0] ?? "", confidence: 0.8 },
+            },
+            { kind: "answer", answer: { type: "choice", label: other[1] ?? "", confidence: 0.8 } },
+          ],
         });
+        const gaps = records.map((record) => BigInt(record.utilityMargin?.gap ?? "0"));
+        const [high = 0n, low = 0n] = [...gaps].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+        expect(high).toBeGreaterThan(low);
+        const cohorts = await runDecisionShadow({
+          subjects,
+          declarations: { ...policy, cohortMargin: low },
+          decider: gatewayShadowDecider(
+            createModelGateway({
+              aliases: [],
+              adapters: {},
+              decisionAliases: [alias],
+              decisionAdapters: { "vercel-ai-gateway": cohortDecider },
+              budget: new InMemoryModelBudget(() => 2000),
+              accounting: { record: () => undefined },
+            }),
+            { tenantId: scope.tenantId, worldId: scope.worldId, actorId: "decision-shadow" },
+          ),
+        });
+        expect(cohorts.map((record) => record.utilityMargin?.maxMargin)).toEqual([
+          String(low),
+          String(low),
+        ]);
+        const cohortReport = decisionShadowReport(cohorts).points[0];
+        expect(cohortReport?.withinMargin.decisions).toBe(1);
+        expect(cohortReport?.outsideMargin.decisions).toBe(1);
+        expect(
+          cohorts.find((record) => record.utilityMargin?.withinDeclaredMargin === false)
+            ?.utilityMargin?.gap,
+        ).toBe(String(high));
         const historical = records.map(({ utilityMargin: _margin, ...record }) => record);
         expect(decisionShadowReport(historical).points[0]?.unclassifiedMargin.decisions).toBe(2);
         const excluded = scoped({ actorIds: ["actor-not-present"] });

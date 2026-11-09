@@ -59,16 +59,31 @@ Profile and source refusals exit 1; an unknown command exits 2.
 
 ## Packing
 
-Strips sort by (`atlasId`, `assetId`, `animationFamily`) and are placed left to right on shelves at
-most 1024 px wide; a strip that does not fit starts a new row at the previous row's y plus its tallest
-strip. The atlas is the maximum extent of its strips on a transparent background. A manifest's
-recorded `atlas.x/y` must equal the computed placement ("atlas location"); placements are computed
-over every manifest, so a pending asset keeps its place while only approved ones are built.
+Strips sort by (`atlasId`, `assetId`, `animationFamily`). Each declared `atlasId` is a logical
+group. Its shelf width is the larger of 1024 px and its widest whole strip, bounded by 2048 px.
+Strips are placed left to right; a strip that does not fit starts a new row at the previous row's
+y plus its tallest strip. If the row would exceed 2048 px in height, packing starts a new page.
+A strip wider or taller than 2048 px is refused before atlas allocation. Strips stay contiguous;
+frames are never split across pages.
 
-Numbers: atlas width 1024 is a decision of issue 813 that keeps atlases under the 2048 px minimum texture
-size WebGL guarantees. `MAX_ASSET_FRAME_EDGE` is the 2048 px platform envelope; the 256 px
-frame edge from issue 813 is now the fixture's pixel-art profile value. Inputs in
-any order produce identical bytes (deflate level 9, filter 0, sorted-key JSON).
+The first page keeps the logical `atlasId`. Overflow pages receive deterministic kebab-case
+`-page-N` suffixes, starting at 2 and skipping every declared atlas id and every previously
+generated output id. Each page
+writes its own PNG and animation JSON; the JSON's `atlasId` identifies the physical page. A page
+image is the maximum extent of its strips on a transparent background, at most 2048 by 2048 px.
+
+A manifest's recorded `atlas.x/y` must equal its page-local computed placement ("atlas location").
+Placements and page identities are computed over every manifest, so a pending asset keeps its
+slot while only approved ones are built. Removing an asset from the layout can change later
+placements; changing its review status does not. Existing groups that fit a 1024 px shelf and a
+single page retain their output bytes.
+
+Numbers: the 1024 px baseline shelf width is the issue 813 decision; the 2048 px page envelope
+is WebGL's guaranteed minimum texture size. `MAX_ASSET_FRAME_EDGE` is the 2048 px manifest
+envelope. The issue 813 256 px frame-edge decision applies to the fixture's declared pixel-art
+profile, rather than every style. Profile frame widths remain at most 1024 px; multi-frame strips
+may use the full 2048 px atlas width. Inputs in any order produce identical bytes (deflate level 9,
+filter 0, sorted-key JSON).
 
 ## Deploy gate
 
@@ -139,6 +154,6 @@ frames within the platform envelope.
 The validator and fixture CLI enforce the declared profile. Manifest version 2 allows larger
 frames within the platform envelope, while the declared role limits and atlas strip budget
 still apply. A soft-alpha, unrestricted-colour profile continues to accept binary-alpha
-placeholders alongside painterly assets. Bounded multi-atlas packing and external-world
-commands remain the next part of issue 61. Upload retains its review/licence, generated
+placeholders alongside painterly assets. Bounded multi-atlas packing supports larger strips and
+multiple pages. External-world commands remain the final part of issue 61. Upload retains its review/licence, generated
 provenance and golden gate; it does not itself perform source/profile validation.

@@ -27,7 +27,9 @@ instead of `chooseRoutine`. Candidates are `stay`, then one seek per active food
 shelter, in object-id order. Features are bigints: `hunger`, `thirst`, `wetness`, `rain`, `health`,
 `uncomfortable` (10000 or 0) and `U` (10000 when comfortable, else `20000 - health`); a seek adds `travelMs`,
 `perceived` (10000 or 0) and `expectation` (the sum of the effective scripted values for the actor and target,
-capped at 10000); food adds `freshness`, shelter `protection`. Score: stay 0; a seek scores
+capped at 10000); food adds `freshness`, shelter `protection`. `UTILITY_FEATURE_SCALES` gives each
+feature's unit (basis points with a range, flag or milliseconds) and meaning, for readers outside the
+kernel such as the decision-shadow prompt. Score: stay 0; a seek scores
 `need*U/10000 + expectation*expectationWeight - travelMs*travelWeight*10000/decisionIntervalMs`, floor
 division, with `need` `hunger*hungerWeight*freshness/10000` for food, `thirst*thirstWeight` for water and
 `(wetness+rain)*protection*shelterWeight/10000` for shelter. A candidate is excluded for the first applicable

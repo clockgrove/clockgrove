@@ -5,6 +5,7 @@ import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { clientMeasurements, measure, measurePoint } from "./measurements.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
+import type { RendererContent } from "./renderer-content.js";
 import { SceneSession, type ViewTraceProjection } from "./scene-api.js";
 import { sameSceneScope, sceneStatusText } from "./scene-projection.js";
 import {
@@ -66,10 +67,12 @@ const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 function SceneCanvas({
   projection,
+  content,
   availability,
   retry,
 }: {
   readonly projection: SceneProjection;
+  readonly content?: RendererContent;
   readonly availability: (ready: boolean) => void;
   readonly retry: () => void;
 }) {
@@ -126,6 +129,7 @@ function SceneCanvas({
               clientMeasurements.setWorld({ worldPack: point.assetHash });
             measurePoint(point);
           },
+          content,
         );
         created = renderer;
         stops.push(renderer.onIntent(({ objectId }) => select(objectId)));
@@ -153,7 +157,7 @@ function SceneCanvas({
       release();
       availability(false);
     };
-  }, [select, advance, availability]);
+  }, [select, advance, availability, content]);
   useEffect(() => {
     if (!presentScene(adapter, projection, request.current)) {
       setUnavailable(true);
@@ -243,9 +247,11 @@ function ClientViewTracePanel({
 export function WorldApp({
   origin = location.origin,
   authentication,
+  content,
 }: {
   readonly origin?: string;
   readonly authentication: BrowserAuthenticationPort;
+  readonly content?: RendererContent;
 }) {
   const [session] = useState(
     () =>
@@ -521,6 +527,7 @@ export function WorldApp({
               <SceneCanvas
                 key={canvasAttempt}
                 projection={state.projection}
+                {...(content && { content })}
                 availability={setCanvasAvailable}
                 retry={() => retryCanvas((value) => value + 1)}
               />

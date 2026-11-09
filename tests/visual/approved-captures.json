@@ -2,8 +2,108 @@
   "note": "Approvals of the Wave 4 §15.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. A person approves a capture in a reviewed change, or an agent does on the owner's explicit delegation, recorded in that change; CI never approves.",
   "approvals": [
     {
+      "file": "daylight-dry@1280x720.png",
+      "sha256": "sha256:597e30d2314e38e92d018fa6793579ef65fa04ea167eb160683635dfdfb7baf1"
+    },
+    {
+      "file": "daylight-dry@1536x864.png",
+      "sha256": "sha256:deb98963a0cbdfffcaf6c4db60d10d584798ca8b09e12a0a1f6799b65ab2e94c"
+    },
+    {
+      "file": "daylight-dry@390x844.png",
+      "sha256": "sha256:2e1e31b89f1715d9fa414f708bc90d11d4196ae402ef201293f152d18d31a1de"
+    },
+    {
+      "file": "disconnected-recovering@390x844.png",
+      "sha256": "sha256:3a8dc2ac539b35972ee8fd494ef6442ddae4603c0b7cc290441bb3d5081e84e5"
+    },
+    {
+      "file": "dusk-rain@1280x720.png",
+      "sha256": "sha256:ea935abfed47dafdf128b7d8350885f790e4322e8f41633b17cce055f6123177"
+    },
+    {
+      "file": "dusk-rain@1536x864.png",
+      "sha256": "sha256:2c3fafe5361a839e70d32def9038ec87427b81dd0018cb2902192e9a0daf3a63"
+    },
+    {
+      "file": "dusk-rain@390x844.png",
+      "sha256": "sha256:a73a2fd875c1e34b435230a19b3cc92a548557aa48166bdfaeeec8bd70d2a5f9"
+    },
+    {
+      "file": "event-why-inspector@390x844.png",
+      "sha256": "sha256:eb121785a499a7438ea59346baa211d405ab7ee66602ca3cad96d47cd89e9a8a"
+    },
+    {
+      "file": "selected-actor-rail@390x844.png",
+      "sha256": "sha256:f0925e08c8ff071d5f980e4a656f942a4e8264f75d0242a54cb09efca310e634"
+    },
+    {
+      "file": "selected-inspectable-object@390x844.png",
+      "sha256": "sha256:d4e0727130a81fa1a4d9126f5b7d9f894f55d04d20ed5d47bbb7c84e1eefb333"
+    },
+    {
+      "file": "text-access@1280x720.png",
+      "sha256": "sha256:ccfe45782899ea8a22623a5ec1d0f1c7df3a31425ba1a80a41b05a5f00181be9"
+    },
+    {
+      "file": "text-access@1536x864.png",
+      "sha256": "sha256:12df2e62de95009d95f492dd82d9c3ccca9010a8031ad4ca089b0dd863fcb412"
+    },
+    {
       "file": "text-access@390x844.png",
-      "sha256": "sha256:6f2e0038efe469902ab04f0c7fe85081d30863e16bff0e40638551d84a4cf4c8"
+      "sha256": "sha256:da643b3632649a8af95f8f9b64522bc781ade55c17b0b6b662a22b851665c9f5"
+    },
+    {
+      "file": "webgl2/daylight-dry@1280x720.png",
+      "sha256": "sha256:e4ef45db9bd505be04f3122f5915b57d7af424f63f680d3fd21dcb31be55988e"
+    },
+    {
+      "file": "webgl2/daylight-dry@1536x864.png",
+      "sha256": "sha256:060c6f4c7c92b080af7e96d4a72d4be1e36b0f70164a1e5948c7d5d684c09e11"
+    },
+    {
+      "file": "webgl2/daylight-dry@390x844.png",
+      "sha256": "sha256:51545a8f328767329edf826f5765c1c6f051f0e570df9aa12cdac0269a745fbf"
+    },
+    {
+      "file": "webgl2/disconnected-recovering@390x844.png",
+      "sha256": "sha256:3a8dc2ac539b35972ee8fd494ef6442ddae4603c0b7cc290441bb3d5081e84e5"
+    },
+    {
+      "file": "webgl2/dusk-rain@1280x720.png",
+      "sha256": "sha256:1d2c6f3d7f983208744790313b79fafa5f7b59076f3e49aa8e3457eb15d95135"
+    },
+    {
+      "file": "webgl2/dusk-rain@1536x864.png",
+      "sha256": "sha256:d41cf0f5036023c635665c6b1151112192f6c223315e9da4883ee4fa2a6bdd6e"
+    },
+    {
+      "file": "webgl2/dusk-rain@390x844.png",
+      "sha256": "sha256:dbcbcb76b3fc31e5c3286341862704bc3863470c531b98273ba23c00ec450826"
+    },
+    {
+      "file": "webgl2/event-why-inspector@390x844.png",
+      "sha256": "sha256:eb121785a499a7438ea59346baa211d405ab7ee66602ca3cad96d47cd89e9a8a"
+    },
+    {
+      "file": "webgl2/selected-actor-rail@390x844.png",
+      "sha256": "sha256:f0925e08c8ff071d5f980e4a656f942a4e8264f75d0242a54cb09efca310e634"
+    },
+    {
+      "file": "webgl2/selected-inspectable-object@390x844.png",
+      "sha256": "sha256:d4e0727130a81fa1a4d9126f5b7d9f894f55d04d20ed5d47bbb7c84e1eefb333"
+    },
+    {
+      "file": "webgl2/text-access@1280x720.png",
+      "sha256": "sha256:ccfe45782899ea8a22623a5ec1d0f1c7df3a31425ba1a80a41b05a5f00181be9"
+    },
+    {
+      "file": "webgl2/text-access@1536x864.png",
+      "sha256": "sha256:12df2e62de95009d95f492dd82d9c3ccca9010a8031ad4ca089b0dd863fcb412"
+    },
+    {
+      "file": "webgl2/text-access@390x844.png",
+      "sha256": "sha256:da643b3632649a8af95f8f9b64522bc781ade55c17b0b6b662a22b851665c9f5"
     }
   ]
 }

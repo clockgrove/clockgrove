@@ -14,6 +14,7 @@ export const CLIENT_MEASUREMENTS = {
   scene_apply_ms: ["snapshot", "patch"],
   dropped_cues: ["expired", "unknown_entity", "duplicate"],
   frame_ms: ["p95"],
+  renderer_content: ["ready", "content_load", "content_contract", "content_update", "content_draw"],
   asset_cache: ["loaded", "failed"],
   interaction_outcome: ["accepted", "refused", "failed"],
   inspector_traversal: ["command", "event", "schedule", "view"],

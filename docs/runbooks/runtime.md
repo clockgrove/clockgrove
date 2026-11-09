@@ -1428,34 +1428,60 @@ With the referenced provider credential in the environment:
 
 ```sh
 pnpm shadow:decision --pack worlds/fixture/reference --alias /absolute/path/shadow-alias.json \
-  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 \
-  --out /absolute/path/shadow-report.json
+  --span-ms 86400000 --spend-microusd 100000 --out /absolute/path/shadow-report.json
 ```
 
 From an external world repository, invoke the same pinned platform command directly:
 
 ```sh
 node ../clockgrove/scripts/decision-shadow.mjs --pack worlds/sample --alias shadow-alias.json \
-  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 --out shadow-report.json
+  --span-ms 86400000 --spend-microusd 100000 --out shadow-report.json
 ```
 
-All span, margin and spend arguments are required. Span is elapsed simulation milliseconds from
-pack genesis, rather than an absolute timestamp. Margin is the operator-declared top-two utility
-score gap to sample; existing novelty conditions, world decision-point scopes and triggers still apply. Without world
-points, the command adds an operator-only observation point showing all native features. Alias
-configuration accepts `decisionAlias` options, including explicit token prices, byte bound, timeout,
-and per-call ceiling. The shown span is one day; the shown cap is $0.10 and each reservation is
-$0.001. These are example operator choices, not deployment policy. The kernel's existing
-1024-input/4096-event chunk limits and simulator finite-plan limits bound each simulation.
+Span and spend are required. Span is elapsed simulation milliseconds from pack genesis, rather than
+an absolute timestamp. Alias configuration accepts `decisionAlias` options, including explicit token
+prices, byte bound, timeout, and per-call ceiling. The shown span is one day; the shown cap is $0.10
+and each reservation is $0.001. These are example operator choices, not deployment policy. The
+kernel's existing 1024-input/4096-event chunk limits and simulator finite-plan limits bound each
+simulation.
+
+Sampling (which decisions are asked) and cohorts (which count as close calls) are separate, so one
+run gives both cohorts:
+
+- **Sampling.** `--margin <gap>` samples decisions whose top-two utility score gap is at most it;
+  the pack's novelty conditions (an unperceived target) still apply, and so do world decision-point
+  scopes and triggers. Without `--margin`, a pack that declares decision points samples exactly as
+  they and its ambiguity declaration say. Otherwise the default samples every utility decision with
+  two or more eligible candidates (the margin is the span's largest top-two gap). The report's
+  `sampling` names the rule (`operator-margin`, `pack-decision-points` or `every-decision`) and margin.
+- **Cohorts.** A record is within the margin when its gap is at most the pack's declared score-margin
+  (`policy.utility.ambiguity`), else outside it. `--cohort-margin <gap>` states another bound for
+  classification only. With neither, records are unclassified. The report's `cohortMargin` names the
+  bound and its `source` (`pack`, `operator` or `none`).
+
+Without world points, the command adds an operator-only observation point showing all native
+features. It takes every decision the sampling raises, unperceived-target ones included.
+
+Every committed decision is either a record or counted in `utilityAgreement.skipped` with its reason
+(`not-utility-tier`, `single-candidate`, `no-ambiguity-condition`, `out-of-point-scope`,
+`trigger-not-met`); the top-level `skipped` lists each one. The model sees each feature with its
+unit and range (shares of 10000 with their percentage, yes/no flags, milliseconds) and a legend of
+their meanings, never scores or ranking.
 
 The spend cap is shared by the labelled reference cases and the world observations. Each attempted
 call permanently reserves its configured ceiling for this run, including calls whose actual cost
 is unknown or lower. Reference cases run first. After the cap is reserved no further provider call
-is made. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
+is made: each later sampled decision is recorded `over-budget` with detail `shared-budget`, never as a
+failed call. A call whose cost is unknown counts against its point's spend budget at the per-call
+ceiling. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
 more than configured; actual measured spend and unknown-cost counts are reported separately.
 `--models-off` writes the same simulation/replay result with no provider calls and no judgement
 accuracy. A zero cap is valid and permits no calls. No real provider invocation is required for an
 offline command smoke check.
+
+`latency.world` and `latency.reference` give the measured calls, mean, p50 and p95 (nearest rank, ms)
+of the world observations and the reference cases apart; each point in `utilityAgreement` also
+carries its mean, p50 and p95.
 
 The JSON report separates `utilityAgreement` from `reference.accuracy`. Utility agreement is never
 accuracy. The three labelled references are generated in code from fixture state using the native
