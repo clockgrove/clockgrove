@@ -10,7 +10,7 @@ import {
   unrecordedDuplicates,
 } from "../../scripts/ci/deployment-authority.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
-import { describeLock, signV4 } from "../../scripts/ci/state-store.mjs";
+import { describeLock, isBackupKey, signV4 } from "../../scripts/ci/state-store.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -143,7 +143,7 @@ describe("state bucket access", () => {
     ).toMatch(/Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41$/u);
   });
 
-  it("names a held lock by object, holder and age", () => {
+  it("names a held lock by object, holder's user name and age, never the host", () => {
     const lock = {
       id: "6c2fddfa-6ce2-5a65-e602-8837ac0179a3",
       operation: "OperationTypeApply",
@@ -158,7 +158,28 @@ describe("state bucket access", () => {
         new Date("2026-11-09T21:30:00Z"),
       ),
     ).toBe(
-      "state lock clockgrove-staging-state/staging/terraform.tfstate.tflock held by runner@fv-az1 (OperationTypeApply) for 90 min (since 2026-11-09T20:00:00Z), lock ID 6c2fddfa-6ce2-5a65-e602-8837ac0179a3",
+      "state lock clockgrove-staging-state/staging/terraform.tfstate.tflock held by runner (OperationTypeApply) for 90 min (since 2026-11-09T20:00:00Z), lock ID 6c2fddfa-6ce2-5a65-e602-8837ac0179a3",
     );
+  });
+
+  it("takes only a plain backup file name under the environment's backups prefix", () => {
+    expect(
+      isBackupKey(
+        "staging",
+        "staging/backups/2026-11-09T20-00-00-000Z-provision-0123456789ab.tfstate",
+      ),
+    ).toBe(true);
+    for (const key of [
+      "staging/backups/../../development/backups/x.tfstate",
+      "staging/backups/%2e%2e/%2E%2E/development/backups/x.tfstate",
+      "staging/backups/..\\..\\development\\backups\\x.tfstate",
+      "staging/backups/.\t./x.tfstate",
+      "staging/backups/..",
+      "staging/terraform.tfstate",
+      "development/backups/x.tfstate",
+      "staging/backups/nested/x.tfstate",
+      undefined,
+    ])
+      expect(isBackupKey("staging", key)).toBe(false);
   });
 });

@@ -129,7 +129,11 @@ backend there and remove the directory when done; saved plans hold generated cre
 never leave it. The bucket is not an OpenTofu resource, so no plan can change it. R2 keeps no
 object versions, so the deploy keeps its own copies: after every successful apply it writes the
 state object to `<environment>/backups/<UTC time>-<stage>-<commit>.tfstate` in the same bucket,
-never overwriting one. Backups are not expired.
+never overwriting one. Each backup holds the generated database passwords and the Access service
+token secret, so they are bounded: after writing one, the deploy deletes all but the newest 15 of
+the environment's backups (five deploys of three stages), never the one it just wrote. A
+`restore --replace` saves the replaced object the same way and never deletes the backup it
+restores from.
 
 `pnpm infra:state <command> <environment>` is the owner's tool for the bucket. It takes
 `development` or `staging`, needs the three settings above in the shell, and prints keys, lock
@@ -137,10 +141,13 @@ holders and ages, never state:
 
 | Command | Effect |
 | --- | --- |
-| `lock <environment>` | Names the held lock's object, holder, operation, age and lock ID, or says the state is not locked. |
-| `unlock <environment> <lock ID>` | Deletes the lock object. Refuses unless the ID is the held lock's and the lock is at least 45 minutes old, the deploy job's timeout, so it never clears a live run's lock. |
+| `lock <environment>` | Names the held lock's object, holder's user name, operation, age and lock ID, or says the state is not locked. |
+| `unlock <environment> <lock ID>` | Deletes the lock object. Refuses unless the ID is the held lock's and the lock is at least 60 minutes old by the owner's clock. It first overwrites the lock it checked with its own record, only if the object is unchanged since the read, then deletes that record, so a lock taken in between is never deleted. |
 | `backups <environment>` | Lists the dated backups, oldest first. |
-| `restore <environment> <key>` | Copies one backup to `<environment>/terraform.tfstate`. Refuses while the state is locked or a state object exists. |
+| `restore <environment> <key> [--replace]` | Copies one backup, a file name directly under `<environment>/backups/`, to `<environment>/terraform.tfstate`, holding the state lock meanwhile. Refuses while the state is locked. Refuses when a state object exists unless `--replace` is given; then it first saves that object as a `-replaced` backup and overwrites it only if it is unchanged since the save. |
+
+Lock holders are named by user name only: OpenTofu records `user@hostname`, and deploy logs are
+public.
 
 #### Lost state
 
@@ -151,7 +158,9 @@ name with the environment's Cloudflare and Neon credentials when state does not 
 refuse by name and ID if one exists. This catches a missing, empty or older state object alike.
 
 To recover, list the backups and restore the newest: `pnpm infra:state backups staging`, then
-`pnpm infra:state restore staging <key>`. It equals the state after the last successful apply. If
+`pnpm infra:state restore staging <key> --replace`. This works whether the state object is
+missing, empty or older; an existing object is kept as the newest backup, so the replace can be
+undone the same way. The restored state equals the state after the last successful apply. If
 a later deploy failed mid-apply, resources it created are not in that backup: the deploy then
 refuses again for a duplicable resource, or fails on the existing name for any other, and each
 such resource must be imported with `tofu import` into the bucket's state before deploying. Never
@@ -163,8 +172,13 @@ OpenTofu writes `<environment>/terraform.tfstate.tflock` while it plans or appli
 when done. A run cut off mid-apply, by the job timeout or a runner teardown, leaves it behind, and
 every later plan would fail with its output withheld. So the deploy and `infra:plan` read the lock
 first and refuse with its holder, operation, age and lock ID; a failed OpenTofu phase also names a
-lock it leaves. Nothing clears a lock automatically. If no deploy or plan is running, the owner
-clears it with `pnpm infra:state unlock staging <lock ID>`, then dispatches the deploy again. An
+lock it leaves. Nothing clears a lock automatically.
+
+A lock is safe to clear only when no deploy is running in Actions and no owner's `infra:plan` or
+`test:cloud` against that environment is running. Then the owner clears it with
+`pnpm infra:state unlock staging <lock ID>` and dispatches the deploy again. The 60-minute age
+check is a backstop, not the proof: it covers the deploy job's 45-minute timeout plus clock skew
+and OpenTofu's shutdown, but owner-run plans and cloud tests have no time limit. An
 interrupted apply's effect is unknown: the next deploy plans against what state recorded, and
 anything the apply created without recording it is handled as under [Lost state](#lost-state).
 
