@@ -16,7 +16,7 @@ it("reads three world style profiles from authored files and refuses malformed d
     const approved = JSON.parse(
       readFileSync(new URL("./fixtures/asset-manifest/approved.json", import.meta.url), "utf8"),
     );
-    expect(decodeAssetManifest(approved).assetManifestVersion).toBe(1);
+    expect(decodeAssetManifest(approved).assetManifestVersion).toBe(2);
     expect(decodeAssetStyleProfile(pixel)).toEqual({
       styleProfileVersion: 1,
       alpha: { mode: "binary" },

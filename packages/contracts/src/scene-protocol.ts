@@ -41,7 +41,7 @@ export const SCENE_PROTOCOL_VERSION = 1;
  */
 export const SCENE_PROJECTION_VERSION = 2;
 export const SCENE_PRIOR_PROJECTION_VERSION = 1;
-export const SCENE_ASSET_MANIFEST_VERSION = 1;
+export const SCENE_ASSET_MANIFEST_VERSION = 2;
 export const SCENE_CLIENT_VERSION = 1;
 export type SceneLane = "projection" | "transient" | "operator";
 export interface SceneEnvelope<T> extends BrowserScope {
@@ -58,7 +58,7 @@ export interface SceneCompatibility {
   readonly projectionVersion:
     | typeof SCENE_PRIOR_PROJECTION_VERSION
     | typeof SCENE_PROJECTION_VERSION;
-  readonly assetManifestVersion: 1;
+  readonly assetManifestVersion: 2;
   readonly clientVersion: 1;
 }
 export type SceneCompatibilityCode =
@@ -116,7 +116,7 @@ export function decodeSceneCompatibility(
   exactKeys(v, ["projectionVersion", "assetManifestVersion", "clientVersion"], [], path);
   return {
     projectionVersion: v.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION ? 1 : 2,
-    assetManifestVersion: 1,
+    assetManifestVersion: 2,
     clientVersion: 1,
   };
 }
@@ -709,7 +709,7 @@ export interface SceneAsset {
   readonly accessibilityLabel: string;
 }
 export interface SceneAssetManifest {
-  readonly version: 1;
+  readonly version: 2;
   readonly contentHash: string;
   readonly assets: readonly SceneAsset[];
 }
@@ -790,7 +790,7 @@ export function decodeSceneAssetManifest(value: unknown, path = "manifest"): Sce
     );
   exactKeys(v, ["version", "contentHash", "assets"], [], path);
   return {
-    version: 1,
+    version: 2,
     contentHash: string(v.contentHash, `${path}.contentHash`),
     assets: array(v.assets, `${path}.assets`, decodeSceneAsset),
   };

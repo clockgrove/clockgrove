@@ -9,6 +9,9 @@ import {
   streamText,
 } from "ai";
 import {
+  httpFailureBilling,
+  NOTHING_BILLED,
+  type ProviderBilling,
   type ProviderEvent,
   ProviderFailure,
   type RouteAdapter,
@@ -100,7 +103,8 @@ export class AiSdkDecisionAdapter implements DecisionAdapter {
   async decide(call: DecisionCall): Promise<DecisionAdapterResult> {
     const { route, question } = call;
     const apiKey = route.credential === null ? undefined : this.credentials(route.credential);
-    if (apiKey === undefined) throw new ProviderFailure("credential_missing", null, false);
+    if (apiKey === undefined)
+      throw new ProviderFailure("credential_missing", null, false, NOTHING_BILLED);
     const provider = createGateway({
       apiKey,
       ...(route.baseURL === undefined ? {} : { baseURL: route.baseURL }),
@@ -116,10 +120,30 @@ export class AiSdkDecisionAdapter implements DecisionAdapter {
             ? { type: "score" as const, ...instructions, criteria: [...question.levels] }
             : { type: "boolean" as const, instructions: question.instructions },
     };
+    // The provider's own result, kept as it arrives: when the SDK then refuses it (a model refusal,
+    // an answer that fails validation), its usage still says what the call billed.
+    const model = provider.decision(route.model);
+    let usage: ProviderBilling | undefined;
+    const observed: typeof model = {
+      specificationVersion: model.specificationVersion,
+      provider: model.provider,
+      modelId: model.modelId,
+      supportedQuestionTypes: model.supportedQuestionTypes,
+      doDecide: async (options) => {
+        const raw = await model.doDecide(options);
+        usage = {
+          kind: "usage",
+          inputTokens: raw.usage?.inputTokens ?? null,
+          outputTokens: raw.usage?.outputTokens ?? null,
+          reportedCostUsd: reportedCost(raw.providerMetadata),
+        };
+        return raw;
+      },
+    };
     let result: Awaited<ReturnType<typeof experimental_decide>>;
     try {
       result = await experimental_decide({
-        model: provider.decision(route.model),
+        model: observed,
         state: call.state,
         questions,
         maxRetries: 0,
@@ -128,15 +152,26 @@ export class AiSdkDecisionAdapter implements DecisionAdapter {
     } catch (error) {
       if (call.signal.aborted) throw error;
       if (error instanceof Experimental_DecisionRefusalError)
-        throw new ProviderFailure("refused", null, false);
-      throw classify(error);
+        throw new ProviderFailure("refused", null, false, usage);
+      throw classify(error, usage);
     }
-    const answer = result.answers.q as unknown as Record<string, unknown>;
-    return {
-      answer: toAnswer(answer),
+    const billed: ProviderBilling = {
+      kind: "usage",
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
       reportedCostUsd: reportedCost(result.providerMetadata),
+    };
+    let answer: DecisionAnswer;
+    try {
+      answer = toAnswer(result.answers.q as unknown as Record<string, unknown>);
+    } catch {
+      throw new ProviderFailure("unavailable", null, false, billed);
+    }
+    return {
+      answer,
+      inputTokens: billed.inputTokens,
+      outputTokens: billed.outputTokens,
+      reportedCostUsd: billed.reportedCostUsd,
       responseModel: result.response.modelId ?? null,
     };
   }
@@ -162,14 +197,16 @@ function toAnswer(answer: Record<string, unknown>): DecisionAnswer {
   return { type: "boolean", label, confidence: label === "true" ? probability : 1 - probability };
 }
 
-function classify(error: unknown): ProviderFailure {
+/** `observed`: the usage of a provider result that arrived before the failure, if one did. */
+function classify(error: unknown, observed?: ProviderBilling): ProviderFailure {
   const status =
     typeof error === "object" && error !== null && "statusCode" in error
       ? Number((error as { statusCode: unknown }).statusCode)
       : Number.NaN;
-  if (!Number.isInteger(status)) return new ProviderFailure("unavailable", null, true);
-  if (status === 429) return new ProviderFailure("rate_limited", status, true);
-  return new ProviderFailure("unavailable", status, status === 408 || status >= 500);
+  if (!Number.isInteger(status)) return new ProviderFailure("unavailable", null, true, observed);
+  const billing = observed ?? httpFailureBilling(status);
+  if (status === 429) return new ProviderFailure("rate_limited", status, true, billing);
+  return new ProviderFailure("unavailable", status, status === 408 || status >= 500, billing);
 }
 
 function reportedCost(metadata: unknown): number | null {

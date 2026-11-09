@@ -69,6 +69,7 @@ import {
 import type { ActorAgentDO, SpaceDO, WorldDO } from "./cloudflare-adapters.js";
 import {
   consoleRuntimeLogger,
+  logActivationHintFailure,
   logPartitionSnapshotFailure,
   logPublicationFailure,
   logQueueDeadLetter,
@@ -1517,7 +1518,9 @@ const activationHints = new Map<string, { types: Set<string>; passStartedAt: num
  * and asks each actor's owner for a prompt check; the owner reads the journal itself. It is
  * scheduled with `waitUntil` and never awaited. A lost or failed hint costs latency only: the
  * actor's quiet poll still reads the journal. Hints coalesce per world timeline: a commit during a
- * running pass adds its event types to one more pass instead of another connection.
+ * running pass adds its event types to one more pass instead of another connection. A failed pass
+ * logs `activation_hint_failed`; one more pass, if a commit asked for it, also retries the failed
+ * pass's types, as the world-reactions hint does. A timed-out pass ends the loop.
  */
 export function activationHintNotifier(
   env: RuntimeEnvironment,
@@ -1563,6 +1566,7 @@ export function activationHintNotifier(
         );
       };
       const hint = async () => {
+        const logger = runtimeLogger(env);
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           while (entry.types.size > 0 && activationHints.get(key) === entry) {
@@ -1570,16 +1574,28 @@ export function activationHintNotifier(
             entry.types.clear();
             entry.passStartedAt = Date.now();
             const deadline = new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error("hint deadline")), HINT_PASS_DEADLINE_MS);
+              timer = setTimeout(
+                () => reject(Object.assign(new Error("hint deadline"), { code: "ETIMEDOUT" })),
+                HINT_PASS_DEADLINE_MS,
+              );
             });
             try {
               await Promise.race([pass(eventTypes), deadline]);
+            } catch (error) {
+              logActivationHintFailure(
+                logger,
+                { tenantId: first.tenantId, worldId: first.worldId, timelineId: first.timelineId },
+                queueFailureClass(error),
+              );
+              // A timed-out pass is abandoned, not retried: the database is likely unavailable.
+              // The actors' quiet polls still read every event its types named.
+              if ((error as { code?: unknown }).code === "ETIMEDOUT") break;
+              // A commit during the failed pass asked for one more: it retries these types too.
+              if (entry.types.size > 0) for (const type of eventTypes) entry.types.add(type);
             } finally {
               clearTimeout(timer);
             }
           }
-        } catch {
-          /* The actors' quiet polls still read these events. */
         } finally {
           if (activationHints.get(key) === entry) activationHints.delete(key);
         }

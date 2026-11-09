@@ -433,7 +433,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
         protocolVersion: 1,
         type: "resume",
         lastAppliedRevision: stored.acknowledgedRevision,
-        assetManifestVersion: 1,
+        assetManifestVersion: 2,
       });
       return;
     }

@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.8  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.10  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 7 of 13  
 **Assumptions:** Waves 0–6 are qualified; physical and cognitive replay are stable  

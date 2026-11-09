@@ -450,7 +450,7 @@ hashes.
 This is native-local evidence (workerd through Miniflare). Hosted qualification is a separate,
 deferred step.
 
-From [docs/raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
+From [docs/clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
 
 Logical world identity is never a synonym for a live server process. Placement is explicit:
 
@@ -885,13 +885,14 @@ these fields, and nothing else:
   for MCP discovery) and `outcome` (`succeeded`, `refused`, `failed`).
 - `error`: a server failure's class name and redacted, capped message and stack.
 
-The event set is closed. `schemaVersion` is 5 (3 added the two snapshot-sweep events,
+The event set is closed. `schemaVersion` is 6 (3 added the two snapshot-sweep events,
 `partitionId` and `integrityCheck`; 4 was assigned on two parallel branches to different sets, so 5
 is their union: the scene observation answered and failure events
 (`scene_observation_answered`, `scene_observation_failed`), the runtime-state and operator-action
 routes' events (`runtime_state_inspection_answered`, `runtime_state_inspection_failed`,
 `runtime_action_answered`, `runtime_action_failed`), the two world-reactions alert events
-(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`); it
+(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`; 6 added
+`activation_hint_failed` and its `recovered-by-poll` disposition); it
 increases whenever an event or field is added,
 removed or changes meaning, so queries can tell record shapes apart. Filter Workers Logs by
 `correlationId` or `commandId` to follow one request across the Worker and its owners.
@@ -915,6 +916,7 @@ removed or changes meaning, so queries can tell record shapes apart. Filter Work
 | `world_reactions_dead_lettered` | the Queue consumer, per failed last delivery attempt (`attempt` above the consumer's `max_retries`, 3), which sends the message to the DLQ: an alert | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: awaiting-replay` |
 | `world_reactions_publication_failed` | the hint or cron publication sweep, per publication it settles `failed` after its attempt budget: an alert | `tenantId`, `worldId`, `timelineId`, `messageId`, `channel`, `attempt`, failure class, `disposition: awaiting-repair` |
 | `world_reactions_sweep_failed` | the hint or cron publication sweep, per failed principal | `channel`, `trigger`, failure class, `disposition: recovered-by-cron` |
+| `activation_hint_failed` | the post-commit activation hint, per failed pass over a world timeline | `tenantId`, `worldId`, `timelineId`, failure class, `disposition: recovered-by-poll` |
 | `world_provisioning_reconcile_failed` | the cron provisioning reconcile, per failed case | `tenantId`, `runId`, failure class, `disposition: retried-by-cron` |
 | `world_catch_up_reconcile_failed` | the cron catch-up reconcile, per failed case | scope, `runId`, failure class, `disposition: retried-by-cron` |
 | `partition_replay_verification_failed` | the cron snapshot sweep, per mismatch or typed integrity error | `tenantId`, `worldId`, `timelineId`, `partitionId`; `failureClass: integrity`, `integrityCheck`, `disposition: reported-not-repaired`, error for a typed error |
@@ -1426,34 +1428,60 @@ With the referenced provider credential in the environment:
 
 ```sh
 pnpm shadow:decision --pack worlds/fixture/reference --alias /absolute/path/shadow-alias.json \
-  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 \
-  --out /absolute/path/shadow-report.json
+  --span-ms 86400000 --spend-microusd 100000 --out /absolute/path/shadow-report.json
 ```
 
 From an external world repository, invoke the same pinned platform command directly:
 
 ```sh
 node ../clockgrove/scripts/decision-shadow.mjs --pack worlds/sample --alias shadow-alias.json \
-  --span-ms 86400000 --margin 1000000 --spend-microusd 100000 --out shadow-report.json
+  --span-ms 86400000 --spend-microusd 100000 --out shadow-report.json
 ```
 
-All span, margin and spend arguments are required. Span is elapsed simulation milliseconds from
-pack genesis, rather than an absolute timestamp. Margin is the operator-declared top-two utility
-score gap to sample; existing novelty conditions, world decision-point scopes and triggers still apply. Without world
-points, the command adds an operator-only observation point showing all native features. Alias
-configuration accepts `decisionAlias` options, including explicit token prices, byte bound, timeout,
-and per-call ceiling. The shown span is one day; the shown cap is $0.10 and each reservation is
-$0.001. These are example operator choices, not deployment policy. The kernel's existing
-1024-input/4096-event chunk limits and simulator finite-plan limits bound each simulation.
+Span and spend are required. Span is elapsed simulation milliseconds from pack genesis, rather than
+an absolute timestamp. Alias configuration accepts `decisionAlias` options, including explicit token
+prices, byte bound, timeout, and per-call ceiling. The shown span is one day; the shown cap is $0.10
+and each reservation is $0.001. These are example operator choices, not deployment policy. The
+kernel's existing 1024-input/4096-event chunk limits and simulator finite-plan limits bound each
+simulation.
+
+Sampling (which decisions are asked) and cohorts (which count as close calls) are separate, so one
+run gives both cohorts:
+
+- **Sampling.** `--margin <gap>` samples decisions whose top-two utility score gap is at most it;
+  the pack's novelty conditions (an unperceived target) still apply, and so do world decision-point
+  scopes and triggers. Without `--margin`, a pack that declares decision points samples exactly as
+  they and its ambiguity declaration say. Otherwise the default samples every utility decision with
+  two or more eligible candidates (the margin is the span's largest top-two gap). The report's
+  `sampling` names the rule (`operator-margin`, `pack-decision-points` or `every-decision`) and margin.
+- **Cohorts.** A record is within the margin when its gap is at most the pack's declared score-margin
+  (`policy.utility.ambiguity`), else outside it. `--cohort-margin <gap>` states another bound for
+  classification only. With neither, records are unclassified. The report's `cohortMargin` names the
+  bound and its `source` (`pack`, `operator` or `none`).
+
+Without world points, the command adds an operator-only observation point showing all native
+features. It takes every decision the sampling raises, unperceived-target ones included.
+
+Every committed decision is either a record or counted in `utilityAgreement.skipped` with its reason
+(`not-utility-tier`, `single-candidate`, `no-ambiguity-condition`, `out-of-point-scope`,
+`trigger-not-met`); the top-level `skipped` lists each one. The model sees each feature with its
+unit and range (shares of 10000 with their percentage, yes/no flags, milliseconds) and a legend of
+their meanings, never scores or ranking.
 
 The spend cap is shared by the labelled reference cases and the world observations. Each attempted
 call permanently reserves its configured ceiling for this run, including calls whose actual cost
 is unknown or lower. Reference cases run first. After the cap is reserved no further provider call
-is made. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
+is made: each later sampled decision is recorded `over-budget` with detail `shared-budget`, never as a
+failed call. A call whose cost is unknown counts against its point's spend budget at the per-call
+ceiling. A ceiling is a configured provider-cost bound, not a guarantee against a provider charging
 more than configured; actual measured spend and unknown-cost counts are reported separately.
 `--models-off` writes the same simulation/replay result with no provider calls and no judgement
 accuracy. A zero cap is valid and permits no calls. No real provider invocation is required for an
 offline command smoke check.
+
+`latency.world` and `latency.reference` give the measured calls, mean, p50 and p95 (nearest rank, ms)
+of the world observations and the reference cases apart; each point in `utilityAgreement` also
+carries its mean, p50 and p95.
 
 The JSON report separates `utilityAgreement` from `reference.accuracy`. Utility agreement is never
 accuracy. The three labelled references are generated in code from fixture state using the native

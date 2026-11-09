@@ -75,7 +75,7 @@ function released() {
   };
 }
 const adapterCall = (port: string, step: number, outcome: string) => ({
-  schemaVersion: 5,
+  schemaVersion: 6,
   level: outcome === "succeeded" ? "info" : "warn",
   event: "capability_adapter_called",
   runId: "run-fixture",

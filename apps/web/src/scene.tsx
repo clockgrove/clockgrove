@@ -67,9 +67,11 @@ const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 function SceneCanvas({
   projection,
   availability,
+  retry,
 }: {
   readonly projection: SceneProjection;
   readonly availability: (ready: boolean) => void;
+  readonly retry: () => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
   // Set once the renderer's reviewed assets are ready; only then does it receive projections.
@@ -161,7 +163,14 @@ function SceneCanvas({
   return (
     <>
       <div ref={element} className="rw-canvas" aria-hidden="true" />
-      {unavailable && <p>Canvas unavailable. The complete scene is available below.</p>}
+      {unavailable && (
+        <div>
+          <p>Canvas unavailable. The complete scene is available below.</p>
+          <button type="button" onClick={retry}>
+            Retry canvas
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -258,6 +267,7 @@ export function WorldApp({
   const advanceBoot = useWorldBoot((view) => view.advance);
   const state = useSceneStateProjection(session);
   const [canvasAvailable, setCanvasAvailable] = useState(false);
+  const [canvasAttempt, retryCanvas] = useState(0);
   // The mode the user sees: recorded once per transition into it.
   useEffect(() => {
     if (boot.state === "scene_ready") measure("accessibility_mode", "canvas");
@@ -508,7 +518,12 @@ export function WorldApp({
           <section aria-label="Living scene">
             <h2>{shown.worldLabel}</h2>
             {state.projection && (
-              <SceneCanvas projection={state.projection} availability={setCanvasAvailable} />
+              <SceneCanvas
+                key={canvasAttempt}
+                projection={state.projection}
+                availability={setCanvasAvailable}
+                retry={() => retryCanvas((value) => value + 1)}
+              />
             )}
             <p>Canonical revision: {scene.revision}</p>
             <p>Canonical time: {scene.simulationTime}</p>

@@ -105,6 +105,25 @@ export function logWorldReactionSweepFailure(
 }
 
 /**
+ * One post-commit activation hint pass for a world timeline failed. The actors it would have woken
+ * still read the events at their quiet poll. Only the timeline's opaque IDs and the error class are
+ * logged.
+ */
+export function logActivationHintFailure(
+  logger: RuntimeLogger,
+  ids: Pick<RuntimeLogFields, "tenantId" | "worldId" | "timelineId">,
+  failureClass: QueueFailureClass,
+): void {
+  logger.log(
+    runtimeLogRecord("warn", "activation_hint_failed", {
+      ...ids,
+      failureClass,
+      disposition: "recovered-by-poll",
+    }),
+  );
+}
+
+/**
  * One partition's scheduled verification or snapshot failed for a reason other than integrity; it
  * stays due and the next cron retries it. Only its opaque IDs and the error class are logged.
  */

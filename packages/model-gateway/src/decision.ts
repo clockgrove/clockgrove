@@ -42,7 +42,10 @@ export interface DecisionCallRecord {
   readonly label: string | null;
   readonly confidence: number | null;
   readonly latencyMs: number;
+  /** Measured cost; 0 only when the call provably billed nothing, null when unknown. */
   readonly costMicrousd: number | null;
+  /** The per-call ceiling reserved before the call; 0 when it was refused before reserving. */
+  readonly reservedMicrousd: number;
   readonly requestSha256: string;
 }
 

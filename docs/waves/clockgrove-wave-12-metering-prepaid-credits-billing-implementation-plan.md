@@ -3,7 +3,7 @@
 **Status:** Optional future commercial-hosting implementation specification  
 **Version:** 1.5  
 **Date:** October 01, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9 plus Waves 0–11  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9 plus Waves 0–11  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 12, optional after multiuser attribution qualification  
 **Assumptions:** Waves 10 and 11 are qualified; usage/cost data exists; pricing is not yet fixed

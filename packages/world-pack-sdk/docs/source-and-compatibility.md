@@ -88,6 +88,8 @@ actor, object, terrain and effect frames. The fixture profile is the pixel-art e
 The asset validator and fixture CLI now enforce this declaration, including soft alpha,
 world palette strictness, edge rules and role limits. Assets without a declared profile are
 refused with `STYLE_PROFILE_REQUIRED`; malformed profile data is `STYLE_PROFILE_INVALID`.
-Manifest-v1's independent 256 px frame cap remains in effect; larger frames and external
+Manifest v2 permits frame edges up to the 2048 px platform envelope, within the profile's
+role limits and atlas strip budget. Generated art requires the complete provenance and provider
+grant described in the [manifest contract](../../../docs/protocols/shared-contracts.md#generated-provenance). External
 asset commands are subsequent parts of issue 61, not current SDK capabilities. This presentation profile does not replace the SDK's
 simulation asset-resource provenance and dimension fields described above.

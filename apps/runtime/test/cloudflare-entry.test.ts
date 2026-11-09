@@ -94,7 +94,7 @@ it("logs a failed Queue delivery once through the composed logger, by transport 
     expect(retries).toEqual([{ delaySeconds: 2 }]);
     expect(sink.records.map(({ timestamp, ...record }) => record)).toEqual([
       {
-        schemaVersion: 5,
+        schemaVersion: 6,
         level: "warn",
         event: "world_reactions_delivery_failed",
         channel: "world-reactions",

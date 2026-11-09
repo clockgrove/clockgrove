@@ -32,7 +32,7 @@ Version 0.5.9 accepts resident-authored field guides and counterfactual Why unde
 
 The following decisions resolve earlier open questions and control if later historical wording in this document is ambiguous:
 
-1. **Clockgrove is the platform; Raccoon World is the reference world.** The product is not defined by one game genre or art treatment.
+1. **Clockgrove is the platform for any world; Raccoon World is the reference world.** Raccoon World lives in its own repository, [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), and builds against Clockgrove at a pinned commit. Platform code names no world's content. Clockgrove keeps `worlds/fixture` as its own test world, the platform's portability proof. The product is not defined by one game genre or art treatment.
 2. **Shared worlds follow MUD/MOO semantics.** Workspace membership grants administrative ownership; world membership grants participation. A visitor may join a world without joining its owning workspace.
 3. **Authentication is provider-neutral.** Better Auth is the reference open-source adapter. Clerk may be offered as an optional hosted adapter. Neither provider owns Clockgrove tenancy, authorization, world membership, personas, attribution, or billing semantics.
 4. **Every participant has a world persona.** The durable chain is `Principal -> WorldMembership -> WorldPersona -> Presence`. A persona may be unrendered, represented, or embodied, and may optionally control a world actor. Raccoon World begins with a disclosed, unrendered Caretaker persona.
@@ -55,7 +55,7 @@ The following decisions resolve earlier open questions and control if later hist
 
 ## 1. Executive summary
 
-Clockgrove is a persistent, living simulation platform in which every meaningful character, place, object, and system can behave as a durable actor. Its first world is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons. Time passes, weather changes, trees grow, food appears and disappears, relationships develop, babies are born, actors age and die, and the world continues whether or not a player is watching.
+Clockgrove is a persistent, living simulation platform in which every meaningful character, place, object, and system can behave as a durable actor. Its first reference world, Raccoon World ([clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world)), is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons. Time passes, weather changes, trees grow, food appears and disappears, relationships develop, babies are born, actors age and die, and the world continues whether or not a player is watching.
 
 The game is not the primary product thesis. The raccoon world is an accessible, emotionally legible test environment for a new interaction model:
 
@@ -178,7 +178,7 @@ The project should be evaluated as a series of product hypotheses rather than on
 2. **Subjective memory produces legible behavioral change.** Users can observe and correctly explain a later decision that changed because of experience or social learning.
 3. **Grounded traces increase trust.** Users prefer explanations tied to real perceptions, beliefs, utility features, and causal events over unconstrained character narration.
 4. **Conversational authoring is materially easier.** An operator can describe, preview, validate, and apply a bounded world change faster than editing raw scene and simulation data.
-5. **The abstractions generalize.** A tiny non-raccoon test fixture can use the same actor, space, event, memory, rule, and capability contracts without kernel changes.
+5. **The abstractions generalize.** Clockgrove's own fixture world (`worlds/fixture`) uses the same actor, space, event, memory, rule, and capability contracts as the reference world without kernel changes, and the reference world runs from its own repository on an unmodified platform.
 6. **Harness-driven cognition produces coherent autonomy.** The same agent-run machinery supports perception, research, action, conversation, reflection, and learning without separate behavior implementations that disagree about actor identity.
 7. **External context creates meaningful world consequences.** A recorded weather, news, market, or synthetic observation can alter an actor or system in a way that remains provenance-grounded and replayable.
 
@@ -445,7 +445,7 @@ Blender may be used to create rigged source assets and render directional sprite
 
 Phaser Editor v5 may be used to assemble scenes, atlases, animations, and tilemaps. Its local MCP tools can accelerate agent-driven scene and asset work, but they are treated as optional authoring tools while their coverage and stability mature. Phaser Game Agent may be used for rapid hosted prototypes, code, art, music, or preview experiments; it is not the build authority for the open-source repository. Committed assets, scene data, and source code must build without Blender MCP, Phaser Editor MCP, or the hosted Game Agent installed.
 
-The generated Clockgrove raccoon-world concept image is the initial visual north star: a cozy isometric Pacific Northwest yard, readable raccoon characters, visible weather and world activity, an event feed, and a selected-actor panel with conversation and explanation affordances. It is a direction reference, not a pixel-perfect specification.
+Raccoon World's generated concept image, kept in its repository, is that world's visual north star: a cozy isometric Pacific Northwest yard, readable raccoon characters, visible weather and world activity, an event feed, and a selected-actor panel with conversation and explanation affordances. It is a direction reference, not a pixel-perfect specification.
 
 Every asset must carry provenance metadata including author/generator, source, prompt or source file where applicable, license, modification history, and export settings.
 
@@ -3124,7 +3124,7 @@ terminal/exception: blocked | failed | cleanup_pending | archived
 
 `WorldProvisioningCase` pins the artifact, reserves world/timeline/installation IDs, creates the initial world membership/Caretaker persona/inventory, commits genesis and stable seed commands, installs cognitive artifacts/policies/schedules/random state, verifies the expected seed projection hash, establishes clock policy, and commits `WorldReady`. Ordinary presence and simulation begin only after readiness. Client retries, Workflow retries, or runtime initialization cannot duplicate the world or advance seeds twice.
 
-The initial simulation epoch, wall/simulation mapping, named random-stream algorithm/state, cognitive seed versions, asset manifest, schedules, and pack provenance are all recorded. Upgrades run through an explicit previewed migration case and never silently reinterpret existing event history. The demo yard and the tiny non-raccoon conformance fixture are both world packs over the same kernel.
+The initial simulation epoch, wall/simulation mapping, named random-stream algorithm/state, cognitive seed versions, asset manifest, schedules, and pack provenance are all recorded. Upgrades run through an explicit previewed migration case and never silently reinterpret existing event history. The demo yard, in the reference world's repository, and the tiny non-raccoon conformance fixture in `worlds/fixture` are both world packs over the same kernel.
 
 ---
 
@@ -3808,6 +3808,9 @@ The bounded policy compiler is required cognition, not arbitrary generated execu
 | Timeline | A live, preview, or archived history for a world, optionally forked from another timeline and sequence |
 | World change set | A reviewed bundle of typed authoring operations compiled from user intent |
 | World pack | A distributable definition of spaces, archetypes, assets, rules, capabilities, and seed state |
+| Reference world | Raccoon World, the first world built on Clockgrove and its demo application; it lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) |
+| World repository | A world's own repository, holding its pack, art, style bible, theme, goldens and journeys, and building against Clockgrove at a pinned commit |
+| Fixture world | `worlds/fixture`, Clockgrove's own test world (the beacon pack and the neutral reference variant); the platform's portability proof |
 
 ---
 

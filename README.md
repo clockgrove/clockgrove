@@ -32,6 +32,7 @@ Other repositories in the Clockgrove organization have separate responsibilities
 
 - `clockgrove/factory` — external agent-orchestration tooling used to develop Clockgrove. Clockgrove does not depend on Factory to build or run.
 - `clockgrove/skills` — reusable Clockgrove product/engineering skills.
+- `clockgrove/raccoon-world` — Raccoon World, the reference world: its pack, art, style bible, theme and goldens, built against a pinned Clockgrove commit.
 - `clockgrove/.github` — public organization profile, shared GitHub metadata, and the Clockgrove Copilot capability marketplace.
 
 Factory develops Clockgrove through GitHub Issues, pull requests and checks (`.github/workflows/factory.yml`); it is not a build or runtime dependency. The independent Skills package is enabled through `.github/copilot/settings.json`.
@@ -63,12 +64,12 @@ Start with [`docs/clockgrove-documentation-index.md`](docs/clockgrove-documentat
 Current top-level product baselines are:
 
 - [`docs/clockgrove-prd-v0.5.md`](docs/clockgrove-prd-v0.5.md) — **PRD v0.5.10**;
-- [`docs/raccoon-world-cloudflare-implementation-plan.md`](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) — **architecture v3.12**.
+- [`docs/clockgrove-cloudflare-implementation-plan.md`](docs/clockgrove-cloudflare-implementation-plan.md) — **architecture v3.12**.
 
 Key public-facing documents also include:
 
-- [`BRAND.md`](BRAND.md) — brand identity, voice and creative principles;
-- [`STYLE.md`](STYLE.md) — visual language and image-generation direction;
+- [`BRAND.md`](BRAND.md) — Clockgrove's brand identity, voice and creative principles;
+- [`STYLE.md`](STYLE.md) — Clockgrove's own visual language and image-generation direction (each world's art follows that world's style bible);
 - [`AI content disclosure policy`](docs/policy/ai-content-disclosure.md) — how players are told which content AI made, before shipping and live;
 - [`docs/adr/`](docs/adr/) — accepted product/runtime architectural decisions;
 - [`docs/waves/`](docs/waves/) — substantial sequential workstreams containing numerous capability Objectives and Work Items;

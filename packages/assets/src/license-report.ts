@@ -9,6 +9,7 @@ export function licenseReport(manifests: readonly AssetManifest[]): string {
   const counts = new Map<string, number>();
   for (const m of sorted) counts.set(m.license, (counts.get(m.license) ?? 0) + 1);
   const summary = [...counts].sort().map(([license, n]) => `${license}: ${n}`);
+  const credits = sorted.filter((m) => m.provenance.outputGrant?.attribution);
   return [
     "# Asset license report",
     "",
@@ -34,6 +35,16 @@ export function licenseReport(manifests: readonly AssetManifest[]): string {
     ),
     "",
     `Licenses: ${summary.length > 0 ? summary.join(", ") : "none"}`,
+    ...(credits.length === 0
+      ? []
+      : [
+          "",
+          "## Provider credits",
+          "",
+          ...credits.map(
+            (m) => `${m.assetId}/${m.animationFamily}: ${m.provenance.outputGrant?.attribution}`,
+          ),
+        ]),
     "",
   ].join("\n");
 }

@@ -66,7 +66,6 @@ import {
   type TrustedExecutionContext,
 } from "@clockgrove/contracts/trusted";
 import {
-  ACTIVATION_EVENT_PAGE,
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlWakeTriage,
@@ -1220,6 +1219,9 @@ export interface ActivationArming {
   readonly prompt?: boolean;
 }
 
+/** Where one arming is: requested, inside the serialized arming section, or out of it again. */
+export type ActivationArmingStep = "requested" | "started" | "settled";
+
 /**
  * The per-actor cognitive owner (Wave 5 §7, RW-0503 with RW-0307), on the pinned Agents SDK. It runs
  * each Caretaker message as a turn fiber checkpointed in PostgreSQL, streams its reply, and resumes
@@ -1422,7 +1424,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   async runScheduledActivations(address: ActivationAddress): Promise<void> {
     // A hint from here on may name an event the scan below has already passed, or not yet reached.
     const hints = this.#journalHints;
-    let fullPage = false;
+    let more = false;
     // The current one-shot is being consumed. Persist its successor before any turn can abort
     // this incarnation; a finally block cannot create the only recovery alarm after owner loss.
     const inspection = await this.armActivations(address, {
@@ -1450,12 +1452,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         }
       }
       // No configuration means no policy this principal can see, and so no journal cursor.
-      const events =
+      const page =
         inspection.configurations.length === 0
-          ? []
+          ? { events: [], more: false }
           : await withActivations(this.environment, (store) => store.events(address));
-      fullPage = events.length === ACTIVATION_EVENT_PAGE;
-      for (const event of events) {
+      more = page.more;
+      for (const event of page.events) {
         for (const configuration of inspection.configurations
           .filter((c) => c.enabled && c.eventType === event.eventType)
           .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
@@ -1492,7 +1494,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     } finally {
       await this.armActivations(address, {
         fromCallback: true,
-        prompt: fullPage || this.#journalHints !== hints,
+        prompt: more || this.#journalHints !== hints,
       });
     }
   }
@@ -1510,17 +1512,32 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     address: ActivationAddress,
     arming: ActivationArming,
   ): Promise<ActivationInspection> {
+    this.activationArmingStep(arming, "requested");
     const armed = this.#arming.then(async () => {
-      const inspection = await withActivations(this.environment, (store) => store.inspect(address));
-      if (inspection.configurations.length > 0)
-        await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
-      await this.activationPlanning(arming);
-      await this.planActivationAlarm(address, inspection, arming);
-      return inspection;
+      this.activationArmingStep(arming, "started");
+      try {
+        const inspection = await withActivations(this.environment, (store) =>
+          store.inspect(address),
+        );
+        if (inspection.configurations.length > 0)
+          await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
+        await this.activationPlanning(arming);
+        await this.planActivationAlarm(address, inspection, arming);
+        return inspection;
+      } finally {
+        this.activationArmingStep(arming, "settled");
+      }
     });
     this.#arming = armed.catch(() => undefined);
     return armed;
   }
+
+  /**
+   * Called as an arming is requested, as it enters the arming section and as it leaves it.
+   * Production does nothing. The native test owner counts the steps: an arming requested but not
+   * started waits for the section, and one started but not settled is inside it.
+   */
+  protected activationArmingStep(_arming: ActivationArming, _step: ActivationArmingStep): void {}
 
   /**
    * Called inside the arming section, after its inspection is read and before it plans. Production
@@ -1545,9 +1562,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const key = `${ACTIVATION_ALARM_KEY}:${address.participant.principalId}`;
     const stored = await this.objectState.storage.get<{ id: string; at: number }>(key);
     // Decision: unfinished turns retry after one second so an owner loss does not strand their
-    // receipts behind quiet polling. A journal hint or a full page of unread events checks again
-    // after one second too. Quiet subscription checks remain one minute apart; model retries still
-    // require a budget reservation at the model boundary.
+    // receipts behind quiet polling. A journal hint, a full page of unread events or an event
+    // whose transaction had not settled checks again after one second too. Quiet subscription
+    // checks remain one minute apart; model retries still require a budget reservation at the
+    // model boundary.
     const poll = inspection.configurations.some((c) => c.enabled && c.eventType !== undefined);
     const pending = forceRecovery || inspection.activations.some((a) => a.status === "pending");
     const blocked = new Set(

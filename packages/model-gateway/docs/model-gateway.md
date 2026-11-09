@@ -184,24 +184,31 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   tier reached only some models; the paid tier reaches all four measured in factory#2504). Suggested default
   `pplx-decider-v1.2`, alternate `gpt-6-luna-decisions`.
 - **Order of checks.** Input byte bound, cancellation, circuit breaker, then the budget reservation. A timeout
-  settles the whole reservation and records a null cost; a failed or refused call settles 0.
+  settles the whole reservation and records a null cost.
+- **Cost of a failed call.** The adapter's `ProviderFailure.billing` says what a failure may have billed. A call
+  the provider answered before it failed (a model refusal, an answer the SDK rejects) is priced from the usage
+  that answer reported, like a completed call, or recorded as unknown. Only a call that provably billed nothing
+  records 0 and settles 0: a missing credential (no request sent) and an HTTP 401, 402, 403 or 429 refusal
+  (the gateway refused before routing to a model). Any other failure, a cancellation included, records a null
+  cost and settles the whole reservation.
 - **Outcome.** `completed` carries `{type, label, confidence}`; `failed` carries a `ModelFailureCode`,
   `retryable` and the call record. Confidence is the model's probability for its label, `null` when absent.
   Observed confidences run 0.5 to 0.8 even when correct, so callers set a threshold per decision, not a global one.
 - **Record.** Every call records `DecisionCallRecord` through `ModelAccountingSink.recordDecision`: model,
   response model, outcome, label, confidence, latency, cost in microusd (reported cost, else tokens times price,
-  else null) and the request hash. Null means unknown, not zero. `decisionAlias` leaves price
+  else null), the reserved ceiling (`reservedMicrousd`, 0 when refused before reserving) and the request hash. Null means unknown, not zero. `decisionAlias` leaves price
   unconfigured unless `priceUsdPerMTok` is supplied: token usage alone then cannot establish cost.
   An explicitly configured zero price is zero. Reported cost takes precedence over configured pricing.
   Unknown cost settles the full reserved ceiling; it is never treated as free budget.
-- **Scripted decider.** `ScriptedDecider` answers from a per-route finite script of `answer` or `http` steps and
-  refuses with `unavailable` when it runs out. Tests and replays use it; replay never calls a model.
+- **Scripted decider.** `ScriptedDecider` answers from a per-route finite script of `answer`, `http` or `refusal`
+  (a model refusal with an optional reported cost) steps and refuses with `unavailable`, billing nothing, when it
+  runs out. Tests and replays use it; replay never calls a model.
 
 The runtime's shadow tier consumes it ([decision shadow](../../../docs/protocols/decision-shadow.md)).
 The [offline shadow command](../../../docs/runbooks/runtime.md#offline-decision-shadow-day) sends
-actor state and candidate features without utility scores or ranking. Reports separate utility
-agreement by the declared ambiguity margin from labelled fixture-reference accuracy, and count
-unknown costs beside known spend. It remains observational until the owner reads the numbers.
+actor state and candidate features, each with its unit and range, without utility scores or
+ranking. Reports separate utility agreement by a classification margin kept apart from sampling
+from labelled fixture-reference accuracy, and count unknown costs beside known spend. It remains observational until the owner reads the numbers.
 
 Wake triage (issue 111) uses this same `decide` port and a configured decision alias; it does not
 route through generation. Runtime composition reads the optional `WAKE_TRIAGE_CONFIG` JSON binding.

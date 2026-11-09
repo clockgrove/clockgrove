@@ -42,7 +42,7 @@ export const SNAPSHOT: SceneProjection = decodeSceneProjection({
   timelineId: "timeline-bakeoff",
   spaceId: "hall",
   privacyClass: "public_scene",
-  compatibility: { projectionVersion: 2, assetManifestVersion: 1, clientVersion: 1 },
+  compatibility: { projectionVersion: 2, assetManifestVersion: 2, clientVersion: 1 },
   revision: "1",
   simulationTime: String(DUSK_TIME),
   weather: { rainIntensity: DUSK_RAIN },

@@ -3,7 +3,7 @@
     "content": {
       "audienceHash": "audience-hall-observer",
       "compatibility": {
-        "assetManifestVersion": 1,
+        "assetManifestVersion": 2,
         "clientVersion": 1,
         "projectionVersion": 2
       },
@@ -117,13 +117,13 @@
       },
       "worldId": "world-hall"
     },
-    "hash": "56e2d5cc3aa1007dcebdb21978f5f8a344f6cd3016d5732128d7e58f4eee412e"
+    "hash": "915d311e76c446b5c46d809eb702502d289b2e10b18599f968546de85b566ae7"
   },
   "commit": {
     "content": {
       "audienceHash": "audience-hall-observer",
       "compatibility": {
-        "assetManifestVersion": 1,
+        "assetManifestVersion": 2,
         "clientVersion": 1,
         "projectionVersion": 2
       },
@@ -242,13 +242,13 @@
       },
       "worldId": "world-hall"
     },
-    "hash": "d641132448e74b94f5ee4e2c47d1a44bb2c7230be1154e691df616828ab19afc"
+    "hash": "1eb92caee20e32b4ab63e0fcda0150a0225460fb6b1766f77ed005e2fa2abb61"
   },
   "final": {
     "content": {
       "audienceHash": "audience-hall-observer",
       "compatibility": {
-        "assetManifestVersion": 1,
+        "assetManifestVersion": 2,
         "clientVersion": 1,
         "projectionVersion": 2
       },
@@ -367,6 +367,6 @@
       },
       "worldId": "world-hall"
     },
-    "hash": "f566972a7293c273e9b96a9cdc21e66273fbf1bce32f92555c461458c65c2887"
+    "hash": "8b259fa33405c55f43a0c17c91dcca02b508729a0273230bf6d56e7b48a30633"
   }
 }

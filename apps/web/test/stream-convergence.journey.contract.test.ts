@@ -42,7 +42,7 @@ it("commits before notification and fences retired transport work", async () => 
   await reconnected;
   successor.socket.onopen?.();
   expect(JSON.stringify(successor.messages.at(-1))).toBe(
-    '{"protocolVersion":1,"type":"resume","lastAppliedRevision":"9007199254741100","assetManifestVersion":1}',
+    '{"protocolVersion":1,"type":"resume","lastAppliedRevision":"9007199254741100","assetManifestVersion":2}',
   );
   obsoleteFailure?.();
   obsoleteMessage?.({ data: "invalid" });
