@@ -93,3 +93,11 @@ role limits and atlas strip budget. Generated art requires the complete provenan
 grant described in the [manifest contract](../../../docs/protocols/shared-contracts.md#generated-provenance). External
 asset commands are subsequent parts of issue 61, not current SDK capabilities. This presentation profile does not replace the SDK's
 simulation asset-resource provenance and dimension fields described above.
+
+
+Asset presentation is separate from simulation content. Declare
+`reference/asset-style.json` using the versioned
+[style-profile contract](../../../docs/protocols/shared-contracts.md#world-asset-style-profile).
+World-location validation, atlas builds and golden review use the
+[external asset commands](../../assets/docs/pipeline.md#external-world-commands)
+from a pinned Clockgrove checkout; no world npm package is needed.

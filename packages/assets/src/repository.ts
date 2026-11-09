@@ -83,40 +83,46 @@ export function readPackScenes(root: string, worldRoot = "worlds"): PackScene[] 
     if (!existsSync(directory)) return;
     if (existsSync(join(directory, "presentation.json"))) directories.push(directory);
     for (const entry of readdirSync(directory, { withFileTypes: true }))
-      if (entry.isDirectory()) visit(join(directory, entry.name));
+      if (entry.isDirectory() && !["node_modules", ".git", "assets"].includes(entry.name))
+        visit(join(directory, entry.name));
   }
   visit(join(root, worldRoot));
-  return directories
-    .sort()
-    .map((directory) => relative(join(root, "worlds"), directory))
-    .filter((dir) => existsSync(join(root, "worlds", dir, "presentation.json")))
-    .map((packDir) => {
-      const pack = join(root, "worlds", packDir);
-      const placements = new Map<string, [number, number]>();
-      for (const name of names(join(pack, "resources/actors"), ".json")) {
-        const actor = readJson(join(pack, "resources/actors", name));
-        if (actor.placement) placements.set(actor.id, point(actor.placement.coordinates));
-      }
-      const paths: PackScene["paths"] = [];
-      for (const name of names(join(pack, "resources/spaces"), ".json")) {
-        const graph = readJson(join(pack, "resources/spaces", name)).anchorGraph;
-        const anchors = new Map<string, [number, number]>(
-          (graph?.anchors ?? []).map(
-            (a: { anchorId: string; coordinates: { $bigint: string }[] }) => [
-              a.anchorId,
-              point(a.coordinates),
-            ],
-          ),
-        );
-        for (const edge of graph?.edges ?? [])
-          paths.push([
-            anchors.get(edge.from) as [number, number],
-            anchors.get(edge.to) as [number, number],
-          ]);
-      }
-      const presentation = decodePackPresentation(readJson(join(pack, "presentation.json")));
-      return { packDir, presentation, placements, paths };
-    });
+  const sceneBase =
+    worldRoot === "worlds" || worldRoot.startsWith("worlds/")
+      ? join(root, "worlds")
+      : join(root, worldRoot);
+  return directories.sort().map((pack) => {
+    const packDir = relative(sceneBase, pack) || ".";
+    const placements = new Map<string, [number, number]>();
+    for (const name of names(join(pack, "resources/actors"), ".json")) {
+      const actor = readJson(join(pack, "resources/actors", name));
+      if (actor.placement) placements.set(actor.id, point(actor.placement.coordinates));
+    }
+    const paths: PackScene["paths"] = [];
+    for (const name of names(join(pack, "resources/spaces"), ".json")) {
+      const graph = readJson(join(pack, "resources/spaces", name)).anchorGraph;
+      const anchors = new Map<string, [number, number]>(
+        (graph?.anchors ?? []).map(
+          (a: { anchorId: string; coordinates: { $bigint: string }[] }) => [
+            a.anchorId,
+            point(a.coordinates),
+          ],
+        ),
+      );
+      for (const edge of graph?.edges ?? [])
+        paths.push([
+          anchors.get(edge.from) as [number, number],
+          anchors.get(edge.to) as [number, number],
+        ]);
+    }
+    const presentation = decodePackPresentation(readJson(join(pack, "presentation.json")));
+    return {
+      packDir,
+      presentation,
+      placements,
+      paths,
+    };
+  });
 }
 
 export const goldenPaths = (root: string, packDir: string, assetRoot = "assets") => ({
