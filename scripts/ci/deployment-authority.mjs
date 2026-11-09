@@ -47,7 +47,7 @@ export function assertRoutingMetadata(config, target) {
   for (const [name, value] of Object.entries(config.safeIds))
     assert(!/^0+$/u.test(value), `missing routing metadata ${target}.${name}`);
   for (const [name, value] of Object.entries(config.domains))
-    assert(!value.endsWith("example.org"), `missing routing metadata ${target}.${name}`);
+    assert(!/(?:^|\.)example\.org$/u.test(value), `missing routing metadata ${target}.${name}`);
 }
 
 // The owner-approved external state configuration: INFRA_CONFIGURATION_DIGEST pins the backend
