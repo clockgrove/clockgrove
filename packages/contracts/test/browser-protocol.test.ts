@@ -64,7 +64,7 @@ it("decodes the observer clock and material feed and refuses raw payloads, open 
     text: "A resource was offered.",
     sourceEventIds: ["event-1"],
     category: "resource",
-    objectId: "grove.snack-dish",
+    objectId: "fixture.resource",
   };
   const status = { version: 1, privacyClass: "public_scene", ...scope, revision: "3", clock };
   const decoded = decodeWorldStatus({ ...status, feed: [item] });
