@@ -42,6 +42,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
+  type ActivationArming,
   type BirthWorkflowStepConfig,
   type DurableObjectState,
   ActorAgentDO as ProductionActorAgentDO,
@@ -294,9 +295,22 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   async modelCallsTest(): Promise<number> {
     return (await this.objectState.storage.get<number>("test-model-calls")) ?? 0;
   }
-  /** Releases a turn held by a `hold:<phase>` fault. */
+  /** Releases a turn held by a `hold:<phase>` fault, or a callback held at activation planning. */
   async releaseTurn(): Promise<void> {
     this.held?.();
+    this.held = undefined;
+  }
+  async heldTest(): Promise<boolean> {
+    return this.held !== undefined;
+  }
+  /** `hold:activation-planning` holds a scheduled callback's last arming before it plans. */
+  protected override async activationPlanning(arming: ActivationArming): Promise<void> {
+    if (!arming.fromCallback || arming.forceRecovery) return;
+    if ((await this.objectState.storage.get("test-turn-fault")) !== "hold:activation-planning")
+      return;
+    await new Promise<void>((resolve) => {
+      this.held = resolve;
+    });
   }
   protected override async turnCheckpointed(fiber: TurnFiber, phase: string): Promise<void> {
     const storage = this.objectState.storage;
@@ -1055,6 +1069,7 @@ export default {
       if (body.op === "fault")
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
+      if (body.op === "held") return Response.json(await actor.heldTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")

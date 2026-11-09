@@ -204,9 +204,15 @@ capacity refuses additional admission rather
 than forgetting an old receipt and risking duplicate execution.
 
 A compiled `noop` decision disables that configuration and clears its next wake, suppressing
-repeated empty opportunities until an operator reconfigures it. Quiet subscription polling uses
-a one-minute cadence; unfinished turns retry after one second, subject to the model budget. These are
-explicit local bounds, rather than continuously running actor processes.
+repeated empty opportunities until an operator reconfigures it. Subscriptions and thresholds wake on
+events: after a world command commits, its space owner asks the owner of each actor whose enabled
+subscription or threshold names a committed event type for a check within one second
+(`clockgrove.activation_event_subscribers`, migration 0042, answers only those actors' routes to the
+world's system principal). Repeated hints coalesce into the actor's one activation alarm, and a
+check that reads a full page of 64 unread events checks again within one second. Quiet subscription
+polling, one minute apart, remains the backstop for a lost hint; unfinished turns retry after one
+second, subject to the model budget. These are explicit local bounds, rather than continuously
+running actor processes.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
 logic owns evaluation of the physical condition. Event cursors start at the journal head when
