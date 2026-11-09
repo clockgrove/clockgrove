@@ -2622,11 +2622,34 @@ const observeHall = async (backend) => {
         };
         await keeperOwner({ op: "fault", phase: "hold:model_running:streaming" });
         await openTalk();
+        // issue 108: a send while New conversation is still being created goes to that
+        // conversation; it creates no second one. The creation is held until the send is made.
+        const sessionsBefore = Number(
+          await truth("SELECT count(*) FROM clockgrove.conversation_sessions"),
+        );
+        const { promise: createGate, resolve: releaseCreate } = Promise.withResolvers();
+        await talker.viewer.route(
+          "**/v1/runtime/conversations/create",
+          async (route) => {
+            await createGate;
+            await route.continue();
+          },
+          { times: 1 },
+        );
         await talker.viewer.getByRole("button", { name: "New conversation", exact: true }).click();
         await talker.viewer.getByLabel("Message Keeper…", { exact: true }).fill("hello Keeper");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
+        releaseCreate();
         await talker.viewer.getByText("Keeper is replying…").waitFor({ timeout: 60_000 });
         expect(await history.getByText(/Scripted fixture reply/u).count()).toBe(0);
+        expect(Number(await truth("SELECT count(*) FROM clockgrove.conversation_sessions"))).toBe(
+          sessionsBefore + 1,
+        );
+        // A newer, empty conversation does not hide the reply in progress after the reload.
+        await talker.viewer.getByRole("button", { name: "New conversation", exact: true }).click();
+        await expect
+          .poll(() => truth("SELECT count(*) FROM clockgrove.conversation_sessions"))
+          .toBe(String(sessionsBefore + 2));
         await talker.viewer.reload();
         await talker.viewer.getByLabel("Local session credential").fill("hall-inspect");
         await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
