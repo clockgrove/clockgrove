@@ -581,7 +581,14 @@ async function execStep(
   if (!outcome.ok) assertEnvelope(outcome.error);
   else {
     equal(
-      checkWorldInvariants(before, state, outcome.result.events, type as MovementCommandType),
+      checkWorldInvariants(
+        before,
+        state,
+        outcome.result.events,
+        type as MovementCommandType,
+        undefined,
+        payload,
+      ),
       undefined,
     );
     equal(replayWorldEvents(before, outcome.result.events), state);

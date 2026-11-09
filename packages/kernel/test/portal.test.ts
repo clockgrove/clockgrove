@@ -8,7 +8,7 @@ import {
 } from "@clockgrove/domain";
 import { describe, expect, it } from "vitest";
 import { routeAnchors } from "../src/index.js";
-import { executeWorldKernel, type WorldKernelInput } from "../src/world.js";
+import { checkWorldInvariants, executeWorldKernel, type WorldKernelInput } from "../src/world.js";
 import {
   anchorGraph,
   movementInput,
@@ -261,5 +261,157 @@ describe("portal navigation (graph 3)", () => {
     const linked = { ...graph, edges: [{ from: "a", to: "b", cost: fixedPoint(1000n) }] };
     expect(routeAnchors(linked, "a", "b", [portal("p")])?.via).toEqual([null]);
     expect(routeAnchors(graph, "a", "b")).toBeUndefined();
+  });
+});
+
+describe("movement event authority", () => {
+  const fake = (type: string, objectId: string, time = 5n) =>
+    ({ type, simulationTime: time, payload: { objectId } }) as never;
+  const check = async (command: string, events: readonly unknown[]) => {
+    const base = await spatialFixture([mover("mover", [0n, 0n]), mover("other", [1n, 1n])]);
+    const state = base.partition.state;
+    const refused = checkWorldInvariants(
+      state,
+      state,
+      events as never,
+      command as never,
+      undefined,
+      { objectId: "mover" },
+    );
+    // The fabricated events trip other invariants; only the event authority is under test.
+    return refused?.check?.includes("event-authority") ? refused.path : undefined;
+  };
+
+  it("keeps the mover's movement events to the command that owns them", async () => {
+    expect(await check("movement.start", [fake("movement.started", "mover")])).toBeUndefined();
+    expect(await check("movement.start", [fake("movement.replanned", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.start", [fake("movement.interrupted", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.interrupt", [fake("movement.completed", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(await check("movement.interrupt", [fake("movement.started", "mover")])).toBe(
+      "events[0].type",
+    );
+  });
+
+  it("takes other objects' movement events from the world time", async () => {
+    expect(
+      await check("movement.interrupt", [fake("movement.completed", "other")]),
+    ).toBeUndefined();
+  });
+
+  it("accepts the mover's death interruption only with its death at the same time", async () => {
+    const died = fake("lifecycle.died", "mover");
+    expect(
+      await check("movement.start", [fake("movement.interrupted", "mover"), died]),
+    ).toBeUndefined();
+    expect(await check("movement.start", [fake("movement.interrupted", "mover")])).toBe(
+      "events[0].type",
+    );
+    expect(
+      await check("movement.start", [
+        fake("movement.interrupted", "mover"),
+        fake("lifecycle.died", "mover", 6n),
+      ]),
+    ).toBe("events[0].type");
+    expect(
+      await check("movement.start", [
+        fake("movement.interrupted", "mover"),
+        fake("lifecycle.died", "other"),
+      ]),
+    ).toBe("events[0].type");
+  });
+});
+
+describe("movement scope and uniqueness", () => {
+  const fake = (type: string, objectId: string, extra: object = {}) =>
+    ({ type, simulationTime: 5n, payload: { objectId, ...extra } }) as never;
+  const run = async (events: readonly unknown[], change?: (entity: WorldEntity) => WorldEntity) => {
+    const base = await spatialFixture([
+      mover("mover", [0n, 0n]),
+      mover("other", [1n, 2n], { resource: { kind: "food", quantity: 2 } } as never),
+      mover("walker", [2n, 1n], {
+        needs: {
+          hunger: 0,
+          wetness: 0,
+          integratedAt: 0n,
+          hungerRemainder: 0n,
+          wetnessRemainder: 0n,
+        },
+      } as never),
+    ]);
+    const initial = base.partition.state;
+    const final = {
+      ...initial,
+      simulationTime: initial.simulationTime + 5n,
+      revision: initial.revision + BigInt(events.length),
+      entities: initial.entities.map((entity) => change?.(entity) ?? entity),
+    };
+    const at = (event: { simulationTime: bigint }) => ({
+      ...event,
+      simulationTime: initial.simulationTime + event.simulationTime,
+    });
+    return checkWorldInvariants(
+      initial,
+      final as never,
+      (events as { simulationTime: bigint }[]).map(at) as never,
+      "movement.start",
+      undefined,
+      { objectId: "mover" },
+    );
+  };
+  const moved =
+    (objectId: string) =>
+    (entity: WorldEntity): WorldEntity =>
+      entity.objectId === objectId
+        ? {
+            ...entity,
+            pose: { ...entity.pose, coordinates: [...entity.pose.coordinates].reverse() as never },
+          }
+        : entity;
+
+  it("lets an event change only the fields its type owns", async () => {
+    const events = [fake("movement.started", "mover"), fake("needs.changed", "other")];
+    expect(await run(events)).toBeUndefined();
+    // A needs change names the object but owns only its needs, not its pose.
+    expect(await run(events, moved("other"))).toMatchObject({
+      check: "movement.scope@4",
+      path: "state.entities[1]",
+    });
+    // A routine mover's movement event owns its pose.
+    const walked = [fake("movement.started", "mover"), fake("movement.completed", "walker")];
+    expect(await run(walked, moved("walker"))).toBeUndefined();
+  });
+
+  it("refuses movement events of an object no routine moves", async () => {
+    expect(
+      await run([fake("movement.started", "mover"), fake("movement.completed", "other")]),
+    ).toMatchObject({ check: "movement.scope@4", path: "events" });
+  });
+
+  it("requires a movement event of the mover", async () => {
+    expect(await run([fake("needs.changed", "other")])).toMatchObject({
+      check: "movement.scope@4",
+      path: "events",
+    });
+  });
+
+  it("lets only a consumption repeat", async () => {
+    const started = fake("movement.started", "mover");
+    expect(
+      await run([started, fake("lifecycle.died", "other"), fake("lifecycle.died", "other")]),
+    ).toMatchObject({ check: "movement.events-ordered-and-unique@3", path: "events[2]" });
+    const eaten = fake("resource.consumed", "other", { kind: "food", quantity: 1 });
+    expect(
+      await run([started, eaten, eaten], (entity) =>
+        entity.objectId === "other"
+          ? ({ ...entity, resource: { kind: "food", quantity: 0 } } as never)
+          : entity,
+      ),
+    ).toBeUndefined();
   });
 });
