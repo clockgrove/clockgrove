@@ -17,13 +17,14 @@ export async function main(argv) {
       "span-ms": { type: "string" },
       "spend-microusd": { type: "string" },
       margin: { type: "string" },
+      "cohort-margin": { type: "string" },
       "models-off": { type: "boolean", default: false },
       "reference-pack": { type: "string" },
     },
     strict: true,
     allowPositionals: false,
   });
-  for (const name of ["pack", "alias", "out", "span-ms", "spend-microusd", "margin"])
+  for (const name of ["pack", "alias", "out", "span-ms", "spend-microusd"])
     if (values[name] === undefined) throw new Error(`--${name} is required`);
   const report = await runShadowDay({
     pack: resolve(values.pack),
@@ -31,6 +32,7 @@ export async function main(argv) {
     spanMs: values["span-ms"],
     spendMicrousd: Number(values["spend-microusd"]),
     margin: values.margin,
+    cohortMargin: values["cohort-margin"],
     modelsOff: values["models-off"],
     referencePack:
       values["reference-pack"] === undefined ? undefined : resolve(values["reference-pack"]),

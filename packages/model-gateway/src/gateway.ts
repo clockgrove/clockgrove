@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { ProviderFailure, type RouteAdapter, type RouteCall } from "./adapter.js";
+import {
+  BILLING_UNKNOWN,
+  type ProviderBilling,
+  ProviderFailure,
+  type RouteAdapter,
+  type RouteCall,
+} from "./adapter.js";
 import { costCeilingMicrousd, type ModelAliasDefinition, type ModelRoute } from "./aliases.js";
 import { RouteBreaker } from "./breaker.js";
 import type {
@@ -105,6 +111,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       confidence: null,
       latencyMs: now() - started,
       costMicrousd: 0,
+      reservedMicrousd: 0,
       requestSha256,
       ...fields,
     });
@@ -142,23 +149,14 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         }),
         alias.timeoutMs,
       );
+      const reserved = { reservedMicrousd: reservation.microusd };
       if (reply === TIMED_OUT) {
         controller.abort(new Error("decision timed out"));
         routeBreaker.failed(now());
         options.budget.settle(reservation, reservation.microusd);
-        return await fail("timeout", true, { costMicrousd: null });
+        return await fail("timeout", true, { costMicrousd: null, ...reserved });
       }
-      const cost =
-        reply.reportedCostUsd !== null
-          ? Math.round(reply.reportedCostUsd * 1_000_000)
-          : alias.priceConfigured === false ||
-              reply.inputTokens === null ||
-              reply.outputTokens === null
-            ? null
-            : Math.round(
-                reply.inputTokens * route.priceUsdPerMTok.input +
-                  reply.outputTokens * route.priceUsdPerMTok.output,
-              );
+      const cost = decisionCost(alias, reply);
       options.budget.settle(reservation, cost ?? reservation.microusd);
       routeBreaker.succeeded();
       const record = recordOf("completed", {
@@ -166,12 +164,22 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         label: reply.answer.label,
         confidence: reply.answer.confidence,
         costMicrousd: cost,
+        ...reserved,
       });
       await options.accounting.recordDecision?.(record);
       return { status: "completed", value: reply.answer, record };
     } catch (error) {
-      // A refused or failed call returned no answer, so nothing was billed.
-      options.budget.settle(reservation, 0);
+      // Only a failure that provably billed nothing settles at zero. A model refusal or an answer
+      // that failed afterwards is priced from its usage; anything else keeps the reservation spent.
+      const billing: ProviderBilling =
+        !outer?.aborted && error instanceof ProviderFailure ? error.billing : BILLING_UNKNOWN;
+      const cost =
+        billing.kind === "none"
+          ? 0
+          : billing.kind === "usage"
+            ? decisionCost(alias, billing)
+            : null;
+      options.budget.settle(reservation, cost ?? reservation.microusd);
       const kind = outer?.aborted
         ? "cancelled"
         : error instanceof ProviderFailure
@@ -181,7 +189,10 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       else routeBreaker.released();
       const code = kind === "credential_missing" ? "unavailable" : kind;
       const retryable = error instanceof ProviderFailure ? error.retryable : kind === "cancelled";
-      return await fail(code, retryable);
+      return await fail(code, retryable, {
+        costMicrousd: cost,
+        reservedMicrousd: reservation.microusd,
+      });
     } finally {
       outer?.removeEventListener("abort", abortFromOuter);
     }
@@ -446,6 +457,27 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       };
     },
   };
+}
+
+/**
+ * A decision call's cost in microdollars: the gateway-reported cost, else configured prices over
+ * reported tokens, else null (unknown, never zero).
+ */
+function decisionCost(
+  alias: DecisionAliasDefinition,
+  usage: Readonly<{
+    reportedCostUsd: number | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+  }>,
+): number | null {
+  if (usage.reportedCostUsd !== null) return Math.round(usage.reportedCostUsd * 1_000_000);
+  if (alias.priceConfigured === false || usage.inputTokens === null || usage.outputTokens === null)
+    return null;
+  return Math.round(
+    usage.inputTokens * alias.route.priceUsdPerMTok.input +
+      usage.outputTokens * alias.route.priceUsdPerMTok.output,
+  );
 }
 
 /**
