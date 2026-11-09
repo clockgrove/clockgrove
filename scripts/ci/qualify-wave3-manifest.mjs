@@ -14,6 +14,7 @@ import { sameCommand } from "./canonical-commands.mjs";
 import { digest } from "./evidence.mjs";
 import { RECEIPTS, receipt } from "./qualify-wave1-manifest.mjs";
 import { LOAD_CURVES_FILE } from "./qualify-wave3-load-curves.mjs";
+import { worldPackDirectories } from "./world-packs.mjs";
 
 export { RECEIPTS };
 export const MANIFEST_FILE = "wave3-evidence-manifest.json";
@@ -120,7 +121,7 @@ async function runtime(root, rootManifest) {
 /** Every committed golden run's final state hash, as `{ run: "pack/scenario:run", finalStateHash }`. */
 async function goldenRuns(root, decode) {
   const found = [];
-  for (const pack of (await readdir(path.join(root, "worlds"))).sort()) {
+  for (const pack of await worldPackDirectories(root)) {
     const directory = path.join(root, "worlds", pack, "goldens");
     for (const name of (await readdir(directory).catch(() => [])).filter(
       (file) => file.endsWith(".json") && !file.endsWith(".actual.json"),
@@ -143,7 +144,7 @@ export function scenarioStatus({ goldens, runs, soak }, longRunStatus) {
   if (longRunStatus === "missing") return "missing";
   const golden = new Map(goldens.map((entry) => [entry.run, entry.finalStateHash]));
   const reported = new Set(runs.map((entry) => entry.run));
-  const packs = new Set(goldens.map((entry) => entry.run.split("/")[0]));
+  const packs = new Set(goldens.map((entry) => entry.run.slice(0, entry.run.lastIndexOf("/"))));
   const complete =
     reported.size === runs.length &&
     reported.size === golden.size &&
@@ -169,7 +170,7 @@ export function scenarioStatus({ goldens, runs, soak }, longRunStatus) {
  * Turbo relays it from the runtime package's test:long-run task (with or without its task prefix).
  */
 const NATIVE_LINE =
-  /^(?:@clockgrove\/runtime:test:long-run: )?native-owner parity ([\w-]+)\/([\w-]+):([^\s:]+): (?:match|MISMATCH) actual (\S+) expected (\S+) \((\d+) commands, (\d+) continuation chunks, (\d+) retries, (\d+) restarts, (\d+) ms\)$/gmu;
+  /^(?:@clockgrove\/runtime:test:long-run: )?native-owner parity ([\w-]+(?:\/[\w-]+)*)\/([\w-]+):([^\s:]+): (?:match|MISMATCH) actual (\S+) expected (\S+) \((\d+) commands, (\d+) continuation chunks, (\d+) retries, (\d+) restarts, (\d+) ms\)$/gmu;
 
 /**
  * Native-owner scenario parity from the test:long-run log (native-parity.long-run.test.ts): each

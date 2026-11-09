@@ -36,8 +36,8 @@ Ancestor places use graph 5, the semantic hierarchy the state's regions declare 
 `parent` references ([spatial contracts](../../domain/docs/spatial.md#semantic-hierarchy-and-dwell)).
 The subject (the actor, else the target) stands in `placeOf` its pose; its ancestor places are that
 place's `regionAncestors`. An observer is an `ancestor-space` candidate when the place it stands in is
-one of them: in the green-lake yard, an observer in the neighbourhood outside the living yard, for an
-event in the living yard. A source state whose hierarchy has an unknown parent or a cycle is
+one of them: in the reference fixture, an observer in the neighbourhood outside the living hall, for an
+event in the living hall. A source state whose hierarchy has an unknown parent or a cycle is
 `invalid-input` at `sourceState.spatialRegions[i].parent...`.
 
 A viewer is not a world observer: viewers produce only client-interest inputs and never

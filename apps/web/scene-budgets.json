@@ -9,7 +9,7 @@
     "assetBytes": {
       "limit": 262144,
       "measured": "build",
-      "reason": "Decision: every reviewed atlas image and animation manifest served from assets/reviewed. 256 KiB is about nine times the first reviewed set (28 kB), room for the rest of the wave's art."
+      "reason": "Decision: every reviewed atlas image and animation manifest served from worlds/fixture/assets/reviewed. 256 KiB is about nine times the first reviewed set (28 kB), room for the rest of the wave's art."
     },
     "textureBytes": {
       "limit": 16777216,
@@ -29,7 +29,7 @@
     "entityCount": {
       "limit": 256,
       "measured": "browser",
-      "reason": "Decision: the most drawn entities one yard scene supports, about seventeen times the golden yard's fifteen."
+      "reason": "Decision: the most drawn entities one scene supports, about seventeen times the golden scene's fifteen."
     },
     "patchApplicationMs": {
       "limit": 8,
@@ -111,7 +111,7 @@
         "reconnectMs": 1054.5
       }
     ],
-    "oneCoreWebgpuSource": "timeout 600 taskset -c 0 env CI=true CLOCKGROVE_RENDERER_PROOF=webgpu node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts tests/e2e/living-yard.journey.browser.test.mjs; renderer source matches 190ff17",
+    "oneCoreWebgpuSource": "Historical command and renderer source: https://github.com/clockgrove/clockgrove/blob/190ff17/apps/web/scene-budgets.json; benchmark provenance remains at that immutable commit.",
     "oneCoreWebgpuLogSha256": "sha256:a4cf0485870afc30e08c392a0dab2794d538a5bc2cc292215db297c06a136735",
     "oneCoreWebgpuBudgetCheck": {
       "backend": "webgpu",

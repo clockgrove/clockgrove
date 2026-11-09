@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "feeder",
+  "animationFamily": "static",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/feeder/static.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "object",
+    "entity": "fixture.snack-dish",
+    "archetype": "fixture.food-source-kind"
+  },
+  "frames": {
+    "width": 24,
+    "height": 24,
+    "count": 1,
+    "durationMs": null
+  },
+  "anchor": {
+    "x": 12,
+    "y": 22
+  },
+  "footprint": {
+    "width": 450,
+    "depth": 450
+  },
+  "bounds": {
+    "x": 1,
+    "y": 7,
+    "width": 23,
+    "height": 17
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "f423be87eb77ee998d4ee60e23844438c8853819cd247fe8fc3d5495d4315293",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 640,
+    "y": 48
+  },
+  "accessibilityLabel": "The snack feeder"
+}

@@ -31,7 +31,7 @@ const CASES: readonly {
     path: "worlds/fixture",
   },
   {
-    args: ["pack", "validate", "--pack", "worlds/fixture", "--pack", "worlds/raccoons"],
+    args: ["pack", "validate", "--pack", "worlds/fixture", "--pack", "worlds/fixture/reference"],
     command: "pack validate",
     code: "DUPLICATE_OPTION",
     path: "--pack",

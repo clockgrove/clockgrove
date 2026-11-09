@@ -26,10 +26,10 @@ import type { DatabaseFixture } from "./world-fixture.js";
 
 /** The per-PR subset; all committed scenarios and the long runs run in `pnpm test:long-run`. */
 const PER_PR = [
-  ["fixture", "non-raccoon-conformance"],
-  ["raccoons", "food-decay-and-conservation"],
-  ["raccoons", "birth-and-parentage"],
-  ["raccoons", "rain-shelter-comfort"],
+  ["fixture", "neutral-conformance"],
+  ["fixture/reference", "food-decay-and-conservation"],
+  ["fixture/reference", "birth-and-parentage"],
+  ["fixture/reference", "rain-shelter-comfort"],
 ] as const;
 
 type Mutable = Pick<ReplayBundle, "birth"> & {
@@ -82,12 +82,12 @@ describe("Wave 1 scenarios through the Journal match the pure simulator", () => 
       let conformance: ReadonlyMap<string, string> | undefined;
       for (const [pack, scenario] of PER_PR) {
         const { runs, databases } = await cluster.scenario(pack, scenario);
-        if (scenario === "non-raccoon-conformance") conformance = databases;
+        if (scenario === "neutral-conformance") conformance = databases;
         results.push(...runs);
       }
       expect(failedChecks(results)).toEqual([]);
       expect(results.map((run) => `${run.scenario}:${run.run}`)).toEqual([
-        "non-raccoon-conformance:main",
+        "neutral-conformance:main",
         "food-decay-and-conservation:main",
         "birth-and-parentage:main",
         "birth-and-parentage:uninterrupted",
@@ -101,7 +101,7 @@ describe("Wave 1 scenarios through the Journal match the pure simulator", () => 
       const reference = conformance?.get("main");
       if (reference === undefined) throw new Error("the conformance run kept no database");
       const parity = (database: string) =>
-        cluster.scenarioChecks("fixture", "non-raccoon-conformance", "main", database);
+        cluster.scenarioChecks("fixture", "neutral-conformance", "main", database);
 
       // One byte of the stored projection document changes.
       const corrupted = await cluster.clone(reference);
@@ -138,7 +138,7 @@ describe("Wave 1 scenarios through the Journal match the pure simulator", () => 
           WHERE section = (SELECT min(section) FROM clockgrove_birth.birth_state_sections);`,
       );
       expect(
-        await cluster.scenarioChecks("fixture", "non-raccoon-conformance", "main", born, true),
+        await cluster.scenarioChecks("fixture", "neutral-conformance", "main", born, true),
       ).toEqual([
         "main:replay ReplayIntegrityError(birth)",
         "main:bundle ReplayIntegrityError(birth)",
@@ -177,7 +177,7 @@ describe("Wave 1 scenarios through the Journal match the pure simulator", () => 
       const scratch = async (sql: string) => {
         const database = await cluster.clone(reference);
         await cluster.tamper(database, `SET session_replication_role = replica; ${sql}`);
-        return cluster.scenarioChecks("fixture", "non-raccoon-conformance", "main", database, true);
+        return cluster.scenarioChecks("fixture", "neutral-conformance", "main", database, true);
       };
       // The latest snapshot below the head has one document byte flipped, under a matching content hash.
       const latest = `(SELECT artifact_id FROM clockgrove.snapshots WHERE covered_partition_sequence <
@@ -214,10 +214,15 @@ describe("Wave 1 scenarios through the Journal match the pure simulator", () => 
   it("the long runs list every committed scenario, or exclude it in writing", async () => {
     const committed: string[] = [];
     const worlds = path.join(REPO_ROOT, "worlds");
-    for (const pack of await readdir(worlds)) {
-      const files = await readdir(path.join(worlds, pack, "scenarios")).catch(() => []);
-      for (const file of files.filter((name) => name.endsWith(".json")))
-        committed.push(`${pack}/${file.slice(0, -".json".length)}`);
+    for (const entry of await readdir(worlds, { recursive: true, withFileTypes: true })) {
+      if (
+        entry.isFile() &&
+        path.basename(entry.parentPath) === "scenarios" &&
+        entry.name.endsWith(".json")
+      )
+        committed.push(
+          `${path.relative(worlds, path.dirname(entry.parentPath))}/${entry.name.slice(0, -".json".length)}`,
+        );
     }
     const listed = SCENARIOS.map(([pack, scenario]) => `${pack}/${scenario}`);
     expect([...listed, ...Object.keys(SCENARIO_EXCLUSIONS)].sort()).toEqual(committed.sort());

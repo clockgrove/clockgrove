@@ -25,7 +25,7 @@ import {
 import { sceneAuthorityFacts } from "../src/scene-audience.js";
 import { PostgreSqlClientViewInspector } from "../src/view-trace.js";
 import { RuntimeWorker } from "../src/worker.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -40,9 +40,9 @@ import {
 it("traverses from an event, a scheduled action and the viewer's own view, labelled and audited", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-entry-points");
-    const auth = livingYardAuthentication(provisioned);
+    const auth = livingHallAuthentication(provisioned);
     const sql = truthOf(fixture);
     const rows = async (query: string): Promise<string[][]> =>
       JSON.parse(
@@ -66,7 +66,7 @@ it("traverses from an event, a scheduled action and the viewer's own view, label
         const response = await worker.fetch(
           new Request(`http://local.test/v1/runtime/${endpoint}`, {
             method: "POST",
-            headers: { authorization: "Bearer yard-inspect", "content-type": "application/json" },
+            headers: { authorization: "Bearer hall-inspect", "content-type": "application/json" },
             body: JSON.stringify({ ...fields, ...auth.scope }),
           }),
         );
@@ -213,7 +213,7 @@ it("traverses from an event, a scheduled action and the viewer's own view, label
       const identified = await auth.authenticator.identify(
         new Request("http://local.test/", {
           method: "POST",
-          headers: { authorization: "Bearer yard-inspect" },
+          headers: { authorization: "Bearer hall-inspect" },
           body: JSON.stringify({ version: 1, ...auth.scope }),
         }),
       );
@@ -253,7 +253,7 @@ it("traverses from an event, a scheduled action and the viewer's own view, label
       ]);
 
       // issue 740's earned values are labelled derived on the selected-object view.
-      const [, selection] = await post("entity", { version: 1, objectId: "grove.stevie" });
+      const [, selection] = await post("entity", { version: 1, objectId: "fixture.keeper" });
       expect(decodeEntitySelection(selection).evidence).toEqual({
         entity: "canonical",
         physical: "canonical",

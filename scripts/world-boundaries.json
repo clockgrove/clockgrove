@@ -1,6 +1,6 @@
 {
-  "enforceNames": false,
-  "activation": "Enable enforceNames after clockgrove/raccoon-world#1 lands.",
+  "enforceNames": true,
+  "activation": "Platform identifiers are enforced; only the neutral fixture world is allowed.",
   "identifiers": ["raccoon", "stevie", "juniper", "gracie", "grove.", "yard"],
   "sourceRoots": ["apps", "packages", "scripts", "tools"],
   "allowPaths": ["worlds/fixture/", "tests/", "scripts/world-boundaries.json"],

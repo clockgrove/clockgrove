@@ -3,22 +3,22 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { packBuild, packTest, REPO_ROOT, temporaryDirectory } from "./helpers.js";
 
-// Long-run suite (pnpm test:long-run): `pack test` over the committed raccoons pack, which runs its
+// Long-run suite (pnpm test:long-run): `pack test` over the committed reference fixture pack, which runs its
 // full scenario set. pack.test.ts covers the same CLI path with the small fixture pack.
 let scratch: Awaited<ReturnType<typeof temporaryDirectory>>;
-let raccoonsArtifact: string;
+let referenceArtifact: string;
 
 beforeAll(async () => {
   scratch = await temporaryDirectory();
-  raccoonsArtifact = join(scratch.path, "raccoons.artifact");
-  expect((await packBuild("worlds/raccoons", raccoonsArtifact)).run.exitCode).toBe(0);
+  referenceArtifact = join(scratch.path, "reference.artifact");
+  expect((await packBuild("worlds/fixture/reference", referenceArtifact)).run.exitCode).toBe(0);
 });
 afterAll(() => scratch.dispose());
 
 describe("pack test", () => {
-  it("passes every check for the committed raccoons pack", async () => {
-    const { run, envelope, checks } = await packTest(raccoonsArtifact);
-    const scenarios = (await readdir(join(REPO_ROOT, "worlds/raccoons/scenarios")))
+  it("passes every check for the committed reference fixture pack", async () => {
+    const { run, envelope, checks } = await packTest(referenceArtifact);
+    const scenarios = (await readdir(join(REPO_ROOT, "worlds/fixture/reference/scenarios")))
       .map((file) => file.slice(0, -".json".length))
       .sort();
     expect(scenarios).toHaveLength(11);

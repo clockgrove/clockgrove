@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type AssetManifest,
@@ -48,20 +48,34 @@ const point = (coordinates: { $bigint: string }[]): [number, number] => [
   Number(coordinates[1]?.$bigint),
 ];
 
-export function readManifests(root: string): ManifestFile[] {
-  const base = join(root, "assets/manifests");
+export function readManifests(root: string, assetRoot = "assets"): ManifestFile[] {
+  const base = join(root, assetRoot, "manifests");
   const files: ManifestFile[] = [];
   for (const assetId of existsSync(base) ? readdirSync(base).sort() : [])
     for (const name of names(join(base, assetId), ".json")) {
-      const path = `assets/manifests/${assetId}/${name}`;
+      const path = `${assetRoot}/manifests/${assetId}/${name}`;
       const manifest: AssetManifest = decodeAssetManifest(readJson(join(root, path)), path);
-      files.push({ path, manifest, bytes: readFileSync(join(root, manifest.source.path)) });
+      files.push({
+        path,
+        manifest,
+        bytes: readFileSync(join(root, dirname(assetRoot), manifest.source.path)),
+      });
     }
   return files;
 }
 
-export function readPackScenes(root: string): PackScene[] {
-  return names(join(root, "worlds"), "")
+export function readPackScenes(root: string, worldRoot = "worlds"): PackScene[] {
+  const directories: string[] = [];
+  function visit(directory: string): void {
+    if (!existsSync(directory)) return;
+    if (existsSync(join(directory, "presentation.json"))) directories.push(directory);
+    for (const entry of readdirSync(directory, { withFileTypes: true }))
+      if (entry.isDirectory()) visit(join(directory, entry.name));
+  }
+  visit(join(root, worldRoot));
+  return directories
+    .sort()
+    .map((directory) => relative(join(root, "worlds"), directory))
     .filter((dir) => existsSync(join(root, "worlds", dir, "presentation.json")))
     .map((packDir) => {
       const pack = join(root, "worlds", packDir);
@@ -74,12 +88,14 @@ export function readPackScenes(root: string): PackScene[] {
       for (const name of names(join(pack, "resources/spaces"), ".json")) {
         const graph = readJson(join(pack, "resources/spaces", name)).anchorGraph;
         const anchors = new Map<string, [number, number]>(
-          graph.anchors.map((a: { anchorId: string; coordinates: { $bigint: string }[] }) => [
-            a.anchorId,
-            point(a.coordinates),
-          ]),
+          (graph?.anchors ?? []).map(
+            (a: { anchorId: string; coordinates: { $bigint: string }[] }) => [
+              a.anchorId,
+              point(a.coordinates),
+            ],
+          ),
         );
-        for (const edge of graph.edges)
+        for (const edge of graph?.edges ?? [])
           paths.push([
             anchors.get(edge.from) as [number, number],
             anchors.get(edge.to) as [number, number],
@@ -90,9 +106,9 @@ export function readPackScenes(root: string): PackScene[] {
     });
 }
 
-export const goldenPaths = (root: string, packDir: string) => ({
-  record: join(root, "assets/goldens", `${packDir}.scene.json`),
-  image: join(root, "assets/goldens", `${packDir}.scene.png`),
+export const goldenPaths = (root: string, packDir: string, assetRoot = "assets") => ({
+  record: join(root, assetRoot, "goldens", `${packDir.replaceAll("/", "-")}.scene.json`),
+  image: join(root, assetRoot, "goldens", `${packDir.replaceAll("/", "-")}.scene.png`),
 });
 
 export const readGolden = (path: string): GoldenRecord | null =>

@@ -3,14 +3,14 @@
 **Status:** Accepted  
 **Version:** 1.0  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, `raccoon-world-cloudflare-implementation-plan.md` v3.12 §20, and implementation Wave 4 §9.1  
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
 **Scope:** Accepted Three.js WebGPURenderer browser renderer decision with WebGL2 fallback; issue 74 integrates the lit 2.5D yard
 
 ---
 
 ## Context
 
-Architecture §20.4 pins Phaser 4.2+ with WebGL as the initial renderer. Issue 67 records that Phaser 4 is the initial implementation, not a permanent contract, and that its lighting may cap the look the [reference mockup](../design/reference/raccoon-world-reference.png) asks for: painterly storybook realism, dusk in rain and night, lit windows and lanterns, wet ground, fog and soft glow. The owner decided on 2026-11-07 to run a bake-off first and then pick.
+Architecture §20.4 pins Phaser 4.2+ with WebGL as the initial renderer. Issue 67 records that Phaser 4 is the initial implementation, not a permanent contract, and that its lighting may cap the look the [reference mockup](https://github.com/clockgrove/raccoon-world/blob/main/docs/design/reference/raccoon-world-reference.png) asks for: painterly storybook realism, dusk in rain and night, lit windows and lanterns, wet ground, fog and soft glow. The owner decided on 2026-11-07 to run a bake-off first and then pick.
 
 The bake-off is the spike in [`spikes/renderer-bakeoff`](../../spikes/renderer-bakeoff/README.md). Every candidate implements the product's `WorldSceneAdapter` (Wave 4 §9.1) for one reference yard slice. Every candidate gets the same committed projection, the same dusk-to-night patch, the same light rig, the same camera and the same synthetic maps: normal, height, emissive, roughness/wetness and wind. The spike left production rendering unchanged; issue 74 carries the selected implementation into the product.
 

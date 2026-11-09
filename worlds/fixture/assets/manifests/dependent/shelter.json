@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "shelter",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/shelter.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 3,
+    "y": 18,
+    "width": 23,
+    "height": 14
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "6102f4663c49a0749acfeb5b66b24fd0d4c6e92a89f4640eb0871024a03b88ac",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 256,
+    "y": 48
+  },
+  "accessibilityLabel": "The kit sheltering"
+}

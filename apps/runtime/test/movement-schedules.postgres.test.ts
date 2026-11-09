@@ -7,7 +7,7 @@ import {
   // @ts-expect-error -- repository-local JavaScript helper has no declaration file.
 } from "../../../scripts/database/lib.mjs";
 import { PostgreSqlCommandOwner } from "../src/world-commands.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -23,9 +23,9 @@ import {
 it("commits ordinary commands after a movement moved the world time past queued decisions", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-movement-schedules");
-    const { scope } = livingYardAuthentication(provisioned);
+    const { scope } = livingHallAuthentication(provisioned);
     const sql = truthOf(fixture);
     const durable = () =>
       sql(
@@ -45,12 +45,14 @@ it("commits ordinary commands after a movement moved the world time past queued 
       };
       // At birth every actor's first decision is due now.
       const decisions = (at: string) =>
-        ["grove.gracie", "grove.kit", "grove.stevie"].map((id) => `world.decision:${id}:${at}`);
+        ["fixture.companion", "fixture.dependent", "fixture.keeper"].map(
+          (id) => `world.decision:${id}:${at}`,
+        );
       expect(await durable()).toBe(`8640000000|${decisions("8640000000").join(",")}`);
       expect(
         await run("issue-41-move", "movement.start", {
           schemaVersion: 1,
-          objectId: "grove.stevie",
+          objectId: "fixture.keeper",
           destination: {
             kind: "pose",
             pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [33000n, 13000n] },

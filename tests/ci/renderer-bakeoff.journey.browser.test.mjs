@@ -1,6 +1,6 @@
 // Issue 67: the renderer bake-off's measurement page and script work end to end under software
 // rendering (SwiftShader), the only GPU this CI host has. CI asserts only what is deterministic there
-// (owner decision, 2026-11-08): every candidate builds, renders the fixed yard slice, the page writes
+// (owner decision, 2026-11-08): every candidate builds, renders the fixed hall slice, the page writes
 // its JSON in the declared shape, screenshots are non-empty PNGs of the canvas size, and reduced motion
 // freezes the picture while the off state animates, compared on a page clock this test steps itself.
 // Timing is recorded, never asserted; GPU numbers come from the maintainer step in the spike README.
@@ -22,7 +22,7 @@ const SIZE = { width: 960, height: 540 };
 // SwiftShader through ANGLE; Playwright's launcher adds its own --no-sandbox on Linux.
 const SWIFTSHADER = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
 const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|software|microsoft basic render/iu;
-// A uniformly filled 960×540 PNG deflates to a few kilobytes; a drawn, textured yard is far larger.
+// A uniformly filled 960×540 PNG deflates to a few kilobytes; a drawn, textured hall is far larger.
 const DRAWN_PNG_BYTES = 20_000;
 /** Fixed page-clock times for the reduced-motion comparison. */
 const MOTION_AT_MS = 1_250;

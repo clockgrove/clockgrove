@@ -15,7 +15,7 @@ import {
 } from "./world-owner/native-harness.js";
 
 const FILE = "apps/runtime/test/autonomous-parity.long-run.test.ts";
-// Decision: 26 min per pack. The raccoons pack took 875 s in Qualification run 39604752325
+// Decision: 26 min per pack. The residents pack took 875 s in Qualification run 39604752325
 // and 953 s locally once fence-gap-portal and street-dwell joined (785 s before), near the former
 // 20 min; its parent test, 2 min longer, still ends before the evidence wrapper's 30 min deadline
 // (scripts/ci/evidence.mjs), so an overrun names its pack.

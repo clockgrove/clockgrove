@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cruise } from "dependency-cruiser";
@@ -141,20 +142,29 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     ).length,
     1,
   );
-  const negative = await cruise(
-    [path.join(repositoryRoot, "tests/dependency-boundaries/forbidden-platform-to-world.ts")],
-    {
+  const negativeRoot = await mkdtemp(path.join(tmpdir(), "world-boundary-"));
+  try {
+    await mkdir(path.join(negativeRoot, "apps", "platform"), { recursive: true });
+    await mkdir(path.join(negativeRoot, "worlds", "forbidden"), { recursive: true });
+    await writeFile(path.join(negativeRoot, "worlds", "forbidden", "presentation.json"), "{}\n");
+    await writeFile(
+      path.join(negativeRoot, "apps", "platform", "example.ts"),
+      'import presentation from "../../worlds/forbidden/presentation.json"; export { presentation };\n',
+    );
+    const negative = await cruise(["apps/platform/example.ts"], {
+      baseDir: negativeRoot,
       validate: true,
       ruleSet: { forbidden },
-      tsConfig: { fileName: path.join(repositoryRoot, "tsconfig.base.json") },
-    },
-  );
-  assert(
-    negative.output.summary.violations.some(
-      (violation) => violation.rule.name === "no-platform-to-world",
-    ),
-    "depcruise must reject the platform-to-world negative fixture",
-  );
+    });
+    assert(
+      negative.output.summary.violations.some(
+        (violation) => violation.rule.name === "no-platform-to-world",
+      ),
+      "depcruise must reject a resolved platform-to-world dependency",
+    );
+  } finally {
+    await rm(negativeRoot, { recursive: true, force: true });
+  }
   const rootManifest = JSON.parse(
     await readFile(path.join(repositoryRoot, "package.json"), "utf8"),
   );
@@ -173,7 +183,7 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
       allowSegments: [],
       allowFilePattern: "$^",
     }),
-    ["tests/dependency-boundaries/world-names/branding.json:1: raccoon"],
+    [`tests/dependency-boundaries/world-names/branding.json:1: ${config.identifiers[0]}`],
     "JSON source must participate in the filesystem identifier scan",
   );
   assert.deepEqual(

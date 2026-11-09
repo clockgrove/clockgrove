@@ -29,7 +29,7 @@ import {
   PostgreSqlLivingSceneReader,
 } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -45,9 +45,9 @@ import {
 it("reads original routine receipts through the audited inspector, never mutates canonical state and isolates every superseded Why lifetime", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-recorded-why");
-    const auth = livingYardAuthentication(provisioned);
+    const auth = livingHallAuthentication(provisioned);
     const truth = truthOf(fixture);
     await withClient(fixture.environment, async (client) => {
       const inspector = new PostgreSqlCausalInspector(client);
@@ -63,7 +63,7 @@ it("reads original routine receipts through the audited inspector, never mutates
           select: (input, context) => selected.select(input, context, 100n),
         },
       });
-      const request = (endpoint: string, fields = {}, credential = "yard-inspect") =>
+      const request = (endpoint: string, fields = {}, credential = "hall-inspect") =>
         new Request(`http://local.test/v1/runtime/${endpoint}`, {
           method: "POST",
           headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
@@ -135,12 +135,12 @@ it("reads original routine receipts through the audited inspector, never mutates
       expect(
         why.traces.drafts.map((trace) => [trace.objectId, trace.simulationTime]).sort(),
       ).toEqual([
-        ["grove.gracie", "8640000000"],
-        ["grove.gracie", "8726400000"],
-        ["grove.kit", "8640000000"],
-        ["grove.kit", "8726400000"],
-        ["grove.stevie", "8640000000"],
-        ["grove.stevie", "8726400000"],
+        ["fixture.companion", "8640000000"],
+        ["fixture.companion", "8726400000"],
+        ["fixture.dependent", "8640000000"],
+        ["fixture.dependent", "8726400000"],
+        ["fixture.keeper", "8640000000"],
+        ["fixture.keeper", "8726400000"],
       ]);
       for (const trace of why.traces.drafts) {
         expect(
@@ -238,17 +238,17 @@ it("reads original routine receipts through the audited inspector, never mutates
         ),
       ).toEqual({ served: 2, "not-found": 1, "authority-mismatch": 2 });
       for (const [fields, credential, status, body] of [
-        [{ commandId: "unknown" }, "yard-inspect", 404, { error: "command_not_found" }],
+        [{ commandId: "unknown" }, "hall-inspect", 404, { error: "command_not_found" }],
         [
           { commandId: command.commandId, spaceId: "foreign-space" },
-          "yard-inspect",
+          "hall-inspect",
           403,
           { error: "authorization_refused" },
         ],
         [{ commandId: command.commandId }, "invalid", 401, { error: "authentication_refused" }],
         [
           { commandId: command.commandId, payload: { type: "world.advance" } },
-          "yard-inspect",
+          "hall-inspect",
           400,
           { error: "invalid_inspection_request" },
         ],
@@ -308,10 +308,10 @@ it("reads original routine receipts through the audited inspector, never mutates
       expect(newer.links).toEqual({ parents: ["why-original"], children: [] });
       const scene = decodeLivingScene(await (await worker.fetch(request("scene"))).json());
       const entity = decodeEntitySelection(
-        await (await worker.fetch(request("entity", { objectId: "grove.gracie" }))).json(),
+        await (await worker.fetch(request("entity", { objectId: "fixture.companion" }))).json(),
       );
       const otherEntity = decodeEntitySelection(
-        await (await worker.fetch(request("entity", { objectId: "grove.stevie" }))).json(),
+        await (await worker.fetch(request("entity", { objectId: "fixture.keeper" }))).json(),
       );
       expect([...new Set(entity.history.actions.map((action) => action.commandId))]).toEqual([
         "why-newer",
@@ -361,7 +361,7 @@ it("reads original routine receipts through the audited inspector, never mutates
             const fixture = sceneSession();
             const { session, sockets } = fixture;
             try {
-              session.replace("yard-inspect", auth.scope);
+              session.replace("hall-inspect", auth.scope);
               await fixture.deliver(scene);
               session.select(entity.objectId);
               await vi.advanceTimersByTimeAsync(0);
@@ -390,7 +390,7 @@ it("reads original routine receipts through the audited inspector, never mutates
                     : Response.json(newer),
                 );
               } else if (transition === "entity")
-                session.select(decodeOpaqueId("grove.stevie", "ObjectId"));
+                session.select(decodeOpaqueId("fixture.keeper", "ObjectId"));
               else if (transition === "scope")
                 session.replace("replacement", {
                   ...auth.scope,

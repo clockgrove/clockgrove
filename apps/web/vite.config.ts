@@ -11,7 +11,7 @@ const shell = process.env.CLOCKGROVE_WORLD_SHELL
 const assets = process.env.CLOCKGROVE_WORLD_ASSETS;
 const publicDir =
   assets === undefined
-    ? fileURLToPath(new URL("../../assets/reviewed", import.meta.url))
+    ? fileURLToPath(new URL("../../worlds/fixture/assets/reviewed", import.meta.url))
     : resolve(assets);
 if (assets !== undefined && (!assets.trim() || !statSync(publicDir).isDirectory()))
   throw new Error(`CLOCKGROVE_WORLD_ASSETS must name a directory: ${assets}`);

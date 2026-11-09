@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "dependent",
+  "animationFamily": "walk",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/dependent/walk.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.dependent",
+    "archetype": "fixture.dependent-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 150
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 400,
+    "depth": 250
+  },
+  "bounds": {
+    "x": 1,
+    "y": 17,
+    "width": 24,
+    "height": 15
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "62c128f33b2cafc576f53b37f40f8dd8392a69af3037b803ae9c56bb900c735a",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 512,
+    "y": 48
+  },
+  "accessibilityLabel": "The kit walking"
+}

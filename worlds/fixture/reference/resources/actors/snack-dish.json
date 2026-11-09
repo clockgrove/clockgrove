@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.food-source-kind","version":1},"capabilities":[],"id":"fixture.snack-dish","overrides":[],"placement":{"coordinates":[{"$bigint":"30000"},{"$bigint":"13000"}],"space":{"id":"fixture.neighborhood","version":1}},"traits":[]}

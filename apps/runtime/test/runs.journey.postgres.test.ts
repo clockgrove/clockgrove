@@ -19,7 +19,7 @@ const REPLY = (n: number) =>
 it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       // The member talks; a second principal inspects with operator evidence but no conversation.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
@@ -56,7 +56,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         return answer.body as RunWalk;
       };
       const session = decodeConversationSession(
-        (await post("/v1/runtime/conversations/create", { actorId: "grove.stevie" })).body,
+        (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper" })).body,
       ).sessionId;
       const talk = async (messageId: string, text: string) =>
         decodeTalkReceipt(
@@ -135,7 +135,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         completed.inputRevision,
         completed.prompt?.artifactId,
       ]).toEqual([
-        "grove.stevie",
+        "fixture.keeper",
         "principal-runtime",
         "persona-runtime",
         "m3",

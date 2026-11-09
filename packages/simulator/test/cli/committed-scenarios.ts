@@ -1,19 +1,20 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { sha256Hex } from "@clockgrove/kernel";
 import { expect } from "vitest";
 import { walk } from "../../cli/pack-source.js";
 import { WORLDS_ROOT } from "../../cli/repo.js";
 import { decodeCanonicalBytes } from "../../src/canonical-decode.js";
+import { discoverPackDirectories } from "../conformance/pack-source.js";
 import { invoke } from "./helpers.js";
 
 type Rec = Record<string, any>;
 
 export async function committedScenarios(): Promise<{ pack: string; name: string }[]> {
   const found: { pack: string; name: string }[] = [];
-  for (const pack of (await readdir(WORLDS_ROOT)).sort())
-    for (const file of (await readdir(join(WORLDS_ROOT, pack, "scenarios"))).sort())
-      found.push({ pack, name: file.slice(0, -".json".length) });
+  for (const directory of discoverPackDirectories())
+    for (const file of (await readdir(join(directory, "scenarios"))).sort())
+      found.push({ pack: relative(WORLDS_ROOT, directory), name: file.slice(0, -".json".length) });
   return found;
 }
 

@@ -12,19 +12,19 @@ import type { RunParity } from "./journal-parity.js";
 // writes them, in the order of the lists below, to journal-long-runs.json there, for qualify:wave2.
 
 export const SCENARIOS = [
-  ["fixture", "non-raccoon-conformance"],
-  ["raccoons", "birth-and-parentage"],
-  ["raccoons", "boundary-walk"],
-  ["raccoons", "cedar-growth"],
-  ["raccoons", "death-and-successor"],
-  ["raccoons", "differential-perception"],
-  ["raccoons", "favorite-snack-house"],
-  ["raccoons", "fence-gap-portal"],
-  ["raccoons", "food-decay-and-conservation"],
-  ["raccoons", "months-fast-forward"],
-  ["raccoons", "rain-shelter-comfort"],
-  ["raccoons", "social-learning"],
-  ["raccoons", "street-dwell"],
+  ["fixture", "neutral-conformance"],
+  ["fixture/reference", "birth-and-parentage"],
+  ["fixture/reference", "boundary-walk"],
+  ["fixture/reference", "cedar-growth"],
+  ["fixture/reference", "death-and-successor"],
+  ["fixture/reference", "differential-perception"],
+  ["fixture/reference", "favorite-snack-house"],
+  ["fixture/reference", "fence-gap-portal"],
+  ["fixture/reference", "food-decay-and-conservation"],
+  ["fixture/reference", "months-fast-forward"],
+  ["fixture/reference", "rain-shelter-comfort"],
+  ["fixture/reference", "social-learning"],
+  ["fixture/reference", "street-dwell"],
 ] as const;
 
 /**
@@ -35,8 +35,8 @@ export const SCENARIO_EXCLUSIONS: Readonly<Record<string, string>> = {};
 
 export const LONG_RUNS = [
   ["fixture", "long-run-30-days"],
-  ["raccoons", "long-run-30-days"],
-  ["raccoons", "long-run-one-year"],
+  ["fixture/reference", "long-run-30-days"],
+  ["fixture/reference", "long-run-one-year"],
 ] as const;
 
 export type FinishedRun = { set: "scenarios" | "long-runs"; run: RunParity };

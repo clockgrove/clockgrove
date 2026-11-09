@@ -24,7 +24,7 @@ import {
 } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { PostgreSqlCommandOwner } from "../src/world-commands.js";
-import { observationAuthenticator } from "./living-yard-fixture.js";
+import { observationAuthenticator } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -35,10 +35,10 @@ import {
   withClient,
 } from "./world-fixture.js";
 
-it("explains why Stevie sought shelter from authorized deterministic evidence and receipts every interaction intent", async () => {
+it("explains why Keeper sought shelter from authorized deterministic evidence and receipts every interaction intent", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-caretaker");
     const { partition, authorization } = provisioned;
     const scope = { ...partition.target, spaceId: partition.route.spaceId };
@@ -124,7 +124,7 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
         return [response.status, await response.json()] as const;
       };
 
-      // Rain falls, Stevie is walked to the porch, and the next routine decision is recorded.
+      // Rain falls, Keeper is walked to the porch, and the next routine decision is recorded.
       const born = world.birth.state.simulationTime;
       const advance = (key: string, targetTime: bigint) =>
         run(key, "world.advance", { schemaVersion: 1, targetTime, maxInputs: 64, maxEvents: 256 });
@@ -133,7 +133,7 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
         await advance("first-decision", born + 1n),
         await run("walk", "movement.start", {
           schemaVersion: 1,
-          objectId: "grove.stevie",
+          objectId: "fixture.keeper",
           destination: {
             kind: "pose",
             pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [8000n, 8000n] },
@@ -188,20 +188,20 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
             Object.fromEntries(
               projection.interactions
                 .filter(({ entityId }) =>
-                  ["grove.stevie", "grove.snack-dish", "grove.den"].includes(entityId),
+                  ["fixture.keeper", "fixture.snack-dish", "fixture.den"].includes(entityId),
                 )
                 .map(({ entityId, mode, actions }) => [entityId, [mode, actions]]),
             ),
           );
       expect(await scene({ categories: ["public_scene", "conversation"], command: true })).toEqual({
-        "grove.den": [
+        "fixture.den": [
           "inspectable",
           [
             { kind: "inspect", availability: "enabled" },
             { kind: "history", availability: "enabled" },
           ],
         ],
-        "grove.snack-dish": [
+        "fixture.snack-dish": [
           "reactive",
           [
             { kind: "inspect", availability: "enabled" },
@@ -209,7 +209,7 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
             { kind: "influence", availability: "enabled" },
           ],
         ],
-        "grove.stevie": [
+        "fixture.keeper": [
           "reactive",
           [
             { kind: "inspect", availability: "enabled" },
@@ -221,33 +221,33 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
       });
       const observerOnly = await scene({ categories: ["public_scene"], command: false });
       expect([
-        observerOnly["grove.stevie"]?.[1]?.[3],
-        observerOnly["grove.snack-dish"]?.[1]?.[2],
+        observerOnly["fixture.keeper"]?.[1]?.[3],
+        observerOnly["fixture.snack-dish"]?.[1]?.[2],
       ]).toEqual([
         { kind: "talk", availability: "disabled", reason: "conversation_not_permitted" },
         { kind: "influence", availability: "disabled", reason: "command_grant_required" },
       ]);
 
       // Exit: Inspect, History and Why explain the shelter-seeking from recorded evidence only.
-      const [selectionStatus, selection] = await post("entity", { objectId: "grove.stevie" });
+      const [selectionStatus, selection] = await post("entity", { objectId: "fixture.keeper" });
       expect(selectionStatus).toBe(200);
-      const stevie = decodeEntitySelection(selection);
-      expect(stevie.physical.selectedAction).toEqual({
+      const keeper = decodeEntitySelection(selection);
+      expect(keeper.physical.selectedAction).toEqual({
         kind: "seek-shelter",
-        targetObjectId: "grove.porch",
+        targetObjectId: "fixture.porch",
       });
-      const decision = stevie.history.actions.find((action) => action.type === "routine.selected");
+      const decision = keeper.history.actions.find((action) => action.type === "routine.selected");
       expect(decision?.commandId).toBe("storm-decision");
       const [whyStatus, whyBody] = await post("why", { commandId: "storm-decision" });
       expect(whyStatus).toBe(200);
       const why = decodeRecordedWhy(whyBody);
-      const trace = why.traces.drafts.filter((draft) => draft.objectId === "grove.stevie").at(-1);
+      const trace = why.traces.drafts.filter((draft) => draft.objectId === "fixture.keeper").at(-1);
       // Rain and wetness against the porch's protection outscore staying; nothing else is perceived.
       expect([trace?.simulationTime, trace?.selectedAction]).toEqual([
         "8674560000",
-        { kind: "seek-shelter", targetObjectId: "grove.porch" },
+        { kind: "seek-shelter", targetObjectId: "fixture.porch" },
       ]);
-      const chosen = trace?.candidates.find((c) => c.action.targetObjectId === "grove.porch");
+      const chosen = trace?.candidates.find((c) => c.action.targetObjectId === "fixture.porch");
       expect([
         chosen?.score,
         Object.fromEntries(chosen?.features.map(({ name, value }) => [name, value]) ?? []),
@@ -282,7 +282,7 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
       const { revision } = (await owner.reader.hydrate(authorization, scope)).document.state;
       const intent = {
         intentId: "offer-1",
-        objectId: "grove.water-bowl",
+        objectId: "fixture.water-bowl",
         resourceKind: "water",
         expectedRevision: revision.toString(),
       };
@@ -317,26 +317,26 @@ it("explains why Stevie sought shelter from authorized deterministic evidence an
 
       // Public Say is explicit and scripted; private Talk lives in conversation sessions, which
       // fail closed without an artifact keyring and need the conversation category.
-      const say = { messageId: "say-1", actorId: "grove.stevie", text: "Stay dry, Stevie." };
+      const say = { messageId: "say-1", actorId: "fixture.keeper", text: "Stay dry, Keeper." };
       const [sayStatus, sayBody] = await post("say", say);
       const spoken = decodeSayReceipt(sayBody);
       expect([sayStatus, spoken.speech.speakerId, spoken.speech.text, spoken.attribution]).toEqual([
         200,
-        "grove.stevie",
+        "fixture.keeper",
         "Chitters aloud (scripted fixture line).",
         { principalId: authorization.principalId, personaId: "persona-caretaker" },
       ]);
       expect(JSON.stringify(spoken)).not.toContain("Stay dry");
       // Only a projected actor is addressed: not a resource, nor an unknown ID.
-      expect(await post("say", { ...say, actorId: "grove.water-bowl" })).toEqual([
+      expect(await post("say", { ...say, actorId: "fixture.water-bowl" })).toEqual([
         409,
         { error: "talk_unavailable" },
       ]);
-      expect(await post("say", { ...say, actorId: "grove.nobody" })).toEqual([
+      expect(await post("say", { ...say, actorId: "fixture.nobody" })).toEqual([
         409,
         { error: "selection_unavailable" },
       ]);
-      const open = { actorId: "grove.stevie" };
+      const open = { actorId: "fixture.keeper" };
       expect(await post("conversations/create", open)).toEqual([
         503,
         { error: "conversation_unavailable" },

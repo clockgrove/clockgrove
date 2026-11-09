@@ -13,7 +13,7 @@ export const ENGINE_SOURCE_ROOTS: readonly string[] = [
   "simulator",
 ].map((name) => join(REPO_ROOT, "packages", name, "src"));
 
-/** Names of the raccoon reference world; no engine source may use them outside comments. */
+/** Historical world identifiers refused in platform engine source. */
 export const REFERENCE_WORLD_NAMES: readonly string[] = [
   "raccoon",
   "stevie",
@@ -138,7 +138,7 @@ const lineOf = (text: string, offset: number): number => text.slice(0, offset).s
 
 /**
  * Fails when engine source outside comments contains an identity declared by any given pack or a
- * raccoon reference-world name. A comment that mentions either is not a violation.
+ * historical reference-world name. A comment that mentions either is not a violation.
  */
 export async function checkEngineNeutrality(
   packs: readonly LoadedPack[],

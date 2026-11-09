@@ -1,1 +1,0 @@
-{"archetype":{"id":"grove.raccoon-kind","version":1},"capabilities":[{"id":"grove.inspect","version":1}],"id":"grove.stevie","lifecycle":{"bornAt":{"$bigint":"0"},"generation":0,"householdId":"grove.household","parentIds":[]},"overrides":[],"placement":{"coordinates":[{"$bigint":"15000"},{"$bigint":"8000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

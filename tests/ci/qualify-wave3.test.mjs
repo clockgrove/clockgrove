@@ -41,7 +41,7 @@ async function writeReceipt(
 /** The test:long-run log lines native-parity.long-run.test.ts prints through Turbo, per golden and soak run. */
 async function nativeLog(hash = (golden) => golden) {
   const lines = [];
-  for (const pack of ["fixture", "raccoons"]) {
+  for (const pack of ["fixture", "fixture/reference"]) {
     for (const name of await readdir(path.join(root, "worlds", pack, "goldens")))
       for (const run of decode(await readFile(path.join(root, "worlds", pack, "goldens", name)))
         .runs)

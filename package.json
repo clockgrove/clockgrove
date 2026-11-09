@@ -11,7 +11,6 @@
   "scripts": {
     "check": "biome check . && turbo run check --cache-dir=.turbo/cache && depcruise --config dependency-cruiser.config.mjs packages && node scripts/check-boundaries.mjs",
     "format": "biome check --write .",
-    "dev:yard": "node scripts/dev-yard.mjs",
     "db:migrate": "node scripts/database/migrate.mjs",
     "db:verify": "node scripts/database/verify.mjs",
     "test": "turbo run test --cache-dir=.turbo/cache",
@@ -42,7 +41,8 @@
     "qualify:wave2": "node scripts/ci/qualify-wave2.mjs",
     "qualify:wave3": "node scripts/ci/qualify-wave3.mjs",
     "qualify:wave3:load-curves": "node scripts/ci/qualify-wave3-load-curves.mjs",
-    "qualify:wave4": "node scripts/ci/qualify-wave4.mjs"
+    "qualify:wave4": "node scripts/ci/qualify-wave4.mjs",
+    "dev:world": "node scripts/dev-world.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

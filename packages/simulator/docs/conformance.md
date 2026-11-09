@@ -47,6 +47,36 @@ run `long-runs/`, publish static assets or start the web shell. CI in an externa
 install a pinned checkout and invoke this command on every PR without copying the world into
 Clockgrove or publishing workspace packages.
 
+## World-repository CI recipe
+
+Keep the full 40-character Clockgrove commit in the world repository's CI configuration as
+`CLOCKGROVE_COMMIT`; update it deliberately when upgrading the platform. After CI checks out
+the world repository, the following commands install the separate pinned platform and validate
+Raccoon World's actual repository layout:
+
+```sh
+git clone https://github.com/clockgrove/clockgrove.git ../clockgrove
+git -C ../clockgrove checkout --detach "${CLOCKGROVE_COMMIT:?set the pinned platform commit}"
+pnpm --dir ../clockgrove install --frozen-lockfile --ignore-scripts
+node ../clockgrove/scripts/check-world-pack.mjs \
+  --pack worlds/raccoons --assets assets/manifests
+```
+
+Provision the pinned Node and pnpm versions before installation, on a runner supported by the
+checkout's workerd toolchain. This single check validates the pack, runs every committed scenario
+in both runtimes, and compares every golden; a nonzero exit must fail the CI job. For another
+world, change only the two world-relative input paths. The world remains the current directory.
+The check needs asset manifests, not hydrated art bytes. Rendering needs the reviewed art hydrated
+through the world repository's Git LFS setup.
+
+Local verification used Raccoon World commit
+`bfb69ada45a0ac549d5fceec5e42add26b7aa33e` against Clockgrove commit
+`86a4e14e59dddf2a342a7b6febcf03b4233faeca`: all 24 Node/workerd reports passed.
+This is local conformance evidence, not an external CI result. The world maintainer adds the
+workflow to that repository and pins the delivered platform commit. For a themed browser build
+and a complete local runtime session, use the
+[external shell commands](../../../docs/protocols/world-presentation.md#external-local-session).
+
 ## Pack directory layout
 
 ```text
@@ -67,12 +97,12 @@ have no goldens and they are not in the pack artifact.
 `decodeResource`: key-sorted JSON, bigints written as `{"$bigint":"n"}`). Resource files are the bytes the
 manifest `sha256` values cover, stored under `resources/` at the manifest `path`. A golden is not JSON text
 but the kernel `canonicalBytes` of the scenario bundle, byte for byte. The committed packs are
-`worlds/fixture/` (`clockgrove.test-world@1.1.0`) and `worlds/raccoons/`
-(`clockgrove.green-lake-yard@1.1.0`).
+`worlds/fixture/` (`clockgrove.test-world@1.1.0`) and `worlds/fixture/reference/`
+(`clockgrove.fixture-hall@1.1.0`).
 
 ## Discovery
 
-Every directory directly under `worlds/` that contains a `manifest.json` is a committed pack. Nothing
+Every directory recursively under `worlds/` that contains a `manifest.json` is a committed pack. Nothing
 else is discovered; there is no registry or configuration. The suite loads the manifest, every file under
 `resources/`, every `scenarios/*.json` and every `goldens/*.json` byte-exact (copies, never rewritten) and
 builds the SDK source `{ manifest, resources, dependencyArtifacts: [] }`; packs with dependencies are not

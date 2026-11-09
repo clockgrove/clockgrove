@@ -23,7 +23,7 @@ malformed `$bigint` text are `MALFORMED_RESOURCE`. Use `encodeResource` / `decod
 - `engineCompatibility` and dependency `versionRange` use only `>=A.B.C <D.E.F`. The engine must
   be in range (`ENGINE_INCOMPATIBLE`).
 - Pack versions are explicit `A.B.C`. A plan or document names a pack by id and major version
-  (`green-lake-yard@1`, `test-world@1`).
+  (`fixture-hall@1`, `test-world@1`).
 - A content change bumps the pack version: once a committed pack's content differs from what was
   qualified or released under its version, the change raises the minor version (`1.0.0` to `1.1.0`,
   decided by the maintainer on 2026-10-27 in issue 802). The major version, and with it the `@1` pin, stays. The

@@ -1,1 +1,0 @@
-{"archetype":{"id":"grove.porch-kind","version":1},"capabilities":[{"id":"grove.speak","version":1}],"id":"grove.porch","overrides":[],"placement":{"coordinates":[{"$bigint":"8000"},{"$bigint":"8000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

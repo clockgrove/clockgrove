@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "keeper",
+  "animationFamily": "idle",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/keeper/idle.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "actor",
+    "entity": "fixture.keeper",
+    "archetype": "fixture.resident-kind"
+  },
+  "frames": {
+    "width": 32,
+    "height": 32,
+    "count": 4,
+    "durationMs": 250
+  },
+  "anchor": {
+    "x": 16,
+    "y": 30
+  },
+  "footprint": {
+    "width": 700,
+    "depth": 400
+  },
+  "bounds": {
+    "x": 0,
+    "y": 12,
+    "width": 30,
+    "height": 20
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "ef93e340a65316f554303644e708af6f934b12ecf32b031c0af09ac36881ab46",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 792,
+    "y": 48
+  },
+  "accessibilityLabel": "Keeper standing"
+}

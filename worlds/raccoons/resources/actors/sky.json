@@ -1,1 +1,0 @@
-{"archetype":{"id":"grove.sky-kind","version":1},"capabilities":[{"id":"grove.authoring","version":1}],"id":"grove.sky","overrides":[],"placement":{"coordinates":[{"$bigint":"20000"},{"$bigint":"15000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

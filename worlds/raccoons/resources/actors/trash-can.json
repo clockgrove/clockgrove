@@ -1,1 +1,0 @@
-{"archetype":{"id":"grove.food-source-kind","version":1},"capabilities":[],"id":"grove.trash-can","overrides":[],"placement":{"coordinates":[{"$bigint":"15000"},{"$bigint":"8000"}],"space":{"id":"grove.neighborhood","version":1}},"traits":[]}

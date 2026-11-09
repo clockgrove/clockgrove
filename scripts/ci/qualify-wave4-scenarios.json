@@ -8,7 +8,7 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
         },
         {
@@ -25,7 +25,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
         },
         {
@@ -81,7 +81,7 @@
           "marker": "// The same credential ceases to work immediately after revocation or provider expiry."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
         }
       ],
@@ -94,7 +94,7 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The HUD shows PostgreSQL's paused clock, the pack's speed and 86 400 000 ms day, and rain."
         },
         {
@@ -107,48 +107,48 @@
     {
       "id": "S6",
       "section": "15.2",
-      "scenario": "rain begins, puddles update, Stevie moves, event feed records, Why explains",
+      "scenario": "rain begins, puddles update, Keeper moves, event feed records, Why explains",
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The feed lists PostgreSQL's public material events, newest first, at their world time."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// An event of a command with retained routine decisions opens the same command's Why from the feed."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 20: the live yard draws the pack's bound sprites (worlds/raccoons/presentation.json);"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 20: the live hall draws the pack's bound sprites (worlds/fixture/reference/presentation.json);"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// issue 20: once it rains, the residents who chose shelter play the shelter strip."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// issue 21: under PostgreSQL's rain at its night clock, puddles lie on the paths' midpoints"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 20: Stevie, standing on the trash can his food routine targets, plays the eat strip."
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 20: Keeper, standing on the trash can his food routine targets, plays the eat strip."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 20: moved off the trash can his food routine targets, Stevie forages (sniffs)."
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 20: moved off the trash can his food routine targets, Keeper forages (sniffs)."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 21: Stevie moved while the committed rain still falls, and the puddles still lie."
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 21: Keeper moved while the committed rain still falls, and the puddles still lie."
         },
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
-          "marker": "explains why Stevie sought shelter from authorized deterministic evidence and receipts every interaction intent"
+          "marker": "explains why Keeper sought shelter from authorized deterministic evidence and receipts every interaction intent"
         }
       ]
     },
@@ -183,7 +183,7 @@
           "marker": "// High zoom: 1280 px at 400% is 320 CSS px (WCAG 1.4.10), with text at 200% (WCAG 1.4.4)."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Reduced motion snaps a short committed move, and a cue draws once per dedupe key."
         }
       ]
@@ -195,11 +195,11 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while yardSkew"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while hallSkew"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The destination's placeholder presentation fails after its renderer loaded."
         },
         {
@@ -232,7 +232,7 @@
         },
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// WorldReady commits: the polled read opens the yard through the ordinary arrival."
+          "marker": "// WorldReady commits: the polled read opens the hall through the ordinary arrival."
         }
       ]
     },
@@ -243,15 +243,15 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while yardSkew"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while hallSkew"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Refresh reloads the current deployment at the same route, which signs the page out."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// fails to load after snapshot_ready ends at text_ready with the semantic scene usable."
         }
       ]
@@ -263,11 +263,11 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The renderer loads its reviewed atlas before presenting; its outcome lands first."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Signed out, the routed boot holds route_resolving; scene_ready follows the presentation."
         }
       ],
@@ -284,8 +284,8 @@
           "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// issue 816: viewing nested regions and following Stevie is a read through the one scene"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 816: viewing nested regions and following Keeper is a read through the one scene"
         }
       ]
     },
@@ -330,7 +330,7 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
         },
         {
@@ -396,7 +396,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
         },
         {
@@ -462,7 +462,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The destination's placeholder presentation fails after its renderer loaded."
         },
         {
@@ -486,8 +486,8 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
-          "marker": "// §16 React error boundary: a throwing yard component leaves a focused, announced error"
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// §16 React error boundary: a throwing hall component leaves a focused, announced error"
         }
       ]
     },
@@ -498,7 +498,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
         }
       ]
@@ -514,7 +514,7 @@
           "marker": "separates observation, inspection and mutation at HTTP boundaries"
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A held obsolete authorization failure cannot erase a newer entity selection."
         }
       ],
@@ -527,7 +527,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
         }
       ]
@@ -543,7 +543,7 @@
           "marker": "// A contiguous patch moves the node; replaying it is stale and changes nothing."
         },
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// The real Three.js bridge's applyPatch applies the next contiguous patch and ignores a stale one."
         }
       ]
@@ -555,7 +555,7 @@
       "coverage": "full",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Reconnect: from the page observing its scene socket drop to the next ready scene."
         },
         {
@@ -571,7 +571,7 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
         },
         {
@@ -588,7 +588,7 @@
       "coverage": "partial",
       "evidence": [
         {
-          "file": "tests/e2e/living-yard.journey.browser.test.mjs",
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
           "marker": "// Each click is a read: no world fact, scene socket or renderer call changes."
         },
         {

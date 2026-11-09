@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
-    // Full raccoon-set runs in workerd and through the CLI run via vitest.long-run.config.ts.
+    // Full reference-fixture runs in workerd and through the CLI run via vitest.long-run.config.ts.
     exclude: [...configDefaults.exclude, "test/**/*.long-run.test.ts"],
     // The conformance suite starts actual workerd (Wrangler bundling plus Miniflare) per pack.
     testTimeout: 240000,

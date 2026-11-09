@@ -211,8 +211,8 @@ A snapshot's `hierarchy` lists the projected authority space and every declared 
 frame descends from a root frame of the space, as nested visible spaces; membership follows
 declared frame ancestry, not where entities currently stand: each region's parent is its declared `parent`, and a root region's
 parent is the authority space. Labels are identifiers. A viewed space is either the authority space
-or one of these nested regions; green-lake-yard stays one authority space whose regions
-(`living-yard`, `snack-house`, …) are its viewed regions.
+or one of these nested regions; the reference fixture stays one authority space whose regions
+(`living-hall`, `snack-house`, …) are its viewed regions.
 
 `POST /v1/runtime/viewed-space` decides one `ChangeViewedSpace`. The disposition's `scope` is the
 scene connection's scope: the current scope for a nested region, the target space's scope for

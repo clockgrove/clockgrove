@@ -18,7 +18,7 @@ import { sha256Hex, validateSource } from "./validate.js";
 const fixtures = "packages/contracts/test/fixtures/asset-manifest";
 const regenerate =
   "run `pnpm --filter @clockgrove/assets run update-golden` and get human approval";
-const files = readManifests(root);
+const files = readManifests(root, "worlds/fixture/assets");
 const deployable = files.filter((f) => assetDeployRefusals(f.manifest).length === 0);
 const layout = files.map((f) => f.manifest);
 
@@ -48,8 +48,8 @@ function render(scene: PackScene, golden: GoldenRecord): Uint8Array {
 
 const read = (path: string) => (existsSync(path) ? readFileSync(path) : null);
 const same = (a: Uint8Array | null, b: Uint8Array) => a !== null && Buffer.compare(a, b) === 0;
-const reportPath = join(root, "assets/license-report.md");
-const reviewedDir = join(root, "assets/reviewed");
+const reportPath = join(root, "worlds/fixture/assets/license-report.md");
+const reviewedDir = join(root, "worlds/fixture/assets/reviewed");
 
 function check(): string[] {
   const problems: string[] = [];
@@ -63,7 +63,8 @@ function check(): string[] {
     if (!assetDeployRefusals(manifest).some((r) => r.code === code))
       problems.push(`deploy gate: the ${name} fixture is no longer refused with ${code}`);
   }
-  for (const f of files) problems.push(...validateSource(f.manifest, f.bytes, f.path));
+  for (const f of files)
+    problems.push(...validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", "")));
   problems.push(...atlasLocationProblems(layout));
   if (problems.length > 0) return problems;
 
@@ -71,11 +72,11 @@ function check(): string[] {
   const actual = existsSync(reviewedDir) ? readdirSync(reviewedDir).sort() : [];
   for (const name of actual)
     if (!expected.has(name))
-      problems.push(`assets/reviewed/${name}: not built from a deployable manifest`);
+      problems.push(`worlds/fixture/assets/reviewed/${name}: not built from a deployable manifest`);
   for (const [name, bytes] of expected)
     if (!same(read(join(reviewedDir, name)), bytes))
       problems.push(
-        `assets/reviewed/${name}: stale, run \`pnpm --filter @clockgrove/assets run build\``,
+        `worlds/fixture/assets/reviewed/${name}: stale, run \`pnpm --filter @clockgrove/assets run build\``,
       );
   for (const f of files) {
     const refusals = assetDeployRefusals(f.manifest);
@@ -83,15 +84,17 @@ function check(): string[] {
     for (const name of actual.filter((n) => n.endsWith(".animations.json")))
       if (refusals.length > 0 && readFileSync(join(reviewedDir, name), "utf8").includes(entry))
         for (const r of refusals)
-          problems.push(`assets/reviewed/${name}: ${r.code} ${r.asset}: ${r.detail}`);
+          problems.push(
+            `worlds/fixture/assets/reviewed/${name}: ${r.code} ${r.asset}: ${r.detail}`,
+          );
   }
   if (files.length > 0 && !same(read(reportPath), Buffer.from(licenseReport(layout))))
     problems.push(
-      "assets/license-report.md: stale, run `pnpm --filter @clockgrove/assets run build`",
+      "worlds/fixture/assets/license-report.md: stale, run `pnpm --filter @clockgrove/assets run build`",
     );
 
-  for (const scene of files.length > 0 ? readPackScenes(root) : []) {
-    const paths = goldenPaths(root, scene.packDir);
+  for (const scene of files.length > 0 ? readPackScenes(root, "worlds/fixture") : []) {
+    const paths = goldenPaths(root, scene.packDir, "worlds/fixture/assets");
     const golden = readGolden(paths.record);
     if (golden === null) {
       problems.push(`golden ${scene.packDir}: no golden scene; ${regenerate}`);
@@ -124,8 +127,8 @@ function build(): void {
 }
 
 function updateGolden(): void {
-  for (const scene of readPackScenes(root)) {
-    const paths = goldenPaths(root, scene.packDir);
+  for (const scene of readPackScenes(root, "worlds/fixture")) {
+    const paths = goldenPaths(root, scene.packDir, "worlds/fixture/assets");
     const previous = readGolden(paths.record);
     const record: GoldenRecord = previous ?? {
       camera: { originXMm: 0, originYMm: 0, mmPerPixel: 50, width: 800, height: 600 },
@@ -141,7 +144,7 @@ function updateGolden(): void {
       sceneSha256 === record.sceneSha256
         ? record.approval
         : { status: "pending" as const, reviewer: null, approvedSceneSha256: null };
-    mkdirSync(join(root, "assets/goldens"), { recursive: true });
+    mkdirSync(join(root, "worlds/fixture/assets/goldens"), { recursive: true });
     writeFileSync(paths.image, png);
     writeFileSync(
       paths.record,

@@ -1,0 +1,58 @@
+{
+  "assetManifestVersion": 1,
+  "assetId": "puddle",
+  "animationFamily": "loop",
+  "source": {
+    "kind": "authored",
+    "path": "assets/source/puddle/loop.png",
+    "creator": "Clockgrove test fixture",
+    "tool": "neutral rectangle fixture"
+  },
+  "license": "MIT",
+  "provenance": {
+    "prompt": "Synthetic geometric placeholder for platform tests; no world artwork.",
+    "references": []
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "fixture-reviewer",
+    "reviewedAt": "2026-11-05T00:00:00Z",
+    "notes": "Synthetic approval record, matching the approved contract fixture; not human artwork approval."
+  },
+  "semantic": {
+    "role": "effect",
+    "entity": null,
+    "archetype": null
+  },
+  "frames": {
+    "width": 24,
+    "height": 12,
+    "count": 2,
+    "durationMs": 400
+  },
+  "anchor": {
+    "x": 12,
+    "y": 6
+  },
+  "footprint": {
+    "width": 1200,
+    "depth": 600
+  },
+  "bounds": {
+    "x": 1,
+    "y": 1,
+    "width": 23,
+    "height": 11
+  },
+  "palette": [
+    "#202020",
+    "#808080"
+  ],
+  "contentHash": "79bb8007ce58aefb56b1a443a9e1ed8a92b92871ce7df9a5ecf7faa592803f8c",
+  "atlas": {
+    "atlasId": "fixture-world",
+    "x": 600,
+    "y": 80
+  },
+  "accessibilityLabel": "A puddle"
+}

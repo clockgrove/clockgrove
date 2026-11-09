@@ -14,7 +14,7 @@ import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.j
 const root = fileURLToPath(new URL("../../", import.meta.url));
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(
   root,
-  `worlds/${process.env.CLOCKGROVE_FIXTURE_SHELL ? "fixture" : "raccoons"}/shell.json`,
+  `worlds/${process.env.CLOCKGROVE_FIXTURE_SHELL ? "fixture" : "fixture/reference"}/shell.json`,
 );
 const FILE = "tests/e2e/arrival-truth.journey.browser.test.mjs";
 
@@ -22,14 +22,14 @@ const FILE = "tests/e2e/arrival-truth.journey.browser.test.mjs";
 // damaged atlas: a status screen instead of a blank or false scene_ready, and a refused atlas copy.
 it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched atlas", async () => {
   if (!isNativeWorldOwnerChild()) {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       vitestConfig: "tests/ci/vitest.browser.config.ts",
       timeoutMs: 150_000,
       inheritOutput: true,
       prepare: (fixture) =>
         truthOf(fixture)(
           `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe'] WHERE principal_id='principal-runtime';
-          UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
+          UPDATE clockgrove_auth.session SET token='hall-inspect' WHERE token='local-reader-session'`,
         ),
     });
     process.env.CLOCKGROVE_FIXTURE_SHELL = "1";
@@ -64,9 +64,14 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
         SELECT tenant_id,'${caseId}',request_hash,pack_id,pack_version,content_hash,'${status}',world_id,
         ${status === "failed" ? `'{"code":"journey_fault"}'::jsonb` : "NULL"}
         FROM clockgrove_birth.provisioning_cases WHERE ${where} ORDER BY updated_at DESC LIMIT 1`);
-    const atlas = await readFile(path.join(root, "assets/reviewed/raccoon-world.png"));
+    const atlas = await readFile(
+      path.join(root, "worlds/fixture/assets/reviewed/fixture-world.png"),
+    );
     const manifest = JSON.parse(
-      await readFile(path.join(root, "assets/reviewed/raccoon-world.animations.json"), "utf8"),
+      await readFile(
+        path.join(root, "worlds/fixture/assets/reviewed/fixture-world.animations.json"),
+        "utf8",
+      ),
     );
     // The expected side is the committed manifest; one flipped byte is a corrupt copy.
     expect(manifest.image.sha256).toMatch(/^[0-9a-f]{64}$/u);
@@ -86,7 +91,7 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
           transform(code, id) {
             if (id.split("?")[0] === path.join(root, "apps/web/src/measurements.ts"))
               return {
-                code: `${code}\nglobalThis.yardMeasurements = clientMeasurements;`,
+                code: `${code}\nglobalThis.hallMeasurements = clientMeasurements;`,
                 map: null,
               };
           },
@@ -110,19 +115,19 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
           if (Array.isArray(directory.entries))
             directory.entries = directory.entries.map((entry) => ({
               ...entry,
-              worldLabel: "Green Lake Yard",
+              worldLabel: "Fixture Hall",
             }));
           await request.fulfill({ response, json: directory });
         });
         await page.route(
-          (url) => url.pathname === "/raccoon-world.png",
+          (url) => url.pathname === "/fixture-world.png",
           (request) =>
             served++ < damagedCopies
               ? request.fulfill({ status: 200, contentType: "image/png", body: damaged })
               : request.continue(),
         );
         await page.goto(`http://127.0.0.1:${port}${route}`);
-        await page.getByLabel("Local session credential").fill("yard-inspect");
+        await page.getByLabel("Local session credential").fill("hall-inspect");
         await page.getByRole("button", { name: "Sign in", exact: true }).click();
         return page;
       };
@@ -130,7 +135,7 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
       const focused = (page) =>
         page.evaluate(() => document.activeElement?.querySelector("h2")?.textContent);
       const counts = async (page) => {
-        const points = await page.evaluate(() => globalThis.yardMeasurements.points());
+        const points = await page.evaluate(() => globalThis.hallMeasurements.points());
         const count = (key) =>
           points.filter(({ name, category }) => `${name}:${category}` === key).length;
         return ["asset_cache:failed", "asset_cache:loaded", "client_errors:asset"].map(count);
@@ -154,13 +159,13 @@ it("shows provisioning, failed and ready arrival, and refuses a hash-mismatched 
       await arriving.getByRole("button", { name: "Retry", exact: true }).click();
       await screen(arriving, "World provisioning").waitFor();
       expect(await arriving.locator("canvas").count()).toBe(0);
-      // WorldReady commits: the polled read opens the yard through the ordinary arrival.
+      // WorldReady commits: the polled read opens the hall through the ordinary arrival.
       await lifecycle("ready");
       await arriving.getByText(/^Arrival: scene ready at revision \d+\.$/u).waitFor();
       expect(await arriving.locator("canvas").count()).toBe(1);
       expect(
         await screen(arriving, "Living scene").getByRole("heading", { level: 2 }).textContent(),
-      ).toBe("Green Lake Yard");
+      ).toBe("Fixture Hall");
       expect(await counts(arriving)).toEqual([0, 1, 0]);
       await arriving.close();
 

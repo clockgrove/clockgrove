@@ -64,15 +64,15 @@ it(
           report.scenario,
         ]),
       ).toEqual([
-        ["sample", "non-raccoon-conformance"],
-        ["sample", "non-raccoon-conformance"],
+        ["sample", "neutral-conformance"],
+        ["sample", "neutral-conformance"],
       ]);
       expect(result.reports.map((report: { runtime: string }) => report.runtime)).toEqual([
         `node/${process.version}`,
         "Cloudflare-Workers (workerd)",
       ]);
       expect(result.reports[0].bundleHash).toBe(result.reports[1].bundleHash);
-      const golden = join(pack, "goldens", "non-raccoon-conformance.json");
+      const golden = join(pack, "goldens", "neutral-conformance.json");
       const original = await readFile(golden);
       await writeFile(golden, "{}");
       await expect(run()).rejects.toMatchObject({
@@ -80,7 +80,7 @@ it(
         stderr: expect.stringContaining('check "golden-match"'),
       });
       expect(await readFile(golden, "utf8")).toBe("{}");
-      expect(await readFile(join(pack, "goldens", "non-raccoon-conformance.actual.json"))).toEqual(
+      expect(await readFile(join(pack, "goldens", "neutral-conformance.actual.json"))).toEqual(
         original,
       );
       await rm(join(assets, "idle.json"));

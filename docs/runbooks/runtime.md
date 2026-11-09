@@ -450,7 +450,7 @@ hashes.
 This is native-local evidence (workerd through Miniflare). Hosted qualification is a separate,
 deferred step.
 
-From `docs/raccoon-world-cloudflare-implementation-plan.md`, heading **4.3 Logical placement table**:
+From [docs/raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
 
 Logical world identity is never a synonym for a live server process. Placement is explicit:
 
@@ -1274,7 +1274,7 @@ member's authorized public scene, asks for a structured `{reply, command}`, and 
 accepted `resource.offer` to the world owner ([capabilities](../protocols/capabilities.md)). The
 owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
 abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
-[the Stevie pilot](stevie-pilot.md).
+[the Stevie pilot](https://github.com/clockgrove/raccoon-world/blob/main/docs/runbooks/stevie-pilot.md).
 
 ## Recoverable scene streams
 

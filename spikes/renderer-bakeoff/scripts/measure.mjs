@@ -19,7 +19,7 @@ import { parseArgs } from "node:util";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const dist = path.join(root, "dist");
-const MOCKUP = path.resolve(root, "../../docs/design/reference/raccoon-world-reference.png");
+
 /** Each candidate's adapter source, for the code-complexity count. */
 const SOURCES = {
   phaser: ["src/candidates/phaser.ts"],
@@ -226,7 +226,6 @@ export async function measure(options) {
       /[&<>"]/gu,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
     );
-  const mockup = path.relative(out, MOCKUP).split(path.sep).join("/");
   const rows = record.candidates
     .map((c) => {
       const runs = c.runs
@@ -242,7 +241,7 @@ export async function measure(options) {
       return `<section><h2>${escapeHtml(c.candidate)}</h2>
   <p>${escapeHtml(c.description?.api ?? "no api")} · ${escapeHtml(c.description?.rendererString ?? c.error ?? "")} · ${escapeHtml(c.performanceNote)}</p>
   <p>bundle ${c.bundle.candidate?.gzipBytes ?? "?"} B gzip · ${c.codeLines ?? "?"} code lines · est. GPU ${c.description?.estimatedGpuBytes ?? "?"} B</p>
-  <div class="row"><figure><img src="${mockup}"><figcaption>reference mockup</figcaption></figure>${shots}</div>
+  <div class="row">${shots}</div>
   <table><tr><th>state</th><th>tier</th><th>frame p50 ms</th><th>frame p95 ms</th><th>pan p50 ms</th><th>pan p95 ms</th><th>rAF p50 ms</th></tr>${runs}</table></section>`;
     })
     .join("\n");

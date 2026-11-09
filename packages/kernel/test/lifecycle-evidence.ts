@@ -45,12 +45,12 @@ export const LIFECYCLE_LONG_HASHES: Readonly<
 > = {
   "lifecycle-30-day": {
     populationHash: "c0e61d2a9cf027537322e03703c66b7a25bfea6198c1df78bef71faa2de17c15",
-    lifecycleHash: "fce2af50cdc33267b92b0656fff487c6289bceb3aafee186ff156625eb6ed74e",
+    lifecycleHash: "c679b00905079f213e7d79529459d63a187b665f4b0685b1cf52ddca5de3ea53",
     resourceHash: "ae8172ef968f64caa8a675a4bb9d8dbcc66facb3db90b5a56b17ebbb5e5dd516",
   },
   "lifecycle-one-year": {
-    populationHash: "3b2513b5b41d43dc299fc884666f0d20b4f231c3c41dbac7eeda2f4bf0a49433",
-    lifecycleHash: "2d8d85629e5668f9d390720840c9de09039db897945baf044ab9c34cdc7456fb",
+    populationHash: "052eb3002e1cfc0be477762de4a122f33b932a522f181565199b63d6269a8bd0",
+    lifecycleHash: "947ace85fdedd1d31348b97ab7f045f07e4a33ccecdd1ef2039f685ba3b3ee16",
     resourceHash: "396602efbc4ddc331582a32d9fdf71a7b416969e99c5c66ea0ab445b11a1759d",
   },
 };

@@ -4,7 +4,7 @@
 **Version:** 1.0  
 **Date:** August 17, 2026  
 **Scope:** Provisioning, world management, runtime authority, failure isolation, metering, shared-wallet admission, and future deployment seams  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.6; `raccoon-world-cloudflare-implementation-plan.md` v3.7; Waves 0–12
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.6; [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.7; Waves 0–12
 
 ---
 

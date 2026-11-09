@@ -299,7 +299,7 @@ it("uses durable schedule boundaries independently of caps, admission grouping a
 it("orders indexed deadlines and priorities numerically across decimal digit boundaries", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-clock-order");
     const scope = {
       ...provisioned.partition.target,
@@ -307,8 +307,8 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
     };
     // These reader-only rows deliberately exercise indexed columns before document hydration.
     await truthOf(fixture)(`UPDATE clockgrove.partition_schedules SET
-      due_at = CASE tie_break_key WHEN 'grove.gracie' THEN 10022400000 ELSE 9976186047 END,
-      priority = CASE tie_break_key WHEN 'grove.kit' THEN 10 ELSE 2 END
+      due_at = CASE tie_break_key WHEN 'fixture.companion' THEN 10022400000 ELSE 9976186047 END,
+      priority = CASE tie_break_key WHEN 'fixture.dependent' THEN 10 ELSE 2 END
       WHERE status = 'pending'`);
     await withClient(fixture.environment, async (client) => {
       const reader = new PostgreSqlDueWorkReader(client);
@@ -319,18 +319,18 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
       });
       expect(await reader.dueSchedules(provisioned.authorization, scope, 10022400000n)).toEqual([
         {
-          scheduleId: "scheduleid_881456e0710b0c12",
-          idempotencyKey: "scheduleid_881456e0710b0c12:8640000000",
+          scheduleId: "scheduleid_29ec1f6fba1bbd68",
+          idempotencyKey: "scheduleid_29ec1f6fba1bbd68:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_9920ccaa39d23625",
-          idempotencyKey: "scheduleid_9920ccaa39d23625:8640000000",
+          scheduleId: "scheduleid_b6b122fb75b2abff",
+          idempotencyKey: "scheduleid_b6b122fb75b2abff:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_95a26b8396a8ef8c",
-          idempotencyKey: "scheduleid_95a26b8396a8ef8c:8640000000",
+          scheduleId: "scheduleid_4945ef855203a0fe",
+          idempotencyKey: "scheduleid_4945ef855203a0fe:8640000000",
           dueAt: 10022400000n,
         },
       ]);
@@ -351,9 +351,9 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
           priority: item.priority,
         })),
       ).toEqual([
-        { id: "scheduleid_881456e0710b0c12", dueAt: 9976186047n, priority: 2 },
-        { id: "scheduleid_9920ccaa39d23625", dueAt: 9976186047n, priority: 10 },
-        { id: "scheduleid_95a26b8396a8ef8c", dueAt: 10022400000n, priority: 2 },
+        { id: "scheduleid_29ec1f6fba1bbd68", dueAt: 9976186047n, priority: 2 },
+        { id: "scheduleid_b6b122fb75b2abff", dueAt: 9976186047n, priority: 10 },
+        { id: "scheduleid_4945ef855203a0fe", dueAt: 10022400000n, priority: 2 },
       ]);
     });
   });

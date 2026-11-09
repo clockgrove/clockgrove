@@ -8,7 +8,7 @@ import {
 
 const FILE = "apps/runtime/test/turn-fibers.journey.postgres.test.ts";
 const MEMBER = "local-reader-session";
-const STEVIE = "grove.stevie";
+const KEEPER = "fixture.keeper";
 // Every §7.1 phase boundary a scripted turn crosses; `model_running:streaming` is mid-stream.
 const BOUNDARIES = [
   "accepted",
@@ -23,7 +23,7 @@ const BOUNDARIES = [
 it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
-    await runNativeWorldOwnerProcess(FILE, "raccoons", {
+    await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -51,7 +51,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             version: 1,
             ...owner.scope,
             scope: owner.scope,
-            actorId: STEVIE,
+            actorId: KEEPER,
             ...fields,
           }),
         });
@@ -61,7 +61,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       };
       const open = async () =>
         decodeConversationSession(
-          (await post("/v1/runtime/conversations/create", { actorId: STEVIE })).body,
+          (await post("/v1/runtime/conversations/create", { actorId: KEEPER })).body,
         ).sessionId;
       const talk = (sessionId: string, messageId: string) =>
         post("/v1/runtime/talk", { sessionId, messageId, text: `hello ${messageId}` });
@@ -276,7 +276,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).rejects.toThrow(/stale process lease/);
       expect(await advance()).toMatchObject({
         processId: "tally-1",
-        actorId: STEVIE,
+        actorId: KEEPER,
         objective: "fixture-tally",
         target: 10,
         checkpoint: 10,

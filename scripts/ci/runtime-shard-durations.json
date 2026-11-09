@@ -14,7 +14,7 @@
   "apps/runtime/test/durable-catch-up.postgres.test.ts": 42.2,
   "apps/runtime/test/durable-provisioning.postgres.test.ts": 42.6,
   "apps/runtime/test/entity-selection.journey.postgres.test.ts": 4.4,
-  "apps/runtime/test/living-yard.journey.postgres.test.ts": 2.2,
+  "apps/runtime/test/living-hall.journey.postgres.test.ts": 2.2,
   "apps/runtime/test/native.journey.postgres.test.ts": 0,
   "apps/runtime/test/native.postgres.test.ts": 13.1,
   "apps/runtime/test/observer-authority.postgres.test.ts": 8.2,

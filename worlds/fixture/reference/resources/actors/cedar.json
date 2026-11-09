@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.cedar-kind","version":1},"capabilities":[],"id":"fixture.cedar","overrides":[],"placement":{"coordinates":[{"$bigint":"22000"},{"$bigint":"20000"}],"space":{"id":"fixture.neighborhood","version":1}},"traits":[]}

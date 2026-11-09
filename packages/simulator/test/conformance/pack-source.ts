@@ -51,7 +51,7 @@ function isFile(path: string): boolean {
   }
 }
 
-/** Every directory directly under `root` that contains a `manifest.json`; none when `root` is absent. */
+/** Every directory recursively under `root` that contains a `manifest.json`; none when `root` is absent. */
 /**
  * Committed packs small enough for every pull request to run them in workerd and through each CLI
  * path. The other packs run once in Node per PR; their workerd parity and full CLI runs belong to
@@ -61,10 +61,14 @@ export const SMALL_PACKS: readonly string[] = ["fixture"];
 
 export function discoverPackDirectories(root: string = WORLDS_ROOT): string[] {
   if (!isDirectory(root)) return [];
-  return readdirSync(root)
-    .sort()
-    .map((entry) => join(root, entry))
-    .filter((directory) => isDirectory(directory) && isFile(join(directory, "manifest.json")));
+  const found: string[] = [];
+  for (const entry of readdirSync(root).sort()) {
+    const directory = join(root, entry);
+    if (!isDirectory(directory)) continue;
+    if (isFile(join(directory, "manifest.json"))) found.push(directory);
+    found.push(...discoverPackDirectories(directory));
+  }
+  return found.sort();
 }
 
 async function jsonFiles(

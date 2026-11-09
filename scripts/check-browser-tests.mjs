@@ -79,7 +79,7 @@ export async function checkBrowserTests(root) {
     'import { chromium } from "playwright";\nconst browser = await chromium.launch();\n';
   const helper =
     'expect(dependency).toBe("playwright");\n// import("playwright")\nconst { chromium } = await import(\n  "playwright");\nawait chromium.launchServer();\n';
-  const misplaced = "apps/runtime/test/living-yard.journey.browser.test.ts";
+  const misplaced = "apps/runtime/test/living-hall.journey.browser.test.ts";
   const regressions = "tests/ci/regressions.test.mjs";
   const support = "packages/testkit/src/browser.ts";
   assert.deepEqual(

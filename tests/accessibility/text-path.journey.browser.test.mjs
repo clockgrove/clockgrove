@@ -25,7 +25,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
   if (!isNativeWorldOwnerChild()) {
     await runNativeWorldOwnerProcess(
       "tests/accessibility/text-path.journey.browser.test.mjs",
-      "raccoons",
+      "fixture/reference",
       {
         vitestConfig: "tests/ci/vitest.browser.config.ts",
         timeoutMs: 150_000,
@@ -33,7 +33,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         prepare: (fixture) =>
           truthOf(fixture)(
             `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command'] WHERE principal_id='principal-runtime';
-          UPDATE clockgrove_auth.session SET token='yard-inspect' WHERE token='local-reader-session'`,
+          UPDATE clockgrove_auth.session SET token='hall-inspect' WHERE token='local-reader-session'`,
           ),
       },
     );
@@ -49,12 +49,12 @@ it("completes every Wave 4 journey without the canvas", async () => {
         `SELECT revision FROM clockgrove.partition_states WHERE partition_id = '${provisioned.partition.route.partitionId}'`,
       );
     const read = async (endpoint, decode) =>
-      decode((await native.request(endpoint, { version: 1, ...scope }, "yard-inspect")).body);
+      decode((await native.request(endpoint, { version: 1, ...scope }, "hall-inspect")).body);
     const commit = async (key, type, payload, expected = null) => {
       const { status, body } = await native.submit(
         { ...advanceCommand(world, key, 0n, expected), type, payload },
         {},
-        "yard-inspect",
+        "hall-inspect",
       );
       expect(status, JSON.stringify(body)).toBe(200);
     };
@@ -64,7 +64,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         "movement.start",
         {
           schemaVersion: 1,
-          objectId: "grove.stevie",
+          objectId: "fixture.keeper",
           destination: {
             kind: "pose",
             pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [x, y] },
@@ -73,7 +73,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         },
         BigInt(await revision()),
       );
-    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/raccoons/shell.json");
+    process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
@@ -89,7 +89,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
           transform(code, id) {
             if (id.split("?")[0] === path.join(root, "apps/web/src/measurements.ts"))
               return {
-                code: `${code}\nglobalThis.yardMeasurements = clientMeasurements;`,
+                code: `${code}\nglobalThis.hallMeasurements = clientMeasurements;`,
                 map: null,
               };
           },
@@ -109,7 +109,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       const rendererErrors = [];
       probe.on("pageerror", (error) => rendererErrors.push(error.message));
       await probe.goto(`http://127.0.0.1:${port}/`);
-      await probe.getByLabel("Local session credential").fill("yard-inspect");
+      await probe.getByLabel("Local session credential").fill("hall-inspect");
       await probe.getByRole("button", { name: "Sign in", exact: true }).click();
       await probe
         .getByLabel("World", { exact: true })
@@ -133,7 +133,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         globalThis.WebSocket = class extends WebSocket {
           constructor(...args) {
             super(...args);
-            if (new URL(this.url).pathname === "/v1/projection") globalThis.yardSceneSocket = this;
+            if (new URL(this.url).pathname === "/v1/projection") globalThis.hallSceneSocket = this;
           }
         };
       });
@@ -173,7 +173,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       expect(
         await page.evaluate(() => document.createElement("canvas").getContext("webgl") === null),
       ).toBe(true);
-      await page.getByLabel("Local session credential").fill("yard-inspect");
+      await page.getByLabel("Local session credential").fill("hall-inspect");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page
         .getByLabel("World", { exact: true })
@@ -196,10 +196,10 @@ it("completes every Wave 4 journey without the canvas", async () => {
       // Each entity lists the server's interaction summary for it (issue 811's journey).
       const row = (objectId) =>
         scene.getByRole("listitem").filter({ hasText: `Identity: ${objectId};` });
-      expect(await row("grove.den").locator("span").nth(1).textContent()).toBe(
+      expect(await row("fixture.den").locator("span").nth(1).textContent()).toBe(
         "; Interactions: inspectable, Inspection from world evidence; available actions Inspect, History",
       );
-      expect(await row("grove.water-bowl").locator("span").nth(1).textContent()).toBe(
+      expect(await row("fixture.water-bowl").locator("span").nth(1).textContent()).toBe(
         "; Interactions: reactive, Deterministic/reactive object; available actions Inspect, History, Influence",
       );
       expect(await axe()).toEqual([]);
@@ -221,7 +221,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       expect(await focusedKey()).toBe(entities.at(-2));
       await page.keyboard.press("Home");
       expect(await focusedKey()).toBe(entities[0]);
-      while ((await focusedKey()) !== "entity:grove.water-bowl")
+      while ((await focusedKey()) !== "entity:fixture.water-bowl")
         await page.keyboard.press("ArrowRight");
       await page.keyboard.press("Enter");
       const selected = page.getByRole("region", { name: "Selected entity", exact: true });
@@ -259,7 +259,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       // §17: the one committed receipt is one interaction_outcome:accepted point.
       expect(
         await page.evaluate(() =>
-          globalThis.yardMeasurements
+          globalThis.hallMeasurements
             .points()
             .filter(({ name }) => name === "interaction_outcome")
             .map(({ category, value }) => [category, value]),
@@ -268,20 +268,20 @@ it("completes every Wave 4 journey without the canvas", async () => {
 
       // Live changes: movement, weather and material events, at most one announcement per 3 s.
       await page.evaluate(() => {
-        globalThis.yardLogged = [];
-        globalThis.yardObservationAnnouncements = [];
+        globalThis.hallLogged = [];
+        globalThis.hallObservationAnnouncements = [];
         const observation = document.querySelector("#rw-observation-announcement");
         let previous = observation.textContent;
         new MutationObserver(() => {
           if (observation.textContent === previous) return;
           previous = observation.textContent;
-          globalThis.yardObservationAnnouncements.push([Date.now(), previous]);
+          globalThis.hallObservationAnnouncements.push([Date.now(), previous]);
         }).observe(observation, { childList: true, characterData: true, subtree: true });
         new MutationObserver((records) => {
           for (const record of records)
             for (const node of record.addedNodes)
               if (node.textContent !== "No changes since arrival.")
-                globalThis.yardLogged.push([Date.now(), node.textContent]);
+                globalThis.hallLogged.push([Date.now(), node.textContent]);
         }).observe(document.querySelector('[role="log"]'), { childList: true });
       });
       const currentObservation = async () => {
@@ -300,7 +300,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
             .evaluate((details) => details.closest('[aria-live], [role="status"]') === null),
         ).toBe(true);
         expect(await page.locator("#rw-observation-announcement").textContent()).not.toContain(
-          "grove.stevie",
+          "fixture.keeper",
         );
         expect(await page.getByText(/^Observation: /u).count()).toBe(1);
         return committed.revision;
@@ -311,7 +311,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         .poll(() => page.locator("#rw-observation-announcement").textContent())
         .toContain(`Revision ${rainRevision}.`);
       // The storm and the walk follow the first announcement, so they land in a later interval.
-      await expect.poll(() => page.evaluate(() => globalThis.yardLogged.length)).toBe(1);
+      await expect.poll(() => page.evaluate(() => globalThis.hallLogged.length)).toBe(1);
       await commit("text-storm", "world.weather.set", { schemaVersion: 2, rainIntensity: 2000 });
       await currentObservation();
       await walk("text-walk", 33000n, 13000n);
@@ -320,7 +320,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await expect
         .poll(() => page.locator("#rw-observation-announcement").textContent())
         .toContain(`Revision ${latest}.`);
-      const announcements = await page.evaluate(() => globalThis.yardObservationAnnouncements);
+      const announcements = await page.evaluate(() => globalThis.hallObservationAnnouncements);
       expect(announcements.length).toBeGreaterThanOrEqual(2);
       expect(announcements.slice(1).every(([at], i) => at - announcements[i][0] >= 3000)).toBe(
         true,
@@ -328,11 +328,11 @@ it("completes every Wave 4 journey without the canvas", async () => {
       const status = await read("/v1/runtime/world-status", decodeWorldStatus);
       expect(status.revision).toBe(latest);
       const logged = async () =>
-        (await page.evaluate(() => globalThis.yardLogged)).map(([, t]) => t);
+        (await page.evaluate(() => globalThis.hallLogged)).map(([, t]) => t);
       await expect
         .poll(async () => (await logged()).join(" "))
-        .toContain("grove.stevie moved to 33000, 13000");
-      const log = await page.evaluate(() => globalThis.yardLogged);
+        .toContain("fixture.keeper moved to 33000, 13000");
+      const log = await page.evaluate(() => globalThis.hallLogged);
       // The rain is announced alone, and the storm and walk at least one interval later.
       expect(log.length).toBeGreaterThanOrEqual(2);
       // 100 ms below the 3 s bound absorbs render delay between a commit and its DOM addition.
@@ -360,7 +360,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         );
       expect([status.feed[0].category, status.feed[0].objectId]).toEqual([
         "movement",
-        "grove.stevie",
+        "fixture.keeper",
       ]);
       const earlier = timeline.getByRole("button", { name: "Earlier event", exact: true });
       await earlier.press("Enter");
@@ -374,11 +374,13 @@ it("completes every Wave 4 journey without the canvas", async () => {
       ]);
       const later = timeline.getByRole("button", { name: "Later event", exact: true });
       while (
-        !(await timeline.getByRole("button", { name: "Open history of grove.water-bowl" }).count())
+        !(await timeline
+          .getByRole("button", { name: "Open history of fixture.water-bowl" })
+          .count())
       )
         await later.press("Enter");
       await timeline
-        .getByRole("button", { name: "Open history of grove.water-bowl" })
+        .getByRole("button", { name: "Open history of fixture.water-bowl" })
         .press("Enter");
       await expect.poll(focusedKey).toBe("rw-recent-actions");
       const why = timeline.getByRole("button", { name: /^Why event / });
@@ -389,13 +391,13 @@ it("completes every Wave 4 journey without the canvas", async () => {
       expect(await focusedKey()).toBe(await why.textContent());
 
       // Reconnect: the transport drops and resumes, and focus stays on the same entity control.
-      await scene.getByRole("button", { name: "grove.stevie", exact: true }).focus();
-      await page.evaluate(() => globalThis.yardSceneSocket.close());
+      await scene.getByRole("button", { name: "fixture.keeper", exact: true }).focus();
+      await page.evaluate(() => globalThis.hallSceneSocket.close());
       await expect.poll(() => sockets.length).toBe(2);
       await expect
         .poll(() => page.locator("#rw-observation-status").textContent())
         .toMatch(/^Observation: ready\. Observing revision /u);
-      expect(await focusedKey()).toBe("entity:grove.stevie");
+      expect(await focusedKey()).toBe("entity:fixture.keeper");
 
       // Reduced motion: nothing in the shell animates or transitions.
       expect(
@@ -422,7 +424,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
         }),
       ).toBe(true);
       const box = await scene
-        .getByRole("button", { name: "grove.stevie", exact: true })
+        .getByRole("button", { name: "fixture.keeper", exact: true })
         .boundingBox();
       expect(box.x >= 0 && box.x + box.width <= 320).toBe(true);
       expect(await axe()).toEqual([]);

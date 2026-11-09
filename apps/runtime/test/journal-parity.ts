@@ -395,7 +395,10 @@ export class ParityCluster {
     const known = this.worlds.get(pack);
     if (known !== undefined) return known;
     const template = `parity_template_${pack}`;
-    await admin(this.fixture, `CREATE DATABASE ${template} TEMPLATE clockgrove`);
+    await admin(
+      this.fixture,
+      `CREATE DATABASE "${template.replaceAll('"', '""')}" TEMPLATE clockgrove`,
+    );
     const world: ParityWorld = {
       ...(await provisionTestWorld(this.fixture, await testWorld(pack), PRINCIPAL, template)),
       template,
@@ -408,7 +411,10 @@ export class ParityCluster {
   async clone(template: string): Promise<string> {
     this.databases += 1;
     const database = `parity_${this.databases}`;
-    await admin(this.fixture, `CREATE DATABASE ${database} TEMPLATE ${template}`);
+    await admin(
+      this.fixture,
+      `CREATE DATABASE ${database} TEMPLATE "${template.replaceAll('"', '""')}"`,
+    );
     return database;
   }
 

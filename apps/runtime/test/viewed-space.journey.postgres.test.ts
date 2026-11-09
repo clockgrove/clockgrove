@@ -10,7 +10,7 @@ import {
 import { PostgreSqlViewedSpaceReader } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { PostgreSqlCommandOwner } from "../src/world-commands.js";
-import { livingYardAuthentication } from "./living-yard-fixture.js";
+import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
   advanceCommand,
   commandRequest,
@@ -24,9 +24,9 @@ import {
 it("changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
-    const world = await testWorld("raccoons");
+    const world = await testWorld("fixture/reference");
     const provisioned = await provisionTestWorld(fixture, world, "principal-viewed-space");
-    const auth = livingYardAuthentication(provisioned, ["grove.elsewhere"]);
+    const auth = livingHallAuthentication(provisioned, ["fixture.elsewhere"]);
     const sql = truthOf(fixture);
     await withClient(fixture.environment, async (client) => {
       const viewed = new PostgreSqlViewedSpaceReader(client);
@@ -40,7 +40,7 @@ it("changes the viewed space and follows a selected actor with one of five dispo
         const response = await worker.fetch(
           new Request("http://local.test/v1/runtime/viewed-space", {
             method: "POST",
-            headers: { authorization: "Bearer yard-inspect", "content-type": "application/json" },
+            headers: { authorization: "Bearer hall-inspect", "content-type": "application/json" },
             body: JSON.stringify({
               type: "change_viewed_space",
               requestId: "navigation-request",
@@ -56,13 +56,13 @@ it("changes the viewed space and follows a selected actor with one of five dispo
       const facts =
         "SELECT jsonb_build_object('state',(SELECT jsonb_agg(to_jsonb(s)) FROM clockgrove.partition_states s),'receipts',(SELECT count(*) FROM clockgrove.command_receipts))::text";
       const owner = new PostgreSqlCommandOwner(client);
-      const stevie = async () => {
+      const keeper = async () => {
         const state = (await owner.reader.hydrate(provisioned.authorization, auth.scope)).document
           .state;
-        return { state, entity: state.entities.find((e) => e.objectId === "grove.stevie") };
+        return { state, entity: state.entities.find((e) => e.objectId === "fixture.keeper") };
       };
       const run = async (key: string, type: string, payload: unknown, time = 0n) => {
-        const { state } = await stevie();
+        const { state } = await keeper();
         const command = {
           ...advanceCommand(world, key, time, state.revision),
           type,
@@ -77,7 +77,7 @@ it("changes the viewed space and follows a selected actor with one of five dispo
       const answered = (
         disposition: string,
         scope: typeof me | undefined,
-        selected: string | null = "grove.stevie",
+        selected: string | null = "fixture.keeper",
       ) => ({
         status: 200,
         body: {
@@ -88,32 +88,32 @@ it("changes the viewed space and follows a selected actor with one of five dispo
         },
       });
       const navigate = async () => ({
-        outside: await change("snack-house", "grove.stevie"),
-        yard: await change("living-yard", "grove.stevie"),
-        whole: await change(me.spaceId, "grove.stevie"),
-        nobody: await change("snack-house", "grove.nobody"),
+        outside: await change("snack-house", "fixture.keeper"),
+        hall: await change("living-hall", "fixture.keeper"),
+        whole: await change(me.spaceId, "fixture.keeper"),
+        nobody: await change("snack-house", "fixture.nobody"),
         none: await change("snack-house"),
-        unavailable: await change("grove.elsewhere", "grove.stevie"),
-        denied: await change("grove.forbidden", "grove.stevie"),
+        unavailable: await change("fixture.elsewhere", "fixture.keeper"),
+        denied: await change("fixture.forbidden", "fixture.keeper"),
       });
       const beforeMove = await sql(facts);
-      const yard = await navigate();
+      const hall = await navigate();
       expect(await sql(facts)).toBe(beforeMove);
-      expect(yard).toEqual({
+      expect(hall).toEqual({
         outside: answered("stayed_within_space", me),
-        yard: answered("followed", me),
+        hall: answered("followed", me),
         whole: answered("followed", me),
         nobody: answered("target_hidden", undefined, null),
         none: { status: 204, body: null },
         unavailable: answered("unavailable", undefined, null),
         denied: answered("permission_denied", undefined, null),
       });
-      const home = (await stevie()).entity?.pose.coordinates;
+      const home = (await keeper()).entity?.pose.coordinates;
       expect(home).toEqual([15000n, 8000n]);
       // Actor movement is its own typed command; navigation never moves the actor.
       const moved = await run("viewed-space-move", "movement.start", {
         schemaVersion: 1,
-        objectId: "grove.stevie",
+        objectId: "fixture.keeper",
         destination: {
           kind: "pose",
           pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [33000n, 13000n] },
@@ -121,18 +121,18 @@ it("changes the viewed space and follows a selected actor with one of five dispo
         unitsPerSecond: 1000n,
       });
       expect(moved.outcome).toBe("committed");
-      expect((await stevie()).entity?.pose.coordinates).toEqual([33000n, 13000n]);
+      expect((await keeper()).entity?.pose.coordinates).toEqual([33000n, 13000n]);
       const beforeInside = await sql(facts);
       expect(beforeInside).not.toBe(beforeMove);
       const inside = await navigate();
       expect(await sql(facts)).toBe(beforeInside);
       expect(inside).toEqual({
-        ...yard,
+        ...hall,
         outside: answered("followed", me),
-        yard: answered("stayed_within_space", me),
+        hall: answered("stayed_within_space", me),
       });
       auth.revoke();
-      expect(await change("snack-house", "grove.stevie")).toEqual(
+      expect(await change("snack-house", "fixture.keeper")).toEqual(
         answered("permission_denied", undefined, null),
       );
       expect(await sql(facts)).toBe(beforeInside);

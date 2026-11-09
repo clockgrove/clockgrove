@@ -489,7 +489,7 @@ Map Wave 1 versioned state without leaking TypeScript implementation details. De
 
 Exit: install, interrupt/resume at every seed/projection boundary, and reconstruct both world packs with identical Wave 1 hashes; no non-ready world can be resolved for ordinary entry.
 
-Amended (2026-11-07): the interrupt/resume test at every seed/projection boundary runs only the fixture pack (`worlds/fixture`). The owner moves the Raccoon World half to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the Raccoon World pack (`worlds/raccoons`) is installed, interrupted and resumed at every seed/projection boundary, and reconstructs with identical Wave 1 hashes.
+Amended (2026-11-07): the interrupt/resume test at every seed/projection boundary runs only the fixture pack (`worlds/fixture`). The owner moves the Raccoon World half to Wave 9 (the Wave 9 §18 amendment of 2026-11-07): the Raccoon World pack ([external reference world](https://github.com/clockgrove/raccoon-world/tree/main/worlds/raccoons)) is installed, interrupted and resumed at every seed/projection boundary, and reconstructs with identical Wave 1 hashes.
 
 ### RW-0203 — Streams, events, command receipts, and envelope codecs
 

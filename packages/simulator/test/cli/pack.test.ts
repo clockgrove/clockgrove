@@ -116,15 +116,15 @@ describe("pack build", () => {
 });
 
 describe("pack test", () => {
-  // The committed raccoons pack runs through pack test in pack.long-run.test.ts.
+  // The committed reference fixture pack runs through pack test in pack.long-run.test.ts.
   it("passes every check for the committed fixture pack", async () => {
     const { run, checks } = await packTest(fixtureArtifact);
     expect(run.exitCode).toBe(0);
     expect(checks).toEqual([
       { name: "artifact-integrity", scenario: null, status: "passed" },
       { name: "seed-genesis", scenario: null, status: "passed" },
-      { name: "scenario-assertions", scenario: "non-raccoon-conformance", status: "passed" },
-      { name: "golden-match", scenario: "non-raccoon-conformance", status: "passed" },
+      { name: "scenario-assertions", scenario: "neutral-conformance", status: "passed" },
+      { name: "golden-match", scenario: "neutral-conformance", status: "passed" },
     ]);
   });
 
@@ -142,8 +142,8 @@ describe("pack test", () => {
         document.goldens[0]!.bytes = Buffer.from("not the golden").toString("base64");
       },
       failing: "golden-match",
-      scenario: "non-raccoon-conformance",
-      refusal: { code: "GOLDEN_MISMATCH", path: "goldens/non-raccoon-conformance.json" },
+      scenario: "neutral-conformance",
+      refusal: { code: "GOLDEN_MISMATCH", path: "goldens/neutral-conformance.json" },
       skipped: [],
     },
     {
