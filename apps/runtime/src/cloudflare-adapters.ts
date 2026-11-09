@@ -29,9 +29,11 @@ import {
   type RuntimeLogger,
   recordMetric,
   runtimeLogRecord,
+  type ShadowDecider,
   type StoredCommandProposal,
   type TurnCommandRecord,
   type TurnFiber,
+  type WakeTriagePolicy,
   type WorldCommandResult,
   WorldGenesisDefectError,
   type WorldProvisioningPorts,
@@ -65,6 +67,7 @@ import {
 import {
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
+  PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
@@ -95,6 +98,7 @@ import {
   withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
+  withWakeTriageClient,
   worldReactionNotifier,
 } from "./cloudflare-entry.js";
 import { analyticsEngineMetrics } from "./cloudflare-metrics.js";
@@ -137,6 +141,7 @@ import type {
   RuntimeScope,
 } from "./types.js";
 import { RuntimeRouteKeyMismatchError } from "./types.js";
+import { shadowActorWake, wakeTriageDecider, wakeTriagePolicy } from "./wake-triage.js";
 import * as workflows from "./workflows.js";
 import {
   assertWorldCommandContext,
@@ -1259,6 +1264,24 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     });
   }
 
+  async wakeTriageReport(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ) {
+    assertWorldCommandContext(context, scope);
+    if (!context.privacyCeiling.allowedCategories.includes("operator_evidence"))
+      throw new AuthorizationRefusedError("triage report refused");
+    await this.ready(scope, context, actorId);
+    return withWakeTriageClient(this.environment, (client) =>
+      new PostgreSqlWakeTriage(client).report(participant, scope as BrowserScope),
+    );
+  }
+  protected triageDecider(policy: WakeTriagePolicy, fiber: TurnFiber): ShadowDecider | undefined {
+    return wakeTriageDecider(this.environment, policy, fiber);
+  }
+
   async configureActivation(
     scope: RuntimeScope,
     context: TrustedExecutionContext,
@@ -1741,7 +1764,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   };
 
   /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
-  private responder(): ConversationResponder {
+  protected responder(): ConversationResponder {
     const gateway = actorGateway(this.environment);
     if (gateway !== undefined)
       return actorResponder({
@@ -1860,16 +1883,41 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         this.submitCommand(participant, fiber, proposal, offer),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
-      beforeModel: async (participant, fiber) => {
-        if (!fiber.messageId.startsWith("activation:")) return;
-        const result = await withActivations(this.environment, (store) =>
-          store.beforeModel(
-            { scope: scope as ActivationAddress["scope"], participant, actorId },
-            fiber,
-          ),
-        );
-        if (result === "deferred" || result === "noop" || result === "completed")
-          throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+      beforeModel: async (participant, fiber, input) => {
+        if (fiber.messageId.startsWith("activation:")) {
+          const result = await withActivations(this.environment, (store) =>
+            store.beforeModel(
+              { scope: scope as ActivationAddress["scope"], participant, actorId },
+              fiber,
+            ),
+          );
+          if (result === "deferred" || result === "noop" || result === "completed")
+            throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+        }
+        try {
+          const policy = wakeTriagePolicy(this.environment.WAKE_TRIAGE_CONFIG);
+          if (policy !== undefined)
+            await withWakeTriageClient(this.environment, (client) =>
+              shadowActorWake(
+                client,
+                participant,
+                fiber,
+                input,
+                policy,
+                this.triageDecider(policy, fiber),
+              ),
+            );
+        } catch {
+          // Shadow evidence must never prevent the existing full turn, including database outages.
+          console.warn(
+            JSON.stringify({
+              event: "wake-triage-evidence-failed",
+              actorId: fiber.actorId,
+              sessionId: fiber.sessionId,
+              messageId: fiber.messageId,
+            }),
+          );
+        }
       },
       durable: (fiber, participant, run) =>
         this.runFiber(`turn:${fiber.sessionId}:${fiber.messageId}`, async (fiberContext) => {

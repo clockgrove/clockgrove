@@ -14,10 +14,17 @@ export const ACTIVATION_ROUTES = [
   "/v1/runtime/activations/configure",
   "/v1/runtime/activations/wake",
   "/v1/runtime/activations/inspect",
+  "/v1/runtime/activations/triage-report",
 ] as const;
 export type ActivationRoute = (typeof ACTIVATION_ROUTES)[number];
 
 export interface ActivationOwners {
+  triageReport(
+    scope: BrowserScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ): Promise<unknown>;
   configure(
     scope: BrowserScope,
     context: TrustedExecutionContext,
@@ -120,6 +127,13 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   if (body.version !== 1) invalid("version");
   const scope = decodeBrowserScope(body.scope);
   const actorId = text(body.actorId, "actorId");
+  if (route === "/v1/runtime/activations/triage-report")
+    return {
+      scope,
+      actorId,
+      run: (owners, context, participant) =>
+        owners.triageReport(scope, context, participant, actorId),
+    };
   if (route === "/v1/runtime/activations/inspect")
     return {
       scope,

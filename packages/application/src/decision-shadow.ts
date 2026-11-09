@@ -462,6 +462,103 @@ export async function journalDecisionShadow(
   });
 }
 
+export async function journalWakeTriage(
+  journal: Journal,
+  scope: DecisionShadowScope,
+  record: import("./wake-triage.js").WakeTriageRecord,
+  outcomes: JournalOutcomeReader | undefined = readsStoredOutcomes(journal) ? journal : undefined,
+): Promise<void> {
+  const commandId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}wake-triage:${sha256Hex(canonicalBytes([record.requestId])).slice(0, 32)}`,
+    "CommandId",
+  );
+  const target = constructActorAddress({
+    tenantId: scope.tenantId,
+    worldId: scope.worldId,
+    timelineId: scope.timelineId,
+    kind: "space",
+    id: scope.spaceId,
+  } as never);
+  const raw = {
+    schemaVersion: 2,
+    commandId,
+    type: "WakeTriageRecord",
+    target,
+    expected: {},
+    issuedAt: TRUSTED_COMMAND_ISSUED_AT,
+    context: {
+      version: 1,
+      correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+      requestId: commandId,
+    },
+    attribution: {
+      effectiveActorId: "clockgrove:decision-shadow",
+      causalRootActionId: decodeOpaqueId(`action:${commandId}`, "ActionId"),
+    },
+    payload: record,
+  };
+  const command = raw as unknown as JournalExecuteRequest["command"];
+  const authorityDecision = allowDecision({
+    tenantId: command.target.tenantId,
+    worldId: command.target.worldId,
+    timelineId: command.target.timelineId,
+    commandId,
+    attribution: command.attribution,
+    inputs: {
+      principalId: scope.authorization.principalId,
+      roles: [],
+      grants: [],
+      privacyCeiling: scope.authorization.privacyCeiling,
+    },
+  });
+  const eventId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}decision-shadow-event:${sha256Hex(canonicalBytes([record.requestId])).slice(0, 32)}`,
+    "EventId",
+  );
+  const privacyClass = "operator_evidence" as PrivacyClass;
+  const commandBytes = new TextEncoder().encode(canonicalSerialize(raw));
+  // An exact retry is answered from the stored receipt, as every decided command is.
+  if (
+    outcomes !== undefined &&
+    (await outcomes.storedOutcome(scope.authorization, commandId, commandBytes)) !== undefined
+  )
+    return;
+  await journal.execute({
+    authorization: scope.authorization,
+    command,
+    commandBytes,
+    route: {
+      partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+      spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+      streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+    },
+    authorityDecision,
+    events: [
+      {
+        schemaVersion: 2,
+        eventId,
+        type: "WakeTriageRecorded",
+        partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+        spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+        streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+        simulationTime: BigInt(record.simulationTime) as never,
+        correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+        attribution: {
+          ...command.attribution,
+          authorityDecisionId: authorityDecision.authorityDecisionId,
+        },
+        policyVersions: { routine: record.policyVersion },
+        privacyClass,
+        payloadHash: computePayloadHash(record),
+        payload: record,
+      },
+    ],
+    dispatches: [],
+    stableResult: { recorded: true },
+    projectionDelta: null,
+  });
+}
+
 export interface DecisionShadowPointReport {
   readonly pointId: string;
   readonly decisions: number;

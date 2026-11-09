@@ -31,6 +31,7 @@ export * from "./postgres-runtime-operations.js";
 export * from "./postgres-schedules.js";
 export * from "./postgres-snapshots.js";
 export * from "./postgres-transaction.js";
+export * from "./postgres-wake-triage.js";
 export * from "./postgres-world-command.js";
 export * from "./postgres-world-owner.js";
 export * from "./postgres-world-provisioning.js";
