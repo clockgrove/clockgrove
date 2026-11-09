@@ -43,6 +43,7 @@ import {
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
   type ActivationArming,
+  type ActivationArmingStep,
   type BirthWorkflowStepConfig,
   type DurableObjectState,
   ActorAgentDO as ProductionActorAgentDO,
@@ -300,8 +301,23 @@ export class ActorAgentDO extends ProductionActorAgentDO {
     this.held?.();
     this.held = undefined;
   }
-  async heldTest(): Promise<boolean> {
-    return this.held !== undefined;
+  /** Armings this incarnation counted: configure's (`initial`) requests, and those in the section. */
+  private readonly armings = { configured: 0, started: 0, settled: 0 };
+  protected override activationArmingStep(arming: ActivationArming, step: ActivationArmingStep) {
+    if (step === "requested") {
+      if (arming.initial) this.armings.configured += 1;
+    } else this.armings[step] += 1;
+  }
+  /**
+   * Whether a turn or callback is held, how many configure armings were requested, and how many
+   * armings are inside the arming section now. One requested but not yet in the section waits for it.
+   */
+  async armingTest(): Promise<{ held: boolean; configured: number; running: number }> {
+    return {
+      held: this.held !== undefined,
+      configured: this.armings.configured,
+      running: this.armings.started - this.armings.settled,
+    };
   }
   /** `hold:activation-planning` holds a scheduled callback's last arming before it plans. */
   protected override async activationPlanning(arming: ActivationArming): Promise<void> {
@@ -1069,7 +1085,7 @@ export default {
       if (body.op === "fault")
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
-      if (body.op === "held") return Response.json(await actor.heldTest());
+      if (body.op === "arming") return Response.json(await actor.armingTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")

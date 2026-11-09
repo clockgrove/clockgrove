@@ -1,4 +1,4 @@
-import type { AssetManifest } from "@clockgrove/contracts";
+import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts";
 import { decodePng, encodePng } from "./png.js";
 import { sha256Hex } from "./validate.js";
 
@@ -35,22 +35,37 @@ export function packAtlas(manifests: readonly AssetManifest[]): Map<string, Plac
       compare(a.animationFamily, b.animationFamily),
   );
   const placements = new Map<string, Placement>();
+  const usedIds = new Set(sorted.map((m) => m.atlas.atlasId));
+  const widths = new Map<string, number>();
+  for (const m of sorted) {
+    const width = m.frames.width * m.frames.count;
+    if (width > MAX_ASSET_FRAME_EDGE || m.frames.height > MAX_ASSET_FRAME_EDGE)
+      throw new Error(`${assetKey(m)}: ATLAS_SIZE: strip exceeds ${MAX_ASSET_FRAME_EDGE} px`);
+    widths.set(m.atlas.atlasId, Math.max(widths.get(m.atlas.atlasId) ?? ATLAS_WIDTH, width));
+  }
+  let groupId = "";
   let atlasId = "";
+  let page = 1;
   let x = 0;
   let y = 0;
   let rowHeight = 0;
   for (const m of sorted) {
     const width = m.frames.width * m.frames.count;
     const height = m.frames.height;
-    if (width > ATLAS_WIDTH)
-      throw new Error(`${assetKey(m)}: strip is wider than ${ATLAS_WIDTH} px`);
-    if (m.atlas.atlasId !== atlasId) {
-      atlasId = m.atlas.atlasId;
+    if (m.atlas.atlasId !== groupId) {
+      groupId = atlasId = m.atlas.atlasId;
+      page = 1;
       x = y = rowHeight = 0;
     }
-    if (x > 0 && x + width > ATLAS_WIDTH) {
+    if (x > 0 && x + width > (widths.get(groupId) as number)) {
       y += rowHeight;
       x = rowHeight = 0;
+    }
+    if (y + height > MAX_ASSET_FRAME_EDGE) {
+      do atlasId = `${groupId}-page-${++page}`;
+      while (usedIds.has(atlasId));
+      usedIds.add(atlasId);
+      x = y = rowHeight = 0;
     }
     placements.set(assetKey(m), { atlasId, x, y, width, height });
     x += width;
@@ -90,7 +105,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
- * One atlas per atlasId. `layout` is the manifest set placements are computed over (default: the
+ * Bounded atlas pages per logical atlasId. `layout` computes placements (default: the
  * entries); pass every manifest so a pending asset keeps its place when only approved ones build.
  */
 export function buildAtlases(
@@ -109,9 +124,11 @@ export function buildAtlases(
       compare(a.manifest.assetId, b.manifest.assetId) ||
       compare(a.manifest.animationFamily, b.manifest.animationFamily),
   );
-  const atlasIds = [...new Set(sorted.map((e) => e.manifest.atlas.atlasId))];
+  const physicalId = (e: AssetEntry): string =>
+    (placements.get(assetKey(e.manifest)) as Placement).atlasId;
+  const atlasIds = [...new Set(sorted.map(physicalId))];
   return atlasIds.map((atlasId) => {
-    const members = sorted.filter((e) => e.manifest.atlas.atlasId === atlasId);
+    const members = sorted.filter((e) => physicalId(e) === atlasId);
     const placed = members.map((e) => placements.get(assetKey(e.manifest)) as Placement);
     const width = Math.max(...placed.map((p) => p.x + p.width));
     const height = Math.max(...placed.map((p) => p.y + p.height));
