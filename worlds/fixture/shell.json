@@ -11,7 +11,7 @@
   },
   "tokens": {},
   "scene": {
-    "atlas": null,
+    "atlases": false,
     "accent": 10206432,
     "panel": 2106928,
     "text": "#edf1f5"

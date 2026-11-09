@@ -9,7 +9,13 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
-import { atlasLocationProblems, buildAtlases, packAtlas } from "./atlas.js";
+import {
+  ATLAS_INDEX,
+  atlasIndex,
+  atlasLocationProblems,
+  buildAtlases,
+  packAtlas,
+} from "./atlas.js";
 import { licenseReport } from "./license-report.js";
 import {
   type GoldenRecord,
@@ -60,10 +66,12 @@ function preflight(): string[] {
 
 function expectedReviewed(): Map<string, Uint8Array> {
   const out = new Map<string, Uint8Array>();
-  for (const atlas of buildAtlases(deployable, layout)) {
+  const atlases = buildAtlases(deployable, layout);
+  for (const atlas of atlases) {
     out.set(`${atlas.atlasId}.png`, atlas.png);
     out.set(`${atlas.atlasId}.animations.json`, new TextEncoder().encode(atlas.animations));
   }
+  if (atlases.length > 0) out.set(ATLAS_INDEX, new TextEncoder().encode(atlasIndex(atlases)));
   return out;
 }
 

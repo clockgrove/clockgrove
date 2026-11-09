@@ -11,7 +11,8 @@ export interface WorldShellInput {
   };
   readonly tokens: Readonly<Record<string, string>>;
   readonly scene: {
-    readonly atlas: string | null;
+    /** Load every atlas page the reviewed output's `atlases.json` index lists. */
+    readonly atlases: boolean;
     readonly accent: number;
     readonly panel: number;
     readonly text: string;
@@ -31,7 +32,7 @@ export const neutralShell: WorldShellInput = {
     ready: "The world is ready. Opening the scene.",
   },
   tokens: {},
-  scene: { atlas: null, accent: 0x9bbce0, panel: 0x202630, text: "#edf1f5" },
+  scene: { atlases: false, accent: 0x9bbce0, panel: 0x202630, text: "#edf1f5" },
 };
 
 export function readWorldShell(value: unknown): WorldShellInput {
@@ -55,10 +56,7 @@ export function readWorldShell(value: unknown): WorldShellInput {
       ([key, token]) => /^--cg-v1-[a-z0-9-]+$/.test(key) && typeof token === "string",
     ) ||
     !input.scene ||
-    !(
-      input.scene.atlas === null ||
-      (typeof input.scene.atlas === "string" && /^[a-z0-9-]+$/.test(input.scene.atlas))
-    ) ||
+    typeof input.scene.atlases !== "boolean" ||
     ![input.scene.accent, input.scene.panel].every(
       (color) => Number.isInteger(color) && color >= 0 && color <= 0xffffff,
     ) ||

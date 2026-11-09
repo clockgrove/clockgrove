@@ -49,6 +49,14 @@ interface AtlasAnimation {
   }[];
   readonly durationMs: number | null;
 }
+/** A reviewed animation and the page texture its frame rects index. */
+interface AtlasEntry extends AtlasAnimation {
+  readonly texture: THREE.Texture<HTMLImageElement>;
+}
+interface AtlasPage {
+  readonly image: HTMLImageElement;
+  readonly animations: readonly AtlasAnimation[];
+}
 interface Visual {
   readonly placement: ScenePlacement;
   readonly footprint: { readonly width: number; readonly depth: number };
@@ -139,7 +147,9 @@ export const SCENE_QUALITY = {
 } as const;
 /** Decision: warm sources stay below 0.45 linear luminance; ACES exposure 1 and modest bloom retain hue. */
 export const EMISSIVE_LUMINANCE = { min: 0, max: 0.45 } as const;
-const ATLAS = worldShell.scene.atlas;
+const ATLASES = worldShell.scene.atlases;
+/** The reviewed output's page index (packages/assets ATLAS_INDEX). */
+const ATLAS_INDEX = "atlases.json";
 const WIDTH = 640,
   HEIGHT = 400;
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
@@ -228,7 +238,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
   private canvas: HTMLCanvasElement | undefined;
-  private atlasTexture: THREE.Texture<HTMLImageElement> | undefined;
+  /** One texture per reviewed page, filled only once every listed page has loaded and verified. */
+  private atlasTextures: THREE.Texture<HTMLImageElement>[] = [];
   private composer: THREE.RenderPipeline | undefined;
   private scenePass: ReturnType<typeof pass> | undefined;
   private labelPass: LabelPass | undefined;
@@ -240,7 +251,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   }
   private projection: SceneProjection | undefined;
   private scope: string | undefined;
-  private atlas = new Map<string, AtlasAnimation>();
+  private atlas = new Map<string, AtlasEntry>();
   private drawn = new Map<ObjectId, Drawn>();
   private order: ObjectId[] = [];
   effects: { role: string; key: string; sprite: Native; index: number }[] = [];
@@ -646,9 +657,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.report({ name: "client_errors", category: "asset", value: 1 });
     this.unavailable("assets_unavailable");
   }
-  private async fetchAtlas(expected: string, init?: RequestInit): Promise<ArrayBuffer | undefined> {
+  private async fetchAtlas(
+    page: string,
+    expected: string,
+    init?: RequestInit,
+  ): Promise<ArrayBuffer | undefined> {
     try {
-      const response = await fetch(`/${ATLAS}.png`, init);
+      const response = await fetch(`/${page}.png`, init);
       if (!response.ok) return;
       const bytes = await response.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -658,64 +673,94 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       return;
     }
   }
+  /** One page's animations and its digest-verified image; undefined when either is unusable. */
+  private async loadPage(page: string): Promise<AtlasPage | undefined> {
+    const response = await fetch(`/${page}.animations.json`);
+    if (!response.ok) return;
+    const manifest = (await response.json()) as {
+      animations: AtlasAnimation[];
+      image?: { sha256?: unknown };
+    };
+    const expected = manifest.image?.sha256;
+    if (
+      !Array.isArray(manifest.animations) ||
+      typeof expected !== "string" ||
+      !/^[0-9a-f]{64}$/.test(expected)
+    )
+      return;
+    let bytes = await this.fetchAtlas(page, expected);
+    for (let attempt = 0; !bytes && attempt < ATLAS_REFETCHES && !this.destroyed; attempt++) {
+      this.report({ name: "asset_cache", category: "failed", value: 1 });
+      bytes = await this.fetchAtlas(page, expected, { cache: "reload" });
+    }
+    if (!bytes || this.destroyed) return;
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const image = new Image();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = reject;
+        image.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return { image, animations: manifest.animations };
+  }
   private async create(): Promise<void> {
-    if (ATLAS === null) {
+    if (!ATLASES) {
       this.ready();
       this.draw();
       return;
     }
     try {
-      const response = await fetch(`/${ATLAS}.animations.json`);
+      const response = await fetch(`/${ATLAS_INDEX}`);
       if (!response.ok) return this.failAssets();
-      const manifest = (await response.json()) as {
-        animations: AtlasAnimation[];
-        image?: { sha256?: unknown };
-      };
-      const expected = manifest.image?.sha256;
+      const names = ((await response.json()) as { atlases?: unknown }).atlases;
       if (
-        !Array.isArray(manifest.animations) ||
-        typeof expected !== "string" ||
-        !/^[0-9a-f]{64}$/.test(expected)
+        !Array.isArray(names) ||
+        names.length === 0 ||
+        new Set(names).size !== names.length ||
+        !names.every((name) => typeof name === "string" && /^[a-z0-9-]+$/.test(name))
       )
         return this.failAssets();
-      let bytes = await this.fetchAtlas(expected);
-      for (let attempt = 0; !bytes && attempt < ATLAS_REFETCHES && !this.destroyed; attempt++) {
-        this.report({ name: "asset_cache", category: "failed", value: 1 });
-        bytes = await this.fetchAtlas(expected, { cache: "reload" });
-      }
+      const pages = await Promise.all(names.map((name: string) => this.loadPage(name)));
       if (this.destroyed) return;
-      if (!bytes) return this.failAssets();
-      const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-      const image = new Image();
-      try {
-        await new Promise<void>((resolve, reject) => {
-          image.onload = () => resolve();
-          image.onerror = reject;
-          image.src = url;
-        });
-      } finally {
-        URL.revokeObjectURL(url);
+      const keys = pages.flatMap((page) =>
+        (page?.animations ?? []).map((a) => `${a.assetId}/${a.animationFamily}`),
+      );
+      // Every page must load, and each animation appears on exactly one page.
+      if (pages.some((page) => !page) || new Set(keys).size !== keys.length)
+        return this.failAssets();
+      let bytes = 0;
+      for (const { image, animations } of pages as AtlasPage[]) {
+        const texture = new THREE.Texture(image);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.needsUpdate = true;
+        this.atlasTextures.push(texture);
+        for (const animation of animations)
+          this.atlas.set(`${animation.assetId}/${animation.animationFamily}`, {
+            ...animation,
+            texture,
+          });
+        bytes += image.width * image.height * 4;
       }
-      if (this.destroyed) return;
-      this.atlasTexture = new THREE.Texture(image);
-      this.atlasTexture.colorSpace = THREE.SRGBColorSpace;
-      this.atlasTexture.magFilter = THREE.NearestFilter;
-      this.atlasTexture.minFilter = THREE.LinearFilter;
-      this.atlasTexture.generateMipmaps = false;
-      this.atlasTexture.needsUpdate = true;
-      for (const animation of manifest.animations)
-        this.atlas.set(`${animation.assetId}/${animation.animationFamily}`, animation);
       this.updateTextureBytes();
       const digest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(JSON.stringify(manifest)),
+        new TextEncoder().encode(
+          JSON.stringify((pages as AtlasPage[]).map((page) => page.animations)),
+        ),
       );
       if (this.destroyed) return;
       const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
       this.report({
         name: "asset_cache",
         category: "loaded",
-        value: image.width * image.height * 4,
+        value: bytes,
         assetHash: `sha256:${hash}`,
       });
       this.ready();
@@ -955,9 +1000,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private sprite(key: string, name = ""): Native {
     const animation = this.atlas.get(key);
     const frame = animation?.frames[0];
-    if (!animation || !frame || !this.atlasTexture) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
+    if (!animation || !frame) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
     const material = this.litMaterial({
-      map: this.atlasTexture,
+      map: animation.texture,
       transparent: true,
       alphaTest: 0.05,
       roughness: 1,
@@ -988,11 +1033,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (mesh.userData.frame === index) return false;
     const animation = this.atlas.get(mesh.userData.key);
     const frame = animation?.frames[index];
-    if (!frame || !this.atlasTexture) return false;
+    if (!animation || !frame) return false;
     const uv = mesh.geometry.getAttribute("uv");
     const base = mesh.userData.baseUv as Float32Array | undefined;
     if (!uv || !base) return false;
-    const image = this.atlasTexture.image;
+    const image = animation.texture.image;
     for (let i = 0; i < uv.count; i++)
       uv.setXY(
         i,
@@ -1021,7 +1066,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const projection = this.projection;
     if (
       !this.initialized ||
-      (ATLAS !== null && !this.atlasTexture) ||
+      (ATLASES && this.atlasTextures.length === 0) ||
       !projection ||
       this.destroyed
     )
@@ -1114,7 +1159,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     mesh.geometry?.dispose();
     if (
       mesh.material?.map &&
-      mesh.material.map !== this.atlasTexture &&
+      !this.atlasTextures.includes(mesh.material.map as THREE.Texture<HTMLImageElement>) &&
       mesh.userData.ownsTexture !== false
     )
       mesh.material.map.dispose();
@@ -1551,7 +1596,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
-    if (!this.initialized || (ATLAS !== null && !this.atlasTexture) || !this.projection) return;
+    if (!this.initialized || (ATLASES && this.atlasTextures.length === 0) || !this.projection)
+      return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
     this.previousTime = frameTime;
     if (delta > 0) {
@@ -1643,7 +1689,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private updateTextureBytes(): void {
     // WebGPURenderer allocates by Texture identity on both backends, not by shared image source.
     const textures = new Set<THREE.Texture>();
-    if (this.atlasTexture) textures.add(this.atlasTexture);
+    for (const texture of this.atlasTextures) textures.add(texture);
     for (const texture of this.content?.textures ?? []) textures.add(texture);
     this.scene?.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
@@ -1719,8 +1765,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
           this.remove(mesh as Native);
         else this.scene.remove(mesh);
       }
-    this.atlasTexture?.dispose();
-    this.atlasTexture = undefined;
+    for (const texture of this.atlasTextures) texture.dispose();
+    this.atlasTextures = [];
     this.canvas?.remove();
     // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
     void this.renderer?.dispose().catch(() => {});

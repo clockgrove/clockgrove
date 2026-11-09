@@ -35,8 +35,8 @@ in `scripts/world-boundaries.json`. Only `worlds/fixture` is a permitted platfor
 Set `CLOCKGROVE_WORLD_SHELL` to the absolute path of a JSON document before starting Vite or
 building the web app. The same input is compiled into the browser and used for the HTML title.
 Without it the shell uses its neutral default, with no atlas. Set `CLOCKGROVE_WORLD_ASSETS`
-to the world's reviewed static-asset directory, containing atlas files at the paths requested
-by the renderer. An explicit path must name an existing directory; relative paths resolve from
+to the world's reviewed static-asset directory, the asset build's output: the `atlases.json`
+index and each page's PNG and animation JSON it lists. An explicit path must name an existing directory; relative paths resolve from
 Vite's working directory. Without this input the current compatibility default is
 the world's reviewed asset directory. Use absolute paths when invoking pnpm from another repository.
 For example, from an external world repository beside the pinned Clockgrove checkout:
@@ -59,13 +59,13 @@ The document has these required fields:
 | `copy.worldLabel`, `copy.chooseWorld`, `copy.stopped` | Plain text world selector and error labels. |
 | `copy.provisioning`, `copy.ready` | Plain text readiness messages, preserving each world's place terminology. |
 | `tokens` | CSS property/value map; only versioned `--cg-v1-*` token names are accepted. Missing properties inherit neutral defaults. The prefix is the initial token ABI, independent of the world's identity. |
-| `scene.atlas` | Atlas basename, or `null` for neutral geometry without an atlas. |
+| `scene.atlases` | `true` to load every atlas page listed in the reviewed output's `atlases.json` index, which the asset build writes; `false` for neutral geometry without an atlas. |
 | `scene.accent`, `scene.panel` | Integer RGB colors used by renderer selection graphics. |
 | `scene.text` | Renderer label color. |
 
 The shell does not interpret HTML in names or copy. Presentation data is trusted deployment
 configuration, rather than player-authored content. Static asset publication remains the
-composition root's responsibility. The renderer verifies the selected atlas's image digest
+composition root's responsibility. The renderer verifies each atlas page's image digest
 before using it, as described in the [scene contract](../../apps/web/docs/scene.md).
 
 ## External local session
@@ -263,4 +263,4 @@ bindings; the platform does not discover or import this file. The native test co
 this for the explicitly selected pack. The fixture intentionally needs no runtime presentation
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
 An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
-does not require an atlas texture when `scene.atlas` is `null`.
+does not require an atlas texture when `scene.atlases` is `false`.

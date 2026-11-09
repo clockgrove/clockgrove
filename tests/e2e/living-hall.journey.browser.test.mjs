@@ -2347,7 +2347,7 @@ const observeHall = async (backend) => {
         touch.releaseAssets();
         await hall.getByText(/^Arrival: scene ready at revision /u).waitFor();
         await expect
-          .poll(() => hall.evaluate(() => globalThis.hallAdapter?.atlasTexture !== undefined))
+          .poll(() => hall.evaluate(() => globalThis.hallAdapter?.atlasTextures.length > 0))
           .toBeTruthy();
         await expect
           .poll(() =>
@@ -2689,7 +2689,7 @@ const observeHall = async (backend) => {
               parent.dispatchEvent(new PointerEvent(type, { bubbles: true }));
             globalThis.dispatchEvent(new Event("scroll"));
             return [
-              globalThis.hallAdapter.atlasTexture !== undefined,
+              globalThis.hallAdapter.atlasTextures.length > 0,
               parent.contains(globalThis.hallCanvas),
               globalThis.hallBoundsReads > 0,
             ];

@@ -24,7 +24,8 @@ Manifest and presentation shapes are owned by the
 | --- | --- |
 | `worlds/fixture/assets/manifests/<assetId>/<animationFamily>.json` | one manifest per strip |
 | `worlds/fixture/assets/source/<assetId>/<animationFamily>.png` | the source strip: `frames.count` frames side by side |
-| `worlds/fixture/assets/reviewed/<atlasId>.png`, `<atlasId>.animations.json` | build output, approved and licensed assets only |
+| `worlds/fixture/assets/reviewed/<atlasId>.png`, `<atlasId>.animations.json` | build output, approved and licensed assets only, one pair per page |
+| `worlds/fixture/assets/reviewed/atlases.json` | build output: every page's basename in build order, the index the local shell loads |
 | `worlds/fixture/assets/license-report.md` | generated table of every manifest |
 | `worlds/fixture/assets/goldens/fixture-reference.scene.png`, `.scene.json` | golden scene image and record |
 | `worlds/fixture/reference/presentation.json` | pack presentation metadata |
@@ -59,30 +60,38 @@ Profile and source refusals exit 1; an unknown command exits 2.
 
 ## Packing
 
-Strips sort by (`atlasId`, `assetId`, `animationFamily`). Each declared `atlasId` is a logical
-group. Its shelf width is the larger of 1024 px and its widest whole strip, bounded by 2048 px.
-Strips are placed left to right; a strip that does not fit starts a new row at the previous row's
-y plus its tallest strip. If the row would exceed 2048 px in height, packing starts a new page.
-A strip wider or taller than 2048 px is refused before atlas allocation. Strips stay contiguous;
-frames are never split across pages.
+Strips sort by (`atlasId`, `assetId`, `animationFamily`). Each strip packs as one block. A strip
+at most 2048 px wide is a single row of its frames. A wider strip wraps its frames into the fewest
+rows of at most 2048 px, with the frames spread evenly across them (frame `i` sits in column
+`i mod columns`, row `floor(i / columns)`): an 8-frame strip of 300 px frames becomes two rows of
+four, 1200 by 600 px. Each frame keeps its own rectangle in the page's animation JSON, which the
+renderer reads. A strip whose wrapped block would pass 2048 px in height is refused with
+`ATLAS_SIZE` before atlas allocation; every single frame within the platform envelope fits.
+A strip's frames never span pages.
+
+Each declared `atlasId` is a logical group. Its shelf width is the larger of 1024 px and its widest
+block, bounded by 2048 px. Blocks are placed left to right; a block that does not fit starts a new
+row at the previous row's y plus its tallest block. If the row would exceed 2048 px in height,
+packing starts a new page.
 
 The first page keeps the logical `atlasId`. Overflow pages receive deterministic kebab-case
 `-page-N` suffixes, starting at 2 and skipping every declared atlas id and every previously
 generated output id. Each page
 writes its own PNG and animation JSON; the JSON's `atlasId` identifies the physical page. A page
-image is the maximum extent of its strips on a transparent background, at most 2048 by 2048 px.
+image is the maximum extent of its blocks on a transparent background, at most 2048 by 2048 px.
+`atlases.json` lists every page id in build order, so the local shell can load all of them.
 
 A manifest's recorded `atlas.x/y` must equal its page-local computed placement ("atlas location").
 Placements and page identities are computed over every manifest, so a pending asset keeps its
 slot while only approved ones are built. Removing an asset from the layout can change later
 placements; changing its review status does not. Existing groups that fit a 1024 px shelf and a
-single page retain their output bytes.
+single page, with no strip wider than 2048 px, retain their output bytes.
 
 Numbers: the 1024 px baseline shelf width is the issue 813 decision; the 2048 px page envelope
 is WebGL's guaranteed minimum texture size. `MAX_ASSET_FRAME_EDGE` is the 2048 px manifest
 envelope. The issue 813 256 px frame-edge decision applies to the fixture's declared pixel-art
 profile, rather than every style. Profile frame widths remain at most 1024 px; multi-frame strips
-may use the full 2048 px atlas width. Inputs in any order produce identical bytes (deflate level 9,
+may use the full 2048 px atlas width and wrap onto further rows beyond it. Inputs in any order produce identical bytes (deflate level 9,
 filter 0, sorted-key JSON).
 
 ## Deploy gate
@@ -190,4 +199,5 @@ undeployable external assets, stale reviewed output, stale licence reporting,
 missing or changed goldens and pending golden approval. `build` includes only
 deployable assets; human review is still required. A changed golden resets to
 pending until a human records approval for the new scene hash. Existing
-external local sessions serve the world's reviewed directory.
+external local sessions serve the world's reviewed directory; the shell loads every
+page its `atlases.json` lists.

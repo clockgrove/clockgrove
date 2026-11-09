@@ -28,15 +28,16 @@ const profile = decodeAssetStyleProfile({
     ]),
   ),
 });
-function entry(id: string, height: number, y: number, atlasId = "sheet", width = 600) {
-  const rgba = new Uint8Array(width * 2 * height * 4);
-  for (const x of [1, width + 1]) rgba.set([23, 97, 201, 180], (width * 2 + x) * 4);
-  const bytes = encodePng({ width: width * 2, height, rgba });
+function entry(id: string, height: number, y: number, atlasId = "sheet", width = 600, count = 2) {
+  const rgba = new Uint8Array(width * count * height * 4);
+  for (let f = 0; f < count; f++)
+    rgba.set([23, 97, 201 - f, 180], (width * count + f * width + 1) * 4);
+  const bytes = encodePng({ width: width * count, height, rgba });
   const manifest = decodeAssetManifest({
     ...template,
     assetId: id,
     source: { ...template.source, path: `assets/source/${id}/idle.png` },
-    frames: { width, height, count: 2, durationMs: 100 },
+    frames: { width, height, count, durationMs: 100 },
     anchor: { x: 1, y: 1 },
     bounds: { x: 1, y: 1, width: 1, height: 1 },
     contentHash: sha256Hex(bytes),
@@ -57,11 +58,11 @@ it("builds bounded deterministic pages for large soft-alpha strips, preserving p
   entries.push(reserved);
   const layout = entries.map((e) => e.manifest);
   expect([...packAtlas(layout).values()]).toEqual([
-    { atlasId: "sheet", x: 0, y: 0, width: 1200, height: 1000 },
-    { atlasId: "sheet", x: 0, y: 1000, width: 1200, height: 1000 },
-    { atlasId: "sheet-page-3", x: 0, y: 0, width: 1200, height: 600 },
-    { atlasId: "sheet-page-3", x: 0, y: 600, width: 1200, height: 200 },
-    { atlasId: "sheet-page-2", x: 0, y: 0, width: 8, height: 4 },
+    { atlasId: "sheet", x: 0, y: 0, width: 1200, height: 1000, columns: 2 },
+    { atlasId: "sheet", x: 0, y: 1000, width: 1200, height: 1000, columns: 2 },
+    { atlasId: "sheet-page-3", x: 0, y: 0, width: 1200, height: 600, columns: 2 },
+    { atlasId: "sheet-page-3", x: 0, y: 600, width: 1200, height: 200, columns: 2 },
+    { atlasId: "sheet-page-2", x: 0, y: 0, width: 8, height: 4, columns: 2 },
   ]);
   const atlases = buildAtlases(entries);
   expect(buildAtlases([...entries].reverse(), [...layout].reverse())).toEqual(atlases);
@@ -88,11 +89,26 @@ it("builds bounded deterministic pages for large soft-alpha strips, preserving p
     23, 97, 201, 180,
   ]);
   expect(image.rgba.subarray(0, 600 * 1200 * 4).every((v) => v === 0)).toBe(true);
-  const tooWide = { ...layout[0]!, frames: { ...layout[0]!.frames, width: 1025 } };
-  expect(() => buildAtlases([{ manifest: tooWide, bytes: new Uint8Array() }])).toThrow(
-    "a/idle: ATLAS_SIZE: strip exceeds 2048 px",
+  // An 8-frame strip of 300 px frames (2400 px) wraps into two rows of four; each frame keeps its rect.
+  const walk = entry("walk", 300, 0, "walk", 300, 8);
+  const [wrapped] = buildAtlases([walk]);
+  const frames = JSON.parse(wrapped!.animations).animations[0].frames;
+  expect([frames[3], frames[4], frames[7]]).toEqual([
+    { x: 900, y: 0, width: 300, height: 300 },
+    { x: 0, y: 300, width: 300, height: 300 },
+    { x: 900, y: 300, width: 300, height: 300 },
+  ]);
+  const sheet = decodePng(wrapped!.png);
+  expect([sheet.width, sheet.height]).toEqual([1200, 600]);
+  for (const [f, { x, y }] of frames.entries())
+    expect([
+      ...sheet.rgba.subarray(((y + 1) * 1200 + x + 1) * 4, ((y + 1) * 1200 + x + 2) * 4),
+    ]).toEqual([23, 97, 201 - f, 180]);
+  const tooLarge = { ...layout[0]!, frames: { ...layout[0]!.frames, width: 1025, count: 3 } };
+  expect(() => buildAtlases([{ manifest: tooLarge, bytes: new Uint8Array() }])).toThrow(
+    "a/idle: ATLAS_SIZE: 3 frames of 1025x1000 px do not fit one 2048 px page",
   );
   expect(() =>
     packAtlas([{ ...layout[0]!, frames: { ...layout[0]!.frames, height: 2049 } }]),
-  ).toThrow("a/idle: ATLAS_SIZE: strip exceeds 2048 px");
+  ).toThrow("a/idle: ATLAS_SIZE: 2 frames of 600x2049 px do not fit one 2048 px page");
 });
