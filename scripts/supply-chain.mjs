@@ -24,6 +24,18 @@ const allowedLicenses = new Set([
   "LGPL-3.0-or-later",
   "MPL-2.0",
 ]);
+// Licences a person verified for packages whose registry metadata declares none, keyed by exact
+// name@version and backed by the upstream licence file. Another version of the same package is
+// unlicensed again until someone re-verifies it. The expression still goes through the allowlist.
+const verifiedLicenses = new Map([
+  [
+    "@google/design.md@0.4.0",
+    {
+      license: "Apache-2.0",
+      evidence: "https://github.com/google-labs-code/design.md/blob/0.4.0/LICENSE",
+    },
+  ],
+]);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export async function checkDependencyPolicy(directory) {
   const manifests = ["package.json"];
@@ -50,6 +62,27 @@ export async function checkDependencyPolicy(directory) {
       }
     }
   }
+}
+// The SBOM licence entries of the locked component `key` (name@version), from its registry
+// metadata: the SPDX `license` string; else npm's legacy `licenses` array, whose types are the
+// alternatives of one OR expression; else the verified record for exactly that key. A malformed
+// array (empty, or an entry whose type is not one SPDX identifier) declares nothing.
+export function componentLicenses(key, metadata) {
+  if (metadata.license) return [{ expression: metadata.license }];
+  const legacy = metadata.licenses;
+  if (
+    Array.isArray(legacy) &&
+    legacy.length > 0 &&
+    legacy.every(
+      (entry) =>
+        typeof entry?.type === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9.+-]*$/u.test(entry.type) &&
+        !spdxOperators.includes(entry.type),
+    )
+  )
+    return [{ expression: legacy.map((entry) => entry.type).join(" OR ") }];
+  const verified = verifiedLicenses.get(key);
+  return verified ? [{ expression: verified.license, acknowledgement: "concluded" }] : [];
 }
 export function checkLicense(license, component) {
   assert(
@@ -205,7 +238,7 @@ export async function lockedComponents(directory) {
           name,
           version,
           purl: `pkg:npm/${name.startsWith("@") ? `%40${name.slice(1)}` : name}@${version}`,
-          licenses: metadata.license ? [{ expression: metadata.license }] : [],
+          licenses: componentLicenses(key, metadata),
         };
       }),
     );

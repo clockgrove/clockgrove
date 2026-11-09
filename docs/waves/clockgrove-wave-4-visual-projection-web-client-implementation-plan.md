@@ -151,6 +151,8 @@ Amended (2026-11-07): the owner-supplied reference is committed at [docs/design/
 
 All tokens live in versioned CSS variables and a design-token package. Color alone never carries state.
 
+Amended (2026-11-09): satisfied for the world-agnostic shell by [DESIGN.md](../../DESIGN.md), which holds the shell's default UI tokens in Google Labs' DESIGN.md format and generates the versioned `--cg-v1-*` CSS variables, with a drift check and a pinned lint in `pnpm check`. A world's tokens override them through the theme seam of [world presentation](../protocols/world-presentation.md). The Raccoon World palette listed above lives in that world's repository, not in the shell defaults.
+
 ### 4.3 Required desktop regions
 
 **Top HUD**

@@ -5,6 +5,7 @@ import { localSessionAuthentication } from "./api.js";
 import { ShellErrorBoundary } from "./recovery.js";
 import { WorldApp } from "./scene.js";
 import { worldShell } from "./shell.js";
+import "./world-shell-tokens.css";
 import "./world-shell.css";
 
 for (const [name, value] of Object.entries(worldShell.tokens))
