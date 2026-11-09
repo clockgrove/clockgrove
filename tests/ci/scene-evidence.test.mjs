@@ -25,8 +25,8 @@ it("keeps hosted scene qualification pending independently of local native check
     ].map((scenario) => ({
       scenario,
       status: "pending",
-      ownerIssue: 881,
-      blockedOn: [329, 693],
+      ownerIssue: 3,
+      blockedOn: [1, 2],
       evidence: null,
     })),
   });

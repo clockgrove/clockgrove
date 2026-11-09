@@ -81,7 +81,7 @@ approved for its current hash. Each output is stored at `sha256/<hex of its byte
 `image/png`, animation manifest as `application/json`); existing keys are skipped. The R2 adapter
 takes a structural bucket binding, so no provider type enters the package.
 
-Staging upload and the RW-0409 exit stay pending on issue 881.
+Staging upload and the RW-0409 exit stay pending on issue 3.
 
 ## Fixture placeholders
 

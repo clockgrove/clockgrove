@@ -130,7 +130,7 @@ it("passes only what receipts and journal results show and refuses an upgrade", 
     "pending",
   ]);
   expect(receiptsOnly.exitDecision.status).toBe("not-qualified");
-  expect(receiptsOnly.exitChecklist[13].deferred[0].issues).toEqual([415, 693]);
+  expect(receiptsOnly.exitChecklist[13].deferred[0].issues).toEqual([2]);
 
   await writeJournal();
   const withJournal = await validateWave2Manifest(await build(), root);
