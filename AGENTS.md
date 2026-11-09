@@ -16,7 +16,7 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - `packages/simulator`: [genesis](packages/simulator/docs/genesis.md), [verification](packages/simulator/docs/verification.md), [scenarios](packages/simulator/docs/scenarios.md), [pack conformance](packages/simulator/docs/conformance.md), [CLI](packages/simulator/docs/cli.md), [refusal codes](packages/simulator/docs/refusal-codes.md).
 - `packages/testkit`: no contract document.
 - `packages/world-pack-sdk`: [source and compatibility](packages/world-pack-sdk/docs/source-and-compatibility.md), [collections](packages/world-pack-sdk/docs/collections.md), [migrations](packages/world-pack-sdk/docs/migrations.md), [hashing and output](packages/world-pack-sdk/docs/hashing-and-output.md), [refusal codes](packages/world-pack-sdk/docs/refusal-codes.md), [fixtures](packages/world-pack-sdk/docs/fixtures.md).
-- `spikes/renderer-bakeoff`: [3D Stevie spike](https://github.com/clockgrove/raccoon-world/blob/main/spikes/stevie-3d/docs/stevie-3d.md).
+- `spikes/renderer-bakeoff`: [renderer bake-off spike](spikes/renderer-bakeoff/README.md).
 - `apps/runtime`: [README](apps/runtime/README.md), [runtime runbook](docs/runbooks/runtime.md).
 - World inputs: [theme and presentation](docs/protocols/world-presentation.md).
 - `apps/web`: [README](apps/web/README.md), [isometric scene](apps/web/docs/scene.md).

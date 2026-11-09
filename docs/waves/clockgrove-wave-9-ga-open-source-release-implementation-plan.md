@@ -6,7 +6,7 @@
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.12  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 9 of 13; technical/open-source GA  
-**Assumptions:** Waves 0–8 are qualified; Raccoon World is already demo-quality  
+**Assumptions:** Waves 0–8 are qualified; Raccoon World is already demo-quality in clockgrove/raccoon-world  
 **Development tooling:** external tools such as `clockgrove/factory` may execute this wave; the released Clockgrove product does not depend on them.
 
 ---
@@ -20,6 +20,8 @@ The wave exits only when:
 > A clean contributor can reproduce the stack and demo; an operator can detect, contain, recover, export, delete, and explain failures; the hosted reference meets declared SLO/security/cost bounds; and the public repository ships with complete provenance, documentation, and no unresolved invariant failure.
 
 “GA” is a technical quality gate, not a commitment to monetize, form a company, add enterprise features, or collect payment.
+
+GA ships the Clockgrove platform. Raccoon World ships beside it as a separate reference world from [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), pinned to the released Clockgrove commit, and the hosted reference deployment runs that pinned pair. Clockgrove's own release evidence runs on its fixture world, `worlds/fixture`; the reference world's evidence runs in its repository. Every release obligation below still holds, each proven in the repository that owns it.
 
 ---
 
@@ -336,7 +338,7 @@ Required public set:
 - security/privacy/retention model and threat model summary;
 - operations, dashboards, alerts, recovery, runbooks;
 - asset/content provenance workflow;
-- `green-lake-yard@1` and `mirror-room@1` walkthroughs;
+- building an external world against Clockgrove at a pinned commit, the fixture world and `mirror-room@1` walkthroughs, and a link to the `green-lake-yard@1` walkthrough in the reference world's repository;
 - contribution, testing, release, compatibility, and support policy;
 - explicit hosted dependencies and local limitations.
 
@@ -366,7 +368,7 @@ Release pipeline pins lockfile/toolchain/runtime/compatibility/schema/world-pack
 
 Amended (2026-10-27): the release pipeline inherits from Wave 1 (Wave 1 RW-0102 step 7) the world-pack compatibility matrix, which Wave 1 did not build. Wave 1 provides the pack conformance entrypoint and each pack's `engineCompatibility` range.
 
-Release candidate deploys to staging, runs full cloud qualification, restores a clean environment, then promotes the same verified commit/artifacts. No manual production edit exists outside audited configuration.
+The reference world's repository moves its pin to the release candidate's commit and passes its own CI before the hosted reference deploys. Release candidate deploys to staging, runs full cloud qualification, restores a clean environment, then promotes the same verified commit/artifacts. No manual production edit exists outside audited configuration.
 
 ---
 
@@ -521,7 +523,7 @@ Amended (2026-11-07): the owner moves these Wave 1–3 hardening gaps here. Rele
 - Wave 1 §13: a historic component fixture at an earlier version upcasts through the registered chain to the current version deterministically, which tests the registry's upcast walk.
 - Wave 1 §13: current READMEs for `packages/contracts`, `packages/testkit`, `packages/application` and `packages/persistence`.
 - Wave 2 §5.2 and §19: provisioning seeds the initial membership, persona and inventory, preserves them for replay and offline verification, and a retry in any crash window never duplicates them.
-- Wave 2 RW-0202: the Raccoon World pack is interrupted and resumed at every seed/projection boundary and reconstructs with identical Wave 1 hashes.
+- Wave 2 RW-0202: the Raccoon World pack is interrupted and resumed at every seed/projection boundary and reconstructs with identical Wave 1 hashes. This runs in the reference world's repository against the release candidate's Clockgrove commit.
 - Wave 2 §9.4: replay verification is resumable from a durable cursor and reaches the same verified head and state hash as an uninterrupted run.
 - Wave 2 §14: fault-injected tests "during replay checkpoint" and "during export assembly and verification", each asserting every §14 item.
 - Wave 3 §6: quota and cost policy for world commands (gateway steps 3 and 7).
@@ -562,7 +564,8 @@ Wave 9 does not implement:
 - [ ] License, dependency, code, model/tool, asset, audio, and font provenance are complete.
 - [ ] Signed/reproducible release artifacts and SBOM are produced.
 - [ ] P0/P1 runbooks are rehearsed.
-- [ ] All Wave 0–8 manifests, ten scenarios, and north-star evidence are archived.
+- [ ] All Wave 0–8 manifests, ten scenarios, and north-star evidence are archived, including the reference world's demo manifest from its repository.
+- [ ] Raccoon World passes its own CI against the release commit from clockgrove/raccoon-world, and the platform release contains no reference-world content.
 - [ ] No unresolved zero-tolerance or release-blocking finding exists.
 
 Amended (2026-10-27): the checklist adds "Exported event/replay bundles carry a signed manifest and the upcaster identifiers for their event versions, and verify offline (§6.2, RW-0902)."

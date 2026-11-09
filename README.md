@@ -32,6 +32,7 @@ Other repositories in the Clockgrove organization have separate responsibilities
 
 - `clockgrove/factory` — external agent-orchestration tooling used to develop Clockgrove. Clockgrove does not depend on Factory to build or run.
 - `clockgrove/skills` — reusable Clockgrove product/engineering skills.
+- `clockgrove/raccoon-world` — Raccoon World, the reference world: its pack, art, style bible, theme and goldens, built against a pinned Clockgrove commit.
 - `clockgrove/.github` — public organization profile, shared GitHub metadata, and the Clockgrove Copilot capability marketplace.
 
 Factory develops Clockgrove through GitHub Issues, pull requests and checks (`.github/workflows/factory.yml`); it is not a build or runtime dependency. The independent Skills package is enabled through `.github/copilot/settings.json`.
@@ -67,8 +68,8 @@ Current top-level product baselines are:
 
 Key public-facing documents also include:
 
-- [`BRAND.md`](BRAND.md) — brand identity, voice and creative principles;
-- [`STYLE.md`](STYLE.md) — visual language and image-generation direction;
+- [`BRAND.md`](BRAND.md) — Clockgrove's brand identity, voice and creative principles;
+- [`STYLE.md`](STYLE.md) — Clockgrove's own visual language and image-generation direction (each world's art follows that world's style bible);
 - [`AI content disclosure policy`](docs/policy/ai-content-disclosure.md) — how players are told which content AI made, before shipping and live;
 - [`docs/adr/`](docs/adr/) — accepted product/runtime architectural decisions;
 - [`docs/waves/`](docs/waves/) — substantial sequential workstreams containing numerous capability Objectives and Work Items;

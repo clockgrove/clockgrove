@@ -120,8 +120,8 @@ packages/
   testkit/                 fakes, clocks, IDs, fixtures, fault helpers
 
 worlds/
-  raccoons/                reference world content introduced incrementally
-  fixture/                 tiny non-raccoon conformance pack
+  fixture/                 Clockgrove's own test worlds: the tiny non-raccoon conformance
+                           pack and the neutral reference variant (reference/)
 
 db/
   migrations/

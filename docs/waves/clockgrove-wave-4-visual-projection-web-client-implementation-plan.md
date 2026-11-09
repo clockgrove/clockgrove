@@ -72,6 +72,14 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
 
 ---
 
+### 1.2 Platform and reference-world ownership
+
+The shell is world-agnostic. Clockgrove delivers the React shell, the Three.js scene adapter, the projection and realtime path, the asset pipeline and the browser suites, and proves them on its fixture world: the neutral reference variant under `worlds/fixture/reference` with its placeholder atlas, and an atlas-free neutral run. A world themes the shell through the [world presentation inputs](../protocols/world-presentation.md); platform code names no world's content.
+
+Raccoon World's theme (wordmark, tokens and copy), its reviewed art, its reference image and UI description, its goldens and its browser journeys live in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world). That repository runs them in its own CI against a pinned Clockgrove commit. Where this plan names Raccoon World content, such as the reference composition, the wordmark, `green-lake-yard@1`, Stevie or the first reviewed set, the world half of the obligation is met there through those inputs, and the platform half is met here on the fixture world. Every exit item still holds; each is proven in the repository that owns it.
+
+---
+
 ## 2. Entry conditions
 
 These are the full-wave/default entry conditions. A named local-development Objective may consume only accepted prerequisite capabilities under the ADR's recorded readiness exception; its Issue must preserve pending qualification obligations and the selected path's mandatory safety evidence.
@@ -226,16 +234,16 @@ packages/application/src/projections/
 packages/application/src/inspection/
 packages/testkit/src/realtime/
 packages/testkit/src/browser/
-assets/source/
-assets/reviewed/
-assets/manifests/
+worlds/fixture/assets/
 tests/e2e/
 tests/visual/
 tests/accessibility/
 tests/load/realtime/
-docs/design/raccoon-world-ui.md
 docs/protocols/realtime-projection.md
+docs/protocols/world-presentation.md
 ```
+
+Raccoon World's `assets/` (source, reviewed, manifests, goldens) and `docs/design/raccoon-world-ui.md` are owned in its repository (§1.2).
 
 Phaser cannot import runtime, persistence, cognition, authentication-provider, or database packages. Runtime cannot import React or Phaser.
 
@@ -438,7 +446,7 @@ Pipeline:
 8. render golden scene at fixed camera/time/weather;
 9. approve visual diff.
 
-First reviewed set: Stevie, Gracie/Juniper placeholder variants, kits, idle/walk/sniff/eat/play/shelter animations, den, trash can, feeder, mailbox, tree, paths, plants, rain, puddles, lantern/window lighting, and selection/interaction effects.
+First reviewed set, delivered in the reference world's repository (§1.2): Stevie, Gracie/Juniper placeholder variants, kits, idle/walk/sniff/eat/play/shelter animations, den, trash can, feeder, mailbox, tree, paths, plants, rain, puddles, lantern/window lighting, and selection/interaction effects.
 
 ---
 
@@ -494,7 +502,7 @@ Exit: every Wave 4 journey is completable without the canvas.
 
 ### RW-0409 — Deterministic asset pipeline
 
-Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, first raccoon/environment set, and license report.
+Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, the fixture world's placeholder set and license report here, and the reference world's first character/environment set in its own repository.
 
 Exit: staging scene is reproducible from approved source/manifests; no unreviewed asset can deploy.
 
@@ -554,7 +562,7 @@ pnpm qualify:wave4:staging
 - duplicate, reordered, stale, missing, and incompatible patches;
 - network offline/online, token expiry, hibernation, DO restart, Worker deploy;
 - world pauses/resumes/speeds up;
-- rain begins, puddles update, Stevie moves, event feed records, Why explains;
+- rain begins, puddles update, an actor moves, event feed records, Why explains (on the fixture world here; with Stevie in the reference world's journeys);
 - keyboard-only and screen-reader-equivalent interaction;
 - reduced motion and high zoom/text scale;
 - scene asset missing/corrupt/version mismatch;

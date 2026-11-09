@@ -12,7 +12,7 @@
 
 This index identifies the documents that define the current Clockgrove product/runtime baseline, the order in which to read them, and the status of supporting and historical material.
 
-Clockgrove is the reusable platform/runtime. Raccoon World is the first reference world and demo-quality application.
+Clockgrove is the reusable platform/runtime for any world. Raccoon World, the first reference world and demo-quality application, lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) and builds against Clockgrove at a pinned commit. Clockgrove keeps `worlds/fixture` as its own test world, the platform's portability proof.
 
 External development tools such as `clockgrove/factory` may operate this repository. Their state and implementation are not Clockgrove product/runtime authority.
 
@@ -66,7 +66,6 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | `docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md` | 1.0 | Accepted | Substantial sequential workstreams, Objective checkpoints/readiness, proportionate qualification and comparison rules |
 | `docs/adr/clockgrove-adr-field-guides-and-counterfactual-why.md` | 1.0 | Accepted | Resident-authored evolving knowledge, governed sharing/testimony, and bounded deterministic counterfactual Why |
 | `docs/adr/clockgrove-adr-actor-decision-ladder.md` | 1.0 | Accepted | Actor decision ladder: reflex, utility, compiled policy, bounded decision model, LLM; decision points in actor policy, models propose never commit, journal replay, deterministic fallback, distillation into compiled policy, dreaming steps as decision points |
-| `docs/adr/clockgrove-adr-character-rendering-3d-vs-2d.md` | 0.4 | Draft | None until accepted: 3D Stevie spike evidence for the owner's pick of real-time 3D, 2D sheets or 3D rendered to sprites for characters (issue 77) |
 | `docs/adr/clockgrove-adr-renderer-bake-off.md` | 1.0 | Accepted | Three.js WebGPURenderer with automatic WebGL2 fallback and TSL; supersedes Phaser rendering in architecture §20 and PRD stack rows (issues 67, 74) |
 
 
@@ -80,12 +79,12 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 1 | `clockgrove-wave-1-world-kernel-implementation-plan.md` | 1.6 | Deterministic kernel, immutable world packs/genesis and renderer-neutral spatial/index contracts |
 | 2 | `clockgrove-wave-2-journal-replay-implementation-plan.md` | 1.7 | PostgreSQL journal, world lifecycle, replay and attribution persistence |
 | 3 | `clockgrove-wave-3-actor-fabric-implementation-plan.md` | 1.11 | Cloudflare actor fabric, runtime coordinator, perpetual scheduling and provisioning |
-| 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality React/Three.js projection, readiness/navigation and full-3D adapter compatibility |
+| 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality, world-agnostic React/Three.js projection, readiness/navigation and full-3D adapter compatibility |
 | 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.9 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
 | 6 | `clockgrove-wave-6-context-memory-learning-implementation-plan.md` | 1.7 | Memory, relationships, governed cognitive documents, bounded compiled-policy learning, field guides and provenance |
 | 7 | `clockgrove-wave-7-rules-timelines-authoring-implementation-plan.md` | 1.8 | Rules, preview timelines, bounded counterfactual Why, previewed pack upgrades and reusable exports |
-| 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona |
-| 9 | `clockgrove-wave-9-ga-open-source-release-implementation-plan.md` | 1.9 | Technical/open-source GA |
+| 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona, delivered in clockgrove/raccoon-world against the platform |
+| 9 | `clockgrove-wave-9-ga-open-source-release-implementation-plan.md` | 1.9 | Technical/open-source GA of the platform, with Raccoon World as a separate reference world |
 | 10 | `clockgrove-wave-10-self-service-multitenancy-signup-implementation-plan.md` | 1.6 | Provider-neutral Management Plane, workspaces, billing-account seam and starter-world provisioning |
 | 11 | `clockgrove-wave-11-multiuser-attribution-portable-objects-implementation-plan.md` | 2.5 | Multiuser worlds, personas, attribution and world-local inventory |
 | 12 | `clockgrove-wave-12-metering-prepaid-credits-billing-implementation-plan.md` | 1.5 | Shared-wallet leases, Runtime-local admission and Management-only commercial billing |
@@ -102,7 +101,7 @@ GitHub retains current Objective/Work Item status and exact evidence. This index
 
 ### Technical/open-source track: Waves 0–9
 
-Produces a secure, reproducible, demo-quality, open-source Clockgrove platform and hosted reference world. It does not require self-service commercialization, customer billing or public MMO operations.
+Produces a secure, reproducible, demo-quality, open-source Clockgrove platform and a hosted reference world delivered from its own repository. It does not require self-service commercialization, customer billing or public MMO operations.
 
 ### Shared hosted-world track: Waves 10–11
 
@@ -134,6 +133,7 @@ External tools such as `clockgrove/factory` may plan and deliver work through Gi
 - Caretaker Talk is private and attributed to the addressed actor/session; public speech, Influence, gifts/physical actions and operator authoring are separate commands.
 - `Principal -> WorldMembership -> WorldPersona -> Presence`; workspace membership remains separate.
 - Raccoon World begins with a disclosed, unrendered Caretaker persona.
+- Clockgrove is world-agnostic. Platform code imports and names no world except `worlds/fixture`. Each world's pack, art, style bible, theme, goldens and browser journeys live in that world's repository and run against a pinned Clockgrove commit. Acceptance obligations sit with the repository that owns the content.
 - Every material mutation and denial has action, attribution, authority, causal-root and immediate-cause evidence.
 - Inventory and runtime object mobility are local to one world and timeline. Cross-world live object portability is out of scope.
 - Effective mobility inherits world → space → role/persona → archetype → instance, narrow-only and deny-wins. Mobility and use capabilities are independent.
@@ -160,8 +160,10 @@ Historical material never overrides current authority. Private working history, 
 
 ## 9. Terminology guardrails
 
-- **Clockgrove:** reusable platform/runtime.
-- **Raccoon World:** first reference world/world pack and demo application.
+- **Clockgrove:** reusable platform/runtime for any world; its code names no world's content.
+- **Raccoon World:** first reference world/world pack and demo application, in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world).
+- **World repository:** a world's own repository, holding its pack, art, style bible, theme, goldens and journeys, and building against Clockgrove at a pinned commit.
+- **Fixture world:** `worlds/fixture`, Clockgrove's own test world: the beacon pack and the neutral reference variant under `worlds/fixture/reference`. It is the platform's portability proof.
 - **Factory:** separate engineering plugin and CLI in `clockgrove/factory`; not a world/runtime subsystem.
 - **Workspace:** administrative and resource-ownership boundary.
 - **World membership:** participation boundary for one world.

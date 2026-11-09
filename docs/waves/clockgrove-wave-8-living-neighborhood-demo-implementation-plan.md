@@ -20,7 +20,7 @@ The wave exits only when:
 
 > A new visitor can enter a cozy rainy Seattle yard, understand that it is alive, watch Stevie and the family behave without constant narration, converse and investigate, influence the world, leave and return, understand what happened, and later see attributed memory or teaching change behavior—with the full causal chain replayable and failure-qualified.
 
-This is the demo-quality Raccoon World application. It is not a collection of subsystem pages, a static mockup, or a preprogrammed story.
+This is the demo-quality Raccoon World application, delivered in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) against the platform at a pinned Clockgrove commit. It is not a collection of subsystem pages, a static mockup, or a preprogrammed story.
 
 The default participant is a disclosed, unrendered Caretaker persona. Raccoons can attribute speech, gifts, and influence to that persona even though no avatar is rendered. The demo must not present the participant as an omniscient deity or silently treat the selected raccoon as the user's body. World-local inventory may be exposed minimally for authored fixtures, but full social transfer UX is completed in Wave 11.
 
@@ -38,13 +38,24 @@ Use the earlier observation, conversation and learning pilots to set the complet
 
 ---
 
+### 1.2 Platform and reference-world ownership
+
+Clockgrove is world-agnostic, so this wave has two halves with one exit.
+
+- **[clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world)** delivers the demo: the `green-lake-yard@1` pack (RW-0801), its reviewed art and audio and reference-layout goldens (RW-0807), its theme, its demo journeys and the demo manifest. Its CI runs them against a pinned Clockgrove commit.
+- **Clockgrove** delivers every platform capability the demo uses (lifecycle, household, ecology, summaries, interaction, onboarding, return UX, north-star integration, soak and evaluation harnesses) without naming the reference world's content. It proves them on its fixture world, `worlds/fixture`, the platform's portability proof.
+
+Every exit item below still holds and is proven in the repository that owns it. A platform change found through content work lands in Clockgrove with its own fixture-world test, and the reference world moves its pin to pick it up.
+
+---
+
 ## 2. Entry conditions
 
 These are the full-wave/default entry conditions. A named local-development Objective may consume only accepted prerequisite capabilities under the ADR's recorded readiness exception; its Issue must preserve pending qualification obligations and the selected path's mandatory safety evidence.
 
 - Wave 7 qualification manifest is green.
 - The live world, realtime client, durable conversations, actor harness, memory, learning, rules, previews, authoring, and inspector pass their individual gates.
-- `green-lake-yard@1` minimal fixture and all Wave 1 scenario goldens exist.
+- `green-lake-yard@1` minimal fixture and its Wave 1 scenario goldens exist in the reference world's repository, and the fixture world's scenario goldens pass in Clockgrove.
 - Asset pipeline, provenance review, R2 delivery, Phaser scene, responsive shell, and accessibility path are qualified.
 - North-star scenario IDs, seeds, model routes, scripted-provider variants, and failure points are frozen.
 - Demo content changes use world-pack/changeset review; application code cannot special-case Stevie by display name.
@@ -61,7 +72,7 @@ The demo must make five ideas obvious without explanation from a developer:
 4. **History has causality.** Event feed and Why connect state, decision, evidence, memory, teaching, and consequence.
 5. **Language can influence or author without owning truth.** Suggestions may be declined; operator changes are typed, previewed, and promoted.
 
-The raccoons are the approachable expression. All implementation remains world-pack generic and passes `mirror-room@1`/non-raccoon conformance.
+The raccoons are the approachable expression. All implementation remains world-pack generic and passes `mirror-room@1` and the fixture world's (`worlds/fixture`) conformance.
 
 ---
 
@@ -321,19 +332,20 @@ The guide and counterfactual journeys reuse the existing north-star harness, ins
 
 ## 13. Owned code and content
 
+In clockgrove/raccoon-world:
+
 ```text
-world-packs/green-lake-yard/
-  pack.yaml
-  spaces/
-  archetypes/
-  actors/
-  systems/
-  rules/
-  policies/
-  seeds/
-  assets/
-  audio/
-  scenarios/
+worlds/raccoons/        the green-lake-yard@1 pack: manifest, spaces, archetypes, actors,
+                        systems, rules, policies, seeds, scenarios, goldens and theme
+assets/                 reviewed art and audio
+tests/e2e/demo/
+docs/demo/
+docs/world-packs/green-lake-yard.md
+```
+
+In Clockgrove:
+
+```text
 apps/web/src/onboarding/
 apps/web/src/return-summary/
 apps/web/src/lifecycle/
@@ -346,11 +358,9 @@ packages/domain/src/ecology/
 packages/application/src/summaries/
 packages/testkit/src/soak/
 tests/e2e/north-star/
-tests/e2e/demo/
 tests/soak/
 tests/evals/product/
-docs/demo/
-docs/world-packs/green-lake-yard.md
+worlds/fixture/
 ```
 
 Engine changes discovered by content work require independent contracts and non-raccoon tests. No `if (name === "Stevie")` behavior is permitted.
@@ -362,6 +372,8 @@ Engine changes discovered by content work require independent contracts and non-
 ### RW-0801 — Complete `green-lake-yard@1` world pack
 
 Implement the canonical immutable pack artifact: schema/dependencies, hierarchy, regions/anchors/portals, archetypes, actors, components, initial relationships/knowledge, systems, policies, rules, schedules, cognitive seeds, fixed epoch/clock policy, named random streams, seed commands, migrations, assets/provenance/licenses, expected seed-projection hash, real showcase timeline, validation, and pack docs.
+
+Delivered in the reference world's repository against a pinned Clockgrove commit.
 
 Exit: a clean environment validates/builds/publishes the artifact, provisions it through the real idempotent lifecycle to `WorldReady`, verifies the seed projection hash, and starts it deterministically; no engine code depends on its names.
 
@@ -403,6 +415,8 @@ Exit: moderated users can correctly identify the source/limits of each response 
 
 Produce reviewed raccoon/environment/lifecycle/weather/time/action assets, atlases/manifests, audio, responsive shell, states/animations, selection/effects, reference-layout visual goldens, performance optimization, provenance/license review.
 
+The art, audio, atlases/manifests and reference-layout goldens are produced in the reference world's repository. The responsive shell, animation states, selection/effects and performance work are platform code in Clockgrove, proven on the fixture world.
+
 Exit: the live app reaches the reference composition and mood using data-driven original assets at target performance/accessibility budgets.
 
 Amended (2026-11-07): RW-0807 inherits from Wave 4 (Wave 4 §4.3) the top HUD's navigation icons for journal, residents, ecology, home, tasks/authoring when authorized, and settings, and its capture, safety/privacy and menu utilities, which Wave 4 did not build. Each icon opens the screen this wave delivers for it.
@@ -423,7 +437,7 @@ Exit: no subsystem-only shortcut is accepted as scenario completion.
 
 Run first-use, observe, converse, investigate, influence, return, author/preview, accessibility, disclosure, trust, delight, repetition, and performance studies with predeclared rubrics; fix release blockers and publish evidence.
 
-Exit: publish Wave 8 qualification manifest and approve the demo-quality application.
+Exit: publish Wave 8 qualification manifest and approve the demo-quality application. The demo manifest is published from the reference world's repository and names the Clockgrove commit and platform manifest it ran against.
 
 ---
 
@@ -457,6 +471,8 @@ pnpm eval:product
 pnpm qualify:wave8:staging
 ```
 
+`test:world-pack:green-lake`, the demo journeys and the reference-layout visual goldens run in the reference world's repository against its pinned Clockgrove commit. The other suites run in Clockgrove, on the fixture world where they need a world.
+
 ### 16.1 All ten named scenarios
 
 1. `favorite-snack-house`
@@ -470,7 +486,7 @@ pnpm qualify:wave8:staging
 9. `differential-perception`
 10. `non-raccoon-conformance`
 
-Each passes Journal, projection, schedule, decision, cognition where applicable, client, replay, branch, privacy, recovery, and state-hash obligations.
+Each passes Journal, projection, schedule, decision, cognition where applicable, client, replay, branch, privacy, recovery, and state-hash obligations. Scenarios 1–9 run on the reference pack in its repository and on the neutral reference variant (`worlds/fixture/reference`) in Clockgrove; scenario 10 runs in Clockgrove.
 
 ### 16.2 Product rubrics
 
@@ -540,6 +556,7 @@ Wave 8 does not implement:
 
 - [ ] RW-0801 through RW-0810 are merged.
 - [ ] `green-lake-yard@1` imports and runs without name-specific engine code.
+- [ ] The reference world's demo manifest passes in clockgrove/raccoon-world against a pinned Clockgrove commit, and the platform manifest passes in Clockgrove on the fixture world with no reference-world content.
 - [ ] The living yard matches the supplied visual hierarchy and mood with original data-driven assets.
 - [ ] First-time observe/converse/investigate/influence/return journeys are complete.
 - [ ] Lifecycle, household, ecology, rules, and model-off routines remain coherent.

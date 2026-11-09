@@ -27,7 +27,7 @@ Every development wave exercises the production architecture through final inter
 
 The v3.8 baseline incorporated the accepted post-v3.0 product/runtime decisions, the PRD 4.3 future-capability pressure test, the end-to-end Raccoon World provisioning/browser walkthrough, and the accepted Management Plane / World Runtime Plane boundary. Development automation is externalized to the separate `clockgrove/factory` project and is not a product/runtime dependency:
 
-- Clockgrove is the platform and Raccoon World is its first reference world.
+- Clockgrove is the platform for any world. Raccoon World, its first reference world, lives in its own repository, [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), and builds against Clockgrove at a pinned commit. Clockgrove's own test world is `worlds/fixture`, the platform's portability proof.
 - Better Auth is the reference OSS authentication adapter; Clerk is optional.
 - Workspace membership, world membership, world persona, and live presence are distinct records.
 - Mutation attribution is required from Wave 0 onward, before billing exists.
@@ -79,7 +79,7 @@ A feature is complete only when it has:
 
 ## 2. Executive architecture
 
-Raccoon World is a persistent, multiplayer simulation where world state advances independently, every meaningful entity is logically addressable, selected subjects can be conversed with, memory can alter later decisions, and operators can author changes through isolated preview timelines.
+Clockgrove runs persistent, multiplayer simulations where world state advances independently, every meaningful entity is logically addressable, selected subjects can be conversed with, memory can alter later decisions, and operators can author changes through isolated preview timelines.
 
 The production stack is:
 
@@ -174,7 +174,7 @@ No Management adapter writes world journal/state tables. No Runtime adapter impo
 
 ### 2.3 Product charter
 
-Raccoon World is an open-source persistent artificial-life world and conversational-actor platform. The reference product is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons. Time, weather, resources, plants, relationships, reproduction, aging and death continue according to world policy whether or not a browser is connected.
+Clockgrove is an open-source persistent artificial-life world and conversational-actor platform. Its reference world, Raccoon World, is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons, delivered in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world). Time, weather, resources, plants, relationships, reproduction, aging and death continue according to world policy whether or not a browser is connected.
 
 The visible game is an emotionally legible proving ground, not the whole thesis:
 
@@ -255,7 +255,9 @@ The complete product supports these end-to-end journeys through both the visual 
 
 ### 2.7 Reference world and north-star scenario
 
-The GA reference fixture is `green-lake-yard@1`:
+The GA reference world is Raccoon World's `green-lake-yard@1` pack. It lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), which owns its content, art, theme, goldens and browser journeys and runs them in its own CI against a pinned Clockgrove commit. Clockgrove proves each platform obligation of the scenario below on `worlds/fixture`: the beacon pack and the neutral reference variant under `worlds/fixture/reference`. Platform code never names the reference world's content.
+
+The reference pack contains:
 
 - hierarchy: Green Lake Neighborhood → Living Yard → Porch, Den, Garden and Cedar Area;
 - navigation anchors: `den-mouth`, `porch-step`, `trash-front`, `tree-base`, `garden-edge` and `fence-gap`;
@@ -279,7 +281,7 @@ The canonical north-star test is one causal story:
 11. An injected crash at each durable boundary resumes without losing or duplicating accepted history.
 12. A developer can search the full causal chain and fork a preview from a chosen event.
 
-This scenario is the acceptance spine across kernel fixtures, persistence tests, actor/runtime tests, browser tests, memory evals and release qualification.
+This scenario is the acceptance spine across kernel fixtures, persistence tests, actor/runtime tests, browser tests, memory evals and release qualification. Its world-content run passes in the reference world's repository; its platform obligations pass in Clockgrove on the fixture world.
 
 ### 2.8 Scope discipline
 
@@ -376,7 +378,7 @@ The modern extension is subjective cognition: selective perceptions become evide
 - Stable IDs, partition keys, ports, logical channels, schemas, migrations, and security boundaries exist from the start.
 - Renderer, spatial-index, runtime-placement, model, physics, policy, and storage implementation details never become durable domain identity.
 - A deferred capability earns only the smallest contract and conformance fixture needed to prove that the current implementation has not made it impossible.
-- The two explicit pressure-test fixtures are a full-3D spatial/presentation contract fixture and a selectively long-running `ActorProcess` fixture. They compile and validate from Wave 0 even though production 3D rendering and dedicated continuous compute are not implemented for Raccoon World.
+- The two explicit pressure-test fixtures are a full-3D spatial/presentation contract fixture and a selectively long-running `ActorProcess` fixture. They compile and validate from Wave 0 even though production 3D rendering and dedicated continuous compute are not implemented for any world.
 - Additional services, stores, runtime actors, generalized frameworks, and duplicated caches do not exist until they do real work.
 
 ### 3.8 Deferred-capability compatibility matrix
@@ -566,7 +568,7 @@ No scale response changes canonical actor IDs.
 /
 ├── apps/
 │   ├── runtime/                 Cloudflare Worker, DOs, Workflows, Queues
-│   ├── web/                     React + Three.js browser
+│   ├── web/                     world-agnostic React + Three.js shell; each world themes it
 │   └── cli/                     replay, inspect, seed, export, verify
 ├── packages/
 │   ├── contracts/               branded IDs, Zod schemas, wire protocols
@@ -580,8 +582,10 @@ No scale response changes canonical actor IDs.
 │   ├── world-pack-sdk/          pack schema, validation, migration contract
 │   └── testkit/                 fixtures, fakes, fault and replay harnesses
 ├── worlds/
-│   ├── raccoons/                neighborhood content and assets
-│   └── fixture/                 tiny non-raccoon conformance world
+│   └── fixture/                 Clockgrove's own test worlds: the beacon pack and
+│                                the neutral reference variant (reference/)
+├── assets/
+│   └── brand/                   Clockgrove's own brand art; world art lives with each world
 ├── db/
 │   ├── migrations/
 │   ├── seeds/
@@ -608,6 +612,8 @@ No scale response changes canonical actor IDs.
     ├── fixtures/
     └── release/
 ```
+
+World packs other than the fixture live in their own repositories, such as [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world). They consume Clockgrove from a pinned commit, run Clockgrove's world-pack check in their own CI and keep their art, theme and goldens there.
 
 Use pnpm workspaces and Turborepo for a reproducible task graph. Package versions are private and synchronized until an independently consumable SDK is published. The lockfile is authoritative; Renovate proposes dependency updates through the full validation suite.
 
@@ -638,6 +644,7 @@ Rules:
 - `application` defines ports; adapter packages implement them.
 - `apps/runtime` is the composition root. Provider SDKs do not leak inward.
 - `apps/web` never imports persistence, application internals, Durable Object code, or world-pack implementation code.
+- Platform code imports no world except `worlds/fixture`, and names no world's content. The world-boundary check in `pnpm check` fails the build otherwise.
 - dependency direction is enforced with ESLint/import rules and dependency-cruiser in CI.
 
 ### 5.3 Core ports
@@ -1348,11 +1355,11 @@ Rules:
 - every activation validates hashes and compatibility;
 - migrations are explicit, deterministic, resumable, and tested from every supported version;
 - assets carry provenance, license, generation/provider metadata, review status, dimensions, anchors, footprints, and hashes;
-- the raccoon world and a tiny non-raccoon fixture pass the same conformance suite.
+- every world pack passes the same conformance suite: the fixture world in Clockgrove, and each external world, the reference world included, in its own repository against a pinned Clockgrove commit.
 
 The repository-owned CLI exposes `pack validate`, `pack build`, `pack test`, `pack publish`, `world install`, and previewed `world upgrade`. Build normalizes namespaced resources, validates schemas/references/capabilities/licenses, compiles reviewed bounded extensions, hashes assets/resources, runs conformance/goldens, and produces one immutable artifact. This is not a marketplace or arbitrary plugin system.
 
-The committed `green-lake-yard@1` pack is executable product specification, not sample decoration. It contains:
+The reference world's `green-lake-yard@1` pack, committed in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), is executable product specification, not sample decoration. It contains:
 
 - the full spatial hierarchy, regions, anchors, portal graph and presentation map from 2.7;
 - archetypes for a social raccoon, kit, den, porch, food/trash source, water source, shelter, cedar/tree, plant and weather/day-night systems;
@@ -1363,9 +1370,9 @@ The committed `green-lake-yard@1` pack is executable product specification, not 
 - isometric assets, anchors, animation mappings, accessibility names and provenance;
 - expected seed projection hash and scenario golden outputs.
 
-`packages/world-packs/raccoon` contains no Cloudflare, PostgreSQL, React or Phaser implementation imports. `apps/web` may consume its presentation manifest, and the kernel consumes only its validated engine-facing manifest.
+The pack contains no Cloudflare, PostgreSQL, React or Three.js implementation imports. The web shell consumes its presentation inputs (§20.8) and the kernel consumes only its validated engine-facing manifest.
 
-The tiny `test-world@1` pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. Its job is to detect accidental raccoon assumptions, not to become a second content project.
+Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.1.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
 
 Do not build a marketplace, dependency solver, public registry, arbitrary plugin host, or community trust/signing system until those become product requirements.
 
@@ -1786,7 +1793,7 @@ The WorldDO owns policy; each SpaceDO maps relevant deadlines to its own alarm. 
 
 Catch-up produces the same material state/events as the defined aggregation policy, not necessarily one event per missed interval. Exact and aggregate semantics are part of the versioned kernel.
 
-The raccoon pack begins with a tunable experience policy of one real minute to one simulated hour while actively observed, capped unobserved catch-up of 24 simulated hours per activation, and faster preview-only acceleration. These are versioned world-policy defaults, not engine constants.
+The reference world's pack begins with a tunable experience policy of one real minute to one simulated hour while actively observed, capped unobserved catch-up of 24 simulated hours per activation, and faster preview-only acceleration. These are versioned world-policy defaults, not engine constants.
 
 Tests compare:
 
@@ -2560,7 +2567,7 @@ Read-only results are evidence, not facts. External writes create `effect_intent
 
 ### 17.6 First-party MCP exposure
 
-Expose an authenticated, stateless MCP server for safe Raccoon World operations using Cloudflare's current stateless MCP handler:
+Expose an authenticated, stateless MCP server for safe world operations using Cloudflare's current stateless MCP handler:
 
 - search/inspect worlds, actors, events, decisions and memories;
 - submit authorized typed commands;
@@ -2873,7 +2880,7 @@ The initial human is an observer/caretaker, not an embodied avatar. Private `Tal
 
 ### 20.7 Asset pipeline
 
-Blender, image generation and Phaser Editor MCP can assist authoring. Runtime assets are reviewed 2D outputs:
+Blender and image generation, through [Assetforge](https://github.com/clockgrove/assetforge), can assist authoring. Each world's art lives in that world's repository, under its own style bible. Clockgrove owns the pipeline and proves it on the fixture world's placeholder art. Runtime assets are reviewed 2D outputs:
 
 - sprite sheets/atlases;
 - animation manifests;
@@ -2893,6 +2900,16 @@ Pipeline stages:
 8. screenshot/golden-scene test.
 
 Generated assets are never accepted without provenance and review state.
+
+### 20.8 World theme and presentation seam
+
+The shell, the renderer and the renderer-neutral scene protocol are Clockgrove's and name no world. A world supplies its own presentation as inputs at composition: its name and wordmark, design tokens and copy (a versioned shell document), its reviewed static assets and atlas binding, its scene presentation bindings and its model configuration. The [world presentation protocol](protocols/world-presentation.md) defines each input and its version.
+
+- A composition root passes the inputs in; platform modules never import a world directory. Omitted inputs select the neutral platform theme.
+- The inputs carry no authority. They change no canonical state and grant no capability; observation, conversation and command grants still apply.
+- A world's style bible and DESIGN.md live in its own repository and reach the shell only as its tokens and assets. `STYLE.md` and `BRAND.md` govern Clockgrove's own brand art, not world art.
+- The fixture world exercises the seam with its own name, copy and placeholder atlas, and a neutral run with no atlas, so the platform's browser suites need no reference-world content.
+- An external world builds and runs the themed shell from a Clockgrove checkout at a pinned commit, as the protocol describes.
 
 ---
 
@@ -3086,7 +3103,7 @@ pnpm test:eval             scripted agent/memory evaluations
 pnpm test:cloud            staging qualification; credentials required
 pnpm db:migrate
 pnpm db:verify
-pnpm world:seed raccoons
+pnpm dev:world
 pnpm world:simulate --days 30 --seed ...
 pnpm replay:verify <bundle>
 pnpm infra:plan <environment>
@@ -3098,10 +3115,9 @@ Every command is noninteractive in CI and documented in the root README.
 
 The repository includes:
 
-- raccoon neighborhood seed;
-- tiny non-raccoon conformance world;
+- the fixture world's beacon pack and neutral reference variant;
 - fixed weather/lifecycle histories;
-- Stevie/Gracie/kit social-learning scenario;
+- the social-learning scenario on the neutral reference variant;
 - fake external identities/principals/tenants;
 - scripted model outputs;
 - fake safe, failing, malicious and schema-drifting MCP servers;
@@ -3670,7 +3686,7 @@ Deliver:
 - weather/rain, food/water, tree growth, needs and utility decisions;
 - lifecycle, reproduction, birth, aging and death state machines;
 - bounded rule AST/evaluator primitives;
-- raccoon seed pack and non-raccoon fixture;
+- the fixture world's packs; the reference world's pack in its own repository;
 - headless simulator CLI and decision-trace output.
 
 Tests:
@@ -3685,7 +3701,7 @@ Tests:
 
 Exit:
 
-> The same seed, inputs and versions produce identical world state, decisions and hashes; the non-raccoon fixture requires no engine modification.
+> The same seed, inputs and versions produce identical world state, decisions and hashes; the fixture world and the external reference world require no engine modification.
 
 ### Wave 2 — Canonical journal, projections, replay, and evidence
 
@@ -3758,7 +3774,7 @@ Amended (2026-10-19): the cross-space transfer protocol with two fixture spaces 
 Deliver:
 
 - React shell and provider-neutral authentication UI;
-- Phaser isometric scene and typed adapter;
+- Three.js lit isometric scene and typed adapter, under the accepted [renderer ADR](adr/clockgrove-adr-renderer-bake-off.md);
 - scene WebSocket upgrade through SpaceDO;
 - authorized snapshot, patch and transient lanes;
 - interest/audience resolution;
@@ -3766,7 +3782,7 @@ Deliver:
 - selectable universal interaction card;
 - event/decision inspector;
 - timeline metadata and text-first scene alternative;
-- asset pipeline with first reviewed raccoon set.
+- asset pipeline proven on the fixture world's art; the reference world's first reviewed set is delivered in its own repository.
 
 Tests:
 
@@ -3800,7 +3816,7 @@ Deliver:
 - installation/binding/grant/approval model;
 - remote HTTP MCP discovery, OAuth/token path, schema pinning and revocation;
 - one read-only remote MCP fixture and one approval-gated external effect;
-- stateless first-party Raccoon World MCP endpoint.
+- stateless first-party world MCP endpoint.
 
 Tests:
 
@@ -3899,7 +3915,7 @@ Deliver:
 - world-interest feed and overnight summaries;
 - object/space conversation disclosure and polish;
 - authored rules and ecological reactions;
-- complete reviewed cartoon-isometric asset set;
+- complete reviewed cartoon-isometric asset set, in the reference world's repository;
 - north-star rain → decision → explanation → memory → teaching → later behavior → policy reuse/novelty fallback chain;
 - provenance-recorded live external observation and governed actor-initiated MCP research, with captured replay fixtures for deterministic tests;
 - observer/caretaker influence modes without forced avatar embodiment;
@@ -3919,6 +3935,8 @@ Exit:
 
 > The whole product thesis is visible in one continuously operating neighborhood, not merely in disconnected subsystem demos.
 
+The neighborhood is Raccoon World, delivered in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) against the platform at a pinned commit. Clockgrove delivers the platform capabilities world-agnostically and proves them on the fixture world; the reference world's repository delivers the pack, art, theme and demo journeys. The exit needs both.
+
 ### Wave 9 — GA operations and open-source release
 
 **Purpose:** Prove the system can be operated, trusted and extended.
@@ -3934,7 +3952,7 @@ Deliver:
 - load/soak/hot-space partition procedures;
 - security review and abuse controls;
 - browser/accessibility support matrix;
-- public API, MCP, world-pack and architecture docs;
+- public API, MCP, world-pack and architecture docs, including how an external world builds against Clockgrove;
 - release automation, support runbooks and contribution workflow.
 
 Tests:
@@ -3950,6 +3968,8 @@ Tests:
 Exit:
 
 > All GA objectives have measured evidence, P0/P1 runbooks are rehearsed, and the repository can reproduce the hosted architecture locally and in a clean Cloudflare/Neon environment.
+
+GA ships the platform. Raccoon World ships beside it as a separate reference world from its own repository, pinned to the released Clockgrove commit.
 
 ### Wave 10 — Self-service multitenancy, signup, and workspace onboarding
 
@@ -4169,7 +4189,7 @@ These are responsibility/dependency scopes for the full GA system, grouped into 
 17. **RW-0107 — Weather/resources/growth:** rain, food, water and tree lifecycle.
 18. **RW-0108 — Needs/utility/movement:** decision traces and movement segments.
 19. **RW-0109 — Reproduction/aging/death:** lifecycle state machine.
-20. **RW-0110 — Raccoon and non-raccoon packs:** conformance suite, all named scenario goldens and simulator CLI.
+20. **RW-0110 — Reference and fixture packs:** conformance suite, all named scenario goldens and simulator CLI; the reference pack's goldens run in its own repository.
 
 ### Canonical data
 
@@ -4205,7 +4225,7 @@ Amended (2026-10-19): RW-0308 moves after GA to Wave 11 with the per-space state
 42. **RW-0402 — Space WebSocket runtime:** authenticated upgrade, hibernation attachments, fanout, revision acknowledgements and admission control.
 43. **RW-0403 — Client convergence reducer:** gap detection, dedupe, reordering, reconnect/backfill and snapshot fallback.
 44. **RW-0404 — React product shell:** provider-neutral authentication, routing, world selector, clock/weather, event feed, responsive panels and state boundaries.
-45. **RW-0405 — Phaser isometric scene:** fixed camera, depth/anchors, picking, interpolation, weather/day-night and typed adapter.
+45. **RW-0405 — Three.js isometric scene:** fixed camera, depth/anchors, picking, interpolation, weather/day-night and typed adapter.
 46. **RW-0406 — Interest and client audience filtering:** camera, selection, conversation, privacy and operator overlays.
 47. **RW-0407 — Universal interaction and inspector:** selectable card, Inspect/Why/Influence, causal traversal and mode disclosure.
 48. **RW-0408 — Timeline and text-access path:** timeline metadata, event navigation and canvas-independent world interaction.
@@ -4259,7 +4279,7 @@ Amended (2026-10-19): RW-0308 moves after GA to Wave 11 with the per-space state
 84. **RW-0804 — Environment/ecology depth:** weather, wetness/shelter, food/water cycles, growth, balance and long-run thresholds.
 85. **RW-0805 — Overnight/world-interest summaries:** material event selection, space/world consolidation, return experience and provenance.
 86. **RW-0806 — Object/space conversation polish:** interpreted perspective, canonical inspection, disclosure, grounding and capability-specific behavior.
-87. **RW-0807 — Complete visual/audio pack:** raccoon variants, animation families, environment, weather/time effects, provenance and accessibility.
+87. **RW-0807 — Complete visual/audio pack (reference world's repository):** character variants, animation families, environment, weather/time effects, provenance and accessibility.
 88. **RW-0808 — North-star causal integration:** live observation and governed actor MCP research through learning, skill revision, bounded policy reuse/novelty fallback across UI, runtime, journal, cognition and inspector, including field-guide reading/revision and counterfactual Why.
 89. **RW-0809 — Full scenario/soak suite:** all ten named scenarios, months/year acceleration, model-free continuity and ecological bounds.
 90. **RW-0810 — Product thesis evaluation:** moderated tasks, analytics, rubrics, declared thresholds, findings and corrective work.
@@ -4404,7 +4424,7 @@ Unit metrics:
 - world runs continuously according to explicit clock/catch-up policy;
 - weather, resources, growth, reproduction, aging, death, schedules and rules survive restart/deploy;
 - model outage does not stop routine simulation;
-- raccoon and non-raccoon packs share the engine unchanged;
+- the fixture world and the external reference world share the engine unchanged;
 - every component in 7.3 has versioned schema/reducer/snapshot/redaction behavior;
 - live stepping, restart/catch-up and preview fast-forward satisfy their declared material-equivalence policy;
 - all ten named scenarios in 7.13 pass their journal/projection/schedule/decision/hash goldens;
@@ -4522,7 +4542,7 @@ Amended (2026-10-19): GA is narrowed to one space owner per world partition and 
 - [Better Auth Organization plugin](https://www.better-auth.com/docs/plugins/organization)
 - [Better Auth Hono integration](https://www.better-auth.com/docs/integrations/hono)
 - [Optional Clerk adapter](https://clerk.com/docs/guides/organizations/overview)
-- [Phaser 4.2](https://phaser.io/news/2026/06/phaser-v4-2-0-released)
+- [Three.js WebGPURenderer](https://threejs.org/docs/#api/en/renderers/webgpu/WebGPURenderer)
 - [Neon pgvector](https://neon.com/docs/extensions/pgvector)
 - [The Architecture of a Distributed Virtual Worlds System](https://www.usenix.org/legacy/publications/library/proceedings/coots98/vellon/vellon_html/vellon.html)
 - [PaperMC server simulation distance](https://docs.papermc.io/paper/reference/server-properties/)
