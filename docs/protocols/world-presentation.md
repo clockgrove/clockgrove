@@ -92,6 +92,28 @@ the existing four-hour session bound also stops it. This local composition is a 
 session, not a production deployment. A direct Vite invocation above serves/builds only the
 browser shell; it does not provision a runtime or configure authentication.
 
+For Raccoon World's repository layout, run the complete session from its checkout:
+
+```sh
+node ../clockgrove/scripts/dev-world.mjs \
+  --pack worlds/raccoons --shell worlds/raccoons/shell.json --assets assets/reviewed
+```
+
+The selected pack's adjacent `runtime.json` supplies its presentation bindings. Hydrate that
+repository's reviewed art before starting the session. To check the themed shell build in its
+CI job after the [pinned conformance recipe](../../packages/simulator/docs/conformance.md#world-repository-ci-recipe):
+
+```sh
+CLOCKGROVE_WORLD_SHELL="$PWD/worlds/raccoons/shell.json" \
+CLOCKGROVE_WORLD_ASSETS="$PWD/assets/reviewed" \
+  pnpm --dir ../clockgrove --filter @clockgrove/web build
+```
+
+This build checks browser composition; use the local session to observe the authenticated
+runtime, theme and presentation together. Inside a platform checkout the neutral development
+command is `pnpm dev:world`; `CLOCKGROVE_DEV_WORLD_HOURS` overrides its session bound.
+The world maintainer owns adding these commands to the external repository's workflow.
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.

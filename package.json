@@ -11,7 +11,6 @@
   "scripts": {
     "check": "biome check . && turbo run check --cache-dir=.turbo/cache && depcruise --config dependency-cruiser.config.mjs packages && node scripts/check-boundaries.mjs",
     "format": "biome check --write .",
-    "dev:yard": "node scripts/dev-world.mjs",
     "db:migrate": "node scripts/database/migrate.mjs",
     "db:verify": "node scripts/database/verify.mjs",
     "test": "turbo run test --cache-dir=.turbo/cache",
