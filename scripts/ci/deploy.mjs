@@ -7,17 +7,20 @@ import { fileURLToPath } from "node:url";
 import { databaseIsolationQuery } from "../database/isolation.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
+  assertNoUnrecordedDuplicates,
   hostedTofuEnv,
   ownedInventory,
   resourceAddresses,
   roleConnections,
   stateSecrets,
+  stateStoreFor,
   stateWorkspace,
   verifyPlan,
   verifyPriorActivation,
 } from "./deployment-authority.mjs";
 import { digest, fileInventory, root, subprocessEvidence, validateEvidence } from "./evidence.mjs";
 import { assertRoutingMetadata } from "./routing-metadata.mjs";
+import { assertUnlocked, backupState, describeLock, readLock } from "./state-store.mjs";
 
 const env = process.env;
 const require = createRequire(path.join(root, "apps/runtime/package.json"));
@@ -125,6 +128,7 @@ async function runDeployment() {
   manifest.deployments.push(result);
   let temporary;
   let work;
+  let store;
   let providerIpc;
   let connections;
   const phase = (name, executable, args, options = {}) => {
@@ -157,6 +161,10 @@ async function runDeployment() {
       "true",
       "activation prerequisite issue 2 remains pending",
     );
+    // A lock left by an interrupted run would fail the first plan with its output withheld, so it
+    // is reported first by holder and age. It is never cleared here.
+    store = stateStoreFor(target, config, env);
+    await assertUnlocked(store, target);
     ({ temporary, work } = await stateWorkspace(target, config, env));
     await withProviderIpc(work, async (ipc) => {
       providerIpc = ipc;
@@ -170,6 +178,7 @@ async function runDeployment() {
           inventory.every((resource) => allowed.has(resource.address)),
         "persisted resource ownership bounds exceeded",
       );
+      await assertNoUnrecordedDuplicates(config, env, inventory, target);
       const preserveBindings = inventory.some(
         (resource) => resource.address === "cloudflare_hyperdrive_config.world[0]",
       );
@@ -178,7 +187,7 @@ async function runDeployment() {
         env.CLOUDFLARE_API_TOKEN,
         inventory,
       );
-      const apply = (stage) => {
+      const apply = async (stage) => {
         const plan = path.join(work, `${stage}.tfplan`);
         phase(`OpenTofu ${stage} plan`, "tofu", [
           "plan",
@@ -194,8 +203,10 @@ async function runDeployment() {
         );
         verifyPlan(proposed, config, stage, preservePublic);
         phase(`OpenTofu ${stage} apply`, "tofu", ["apply", "-input=false", plan]);
+        const backup = await backupState(store, target, `${stage}-${candidate.slice(0, 12)}`);
+        console.log(`state backup: ${store.bucket}/${backup}`);
       };
-      apply("provision");
+      await apply("provision");
       const credentials = JSON.parse(
         phase("owned generated role credentials", "tofu", [
           "output",
@@ -276,7 +287,7 @@ async function runDeployment() {
         }
         assert(!failed, `${name} generated reader identity verification failed`);
       }
-      apply("bindings");
+      await apply("bindings");
       const hyperdrive = JSON.parse(
         phase("Hyperdrive identity", "tofu", ["output", "-json", "hyperdrive_id"]),
       );
@@ -330,10 +341,16 @@ async function runDeployment() {
         wranglerFile,
         "--no-bundle",
       ]);
-      apply("routing");
+      await apply("routing");
       result.status = "passed";
     });
   } catch (error) {
+    // A lock still held after a failed OpenTofu phase is named, since that phase's output is not.
+    const last = result.phases.at(-1);
+    if (store && last && last.status !== "passed" && last.command[0].startsWith("OpenTofu"))
+      await readLock(store, target)
+        .then((lock) => lock && console.error(describeLock(target, store, lock)))
+        .catch(() => {});
     result.status = result.phases.some((phase) => phase.status === "unknown")
       ? "unknown"
       : work

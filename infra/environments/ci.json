@@ -46,6 +46,7 @@
     "runtime": "ci.runtime.example.org",
     "dnsTarget": "runtime.example.org"
   },
+  "cloudflareZonePlan": "free",
   "safeIds": {
     "cloudflareAccountId": "00000000000000000000000000000000",
     "cloudflareZoneId": "00000000000000000000000000000000"

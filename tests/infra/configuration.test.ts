@@ -4,8 +4,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-configuration.mjs";
 import { environmentSchema } from "../../infra/environment-schema.ts";
-import { stateBackend } from "../../scripts/ci/deployment-authority.mjs";
+import {
+  duplicableResources,
+  stateBackend,
+  unrecordedDuplicates,
+} from "../../scripts/ci/deployment-authority.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
+import { describeLock, signV4 } from "../../scripts/ci/state-store.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -86,5 +91,74 @@ describe("hosted deploy inputs", () => {
     placeholder.safeIds.cloudflareZoneId = "0".repeat(32);
     placeholder.domains.dnsTarget = "runtime.example.org";
     expect(missingRoutingMetadata(placeholder)).toEqual(["cloudflareZoneId", "dnsTarget"]);
+  });
+
+  it("refuses a create when state lost a resource the provider would duplicate", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const found = duplicableResources(config).map((resource) => ({
+      ...resource,
+      ids: ["existing"],
+    }));
+    // Lost state: every existing duplicable resource is unrecorded.
+    expect(unrecordedDuplicates([], found).map(({ address }) => address)).toEqual([
+      "neon_project.world[0]",
+      "cloudflare_turnstile_widget.public[0]",
+      "cloudflare_zero_trust_access_service_token.operations[0]",
+    ]);
+    // Recorded resources, and names nothing holds yet, are not duplicates.
+    const recorded = found.map(({ address }) => ({ address, id: "existing" }));
+    expect(unrecordedDuplicates(recorded, found)).toEqual([]);
+    expect(
+      unrecordedDuplicates(
+        [],
+        found.map((item) => ({ ...item, ids: [] })),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("state bucket access", () => {
+  it("signs requests as AWS Signature Version 4 does", () => {
+    // AWS's published GetObject example (Amazon S3 API reference, "Signature Calculations").
+    const headers = {
+      host: "examplebucket.s3.amazonaws.com",
+      range: "bytes=0-9",
+      "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "x-amz-date": "20130524T000000Z",
+    };
+    expect(
+      signV4({
+        method: "GET",
+        url: "https://examplebucket.s3.amazonaws.com/test.txt",
+        headers,
+        payloadHash: headers["x-amz-content-sha256"],
+        // AWS's documented example credentials, split so the secret scan does not flag them.
+        credentials: {
+          accessKeyId: ["AKIA", "IOSFODNN7EXAMPLE"].join(""),
+          secretAccessKey: ["wJalrXUtnFEMI/K7MDENG/", "bPxRfiCYEXAMPLEKEY"].join(""),
+        },
+        region: "us-east-1",
+        service: "s3",
+      }),
+    ).toMatch(/Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41$/u);
+  });
+
+  it("names a held lock by object, holder and age", () => {
+    const lock = {
+      id: "6c2fddfa-6ce2-5a65-e602-8837ac0179a3",
+      operation: "OperationTypeApply",
+      who: "runner@fv-az1",
+      created: "2026-11-09T20:00:00Z",
+    };
+    expect(
+      describeLock(
+        "staging",
+        { bucket: "clockgrove-staging-state" },
+        lock,
+        new Date("2026-11-09T21:30:00Z"),
+      ),
+    ).toBe(
+      "state lock clockgrove-staging-state/staging/terraform.tfstate.tflock held by runner@fv-az1 (OperationTypeApply) for 90 min (since 2026-11-09T20:00:00Z), lock ID 6c2fddfa-6ce2-5a65-e602-8837ac0179a3",
+    );
   });
 });

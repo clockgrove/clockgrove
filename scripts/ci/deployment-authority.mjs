@@ -3,6 +3,7 @@ import { cp, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { root } from "./evidence.mjs";
+import { stateStore } from "./state-store.mjs";
 
 // The state backend's settings, read from the protected environment at job start: the bucket is
 // the environment variable INFRA_STATE_BUCKET, and its bucket-scoped R2 credentials are the
@@ -56,6 +57,15 @@ export async function stateWorkspace(target, config, env) {
   const work = path.join(temporary, "infra/opentofu");
   await writeFile(path.join(work, "backend.tf.json"), JSON.stringify(backend));
   return { temporary, work };
+}
+
+// A client for the environment's state bucket, with the same backend settings OpenTofu uses.
+export function stateStoreFor(target, config, env) {
+  for (const name of stateSecrets) assert(env[name]?.trim(), `missing ${name}`);
+  return stateStore(stateBackend(target, config, env.INFRA_STATE_BUCKET).terraform.backend.s3, {
+    accessKeyId: env.INFRA_STATE_ACCESS_KEY_ID,
+    secretAccessKey: env.INFRA_STATE_SECRET_ACCESS_KEY,
+  });
 }
 
 // The credentials OpenTofu reads: the Cloudflare provider reads CLOUDFLARE_API_TOKEN itself, the
@@ -142,6 +152,101 @@ export async function cloudflareFact(token, suffix) {
   const body = await response.json();
   assert(body.success, "authenticated Cloudflare activation facts refused");
   return body.result;
+}
+
+// Owned resources whose names the provider does not keep unique: with state that does not record
+// them, a create makes a second copy instead of failing. Every other owned resource fails to create
+// on its existing name.
+export function duplicableResources(config) {
+  return [
+    {
+      address: "neon_project.world[0]",
+      kind: "Neon project",
+      name: config.resources.database.project,
+    },
+    {
+      address: "cloudflare_turnstile_widget.public[0]",
+      kind: "Turnstile widget",
+      name: config.resources.turnstile,
+    },
+    {
+      address: "cloudflare_zero_trust_access_service_token.operations[0]",
+      kind: "Access service token",
+      name: config.resources.serviceToken,
+    },
+  ];
+}
+
+// Every page of one Cloudflare list endpoint.
+async function cloudflareList(token, suffix) {
+  const items = [];
+  for (let page = 1; ; page++) {
+    const separator = suffix.includes("?") ? "&" : "?";
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/${suffix}${separator}page=${page}&per_page=50`,
+      { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
+    );
+    assert(response.ok, "authenticated Cloudflare resource listing unavailable");
+    const body = await response.json();
+    assert(body.success && Array.isArray(body.result), "authenticated Cloudflare listing refused");
+    items.push(...body.result);
+    const total = body.result_info?.total_count ?? items.length;
+    if (body.result.length === 0 || items.length >= total) return items;
+  }
+}
+
+// IDs of the provider's existing resources of one duplicable kind with exactly this name.
+export async function existingByName(resource, config, env) {
+  const account = `accounts/${config.safeIds.cloudflareAccountId}`;
+  const name = encodeURIComponent(resource.name);
+  if (resource.kind === "Neon project") {
+    const response = await fetch(
+      `https://console.neon.tech/api/v2/projects?search=${name}&limit=400`,
+      {
+        headers: { authorization: `Bearer ${env.NEON_API_KEY}`, accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    assert(response.ok, "authenticated Neon project listing unavailable");
+    const { projects } = await response.json();
+    assert(Array.isArray(projects) && projects.length < 400, "Neon project listing incomplete");
+    return projects.filter((project) => project.name === resource.name).map(({ id }) => id);
+  }
+  const listed =
+    resource.kind === "Turnstile widget"
+      ? await cloudflareList(
+          env.CLOUDFLARE_API_TOKEN,
+          `${account}/challenges/widgets?filter=name:${name}`,
+        )
+      : await cloudflareList(
+          env.CLOUDFLARE_API_TOKEN,
+          `${account}/access/service_tokens?name=${name}`,
+        );
+  return listed
+    .filter((item) => item.name === resource.name)
+    .map((item) => item.id ?? item.sitekey);
+}
+
+// Duplicable resources the state does not record but the provider already holds by name.
+export function unrecordedDuplicates(inventory, found) {
+  const recorded = new Set(inventory.map((resource) => resource.address));
+  return found.filter(({ address, ids }) => !recorded.has(address) && ids.length > 0);
+}
+
+// Runs before any plan that may create: refuses when state lost track of a resource that a create
+// would silently duplicate, whether the state object is missing, empty or older than the resources.
+export async function assertNoUnrecordedDuplicates(config, env, inventory, target) {
+  const recorded = new Set(inventory.map((resource) => resource.address));
+  const found = [];
+  for (const resource of duplicableResources(config))
+    if (!recorded.has(resource.address))
+      found.push({ ...resource, ids: await existingByName(resource, config, env) });
+  const [first, ...rest] = unrecordedDuplicates(inventory, found);
+  assert(
+    !first,
+    first &&
+      `state does not record ${[first, ...rest].map(({ kind, name, ids }) => `the existing ${kind} ${name} (${ids.join(", ")})`).join(", ")}; a deploy would create a second copy. Restore the latest state backup (\`pnpm infra:state backups ${target}\`, then \`pnpm infra:state restore ${target} <key>\`) or import the resources before deploying`,
+  );
 }
 
 // Public routing in state is preserved only when Cloudflare's current route and DNS record are the

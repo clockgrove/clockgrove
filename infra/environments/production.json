@@ -46,6 +46,7 @@
     "runtime": "production.runtime.example.org",
     "dnsTarget": "runtime.example.org"
   },
+  "cloudflareZonePlan": "paid",
   "safeIds": {
     "cloudflareAccountId": "00000000000000000000000000000000",
     "cloudflareZoneId": "00000000000000000000000000000000"

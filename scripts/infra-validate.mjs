@@ -1,9 +1,14 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkInfrastructure } from "../infra/check-configuration.mjs";
+import {
+  checkInfrastructure,
+  expectedRateLimitRule,
+  readJson,
+} from "../infra/check-configuration.mjs";
 import { environments } from "../infra/environment-schema.ts";
 import { isolatedTofu, offline } from "./lib/opentofu.mjs";
 import { withProviderIpc } from "./provider-ipc.mjs";
@@ -63,6 +68,33 @@ try {
       cwd: tofuDirectory,
       env: { ...offlineEnv, TMPDIR: ipc },
     });
+    // Each hosted environment's rate-limiting rule, evaluated by OpenTofu from its manifest with no
+    // state and HTTP refused, must be the one its zone plan allows.
+    for (const environment of ["development", "staging", "production"]) {
+      const result = spawnSync(
+        "tofu",
+        [
+          "console",
+          "-no-color",
+          `-var=environment=${environment}`,
+          `-state=${path.join(temporary, "console.tfstate")}`,
+        ],
+        {
+          cwd: tofuDirectory,
+          env: { ...offlineEnv, TMPDIR: ipc },
+          input: "jsonencode(local.rate_limit_rule)\n",
+          encoding: "utf8",
+        },
+      );
+      if (result.status !== 0) throw new Error(`tofu console failed (${result.status})`);
+      const manifest = await readJson(root, `infra/environments/${environment}.json`);
+      assert.deepEqual(
+        JSON.parse(JSON.parse(result.stdout)),
+        expectedRateLimitRule(manifest),
+        `${environment} rate-limiting rule must match its ${manifest.cloudflareZonePlan} zone`,
+      );
+      console.log(`${environment}: ${manifest.cloudflareZonePlan}-zone rate-limiting rule`);
+    }
   });
   for (const environment of environments) {
     run(
