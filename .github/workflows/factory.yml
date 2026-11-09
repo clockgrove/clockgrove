@@ -1,9 +1,9 @@
 # Factory: unattended Objectives. Written by `/factory setup`; edit the env block, not the jobs.
 # Triggers: cron, manual (one issue), a new factory:objective label, the review job's own last step, and
 # pull_request when the Factory App labels a PR factory:review. Never from a fork: the Objective text (a writer) and the label (a
-# maintainer) are the only inputs. Auto-merge is ON: code lands with no human read. The
-# gate is your CI workflow's checks on the merge queue's commit, the comment-only reviewer
-# pass, and the merge queue's own re-run. Set FACTORY_AUTO_MERGE to false for ready PRs.
+# maintainer) are the only inputs. FACTORY_AUTO_MERGE is ON: Factory merges the reviewed head with
+# no human read. The gate is your CI workflow's checks on that exact head (and the merge queue's
+# commit), the comment-only reviewer pass, and the queue's own re-run. Set it false for ready PRs.
 name: factory
 on:
   schedule:
@@ -14,8 +14,14 @@ on:
       harness: { description: "Override FACTORY_HARNESS for this run (claude | codex | copilot)", required: false }
   issues: # a new Objective dispatches at once (labelled at creation, or labelled later); the cron is only the sweep
     types: [opened, labeled]
-  pull_request: # fires because the App (not the job token) applies factory:review, a human marks a Question draft ready, or a Factory PR merged (siblings may be stale now)
-    types: [labeled, ready_for_review, closed]
+  pull_request: # fires because the App (not the job token) applies factory:review, a human marks a Question draft ready, a Factory PR merged (siblings may be stale now), or the merge queue dropped one (the dispatcher re-enqueues it once, then Blocks)
+    types: [labeled, ready_for_review, closed, dequeued]
+  check_suite: # CI from a GitHub App outside Actions finished on a factory/ branch: a stage waiting on it resumes, or the dispatcher's merge pass runs
+    types: [completed]
+  workflow_run: # CI on Actions finished (GitHub sends no check_suite event for a suite Actions made)
+    workflows:
+      - Quality
+    types: [completed]
 env:
   FACTORY_HARNESS: claude # claude | codex | copilot
   FACTORY_MODEL: claude-opus-5-5
@@ -44,33 +50,59 @@ permissions: # the job token reads code and Actions; every write goes through th
   actions: read # the dispatcher sums today's usage artifacts; doctor lists the CI workflow's triggers
   issues: write
   # id-token: write         # Claude workload identity federation only
-  # copilot-requests: write # Copilot without copilot_github_token only (bills the org or the owner's seat)
 jobs:
   dispatch:
-    # Ticks: the cron, a manual run, a new Objective's label, or the review job's last step (a worker slot freed).
+    # Ticks: the cron, a manual run, a new Objective's label, the review job's last step (a worker slot freed), a merged
+    # Factory PR, the merge queue dropping one (only GitHub and people with write access dequeue), the queue watch, and,
+    # without a sandbox, CI finishing on a factory/ branch (the merge pass merges a PR whose checks just went green; with
+    # a sandbox the gate job takes those events and ticks this job itself).
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-tick') ||
       (github.event_name == 'issues' && (github.event.label.name == 'factory:objective' || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'factory:objective')))) ||
-      (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'factory/'))
+      (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'factory/')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'check_suite' && startsWith(github.event.check_suite.head_branch, 'factory/')) ||
+      (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'factory/') && github.event.workflow_run.head_repository.full_name == github.repository)
     concurrency: { group: factory-dispatch, cancel-in-progress: false } # ticks run one at a time
     runs-on: ubuntu-latest
-    outputs: { issues: "${{ steps.f.outputs.issues }}", count: "${{ steps.f.outputs.count }}" }
+    outputs: { issues: "${{ steps.f.outputs.issues }}", count: "${{ steps.f.outputs.count }}", queue_watch: "${{ steps.f.outputs.queue_watch }}" }
     steps:
-      - uses: clockgrove/factory@v0.7.83
+      - uses: clockgrove/factory@v0.7.124
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
+  queue-watch:
+    # A PR the merge pass left in the merge queue with no check run on its queue commit yet: this job reads that commit
+    # every 30 s and exits once a check starts, which is within a minute on a healthy queue. A commit that starts none
+    # in 10 minutes ticks the dispatcher, whose merge pass takes the PR out and puts it back once, then Blocks, rather
+    # than waiting out the ruleset's check timeout or GitHub's cron. One watch runs at a time; a newer one waits.
+    name: queue watch
+    needs: dispatch
+    if: needs.dispatch.outputs.queue_watch != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
+    concurrency: { group: factory-queue-watch, cancel-in-progress: false }
+    steps:
+      - uses: clockgrove/factory@v0.7.124
+        id: w
+        with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
+      - name: Dispatch tick (a queue commit started no check run)
+        if: steps.w.outputs.tick == 'true'
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" } # no checkout here: gh names the repository from GH_REPO
+        run: gh workflow run factory.yml
   work:
     needs: dispatch
     if: needs.dispatch.outputs.count != '' && needs.dispatch.outputs.count != '0'
     runs-on: ubuntu-26.04
     timeout-minutes: 300
     strategy: { max-parallel: 2, fail-fast: false, matrix: { issue: "${{ fromJSON(needs.dispatch.outputs.issues) }}" } }
-    permissions: { contents: read, issues: write, actions: write } # actions: write only for the tick at the end
+    permissions: { contents: read, issues: write, actions: write } # actions: write for the tick at the end and triage's rerun of failed CI jobs
     concurrency: { group: "factory-${{ matrix.issue }}", cancel-in-progress: false } # one job per issue; a repeat waits, siblings keep running
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.83
+      - uses: clockgrove/factory@v0.7.124
         id: f
         with:
           mode: work
@@ -80,8 +112,8 @@ jobs:
           app_private_key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }} # Claude; empty with federation
           codex_api_key: ${{ secrets.CODEX_API_KEY }} # Codex; reaches the harness step only
-          copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }} # Copilot; a Copilot Requests token, else the job token bills (copilot-requests: write)
-          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass; empty turns it off
+          copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }} # Copilot; a token with only the Copilot Requests permission (required)
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass, and the drift advisory flags a drifting worker on its progress comment; empty turns both off
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }} # Claude federation (with id-token: write above)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # credential: plan only; your own repository only
       - uses: actions/upload-artifact@v7
@@ -98,12 +130,12 @@ jobs:
       ((github.event.action == 'labeled' && github.event.label.name == 'factory:review') || github.event.action == 'ready_for_review')
     runs-on: ubuntu-26.04
     timeout-minutes: 300
-    permissions: { contents: read, issues: write, actions: write } # actions: write only here, for the tick below
+    permissions: { contents: read, issues: write, actions: write } # actions: write here, for the tick below and triage's rerun of failed CI jobs
     concurrency: { group: "factory-review-${{ github.event.pull_request.number }}", cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.83
+      - uses: clockgrove/factory@v0.7.124
         id: f
         with:
           mode: review
@@ -114,7 +146,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           codex_api_key: ${{ secrets.CODEX_API_KEY }}
           copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass; empty turns it off
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }}
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       - uses: actions/upload-artifact@v7
