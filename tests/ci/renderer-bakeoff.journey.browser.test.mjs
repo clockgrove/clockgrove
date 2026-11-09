@@ -510,7 +510,8 @@ it.each(["webgpu", "webgl2"])(
         await neutral.evaluate(() => globalThis.fixtureRenderer.adapter.metrics.contentStatus),
       ).toBe("none");
       await neutral.close();
-      for (const reason of ["load", "contract", "update", "draw"]) {
+      for (const reason of ["load", "contract", "update", "draw", "vertex", "shader"]) {
+        const failure = reason === "vertex" ? "contract" : reason === "shader" ? "draw" : reason;
         const failed = await open(`?failure=${reason}`);
         await expect
           .poll(() =>
@@ -523,7 +524,7 @@ it.each(["webgpu", "webgl2"])(
               ];
             }),
           )
-          .toEqual(["failed", `content_${reason}`, 1]);
+          .toEqual(["failed", `content_${failure}`, 1]);
         expect(
           await failed.evaluate(() => {
             globalThis.fixtureRenderer.setReducedMotion(true);
@@ -541,7 +542,7 @@ it.each(["webgpu", "webgl2"])(
               (p) => p.name === "renderer_content" && p.category.startsWith("content_"),
             ),
           ),
-        ).toEqual([{ name: "renderer_content", category: `content_${reason}`, value: 1 }]);
+        ).toEqual([{ name: "renderer_content", category: `content_${failure}`, value: 1 }]);
         await failed.close();
       }
       const heavy = await open("?workMs=40");

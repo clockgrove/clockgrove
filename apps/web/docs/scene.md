@@ -179,7 +179,8 @@ React nor Three types enter world presentation v1 or the durable projection prot
 Meshes must use `MeshStandardNodeMaterial` or `MeshLambertNodeMaterial`, with depth testing and
 writing, fog and tone mapping enabled. Geometry can be skinned, textured or driven by TSL; a sprite
 is a textured mesh, not `THREE.Sprite`. The root may contain groups, ordinary object transforms and
-bones. Lights, cameras, scenes, render hooks and material overrides of lights, final fragment/output
+bones. Geometry deformation through `positionNode` is supported. Lights, cameras, scenes, render
+hooks and material overrides of the full vertex stage (`vertexNode`), lights, final fragment/output
 or backdrop nodes are rejected. The extension receives no renderer, scene, camera, lights,
 post-processing, projection, selection or command handles. It cannot replace or retune the product
 look. Quality selection converts supported lit materials between Standard and Lambert; world

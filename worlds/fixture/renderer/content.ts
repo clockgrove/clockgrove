@@ -1,3 +1,4 @@
+import { TSL as nativeTSL } from "../../../apps/web/src/renderer-content.js";
 import type {
   RendererContent,
   RendererContentFrame,
@@ -45,6 +46,14 @@ export function fixtureContent(options: { failure?: string; workMs?: number } = 
         failedNode.build = () => { throw new Error("Fixture draw failure"); };
         material.colorNode = failedNode;
       }
+      if (options.failure === "shader") {
+        material.colorNode = context.backend === "webgpu"
+          ? nativeTSL.wgslFn("fn fixtureBrokenColor() -> vec3<f32> { return fixtureUndefinedSymbol; }")()
+          : nativeTSL.glslFn("vec3 fixtureBrokenColor() { return fixtureUndefinedSymbol; }")();
+      }
+      if (options.failure === "vertex") material.vertexNode = TSL.vec4(0, 0, 0, 1);
+      // Geometry deformation remains supported while the product owns projection.
+      material.positionNode = TSL.positionLocal;
       const model = new THREE.SkinnedMesh(geometry, material);
       model.name = "fixture-skinned";
       if (options.failure === "contract") model.onBeforeRender = () => {};

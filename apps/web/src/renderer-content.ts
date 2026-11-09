@@ -176,6 +176,7 @@ export function validateContent(root: THREE.Group): boolean {
           material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ||
           material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile ||
           material.lightsNode ||
+          material.vertexNode ||
           material.fragmentNode ||
           material.outputNode ||
           material.backdropNode ||

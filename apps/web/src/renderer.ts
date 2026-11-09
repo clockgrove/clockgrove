@@ -193,6 +193,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly contentAbort = new AbortController();
   private readonly contentLoaderDisposers = new Set<() => void>();
   private contentTime = 0;
+  private restoreContentErrors: (() => void) | undefined;
   private readonly contentRoughness = new WeakMap<THREE.Material, number>();
   private readonly started = performance.now();
   private readonly parent: HTMLElement;
@@ -400,6 +401,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       await this.renderer.init();
       if (this.destroyed) return;
       this.initialized = true;
+      this.observeContentErrors();
       const context =
         this.backend === "webgl2"
           ? (this.renderer.getContext() as WebGL2RenderingContext)
@@ -433,6 +435,42 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     } catch {
       if (!this.destroyed) this.unavailable("renderer_unavailable");
     }
+  }
+  private observeContentErrors(): void {
+    if (!this.suppliedContent || this.backend !== "webgpu") return;
+    const device = (this.renderer.backend as { device?: GPUDevice }).device;
+    if (!device) return;
+    const previousPop = device.popErrorScope;
+    const previousError = this.renderer.onError;
+    const retire = (instance: RendererContentInstance | undefined) => {
+      if (instance && !this.destroyed && this.content === instance)
+        this.failContent("content_draw");
+    };
+    // Three r187 consumes its own pipeline validation scopes asynchronously. An outer
+    // scope cannot see those errors, and a frame-scoped logger has already been restored.
+    const popErrorScope = () => {
+      const instance = this.content;
+      const result = previousPop.call(device);
+      void result
+        .then(
+          (error) => {
+            if (error) retire(instance);
+          },
+          () => retire(instance),
+        )
+        .catch(() => {});
+      return result;
+    };
+    device.popErrorScope = popErrorScope;
+    const onError: typeof previousError = (info) => {
+      retire(this.content);
+      previousError.call(this.renderer, info);
+    };
+    this.renderer.onError = onError;
+    this.restoreContentErrors = () => {
+      if (device.popErrorScope === popErrorScope) device.popErrorScope = previousPop;
+      if (this.renderer.onError === onError) this.renderer.onError = previousError;
+    };
   }
   private async initializeContent(): Promise<void> {
     const supplied = this.suppliedContent;
@@ -488,7 +526,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.metrics.contentStatus = "ready";
       this.setQuality(this.tier);
       this.draw();
-      this.report({ name: "renderer_content", category: "ready", value: 1 });
+      if (this.content === instance)
+        this.report({ name: "renderer_content", category: "ready", value: 1 });
     } catch {
       if (!this.destroyed) this.failContent("content_load");
     }
@@ -1609,6 +1648,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.restoreContentErrors?.();
+    this.restoreContentErrors = undefined;
     this.contentAbort.abort();
     if (this.content) this.disposeInstance(this.content);
     this.content = undefined;
