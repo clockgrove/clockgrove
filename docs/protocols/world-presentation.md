@@ -115,6 +115,32 @@ runtime, theme and presentation together. Inside a platform checkout the neutral
 command is `pnpm dev:world`; `CLOCKGROVE_DEV_WORLD_HOURS` overrides its session bound.
 The world maintainer owns adding these commands to the external repository's workflow.
 
+## External visual captures
+
+Use the pinned checkout's shared Wave 4 capture suite to render the selected world's runtime,
+shell and assets together:
+
+```sh
+node ../clockgrove/scripts/capture-world.mjs \
+  --pack worlds/sample --shell worlds/sample/shell.json \
+  --assets assets/reviewed --out tests/visual
+```
+
+This needs the same pinned native-runtime and browser toolchain as the visual suite, in addition
+to the checkout's frozen dependencies. The world repository needs no npm installation. All paths
+resolve from the caller's working directory; the explicit world inputs remain outside Clockgrove.
+The command reads optional adjacent `runtime.json` for the selected pack. Use `--actor <id>` and
+`--object <id>` when the world requires particular rail subjects; the selected actor needs recorded
+Why evidence. Otherwise suitable projected entities are selected from the world.
+
+Both WebGPU and forced WebGL2 run the same states and three viewports as the fixture caller,
+including each dusk/rain quality tier, entity rails, recorded Why, recovery and text access.
+The world's output directory holds the PNGs, digest reports and `approved-captures.json`.
+Approval requires a person or an agent acting on the owner's explicit delegation; capture runs
+and CI never approve. Changing an image invalidates its prior digest approval. See the
+[pinned capture instructions](../../packages/simulator/docs/conformance.md#external-visual-goldens)
+and [visual review workflow](../../tests/visual/README.md) for command results and review details.
+
 ## External renderer composition
 
 A world can compose the product renderer directly in its own page, without a running world session,

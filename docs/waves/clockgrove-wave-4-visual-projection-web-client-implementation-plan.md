@@ -638,6 +638,21 @@ Amended (2026-11-06): the §15.1 suites are package scripts (see [development.md
 
 Amended (2026-11-07): the owner delegated the review of the §15.3 golden captures to an agent. An agent may approve a capture in `tests/visual/approved-captures.json` on the owner's explicit delegation, recorded in the pull request that adds the approval. CI never approves a capture.
 
+Amended (2026-11-09): the fixture caller and an external-world command use one capture suite,
+[`golden-states.journey.browser.test.mjs`](../../tests/visual/golden-states.journey.browser.test.mjs).
+The matrix is 1536×864, 1280×720 and 390×844 on WebGPU and forced WebGL2, with dusk/rain at
+low, medium and high quality (and the existing night/rain tier captures). From any working
+directory, an author invokes a separately installed, exact-commit checkout's
+`node <checkout>/scripts/capture-world.mjs --pack <world-pack> --shell <shell-json> --assets
+<reviewed-static-directory> --out <world-visual-directory>`. The pack, theme and assets belong
+to the selected world; optional `--actor` and `--object` name its rail subjects. The selected
+actor needs recorded Why evidence; a reactive actor remains valid before cognitive actors exist.
+Captures and hashes stay in the world repository, together with its `approved-captures.json`.
+Only an exact approved file/digest pair counts; a changed capture returns to pending until
+reviewed again. CI never approves, and the existing fixture invocation and approval file stay
+unchanged. See the [pinned-checkout instructions](../../packages/simulator/docs/conformance.md#external-visual-goldens)
+and [visual golden workflow](../../tests/visual/README.md).
+
 ---
 
 ## 16. Failure, recovery, and security matrix

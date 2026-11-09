@@ -47,6 +47,43 @@ run `long-runs/`, publish static assets or start the web shell. CI in an externa
 install a pinned checkout and invoke this command on every PR without copying the world into
 Clockgrove or publishing workspace packages.
 
+## External visual goldens
+
+The same pinned checkout can capture the world's Wave 4 visual matrix without an npm project
+or dependencies in the world repository. Install the checkout as above, then provision its
+pinned PostgreSQL, pgvector and Playwright Chromium toolchain (see the
+[development reference](../../../docs/runbooks/development.md)). Hydrate reviewed world art
+before rendering. From the world repository, for example:
+
+```sh
+node ../clockgrove/scripts/capture-world.mjs \
+  --pack worlds/sample --shell worlds/sample/shell.json \
+  --assets assets/reviewed --out tests/visual
+```
+
+All four options are required exactly once. Paths resolve from the caller's current directory;
+absolute paths also work, so the command can run from any directory. `--assets` is the reviewed
+static-asset directory, unlike conformance's asset-manifest directory. Optional `--actor <id>`
+and `--object <id>` select the projected entities for the rail captures; otherwise the suite
+selects suitable entities from the selected world. The actor must produce recorded Why evidence.
+The pack's optional adjacent `runtime.json` supplies its runtime presentation bindings, just as
+in the local session. The world is never copied into the platform checkout.
+
+The command invokes the fixture's existing capture suite with the selected pack, shell and assets.
+It captures every shared state at 1536×864, 1280×720 and 390×844 on WebGPU and forced WebGL2.
+PNG files, hashes and reports are written under `--out` in the world repository; approvals in
+that directory's `approved-captures.json` belong to the world too. Capturing never approves an
+image. A changed digest requires a new person or explicitly owner-delegated agent approval;
+CI must not create approvals. See the [visual golden workflow](../../../tests/visual/README.md)
+for the matrix, file layout and review procedure.
+
+Like external conformance, successful capture prints `{"status":"ok","reports":[...]}` after
+its progress output. Exit 0 means captures completed, even when approvals remain pending;
+1 means capture validation failed, 2 means invalid arguments or invalid input locations,
+and 70 means an unexpected internal error. Diagnostics go to stderr. A run stopped by SIGINT,
+SIGTERM or SIGHUP removes its database and processes and exits 128 plus the signal number. Capture success is not
+approval or whole-wave qualification. Clockgrove's fixture invocation and approvals are unchanged.
+
 ## World-repository CI recipe
 
 Keep the full 40-character Clockgrove commit in the world repository's CI configuration as
