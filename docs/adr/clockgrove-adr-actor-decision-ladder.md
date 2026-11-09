@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Version:** 1.0  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12, and implementation Waves 1, 5, 6, 7 and 8
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md) v3.12, and implementation Waves 1, 5, 6, 7 and 8
 **Scope:** How an actor's decisions move from deterministic tiers to model tiers, and the bounded decision-model tier between compiled policy and open-ended LLM cognition
 
 ---

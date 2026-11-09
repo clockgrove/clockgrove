@@ -80,7 +80,7 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
 **Status:** Coding-agent implementation specification
 **Version:** 1.0
 **Date:** August 18, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.8
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.8
 **Wave:** 99 of 13
 
 ---
@@ -106,7 +106,7 @@ Amended (2026-11-01): the observer is Claude Code, the agent the maintainer orch
             context.exception.errors,
         )
         self.assertIn(
-            "ADR 'Accepted baseline' must reference 'raccoon-world-cloudflare-implementation-plan.md'",
+            "ADR 'Accepted baseline' must reference 'clockgrove-cloudflare-implementation-plan.md'",
             context.exception.errors,
         )
 

@@ -250,9 +250,9 @@ def _validate_adr_accepted_baseline(value: str, errors: list[str]) -> None:
     lowered = value.lower()
     if "clockgrove-prd-v0.5.md" not in lowered:
         errors.append("ADR 'Accepted baseline' must reference 'clockgrove-prd-v0.5.md'")
-    if "raccoon-world-cloudflare-implementation-plan.md" not in lowered:
+    if "clockgrove-cloudflare-implementation-plan.md" not in lowered:
         errors.append(
-            "ADR 'Accepted baseline' must reference 'raccoon-world-cloudflare-implementation-plan.md'"
+            "ADR 'Accepted baseline' must reference 'clockgrove-cloudflare-implementation-plan.md'"
         )
     if "wave" not in lowered:
         errors.append("ADR 'Accepted baseline' must reference the applicable waves")
@@ -260,9 +260,9 @@ def _validate_adr_accepted_baseline(value: str, errors: list[str]) -> None:
 
 def _validate_wave_authority(metadata: dict[str, str], errors: list[str]) -> None:
     parent_plan = metadata.get("Parent plan")
-    if parent_plan and "raccoon-world-cloudflare-implementation-plan.md" not in parent_plan:
+    if parent_plan and "clockgrove-cloudflare-implementation-plan.md" not in parent_plan:
         errors.append(
-            "metadata field 'Parent plan' must reference 'raccoon-world-cloudflare-implementation-plan.md'"
+            "metadata field 'Parent plan' must reference 'clockgrove-cloudflare-implementation-plan.md'"
         )
 
     product_source = metadata.get("Product source")

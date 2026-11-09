@@ -3,7 +3,7 @@
 **Status:** Optional future hosted-platform implementation specification  
 **Version:** 1.6  
 **Date:** October 01, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9 plus Waves 0–9  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9 plus Waves 0–9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 10, optional after technical/open-source GA  
 **Assumptions:** Wave 9 is qualified; consumer-first signup is desired; commercialization is not time-critical  
