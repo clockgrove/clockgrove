@@ -123,6 +123,30 @@ owner binding is not installation authorization; and credential fencing is not a
 revocation. The PostgreSQL secret journey establishes secret persistence and isolation only; it does not establish the complete PostgreSQL/runtime/browser installation path. No operator installation procedure is available yet.
 All of those obligations remain in the canonical integration below before deployment.
 
+## Remaining acceptance by delivery part
+
+The PostgreSQL provider is part 2, independently reviewable under the Factory
+`implement-split` sequential-delivery rule. Its passing proof does not complete any
+of the following installation acceptance entries. The remaining work stays in issue
+164; these are prerequisites for remote actor access, not optional follow-ups.
+
+| Issue acceptance | Required integration and real-path proof |
+| --- | --- |
+| 2: Network safety at install | Authenticated installation endpoint and production outbound adapter; readable sanitized refusals and malicious-schema, redirect, SSRF and rebinding installation journeys. Hosted egress verification precedes exposure. |
+| 3: Discovery recorded | Attributed canonical installation records containing identity, protocol metadata and hashed tool/resource/prompt candidates; disabled tools registered in the one capability registry. |
+| 5: Pinning and drift | Durable protocol/schema pins compared on connection listing and operator refresh; PostgreSQL/runtime proof that changed versions disable and unchanged versions remain usable. |
+| 6: Bindings and grants | Scoped bindings and grants narrowing inputs, destinations, call counts, effects, budget and expiry; most-specific deny and session approval resolution through the actor runtime. |
+| 7: Immediate revocation | Canonical installation, binding and capability disable/revoke operations notify the actor capability revision hook and fence new use without cognition. Credential fencing alone is insufficient. |
+| 8: Operator authority | Separate installation grant defaulted to world owners and authenticated install, enable, bind and revoke routes; actors cannot install, supply credentials or grant access. The secret-provider database role supplies no operator authority. |
+| 9: Canonical isolation | Installation, binding, grant and review Journal records with operator attribution, tenant/world/timeline isolation, RLS attack coverage and retention entries. Secret envelopes remain outside the Journal. |
+| 10: Credential exclusion | Composed authenticated OAuth/static-token installation, refresh, failure and revoke journey through PostgreSQL, with canary exclusion checked in Journal, runtime evidence, logs, traces, prompts, errors, R2 keys and Durable Object names. Memory OAuth tests alone are insufficient. |
+| 11: Real-path experience | Deterministic fixture installation through PostgreSQL and actor grants/runtime, plus the operator capabilities-screen browser journey for connect, inspect, review, bind, refresh and revoke. |
+
+Canonical governance and authenticated credential composition precede registry and
+runtime integration; the operator screen and complete canary/browser proof finish
+the Objective. No installation endpoint or callable remote actor capability is
+exposed by this part.
+
 ## Canonical integration still required
 
 Installation, binding, grant and review changes must be attributed Journal events, backed by
