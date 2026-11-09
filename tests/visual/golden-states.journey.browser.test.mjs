@@ -226,9 +226,18 @@ const captureGoldenStates = async (backend) => {
         // A check may name the region its state is about; the capture frames it, else the page top.
         const region = await check(page);
         // The HUD clock and the feed come from the world-status read, which follows the committed
-        // revision on its own interval: the capture waits until that read has caught up.
+        // revision on its own interval: the capture waits until a read has landed and caught up.
+        // `aria-busy` is false before the first read and after a failed one too, so the clock must
+        // also show a day and time, never "Clock loading", "Clock unavailable" or "…, updating".
         if ((await clock(page).count()) > 0)
-          await expect.poll(() => clock(page).getAttribute("aria-busy")).toBe("false");
+          await expect
+            .poll(async () => [
+              await clock(page).getAttribute("aria-busy"),
+              /^Day \d+, \d{2}:\d{2}$/u.test(
+                await clock(page).locator(".rw-clock-time").innerText(),
+              ),
+            ])
+            .toEqual(["false", true]);
         if (region) await region.evaluate((element) => element.scrollIntoView({ block: "start" }));
         // Two animation frames let the canvas present the committed state before the capture. The
         // window scrolls the narrow layout and the scene column scrolls the desktop frame.
