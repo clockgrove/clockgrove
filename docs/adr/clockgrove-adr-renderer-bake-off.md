@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Version:** 1.0  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
 **Scope:** Accepted Three.js WebGPURenderer browser renderer decision with WebGL2 fallback; issue 74 integrates the lit 2.5D yard
 
 ---

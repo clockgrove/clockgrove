@@ -24,7 +24,7 @@ When product/runtime documents appear to conflict, resolve them in this order:
 
 1. latest accepted topic-specific product/runtime ADR;
 2. `docs/clockgrove-prd-v0.5.md` v0.5.10 for product intent and scope;
-3. [external implementation architecture](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12 for cross-wave implementation architecture and authority boundaries;
+3. `docs/clockgrove-cloudflare-implementation-plan.md` v3.12 for cross-wave implementation architecture and authority boundaries;
 4. the current wave plan for implementation sequencing and exit evidence inside that wave;
 5. supporting editorial/adversarial review for reconciliation rationale;
 6. historical product research only for context.
@@ -41,7 +41,7 @@ For product/runtime work:
 
 1. `README.md`
 2. `docs/clockgrove-prd-v0.5.md` v0.5.10
-3. [external implementation architecture](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12
+3. `docs/clockgrove-cloudflare-implementation-plan.md` v3.12
 4. accepted ADRs relevant to the task
 5. the current wave plan and immediately preceding handoff
 
@@ -60,7 +60,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | Document | Version | Status | Authority |
 | --- | ---: | --- | --- |
 | `docs/clockgrove-prd-v0.5.md` | 0.5.10 | Current | Product thesis, users, shared-world model, scope, acceptance, delivery boundary |
-| [external implementation architecture](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) | 3.12 | Current | Cross-wave engineering architecture and fixed product/runtime boundaries |
+| `docs/clockgrove-cloudflare-implementation-plan.md` | 3.12 | Current | Cross-wave engineering architecture and fixed product/runtime boundaries |
 | `docs/adr/clockgrove-adr-world-personas-and-object-mobility-policy.md` | Accepted | Current | World personas, world-local inventory and inherited mobility policy |
 | `docs/adr/clockgrove-adr-management-plane-world-runtime-plane-and-shared-wallet.md` | 1.0 | Accepted | Management/Runtime authority, provisioning, shared-wallet leases and Management-only billing-provider boundary |
 | `docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md` | 1.0 | Accepted | Substantial sequential workstreams, Objective checkpoints/readiness, proportionate qualification and comparison rules |

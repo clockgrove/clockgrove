@@ -450,7 +450,7 @@ hashes.
 This is native-local evidence (workerd through Miniflare). Hosted qualification is a separate,
 deferred step.
 
-From [docs/raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
+From [docs/clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md), heading **4.3 Logical placement table**:
 
 Logical world identity is never a synonym for a live server process. Placement is explicit:
 

@@ -63,7 +63,7 @@ Start with [`docs/clockgrove-documentation-index.md`](docs/clockgrove-documentat
 Current top-level product baselines are:
 
 - [`docs/clockgrove-prd-v0.5.md`](docs/clockgrove-prd-v0.5.md) — **PRD v0.5.10**;
-- [`docs/raccoon-world-cloudflare-implementation-plan.md`](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) — **architecture v3.12**.
+- [`docs/clockgrove-cloudflare-implementation-plan.md`](docs/clockgrove-cloudflare-implementation-plan.md) — **architecture v3.12**.
 
 Key public-facing documents also include:
 

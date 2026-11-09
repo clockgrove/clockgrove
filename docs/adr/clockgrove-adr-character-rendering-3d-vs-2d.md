@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Version:** 0.4  
 **Date:** November 07, 2026  
-**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [raccoon-world-cloudflare-implementation-plan.md](https://github.com/clockgrove/raccoon-world/blob/main/docs/raccoon-world-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
+**Accepted baseline:** `clockgrove-prd-v0.5.md` v0.5.10, [clockgrove-cloudflare-implementation-plan.md](../clockgrove-cloudflare-implementation-plan.md) v3.12 §20, and implementation Wave 4 §9.1
 **Scope:** Evidence for the owner's choice of how Raccoon World draws characters while environments stay painted 2.5D (issue 77); the owner picks, and a later Objective builds the chosen path
 
 ---

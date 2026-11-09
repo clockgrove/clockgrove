@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.9  
 **Date:** October 19, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.10  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Visual reference:** `6897ED26-A7B5-4F5E-8D90-B6524B538626.jpeg`  
 **Wave:** 4 of 13  

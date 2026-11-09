@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.11  
 **Date:** October 27, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.11  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.11  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.10  
 **Wave:** 3 of the first three substantive implementation waves  
 **Assumptions:** Waves 0–2 are complete; Journal, replay, schedules, and evidence are production contracts

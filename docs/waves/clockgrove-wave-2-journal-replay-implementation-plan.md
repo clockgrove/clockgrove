@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.7  
 **Date:** October 27, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 2 of the first three substantive implementation waves  
 **Assumptions:** Wave 0 is complete; Wave 1 kernel contracts and golden scenarios are frozen  

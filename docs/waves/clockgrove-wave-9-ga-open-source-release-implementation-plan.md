@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.9  
 **Date:** October 27, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.12  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.12  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 9 of 13; technical/open-source GA  
 **Assumptions:** Waves 0–8 are qualified; Raccoon World is already demo-quality  

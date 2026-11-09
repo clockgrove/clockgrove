@@ -3,7 +3,7 @@
 **Status:** Coding-agent implementation specification  
 **Version:** 1.6  
 **Date:** October 01, 2026
-**Parent plan:** `raccoon-world-cloudflare-implementation-plan.md` v3.9  
+**Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 1 of the first three substantive implementation waves  
 **Assumption:** Wave 0 repository, contracts, ports, CI, local database, and Cloudflare skeleton are complete  
