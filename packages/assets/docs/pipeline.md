@@ -230,3 +230,25 @@ deployable assets; human review is still required. A changed golden resets to
 pending until a human records approval for the new scene hash. Existing
 external local sessions serve the world's reviewed directory; the shell loads every
 page its `atlases.json` lists.
+
+
+## Lit material rollout
+
+Issue 66 adds a standalone, versioned `AssetMaterial` source declaration and optional per-role
+material policies on `AssetStyleProfile`; see the
+[material source contract](../../../docs/protocols/shared-contracts.md#lit-material-source-declarations).
+World tools supply lossless RGBA8 PNG maps and 1×/2×/optional 4× renditions. The source contract
+requires albedo, permits the named companion channels, and identifies each source by a safe
+world-relative path and exact SHA-256. All declared densities carry the same channels. The style
+profile declares channel encoding, RGB byte ranges and a maximum adjacent-frame RGB change,
+including the loop seam; alpha represents coverage separately. Those limits belong to the world,
+with no implicit platform defaults.
+
+This first part establishes decoded declarations only. `AssetManifest` and the asset CLI do not
+yet accept material source declarations, and existing flat sprites build as before. Decoding a
+material or style policy does not decode images or enforce grid, bounds, range or temporal
+acceptance. Later parts wire those checks into the real build, pack every supplied channel and
+density, encode deterministic GPU-compressed atlas delivery with a fallback, and carry the result
+through projection to renderers. The atlas build owns compressed output because it creates new
+packed textures; it must not require per-asset compressed input from a generation tool.
+Clockgrove never derives, paints, estimates or upscales a missing map or rendition.
