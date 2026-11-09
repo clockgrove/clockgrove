@@ -1,16 +1,20 @@
 import {
   decodePackPresentation,
+  decodeSceneMaterialDelivery,
   type LivingPose,
   type LivingSpatialFrame,
   type ObjectId,
   type PackPresentation,
   type SceneEffect,
+  type SceneLighting,
+  type SceneMaterialDelivery,
   type ScenePresentationBinding,
 } from "@clockgrove/contracts";
 import { presentationSchema, type WorldEntity, type WorldState } from "@clockgrove/domain";
 export interface ScenePresentationInput {
   readonly presentation: PackPresentation;
   readonly drawable: readonly string[];
+  readonly materials?: Readonly<Record<string, SceneMaterialDelivery>>;
   readonly activity: {
     readonly families: readonly string[];
     readonly moving: string;
@@ -46,7 +50,21 @@ export function decodeScenePresentations(
       )
     )
       throw new Error("invalid world presentation activity or drawable families");
-    return { presentation, drawable, activity };
+    return {
+      presentation,
+      drawable,
+      activity,
+      ...(value.materials === undefined
+        ? {}
+        : {
+            materials: Object.fromEntries(
+              Object.entries(value.materials).map(([key, material]) => [
+                key,
+                decodeSceneMaterialDelivery(material),
+              ]),
+            ),
+          }),
+    };
   });
 }
 
@@ -99,9 +117,15 @@ export function scenePresentationBindings(
         entity === undefined || !input?.activity.families.includes(binding.animationFamily)
           ? undefined
           : activityFamily(entity, byId, input.activity);
-      return family !== undefined && input?.drawable.includes(`${binding.assetId}/${family}`)
-        ? { ...binding, animationFamily: family }
-        : binding;
+      const animationFamily =
+        family !== undefined && input?.drawable.includes(`${binding.assetId}/${family}`)
+          ? family
+          : binding.animationFamily;
+      const material =
+        input?.materials?.[`${binding.assetId}/${animationFamily}`] ??
+        (animationFamily === binding.animationFamily ? binding.material : undefined);
+      const { material: _defaultMaterial, ...base } = binding;
+      return { ...base, animationFamily, ...(material === undefined ? {} : { material }) };
     });
 }
 
@@ -160,4 +184,61 @@ export function sceneEffects(
     }
   }
   return effects;
+}
+
+/** Default renderer-neutral light rig: day/night boundaries retain the scene's existing 06–18 rule.
+ * Intensities use the product renderer's existing 1500 candela and 180px/12.5px-per-metre range.
+ */
+export function sceneLighting(
+  simulationTime: bigint,
+  weather: { readonly rainIntensity: number },
+  effects: readonly SceneEffect[],
+): SceneLighting {
+  const day = 86_400_000n;
+  const phase = Number(((simulationTime % day) + day) % day) / Number(day);
+  const angle = phase * Math.PI * 2 - Math.PI / 2;
+  const direction: [number, number, number] = [Math.cos(angle), 0, -Math.sin(angle)];
+  const night = phase < 0.25 || phase >= 0.75;
+  return {
+    directional: [
+      { kind: "sun", direction, colour: "#fff1d6", intensity: night ? 0 : Math.PI },
+      {
+        kind: "moon",
+        direction: direction.map((v) => -v) as [number, number, number],
+        colour: "#cbdcff",
+        intensity: night ? Math.PI * 0.25 : 0,
+      },
+    ],
+    placed: effects.flatMap((effect) =>
+      effect.role === "puddle"
+        ? []
+        : [
+            {
+              kind: effect.role,
+              pose: effect.pose,
+              colour: "#ffb966",
+              intensity: night ? 1500 : 0,
+              rangeMetres: 14.4,
+            },
+          ],
+    ),
+    weatherIntensity: weather.rainIntensity / 10_000,
+    gradingKey: night ? "night" : weather.rainIntensity > 0 ? "overcast" : "day",
+  };
+}
+
+/** Material worlds opt into explicit lighting; legacy flat worlds retain their wire shape. */
+export function materialSceneLighting(
+  pack: { readonly packId?: string },
+  inputs: readonly ScenePresentationInput[],
+  simulationTime: bigint,
+  weather: { readonly rainIntensity: number },
+  effects: readonly SceneEffect[],
+): SceneLighting | undefined {
+  const input = inputs.find((item) => item.presentation.pack.id === pack.packId);
+  return input &&
+    (input.materials !== undefined ||
+      input.presentation.bindings.some((binding) => binding.material !== undefined))
+    ? sceneLighting(simulationTime, weather, effects)
+    : undefined;
 }

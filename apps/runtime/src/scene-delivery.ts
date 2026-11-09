@@ -110,6 +110,11 @@ export function scenePatchOperations(
     { op: "set_clock", simulationTime: projection.simulationTime },
     { op: "set_weather", weather: projection.weather },
     { op: "set_effects", effects: projection.effects ?? [] },
+    ...(projection.lighting === undefined
+      ? previous?.lighting === undefined
+        ? []
+        : [{ op: "set_lighting", lighting: null } satisfies ScenePatchOperation]
+      : [{ op: "set_lighting", lighting: projection.lighting } satisfies ScenePatchOperation]),
     { op: "set_feed_cursor", feedCursor: projection.feedCursor },
     { op: "set_compatibility", compatibility: projection.compatibility },
     ...(projection.privateCognition === undefined

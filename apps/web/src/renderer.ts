@@ -1,10 +1,12 @@
 import type {
   ObjectId,
+  SceneMaterialDelivery,
   ScenePatch,
   SceneProjection,
   SceneTransientCue,
   WorldObjectId,
 } from "@clockgrove/contracts";
+import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -26,12 +28,14 @@ import {
   cyclePick,
   INTERPOLATION_MS,
   isNight,
+  MATERIAL_DELIVERY_BUDGET,
   movement,
   type PickCycle,
   pickOrder,
   poseMetres,
   type SceneIntent,
   type ScenePlacement,
+  selectMaterialRendition,
   shownEffects,
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
@@ -45,6 +49,8 @@ interface AtlasFrame {
   readonly height: number;
 }
 interface AtlasAnimation {
+  readonly material?: SceneMaterialDelivery;
+  readonly density?: number;
   readonly assetId: string;
   readonly animationFamily: string;
   readonly anchor: { readonly x: number; readonly y: number };
@@ -294,6 +300,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
   private night = false;
   private lights: THREE.PointLight[] = [];
+  private sky: THREE.DirectionalLight[] = [];
+  private materialPageTextures = new Map<string, THREE.Texture<HTMLImageElement>>();
+  private materialTransferBytes = 0;
+  private transferHashes = new Set<string>();
   private ambient!: THREE.AmbientLight;
   private ground!: THREE.Mesh<THREE.PlaneGeometry, LitMaterial>;
   private reflections: Native[] = [];
@@ -409,6 +419,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const sky = new THREE.DirectionalLight(0xcbdcff, 0.25 * Math.PI);
       sky.position.set(-200, 400, 500);
       this.scene.add(sky);
+      this.sky.push(sky);
       this.ground = new THREE.Mesh(
         new THREE.PlaneGeometry(10000, 10000),
         this.litMaterial({ color: 0x3f6b3a, roughness: 1 }),
@@ -671,7 +682,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const bytes = await response.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", bytes);
       const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      return hash === expected ? bytes : undefined;
+      if (hash !== expected) return;
+      if (!this.transferHashes.has(hash)) {
+        this.transferHashes.add(hash);
+        this.materialTransferBytes += bytes.byteLength;
+      }
+      return bytes;
     } catch {
       return;
     }
@@ -680,7 +696,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private async loadPage(page: string): Promise<AtlasPage | undefined> {
     const response = await fetch(`/${page}.animations.json`);
     if (!response.ok) return;
-    const manifest = (await response.json()) as {
+    const source = await response.text();
+    this.materialTransferBytes += new TextEncoder().encode(source).byteLength;
+    const manifest = JSON.parse(source) as {
       animations: AtlasAnimation[];
       image?: { sha256?: unknown };
     };
@@ -710,6 +728,64 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     return { image, animations: manifest.animations };
   }
+  private async materialAnimation(
+    animation: AtlasAnimation,
+    legacy: AtlasEntry,
+  ): Promise<AtlasEntry> {
+    if (!animation.material) return legacy;
+    this.updateTextureBytes();
+    const material = decodeSceneMaterialDelivery(animation.material);
+    const rendition = selectMaterialRendition(material, globalThis.devicePixelRatio ?? 1, {
+      transferBytes: Math.max(
+        0,
+        MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
+      ),
+      textureBytes: Math.max(0, MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.textureBytes),
+    });
+    if (!rendition) return legacy;
+    const albedo = rendition.channels.albedo;
+    const pages = albedo.pages ?? [{ atlasId: albedo.frames[0]?.atlasId, image: albedo.image }];
+    const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+    for (const page of pages) {
+      if (!page.atlasId) throw new Error("material page identity missing");
+      const textureKey = `${page.image.sha256}/${albedo.encoding ?? "srgb"}`;
+      let texture = this.materialPageTextures.get(textureKey);
+      if (!texture) {
+        const bytes = await this.fetchAtlas(page.atlasId, page.image.sha256);
+        if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
+        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        const image = new Image();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = reject;
+            image.src = url;
+          });
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+        if (image.width !== page.image.width || image.height !== page.image.height)
+          throw new Error("material dimensions differ");
+        texture = new THREE.Texture(image);
+        texture.colorSpace =
+          albedo.encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.needsUpdate = true;
+        this.atlasTextures.push(texture);
+        this.materialPageTextures.set(textureKey, texture);
+      }
+      textures.set(page.atlasId, texture);
+    }
+    const frames = albedo.frames.map((frame) => ({
+      ...frame,
+      texture: textures.get(frame.atlasId ?? pages[0]!.atlasId!),
+    }));
+    if (!frames.every((frame) => frame.texture)) throw new Error("material frame page missing");
+    return { ...animation, density: rendition.density, frames: frames as AtlasEntry["frames"] };
+  }
+
   private async create(): Promise<void> {
     if (!ATLASES) {
       this.ready();
@@ -719,7 +795,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     try {
       const response = await fetch(`/${ATLAS_INDEX}`);
       if (!response.ok) return this.failAssets();
-      const names = ((await response.json()) as { atlases?: unknown }).atlases;
+      const indexSource = await response.text();
+      this.materialTransferBytes += new TextEncoder().encode(indexSource).byteLength;
+      const names = (JSON.parse(indexSource) as { atlases?: unknown }).atlases;
       if (
         !Array.isArray(names) ||
         names.length === 0 ||
@@ -756,10 +834,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
             texture: textures.get(frame.atlasId ?? (names[n] as string)),
           }));
           if (!frames.every((frame) => frame.texture)) return this.failAssets();
-          this.atlas.set(`${animation.assetId}/${animation.animationFamily}`, {
-            ...animation,
-            frames: frames as AtlasEntry["frames"],
-          });
+          this.atlas.set(
+            `${animation.assetId}/${animation.animationFamily}`,
+            await this.materialAnimation(animation, {
+              ...animation,
+              frames: frames as AtlasEntry["frames"],
+            }),
+          );
         }
       this.updateTextureBytes();
       const digest = await crypto.subtle.digest(
@@ -1021,10 +1102,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       roughness: 1,
       depthWrite: false,
     });
-    const geometry = new THREE.PlaneGeometry(frame.width, frame.height, 4, 4);
+    const density = animation.density ?? 1;
+    const logicalWidth = frame.width / density,
+      logicalHeight = frame.height / density;
+    const geometry = new THREE.PlaneGeometry(logicalWidth, logicalHeight, 4, 4);
     geometry.translate(
-      frame.width / 2 - animation.anchor.x,
-      animation.anchor.y - frame.height / 2,
+      logicalWidth / 2 - animation.anchor.x,
+      animation.anchor.y - logicalHeight / 2,
       0,
     );
     const mesh = new THREE.Mesh(geometry, material);
@@ -1034,8 +1118,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       key,
       frame: -1,
       playing: false,
-      width: frame.width,
-      height: frame.height,
+      width: logicalWidth,
+      height: logicalHeight,
       base: new Float32Array(geometry.getAttribute("position").array),
       baseUv: new Float32Array(geometry.getAttribute("uv").array),
     };
@@ -1194,10 +1278,49 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (this.ground.material instanceof THREE.MeshStandardNodeMaterial)
       this.ground.material.roughness = projection.weather.rainIntensity > 0 ? 0.45 : 1;
     this.rain.visible = projection.weather.rainIntensity > 0;
+    if (projection.lighting) {
+      projection.lighting.directional.forEach((source, index) => {
+        let light = this.sky[index];
+        if (!light) {
+          light = new THREE.DirectionalLight();
+          this.sky.push(light);
+          this.scene.add(light);
+        }
+        light.color.set(source.colour);
+        light.intensity = source.intensity;
+        light.position.set(...(source.direction.map((v) => -v) as [number, number, number]));
+      });
+      while (this.sky.length > projection.lighting.directional.length)
+        this.sky.pop()?.removeFromParent();
+      this.scene.userData.gradingKey = projection.lighting.gradingKey;
+      this.scene.userData.weatherIntensity = projection.lighting.weatherIntensity;
+    } else {
+      while (this.sky.length > 1) this.sky.pop()?.removeFromParent();
+      if (!this.sky[0]) {
+        const sky = new THREE.DirectionalLight();
+        this.sky.push(sky);
+        this.scene.add(sky);
+      }
+      const sky = this.sky[0];
+      if (sky) {
+        sky.color.set(0xcbdcff);
+        sky.intensity = 0.25 * Math.PI;
+        sky.position.set(-200, 400, 500);
+      }
+      delete this.scene.userData.gradingKey;
+      delete this.scene.userData.weatherIntensity;
+    }
     let lightCount = 0;
     const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
-    for (const effect of shownEffects(projection)) {
-      if (effect.role === "puddle") continue;
+    const sources =
+      projection.lighting?.placed ??
+      shownEffects(projection).flatMap((effect) =>
+        effect.role === "puddle"
+          ? []
+          : [{ pose: effect.pose, colour: "#ffb966", intensity: 1500, rangeMetres: 14.4 }],
+      );
+    for (const effect of sources) {
+      if (effect.intensity === 0) continue;
       const at = poseMetres(frames, effect.pose);
       if (!at) continue;
       const [x, y] = iso(at);
@@ -1208,6 +1331,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.lights.push(light);
         this.scene.add(light);
       }
+      light.color.set(effect.colour);
+      light.intensity = effect.intensity;
+      light.distance = effect.rangeMetres * PX_PER_METRE;
       light.position.set(x, -y + 12, 35);
     }
     while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();

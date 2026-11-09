@@ -105,6 +105,11 @@ export function readManifests(root: string, assetRoot = "assets"): ManifestFile[
         path,
         manifest,
         bytes: readFileSync(join(root, dirname(assetRoot), manifest.source.path)),
+        ...(manifest.material === undefined
+          ? {}
+          : {
+              materialSources: readMaterialSources(root, dirname(assetRoot), manifest),
+            }),
       });
     }
   return files;
@@ -185,3 +190,17 @@ export const goldenPaths = (root: string, packDir: string, assetRoot = "assets")
 
 export const readGolden = (path: string): GoldenRecord | null =>
   existsSync(path) ? (readJson(path) as GoldenRecord) : null;
+
+export function readMaterialSources(
+  root: string,
+  worldRoot: string,
+  manifest: AssetManifest,
+): Readonly<Record<string, Uint8Array>> {
+  const sources: Record<string, Uint8Array> = {};
+  for (const rendition of manifest.material?.renditions ?? [])
+    for (const source of Object.values(rendition.channels)) {
+      const path = join(root, worldRoot, source.path);
+      if (existsSync(path)) sources[source.path] = readFileSync(path);
+    }
+  return sources;
+}

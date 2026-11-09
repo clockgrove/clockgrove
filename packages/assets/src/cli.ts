@@ -13,7 +13,10 @@ import {
   ATLAS_INDEX,
   atlasIndex,
   atlasLocationProblems,
+  atlasMaterials,
   buildAtlases,
+  canonicalJson,
+  materialAtlasFiles,
   packAtlas,
 } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
@@ -27,6 +30,7 @@ import {
   readGolden,
   readJson,
   readManifests,
+  readMaterialSources,
   readPackScenes,
   repositoryRoot,
 } from "./repository.js";
@@ -57,6 +61,7 @@ const regenerate =
 let files: ManifestFile[] = [];
 let deployable: ManifestFile[] = [];
 let layout: ManifestFile["manifest"][] = [];
+let buildProfile: ReturnType<typeof readAssetStyleProfile> | undefined;
 
 function preflight(): string[] {
   files = readManifests(root, assetRoot);
@@ -67,8 +72,15 @@ function preflight(): string[] {
   if (files.length === 0)
     return [`ASSETS_REQUIRED: no asset manifests under ${join(root, assetRoot, "manifests")}`];
   const profile = readAssetStyleProfile(root, referenceRoot);
+  buildProfile = profile;
   const problems = files.flatMap((f) =>
-    validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", ""), profile),
+    validateSource(
+      f.manifest,
+      f.bytes,
+      f.path.replace("worlds/fixture/", ""),
+      profile,
+      f.materialSources,
+    ),
   );
   if (problems.length > 0) return problems;
   const palette = worldPaletteProblems(layout, profile);
@@ -77,11 +89,15 @@ function preflight(): string[] {
 
 function expectedReviewed(): Map<string, Uint8Array> {
   const out = new Map<string, Uint8Array>();
-  const atlases = buildAtlases(deployable, layout);
+  const atlases = buildAtlases(deployable, layout, buildProfile);
   for (const atlas of atlases) {
     out.set(`${atlas.atlasId}.png`, atlas.png);
     out.set(`${atlas.atlasId}.animations.json`, new TextEncoder().encode(atlas.animations));
   }
+  for (const file of materialAtlasFiles(atlases)) out.set(file.name, file.bytes);
+  const materials = atlasMaterials(atlases);
+  if (Object.keys(materials).length > 0)
+    out.set("materials.json", new TextEncoder().encode(canonicalJson(materials)));
   if (atlases.length > 0) out.set(ATLAS_INDEX, new TextEncoder().encode(atlasIndex(atlases)));
   return out;
 }
@@ -222,6 +238,7 @@ function validateOne(): string[] {
       readFileSync(join(root, external ? "." : "worlds/fixture", manifest.source.path)),
       relative(join(root, external ? "." : "worlds/fixture"), absolute),
       profile,
+      readMaterialSources(root, external ? "." : "worlds/fixture", manifest),
     ),
     ...assetDeployRefusals(manifest)
       .filter((r) => r.code !== "REVIEW_NOT_APPROVED")

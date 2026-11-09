@@ -2,8 +2,10 @@ import {
   decodeSceneProjection,
   type LivingPose,
   type LivingSpatialFrame,
+  type MaterialChannel,
   type ObjectId,
   type SceneEffect,
+  type SceneMaterialDelivery,
   type ScenePatch,
   type SceneProjection,
   type SceneTransientCue,
@@ -199,6 +201,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let compatibility = scene.compatibility;
   let privateCognition = scene.privateCognition;
   let effects = scene.effects;
+  let lighting = scene.lighting;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -246,18 +249,22 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_private_cognition":
         privateCognition = operation.entries;
         break;
+      case "set_lighting":
+        lighting = operation.lighting ?? undefined;
+        break;
       case "set_effects":
         effects = operation.effects;
         break;
     }
   }
-  const { privateCognition: _previous, effects: _effects, ...rest } = scene;
+  const { privateCognition: _previous, effects: _effects, lighting: _lighting, ...rest } = scene;
   return decodeSceneProjection({
     ...rest,
     ...(privateCognition && {
       privateCognition: privateCognition.filter((entry) => entities.has(entry.actorId)),
     }),
     ...(effects && { effects }),
+    ...(lighting && { lighting }),
     revision: patch.toRevision,
     simulationTime,
     weather,
@@ -268,5 +275,43 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     hierarchy: [...hierarchy.values()],
     presentationBindings: [...bindings.values()],
     interactions: [...interactions.values()],
+  });
+}
+
+/** apps/web/scene-budgets.json: retain the published 256KiB transfer and 16MiB texture ceilings. */
+export const MATERIAL_DELIVERY_BUDGET = {
+  transferBytes: 262_144,
+  textureBytes: 16_777_216,
+} as const;
+
+/** Highest useful density that fits both transfer and decoded texture budgets. */
+export function selectMaterialRendition(
+  material: SceneMaterialDelivery,
+  devicePixelRatio: number,
+  budget: { readonly transferBytes: number; readonly textureBytes: number },
+  supported: readonly MaterialChannel[] = ["albedo"],
+): SceneMaterialDelivery["renditions"][number] | undefined {
+  const target = Number.isFinite(devicePixelRatio) ? Math.max(1, devicePixelRatio) : 1;
+  const useful =
+    material.renditions.find((r) => r.density >= target)?.density ??
+    material.renditions.at(-1)?.density ??
+    1;
+  return [...material.renditions].reverse().find((r) => {
+    if (r.density > useful) return false;
+    const textures = new Map(
+      supported.flatMap((channel) => {
+        const texture = r.channels[channel];
+        return texture
+          ? (texture.pages ?? [{ image: texture.image }]).map(
+              (page) => [page.image.sha256, page.image] as const,
+            )
+          : [];
+      }),
+    );
+    return (
+      [...textures.values()].reduce((n, image) => n + image.bytes, 0) <= budget.transferBytes &&
+      [...textures.values()].reduce((n, image) => n + image.width * image.height * 4, 0) <=
+        budget.textureBytes
+    );
   });
 }

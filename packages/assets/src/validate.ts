@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AssetManifest, AssetStyleProfile } from "@clockgrove/contracts";
+import type { AssetManifest, AssetStyleProfile, MaterialChannel } from "@clockgrove/contracts";
 import { decodePng } from "./png.js";
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -16,6 +16,7 @@ export function validateSource(
   bytes: Uint8Array,
   manifestPath?: string,
   profile?: AssetStyleProfile,
+  materialSources: Readonly<Record<string, Uint8Array>> = {},
 ): string[] {
   const id = `${manifest.assetId}/${manifest.animationFamily}`;
   const problems: string[] = [];
@@ -104,7 +105,7 @@ export function validateSource(
     problems.push(
       `${id}: bounds: expected ${maxX < 0 ? "an opaque pixel" : `${minX},${minY} ${maxX - minX + 1}x${maxY - minY + 1}`}, found ${b.x},${b.y} ${b.width}x${b.height}`,
     );
-  return problems;
+  return [...problems, ...validateMaterial(manifest, bytes, profile, materialSources)];
 }
 
 /**
@@ -121,4 +122,147 @@ export function worldPaletteProblems(
   return profile.colour.colours
     .filter((colour) => !used.has(colour))
     .map((colour) => `STYLE_PALETTE: world palette colour ${colour} is unused by every asset`);
+}
+
+/** Source bytes are provided by the caller; this validator never synthesizes missing channels. */
+export function validateMaterial(
+  manifest: AssetManifest,
+  bytes: Uint8Array,
+  profile: AssetStyleProfile,
+  sources: Readonly<Record<string, Uint8Array>>,
+): string[] {
+  const id = `${manifest.assetId}/${manifest.animationFamily}`;
+  const policy = profile.material?.roles[manifest.semantic.role];
+  if (manifest.material === undefined)
+    return policy === undefined
+      ? []
+      : [`${id}: MATERIAL_REQUIRED: role declares material channels`];
+  if (policy === undefined) return [`${id}: MATERIAL_POLICY_REQUIRED: role has no material policy`];
+  const problems: string[] = [];
+  const fail = (code: string, detail: string) => problems.push(`${id}: ${code}: ${detail}`);
+  const { width, height, count } = manifest.frames;
+  for (const rendition of manifest.material.renditions) {
+    const density = rendition.density;
+    const fw = width * density;
+    const fh = height * density;
+    const decoded = new Map<MaterialChannel, ReturnType<typeof decodePng>>();
+    const channels = Object.keys(rendition.channels) as MaterialChannel[];
+    if (Object.keys(policy).sort().join() !== [...channels].sort().join())
+      fail("MATERIAL_CHANNELS", `${density}x channels must equal the role policy`);
+    for (const channel of channels) {
+      const source = rendition.channels[channel];
+      if (source === undefined) continue;
+      const label = `${density}x/${channel}`;
+      const data = source.path === manifest.source.path ? bytes : sources[source.path];
+      if (data === undefined) {
+        fail("MATERIAL_SOURCE_REQUIRED", label);
+        continue;
+      }
+      if (sha256Hex(data) !== source.sha256) fail("MATERIAL_HASH", label);
+      if (
+        density === 1 &&
+        channel === "albedo" &&
+        (source.path !== manifest.source.path || source.sha256 !== manifest.contentHash)
+      )
+        fail("MATERIAL_ALBEDO", "1x albedo must name the owning source and contentHash");
+      let image: ReturnType<typeof decodePng>;
+      try {
+        image = decodePng(data);
+      } catch {
+        fail("MATERIAL_DECODE", label);
+        continue;
+      }
+      if (image.width !== fw * count || image.height !== fh) {
+        fail("MATERIAL_GRID", `${label} expected ${fw * count}x${fh}`);
+        continue;
+      }
+      decoded.set(channel, image);
+    }
+    const albedo = decoded.get("albedo");
+    if (albedo === undefined) continue;
+    let minX = fw,
+      minY = fh,
+      maxX = -1,
+      maxY = -1;
+    let badAlpha = false,
+      transparent = false,
+      paintedBorder = false,
+      badPalette = false;
+    const threshold = profile.alpha.mode === "binary" ? 255 : profile.alpha.boundsThreshold;
+    for (let y = 0; y < fh; y++)
+      for (let x = 0; x < fw * count; x++) {
+        const alpha = albedo.rgba[(y * albedo.width + x) * 4 + 3] as number;
+        if (alpha === 0) transparent = true;
+        if (alpha !== 0 && alpha !== 255) badAlpha = true;
+        if (alpha > 0 && profile.colour.mode === "palette") {
+          const offset = (y * albedo.width + x) * 4;
+          if (
+            !profile.colour.colours.includes(
+              hexColour(
+                albedo.rgba[offset] as number,
+                albedo.rgba[offset + 1] as number,
+                albedo.rgba[offset + 2] as number,
+              ),
+            )
+          )
+            badPalette = true;
+        }
+        if (alpha > 0 && (x % fw === 0 || x % fw === fw - 1 || y === 0 || y === fh - 1))
+          paintedBorder = true;
+        if (alpha < threshold) continue;
+        minX = Math.min(minX, x % fw);
+        maxX = Math.max(maxX, x % fw);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    if (badPalette) fail("MATERIAL_PALETTE", `${density}x/albedo violates declared palette`);
+    if (profile.alpha.mode === "binary" && badAlpha)
+      fail("MATERIAL_ALPHA_MODE", `${density}x/albedo requires binary alpha`);
+    if (
+      (profile.edge === "transparent-border" && paintedBorder) ||
+      (profile.edge === "transparent-pixel" && !transparent && manifest.semantic.role !== "terrain")
+    )
+      fail("MATERIAL_EDGE", `${density}x/albedo violates declared edge policy`);
+    const b = manifest.bounds;
+    if (
+      minX !== b.x * density ||
+      minY !== b.y * density ||
+      maxX + 1 !== (b.x + b.width) * density ||
+      maxY + 1 !== (b.y + b.height) * density
+    )
+      fail("MATERIAL_BOUNDS", `${density}x/albedo does not match scaled owning bounds`);
+    for (const [channel, image] of decoded) {
+      const limit = policy[channel];
+      if (limit === undefined) continue;
+      let alpha = false,
+        range = false,
+        temporal = false;
+      for (let y = 0; y < fh; y++)
+        for (let x = 0; x < fw * count; x++) {
+          const offset = (y * image.width + x) * 4;
+          if (image.rgba[offset + 3] !== albedo.rgba[offset + 3]) alpha = true;
+          const nextX = (x + fw) % image.width;
+          const next = (y * image.width + nextX) * 4;
+          for (let c = 0; c < 3; c++) {
+            const value = image.rgba[offset + c] as number;
+            if ((image.rgba[offset + 3] as number) > 0 && (value < limit.min || value > limit.max))
+              range = true;
+            if (
+              count > 1 &&
+              ((image.rgba[offset + 3] as number) > 0 || (image.rgba[next + 3] as number) > 0) &&
+              Math.abs(value - (image.rgba[next + c] as number)) > limit.maxFrameChange
+            )
+              temporal = true;
+          }
+        }
+      if (alpha) fail("MATERIAL_ALPHA", `${density}x/${channel} coverage differs from albedo`);
+      if (range) fail("MATERIAL_RANGE", `${density}x/${channel} outside declared RGB range`);
+      if (temporal)
+        fail(
+          "MATERIAL_FRAME_CHANGE",
+          `${density}x/${channel} exceeds declared loop frame-change bound`,
+        );
+    }
+  }
+  return problems;
 }

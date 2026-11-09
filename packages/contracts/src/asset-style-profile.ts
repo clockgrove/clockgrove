@@ -1,3 +1,4 @@
+import { decodeMaterialChannels, type MaterialChannels } from "./material.js";
 import {
   array,
   ContractDecodeError,
@@ -5,6 +6,7 @@ import {
   integer,
   literal,
   literalVersion,
+  optional,
   record,
   string,
 } from "./validation.js";
@@ -17,7 +19,21 @@ export const ASSET_STYLE_MAX_FRAME_WIDTH = 1024;
 export const ASSET_STYLE_ROLES = ["actor", "object", "terrain", "effect"] as const;
 export type AssetStyleRole = (typeof ASSET_STYLE_ROLES)[number];
 
+export interface MaterialChannelPolicy {
+  readonly encoding: "srgb" | "linear";
+  /** Inclusive RGB byte range; alpha is coverage, checked against albedo. */
+  readonly min: number;
+  readonly max: number;
+  /** Maximum absolute RGB byte change at corresponding pixels, including the loop seam. */
+  readonly maxFrameChange: number;
+}
+export interface MaterialStylePolicy {
+  readonly materialVersion: 1;
+  readonly roles: Readonly<Record<AssetStyleRole, MaterialChannels<MaterialChannelPolicy>>>;
+}
+
 export interface AssetStyleProfile {
+  readonly material?: MaterialStylePolicy;
   readonly styleProfileVersion: 1;
   readonly alpha:
     | { readonly mode: "binary" }
@@ -45,7 +61,7 @@ function bounded(value: unknown, max: number, path: string): number {
 /** Decodes presentation data independently of the simulation pack and its content hash. */
 export function decodeAssetStyleProfile(value: unknown, path = "style"): AssetStyleProfile {
   const v = record(value, path);
-  exactKeys(v, ["styleProfileVersion", "alpha", "colour", "edge", "sizes"], [], path);
+  exactKeys(v, ["styleProfileVersion", "alpha", "colour", "edge", "sizes"], ["material"], path);
   literalVersion(v.styleProfileVersion, ASSET_STYLE_PROFILE_VERSION, `${path}.styleProfileVersion`);
   const a = record(v.alpha, `${path}.alpha`);
   const alphaMode = literal(a.mode, ["binary", "soft"], `${path}.alpha.mode`);
@@ -102,8 +118,10 @@ export function decodeAssetStyleProfile(value: unknown, path = "style"): AssetSt
       maxHeight: bounded(r.maxHeight, ASSET_STYLE_MAX_TEXTURE_EDGE, `${p}.maxHeight`),
     });
   };
+  const material = optional(v, "material", decodeMaterialStylePolicy, path);
   return Object.freeze({
     styleProfileVersion: 1,
+    ...(material === undefined ? {} : { material }),
     alpha,
     colour,
     edge: literal(
@@ -116,6 +134,45 @@ export function decodeAssetStyleProfile(value: unknown, path = "style"): AssetSt
       object: size("object"),
       terrain: size("terrain"),
       effect: size("effect"),
+    }),
+  });
+}
+
+function decodeMaterialStylePolicy(value: unknown, path: string): MaterialStylePolicy {
+  const v = record(value, path);
+  exactKeys(v, ["materialVersion", "roles"], [], path);
+  literalVersion(v.materialVersion, 1, `${path}.materialVersion`);
+  const roles = record(v.roles, `${path}.roles`);
+  exactKeys(roles, ASSET_STYLE_ROLES, [], `${path}.roles`);
+  const byte = (value: unknown, p: string): number => {
+    const result = integer(value, p);
+    // RGBA8 source components are bytes; worlds choose tighter bounds explicitly.
+    if (result < 0 || result > 255)
+      throw new ContractDecodeError(p, "expected an integer in 0..255");
+    return result;
+  };
+  const policy = (value: unknown, p: string): MaterialChannelPolicy => {
+    const c = record(value, p);
+    exactKeys(c, ["encoding", "min", "max", "maxFrameChange"], [], p);
+    const min = byte(c.min, `${p}.min`);
+    const max = byte(c.max, `${p}.max`);
+    if (min > max) throw new ContractDecodeError(p, "expected min <= max");
+    return Object.freeze({
+      encoding: literal(c.encoding, ["srgb", "linear"], `${p}.encoding`),
+      min,
+      max,
+      maxFrameChange: byte(c.maxFrameChange, `${p}.maxFrameChange`),
+    });
+  };
+  const role = (role: AssetStyleRole) =>
+    decodeMaterialChannels(roles[role], `${path}.roles.${role}`, policy);
+  return Object.freeze({
+    materialVersion: 1,
+    roles: Object.freeze({
+      actor: role("actor"),
+      object: role("object"),
+      terrain: role("terrain"),
+      effect: role("effect"),
     }),
   });
 }

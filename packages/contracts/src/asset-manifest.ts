@@ -1,4 +1,5 @@
 import { decodeOpaqueId, type ObjectId } from "./ids.js";
+import { type AssetMaterial, decodeAssetMaterial } from "./material.js";
 import { decodeScenePresentationBinding, type ScenePresentationBinding } from "./scene-protocol.js";
 import {
   array,
@@ -65,6 +66,8 @@ export interface AssetProvenance {
 }
 
 export interface AssetManifest {
+  /** Material channels inherit this asset role, frame grid, bounds and animation timing. */
+  readonly material?: AssetMaterial;
   readonly assetManifestVersion: 2;
   /** Kebab-case; with `animationFamily` the manifest's identity. */
   readonly assetId: string;
@@ -159,9 +162,10 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
       "atlas",
       "accessibilityLabel",
     ],
-    [],
+    ["material"],
     path,
   );
+  const material = optional(v, "material", decodeAssetMaterial, path);
   literalVersion(v.assetManifestVersion, ASSET_MANIFEST_VERSION, `${path}.assetManifestVersion`);
   const assetId = pattern(v.assetId, kebab, `${path}.assetId`, "a kebab-case id");
   const animationFamily = literal(
@@ -287,6 +291,7 @@ export function decodeAssetManifest(value: unknown, path = "manifest"): AssetMan
 
   return Object.freeze({
     assetManifestVersion: 2,
+    ...(material === undefined ? {} : { material }),
     assetId,
     animationFamily,
     source: Object.freeze({

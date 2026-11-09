@@ -1,4 +1,6 @@
+import type { AssetStyleProfile, MaterialChannel } from "@clockgrove/contracts";
 import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts/asset-manifest";
+import { encodeBc3Dds } from "./bc3.js";
 import { decodePng, encodePng } from "./png.js";
 import { sha256Hex } from "./validate.js";
 
@@ -21,8 +23,20 @@ export interface Placement extends Segment {
 export interface AssetEntry {
   readonly manifest: AssetManifest;
   readonly bytes: Uint8Array;
+  readonly materialSources?: Readonly<Record<string, Uint8Array>>;
+}
+export interface BuiltMaterialTexture {
+  readonly atlasId: string;
+  readonly density: 1 | 2 | 4;
+  readonly channel: MaterialChannel;
+  readonly width: number;
+  readonly height: number;
+  readonly png: Uint8Array;
+  readonly compressed: Uint8Array;
+  readonly format: "bc3-dds";
 }
 export interface BuiltAtlas {
+  readonly materialTextures?: readonly BuiltMaterialTexture[];
   readonly atlasId: string;
   readonly png: Uint8Array;
   readonly animations: string;
@@ -174,7 +188,7 @@ export const atlasIndex = (atlases: readonly BuiltAtlas[]): string =>
  * Bounded atlas pages per logical atlasId. `layout` computes placements (default: the
  * entries); pass every manifest so a pending asset keeps its place when only approved ones build.
  */
-export function buildAtlases(
+function buildFlatAtlases(
   entries: readonly AssetEntry[],
   layout: readonly AssetManifest[] = entries.map((e) => e.manifest),
 ): BuiltAtlas[] {
@@ -243,4 +257,224 @@ export function buildAtlases(
     });
     return { atlasId, png, animations };
   });
+}
+
+/** Packs world-supplied channels without deriving maps or resampling renditions. */
+export function buildAtlases(
+  entries: readonly AssetEntry[],
+  layout: readonly AssetManifest[] = entries.map((entry) => entry.manifest),
+  profile?: AssetStyleProfile,
+): BuiltAtlas[] {
+  const atlases = buildFlatAtlases(entries, layout);
+  const materialEntries = entries.filter((entry) => entry.manifest.material !== undefined);
+  if (materialEntries.length === 0) return atlases;
+  const textures: BuiltMaterialTexture[] = [];
+  type TextureReference = {
+    encoding?: "srgb" | "linear";
+    image: { sha256: string; width: number; height: number; bytes: number };
+    compressed: { sha256: string; format: "bc3-dds"; bytes: number };
+    frames: Segment[];
+    pages: {
+      atlasId: string;
+      image: { sha256: string; width: number; height: number; bytes: number };
+      compressed: { sha256: string; format: "bc3-dds"; bytes: number };
+    }[];
+  };
+  const deliveries = new Map<
+    string,
+    {
+      materialVersion: 1;
+      renditions: {
+        density: 1 | 2 | 4;
+        channels: Partial<Record<MaterialChannel, TextureReference>>;
+      }[];
+    }
+  >();
+  for (const entry of materialEntries)
+    deliveries.set(assetKey(entry.manifest), { materialVersion: 1, renditions: [] });
+  for (const density of [1, 2, 4] as const) {
+    const roles = layout.filter((manifest) =>
+      manifest.material?.renditions.some((r) => r.density === density),
+    );
+    const channels = [
+      ...new Set(
+        roles.flatMap((manifest) =>
+          Object.keys(
+            manifest.material?.renditions.find((r) => r.density === density)?.channels ?? {},
+          ),
+        ),
+      ),
+    ].sort() as MaterialChannel[];
+    for (const channel of channels) {
+      const scaled = roles.map((m): AssetManifest => {
+        const { material: _, ...flat } = m;
+        return {
+          ...flat,
+          frames: {
+            ...m.frames,
+            width: m.frames.width * density,
+            height: m.frames.height * density,
+          },
+          anchor: { x: m.anchor.x * density, y: m.anchor.y * density },
+          bounds: {
+            x: m.bounds.x * density,
+            y: m.bounds.y * density,
+            width: m.bounds.width * density,
+            height: m.bounds.height * density,
+          },
+          atlas: { atlasId: `${m.atlas.atlasId}-${density}x-${channel}`, x: 0, y: 0 },
+        };
+      });
+      const placements = packAtlas(scaled);
+      const aligned = scaled.map((m) => {
+        const at = placements.get(assetKey(m)) as Placement;
+        return { ...m, atlas: { ...m.atlas, x: at.x, y: at.y } };
+      });
+      const packed = materialEntries.flatMap((entry): AssetEntry[] => {
+        const rendition = entry.manifest.material?.renditions.find((r) => r.density === density);
+        const source = rendition?.channels[channel];
+        if (source === undefined) return [];
+        const bytes =
+          source.path === entry.manifest.source.path
+            ? entry.bytes
+            : entry.materialSources?.[source.path];
+        if (bytes === undefined)
+          throw new Error(
+            `${assetKey(entry.manifest)}: MATERIAL_SOURCE_REQUIRED: ${density}x/${channel}`,
+          );
+        const manifest = aligned.find(
+          (m) => assetKey(m) === assetKey(entry.manifest),
+        ) as AssetManifest;
+        const image = decodePng(bytes);
+        if (
+          sha256Hex(bytes) !== source.sha256 ||
+          image.width !== manifest.frames.width * manifest.frames.count ||
+          image.height !== manifest.frames.height
+        )
+          throw new Error(`${assetKey(manifest)}: MATERIAL_SOURCE_INVALID: ${density}x/${channel}`);
+        return [{ manifest, bytes }];
+      });
+      const pages = buildFlatAtlases(packed, aligned);
+      for (const page of pages) {
+        const source = decodePng(page.png);
+        // BC3 requires complete 4×4 blocks; transparent padding leaves all frame rectangles intact.
+        const width = Math.ceil(source.width / 4) * 4;
+        const height = Math.ceil(source.height / 4) * 4;
+        const rgba = new Uint8Array(width * height * 4);
+        for (let y = 0; y < source.height; y++)
+          rgba.set(
+            source.rgba.subarray(y * source.width * 4, (y + 1) * source.width * 4),
+            y * width * 4,
+          );
+        const image = { width, height, rgba };
+        const png = encodePng(image);
+        textures.push({
+          atlasId: page.atlasId,
+          density,
+          channel,
+          width,
+          height,
+          png,
+          compressed: encodeBc3Dds(image),
+          format: "bc3-dds",
+        });
+      }
+      for (const entry of packed) {
+        const key = assetKey(entry.manifest);
+        const delivery = deliveries.get(key);
+        if (delivery === undefined) continue;
+        let rendition = delivery.renditions.find((r) => r.density === density);
+        if (rendition === undefined) {
+          rendition = { density, channels: {} };
+          delivery.renditions.push(rendition);
+        }
+        const p = placements.get(key) as Placement;
+        const first = textures.find((t) => t.atlasId === p.atlasId) as BuiltMaterialTexture;
+        const role = materialEntries.find((e) => assetKey(e.manifest) === key)?.manifest.semantic
+          .role;
+        const encoding =
+          role === undefined ? undefined : profile?.material?.roles[role][channel]?.encoding;
+        rendition.channels[channel] = {
+          ...(encoding === undefined ? {} : { encoding }),
+          image: {
+            sha256: sha256Hex(first.png),
+            width: first.width,
+            height: first.height,
+            bytes: first.png.length,
+          },
+          compressed: {
+            sha256: sha256Hex(first.compressed),
+            format: "bc3-dds",
+            bytes: first.compressed.length,
+          },
+          frames: Array.from({ length: entry.manifest.frames.count }, (_, i) =>
+            frameRect(entry.manifest, p, i),
+          ),
+          pages: [p, ...p.continued].map((segment) => {
+            const texture = textures.find(
+              (t) => t.atlasId === segment.atlasId,
+            ) as BuiltMaterialTexture;
+            return {
+              atlasId: texture.atlasId,
+              image: {
+                sha256: sha256Hex(texture.png),
+                width: texture.width,
+                height: texture.height,
+                bytes: texture.png.length,
+              },
+              compressed: {
+                sha256: sha256Hex(texture.compressed),
+                format: "bc3-dds",
+                bytes: texture.compressed.length,
+              },
+            };
+          }),
+        };
+      }
+    }
+  }
+  return atlases.map((atlas, n) => {
+    const metadata = JSON.parse(atlas.animations) as {
+      animations: { assetId: string; animationFamily: string; material?: unknown }[];
+    };
+    for (const animation of metadata.animations) {
+      const delivery = deliveries.get(`${animation.assetId}/${animation.animationFamily}`);
+      if (delivery !== undefined) animation.material = delivery;
+    }
+    return {
+      ...atlas,
+      animations: canonicalJson(metadata),
+      ...(n === 0 ? { materialTextures: textures } : {}),
+    };
+  });
+}
+
+/** All material pages are named explicitly and also available through content-addressed delivery. */
+export function materialAtlasFiles(
+  atlases: readonly BuiltAtlas[],
+): { name: string; bytes: Uint8Array; contentType: string }[] {
+  return atlases.flatMap((atlas) =>
+    (atlas.materialTextures ?? []).flatMap((texture) => [
+      { name: `${texture.atlasId}.png`, bytes: texture.png, contentType: "image/png" },
+      {
+        name: `${texture.atlasId}.dds`,
+        bytes: texture.compressed,
+        contentType: "image/vnd-ms.dds",
+      },
+    ]),
+  );
+}
+
+/** Runtime world presentation configuration consumes this map under its `materials` field. */
+export function atlasMaterials(atlases: readonly BuiltAtlas[]): Readonly<Record<string, unknown>> {
+  const materials: Record<string, unknown> = {};
+  for (const atlas of atlases) {
+    const metadata = JSON.parse(atlas.animations) as {
+      animations: { assetId: string; animationFamily: string; material?: unknown }[];
+    };
+    for (const animation of metadata.animations)
+      if (animation.material !== undefined)
+        materials[`${animation.assetId}/${animation.animationFamily}`] = animation.material;
+  }
+  return materials;
 }

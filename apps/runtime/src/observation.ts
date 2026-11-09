@@ -61,6 +61,7 @@ import {
   sceneHierarchyOf,
 } from "./scene-navigation.js";
 import {
+  materialSceneLighting,
   type ScenePresentationInput,
   sceneEffects,
   scenePresentationBindings,
@@ -480,6 +481,13 @@ export class PostgreSqlSceneStreamReader {
       projected,
       this.presentations,
     );
+    const lighting = materialSceneLighting(
+      stored,
+      this.presentations,
+      BigInt(scene.simulationTime),
+      scene.weather,
+      effects,
+    );
     const projection = decodeSceneProjection({
       tenantId: scene.tenantId,
       worldId: scene.worldId,
@@ -494,6 +502,7 @@ export class PostgreSqlSceneStreamReader {
       revision: BigInt(scene.revision),
       simulationTime: BigInt(scene.simulationTime),
       weather: scene.weather,
+      ...(lighting === undefined ? {} : { lighting }),
       hierarchy: sceneHierarchyOf(scene.spaceId, stored.document.state),
       frames: scene.frames,
       entities: scene.entities,

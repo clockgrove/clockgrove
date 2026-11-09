@@ -12,6 +12,7 @@ export interface SceneMaterial {
   readonly resource: string;
   readonly animation: string;
   readonly label: string;
+  readonly delivery?: import("@clockgrove/contracts").SceneMaterialDelivery;
 }
 export interface SceneEntityPresentation {
   readonly placeholder: PlaceholderPresentation;
@@ -36,6 +37,7 @@ export function scenePresentations(
               resource: binding.assetId,
               animation: binding.animationFamily,
               label: binding.accessibilityLabel,
+              ...(binding.material === undefined ? {} : { delivery: binding.material }),
             },
           }
         : {}),
