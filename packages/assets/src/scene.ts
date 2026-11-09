@@ -38,8 +38,19 @@ function blit(target: RgbaImage, sprite: Sprite, destX: number, destY: number): 
       const ty = destY + y;
       if (tx < 0 || ty < 0 || tx >= target.width || ty >= target.height) continue;
       const s = (y * sprite.image.width + x) * 4;
-      if (sprite.image.rgba[s + 3] === 0) continue;
-      target.rgba.set(sprite.image.rgba.subarray(s, s + 4), (ty * target.width + tx) * 4);
+      const alpha = sprite.image.rgba[s + 3] as number;
+      if (alpha === 0) continue;
+      // Integer source-over onto the opaque scene: the output stays opaque, and binary-alpha
+      // art (alpha 255) copies its colour unchanged.
+      const t = (ty * target.width + tx) * 4;
+      for (let c = 0; c < 3; c++)
+        target.rgba[t + c] = Math.floor(
+          ((sprite.image.rgba[s + c] as number) * alpha +
+            (target.rgba[t + c] as number) * (255 - alpha) +
+            127) /
+            255,
+        );
+      target.rgba[t + 3] = 255;
     }
 }
 

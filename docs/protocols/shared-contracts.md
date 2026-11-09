@@ -162,8 +162,10 @@ The manifest's top-level `license` remains the licence the asset declares. Compl
 provenance permits MIT only when the commercial provider grant permits relicensing, including
 provider ownership terms recorded as a `LicenseRef-<provider>-<plan>`. A
 `CC-BY-4.0` grant keeps `CC-BY-4.0` and requires a non-empty attribution; it cannot be declared MIT.
-Provider grants may use `AND` expressions: every conjunct applies. A CC-BY conjunct requires
-licence retention and credit even when the grant claims `relabel: true`.
+Provider grants may use `AND` expressions: every conjunct applies. A grant that disallows
+relabelling permits a declared licence equal to one of its conjuncts when every conjunct is a
+permitted licence. A CC-BY conjunct requires licence retention and credit even when the grant
+claims `relabel: true`.
 Non-commercial and provider-retained grants are refused. The pipeline never silently relabels an
 asset. Missing or partial generated provenance is refused by the deploy gate with a stable reason;
 malformed field types remain decoder errors. Human review remains a separate requirement.
@@ -174,7 +176,7 @@ Generated deploy refusals are:
 | --- | --- |
 | `GENERATED_PROVENANCE_INCOMPLETE` | Missing prompt, model, provider, route, terms version, grant or required grant fields |
 | `OUTPUT_GRANT_NOT_PERMITTED` | Commercial use is false, or the grant permits neither relicensing nor a permitted licence |
-| `OUTPUT_GRANT_LICENSE_MISMATCH` | Declared licence differs from a grant that disallows relabelling, or a CC-BY grant claims MIT |
+| `OUTPUT_GRANT_LICENSE_MISMATCH` | Declared licence is not a conjunct of a grant that disallows relabelling, or a CC-BY grant claims MIT |
 | `OUTPUT_GRANT_ATTRIBUTION_REQUIRED` | A CC-BY-4.0 grant has no required credit line |
 
 `assetDeployRefusals` is the deploy gate. It returns `REVIEW_NOT_APPROVED` unless the review is approved,
@@ -209,8 +211,10 @@ invalid values are refused with `ContractDecodeError` carrying the exact field p
 
 Binary alpha means 0 or 255 and uses 255 for bounds. Soft alpha allows every byte value;
 bounds include pixels whose alpha is at least `boundsThreshold`. Palette colours are
-non-empty, sorted, unique lowercase `#rrggbb` values. `subset` allows any subset of the
-declared colours; `exact` also requires every declared colour to appear. Colour membership
+non-empty, sorted, unique lowercase `#rrggbb` values. Strictness applies to the whole world,
+not to each asset: `subset` allows the world's assets to use any subset of the declared colours;
+`exact` also requires every declared colour to appear in at least one of the world's assets.
+Each asset may use any subset of the palette under either strictness. Colour membership
 concerns every pixel with nonzero alpha, including antialiased pixels below the bounds threshold.
 `transparent-pixel` requires at least one fully transparent pixel in each non-terrain strip,
 preserving the existing pixel-art rule; `transparent-border` requires all border pixels of
@@ -234,4 +238,5 @@ inventory in the manifest. Missing world profiles are refused with `STYLE_PROFIL
 malformed ones with `STYLE_PROFILE_INVALID`; rule failures use `STYLE_ALPHA`, `STYLE_PALETTE`,
 `STYLE_EDGE` and `STYLE_SIZE`. Manifest version 2 admits frames up to the 2048 px platform
 envelope; the fixture's pixel-art profile supplies its 256 px limits. Bounded multi-atlas packing
-is implemented; external-world asset commands remain the final part of issue 61.
+is implemented. Worlds outside this repository run the same checks through the
+[external-world commands](../../packages/assets/docs/pipeline.md#external-world-commands).

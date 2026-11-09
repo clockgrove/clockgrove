@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ContractDecodeError } from "@clockgrove/contracts";
 import {
   type AssetManifest,
   decodeAssetManifest,
@@ -45,12 +46,39 @@ const names = (dir: string, suffix: string): string[] =>
         .filter((n) => n.endsWith(suffix))
         .sort()
     : [];
+/** Parses a JSON file, naming the file when it is malformed (`JSON_INVALID`). */
 // biome-ignore lint/suspicious/noExplicitAny: pack resources are read structurally
-const readJson = (path: string): Record<string, any> => JSON.parse(readFileSync(path, "utf8"));
-const point = (coordinates: { $bigint: string }[]): [number, number] => [
-  Number(coordinates[0]?.$bigint),
-  Number(coordinates[1]?.$bigint),
-];
+export function readJson(path: string): Record<string, any> {
+  const text = readFileSync(path, "utf8");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`JSON_INVALID: ${path}: ${(error as Error).message}`);
+  }
+}
+
+/** Runs a contract decoder, turning its field-path refusal into a coded input error. */
+export function decodeAs<T>(code: string, decode: () => T): T {
+  try {
+    return decode();
+  } catch (error) {
+    if (error instanceof ContractDecodeError) throw new Error(`${code}: ${error.message}`);
+    throw error;
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const invalidScene = (file: string, detail: string) =>
+  new Error(`PACK_SCENE_INVALID: ${file}: ${detail}`);
+/** A wire point: at least two `{ "$bigint": "<integer>" }` coordinates, of which x and y are read. */
+function point(value: unknown, file: string, field: string): [number, number] {
+  const integer = (c: unknown) =>
+    isRecord(c) && typeof c.$bigint === "string" && /^-?\d+$/u.test(c.$bigint);
+  if (!Array.isArray(value) || value.length < 2 || !integer(value[0]) || !integer(value[1]))
+    throw invalidScene(file, `${field} must list integer { "$bigint" } coordinates`);
+  return [Number(value[0].$bigint), Number(value[1].$bigint)];
+}
 
 /** Presentation data lives beside presentation.json, outside the simulation pack hash. */
 export function readAssetStyleProfile(root: string, packDir: string): AssetStyleProfile {
@@ -69,7 +97,10 @@ export function readManifests(root: string, assetRoot = "assets"): ManifestFile[
   for (const assetId of existsSync(base) ? readdirSync(base).sort() : [])
     for (const name of names(join(base, assetId), ".json")) {
       const path = `${assetRoot}/manifests/${assetId}/${name}`;
-      const manifest: AssetManifest = decodeAssetManifest(readJson(join(root, path)), path);
+      const json = readJson(join(root, path));
+      const manifest: AssetManifest = decodeAs("ASSET_MANIFEST_INVALID", () =>
+        decodeAssetManifest(json, path),
+      );
       files.push({
         path,
         manifest,
@@ -97,27 +128,47 @@ export function readPackScenes(root: string, worldRoot = "worlds"): PackScene[] 
     const packDir = relative(sceneBase, pack) || ".";
     const placements = new Map<string, [number, number]>();
     for (const name of names(join(pack, "resources/actors"), ".json")) {
-      const actor = readJson(join(pack, "resources/actors", name));
-      if (actor.placement) placements.set(actor.id, point(actor.placement.coordinates));
+      const file = join(pack, "resources/actors", name);
+      const actor = readJson(file);
+      if (actor.placement === undefined || actor.placement === null) continue;
+      if (typeof actor.id !== "string")
+        throw invalidScene(file, "a placed actor needs a string id");
+      if (!isRecord(actor.placement)) throw invalidScene(file, "placement must be an object");
+      placements.set(actor.id, point(actor.placement.coordinates, file, "placement.coordinates"));
     }
     const paths: PackScene["paths"] = [];
     for (const name of names(join(pack, "resources/spaces"), ".json")) {
-      const graph = readJson(join(pack, "resources/spaces", name)).anchorGraph;
-      const anchors = new Map<string, [number, number]>(
-        (graph?.anchors ?? []).map(
-          (a: { anchorId: string; coordinates: { $bigint: string }[] }) => [
-            a.anchorId,
-            point(a.coordinates),
-          ],
-        ),
-      );
-      for (const edge of graph?.edges ?? [])
-        paths.push([
-          anchors.get(edge.from) as [number, number],
-          anchors.get(edge.to) as [number, number],
-        ]);
+      const file = join(pack, "resources/spaces", name);
+      const graph = readJson(file).anchorGraph;
+      if (graph === undefined || graph === null) continue;
+      if (
+        !isRecord(graph) ||
+        !Array.isArray(graph.anchors ?? []) ||
+        !Array.isArray(graph.edges ?? [])
+      )
+        throw invalidScene(file, "anchorGraph must hold anchor and edge arrays");
+      const anchors = new Map<string, [number, number]>();
+      for (const [index, anchor] of ((graph.anchors ?? []) as unknown[]).entries()) {
+        if (!isRecord(anchor) || typeof anchor.anchorId !== "string")
+          throw invalidScene(file, `anchorGraph.anchors[${index}] needs a string anchorId`);
+        anchors.set(
+          anchor.anchorId,
+          point(anchor.coordinates, file, `anchorGraph.anchors[${index}].coordinates`),
+        );
+      }
+      for (const [index, edge] of ((graph.edges ?? []) as unknown[]).entries()) {
+        const from = isRecord(edge) ? anchors.get(edge.from as string) : undefined;
+        const to = isRecord(edge) ? anchors.get(edge.to as string) : undefined;
+        if (from === undefined || to === undefined)
+          throw invalidScene(file, `anchorGraph.edges[${index}] must join two declared anchors`);
+        paths.push([from, to]);
+      }
     }
-    const presentation = decodePackPresentation(readJson(join(pack, "presentation.json")));
+    const presentationFile = join(pack, "presentation.json");
+    const json = readJson(presentationFile);
+    const presentation = decodeAs("PRESENTATION_INVALID", () =>
+      decodePackPresentation(json, presentationFile),
+    );
     return {
       packDir,
       presentation,

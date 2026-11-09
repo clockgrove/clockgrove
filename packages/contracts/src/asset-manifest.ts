@@ -421,7 +421,7 @@ export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDepl
       });
     if (
       grant?.license !== undefined &&
-      ((grant.relabel === false && manifest.license !== grant.license) ||
+      ((grant.relabel === false && !grantLicenses.includes(manifest.license)) ||
         (requiresCredit && manifest.license !== "CC-BY-4.0") ||
         (manifest.license === "MIT" && grant.relabel !== true))
     )

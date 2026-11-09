@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { decodeAssetManifest, decodeAssetStyleProfile } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
-import { buildAtlases, decodePng, encodePng, sha256Hex, validateSource } from "../src/index.js";
+import {
+  buildAtlases,
+  decodePng,
+  encodePng,
+  sha256Hex,
+  validateSource,
+  worldPaletteProblems,
+} from "../src/index.js";
 
 const template = JSON.parse(
   readFileSync(
@@ -111,8 +118,10 @@ it("retains pixel inventory, alpha and edge refusals while applying declared sub
     ...cartoon,
     colour: { mode: "palette", colours: ["#202020", "#808080"], strictness: "exact" },
   });
-  expect(validate(art.manifest, art.bytes, exact)).toEqual([
-    "STYLE_PALETTE: world palette colour #808080 is unused",
+  // `exact` is per world: one asset may use part of the palette.
+  expect(validate(art.manifest, art.bytes, exact)).toEqual([]);
+  expect(worldPaletteProblems([art.manifest], exact)).toEqual([
+    "STYLE_PALETTE: world palette colour #808080 is unused by every asset",
   ]);
   expect(validate(soft.manifest, soft.bytes, painterly)).toEqual([]);
   expect(

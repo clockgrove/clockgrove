@@ -15,6 +15,7 @@ import {
   sha256Hex,
   uploadReviewedAssets,
   validateSource,
+  worldPaletteProblems,
 } from "../src/index.js";
 
 const require = createRequire(import.meta.url);
@@ -61,18 +62,23 @@ function entry(assetId: string, count: number, x: number): AssetEntry {
   return { manifest, bytes };
 }
 
-const profileData = JSON.parse(
-  readFileSync(
-    new URL("../../../worlds/fixture/reference/asset-style.json", import.meta.url),
-    "utf8",
+// The fixture's own pixel-art profile (exact two-colour palette), unmodified.
+const fixtureProfile = decodeAssetStyleProfile(
+  JSON.parse(
+    readFileSync(
+      new URL("../../../worlds/fixture/reference/asset-style.json", import.meta.url),
+      "utf8",
+    ),
   ),
 );
-profileData.colour.strictness = "subset";
-const subsetProfile = decodeAssetStyleProfile(profileData);
 const entries = [entry("critter-a", 2, 0), entry("critter-b", 1, 8)];
 const golden = {
   sceneSha256: "scene",
-  approval: { status: "approved" as const, approvedSceneSha256: "scene" },
+  approval: {
+    status: "approved" as const,
+    reviewer: "synthetic-reviewer",
+    approvedSceneSha256: "scene",
+  },
 };
 const mf = new Miniflare(
   convertV4MiniflareOptions({
@@ -84,9 +90,15 @@ const mf = new Miniflare(
 afterAll(() => mf.dispose());
 
 it("builds identical atlases in any order and uploads them once to R2, refusing unreviewed assets", async () => {
+  // critter-b uses one of the two world colours; `exact` holds across the world, not per asset.
   expect(
-    entries.flatMap((e) => validateSource(e.manifest, e.bytes, undefined, subsetProfile)),
+    entries.flatMap((e) => validateSource(e.manifest, e.bytes, undefined, fixtureProfile)),
   ).toEqual([]);
+  const manifests = entries.map((e) => e.manifest);
+  expect(worldPaletteProblems(manifests, fixtureProfile)).toEqual([]);
+  expect(worldPaletteProblems(manifests.slice(1), fixtureProfile)).toEqual([
+    "STYLE_PALETTE: world palette colour #808080 is unused by every asset",
+  ]);
   const [forward] = buildAtlases(entries);
   const [reversed] = buildAtlases([...entries].reverse());
   expect(Buffer.from(forward?.png ?? [])).toEqual(Buffer.from(reversed?.png ?? []));
@@ -127,5 +139,12 @@ it("builds identical atlases in any order and uploads them once to R2, refusing 
       golden,
     }),
   ).rejects.toThrow(/REVIEW_NOT_APPROVED/u);
+  for (const reviewer of [null, "github-actions[bot]"])
+    await expect(
+      uploadReviewedAssets(store, {
+        entries,
+        golden: { ...golden, approval: { ...golden.approval, reviewer } },
+      }),
+    ).rejects.toThrow(/GOLDEN_REVIEWER_NOT_HUMAN/u);
   expect((await bucket.list()).objects.length).toBe(before);
 });
