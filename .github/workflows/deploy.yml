@@ -48,7 +48,7 @@ jobs:
   deploy:
     needs: admit
     if: ${{ needs.admit.outputs.environment == inputs.environment && (inputs.environment == 'development' || inputs.environment == 'staging') }}
-    # Owner issue 329 must appoint an isolated disposable runner with supported tools,
+    # Owner setup (issue 1) must appoint an isolated disposable runner with supported tools,
     # external state mount and managed encryption-key identity. No default is inferred.
     runs-on: [self-hosted, Linux, clockgrove-release]
     timeout-minutes: 45

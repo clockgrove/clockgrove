@@ -563,7 +563,7 @@ Amended (2026-10-19): the Wave 3 Objectives are filed:
 - issue 700 committed dispatches flow through Queues (RW-0305);
 - issue 701 operators inspect and observe the running service (RW-0309, §19, §20);
 - issue 702 provisioning, readiness and catch-up run as durable Workflows (RW-0306);
-- entry issues issue 693 (Wave 0 hosted half) and issue 694 (RW-0209).
+- entry issues issue 2 (Wave 0 hosted half) and issue 694 (RW-0209).
 
 RW-0307 moves to Wave 5 and RW-0308 is deferred (§9.3, §13). RW-0310 qualification, the §17 fault matrix, §19 load and the §18.3 soak are Tasks run against a frozen candidate, not Objectives.
 
@@ -840,7 +840,7 @@ Amended (2026-10-27): `authorityEpoch` equals `routingEpoch` (§3.4, §5.3), and
 
 The qualification manifest records commit, runtime/compatibility versions, binding manifest hash, migration head, test/fault results, scenario hashes, Cloudflare qualification evidence, load curves, resource/cost counters, and the exit decision.
 
-Amended (2026-10-28): `pnpm qualify:wave3` writes that manifest. Each item above resolves to `passed` from candidate-bound receipts, `review` naming its review, `deferred` to the wave the amendments name, or `pending` naming what is missing and its issue. "Local and real Cloudflare qualification passes", every §18.2 item and the Cloudflare half of any other item stay pending on issue 881, and "Main remains deployable" on issue 693, until hosted evidence exists; the validator refuses them marked passed.
+Amended (2026-10-28): `pnpm qualify:wave3` writes that manifest. Each item above resolves to `passed` from candidate-bound receipts, `review` naming its review, `deferred` to the wave the amendments name, or `pending` naming what is missing and its issue. "Local and real Cloudflare qualification passes", every §18.2 item and the Cloudflare half of any other item stay pending on issue 3, and "Main remains deployable" on issue 2, until hosted evidence exists; the validator refuses them marked passed.
 
 ---
 

@@ -68,7 +68,7 @@ export function checklist(candidate, execution, artifacts, results) {
             : index === 12
               ? "Fresh exact published-head Quality/browser/artifact facts at final Objective review"
               : index === 16
-                ? "Operator acceptance of full Wave 0 and independent exact-candidate focused review (needs-human); parent issue 311 remains open"
+                ? "Operator acceptance of full Wave 0 and independent exact-candidate focused review (needs-human); owned by issue 2"
                 : `Current-candidate focused capability evidence and acceptance for ${owners[index]}; historical commands alone are insufficient`,
     }))
     .map((entry) => {

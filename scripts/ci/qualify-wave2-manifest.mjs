@@ -72,7 +72,7 @@ export const DEFERRED = {
   deployable: {
     scope: "main remains deployable: the hosted staging path",
     owner: "Wave 3 entry; Waves 1 and 2 run under the readiness exception",
-    issues: [415, 693],
+    issues: [2],
   },
   effectIntents: {
     scope: "the effect_intents table; Wave 2 proves the preview gate and dispatch-intent atomicity",

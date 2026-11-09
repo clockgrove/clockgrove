@@ -394,7 +394,7 @@ function execute<TState, TInput extends ExecutorInput, TEvent extends DraftEvent
 
   if (snapshot() !== before) throw signal("mutation-detected", "input");
 
-  const invariantContext = Object.freeze({ initial: state, events, state: final });
+  const invariantContext = Object.freeze({ payload, initial: state, events, state: final });
   for (const invariant of definition.invariants.ordered(type)) {
     const name = `${invariant.name}@${invariant.version}`;
     let offending: string | undefined;

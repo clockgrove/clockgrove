@@ -935,6 +935,11 @@ export class RuntimeWorker {
         context.personaId === undefined
       )
         throw new AuthorizationRefusedError("activation refused");
+      if (
+        route === "/v1/runtime/activations/triage-report" &&
+        !context.privacyCeiling.allowedCategories.includes("operator_evidence")
+      )
+        throw new AuthorizationRefusedError("triage report refused");
       note.authorization = "authorized";
       const owners = this.bindings.activations;
       if (owners === undefined) {

@@ -1,0 +1,33 @@
+{
+  "styleProfileVersion": 1,
+  "alpha": {
+    "mode": "binary"
+  },
+  "colour": {
+    "mode": "palette",
+    "colours": [
+      "#202020",
+      "#808080"
+    ],
+    "strictness": "exact"
+  },
+  "edge": "transparent-pixel",
+  "sizes": {
+    "actor": {
+      "maxWidth": 256,
+      "maxHeight": 256
+    },
+    "object": {
+      "maxWidth": 256,
+      "maxHeight": 256
+    },
+    "terrain": {
+      "maxWidth": 256,
+      "maxHeight": 256
+    },
+    "effect": {
+      "maxWidth": 256,
+      "maxHeight": 256
+    }
+  }
+}
