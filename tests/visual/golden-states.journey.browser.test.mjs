@@ -290,6 +290,12 @@ const captureGoldenStates = async (backend) => {
             shellInput.tokens,
           )
         : undefined;
+      const browserAssets = external
+        ? await pages[0].evaluate(() => ({
+            pages: globalThis.hallAdapter.atlasTextures.length,
+            animations: [...globalThis.hallAdapter.atlas.keys()].sort(),
+          }))
+        : undefined;
       const captures = [];
       const capture = async (state, page, check) => {
         throwIfStopped();
@@ -771,7 +777,7 @@ const captureGoldenStates = async (backend) => {
       for (const name of [
         "reducer_latency_ms",
         "scene_apply_ms",
-        ...(!external || shellInput.scene.atlas !== null ? ["asset_cache"] : []),
+        ...(!external || shellInput.scene.atlases ? ["asset_cache"] : []),
         "inspector_traversal",
         "accessibility_mode",
         "scene_recovery",
@@ -814,6 +820,7 @@ const captureGoldenStates = async (backend) => {
               actor: actorId,
               object: objectId,
               browserShell,
+              browserAssets,
             }
           : {}),
         viewports: VIEWPORTS,

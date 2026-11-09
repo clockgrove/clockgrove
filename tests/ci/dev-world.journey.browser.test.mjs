@@ -359,7 +359,7 @@ it("captures an external world's full matrix and retains digest-specific approva
     shell.name = "External capture fixture";
     shell.wordmark = "External capture fixture";
     shell.tokens = { "--cg-v1-bg": "#123abc" };
-    shell.scene.atlas = "external-atlas";
+    shell.scene.atlases = true;
     await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
     const atlas = JSON.parse(
       await readFile(
@@ -378,7 +378,13 @@ it("captures an external world's full matrix and retains digest-specific approva
       path.join(root, "worlds/fixture/assets/reviewed/fixture-world.png"),
       path.join(assets, "external-atlas.png"),
     );
+    atlas.atlasId = "external-atlas";
+    atlas.image.sha256 = await sha256(await readFile(path.join(assets, "external-atlas.png")));
     await writeFile(path.join(assets, "external-atlas.animations.json"), JSON.stringify(atlas));
+    await writeFile(
+      path.join(assets, "atlases.json"),
+      JSON.stringify({ assetManifestVersion: 2, atlases: ["external-atlas"] }),
+    );
     // Generate the composition outside the checkout; this world has no package manager installation.
     const launcher = path.join(root, "scripts/capture-world.mjs");
     const args = [
@@ -519,6 +525,10 @@ it("captures an external world's full matrix and retains digest-specific approva
     expect(captures.browserShell).toEqual({
       title: "External capture fixture",
       tokens: { "--cg-v1-bg": "#123abc" },
+    });
+    expect(captures.browserAssets).toEqual({
+      pages: 1,
+      animations: ["external-subject/idle"],
     });
     expect([captures.actor, captures.object, captures.dayLengthMs]).toEqual([
       "fixture.keeper",
