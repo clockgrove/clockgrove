@@ -11,23 +11,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { runAssetsCli } from "../src/cli.js";
 import { decodePng, encodePng, repositoryRoot, sha256Hex } from "../src/index.js";
 
 it.each(["pixel", "cartoon", "painterly"])(
   "builds and reviews an external %s world through the pinned CLI",
   (style) => {
     const world = mkdtempSync(join(tmpdir(), "external-assets-"));
-    const run = (...args: string[]) =>
-      spawnSync(
-        process.execPath,
-        [
-          join(repositoryRoot, "packages/assets/bin/clockgrove-assets.mjs"),
-          ...args,
-          "--world",
-          world,
-        ],
-        { cwd: world, encoding: "utf8", timeout: 30_000 },
-      );
+    // Commands run in this process; the executable itself runs once, for the final check.
+    const run = (...args: string[]) => runAssetsCli([...args, "--world", world]);
     try {
       expect(run("check", "--world", world).status).toBe(2);
       expect(run("validate").status).toBe(2);
@@ -207,7 +199,17 @@ it.each(["pixel", "cartoon", "painterly"])(
       expect(run("check").stderr).toContain("not human-approved");
       approve();
       expect(run("update-golden").status).toBe(0);
-      expect(run("check").status).toBe(0);
+      const pinned = spawnSync(
+        process.execPath,
+        [
+          join(repositoryRoot, "packages/assets/bin/clockgrove-assets.mjs"),
+          "check",
+          "--world",
+          world,
+        ],
+        { cwd: world, encoding: "utf8", timeout: 30_000 },
+      );
+      expect([pinned.status, pinned.stdout]).toEqual([0, '{"status":"ok","command":"check"}\n']);
       if (style === "pixel") {
         const record = readFileSync(goldenPath, "utf8");
         for (const reviewer of [null, "github-actions[bot]"]) {
@@ -294,6 +296,4 @@ it.each(["pixel", "cartoon", "painterly"])(
       rmSync(world, { recursive: true, force: true });
     }
   },
-  // About 30 CLI processes per world; shared CI runners take 3-9x the local time.
-  120_000,
 );

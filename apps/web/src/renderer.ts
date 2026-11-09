@@ -90,7 +90,10 @@ export interface SceneMetrics {
   readonly frameMs: number[];
   entityCount: number;
   effectCount: number;
+  /** Every texture except the world's atlas pages: render targets, generated and content textures. */
   textureBytes: number;
+  /** The atlas page textures: each listed page and each selected material page, once. */
+  atlasTextureBytes: number;
   contentStatus: "none" | "loading" | "ready" | "failed";
   contentFailure: ContentFailure | undefined;
   contentFailures: number;
@@ -226,6 +229,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     entityCount: 0,
     effectCount: 0,
     textureBytes: 0,
+    atlasTextureBytes: 0,
     contentStatus: "none",
     contentFailure: undefined,
     contentFailures: 0,
@@ -740,7 +744,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         0,
         MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
       ),
-      textureBytes: Math.max(0, MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.textureBytes),
+      textureBytes: Math.max(
+        0,
+        MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
+      ),
     });
     if (!rendition) return legacy;
     const albedo = rendition.channels.albedo;
@@ -1848,17 +1855,23 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         textures.add(object.skeleton.boneTexture);
     });
     let bytes = 0;
+    let atlasBytes = 0;
+    const pages = new Set<THREE.Texture>(this.atlasTextures);
     for (const texture of textures) {
       const image = texture.image as { width: number; height: number } | undefined;
+      let size = 0;
       if (texture instanceof THREE.CompressedTexture)
-        bytes += texture.mipmaps.reduce((total, mip) => total + mip.data.byteLength, 0);
+        size = texture.mipmaps.reduce((total, mip) => total + mip.data.byteLength, 0);
       else if (image) {
         const data = (image as { data?: ArrayBufferView }).data;
-        bytes +=
+        size =
           (data?.byteLength ?? image.width * image.height * 4) *
           (texture.generateMipmaps ? 4 / 3 : 1);
       }
+      if (pages.has(texture)) atlasBytes += size;
+      else bytes += size;
     }
+    this.metrics.atlasTextureBytes = atlasBytes;
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.
     bytes += WIDTH * HEIGHT * 12;
@@ -1933,5 +1946,6 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.lights = [];
     this.reflections = [];
     this.metrics.textureBytes = 0;
+    this.metrics.atlasTextureBytes = 0;
   }
 }

@@ -19,7 +19,7 @@ it("delivers every channel to an adapter while an albedo-only client selects den
   ).budgets;
   expect(MATERIAL_DELIVERY_BUDGET).toEqual({
     transferBytes: declared.assetBytes.limit,
-    textureBytes: declared.textureBytes.limit,
+    textureBytes: declared.atlasTextureBytes.limit,
   });
   const texture = (density: number, channel: number) => ({
     image: {

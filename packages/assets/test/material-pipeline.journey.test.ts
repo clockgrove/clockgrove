@@ -182,7 +182,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
           const image = decodePng(atlas.png);
           return n + image.width * image.height * 4;
         }, 0),
-    ).toBeLessThanOrEqual(budgets.textureBytes.limit);
+    ).toBeLessThanOrEqual(budgets.atlasTextureBytes.limit);
     for (const texture of textures) {
       const dds = new DataView(texture.compressed.buffer);
       expect(new TextDecoder().decode(texture.compressed.subarray(0, 4))).toBe("DDS ");

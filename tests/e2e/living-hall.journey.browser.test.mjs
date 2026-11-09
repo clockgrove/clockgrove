@@ -2492,6 +2492,7 @@ const observeHall = async (backend) => {
         );
         const measured = {
           textureBytes: runtime.textureBytes,
+          atlasTextureBytes: runtime.atlasTextureBytes,
           firstSceneRenderMs: runtime.firstRenderMs,
           frameTimeMs: frames[Math.floor(frames.length * 0.95)],
           entityCount: runtime.entityCount,

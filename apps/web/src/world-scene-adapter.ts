@@ -278,10 +278,10 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   });
 }
 
-/** apps/web/scene-budgets.json: retain the published 256KiB transfer and 16MiB texture ceilings. */
+/** apps/web/scene-budgets.json: the 256 KiB asset transfer and 32 MiB atlas page texture ceilings. */
 export const MATERIAL_DELIVERY_BUDGET = {
   transferBytes: 262_144,
-  textureBytes: 16_777_216,
+  textureBytes: 33_554_432,
 } as const;
 
 /** Highest useful density that fits both transfer and decoded texture budgets. */

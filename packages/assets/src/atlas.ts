@@ -478,3 +478,28 @@ export function atlasMaterials(atlases: readonly BuiltAtlas[]): Readonly<Record<
   }
   return materials;
 }
+
+/**
+ * Every file of the reviewed output, by the name the shell requests it under: each page's PNG and
+ * animations, the material files, `materials.json` and the page index. Build writes them; upload
+ * stores them.
+ */
+export function reviewedFiles(
+  atlases: readonly BuiltAtlas[],
+): { name: string; bytes: Uint8Array; contentType: string }[] {
+  const json = (name: string, text: string) => ({
+    name,
+    bytes: new TextEncoder().encode(text),
+    contentType: "application/json",
+  });
+  const files = atlases.flatMap((atlas) => [
+    { name: `${atlas.atlasId}.png`, bytes: atlas.png, contentType: "image/png" },
+    json(`${atlas.atlasId}.animations.json`, atlas.animations),
+  ]);
+  files.push(...materialAtlasFiles(atlases));
+  const materials = atlasMaterials(atlases);
+  if (Object.keys(materials).length > 0)
+    files.push(json("materials.json", canonicalJson(materials)));
+  if (atlases.length > 0) files.push(json(ATLAS_INDEX, atlasIndex(atlases)));
+  return files;
+}

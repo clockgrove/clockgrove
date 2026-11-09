@@ -14,7 +14,12 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "Decision: retain 16 MiB. Account unique Texture identities across atlas, effects, reflections and generated RGBA8 labels (one shared atlas with per-mesh frame UVs), conservative full-resolution RGBA16F + depth/stencil renderer output, tier-scaled PassNode RGBA16F + depth/stencil (320x200 low; 640x400 medium/high), BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
+      "reason": "Decision: retain 16 MiB for everything the renderer allocates apart from the world's atlas pages (atlasTextureBytes). Account unique Texture identities across effects, reflections, generated RGBA8 labels and content textures, conservative full-resolution RGBA16F + depth/stencil renderer output, tier-scaled PassNode RGBA16F + depth/stencil (320x200 low; 640x400 medium/high), BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
+    },
+    "atlasTextureBytes": {
+      "limit": 33554432,
+      "measured": "browser",
+      "reason": "Decision: 32 MiB of decoded RGBA8 atlas pages, two full 2048x2048 pages (the largest page the asset build packs). The renderer uploads one Texture per page the reviewed index lists and per selected material page, and counts each once; material renditions are chosen within what remains. About twice the issue 137 multi-page journey world (four pages, 17040000 B), which tests/ci/dev-world.journey.browser.test.mjs measures on both backends."
     },
     "firstSceneRenderMs": {
       "limit": 2500,
