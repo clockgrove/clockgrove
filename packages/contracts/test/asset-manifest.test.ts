@@ -68,7 +68,7 @@ it("decodes pack presentation metadata and refuses a doubly bound object", () =>
   };
   const presentation = {
     presentationVersion: 1,
-    assetManifestVersion: 1,
+    assetManifestVersion: 2,
     pack: { id: "p", version: "1.0.0" },
     bindings: [binding],
     effects: [{ role: "rain", assetId: "fixture-rain", animationFamily: "loop", objectId: null }],

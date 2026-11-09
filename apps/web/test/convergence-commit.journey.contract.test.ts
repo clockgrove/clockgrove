@@ -63,7 +63,7 @@ it("commits complete validated projections atomically and distinguishes input re
         constructor: SceneCompatibilityError,
         code,
         actual: 3,
-        expected: field === "projectionVersion" ? 2 : 1,
+        expected: ["projectionVersion", "assetManifestVersion"].includes(field) ? 2 : 1,
       }),
     );
   const defect = new Error("internal sentinel");
