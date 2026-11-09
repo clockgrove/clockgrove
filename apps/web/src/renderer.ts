@@ -8,6 +8,18 @@ import type {
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass } from "three/tsl";
 import * as THREE from "three/webgpu";
+import {
+  type ContentFailure,
+  contentDepth,
+  contentLoaders,
+  disposeContent,
+  materialTextures,
+  type RendererContent,
+  type RendererContentInstance,
+  rendererLibrary,
+  rendererNodes,
+  validateContent,
+} from "./renderer-content.js";
 import { worldShell } from "./shell.js";
 import {
   applyScenePatch,
@@ -62,8 +74,18 @@ export interface SceneMetrics {
   entityCount: number;
   effectCount: number;
   textureBytes: number;
+  contentStatus: "none" | "loading" | "ready" | "failed";
+  contentFailure: ContentFailure | undefined;
+  contentFailures: number;
+  contentObjects: number;
+  contentUpdateMs: number;
 }
 export type RendererMeasurement =
+  | {
+      readonly name: "renderer_content";
+      readonly category: "ready" | ContentFailure;
+      readonly value: number;
+    }
   | {
       readonly name: "scene_apply_ms";
       readonly category: "snapshot" | "patch";
@@ -161,7 +183,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     entityCount: 0,
     effectCount: 0,
     textureBytes: 0,
+    contentStatus: "none",
+    contentFailure: undefined,
+    contentFailures: 0,
+    contentObjects: 0,
+    contentUpdateMs: 0,
   };
+  private content: RendererContentInstance | undefined;
+  private readonly contentAbort = new AbortController();
+  private readonly contentLoaderDisposers = new Set<() => void>();
+  private contentTime = 0;
+  private restoreContentErrors: (() => void) | undefined;
+  private readonly contentRoughness = new WeakMap<THREE.Material, number>();
   private readonly started = performance.now();
   private readonly parent: HTMLElement;
   private readonly ready: () => void;
@@ -298,6 +331,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     ready: () => void,
     unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void,
     report: RendererReport = () => {},
+    private readonly suppliedContent?: RendererContent,
   ) {
     this.parent = parent;
     this.ready = ready;
@@ -367,6 +401,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       await this.renderer.init();
       if (this.destroyed) return;
       this.initialized = true;
+      this.observeContentErrors();
       const context =
         this.backend === "webgl2"
           ? (this.renderer.getContext() as WebGL2RenderingContext)
@@ -396,8 +431,174 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       );
       this.frame = requestAnimationFrame(this.step);
       await this.create();
+      void this.initializeContent();
     } catch {
       if (!this.destroyed) this.unavailable("renderer_unavailable");
+    }
+  }
+  private observeContentErrors(): void {
+    if (!this.suppliedContent || this.backend !== "webgpu") return;
+    const device = (this.renderer.backend as { device?: GPUDevice }).device;
+    if (!device) return;
+    const previousPop = device.popErrorScope;
+    const previousError = this.renderer.onError;
+    const retire = (instance: RendererContentInstance | undefined) => {
+      if (instance && !this.destroyed && this.content === instance)
+        this.failContent("content_draw");
+    };
+    // Three r187 consumes its own pipeline validation scopes asynchronously. An outer
+    // scope cannot see those errors, and a frame-scoped logger has already been restored.
+    const popErrorScope = () => {
+      const instance = this.content;
+      const result = previousPop.call(device);
+      void result
+        .then(
+          (error) => {
+            if (error) retire(instance);
+          },
+          () => retire(instance),
+        )
+        .catch(() => {});
+      return result;
+    };
+    device.popErrorScope = popErrorScope;
+    const onError: typeof previousError = (info) => {
+      retire(this.content);
+      previousError.call(this.renderer, info);
+    };
+    this.renderer.onError = onError;
+    this.restoreContentErrors = () => {
+      if (device.popErrorScope === popErrorScope) device.popErrorScope = previousPop;
+      if (this.renderer.onError === onError) this.renderer.onError = previousError;
+    };
+  }
+  private async initializeContent(): Promise<void> {
+    const supplied = this.suppliedContent;
+    if (!supplied || this.destroyed) return;
+    this.metrics.contentStatus = "loading";
+    if (supplied.version !== 1) {
+      this.failContent("content_contract");
+      return;
+    }
+    try {
+      const instance = await supplied.create(
+        Object.freeze({
+          THREE: rendererLibrary,
+          TSL: rendererNodes,
+          backend: this.backend as "webgpu" | "webgl2",
+          signal: this.contentAbort.signal,
+          place: (object: THREE.Object3D, at: { x: number; y: number; elevation?: number }) => {
+            const elevation = at.elevation ?? 0;
+            object.position.set(
+              (at.x + at.y) * PX_PER_METRE,
+              (-(at.x - at.y) * PX_PER_METRE) / 2 + elevation * PX_PER_METRE,
+              contentDepth(at.x, at.y, elevation),
+            );
+            object.scale.set(PX_PER_METRE, PX_PER_METRE, 0.01);
+          },
+          loaders: async (paths: { basis: string; draco: string }) => {
+            const loaders = await contentLoaders(this.renderer, paths);
+            if (this.contentAbort.signal.aborted) {
+              loaders.dispose();
+              throw new Error("content retired");
+            }
+            this.contentLoaderDisposers.add(loaders.dispose);
+            return { gltf: loaders.gltf, ktx2: loaders.ktx2 };
+          },
+        }),
+      );
+      if (this.contentAbort.signal.aborted) {
+        this.disposeInstance(instance);
+        return;
+      }
+      this.content = instance;
+      if (
+        !instance ||
+        !(instance.root instanceof THREE.Group) ||
+        instance.root.parent ||
+        typeof instance.update !== "function" ||
+        !validateContent(instance.root)
+      ) {
+        this.failContent("content_contract");
+        return;
+      }
+      this.scene.add(instance.root);
+      this.metrics.contentStatus = "ready";
+      this.setQuality(this.tier);
+      this.draw();
+      if (this.content === instance)
+        this.report({ name: "renderer_content", category: "ready", value: 1 });
+    } catch {
+      if (!this.destroyed) this.failContent("content_load");
+    }
+  }
+  private disposeInstance(instance: RendererContentInstance): void {
+    try {
+      instance.dispose?.();
+    } catch {
+      /* Scene retirement must continue. */
+    }
+    try {
+      if (instance.root instanceof THREE.Group) disposeContent(instance.root, instance.textures);
+    } catch {
+      /* Invalid content is detached below. */
+    }
+    instance.root?.removeFromParent();
+  }
+  private failContent(reason: ContentFailure): void {
+    if (this.metrics.contentStatus === "failed") return;
+    this.contentAbort.abort();
+    const instance = this.content;
+    this.content = undefined;
+    if (instance) this.disposeInstance(instance);
+    for (const dispose of this.contentLoaderDisposers) {
+      try {
+        dispose();
+      } catch {}
+    }
+    this.contentLoaderDisposers.clear();
+    this.metrics.contentStatus = "failed";
+    this.metrics.contentFailure = reason;
+    this.metrics.contentFailures += 1;
+    this.metrics.contentObjects = 0;
+    this.report({ name: "renderer_content", category: reason, value: 1 });
+    this.draw();
+    this.dirty = true;
+  }
+  private updateContent(timeMs: number): boolean {
+    const instance = this.content;
+    const projection = this.projection;
+    if (!instance || !projection) return false;
+    const started = performance.now();
+    try {
+      instance.update(
+        Object.freeze({
+          backend: this.backend as "webgpu" | "webgl2",
+          qualityTier: this.tier,
+          reducedMotion: this.reducedMotion,
+          simulationTime: projection.simulationTime,
+          weather: Object.freeze({ ...projection.weather }),
+          timeMs: this.reducedMotion ? 0 : timeMs,
+        }),
+      );
+      this.applyMaterialTier(true);
+      if (!this.content) return true;
+      if (instance.root.parent !== this.scene || !validateContent(instance.root)) {
+        this.failContent("content_contract");
+        return true;
+      }
+      let count = 0;
+      instance.root.traverse(() => {
+        count += 1;
+      });
+      this.metrics.contentObjects = count;
+      this.updateTextureBytes();
+      return true;
+    } catch {
+      this.failContent("content_update");
+      return true;
+    } finally {
+      this.metrics.contentUpdateMs = performance.now() - started;
     }
   }
   private refreshBounds(): void {
@@ -551,6 +752,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
     }
     this.animate(0);
+    this.updateContent(this.contentTime);
     this.drawEmphasis();
     this.dirty = true;
   }
@@ -558,26 +760,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
-    this.scene.traverse((object) => {
-      if (!(object instanceof THREE.Mesh) || object.userData.source) return;
-      const previous = object.material;
-      if (
-        !(
-          previous instanceof THREE.MeshStandardNodeMaterial ||
-          previous instanceof THREE.MeshLambertNodeMaterial
-        ) ||
-        previous instanceof THREE.MeshLambertNodeMaterial === (tier === "low")
-      )
-        return;
-      const next =
-        tier === "low"
-          ? new THREE.MeshLambertNodeMaterial().copy(previous)
-          : new THREE.MeshStandardNodeMaterial().copy(previous);
-      if (next instanceof THREE.MeshStandardNodeMaterial)
-        next.roughness = object.name === "puddle" ? 0.08 : 1;
-      object.material = next;
-      previous.dispose();
-    });
+    this.applyMaterialTier();
     this.disposePost();
     const quality = SCENE_QUALITY[tier];
     this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
@@ -597,6 +780,60 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.rebuildReflections();
     this.updateTextureBytes();
     this.dirty = true;
+  }
+  private applyMaterialTier(contentOnly = false): void {
+    const contentMeshes = new Set<THREE.Object3D>();
+    this.content?.root.traverse((object) => contentMeshes.add(object));
+    const replacements = new Map<THREE.Material, LitMaterial>();
+    let contentFailed = false;
+    const root = contentOnly ? this.content?.root : this.scene;
+    const tier = this.tier;
+    root?.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const owned = contentMeshes.has(object);
+      if (!owned && object.userData.source) return;
+      const convert = (previous: THREE.Material): THREE.Material => {
+        if (
+          !(
+            previous instanceof THREE.MeshStandardNodeMaterial ||
+            previous instanceof THREE.MeshLambertNodeMaterial
+          ) ||
+          previous instanceof THREE.MeshLambertNodeMaterial === (tier === "low")
+        )
+          return previous;
+        const existing = replacements.get(previous);
+        if (existing) return existing;
+        const roughness =
+          previous instanceof THREE.MeshStandardNodeMaterial
+            ? previous.roughness
+            : (this.contentRoughness.get(previous) ?? 1);
+        const next =
+          tier === "low"
+            ? new THREE.MeshLambertNodeMaterial().copy(previous)
+            : new THREE.MeshStandardNodeMaterial().copy(previous);
+        if (owned) this.contentRoughness.set(next, roughness);
+        if (next instanceof THREE.MeshStandardNodeMaterial)
+          next.roughness = owned ? roughness : object.name === "puddle" ? 0.08 : 1;
+        replacements.set(previous, next);
+        return next;
+      };
+      try {
+        object.material = Array.isArray(object.material)
+          ? object.material.map(convert)
+          : convert(object.material);
+      } catch (error) {
+        if (!owned) throw error;
+        contentFailed = true;
+      }
+    });
+    for (const previous of replacements.keys()) {
+      try {
+        previous.dispose();
+      } catch {
+        /* Continue retiring shared material resources. */
+      }
+    }
+    if (contentFailed) this.failContent("content_contract");
   }
   private disposePost(): void {
     if (!this.composer) return;
@@ -809,7 +1046,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
       drawn.body.userData.wind = /(?:shrub|foliage|tree)/u.test(binding?.assetId ?? "");
       drawn.body.renderOrder = 10000 + index;
-      drawn.body.position.z = index * 0.01;
+      drawn.body.position.z = this.content
+        ? contentDepth(placement.x, placement.y, placement.elevation)
+        : index * 0.01;
+      drawn.body.material.depthWrite = this.content ? true : !drawn.key;
       drawn.shadow.renderOrder = index;
     });
     this.order = placements.map((at) => at.objectId);
@@ -1250,6 +1490,24 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     return changed;
   }
+  private renderFrame(): void {
+    const previous = THREE.getConsoleFunction();
+    let contentError = false;
+    if (this.content)
+      THREE.setConsoleFunction((level, message, ...parameters) => {
+        if (level === "error") contentError = true;
+        if (previous) previous(level, message, ...parameters);
+        else console[level](message, ...parameters);
+      });
+    try {
+      if (this.composer) this.composer.render();
+      else this.renderer.render(this.scene, this.camera);
+      // Three r187 reports some shader-building exceptions through its logger rather than throwing.
+      if (contentError) throw new Error("content render failed");
+    } finally {
+      THREE.setConsoleFunction(previous);
+    }
+  }
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
@@ -1266,7 +1524,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.report({ name: "frame_ms", category: "p95", value: p95 });
         if (
           p95 > FRAME_BUDGET_MS &&
-          !this.reducedMotion &&
+          (!this.reducedMotion || this.content !== undefined) &&
           document.visibilityState === "visible" &&
           this.tier !== "low"
         )
@@ -1317,12 +1575,27 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const cueCount = this.cues.length;
     this.cues = this.cues.filter((cue) => time < cue.end);
     if (cueCount !== this.cues.length) this.updateTextureBytes();
+    this.contentTime = time;
+    changed = this.updateContent(time) || changed;
     changed = this.animate(time) || changed;
     const selected = this.selected === undefined ? undefined : this.drawn.get(this.selected);
     if (selected) this.moveSelection(selected);
     if (changed) {
-      if (this.composer) this.composer.render();
-      else this.renderer.render(this.scene, this.camera);
+      try {
+        this.renderFrame();
+      } catch {
+        if (!this.content) {
+          this.unavailable("renderer_unavailable");
+          return;
+        }
+        this.failContent("content_draw");
+        try {
+          this.renderFrame();
+        } catch {
+          this.unavailable("renderer_unavailable");
+          return;
+        }
+      }
       this.dirty = false;
       this.metrics.firstRenderMs ??= performance.now() - this.started;
     }
@@ -1331,15 +1604,26 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     // WebGPURenderer allocates by Texture identity on both backends, not by shared image source.
     const textures = new Set<THREE.Texture>();
     if (this.atlasTexture) textures.add(this.atlasTexture);
+    for (const texture of this.content?.textures ?? []) textures.add(texture);
     this.scene?.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
-      const texture = (object as Native).material.map;
-      if (texture) textures.add(texture);
+      const material = object.material;
+      for (const surface of Array.isArray(material) ? material : [material])
+        for (const texture of materialTextures(surface)) textures.add(texture);
+      if (object instanceof THREE.SkinnedMesh && object.skeleton.boneTexture)
+        textures.add(object.skeleton.boneTexture);
     });
     let bytes = 0;
     for (const texture of textures) {
       const image = texture.image as { width: number; height: number } | undefined;
-      if (image) bytes += image.width * image.height * 4;
+      if (texture instanceof THREE.CompressedTexture)
+        bytes += texture.mipmaps.reduce((total, mip) => total + mip.data.byteLength, 0);
+      else if (image) {
+        const data = (image as { data?: ArrayBufferView }).data;
+        bytes +=
+          (data?.byteLength ?? image.width * image.height * 4) *
+          (texture.generateMipmaps ? 4 / 3 : 1);
+      }
     }
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.
@@ -1364,6 +1648,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.restoreContentErrors?.();
+    this.restoreContentErrors = undefined;
+    this.contentAbort.abort();
+    if (this.content) this.disposeInstance(this.content);
+    this.content = undefined;
+    for (const dispose of this.contentLoaderDisposers) {
+      try {
+        dispose();
+      } catch {}
+    }
+    this.contentLoaderDisposers.clear();
     cancelAnimationFrame(this.frame);
     this.canvas?.removeEventListener("webglcontextlost", this.lost);
     this.canvas?.removeEventListener("pointerdown", this.pointerdown);
