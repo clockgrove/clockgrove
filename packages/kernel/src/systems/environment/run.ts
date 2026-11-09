@@ -27,6 +27,7 @@ import {
   appearanceSystemKind,
   createEcologySystems,
   ECOLOGY_SYSTEM_VERSION,
+  type EcologyHolderInit,
   type EcologyRunOptions,
   growthSystemKind,
   growthSystemState,
@@ -151,8 +152,9 @@ export interface EnvironmentRun {
    */
   readonly setMovers: (movers: readonly EnvironmentMover[]) => void;
   /**
-   * Re-seeds the exposure and wellbeing states of the given actors at the run's position, from
-   * values the caller has just journaled (a location change, a relief or a new decision).
+   * Re-seeds the exposure and wellbeing states of the given actors, and the spoilage and appearance
+   * states of the given ecology holders, at the run's position, from values the caller has just
+   * journaled (a location change, a relief, a consumption or a new decision).
    */
   readonly reseed: (reseed: EnvironmentReseed) => void;
 }
@@ -164,6 +166,11 @@ export interface EnvironmentMover {
 
 export interface EnvironmentReseed {
   readonly actors: readonly EnvironmentActor[];
+  /**
+   * Holder contents at the run's position. A source appears only into an empty holder, so a
+   * quantity a decision changes must reach the appearance schedule at the instant it changes.
+   */
+  readonly holders?: readonly EcologyHolderInit[];
   readonly rainIntensity: number;
   readonly nextWeatherBoundary: SimTimeMs;
 }
@@ -549,8 +556,20 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
           actor,
         );
       }
+      const holders = new Map((reseed.holders ?? []).map((holder) => [holder.objectId, holder]));
       states = Object.freeze(
         states.map((state): CatchUpSystemState => {
+          const ecologyObject = ecologyObjects.get(state.systemId);
+          const holder =
+            ecologyObject === undefined || ecologyObject.rank === RANK_STAGE
+              ? undefined
+              : holders.get(ecologyObject.objectId);
+          if (holder !== undefined)
+            return {
+              systemId: state.systemId,
+              at: position,
+              state: holderSystemState(holder.quantity, holder.arrival, holder.active),
+            };
           const actor = byId.get(state.systemId);
           if (actor === undefined) return state;
           if (wellbeingObjects.has(state.systemId)) {

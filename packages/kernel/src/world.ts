@@ -1344,6 +1344,8 @@ function runWorld(
       }),
       rainIntensity: state.weather.rainIntensity,
       nextWeatherBoundary: state.environment?.nextWeatherBoundary ?? (MAX_TIME as SimTimeMs),
+      // A decision or arrival may have consumed from a holder: its next appearance depends on that.
+      ...(ecologyPolicy === undefined ? {} : { holders: ecologyHolders(state, ecologyPolicy) }),
     });
     target.setMovers(
       state.entities
@@ -2900,30 +2902,34 @@ function integrateNeeds(
     policy,
   );
 }
+/** Every source and perishable holder's contents, arrival and lifecycle in `state`. */
+function ecologyHolders(state: WorldState, policy: EcologyPolicy): EcologyHolderInit[] {
+  const record = state.ecology;
+  if (record === undefined) throw new RangeError("ecology policy without a state record");
+  const entities = new Map(state.entities.map((entity) => [entity.objectId as string, entity]));
+  const arrivals = new Map(record.perishables.map((entry) => [entry.objectId, entry.arrivedAt]));
+  const ids = new Set([...policy.sources, ...policy.perishables].map((entry) => entry.objectId));
+  return [...ids].map((objectId) => {
+    const entity = entities.get(objectId);
+    if (entity === undefined) throw new RangeError("ecology object is missing from the state");
+    return {
+      objectId,
+      quantity: entity.resource?.quantity ?? 0,
+      arrival: arrivals.get(objectId) ?? null,
+      active: active(entity),
+    };
+  });
+}
 /** The dynamic state the ecology systems start from: holder contents, arrivals and plant entries. */
 function ecologyRunOptions(state: WorldState, policy: EcologyPolicy): EcologyRunOptions {
   const record = state.ecology;
   if (record === undefined) throw new RangeError("ecology policy without a state record");
-  const find = (objectId: string): WorldEntity => {
-    const entity = state.entities.find((candidate) => candidate.objectId === objectId);
-    if (entity === undefined) throw new RangeError("ecology object is missing from the state");
-    return entity;
-  };
-  const ids = new Set([...policy.sources, ...policy.perishables].map((entry) => entry.objectId));
-  const holders: EcologyHolderInit[] = [...ids].map((objectId) => {
-    const entity = find(objectId);
-    return {
-      objectId,
-      quantity: entity.resource?.quantity ?? 0,
-      arrival: record.perishables.find((entry) => entry.objectId === objectId)?.arrivedAt ?? null,
-      active: active(entity),
-    };
-  });
   const plants: EcologyPlantInit[] = record.plants.map((entry) => {
-    const entity = find(entry.objectId);
+    const entity = state.entities.find((candidate) => candidate.objectId === entry.objectId);
+    if (entity === undefined) throw new RangeError("ecology object is missing from the state");
     return { entry, protection: rainProtectionOf(state, entity), active: active(entity) };
   });
-  return { policy, holders, plants };
+  return { policy, holders: ecologyHolders(state, policy), plants };
 }
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
