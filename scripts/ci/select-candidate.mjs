@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { appendFile, readFile } from "node:fs/promises";
+import { missingRoutingMetadata } from "./routing-metadata.mjs";
 
 // Runs only in the trusted release workflow, never in PR jobs.
 const environment = process.env;
@@ -92,6 +93,18 @@ if (process.argv[2] === "--admit-environment") {
 }
 const event = JSON.parse(await readFile(environment.GITHUB_EVENT_PATH, "utf8"));
 const automatic = environment.GITHUB_EVENT_NAME === "workflow_run";
+// A main push deploys to development only once infra/environments/development.json carries
+// development's own routing metadata. Until then the run names no environment, so no development
+// deploy is queued.
+if (automatic) {
+  const development = JSON.parse(
+    await readFile(new URL("../../infra/environments/development.json", import.meta.url), "utf8"),
+  );
+  if (missingRoutingMetadata(development).length) {
+    console.log("development is not configured; no deployment selected");
+    process.exit(0);
+  }
+}
 const runId = automatic ? String(event.workflow_run.id) : event.inputs.quality_run_id;
 assert(/^\d+$/u.test(runId), "missing qualified Quality run ID");
 const api = async (suffix) => {

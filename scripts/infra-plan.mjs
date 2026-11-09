@@ -1,32 +1,25 @@
 // `pnpm infra:plan <environment>`: a read-only OpenTofu plan of one canonical environment. It never
 // applies. `local` and `ci` own no cloud resources: their plan runs offline in a new temporary
 // directory with no credentials or backend, and must stay empty. `development` and `staging` plan the
-// full configuration a completed deploy owns against the owner-approved encrypted external state,
-// with the same checks the deploy makes first. Only resource addresses, actions and a digest of the
-// change set are printed; plan contents stay in the encrypted saved plan.
+// full configuration a completed deploy owns against the environment's R2 state, with the same checks
+// the deploy makes first. Only resource addresses, actions and a digest of the change set are printed;
+// saved plans hold sensitive values and are removed with their temporary directory.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  assertRoutingMetadata,
-  externalPath,
-  externalStateConfiguration,
-  hostedTofuEnv,
-  prepareStateWorkspace,
-  verifyPlan,
-} from "./ci/deployment-authority.mjs";
+import { hostedTofuEnv, stateWorkspace, verifyPlan } from "./ci/deployment-authority.mjs";
 import { digest, root } from "./ci/evidence.mjs";
+import { assertRoutingMetadata } from "./ci/routing-metadata.mjs";
 import { isolatedTofu, offline } from "./lib/opentofu.mjs";
 import { withProviderIpc } from "./provider-ipc.mjs";
 
 export const zeroResource = (target) => ["local", "ci"].includes(target);
 const planned = ["local", "ci", "development", "staging"];
 
-// Hosted runs withhold OpenTofu's output, as the deploy does; the working directory stays for a
-// rerun by hand.
+// Hosted runs withhold OpenTofu's output, as the deploy does.
 function tofu(args, options, withhold) {
   const result = spawnSync("tofu", args, {
     encoding: "utf8",
@@ -126,22 +119,8 @@ async function hostedPlans(target, config, operation) {
   for (const name of ["CLOUDFLARE_API_TOKEN", "NEON_API_KEY"])
     assert(env[name]?.trim(), `missing ${name}`);
   assertRoutingMetadata(config, target);
-  const stateDirectory = await externalPath(env, "INFRA_STATE_DIRECTORY");
-  assert(
-    ((await stat(stateDirectory)).mode & 0o077) === 0,
-    "INFRA_STATE_DIRECTORY must be private to its owner",
-  );
-  assert(env.INFRA_CONFIGURATION_DIGEST?.trim(), "missing INFRA_CONFIGURATION_DIGEST");
-  const { backend, encryption } = await externalStateConfiguration(
-    target,
-    await externalPath(env, "INFRA_BACKEND_CONFIG_FILE"),
-    await externalPath(env, "INFRA_ENCRYPTION_CONFIG_FILE"),
-    env.INFRA_CONFIGURATION_DIGEST,
-  );
-  // Saved plans are encrypted by the enforced configuration and kept beside the state they read.
-  const work = await mkdtemp(path.join(stateDirectory, `${target}-plan-`));
+  const { temporary, work } = await stateWorkspace(target, config, env);
   try {
-    await prepareStateWorkspace(work, backend, encryption);
     return await withProviderIpc(work, async (ipc) => {
       const options = { cwd: work, env: hostedTofuEnv(env, ipc, work) };
       tofu(["init", "-input=false", "-lockfile=readonly", "-no-color"], options, true);
@@ -170,7 +149,7 @@ async function hostedPlans(target, config, operation) {
       });
     });
   } finally {
-    await rm(path.join(work, ".terraform"), { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
   }
 }
 

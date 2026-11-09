@@ -707,20 +707,6 @@
             "type": "string",
             "pattern": "^sha256:[a-f0-9]{64}$"
           },
-          "stateRecovery": {
-            "type": "object",
-            "required": ["status", "evidence"],
-            "properties": {
-              "status": { "enum": ["passed", "missing"] },
-              "evidence": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
-              }
-            },
-            "additionalProperties": false
-          },
           "status": {
             "enum": [
               "passed",

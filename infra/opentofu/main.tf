@@ -152,15 +152,17 @@ resource "cloudflare_ruleset" "rate_limit" {
   name    = "rw-${var.environment}-rate-limit"
   kind    = "zone"
   phase   = "http_ratelimit"
+  # A Free zone's rate-limiting rule: the Path field only, so it counts the runtime API on every
+  # host of the zone, with 10-second periods and timeouts.
   rules = [{
     action     = "block"
-    expression = "http.host eq \"${local.config.domains.runtime}\""
+    expression = "http.request.uri.path wildcard \"/v1/*\""
     enabled    = true
     ratelimit = {
       characteristics     = ["cf.colo.id", "ip.src"]
-      period              = 60
-      requests_per_period = local.config.budgets.requestsPerMinute
-      mitigation_timeout  = 60
+      period              = 10
+      requests_per_period = ceil(local.config.budgets.requestsPerMinute / 6)
+      mitigation_timeout  = 10
     }
   }]
 }
