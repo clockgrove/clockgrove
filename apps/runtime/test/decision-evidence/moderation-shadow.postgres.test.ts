@@ -286,6 +286,17 @@ it("records private reversible shadow judgements and reports independent accurac
     const other = await create(OUTSIDER);
     await talk(other, "other-private-message", "Another participant private secret.", OUTSIDER);
     expect((await report()).messages).toBe(16);
+    await owner.withSqlClient(async (client) => {
+      await client.query(
+        `INSERT INTO clockgrove.conversation_messages
+        (tenant_id,session_id,sequence,message_id,role,author_id,voice_mode,content_artifact_id,privacy_class,principal_id)
+        SELECT tenant_id,session_id,(SELECT max(sequence)+1 FROM clockgrove.conversation_messages WHERE session_id=$1),
+          'historical-before-fibers',role,author_id,voice_mode,content_artifact_id,privacy_class,principal_id
+        FROM clockgrove.conversation_messages WHERE session_id=$1 AND message_id='moderation-0'`,
+        [sessionId],
+      );
+    });
+    expect(await report()).toMatchObject({ messages: 17, skipped: 3 });
     expect((await requests()).at(-1)?.state).toBe(
       JSON.stringify({ message: "Another participant private secret." }),
     );

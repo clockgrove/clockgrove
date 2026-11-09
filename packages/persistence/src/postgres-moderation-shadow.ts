@@ -46,7 +46,15 @@ export class PostgreSqlModerationShadow {
     return withClientTransaction(this.client, { authorization: participant }, async () => {
       const result = await this.client.query(
         `SELECT msg.session_id, msg.message_id, q.record
-        FROM clockgrove.conversation_turn_fibers msg
+        FROM (
+          SELECT tenant_id,session_id,message_id,created_at FROM clockgrove.conversation_turn_fibers
+          UNION ALL
+          SELECT old.tenant_id,old.session_id,old.message_id,old.created_at
+            FROM clockgrove.conversation_messages old
+            WHERE old.role='caretaker' AND NOT EXISTS (
+              SELECT 1 FROM clockgrove.conversation_turn_fibers f
+                WHERE f.tenant_id=old.tenant_id AND f.session_id=old.session_id AND f.message_id=old.message_id)
+        ) msg
         JOIN clockgrove.conversation_sessions sess ON sess.tenant_id=msg.tenant_id AND sess.session_id=msg.session_id
         LEFT JOIN clockgrove.moderation_shadow q ON q.tenant_id=msg.tenant_id AND q.session_id=msg.session_id AND q.message_id=msg.message_id
         WHERE sess.tenant_id=$1 AND sess.world_id=$2 AND sess.timeline_id=$3 AND sess.space_id=$4 AND sess.actor_id=$5
