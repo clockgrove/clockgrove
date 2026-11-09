@@ -1,3 +1,8 @@
+import type {
+  ConversationResponder,
+  ShadowDecider,
+  WakeTriagePolicy,
+} from "@clockgrove/application";
 import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
@@ -21,6 +26,13 @@ import {
   decodeSceneTransientCue,
   NO_SCENE_INTEREST,
 } from "@clockgrove/contracts";
+import {
+  createModelGateway,
+  decisionAlias,
+  InMemoryModelBudget,
+  ScriptedDecider,
+  type ScriptedDecisionStep,
+} from "@clockgrove/model-gateway";
 import {
   type PostgreSqlClient,
   PostgreSqlWorldProvisioningStore,
@@ -50,6 +62,7 @@ import worker, {
   sweepPartitionSnapshots,
   type WorldProvisioningEntrypoint,
 } from "../../src/cloudflare-entry.js";
+import { gatewayShadowDecider } from "../../src/decision-shadow.js";
 import { withHyperdrivePostgreSqlClient } from "../../src/hyperdrive-postgres.js";
 import type { OwnerMailboxBounds } from "../../src/mailbox.js";
 import { stableRuntimeRouteName } from "../../src/routing.js";
@@ -213,6 +226,67 @@ interface NativeEnvironment extends RuntimeEnvironment {
  * once per turn and phase, as an eviction or crash there would.
  */
 export class ActorAgentDO extends ProductionActorAgentDO {
+  private readonly triageScript: string | undefined;
+  private readonly triageTurnCost: number | undefined;
+  constructor(...args: ConstructorParameters<typeof ProductionActorAgentDO>) {
+    super(...args);
+    const cost = (
+      args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD?: string }
+    ).NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD;
+    this.triageTurnCost = cost === undefined ? undefined : Number(cost);
+    this.triageScript = (
+      args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_SCRIPT?: string }
+    ).NATIVE_WAKE_TRIAGE_SCRIPT;
+  }
+  protected override responder(): ConversationResponder {
+    const respond = super.responder();
+    return async (...args) => {
+      const response = await respond(...args);
+      return this.triageTurnCost === undefined
+        ? response
+        : {
+            ...response,
+            usage: { inputTokens: null, outputTokens: null, costMicrousd: this.triageTurnCost },
+          };
+    };
+  }
+  protected override triageDecider(
+    policy: WakeTriagePolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    const source = this.triageScript;
+    if (source === undefined) return super.triageDecider(policy, fiber);
+    return {
+      pick: async (request) => {
+        const steps = JSON.parse(source) as ScriptedDecisionStep[];
+        const count = (await this.objectState.storage.get<number>("triage-calls")) ?? 0;
+        await this.objectState.storage.put("triage-calls", count + 1);
+        const alias = decisionAlias({
+          alias: policy.modelAlias,
+          model: policy.model,
+          maxCostMicrousd: policy.maxCostMicrousd,
+        });
+        const decider = new ScriptedDecider({
+          [alias.route.id]:
+            steps[count] === undefined ? [] : [steps[count] as ScriptedDecisionStep],
+        });
+        const gateway = createModelGateway({
+          aliases: [],
+          adapters: {},
+          decisionAliases: [alias],
+          decisionAdapters: { "vercel-ai-gateway": decider },
+          budget: new InMemoryModelBudget(() => policy.maxCostMicrousd),
+          accounting: { record: () => undefined },
+        });
+        return gatewayShadowDecider(gateway, {
+          tenantId: fiber.scope.tenantId,
+          worldId: fiber.scope.worldId,
+          actorId: fiber.actorId,
+        }).pick(request);
+      },
+    };
+  }
+
   private held: (() => void) | undefined;
   async injectTurnFault(phase: string | null): Promise<void> {
     await this.objectState.storage.put("test-turn-fault", phase);

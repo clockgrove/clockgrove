@@ -29,6 +29,7 @@ export * from "./replay-bundle.js";
 export * from "./snapshot-maintenance.js";
 export * from "./snapshots.js";
 export * from "./timeline-clock.js";
+export * from "./wake-triage.js";
 export * from "./world-birth.js";
 export * from "./world-command.js";
 export * from "./world-continuation.js";
