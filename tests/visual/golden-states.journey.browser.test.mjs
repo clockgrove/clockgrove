@@ -16,6 +16,7 @@ import {
   withNativeWorldOwner,
 } from "../../apps/runtime/test/world-owner/native-harness.ts";
 import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.js";
+import { worldRoutePath } from "../../apps/web/src/world-route.ts";
 import { decodeLivingScene } from "../../packages/contracts/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -202,9 +203,11 @@ const captureGoldenStates = async (backend) => {
         await page.goto(`http://127.0.0.1:${port}/`);
         await page.getByLabel("Local session credential").fill("hall-inspect");
         await page.getByRole("button", { name: "Sign in", exact: true }).click();
-        await page
-          .getByLabel("World", { exact: true })
-          .selectOption({ label: `${scope.worldId} / ${scope.spaceId}` });
+        if (external) await page.locator("select#world").selectOption(worldRoutePath(scope));
+        else
+          await page
+            .getByLabel("World", { exact: true })
+            .selectOption({ label: `${scope.worldId} / ${scope.spaceId}` });
         await page
           .getByText(
             text || missingAtlas
