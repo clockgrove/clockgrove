@@ -885,13 +885,14 @@ these fields, and nothing else:
   for MCP discovery) and `outcome` (`succeeded`, `refused`, `failed`).
 - `error`: a server failure's class name and redacted, capped message and stack.
 
-The event set is closed. `schemaVersion` is 5 (3 added the two snapshot-sweep events,
+The event set is closed. `schemaVersion` is 6 (3 added the two snapshot-sweep events,
 `partitionId` and `integrityCheck`; 4 was assigned on two parallel branches to different sets, so 5
 is their union: the scene observation answered and failure events
 (`scene_observation_answered`, `scene_observation_failed`), the runtime-state and operator-action
 routes' events (`runtime_state_inspection_answered`, `runtime_state_inspection_failed`,
 `runtime_action_answered`, `runtime_action_failed`), the two world-reactions alert events
-(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`); it
+(`world_reactions_dead_lettered`, `world_reactions_publication_failed`) and `messageId`; 6 added
+`activation_hint_failed` and its `recovered-by-poll` disposition); it
 increases whenever an event or field is added,
 removed or changes meaning, so queries can tell record shapes apart. Filter Workers Logs by
 `correlationId` or `commandId` to follow one request across the Worker and its owners.
@@ -915,6 +916,7 @@ removed or changes meaning, so queries can tell record shapes apart. Filter Work
 | `world_reactions_dead_lettered` | the Queue consumer, per failed last delivery attempt (`attempt` above the consumer's `max_retries`, 3), which sends the message to the DLQ: an alert | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: awaiting-replay` |
 | `world_reactions_publication_failed` | the hint or cron publication sweep, per publication it settles `failed` after its attempt budget: an alert | `tenantId`, `worldId`, `timelineId`, `messageId`, `channel`, `attempt`, failure class, `disposition: awaiting-repair` |
 | `world_reactions_sweep_failed` | the hint or cron publication sweep, per failed principal | `channel`, `trigger`, failure class, `disposition: recovered-by-cron` |
+| `activation_hint_failed` | the post-commit activation hint, per failed pass over a world timeline | `tenantId`, `worldId`, `timelineId`, failure class, `disposition: recovered-by-poll` |
 | `world_provisioning_reconcile_failed` | the cron provisioning reconcile, per failed case | `tenantId`, `runId`, failure class, `disposition: retried-by-cron` |
 | `world_catch_up_reconcile_failed` | the cron catch-up reconcile, per failed case | scope, `runId`, failure class, `disposition: retried-by-cron` |
 | `partition_replay_verification_failed` | the cron snapshot sweep, per mismatch or typed integrity error | `tenantId`, `worldId`, `timelineId`, `partitionId`; `failureClass: integrity`, `integrityCheck`, `disposition: reported-not-repaired`, error for a typed error |
