@@ -362,6 +362,8 @@ export function composeActivationOwners(
       ),
     );
   return {
+    triageReport: async (scope, context, participant, actorId) =>
+      (await owner(scope, actorId)).wakeTriageReport(scope, context, participant, actorId),
     configure: async (scope, context, participant, actorId, configuration, policy) =>
       (await owner(scope, actorId)).configureActivation(
         scope,
@@ -507,6 +509,13 @@ export function withLifecycleWorkflowClient<T>(
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
 }
 
+export function withWakeTriageClient<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (client: PostgreSqlClient) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
+}
+
 /** Trusted Management/CLI composition entry; never exposed by the Runtime HTTP router. */
 export async function launchWorldProvisioning(
   env: RuntimeEnvironment,
@@ -613,6 +622,7 @@ export async function cancelWorldProvisioning(env: RuntimeEnvironment, input: un
 export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
+  readonly WAKE_TRIAGE_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   readonly MANAGEMENT_DATABASE_URL?: string;
@@ -661,6 +671,7 @@ export interface RuntimeEnvironment {
       | "configureActivation"
       | "wakeActivation"
       | "inspectActivations"
+      | "wakeTriageReport"
     >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;

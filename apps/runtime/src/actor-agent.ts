@@ -7,6 +7,7 @@ import {
   type StoredCommandProposal,
   type TurnCommandRecord,
   type TurnFiber,
+  type TurnInput,
 } from "@clockgrove/application";
 import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
 import { CONVERSATION_REFUSAL_STATUS, type ConversationStores } from "./conversations.js";
@@ -50,7 +51,11 @@ export interface TurnFiberHost {
   readonly stores: ConversationStores;
   readonly respond: ConversationResponder;
   capabilityRevision(): number;
-  beforeModel?(participant: ConversationParticipant, fiber: TurnFiber): Promise<void>;
+  beforeModel?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    input: TurnInput,
+  ): Promise<void>;
   /**
    * What this owner may do for the turn's member: the registry's grants for the member's runtime
    * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
@@ -259,7 +264,12 @@ export class TurnFibers {
             const { session, caretakerMessages, input, prompt } = await this.store((store) =>
               store.turnInput(participant, current),
             );
-            await this.host.beforeModel?.(participant, current);
+            await this.host.beforeModel?.(participant, current, {
+              session,
+              caretakerMessages,
+              input,
+              prompt,
+            });
             const response = await this.host.respond(session, caretakerMessages, input, prompt);
             const words = response.text.split(/(?<= )/u);
             for (const [index, text] of words.entries()) {

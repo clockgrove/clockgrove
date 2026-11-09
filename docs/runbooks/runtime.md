@@ -1303,3 +1303,106 @@ an opportunity for policy and compiled checks, and can record a no-op without ca
 The activation inspector reports each causal reason and the next scheduled wake, including
 budget-deferred evidence. The existing native owner executes admitted work through its recoverable
 turn fiber, retaining PostgreSQL as authority. No continuous per-actor process is required.
+
+## Wake-triage shadow report
+
+Bind `WAKE_TRIAGE_CONFIG` to a JSON object to enable wake triage. Omit the binding to disable it;
+`{}` selects these conservative pilot defaults (issue 111 implementation choices):
+
+```json
+{
+  "policyVersion": "wake-triage@1",
+  "modelAlias": "wake.triage",
+  "model": "perplexity/pplx-decider-v1.2",
+  "confidenceThreshold": 6500,
+  "dailyBudgetMicrousd": 100000,
+  "maxCostMicrousd": 1000
+}
+```
+
+The threshold is 65% in basis points. The budget is $0.10 per world per simulated day and reserves
+$0.001 for each decision opportunity. Full reservations remain spent, including lower measured
+cost, unknown cost and interrupted calls; the default admits at most 100 reserved opportunities
+in a day. All actors in the world and timeline share the durable budget. Day boundaries follow
+the pack's declared environment day length, with an 86,400,000 ms fallback when absent.
+These are conservative operator policy choices,
+not measured model prices. Change the configured model to `openai/gpt-6-luna-decisions` or
+`baseten/mammoth-1` to measure the owner's other candidates through the same alias. Bind
+`AI_GATEWAY_API_KEY` for the live decision adapter; credentials never belong in the JSON policy.
+
+Triage runs after the existing activation policy and compiled checks. Its `suppress`,
+`compiled_routine`, `full_turn` or `cant_tell` answer is journaled evidence: the full turn still runs.
+Missing credentials, exhausted budget, errors, abstention and low confidence retain that path.
+Direct messages are triaged and marked apart. No enforcing mode is enabled, and a future enforcing
+mode must never suppress a person's message (owner decision, 2026-11-09).
+
+For a bounded local measurement, run the operator entry point from this checkout:
+
+```sh
+node scripts/wake-triage-report.mjs --output "$TMPDIR/wake-triage-fixture.json"
+```
+
+It provisions disposable PostgreSQL and the native actor runtime, derives an actor from the pack,
+advances one pack simulated day in 24 checkpoints, and sends seven probes through the real HTTP
+paths: one direct message and one of each perception, scheduled intention, subscription, threshold,
+heartbeat and tool-completed wake. It writes the same report to a new file with private permissions
+and removes the temporary world. The file must not exist. This bounded probe workload is not an
+exhaustive day's natural traffic. The default uses `ScriptedDecider` and scripted full turns;
+`measurement: "scripted"` identifies synthetic labels/costs, which are not model-quality evidence.
+No provider key is forwarded by default, even when one is present in the caller's environment.
+
+From an external world repository, invoke the separate checkout pinned at the intended platform
+commit, using an absolute pack path:
+
+```sh
+node /path/to/pinned/clockgrove/scripts/wake-triage-report.mjs \
+  --pack "$PWD/worlds/sample" --output "$PWD/wake-triage-report.json"
+```
+
+Add `--live` to opt into forwarding `AI_GATEWAY_API_KEY` to both decision and actor full-turn
+adapters. This runs at most seven full turns plus their bounded triage calls, subject to the
+configured budgets and the runner's ten-minute execution bound. Supply the key through the
+maintainer's existing environment; never put it in a command or policy file. `--live` without a key
+writes an explicit `measurement: "model-unavailable"` fallback report without a provider call.
+The runner's local authenticated fixture principal is scoped to its disposable world and allowed
+operator evidence; it changes neither the interactive hall's observation credential nor a hosted
+world's grants. The selected pack must support the existing native harness and have a needs-bearing
+actor in its first space.
+
+After exercising a persistent world for the desired simulated day, use its authenticated runtime connection
+to POST `/v1/runtime/activations/triage-report` with the existing activation address shape:
+
+```json
+{
+  "version": 1,
+  "scope": {
+    "tenantId": "<tenant>",
+    "worldId": "<world>",
+    "timelineId": "<timeline>",
+    "spaceId": "<space>"
+  },
+  "actorId": "<actor>"
+}
+```
+
+Use a principal authorized by the existing world-command grant and both `conversation` and
+`operator_evidence` privacy ceilings. The actor identifies the authorized route; the report covers evidence in the authorized
+space of that world and timeline.
+Read counts, labels, confidence, mean/p95 latency and measured cost by activation reason, followed
+by each turn's final disposition, proposed command, output message and reply-to-person classification.
+Abstentions, low confidence, failures, budget refusals and unfinished turns have separate counts.
+The report includes agreement, confident bypass share, counterfactual gross/net savings, miss
+examples and recurring miss/low-confidence signatures for human review. Nullable cost means unknown;
+reserved budget is not measured spend. Safe bypass/savings exclude direct-message wakes; their
+raw bypass labels and misses remain visible. Proposed suppression of material work remains a miss even
+if it makes the counterfactual savings look attractive. See the
+[ground-truth and signature contract](../protocols/decision-shadow.md#wake-triage).
+
+The same endpoint and policy apply to the fixture world and an external world installed through
+the [pinned-checkout path](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout).
+Select the external world's pack and shell through the existing
+[external local session inputs](../protocols/world-presentation.md#external-local-session); platform
+code does not embed world content. The observation-only local hall credential does not grant
+report access: use the authorized runtime/operator setup above. A maintainer runs each candidate
+against the chosen simulated-day workload with a real gateway key and records its alias, policy,
+world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
