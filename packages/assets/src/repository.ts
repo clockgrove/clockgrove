@@ -3,7 +3,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type AssetManifest,
+  type AssetStyleProfile,
   decodeAssetManifest,
+  decodeAssetStyleProfile,
   decodePackPresentation,
   type PackPresentation,
 } from "@clockgrove/contracts";
@@ -47,6 +49,17 @@ const point = (coordinates: { $bigint: string }[]): [number, number] => [
   Number(coordinates[0]?.$bigint),
   Number(coordinates[1]?.$bigint),
 ];
+
+/** Presentation data lives beside presentation.json, outside the simulation pack hash. */
+export function readAssetStyleProfile(root: string, packDir: string): AssetStyleProfile {
+  const path = join(root, packDir, "asset-style.json");
+  if (!existsSync(path)) throw new Error(`STYLE_PROFILE_REQUIRED: ${path}`);
+  try {
+    return decodeAssetStyleProfile(readJson(path), path);
+  } catch (error) {
+    throw new Error(`STYLE_PROFILE_INVALID: ${(error as Error).message}`);
+  }
+}
 
 export function readManifests(root: string, assetRoot = "assets"): ManifestFile[] {
   const base = join(root, assetRoot, "manifests");

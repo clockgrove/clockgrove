@@ -180,7 +180,10 @@ world's mandatory values. These are per-frame limits; a horizontal strip's width
 alpha, transparent-pixel edges and its existing exact two-colour palette. All 36 fixture
 manifests currently declare that same palette.
 
-This contract is introduced separately from enforcement in issue 61: the asset pipeline
-still enforces its existing manifest-v1 pixel-art rules until the profile migration lands.
-Declaring a profile does not yet change which assets the pipeline accepts. Neither the
-asset-manifest version nor scene compatibility changes with this independent data format.
+The asset source validator and fixture CLI enforce this profile. Palette profiles retain
+manifest palette inventory checks; unrestricted colour profiles do not require a full-colour
+inventory in the manifest. Missing world profiles are refused with `STYLE_PROFILE_REQUIRED`,
+malformed ones with `STYLE_PROFILE_INVALID`; rule failures use `STYLE_ALPHA`, `STYLE_PALETTE`,
+`STYLE_EDGE` and `STYLE_SIZE`. Manifest version 1 still independently caps frame dimensions
+at 256 px; larger frames and generated provenance require the subsequent manifest migration
+in issue 61. Neither the asset-manifest version nor scene compatibility changes in this part.

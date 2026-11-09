@@ -6,7 +6,9 @@ import { licenseReport } from "./license-report.js";
 import {
   type GoldenRecord,
   goldenPaths,
+  type ManifestFile,
   type PackScene,
+  readAssetStyleProfile,
   readGolden,
   readManifests,
   readPackScenes,
@@ -18,9 +20,21 @@ import { sha256Hex, validateSource } from "./validate.js";
 const fixtures = "packages/contracts/test/fixtures/asset-manifest";
 const regenerate =
   "run `pnpm --filter @clockgrove/assets run update-golden` and get human approval";
-const files = readManifests(root, "worlds/fixture/assets");
-const deployable = files.filter((f) => assetDeployRefusals(f.manifest).length === 0);
-const layout = files.map((f) => f.manifest);
+let files: ManifestFile[] = [];
+let deployable: ManifestFile[] = [];
+let layout: ManifestFile["manifest"][] = [];
+
+function preflight(): string[] {
+  files = readManifests(root, "worlds/fixture/assets");
+  deployable = files.filter((f) => assetDeployRefusals(f.manifest).length === 0);
+  layout = files.map((f) => f.manifest);
+  if (files.length === 0) return [];
+  const profile = readAssetStyleProfile(root, "worlds/fixture/reference");
+  const problems = files.flatMap((f) =>
+    validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", ""), profile),
+  );
+  return problems.length > 0 ? problems : atlasLocationProblems(layout);
+}
 
 function expectedReviewed(): Map<string, Uint8Array> {
   const out = new Map<string, Uint8Array>();
@@ -63,9 +77,6 @@ function check(): string[] {
     if (!assetDeployRefusals(manifest).some((r) => r.code === code))
       problems.push(`deploy gate: the ${name} fixture is no longer refused with ${code}`);
   }
-  for (const f of files)
-    problems.push(...validateSource(f.manifest, f.bytes, f.path.replace("worlds/fixture/", "")));
-  problems.push(...atlasLocationProblems(layout));
   if (problems.length > 0) return problems;
 
   const expected = expectedReviewed();
@@ -119,8 +130,8 @@ function check(): string[] {
 }
 
 function build(): void {
-  rmSync(reviewedDir, { recursive: true, force: true });
   const expected = expectedReviewed();
+  rmSync(reviewedDir, { recursive: true, force: true });
   if (expected.size > 0) mkdirSync(reviewedDir, { recursive: true });
   for (const [name, bytes] of expected) writeFileSync(join(reviewedDir, name), bytes);
   if (files.length > 0) writeFileSync(reportPath, licenseReport(layout));
@@ -154,13 +165,23 @@ function updateGolden(): void {
 }
 
 const command = process.argv[2];
-if (command === "check") {
-  const problems = check();
-  for (const p of problems) console.error(p);
-  process.exit(problems.length > 0 ? 1 : 0);
-} else if (command === "build") build();
-else if (command === "update-golden") updateGolden();
-else {
+if (!["check", "build", "update-golden"].includes(command ?? "")) {
   console.error("usage: clockgrove-assets check | build | update-golden");
-  process.exit(2);
+  process.exitCode = 2;
+} else {
+  try {
+    const problems = preflight();
+    if (problems.length > 0) {
+      for (const problem of problems) console.error(problem);
+      process.exitCode = 1;
+    } else if (command === "check") {
+      const problems = check();
+      for (const problem of problems) console.error(problem);
+      process.exitCode = problems.length > 0 ? 1 : 0;
+    } else if (command === "build") build();
+    else updateGolden();
+  } catch (error) {
+    console.error((error as Error).message);
+    process.exitCode = 1;
+  }
 }
