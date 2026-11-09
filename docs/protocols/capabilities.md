@@ -65,3 +65,16 @@ receipt (null when the grants refused it before the world), `status` `succeeded`
 `outcome_code` the refusal code. The Talk receipt's optional `command` carries the same facts
 (`TalkCommandOutcome`, `docs/protocols/conversations.md`). The model step records the model name,
 tokens and cost.
+
+
+## Remote MCP installation foundation
+
+The [MCP installation protocol](mcp.md) describes the remote HTTP discovery and isolated
+credential ports. They do not register callable capabilities or change the three internal grants
+above. Discovered tools/resources/prompts carry untrusted data and disabled state; discovery
+alone supplies no authority. Canonical installation review, dynamic registry versions, scoped
+bindings and actor revision invalidation remain the next integration work of issue 164.
+
+The owner-decided remote effect classes are `read`, `world-write`, `external-write`, `destructive`,
+`network` and `cost`. Unreviewed tools start at `external-write`, regardless of provider hints.
+This additive vocabulary does not rename the existing internal `world_command` effect.

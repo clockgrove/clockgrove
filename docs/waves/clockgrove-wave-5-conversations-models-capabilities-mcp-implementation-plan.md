@@ -351,6 +351,16 @@ Initial internal capabilities:
 
 Every world command is reauthorized and kernel-validated independently of model claims.
 
+Amended (2026-11-09, issue 164, owner decisions): remote tools enter this same registry as
+**disabled** candidates. The unreviewed effect class is `external-write`; provider annotations and
+descriptions cannot lower it. Review assigns `read`, `world-write`, `external-write`, `destructive`,
+`network` or `cost`. Resources remain disabled candidates until Wave 6 ingestion; provider prompts
+never become system or actor policy. One installation has many scoped bindings, resolved by
+most-specific deny, then grants, then the session approval overlay. Installation authority is a new,
+separate installation grant held by world owners by default, never actor/model authority. These
+are the required integration contract; the [MCP foundation](../protocols/mcp.md) does not yet add
+remote candidates to the running registry.
+
 ### 11.2 Grants and approvals
 
 Bindings connect capability to tenant/world/timeline/actor/session scope. Grants can narrow input fields, destinations, call counts, effect class, budget, and expiry. Approval records bind exact normalized arguments, scope, effect hash, principal, and expiry. Argument changes require new approval.
@@ -368,6 +378,18 @@ Field-guide read/share in Wave 6 consumes these governed document, capability, c
 Support remote HTTP MCP only in this wave. Installation validates URL/network policy, discovers tools/resources/prompts, records server identity and protocol metadata, classifies effects, captures schema hashes, binds credential reference, and requires explicit enablement/grants.
 
 Schema drift disables affected capability versions until reviewed. Revocation stops new calls immediately and reconciles in-flight attempts.
+
+Amended (2026-11-09, issue 164, owner decisions): support the full OAuth connect flow and static
+tokens, with one credential per installation owned by the installing operator. Use a separate,
+versioned credential keyring, never `ARTIFACT_KEYRING`; plaintext stays outside canonical events
+and evidence in the isolated secret provider. Uncertain refresh/revocation fails closed. Check
+schema drift at each connection listing and operator refresh, not on a schedule. Production has
+no loopback allowance; fixtures use a test-only network port. Before Cloudflare composition, verify
+DNS answers and the platform's private-egress behavior, documenting residual rebinding risk;
+use pinned egress if that leaves a real hole. The transport and credential foundation and its
+remaining integration work are described in the [installation protocol](../protocols/mcp.md).
+Canonical records, scoped grants, runtime revision invalidation and the operator browser journey
+remain required before the installation outcome can be accepted.
 
 ### 12.2 Execution
 

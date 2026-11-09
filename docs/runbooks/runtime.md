@@ -1498,3 +1498,22 @@ ships with the pinned platform. No selected external world's names are built int
 Reference calibration uses a confidence threshold of zero basis points, so any reported confidence
 can count as an answered pick. Missing confidence remains low-confidence. Reference accuracy counts
 answered picks, reports coverage separately, and is null when no case was answered.
+
+
+## Remote MCP installation readiness
+
+Issue 164's [MCP foundation](../protocols/mcp.md) is an application-level transport and credential
+boundary. It is not composed into the deployed Worker, and there is no installation endpoint or
+capabilities screen yet. Do not grant actor access by inserting remote names into internal grants.
+
+Before enabling the operator flow, integrate canonical Journal installation/review/binding events,
+forced scoped RLS and retention, the separate owner installation grant, encrypted secret storage,
+the actor capability revision hook and the operator browser journey. Verify Cloudflare egress
+behavior at that consumer; DNS preflight alone does not prove address pinning. A local fixture
+adapter must never become a production loopback switch.
+
+The completed operator procedure must connect the installation owner's OAuth account or static
+token through the isolated credential provider, inspect identity/protocol and schema hashes,
+review and enable only selected tools, and bind them through scoped grants. Refresh must disable
+only drifted versions; revoke must invalidate grants immediately and keep uncertain credentials
+unusable. These procedures remain pending integration, rather than commands available today.
