@@ -344,6 +344,13 @@
       "when": 1795384800000,
       "tag": "0049_channel_bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795471200000,
+      "tag": "0050_mcp_bindings",
+      "breakpoints": true
     }
   ]
 }

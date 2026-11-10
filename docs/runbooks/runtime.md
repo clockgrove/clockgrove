@@ -1681,3 +1681,24 @@ node scripts/runtime-chat.mjs read --url https://runtime.example.test \
 Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
 
 New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. Proactive delivery remains a later part. See [channels](../protocols/channels.md) for the implemented boundary and the remaining issue 168 parts.
+
+## MCP part 5 internal composition
+
+The [binding admission protocol](../protocols/mcp.md#scoped-binding-policy-and-registry-admission)
+now supplies canonical Journal policy changes and reviewed-version registry snapshots.
+`PostgreSqlMcpBindings.change` requires the installation grant; `enabled: false` revokes a
+binding without deleting its audit trail. `list` returns fully scoped records for trusted
+admission. Never hand an actor an operator's database authority to load this policy.
+
+The [owned credential coordinator](../protocols/mcp.md#owned-credential-backed-discovery)
+connects static credentials or OAuth begin/callback, installs after discovery, refreshes and
+revokes using a dedicated scoped provider. Its owner must retain the handle through the OAuth
+callback and explicitly close it. Do not construct a secret adapter per HTTP request. Failed
+refresh disables canonical installation state; revoke changes canonical state before remote
+credential revocation. Provider reconnection requires new references under the existing fence.
+
+These are internal composition APIs, not operator commands. No deployed installation routes,
+provider owner, capabilities screen or remote actor grant has been activated. The final part
+must deliver those operations, verified hosted egress, revision-hook invalidation and the full
+PostgreSQL/runtime/browser/canary journey before the operator install/review/revoke procedure
+can be described as available.

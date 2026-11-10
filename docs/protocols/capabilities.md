@@ -1,8 +1,8 @@
 # Capability registry and grants
 
 Contract of RW-0506's first subset (issue 19): the typed registry, per-actor grants and the
-`world.command` path. MCP, subscriptions, schedules, delivery and document-write capabilities
-come later and add to the same registry.
+`world.command` path, plus issue 164’s additive MCP admission snapshots. Subscriptions, schedules,
+delivery and document-write capabilities come later and add to the same registry.
 
 ## Registry
 
@@ -71,28 +71,32 @@ tokens and cost.
 
 ## Remote MCP installation foundation
 
-The [MCP installation protocol](mcp.md) describes the remote HTTP discovery and isolated
-credential ports. They do not register callable capabilities or change the three internal grants
-above. Discovered tools/resources/prompts carry untrusted data and disabled state; discovery
-alone supplies no authority. Canonical installation review is persisted internally; dynamic registry versions, scoped
-bindings and actor revision invalidation remain the next integration work of issue 164.
+The [MCP installation protocol](mcp.md) describes remote HTTP discovery, isolated encrypted
+PostgreSQL credentials, canonical installation reviews and scoped binding policy. Discovered
+metadata remains untrusted; discovery alone grants no access. Effect classes are `read`,
+`world-write`, `external-write`, `destructive`, `network` and `cost`. The unreviewed class is
+`external-write`, regardless of server hints. The internal `world_command` name is preserved.
 
-The owner-decided remote effect classes are `read`, `world-write`, `external-write`, `destructive`,
-`network` and `cost`. Unreviewed tools start at `external-write`, regardless of provider hints.
-This additive vocabulary does not rename the existing internal `world_command` effect.
+The separate owner-defaulted `runtime:mcp-install` grant governs installation and binding
+changes. The isolated secret-provider role confers no installation or capability authority.
+Provider-session loss fences old credentials and requires reconnect; see the
+[provider contract](mcp.md#postgresql-secret-provider). Credential-backed discovery now has an
+owned internal coordinator, including OAuth, but deployed routes and provider ownership remain
+pending. The deployed actor path still has only the internal capabilities above.
 
-The isolated PostgreSQL credential provider stores sealed envelopes under a dedicated role and
-forced scope RLS. It does not confer capability authority or alter registry grants. Provider
-session loss fences existing credentials and requires reconnect; see the [provider contract](mcp.md#postgresql-secret-provider).
+## MCP binding admission (part 5)
 
-The internal MCP governance service now persists installation snapshots, exact-hash tool
-reviews and drift/revocation state under the separate owner-defaulted `runtime:mcp-install`
-grant. These are canonical governance records, not dynamic actor grants: the three internal
-registry entries above remain the only registered capabilities. Reviewed MCP tools require the
-remaining scoped binding/resolution and revision-hook integration before any actor can see them.
+`resolveMcpCapabilityRegistry` now builds reviewed remote versions in this same registry from
+canonical installation and binding snapshots. It preserves all three internal definitions and
+their existing default grants. Remote discovery alone adds no grant. Scoped deny, exact review
+pins, drift, input/destination/effect/call/budget/expiry limits and a narrowing session overlay
+govern admission; see the [binding contract](mcp.md#scoped-binding-policy-and-registry-admission).
+Remote metadata is data, never registry instructions. Version names encode the full pin.
 
-Part 4 composes trusted discovery with this governance through an internal installation service.
-It checks the canonical installation grant before outbound work and again at Journal commit;
-refresh uses the stored endpoint. This still adds no registry definitions or actor grants.
-Production credentials, scoped bindings and runtime revision invalidation remain prerequisites
-for any callable remote capability; see [authorized discovery composition](mcp.md#authorized-discovery-composition).
+`CapabilityGrants.authorize` accepts optional trusted use metadata for destination and cost
+constraints; internal capability behavior is unchanged. Grants with such constraints refuse
+missing metadata. Runtime counters and reservations must be canonical at the executor boundary;
+this stateless check does not reserve spend or execute remote tools. The deployed actor path
+still uses only internal definitions. Loading these snapshots before new use and invalidating
+them via the actor capability revision hook remain final-part integration, so these proofs do
+not yet establish immediate deployed actor revocation.

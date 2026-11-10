@@ -6,13 +6,33 @@ import type { CapabilityValue } from "./capabilities.js";
  * intent only: it never executes here, and it can never exceed its grant. Contract:
  * `docs/protocols/capabilities.md`.
  */
-export type CapabilityEffect = "read" | "world_command";
+export type CapabilityEffect =
+  | "read"
+  | "world_command"
+  | "world-write"
+  | "external-write"
+  | "destructive"
+  | "network"
+  | "cost";
+
+export interface CapabilityUseContext {
+  readonly destination?: string;
+  readonly estimatedCostMicrousd?: number;
+  readonly spentMicrousd?: number;
+}
 
 export interface CapabilityDefinition {
   readonly name: string;
   readonly description: string;
   readonly effect: CapabilityEffect;
-  /** The runtime grant the acting member must hold; an actor never holds more than its member. */
+  /** For remote tools, reviewed binding policy supplies authority instead of a default grant. */
+  readonly remoteMcp?: {
+    readonly installationId: string;
+    readonly candidateId: string;
+    readonly protocolVersion: string;
+    readonly schemaHash: string;
+  };
+  /** The runtime grant for default internal admission; remote definitions have no default grant. */
   readonly requiredRuntimeGrant: string;
   /** Checks and normalizes an input; throws `CapabilityInputError` for any other shape. */
   parse(input: unknown): CapabilityValue;
@@ -25,6 +45,12 @@ export interface CapabilityGrant {
   readonly capability: string;
   readonly callsPerTurn: number;
   readonly commandTypes?: readonly string[];
+  /** Trusted composition supplies this additional narrowing check for remote grants. */
+  readonly check?: (
+    input: CapabilityValue,
+    context: CapabilityUseContext,
+  ) => CapabilityRefusal | undefined;
+  readonly active?: () => boolean;
 }
 
 export type CapabilityRefusal =
@@ -33,7 +59,8 @@ export type CapabilityRefusal =
   | "revoked"
   | "budget_exhausted"
   | "command_type_not_granted"
-  | "invalid_input";
+  | "invalid_input"
+  | "constraint_refused";
 
 export type CapabilityDecision =
   | Readonly<{ accepted: true; definition: CapabilityDefinition; input: CapabilityValue }>
@@ -89,7 +116,9 @@ export class CapabilityGrants {
 
   /** What the actor may be told it can propose: granted and not revoked. */
   available(): readonly string[] {
-    return this.grants.map((grant) => grant.capability).filter((name) => !this.revoked.has(name));
+    return this.grants
+      .filter((grant) => !this.revoked.has(grant.capability) && (grant.active?.() ?? true))
+      .map((grant) => grant.capability);
   }
 
   /**
@@ -100,12 +129,14 @@ export class CapabilityGrants {
   authorize(
     proposal: { readonly capability: string; readonly input: unknown },
     callsMade: ReadonlyMap<string, number> = new Map(),
+    context: CapabilityUseContext = {},
   ): CapabilityDecision {
     const definition = this.registry.get(proposal.capability);
     if (definition === undefined) return { accepted: false, code: "unknown_capability" };
     const grant = this.grants.find((candidate) => candidate.capability === definition.name);
     if (grant === undefined) return { accepted: false, code: "not_granted" };
-    if (this.revoked.has(definition.name)) return { accepted: false, code: "revoked" };
+    if (this.revoked.has(definition.name) || !(grant.active?.() ?? true))
+      return { accepted: false, code: "revoked" };
     if ((callsMade.get(definition.name) ?? 0) >= grant.callsPerTurn)
       return { accepted: false, code: "budget_exhausted" };
     let input: CapabilityValue;
@@ -120,6 +151,8 @@ export class CapabilityGrants {
       !(grant.commandTypes ?? []).includes((input as { type: string }).type)
     )
       return { accepted: false, code: "command_type_not_granted" };
+    const refusal = grant.check?.(input, context);
+    if (refusal !== undefined) return { accepted: false, code: refusal };
     return { accepted: true, definition, input };
   }
 }

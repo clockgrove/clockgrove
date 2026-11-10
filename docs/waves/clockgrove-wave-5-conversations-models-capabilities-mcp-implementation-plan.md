@@ -413,6 +413,15 @@ registry entry or actor invocation is added. Production egress/provider ownershi
 scoped bindings and runtime invalidation remain part 5; the operator screen and complete
 runtime/browser/canary proof remain part 6. Every owner decision above remains required.
 
+Amended (2026-11-10, issue 164, part 5): internal canonical binding changes now carry attributed
+Journal events, exact-pin policy validation, RLS and retention. An additive admission snapshot
+places reviewed remote versions into the existing registry with scoped denies and narrowing
+grants. An owned internal credential coordinator connects static tokens and OAuth through real
+PostgreSQL and HTTP discovery, refresh and revoke. No deployed operator endpoint, provider owner
+or actor capability is activated. Final part 6 retains production reference/egress composition,
+authenticated routes, actor revision-hook wiring, capabilities screen and complete runtime/browser/
+canary acceptance. The full OAuth decision and all outstanding acceptance remain binding.
+
 ### 12.2 Execution
 
 1. resolve installation/binding/grant;

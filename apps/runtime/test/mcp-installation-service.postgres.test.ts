@@ -6,10 +6,12 @@ import {
   type McpInstallationChange,
   McpInstallationService,
   type McpNetworkPort,
+  type McpRegistryInstallation,
   type RuntimeAuthorizationContext,
+  resolveMcpCapabilityRegistry,
 } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
-import { PostgreSqlMcpInstallations } from "@clockgrove/persistence";
+import { PostgreSqlMcpBindings, PostgreSqlMcpInstallations } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
 import {
   applyMigrations,
@@ -112,6 +114,31 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
     };
     const client = connect(fixture.environment, "clockgrove", "clockgrove_runtime");
     const store = new PostgreSqlMcpInstallations(client);
+    const bindings = new PostgreSqlMcpBindings(client);
+    const available = async () => {
+      const row = await store.read(authorization, scope, "mcp");
+      const policy = await bindings.list(authorization, scope, "mcp");
+      return resolveMcpCapabilityRegistry(
+        [
+          {
+            ...row,
+            installationId: "mcp",
+            tenantId: authorization.tenantId,
+            worldId: scope.worldId,
+            timelineId: scope.timelineId,
+          } as unknown as McpRegistryInstallation,
+        ],
+        policy,
+        {
+          tenantId: authorization.tenantId,
+          worldId: scope.worldId,
+          timelineId: scope.timelineId,
+          actorId: "fixture-actor",
+          sessionId: "fixture-session",
+          runtimeGrants: [],
+        },
+      ).grants.available();
+    };
     const service = new McpInstallationService(store, network);
     let command = 0;
     const issuedAt = "2026-11-09T00:00:00.000Z";
@@ -189,6 +216,29 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
           effectClass: "read",
           enabled: true,
         });
+      for (const candidateId of ["one", "two"])
+        await bindings.change(
+          authorization,
+          scope,
+          {
+            bindingId: candidateId,
+            installationId: "mcp",
+            candidateId,
+            schemaHash: hash,
+            protocolVersion: "2025-11-25",
+            scopeType: "actor",
+            scopeId: "fixture-actor",
+            effect: "allow",
+            enabled: true,
+            constraints: { callsPerTurn: 1, effectClasses: ["read"] },
+          },
+          `binding-${candidateId}`,
+          issuedAt,
+        );
+      expect(await available()).toEqual([
+        `mcp:mcp:one:2025-11-25:${hash}`,
+        `mcp:mcp:two:2025-11-25:${hash}`,
+      ]);
       await install("valid-retry");
       const retryCommand = `network-${++command}`;
       await service.refresh(authorization, scope, "valid-retry", retryCommand, issuedAt);
@@ -213,6 +263,7 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
       expect([...new Set(paths)]).toEqual(["/mcp"]);
       const refreshed = await store.read(authorization, scope, "mcp");
       expect(refreshed?.drifted).toEqual(["one"]);
+      expect(await available()).toEqual([`mcp:mcp:two:2025-11-25:${hash}`]);
       expect(refreshed?.reviews).toEqual({
         two: {
           enabled: true,
@@ -228,6 +279,7 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
       ).rejects.toMatchObject({ code: "malicious_schema" });
       expect((await store.read(authorization, scope, "mcp"))?.status).toBe("disabled");
       expect((await store.read(authorization, scope, "mcp"))?.reviews).toEqual({});
+      expect(await available()).toEqual([]);
       const disabledResolutions = resolutions;
       await expect(refresh()).rejects.toMatchObject({ code: "installation_unavailable" });
       expect(resolutions).toBe(disabledResolutions);
