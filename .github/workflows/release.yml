@@ -57,7 +57,9 @@ jobs:
       candidate: ${{ needs.select.outputs.candidate }}
       quality_run_id: ${{ needs.select.outputs.run_id }}
       artifact_id: ${{ needs.select.outputs.artifact_id }}
-    # No repository secret inheritance; the protected job reads its environment.
+    # A called workflow sees no secrets, its job's environment secrets included, unless the
+    # caller passes them. deploy.yml maps only the environment's five deploy secrets into one step.
+    secrets: inherit
 
   staging:
     needs: select
@@ -68,6 +70,8 @@ jobs:
       candidate: ${{ needs.select.outputs.candidate }}
       quality_run_id: ${{ needs.select.outputs.run_id }}
       artifact_id: ${{ needs.select.outputs.artifact_id }}
+    # Same as development: without this the staging secrets arrive empty.
+    secrets: inherit
 
   production:
     if: ${{ false }}

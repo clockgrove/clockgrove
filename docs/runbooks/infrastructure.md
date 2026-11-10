@@ -78,6 +78,10 @@ inaccessible, malformed or unknown environment/protection configuration fails by
 an admitted target. This prevents the [implicit creation of unprotected environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 The deploy then requires the environment variables `OWNER_SETUP_READY` (issue 1) and
 `ACTIVATION_PREREQUISITES_READY` (issue 2) to equal `true`. Production remains disabled.
+The release workflow calls the deployment with `secrets: inherit`: a called workflow otherwise
+gets no secrets, not even its own environment's, and the deploy step sees them as empty. Only
+the provisioning step maps secrets, and only the five declared in
+`infra/environments/staging.secrets.json`; the job never references the organization's other secrets.
 
 The release workflow selects an exact successful main-push Quality run and its candidate-bound
 artifact. A main push deploys to development only once `infra/environments/development.json`
