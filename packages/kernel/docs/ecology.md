@@ -231,8 +231,8 @@ The durable runtime also wakes for process deadlines, including worlds without a
 due before an actor decision. PostgreSQL derives `next_process_due_at` from the earliest non-null
 canonical process cursor at birth and after every state-document update. The optional process cursor
 list is preserved in reconstructable birth sections, including an explicitly empty list.
-The stored generated column
-is scheduling metadata: it changes no canonical state, queue, event or hash. Due-work, clock-owner and
+A database trigger maintains the stored derived column on inserts and document or hint updates.
+It is scheduling metadata: it changes no canonical state, queue, event or hash. Due-work, clock-owner and
 runtime-operation reads take the earlier of this deadline and the indexed pending schedule deadline.
 The existing autonomous clock principal admits the advance; process attempts still execute ordinary
 validated transfers attributed to the declared process principal. Actor schedule rows remain the

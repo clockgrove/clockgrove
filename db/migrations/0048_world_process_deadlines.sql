@@ -41,9 +41,29 @@ BEGIN
 END;
 $$;
 
+-- Let PostgreSQL populate existing rows during DDL, then retain those values as an ordinary
+-- column so full-row clones/restores can supply it. Subsequent writes are derived by the trigger.
 ALTER TABLE clockgrove.partition_states
   ADD COLUMN next_process_due_at bigint GENERATED ALWAYS AS
     (clockgrove.world_process_deadline(document)) STORED;
+ALTER TABLE clockgrove.partition_states
+  ALTER COLUMN next_process_due_at DROP EXPRESSION;
+
+-- Derive supplied hints too: whole-row restores/clones may name this column, but cannot change
+-- the deadline independently of the canonical cursor list.
+CREATE FUNCTION clockgrove.derive_world_process_deadline() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  NEW.next_process_due_at := clockgrove.world_process_deadline(NEW.document);
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER partition_world_process_deadline
+  BEFORE INSERT OR UPDATE OF document, next_process_due_at ON clockgrove.partition_states
+  FOR EACH ROW EXECUTE FUNCTION clockgrove.derive_world_process_deadline();
 
 -- Preserve the optional cursor list (including an explicitly empty list) in the reconstructable
 -- birth rows, exactly like the other optional canonical state sections.

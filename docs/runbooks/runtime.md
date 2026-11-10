@@ -341,8 +341,9 @@ where each trips. New commands target
 durable schedule deadlines, so cap and delivery lateness do not introduce physical boundaries.
 
 The earliest non-null declared world-process cursor is also a durable deadline. PostgreSQL stores
-`next_process_due_at` as a generated column derived from the canonical state document, so birth,
-committed advances and other state updates keep it current without a separate write. Due-work,
+`next_process_due_at` as a derived column maintained from the canonical state document by a database
+trigger, so birth, committed advances and other state updates keep it current without a separate write.
+Full-row inserts may include the hint; the trigger overwrites it from the document. Due-work,
 clock-owner and runtime-operation reads choose the earlier process or indexed actor-schedule deadline;
 actorless worlds can therefore wake, and a process can wake before the next actor decision. The
 ordinary autonomous clock authority admits the advance, while the native kernel attributes each
