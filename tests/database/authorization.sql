@@ -67,6 +67,8 @@ COMMIT;
 --                   0034; actor documents and context manifests, 0037; turn fibers, 0038)
 --   process         SELECT and INSERT, processes also UPDATE of their lease, only of the installed
 --                   tenant; a segment only under the current lease epoch (actor processes, 0038)
+--   participant_read SELECT only, scoped to conversation participants; writes only through
+--                   moderation-shadow reservation and completion functions (0047)
 --   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
 --                   through the wake-triage reservation and completion functions (0041)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
@@ -78,7 +80,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'participant', 'process', 'operator_read', 'none'
+      'key_rewrap', 'participant', 'participant_read', 'process', 'operator_read', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -117,6 +119,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'actor_activations', 'participant'),
   ('clockgrove', 'wake_triage', 'operator_read'),
   ('clockgrove', 'mcp_installations', 'operator_read'),
+  ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
   ('clockgrove_management', 'principals', 'none'),
@@ -275,7 +278,7 @@ BEGIN
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
-        'clockgrove.wake_triage', 'clockgrove.mcp_installations'
+        'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.moderation_shadow'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2151,6 +2154,125 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- A shadow annotation is private to the admitted message's participant. Even that participant
+-- has no direct write grant; the functions bind identities and complete the annotation only once.
+DO $$
+DECLARE
+  reservation jsonb;
+  stored jsonb;
+  visible bigint;
+  evidence constant jsonb := jsonb_build_object(
+    'schemaVersion',1,'pointId','moderation-shadow','sessionId','session-f','messageId','message-f',
+    'actorId','keeper','simulationTime','0','policyVersion','moderation-test@1',
+    'confidenceThreshold',6500,'inputSha256',repeat('a',64),'signature','moderation_'||repeat('b',32),
+    'detail',NULL,'mode','shadow','status','picked','disposition','block','injection',false,
+    'confidenceBp',9000,'modelAlias','moderation.test','model','scripted-moderation',
+    'latencyMs',12,'costMicrousd',NULL);
+  context text[];
+  statement text;
+  malformed jsonb;
+BEGIN
+  IF NOT has_table_privilege('clockgrove_runtime','clockgrove.moderation_shadow','SELECT')
+     OR has_table_privilege('clockgrove_runtime','clockgrove.moderation_shadow',
+          'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+     OR has_any_column_privilege('clockgrove_runtime','clockgrove.moderation_shadow','INSERT,UPDATE,REFERENCES') THEN
+    RAISE EXCEPTION 'moderation shadow runtime privileges are not exactly SELECT';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a','principal-a','{"version":1,"allowedCategories":["conversation"]}');
+  reservation := clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+  IF reservation IS DISTINCT FROM '{"existing":false,"record":null,"simulationTime":"0","partitionId":"partition-a","streamId":"stream-a"}'::jsonb
+     OR (SELECT count(*) FROM clockgrove.moderation_shadow) <> 1
+     OR (SELECT record FROM clockgrove.moderation_shadow) IS NOT NULL THEN
+    RAISE EXCEPTION 'participant could not reserve its own private annotation';
+  END IF;
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation","operator_evidence"]}'],
+    ARRAY['tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["operator_evidence"]}']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2],context[3]);
+    PERFORM set_config('attack.seen','',true);
+    SELECT count(*) INTO visible FROM clockgrove.moderation_shadow WHERE pg_temp.leak(message_id);
+    IF visible <> 0
+       OR current_setting('attack.seen') <> '' THEN
+      RAISE EXCEPTION 'foreign or low-ceiling context read private moderation evidence';
+    END IF;
+    BEGIN
+      PERFORM clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+      RAISE EXCEPTION 'foreign context reserved private moderation' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+    BEGIN
+      PERFORM clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence);
+      RAISE EXCEPTION 'foreign context completed private moderation' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a','{"version":1,"allowedCategories":["conversation"]}');
+  IF (SELECT record FROM clockgrove.moderation_shadow) IS NOT NULL THEN
+    RAISE EXCEPTION 'foreign context changed the pending moderation annotation';
+  END IF;
+  FOREACH malformed IN ARRAY ARRAY[
+    'null'::jsonb,'{}'::jsonb,evidence||'{"actorId":"forged"}'::jsonb,
+    evidence||'{"messageId":"forged"}'::jsonb,evidence||'{"input":"private text"}'::jsonb,
+    evidence||'{"confidenceBp":10001}'::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',malformed);
+      RAISE EXCEPTION 'malformed moderation evidence was accepted' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  stored := clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence);
+  IF stored IS DISTINCT FROM evidence
+     OR (SELECT record FROM clockgrove.moderation_shadow) IS DISTINCT FROM evidence THEN
+    RAISE EXCEPTION 'participant did not store exact private moderation evidence';
+  END IF;
+  FOREACH statement IN ARRAY ARRAY[
+    'INSERT INTO clockgrove.moderation_shadow SELECT * FROM clockgrove.moderation_shadow',
+    'UPDATE clockgrove.moderation_shadow SET record=''{}''',
+    'DELETE FROM clockgrove.moderation_shadow',
+    'TRUNCATE clockgrove.moderation_shadow'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'moderation shadow accepted direct write: %',statement USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  reservation := clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+  IF reservation IS DISTINCT FROM jsonb_build_object('existing',true,'record',evidence,
+      'simulationTime','0','partitionId','partition-a','streamId','stream-a')
+     OR clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence||'{"costMicrousd":500}')
+          IS DISTINCT FROM evidence
+     OR (SELECT count(*) FROM clockgrove.moderation_shadow) <> 1 THEN
+    RAISE EXCEPTION 'moderation retry changed the immutable annotation';
+  END IF;
+END;
+$$;
+SAVEPOINT moderation_deleted_session;
+UPDATE clockgrove.conversation_sessions SET state='deleted' WHERE session_id='session-f';
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.moderation_shadow) <> 0 THEN
+    RAISE EXCEPTION 'deleted session exposed its private moderation annotation';
+  END IF;
+  BEGIN
+    PERFORM clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+    RAISE EXCEPTION 'deleted session reserved moderation' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+  END;
+END;
+$$;
+ROLLBACK TO SAVEPOINT moderation_deleted_session;
+RELEASE SAVEPOINT moderation_deleted_session;
+SELECT pg_temp.act_as('tenant-a','principal-a');
 
 INSERT INTO clockgrove.actor_processes (
   tenant_id, process_id, world_id, timeline_id, actor_id, objective, target

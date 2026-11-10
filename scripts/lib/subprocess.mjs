@@ -32,7 +32,9 @@ export function withoutSubprocessCancellation(operation) {
   return scope.run(undefined, operation);
 }
 
-// Return observations only after pipes and the directly owned child have closed.
+// Return observations only after pipes and the directly owned child have closed. On the deadline,
+// `stopSignal` goes to the child's process group, then SIGKILL after `killGraceMs`; `timedOut`
+// says the deadline, not an abort or the output cap, stopped it.
 export async function ownedSubprocess(executable, args, options = {}) {
   const {
     cwd,
@@ -43,6 +45,7 @@ export async function ownedSubprocess(executable, args, options = {}) {
     killGraceMs = 1_000,
     maxBuffer = 128 * 1024 * 1024,
     signal = scope.getStore(),
+    stopSignal = "SIGTERM",
   } = options;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
     throw new Error("positive finite subprocess deadline required");
@@ -66,6 +69,7 @@ export async function ownedSubprocess(executable, args, options = {}) {
     let bytes = 0;
     let error;
     let escalation;
+    let timedOut = false;
     const kill = (signalName) => {
       if (!child.pid) return;
       try {
@@ -78,11 +82,14 @@ export async function ownedSubprocess(executable, args, options = {}) {
     const cancel = (code = "ETIMEDOUT") => {
       if (escalation !== undefined) return;
       error ??= failure(code);
-      kill("SIGTERM");
+      kill(stopSignal);
       escalation = setTimeout(() => kill("SIGKILL"), killGraceMs);
     };
     const aborted = () => cancel();
-    const timer = setTimeout(() => cancel(), timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = escalation === undefined;
+      cancel();
+    }, timeoutMs);
     signal?.addEventListener("abort", aborted, { once: true });
     if (signal?.aborted) cancel();
     const collect = (stream, append) => {
@@ -119,6 +126,7 @@ export async function ownedSubprocess(executable, args, options = {}) {
         status: typeof status === "number" && status >= 0 ? status : null,
         signal: childSignal,
         error,
+        timedOut,
         stdout,
         stderr,
       });

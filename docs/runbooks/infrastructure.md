@@ -173,10 +173,11 @@ delete a resource to get past the refusal.
 #### Held lock
 
 OpenTofu writes `<environment>/terraform.tfstate.tflock` while it plans or applies and deletes it
-when done. A run cut off mid-apply, by the job timeout or a runner teardown, leaves it behind, and
-every later plan would fail with its output withheld. So the deploy and `infra:plan` read the lock
-first and refuse with its holder, operation, age and lock ID; a failed OpenTofu phase also names a
-lock it leaves. Nothing clears a lock automatically.
+when done. A run cut off mid-apply, by the job timeout, a runner teardown or the deploy's own kill
+after an OpenTofu call overran its limit (see [Deploy phases](#deploy-phases)), leaves it behind,
+and every later plan would fail with its output withheld. So the deploy and `infra:plan` read the
+lock first and refuse with its holder, operation, age and lock ID; a failed or timed-out OpenTofu
+phase also names a lock it leaves. Nothing clears a lock automatically.
 
 A lock is safe to clear only when no deploy is running in Actions and no owner's `infra:plan` or
 `test:cloud` against that environment is running. Then the owner clears it with
@@ -185,6 +186,26 @@ check is a backstop, not the proof: it covers the deploy job's 45-minute timeout
 and OpenTofu's shutdown, but owner-run plans and cloud tests have no time limit. An
 interrupted apply's effect is unknown: the next deploy plans against what state recorded, and
 anything the apply created without recording it is handled as under [Lost state](#lost-state).
+
+After a deploy that stopped at an OpenTofu time limit (`stopped: no result within <n> s` in the
+log; the phase is `unknown` with reason `timeout` in the evidence, and so is the deployment):
+
+1. If the log says OpenTofu was killed after the grace, the lock is held: the deploy names it.
+   This is the expected end when the Neon provider waits on a failed operation, since it ignores
+   OpenTofu's stop (see [Deploy phases](#deploy-phases)). Clear it as above once no other run is
+   active. `unlock` refuses until the lock is 60 minutes old, so that is the earliest the deploy
+   can run again. If the log says OpenTofu exited within the grace, it saved state and released
+   the lock; confirm with `pnpm infra:state lock staging`.
+2. Find what did not return. For a provision call, open the Neon project's operations (console or
+   `GET /projects/<id>/operations`): the Neon provider waits for the latest one to finish and never
+   stops when it ends `failed`, `cancelled` or `skipped`, so the next deploy would wait on it again.
+   Dispatch again only once a later operation has finished or Neon has resolved the failed one.
+3. Dispatch the deploy again. It plans against what state recorded; a timed-out call is never
+   retried within a deploy.
+
+A deploy that ran out of its OpenTofu budget (`not started: ... OpenTofu budget` in the log; the
+phase is `failed` with reason `budget`) started nothing more and holds no lock: find what made the
+earlier calls slow, then dispatch it again.
 
 ### Deploy phases
 
@@ -228,7 +249,32 @@ duplicable resources, as before the first plan, then plans, reviews and applies 
 run's plan is deleted, never applied. A failed create of the Neon project itself is not retried:
 Neon may hold the project anyway, and if its name search has not caught up, a retry would make a
 second one that state then hides; the per-project lock cannot refuse that create. Any other failed
-apply, and any interrupted one, stops the deploy at once.
+apply, and any interrupted or timed-out one, stops the deploy at once.
+
+No OpenTofu call can hold the deploy until the job's 45-minute timeout kills it, since that kill
+skips the evidence upload and leaves the deploy unexplained. Each call has a wall-clock limit
+within a 30-minute budget from the deploy's start. An apply gets 10 minutes and starts only if all
+10 fit in what is left of the budget, so no apply starts only to be cut short. Any other call
+(init, plan, show, output) gets 5 minutes, cut to what is left, and starts only with at least one
+minute left. A call the budget refuses is not started: its phase is `failed` with reason `budget`,
+and the deploy stops there and fails.
+
+At its limit OpenTofu gets SIGINT. It asks its providers to stop, waits for their calls in flight
+to return, then saves state and releases the lock. A provider that ignores the stop keeps its call
+running, and OpenTofu waits with it. The Neon provider 0.1.15 is one: its framework's stop does
+nothing, and its wait for a project operation is a loop without a context. So in the case these
+limits exist for, a Neon operation that ended `failed`, `cancelled` or `skipped`, OpenTofu does not
+exit, its process group is killed 2 minutes later, and the state lock stays held. A call that only
+ran long, against a provider that honours the stop, exits within the 2 minutes and leaves no lock.
+Either way the phase is `unknown` with reason `timeout`, the deploy stops there and is `unknown`,
+and a timed-out provision apply is never retried: the provider may still be waiting on its
+operation, which is not the lock the retry is for. Evidence validation accepts reason `timeout`
+only on an `unknown` phase with error code `ETIMEDOUT`, and reason `budget` only on a `failed`
+phase with no exit code, signal or error code; either must be its deployment's last phase. The
+budget plus the grace leaves the job's setup steps and the evidence upload room inside 45 minutes,
+and the provision retries' worst case (four runs of state read, plan, review and apply, and 105
+seconds of backoff) normally takes minutes. [Held lock](#held-lock) covers what to do after a
+timeout.
 
 Every run is recorded with its own state read, plan, review and apply phases; a retry's carry an
 `attempt` number from 2. Evidence validation accepts `attempt` only on those four provision phases,

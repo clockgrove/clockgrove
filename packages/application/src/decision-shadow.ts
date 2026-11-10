@@ -778,6 +778,110 @@ export async function journalWakeTriage(
   });
 }
 
+export async function journalModerationShadow(
+  journal: Journal,
+  scope: DecisionShadowScope,
+  record: import("./moderation-shadow.js").ModerationShadowRecord,
+  outcomes: JournalOutcomeReader | undefined = readsStoredOutcomes(journal) ? journal : undefined,
+): Promise<void> {
+  // Event category access is broader than session participation. Only a commitment enters
+  // the journal; the private judgement stays on the participant-authorized message annotation.
+  const commitment = {
+    schemaVersion: 1,
+    pointId: record.pointId,
+    evidenceSha256: sha256Hex(canonicalBytes(record)),
+  };
+  const commandId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}moderation-shadow:${sha256Hex(canonicalBytes([`${record.sessionId}:${record.messageId}`])).slice(0, 32)}`,
+    "CommandId",
+  );
+  const target = constructActorAddress({
+    tenantId: scope.tenantId,
+    worldId: scope.worldId,
+    timelineId: scope.timelineId,
+    kind: "space",
+    id: scope.spaceId,
+  } as never);
+  const raw = {
+    schemaVersion: 2,
+    commandId,
+    type: "ModerationShadowRecord",
+    target,
+    expected: {},
+    issuedAt: TRUSTED_COMMAND_ISSUED_AT,
+    context: {
+      version: 1,
+      correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+      requestId: commandId,
+    },
+    attribution: {
+      effectiveActorId: "clockgrove:decision-shadow",
+      causalRootActionId: decodeOpaqueId(`action:${commandId}`, "ActionId"),
+    },
+    payload: commitment,
+  };
+  const command = raw as unknown as JournalExecuteRequest["command"];
+  const authorityDecision = allowDecision({
+    tenantId: command.target.tenantId,
+    worldId: command.target.worldId,
+    timelineId: command.target.timelineId,
+    commandId,
+    attribution: command.attribution,
+    inputs: {
+      principalId: scope.authorization.principalId,
+      roles: [],
+      grants: [],
+      privacyCeiling: scope.authorization.privacyCeiling,
+    },
+  });
+  const eventId = decodeOpaqueId(
+    `${TRUSTED_ID_PREFIX}moderation-shadow-event:${sha256Hex(canonicalBytes([`${record.sessionId}:${record.messageId}`])).slice(0, 32)}`,
+    "EventId",
+  );
+  const privacyClass = "conversation" as PrivacyClass;
+  const commandBytes = new TextEncoder().encode(canonicalSerialize(raw));
+  // An exact retry is answered from the stored receipt, as every decided command is.
+  if (
+    outcomes !== undefined &&
+    (await outcomes.storedOutcome(scope.authorization, commandId, commandBytes)) !== undefined
+  )
+    return;
+  await journal.execute({
+    authorization: scope.authorization,
+    command,
+    commandBytes,
+    route: {
+      partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+      spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+      streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+    },
+    authorityDecision,
+    events: [
+      {
+        schemaVersion: 2,
+        eventId,
+        type: "ModerationShadowRecorded",
+        partitionId: decodeOpaqueId(scope.partitionId, "PartitionId"),
+        spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+        streamId: decodeOpaqueId(scope.streamId, "StreamId"),
+        simulationTime: BigInt(record.simulationTime) as never,
+        correlationId: decodeOpaqueId(commandId, "CorrelationId"),
+        attribution: {
+          ...command.attribution,
+          authorityDecisionId: authorityDecision.authorityDecisionId,
+        },
+        policyVersions: { routine: record.policyVersion },
+        privacyClass,
+        payloadHash: computePayloadHash(commitment),
+        payload: commitment,
+      },
+    ],
+    dispatches: [],
+    stableResult: { recorded: true },
+    projectionDelta: null,
+  });
+}
+
 export interface DecisionShadowAgreement {
   readonly decisions: number;
   readonly answered: number;
