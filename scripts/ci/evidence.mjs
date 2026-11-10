@@ -32,6 +32,73 @@ export async function readPassingReceipt(directory, name, candidate, command) {
   );
   return receipt;
 }
+// The deploy retries only a failed provision apply (scripts/ci/deploy.mjs): at most `attempts` runs,
+// `backoffSeconds` apart. Each retry re-reads state, then plans, reviews and applies, in this order.
+export const provisionRetry = { attempts: 4, backoffSeconds: [15, 30, 60] };
+const provisionApply = "OpenTofu provision apply";
+const retriedPhases = [
+  "read owned persisted resource identities",
+  "OpenTofu provision plan",
+  "OpenTofu provision review",
+  provisionApply,
+];
+// A deployment's phases that still decide its outcome: all but a provision apply that a later
+// attempt passed. That attempt planned against the state the failed one left, so the failed one's
+// effect is no longer open.
+export function outstandingPhases(phases) {
+  const attempt = (phase) => phase.attempt ?? 1;
+  return phases.filter(
+    (phase) =>
+      phase.status === "passed" ||
+      phase.command[0] !== provisionApply ||
+      !phases.some(
+        (later) =>
+          later.status === "passed" &&
+          later.command[0] === provisionApply &&
+          attempt(later) > attempt(phase),
+      ),
+  );
+}
+// Retry evidence must be what the deploy produces: attempt n (2 up to the limit) starts only after
+// attempt n-1's provision apply did not pass, and runs the retried phases in order, nothing between.
+export function assertRetryEvidence(phases) {
+  let attempt = 1;
+  let due = [];
+  let lastApply;
+  for (const phase of phases) {
+    const name = phase.command[0];
+    const n = phase.attempt ?? 1;
+    if (!retriedPhases.includes(name)) {
+      assert(!phase.attempt, "deploy retry of a phase that is never retried");
+      assert.equal(due.length, 0, "deploy retry interrupted by another phase");
+      continue;
+    }
+    if (n === attempt + 1) {
+      assert(
+        lastApply?.attempt === attempt && lastApply.status !== "passed",
+        "deploy retry without a failed provision apply before it",
+      );
+      assert(n <= provisionRetry.attempts, "deploy retry beyond its attempt limit");
+      attempt = n;
+      due = [...retriedPhases];
+    }
+    assert.equal(n, attempt, "deploy retry attempt out of order");
+    if (n > 1) assert.equal(due.shift(), name, "deploy retry phases out of order");
+    if (name === provisionApply) lastApply = { attempt: n, status: phase.status };
+  }
+}
+// One deployment's outcome against its phases.
+export function assertDeploymentOutcome(deployment) {
+  assertRetryEvidence(deployment.phases);
+  const outstanding = outstandingPhases(deployment.phases);
+  if (outstanding.some((phase) => phase.status === "unknown"))
+    assert.equal(deployment.status, "unknown", "deployment effect uncertainty mismatch");
+  if (deployment.status === "passed")
+    assert(
+      deployment.phases.length > 0 && outstanding.every((phase) => phase.status === "passed"),
+      "deployment outcome mismatch",
+    );
+}
 // Child observations only: wrapper failures have a separate nonzero CLI result.
 export function subprocessEvidence(result) {
   const exitCode = typeof result.status === "number" ? result.status : null;
@@ -104,14 +171,7 @@ export async function validateEvidence(manifest) {
       assertPassingReceiptFacts(result, manifest.candidate, result.command);
   }
   for (const deployment of manifest.deployments) {
-    if (deployment.phases.some((phase) => phase.status === "unknown"))
-      assert.equal(deployment.status, "unknown", "deployment effect uncertainty mismatch");
-    if (deployment.status === "passed")
-      assert(
-        deployment.phases.length > 0 &&
-          deployment.phases.every((phase) => phase.status === "passed"),
-        "deployment outcome mismatch",
-      );
+    assertDeploymentOutcome(deployment);
     assert.equal(deployment.commit, manifest.candidate.commit, "deployment candidate mismatch");
     assert.equal(
       deployment.buildDigest,

@@ -125,6 +125,28 @@ it(
       await expect(
         validateEvidence({ ...manifest, knownRisks: ["ghp_" + "z".repeat(36)] }),
       ).rejects.toThrow("secret-shaped value detected");
+      // Deployment retry evidence is held to what the deploy produces (tests/infra covers each rule).
+      const publication = (status, attempt) => ({
+        ...observed,
+        command: ["Wrangler Worker publication"],
+        status,
+        exitCode: status === "passed" ? 0 : 1,
+        ...(attempt ? { attempt } : {}),
+      });
+      await expect(
+        validateEvidence({
+          ...manifest,
+          deployments: [
+            {
+              environment: "staging",
+              commit: manifest.candidate.commit,
+              buildDigest: `sha256:${"1".repeat(64)}`,
+              status: "passed",
+              phases: [publication("unknown"), publication("passed", 2)],
+            },
+          ],
+        }),
+      ).rejects.toThrow("deploy retry of a phase that is never retried");
       await expect(recordCommand(directory, "node-version", ["node", "--version"])).rejects.toThrow(
         "refuse overwriting prior command evidence",
       );
