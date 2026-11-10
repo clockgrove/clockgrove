@@ -232,6 +232,63 @@ it.skipIf(!isNativeWorldOwnerChild())(
           )
         ).trim(),
       ).toBe("1");
+
+      const agent = (fields: object) =>
+        post("/actor-agent", {
+          scope: owner.scope,
+          actorId: "fixture.keeper",
+          ...fields,
+        });
+      await agent({ op: "fault", phase: "hold:context_ready" });
+      const heldInput = {
+        sessionId: session.sessionId,
+        messageId: "held",
+        text: "held private note",
+      };
+      const holding = post("/v1/runtime/talk", heldInput);
+      try {
+        await expect
+          .poll(
+            async () =>
+              (
+                await post("/v1/runtime/turns/status", {
+                  sessionId: session.sessionId,
+                  messageId: "held",
+                })
+              ).body,
+          )
+          .toMatchObject({ phase: "context_ready" });
+        expect(
+          await post("/v1/runtime/talk", {
+            ...heldInput,
+            ingress: { replyMetadata: { messageId: "fake-1:reply" } },
+          }),
+        ).toEqual({ status: 409, body: { error: "message_id_reused" } });
+        expect(
+          await post("/v1/runtime/talk", {
+            ...heldInput,
+            ingress: {
+              sourceIdentityAssertion: {
+                kind: "authenticated_session",
+                subject: "identity-outsider",
+              },
+            },
+          }),
+        ).toEqual({ status: 403, body: { error: "channel_identity_unverified" } });
+      } finally {
+        await agent({ op: "fault", phase: null });
+        await agent({ op: "release" });
+      }
+      expect((await holding).status).toBe(200);
+      expect(
+        (
+          await owner.sql(`SELECT
+        (SELECT count(*) FROM clockgrove.conversation_messages WHERE session_id='${session.sessionId}'
+          AND message_id IN ('held','held:reply')) || '/' ||
+        (SELECT count(*) FROM clockgrove.conversation_turns WHERE session_id='${session.sessionId}' AND turn=2)
+      `)
+        ).trim(),
+      ).toBe("2/1");
     });
   },
   240_000,
