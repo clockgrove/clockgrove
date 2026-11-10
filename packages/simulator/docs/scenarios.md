@@ -9,8 +9,10 @@ canonical bytes of the bundle without that field. Refusal codes are in [Refusal 
 The pack is seeded with `seedGenesis` (its refusals pass through unchanged), then each plan runs against the
 kernel from the genesis state. The native executor checks the world invariants before every
 accepted result, including per-holder resource accounting and closed-world cause validation.
-Results supplied by an external driver are independently checked with that same registry before
-recording. An inconsistent result is refused as `RESOURCE_CAUSE_INVARIANT`; the same check runs
+Results supplied by an external driver can combine overdue catch-up and a client command.
+`checkWorldTransitionInvariants` independently checks every command-independent invariant in that
+registry before recording; each native command still checks its own command-specific authority and
+payload. An inconsistent result is refused as `RESOURCE_CAUSE_INVARIANT`; the same check runs
 in full and summarised recordings, so reference scenarios and long runs cover every transition.
 Runtime identifiers, durations, peak memory, wall-clock values and host paths
 are never part of the bundle.

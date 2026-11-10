@@ -3137,12 +3137,39 @@ export function checkWorldInvariants(
   /** The payload of the command whose events are checked; omitted means an empty one. */
   payload: unknown = {},
 ): Refusal | undefined {
+  return checkRegisteredWorldInvariants(initial, final, events, commandType, policy, payload);
+}
+
+/**
+ * Checks a composite transition spanning multiple already-validated commands. Command-specific
+ * authority stays with each native execution; every command-independent invariant still applies.
+ */
+export function checkWorldTransitionInvariants(
+  initial: WorldState,
+  final: WorldState,
+  events: readonly WorldSemanticEvent[],
+  policy: WorldBehaviorPolicy,
+): Refusal | undefined {
+  return checkRegisteredWorldInvariants(initial, final, events, undefined, policy, {});
+}
+
+function checkRegisteredWorldInvariants(
+  initial: WorldState,
+  final: WorldState,
+  events: readonly WorldSemanticEvent[],
+  commandType: string | undefined,
+  policy: WorldBehaviorPolicy | undefined,
+  payload: unknown,
+): Refusal | undefined {
   if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
   const kernel = WORLD_KERNEL.kernel;
   const subject = Object.freeze({ payload, initial, state: final, events });
   return withProcessVerdicts(undefined, () =>
     withActivePolicy(policy, () => {
-      for (const invariant of kernel.definition.invariants.ordered(commandType)) {
+      for (const invariant of kernel.definition.invariants.ordered(
+        commandType ?? "world.advance",
+      )) {
+        if (commandType === undefined && invariant.commands !== undefined) continue;
         const name = `${invariant.name}@${invariant.version}`;
         try {
           const offending = invariant.check(subject);

@@ -14,7 +14,7 @@ import {
 } from "@clockgrove/domain";
 import {
   canonicalBytes,
-  checkWorldInvariants,
+  checkWorldTransitionInvariants,
   createDeterministicIdSource,
   dispatchWorldDecision,
   evaluateRules,
@@ -548,18 +548,11 @@ export async function executePlan(
         check: outcome.error.check === undefined ? undefined : String(outcome.error.check),
       };
     const result = outcome.result;
-    // Native execution already checked this registry; external drivers must prove their result.
+    // Drivers may aggregate catch-up and client commands; native calls validate each command.
     const causeFailure =
       driver === undefined
         ? undefined
-        : checkWorldInvariants(
-            state,
-            result.state,
-            result.events,
-            command.type,
-            behavior.policy,
-            command.payload,
-          );
+        : checkWorldTransitionInvariants(state, result.state, result.events, behavior.policy);
     if (causeFailure !== undefined)
       refuse("RESOURCE_CAUSE_INVARIANT", String(causeFailure.path), String(causeFailure.check));
     const call = callCount;
