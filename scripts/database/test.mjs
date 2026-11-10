@@ -1,12 +1,90 @@
 import assertStrict from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { testDisposableDatabaseLifecycle } from "../../tests/database/lifecycle.mjs";
+import { ownedSubprocess } from "../lib/subprocess.mjs";
+import {
+  deploymentRolesInput,
+  restrictedRoleKeys,
+  roleCheckFailures,
+} from "./deployment-roles.mjs";
+import { databaseIsolationQuery } from "./isolation.mjs";
 import { applyMigrations, applySqlFile, psql, psqlQuery, withDisposableDatabase } from "./lib.mjs";
 import { restoredSchemaPolicy, withRestoredHistory } from "./restore.mjs";
 
 await testDisposableDatabaseLifecycle();
+
+// The hosted role SQL (deployment-grants.sql) as a deploy runs it on Neon: the migration role is a
+// CREATEROLE, CREATEDB member of neon_superuser but no superuser, and creates the restricted roles.
+await withDisposableDatabase(async ({ tools, environment }) => {
+  const restricted = [
+    "clockgrove_runtime",
+    "clockgrove_support",
+    "clockgrove_backup",
+    "clockgrove_auth_verifier",
+    "clockgrove_management_reader",
+    "clockgrove_world_reader",
+    "clockgrove_mcp_secrets",
+  ];
+  await psql(
+    tools,
+    environment,
+    `DROP ROLE ${restricted.join(", ")};
+     CREATE ROLE neon_superuser NOLOGIN;
+     ALTER ROLE clockgrove_migrator CREATEROLE CREATEDB;
+     GRANT neon_superuser TO clockgrove_migrator;`,
+  );
+  const passwords = Object.fromEntries(
+    restrictedRoleKeys.map((key) => [key, randomBytes(24).toString("hex")]),
+  );
+  const provision = async () => {
+    const result = await ownedSubprocess(
+      tools.psql,
+      ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
+      {
+        env: environment,
+        input: `SET ROLE clockgrove_migrator;\n${await deploymentRolesInput(passwords)}`,
+      },
+    );
+    return result.status === 0 ? "passed" : roleCheckFailures(result.stderr) || result.stderr;
+  };
+  // A same-named role the migration role did not create, as a Neon API role, is refused by name.
+  await psql(tools, environment, "CREATE ROLE clockgrove_backup LOGIN;");
+  assertStrict.equal(
+    await provision(),
+    "clockgrove_backup is not administered by clockgrove_migrator",
+  );
+  await psql(tools, environment, "DROP ROLE clockgrove_backup;");
+  assertStrict.equal(await provision(), "passed");
+  passwords.runtime = randomBytes(24).toString("hex");
+  assertStrict.equal(await provision(), "passed", "a second run updates the roles in place");
+  assertStrict.equal(
+    (
+      await psqlQuery(
+        tools,
+        environment,
+        `SELECT count(*) FILTER (WHERE rolcanlogin AND rolpassword LIKE 'SCRAM-SHA-256$%')
+                || '|' || count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pg_auth_members m
+                  WHERE m.roleid = a.oid AND m.admin_option
+                    AND m.member = 'clockgrove_migrator'::regrole))
+           FROM pg_authid a WHERE rolname IN (${restricted.map((name) => `'${name}'`).join(", ")})`,
+      )
+    ).trim(),
+    "6|7",
+  );
+  await applyMigrations(tools, environment);
+  const isolation = await psqlQuery(
+    tools,
+    environment,
+    `SET ROLE clockgrove_migrator; ${databaseIsolationQuery}`,
+  );
+  assertStrict.match(isolation.trim().split("\n").at(-1), /^t(?:\|t)+$/u, "hosted-shape isolation");
+  // Membership in neon_superuser, which Neon gives its API roles, is refused by name.
+  await psql(tools, environment, "GRANT neon_superuser TO clockgrove_support;");
+  assertStrict.equal(await provision(), "clockgrove_support is a member of neon_superuser");
+});
 
 const attackSuitePath = new URL("../../tests/database/authorization.sql", import.meta.url);
 // The crash windows of one journal transaction (Wave 2 plan §14), each injected server-side.

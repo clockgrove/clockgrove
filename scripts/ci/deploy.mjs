@@ -4,13 +4,16 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { deploymentRolesInput, roleCheckFailures } from "../database/deployment-roles.mjs";
 import { databaseIsolationQuery } from "../database/isolation.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
   assertNoUnrecordedDuplicates,
+  awaitNeonOperations,
   hostedTofuEnv,
   ownedInventory,
-  resourceAddresses,
+  persistedAddresses,
+  restrictedRolePasswords,
   roleConnections,
   stateSecrets,
   stateStoreFor,
@@ -168,7 +171,7 @@ export function recordDeploymentPhase(result, candidate, name, executable, args,
   result.phases.push(phase);
   const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
   if (observed.status !== "passed") {
-    const why = explain ? explain(command.stdout) : "";
+    const why = explain ? explain(command.stdout, command.stderr) : "";
     const error = new assert.AssertionError({
       message: `${label} failed; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
     });
@@ -354,7 +357,7 @@ async function runDeployment() {
             }),
           ),
         );
-        const allowed = resourceAddresses(config);
+        const allowed = persistedAddresses(config);
         assert(
           owned.length <= allowed.size && owned.every((resource) => allowed.has(resource.address)),
           "persisted resource ownership bounds exceeded",
@@ -397,6 +400,8 @@ async function runDeployment() {
         ]),
       );
       connections = roleConnections(credentials, config);
+      const rolePasswords = restrictedRolePasswords(credentials, config);
+      await awaitNeonOperations(credentials.project_id, env.NEON_API_KEY);
       const migrator = new URL(connections.MIGRATION_DATABASE_URL);
       const migrationEnv = {
         ...env,
@@ -407,13 +412,17 @@ async function runDeployment() {
         PGPASSWORD: decodeURIComponent(migrator.password),
         PGSSLMODE: "verify-full",
       };
+      // Creates or updates the restricted roles with SQL. Their passwords reach psql only on
+      // standard input; a failed role check is reported by role name, the rest of psql's output
+      // is withheld.
       phase(
         "reviewed database-role grants",
         "psql",
         ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
         {
           env: migrationEnv,
-          input: await readFile(path.join(root, "scripts/database/deployment-grants.sql"), "utf8"),
+          input: await deploymentRolesInput(rolePasswords),
+          explain: (_stdout, stderr) => roleCheckFailures(stderr),
         },
       );
       phase("database migrations", "node", [path.join(root, "scripts/database/migrate.mjs")], {

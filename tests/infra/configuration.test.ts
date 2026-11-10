@@ -14,7 +14,12 @@ import {
   tofuDiagnostics,
 } from "../../scripts/ci/deploy.mjs";
 import {
+  awaitNeonOperations,
   duplicableResources,
+  persistedAddresses,
+  resourceAddresses,
+  restrictedRolePasswords,
+  retiredResources,
   stateBackend,
   unrecordedDuplicates,
   verifyPlan,
@@ -26,6 +31,11 @@ import {
 } from "../../scripts/ci/evidence.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
 import { describeLock, isBackupKey, signV4 } from "../../scripts/ci/state-store.mjs";
+import {
+  deploymentRolesInput,
+  restrictedRoleKeys,
+  roleCheckFailures,
+} from "../../scripts/database/deployment-roles.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -129,6 +139,121 @@ describe("hosted deploy inputs", () => {
         found.map((item) => ({ ...item, ids: [] })),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("restricted database roles", () => {
+  const generated = () =>
+    Array.from({ length: 2 }, () => crypto.randomUUID())
+      .join("")
+      .replaceAll("-", "");
+  const credentials = (config: { resources: { database: { roles: Record<string, string> } } }) => ({
+    roles: Object.fromEntries(
+      Object.entries(config.resources.database.roles).map(([key, name]) => [
+        key,
+        { name, password: generated() },
+      ]),
+    ),
+  });
+
+  it("owns only the migration role as a Neon API role and retires the others' API roles", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const owned = resourceAddresses(config);
+    const retired = [...retiredResources()];
+    expect(retired).toHaveLength(6);
+    expect(retired.filter((address) => owned.has(address))).toEqual([]);
+    expect([...owned].filter((address) => address.startsWith("neon_role."))).toEqual([
+      'neon_role.database["migrations"]',
+    ]);
+    for (const key of restrictedRoleKeys) {
+      expect(owned.has(`random_password.database["${key}"]`)).toBe(true);
+      expect(persistedAddresses(config).has(`neon_role.database["${key}"]`)).toBe(true);
+    }
+  });
+
+  it("accepts deleting a retired API role, and no other deletion, replacement or forget", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const review = (address: string, actions: string[], action_reason?: string) => () =>
+      verifyPlan(
+        { resource_changes: [{ address, action_reason, change: { actions } }] },
+        config,
+        "provision",
+        false,
+      );
+    const runtime = 'neon_role.database["runtime"]';
+    expect(review(runtime, ["delete"], "delete_because_each_key")).not.toThrow();
+    for (const [actions, reason] of [
+      [["delete"], undefined],
+      [["delete", "create"], "delete_because_each_key"],
+      [["create"], undefined],
+      [["no-op"], undefined],
+    ] as const)
+      expect(review(runtime, [...actions], reason)).toThrow(
+        /retired infrastructure resource may only be deleted/u,
+      );
+    expect(
+      review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key"),
+    ).toThrow(/destructive infrastructure plan refused/u);
+    expect(review("neon_project.world[0]", ["forget"])).toThrow(
+      /unreviewed infrastructure plan action/u,
+    );
+    expect(review('random_password.database["support"]', ["create"])).not.toThrow();
+  });
+
+  it("hands psql only letter-and-digit passwords, on standard input, and reports checks by name", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const passwords = restrictedRolePasswords(credentials(config), config);
+    expect(Object.keys(passwords)).toEqual(restrictedRoleKeys);
+    const input = await deploymentRolesInput(passwords);
+    expect(input.split("\n").slice(0, 6)).toEqual(
+      restrictedRoleKeys.map((key) => `\\set password_${key} '${passwords[key]}'`),
+    );
+    expect(input).toContain("('clockgrove_world_reader', :'password_worldAuthorization')");
+    for (const unsafe of [`${generated()}'`, `${generated()}\n\\! id`, generated().slice(0, 20)])
+      await expect(deploymentRolesInput({ ...passwords, backup: unsafe })).rejects.toThrow(
+        /backup role password/u,
+      );
+    const renamed = credentials(config);
+    renamed.roles.support.name = "clockgrove_migrator";
+    expect(() => restrictedRolePasswords(renamed, config)).toThrow(/support role credential/u);
+    expect(
+      roleCheckFailures(
+        "psql:<stdin>:12: ERROR:  clockgrove role check: clockgrove_support is a member of neon_superuser\nCONTEXT:  PL/pgSQL function inline_code_block line 18 at RAISE\n",
+      ),
+    ).toBe("clockgrove_support is a member of neon_superuser");
+    expect(roleCheckFailures(`ERROR:  syntax error at or near "${generated()}"`)).toBe("");
+  });
+
+  it("waits for Neon's operations to finish before the role SQL, and names what never finished", async () => {
+    const replies = (...statuses: string[][]) => {
+      const requests: string[] = [];
+      const request = async (url: string) => {
+        requests.push(url);
+        const operations = (statuses.length > 1 ? statuses.shift() : statuses[0]) ?? [];
+        return new Response(
+          JSON.stringify({
+            operations: operations.map((status) => ({ action: "apply_config", status })),
+          }),
+        );
+      };
+      return { request, requests };
+    };
+    const sleeps: number[] = [];
+    const sleep = async (seconds: number) => {
+      sleeps.push(seconds);
+    };
+    const settled = replies(["running", "finished"], ["finished"]);
+    await awaitNeonOperations("project-1", "token", { request: settled.request, sleep });
+    expect(settled.requests).toEqual([
+      "https://console.neon.tech/api/v2/projects/project-1/operations?limit=50",
+      "https://console.neon.tech/api/v2/projects/project-1/operations?limit=50",
+    ]);
+    expect(sleeps).toEqual([5]);
+    const stuck = replies(["scheduling"]);
+    await expect(
+      awaitNeonOperations("project-1", "token", { request: stuck.request, sleep, attempts: 3 }),
+    ).rejects.toThrow("Neon project operations still in progress: apply_config");
+    expect(stuck.requests).toHaveLength(3);
   });
 });
 

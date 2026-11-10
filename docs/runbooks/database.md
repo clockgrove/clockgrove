@@ -89,6 +89,17 @@ The disposable cluster retains the original admin/migrator/runtime setup and add
 - `clockgrove_management_reader` reads scoped Management identity/principal and optional workspace facts;
 - `clockgrove_world_reader` reads only exact scoped committed World participation through forced RLS.
 
+Hosted environments create the same roles differently. Neon has no superuser connection, and every
+role made through its API is a member of `neon_superuser`, which reads and writes all data. So only
+`clockgrove_migrator` is a Neon API role (with Neon's CREATEROLE, CREATEDB and BYPASSRLS); the
+deploy runs [`deployment-grants.sql`](../../scripts/database/deployment-grants.sql) as it to create
+the six restricted roles and `clockgrove_mcp_secrets` with SQL, with the attributes above and
+OpenTofu-generated passwords, and refuses by name any of them that is a member of another role. See
+[Database roles](infrastructure.md#database-roles). `pnpm run test:db` runs that SQL in a disposable
+cluster shaped like Neon (a CREATEROLE `clockgrove_migrator` that is a `neon_superuser` member, no
+restricted role yet), applies the migrations and passes the deploy's isolation query, and proves
+the SQL refuses a role it did not create and a `neon_superuser` member by name.
+
 Migration `0002_authentication_authority.sql` is additive; the applied journal migration bytes stay
 unchanged. Migration `0003_tenant_scoped_event_ids.sql` scopes event identity to `(tenant_id, event_id)`:
 a global key would let one tenant probe or squat another tenant's event IDs. Migrator-owned `clockgrove_auth` contains Better Auth 1.7.7 user/session/account/verification
@@ -955,14 +966,17 @@ over it (a `birth` replay only, no failure) and writes a new snapshot.
 ## MCP secret provider prerequisite
 
 Before applying migration `0045_mcp_secret_storage.sql`, an administrator must provision the
-isolated role (the disposable database bootstrap does this for tests):
+isolated role. The disposable database bootstrap does this for tests, and a hosted deploy's role
+SQL ([`deployment-grants.sql`](../../scripts/database/deployment-grants.sql)) does it as the
+migration role:
 
 ```sql
 CREATE ROLE clockgrove_mcp_secrets
   NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 ```
 
-The migrator remains `NOCREATEROLE`. Do not grant this role to `clockgrove_runtime`, support,
+The local migrator remains `NOCREATEROLE`; on Neon the migrator is the API role that creates the
+restricted roles. Do not grant this role to `clockgrove_runtime`, support,
 backup, authentication readers or actors. This change creates no provider login, credential or
 hosted connection. Future trusted installation composition must explicitly provision a dedicated
 connection with this role and no canonical runtime authority. The role accesses sealed envelopes

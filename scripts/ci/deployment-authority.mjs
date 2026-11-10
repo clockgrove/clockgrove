@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { cp, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { restrictedRoleKeys } from "../database/deployment-roles.mjs";
 import { root } from "./evidence.mjs";
 import { stateStore } from "./state-store.mjs";
 
@@ -104,7 +105,8 @@ export function resourceAddresses(config) {
       `cloudflare_r2_bucket.artifacts["${key}"]`,
       `cloudflare_r2_bucket_lifecycle.retention["${key}"]`,
     ]),
-    ...Object.keys(config.resources.database.roles).map((key) => `neon_role.database["${key}"]`),
+    'neon_role.database["migrations"]',
+    ...restrictedRoleKeys.map((key) => `random_password.database["${key}"]`),
     "neon_project.world[0]",
     "neon_database.world[0]",
     "cloudflare_hyperdrive_config.world[0]",
@@ -118,13 +120,43 @@ export function resourceAddresses(config) {
   ]);
 }
 
+// Resources an earlier configuration owned and this one no longer declares. The restricted
+// database roles were Neon API roles, which Neon makes members of neon_superuser; the migration role
+// now creates them with SQL. State may still hold them until one provision apply deletes them.
+export function retiredResources() {
+  return new Set(restrictedRoleKeys.map((key) => `neon_role.database["${key}"]`));
+}
+
+// Every address state may hold: the owned resources and the retired ones not yet deleted.
+export function persistedAddresses(config) {
+  return new Set([...resourceAddresses(config), ...retiredResources()]);
+}
+
+// The one deletion a plan may carry: a retired resource, deleted only because the configuration
+// dropped its key. Any other deletion, including a replacement, is refused.
+const retiredDeletion = (change) =>
+  retiredResources().has(change.address) &&
+  change.change.actions.length === 1 &&
+  change.change.actions[0] === "delete" &&
+  change.action_reason === "delete_because_each_key";
+
 export function verifyPlan(plan, config, stage, preservePublic) {
-  const allowed = resourceAddresses(config);
+  const allowed = persistedAddresses(config);
   const changes = plan.resource_changes ?? [];
   assert(changes.length <= allowed.size, "infrastructure resource bound exceeded");
   for (const change of changes) {
     assert(allowed.has(change.address), "undeclared infrastructure resource");
+    if (retiredResources().has(change.address)) {
+      assert(retiredDeletion(change), "retired infrastructure resource may only be deleted");
+      continue;
+    }
     assert(!change.change.actions.includes("delete"), "destructive infrastructure plan refused");
+    assert(
+      change.change.actions.every((action) =>
+        ["no-op", "create", "read", "update"].includes(action),
+      ),
+      "unreviewed infrastructure plan action refused",
+    );
     if (stage === "provision" && change.address === "cloudflare_hyperdrive_config.world[0]") {
       assert(
         change.change.actions.every((action) => action === "no-op"),
@@ -301,6 +333,53 @@ export async function verifyPriorActivation(config, token, inventory) {
     "authenticated DNS identity mismatch",
   );
   return true;
+}
+
+// The generated passwords of the roles the migration role creates with SQL, keyed by role key.
+export function restrictedRolePasswords(credentials, config) {
+  return Object.fromEntries(
+    restrictedRoleKeys.map((key) => {
+      const role = credentials?.roles?.[key];
+      assert(
+        role?.name === config.resources.database.roles[key] && role.password,
+        `missing generated ${key} role credential`,
+      );
+      return [key, role.password];
+    }),
+  );
+}
+
+// Neon applies a role change to the compute after its API request returns, and the provider waits
+// only before each request. The role SQL runs once the project has no operation in progress, so it
+// never meets a retired API role that is still being dropped.
+export async function awaitNeonOperations(projectId, token, options = {}) {
+  const {
+    attempts = 60,
+    sleep = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
+    request = fetch,
+  } = options;
+  for (let attempt = 1; ; attempt++) {
+    const response = await request(
+      `https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}/operations?limit=50`,
+      {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!response.ok)
+      assert.fail(`authenticated Neon operation listing unavailable (${await refusal(response)})`);
+    const { operations } = await response.json();
+    assert(Array.isArray(operations), "Neon operation listing refused");
+    const pending = operations.filter(({ status }) =>
+      ["scheduling", "running", "cancelling"].includes(status),
+    );
+    if (pending.length === 0) return;
+    assert(
+      attempt < attempts,
+      `Neon project operations still in progress: ${pending.map(({ action }) => String(action).replace(/[^a-z_]/gu, "")).join(", ")}`,
+    );
+    await sleep(5);
+  }
 }
 
 export function roleConnections(credentials, config) {
