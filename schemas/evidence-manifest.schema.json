@@ -809,6 +809,10 @@
                   "type": "integer",
                   "minimum": 2,
                   "description": "Which run of a retried deploy phase this is; absent on the first run."
+                },
+                "reason": {
+                  "const": "timeout",
+                  "description": "Why an unknown phase has no result: `timeout`, stopped at its wall-clock limit (SIGINT, then SIGKILL after a grace); absent otherwise."
                 }
               },
               "additionalProperties": false

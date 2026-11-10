@@ -87,8 +87,21 @@ export function assertRetryEvidence(phases) {
     if (name === provisionApply) lastApply = { attempt: n, status: phase.status };
   }
 }
+// A phase stopped at its time limit (reason `timeout`, scripts/ci/deploy.mjs) was interrupted with
+// no result: its effect is unknown, and the deploy stops there, retrying nothing.
+export function assertTimeoutEvidence(phases) {
+  phases.forEach((phase, index) => {
+    if (!phase.reason) return;
+    assert(
+      phase.status === "unknown" && phase.errorCode === "ETIMEDOUT",
+      "timed-out phase outcome mismatch",
+    );
+    assert.equal(index, phases.length - 1, "deployment continued after a timed-out phase");
+  });
+}
 // One deployment's outcome against its phases.
 export function assertDeploymentOutcome(deployment) {
+  assertTimeoutEvidence(deployment.phases);
   assertRetryEvidence(deployment.phases);
   const outstanding = outstandingPhases(deployment.phases);
   if (outstanding.some((phase) => phase.status === "unknown"))

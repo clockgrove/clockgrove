@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,9 @@ import {
   providerMessage,
   provisionOptions,
   recordDeploymentPhase,
+  tofuBounds,
   tofuDiagnostics,
+  tofuLimits,
 } from "../../scripts/ci/deploy.mjs";
 import {
   duplicableResources,
@@ -233,7 +235,15 @@ describe("deploy diagnostics", () => {
 });
 
 describe("provision retry", () => {
-  type Phase = { command: string[]; status: string; attempt?: number };
+  type Phase = {
+    command: string[];
+    status: string;
+    attempt?: number;
+    reason?: string;
+    exitCode?: number | null;
+    signal?: string | null;
+    errorCode?: string | null;
+  };
   type Reply = { status: number | null; signal?: string; stdout: string };
   const refusal = (address?: string) =>
     JSON.stringify({
@@ -256,10 +266,12 @@ describe("provision retry", () => {
   afterAll(() => rm(work, { recursive: true, force: true }));
   // Runs one provision stage against a stubbed `tofu`: each apply answers from `applies` in turn,
   // each review shows the next of `plans` (the last one repeats). `options` replaces the retry hook.
+  // With `stuck`, applies run that executable for real, with those phase options.
   async function provision(
     applies: Reply[],
     plans: object[] = [{ resource_changes: [create] }],
     options: object = {},
+    stuck?: { executable: string; options: object },
   ) {
     const config = await readJson(root, "infra/environments/staging.json");
     const result = { phases: [] as Phase[] };
@@ -281,9 +293,11 @@ describe("provision retry", () => {
           result,
           { commit: "a".repeat(40), tree: "b".repeat(40) },
           name,
-          executable,
+          args[0] === "apply" && stuck ? stuck.executable : executable,
           args,
-          { ...phaseOptions, run },
+          args[0] === "apply" && stuck
+            ? { ...phaseOptions, ...stuck.options }
+            : { ...phaseOptions, run },
         ),
       review: (plan: object) => verifyPlan(plan, config, "provision", false),
       retry: provisionRetry,
@@ -406,6 +420,97 @@ describe("provision retry", () => {
     expect(failedDeploymentStatus(held.result.phases, true)).toBe("unknown");
   });
 
+  it("stops a tofu that never returns: SIGINT first, SIGKILL after the grace, unknown, no retry", async () => {
+    // A stub `tofu` that logs each SIGINT and, unless told to exit on one, never returns, as the
+    // Neon provider does while it polls a failed operation.
+    const stub = path.join(work, "tofu-stub.cjs");
+    const log = path.join(work, "signals.log");
+    await writeFile(
+      stub,
+      [
+        "#!/usr/bin/env node",
+        'const { appendFileSync } = require("node:fs");',
+        'process.on("SIGINT", () => {',
+        '  appendFileSync(process.env.STUB_LOG, "SIGINT\\n");',
+        '  if (process.env.STUB_EXIT_ON_INT === "1") process.exit(1);',
+        "});",
+        "setInterval(() => {}, 1000);",
+        'process.stdout.write("ready\\n");',
+      ].join("\n"),
+    );
+    await chmod(stub, 0o755);
+    const stuck = async (exitOnInterrupt: boolean) => {
+      await rm(log, { force: true });
+      const run = await provision(
+        [],
+        undefined,
+        {},
+        {
+          executable: stub,
+          options: {
+            timeoutMs: 800,
+            killGraceMs: 600,
+            cwd: work,
+            env: { ...process.env, STUB_LOG: log, STUB_EXIT_ON_INT: exitOnInterrupt ? "1" : "0" },
+          },
+        },
+      );
+      const signals = (await readFile(log, "utf8").catch(() => "")).trim().split("\n");
+      return { ...run, signals, apply: run.result.phases.at(-1) as Phase };
+    };
+    const killed = await stuck(false);
+    expect(killed.outcome).toMatch(
+      /^OpenTofu provision apply stopped: no result within 1 s; interrupted with SIGINT, then killed after the grace; the state lock may be held; sensitive command output withheld$/u,
+    );
+    expect(killed.signals).toEqual(["SIGINT"]);
+    expect(killed.apply).toMatchObject({
+      status: "unknown",
+      reason: "timeout",
+      errorCode: "ETIMEDOUT",
+      signal: "SIGKILL",
+      exitCode: null,
+    });
+    expect(killed.sleeps).toEqual([]);
+    expect(killed.retries).toEqual([]);
+    expect(steps(killed.result.phases)).toEqual([
+      "OpenTofu provision plan 1 passed",
+      "OpenTofu provision review 1 passed",
+      "OpenTofu provision apply 1 unknown",
+    ]);
+    expect(failedDeploymentStatus(killed.result.phases, true)).toBe("unknown");
+    expect(() =>
+      assertDeploymentOutcome({ status: "unknown", phases: killed.result.phases }),
+    ).not.toThrow();
+    // OpenTofu's own handling: it saves state, releases the lock and exits within the grace.
+    const graceful = await stuck(true);
+    expect(graceful.outcome).toMatch(/interrupted with SIGINT, exited within the grace;/u);
+    expect(graceful.signals).toEqual(["SIGINT"]);
+    expect(graceful.apply).toMatchObject({
+      status: "unknown",
+      reason: "timeout",
+      errorCode: "ETIMEDOUT",
+      signal: null,
+      exitCode: 1,
+    });
+    expect(graceful.retries).toEqual([]);
+  });
+
+  it("bounds each tofu call inside the deploy's budget and starts none once it is spent", () => {
+    const { applySeconds, callSeconds, budgetSeconds, graceSeconds } = tofuLimits;
+    expect(tofuBounds(["apply", "plan.tfplan"], 0)).toEqual({
+      timeoutMs: applySeconds * 1000,
+      killGraceMs: graceSeconds * 1000,
+    });
+    expect(tofuBounds(["plan"], 0).timeoutMs).toBe(callSeconds * 1000);
+    expect(tofuBounds(["apply"], (budgetSeconds - 100) * 1000).timeoutMs).toBe(100_000);
+    expect(() => tofuBounds(["show"], budgetSeconds * 1000)).toThrow(
+      `OpenTofu time budget of ${budgetSeconds} s spent; nothing more started`,
+    );
+    // The last call stops by the budget plus the grace, inside the 45-minute job with room for
+    // the job's setup steps and the evidence upload.
+    expect(budgetSeconds + graceSeconds).toBeLessThanOrEqual(35 * 60);
+  });
+
   it("accepts only retry evidence the deploy produces", () => {
     const phase = (command: string, status: string, attempt?: number) => ({
       command: [command],
@@ -463,5 +568,20 @@ describe("provision retry", () => {
       run(n > 1 ? n : undefined, n < 9 ? "unknown" : "passed"),
     );
     expect(outcome("passed", nine)).toBe("deploy retry beyond its attempt limit");
+    // A phase stopped at its time limit ends the deploy, unknown, with no retry after it.
+    const timedOut = {
+      ...phase("OpenTofu provision apply", "unknown"),
+      reason: "timeout",
+      errorCode: "ETIMEDOUT",
+    };
+    const stopped = [...run(undefined, "passed").slice(0, 3), timedOut];
+    expect(outcome("unknown", stopped)).toBe("accepted");
+    expect(outcome("failed", stopped)).toBe("deployment effect uncertainty mismatch");
+    expect(outcome("unknown", [...stopped, ...run(2, "passed")])).toBe(
+      "deployment continued after a timed-out phase",
+    );
+    expect(outcome("unknown", [...stopped.slice(0, 3), { ...timedOut, errorCode: null }])).toBe(
+      "timed-out phase outcome mismatch",
+    );
   });
 });
