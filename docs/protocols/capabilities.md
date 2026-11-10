@@ -90,3 +90,9 @@ reviews and drift/revocation state under the separate owner-defaulted `runtime:m
 grant. These are canonical governance records, not dynamic actor grants: the three internal
 registry entries above remain the only registered capabilities. Reviewed MCP tools require the
 remaining scoped binding/resolution and revision-hook integration before any actor can see them.
+
+Part 4 composes trusted discovery with this governance through an internal installation service.
+It checks the canonical installation grant before outbound work and again at Journal commit;
+refresh uses the stored endpoint. This still adds no registry definitions or actor grants.
+Production credentials, scoped bindings and runtime revision invalidation remain prerequisites
+for any callable remote capability; see [authorized discovery composition](mcp.md#authorized-discovery-composition).

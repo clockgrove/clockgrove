@@ -1546,6 +1546,14 @@ It does not perform the network request, connect an OAuth account, revoke a cred
 notify actors. Those steps must be composed before exposing an installation endpoint.
 There is still no capabilities-screen procedure available to operators. Do not treat a
 reviewed database candidate as a callable actor grant.
+Part 4's internal `McpInstallationService` now composes canonical installation authority with
+admitted HTTP discovery and Journal writes. It checks authority before network work and again
+at commit, and refresh reads the stored URL. Its PostgreSQL/HTTP proof uses a test-owned
+network port, not deployed egress. It accepts no credential and exposes no runtime route.
+Production provider ownership, full OAuth/static-token composition, registry bindings and actor
+revision invalidation still precede the operator capabilities-screen procedure. See the
+[composition boundary](../protocols/mcp.md#authorized-discovery-composition).
+
 ## Moderation shadow report
 
 Moderation and prompt-injection judging is observational (issue 162). Bind

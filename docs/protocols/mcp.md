@@ -1,7 +1,7 @@
 # Remote MCP installation
 
-Issue 164 provides discovery, isolated PostgreSQL credentials and internal canonical installation
-governance. It does not yet compose production installation, register actor capabilities or expose
+Issue 164 provides discovery, isolated PostgreSQL credentials, internal canonical installation
+governance and a trusted discovery-to-Journal coordinator. It does not yet compose production installation, register actor capabilities or expose
 operator HTTP routes. Those consumers must preserve the contract below before remote capabilities
 become usable. The existing [capability registry](capabilities.md) remains unchanged.
 
@@ -151,14 +151,14 @@ exposed by this part.
 
 The remaining delivery groups are ordered within issue 164:
 
-- Part 4 composes authenticated installation and full operator OAuth/static-token
-  credentials with hosted outbound admission (entry 2), disabled registry candidates
-  (entry 3), runtime version drift (entry 5), scoped binding/grant resolution
-  (entry 6), immediate revision invalidation (entry 7), authenticated authority
-  (entry 8), canonical binding/grant isolation (entry 9) and fail-closed credential
-  lifecycle (entry 10). Internal snapshot submission is not a network admission
-  boundary and must not be exposed as an installation endpoint on its own.
-- Part 5 adds the operator capabilities screen and completes the composed
+- Part 4 adds the internal authorized discovery-to-Journal coordinator described below.
+  It is proved against actual HTTP fixtures and PostgreSQL, without exposing a deployed route.
+- Part 5 must compose authenticated installation and full operator OAuth/static-token
+  credentials, production secret-provider ownership/cleanup and verified hosted outbound admission
+  (entries 2 and 10), disabled registry candidates (entry 3), runtime version drift (entry 5),
+  scoped binding/grant resolution (entry 6), immediate revision invalidation (entry 7), authenticated
+  routes (entry 8) and canonical binding/grant isolation (entry 9).
+- Part 6 adds the operator capabilities screen and completes the composed
   PostgreSQL, deterministic-server, actor-runtime and browser proofs (entry 11),
   including the full credential-canary surfaces in entry 10. The final operator
   runbook must describe those proven operations before Objective completion.
@@ -223,3 +223,38 @@ capability registry, scoped binding/grant resolution and actor revision notifica
 next integration group, together with authenticated network and credential composition.
 The capabilities screen and complete PostgreSQL/runtime/browser canary journey finish the
 Objective. Until those are delivered there is no operator installation procedure to run.
+
+## Authorized discovery composition
+
+Part 4 adds the internal `McpInstallationService` in
+`packages/application/src/mcp-installation-service.ts`. Its trusted composition supplies the
+PostgreSQL governance adapter, network port and authenticated principal context; it adds no
+operator route, credential input or actor invocation.
+
+Install checks canonical `runtime:mcp-install` authority before DNS or HTTP, then uses
+`RemoteHttpMcpDiscovery` through `SafeMcpHttpClient` to obtain the snapshot. The caller supplies
+only an installation identifier and endpoint, never a discovery snapshot. The governance adapter
+checks authority again in the Journal transaction, so authority revoked during discovery cannot
+commit an installation. Remote claims do not authorize any operation.
+
+Refresh reads the endpoint and space from canonical storage, refuses inactive installations,
+and performs the same admitted discovery before committing drift. If discovery fails or the refresh commit is rejected, refresh
+commits a whole-installation disable that clears reviews before returning the refusal. This
+safety invalidation uses its own command ID so retrying an earlier successful refresh cannot
+collide with that refresh receipt and prevent disabling. This includes a valid changed-schema
+listing whose command ID replays an earlier successful refresh: rejected changed bytes must
+not leave the previous enabled reviews active. If that
+commit is uncertain, it returns `installation_change_failed`, never success; trusted callers must
+treat the installation as unavailable until canonical state is reconciled. A disabled installation
+is not refreshed or reactivated by this service; reconnect requires a new installation. Successful
+complete discovery still preserves unchanged tool reviews. Exact-pin review, disable and
+revoke use the existing Journal operations. A caller cannot use the coordinator's change surface
+to submit an install/refresh snapshot, even by bypassing TypeScript. Fixed refusal codes hide
+storage/transport exception text; network policy refusals remain readable codes. No transaction
+is held across remote requests.
+
+The PostgreSQL/HTTP journey proves this internal composition, including unauthorized requests
+without outbound work, refused server attempts without persisted installations, per-tool drift,
+and terminal installation revocation. It does not establish hosted egress, credential
+composition, registry callability, runtime invalidation or the operator browser experience.
+Those remain mandatory before production exposure and Objective completion.

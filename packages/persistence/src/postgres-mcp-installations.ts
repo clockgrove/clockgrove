@@ -1,6 +1,7 @@
 import {
   type McpInstallationAuthority,
   type McpInstallationChange,
+  type McpInstallationGovernancePort,
   type McpInstallationScope,
   mcpInstallationRequest,
   type RuntimeAuthorizationContext,
@@ -8,9 +9,21 @@ import {
 import { decodeResult, encodeRequest } from "./postgres-journal.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
-/** Internal governance seam; discovery/network and authenticated routes compose in later parts. */
-export class PostgreSqlMcpInstallations {
+/** Canonical governance; authenticated routes and production adapter ownership compose separately. */
+export class PostgreSqlMcpInstallations implements McpInstallationGovernancePort {
   constructor(private readonly client: PostgreSqlClient) {}
+  authorize(
+    authorization: RuntimeAuthorizationContext,
+    scope: McpInstallationScope,
+  ): Promise<boolean> {
+    return withClientTransaction(this.client, { authorization }, async () => {
+      const result = await this.client.query(
+        "SELECT clockgrove.mcp_install_authority($1,$2,$3,$4,$5) AS authority",
+        [authorization.tenantId, scope.worldId, scope.timelineId, scope.spaceId, scope.partitionId],
+      );
+      return (result.rows[0] as { authority: McpInstallationAuthority | null }).authority !== null;
+    });
+  }
   change(
     authorization: RuntimeAuthorizationContext,
     scope: McpInstallationScope,
@@ -48,7 +61,7 @@ export class PostgreSqlMcpInstallations {
   ) {
     return withClientTransaction(this.client, { authorization }, async () => {
       const result = await this.client.query(
-        "SELECT installation_id,owner_principal_id,url,status,snapshot,reviews,drifted,revision::text AS revision FROM clockgrove.mcp_installations WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND installation_id=$4",
+        "SELECT installation_id,space_id,owner_principal_id,url,status,snapshot,reviews,drifted,revision::text AS revision FROM clockgrove.mcp_installations WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND installation_id=$4",
         [authorization.tenantId, scope.worldId, scope.timelineId, installationId],
       );
       return result.rows[0] as Record<string, unknown> | undefined;
