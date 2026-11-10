@@ -1,4 +1,4 @@
-import { RemoteHttpMcpDiscovery } from "./mcp-http.js";
+import { type McpDiscoverySnapshot, RemoteHttpMcpDiscovery } from "./mcp-http.js";
 import type { McpInstallationChange, McpInstallationScope } from "./mcp-installations.js";
 import { type McpNetworkPort, McpRefusal, SafeMcpHttpClient } from "./mcp-network.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
@@ -20,6 +20,10 @@ export interface McpInstallationGovernancePort {
     commandId: string,
     issuedAt: string,
   ): Promise<unknown>;
+}
+
+export interface McpDiscoveryAuthorization {
+  use<T>(send: (authorization: string) => Promise<T>): Promise<T>;
 }
 
 export type McpInstallationReviewChange = Extract<
@@ -49,8 +53,15 @@ export class McpInstallationService {
   constructor(
     private readonly governance: McpInstallationGovernancePort,
     network: McpNetworkPort,
+    private readonly credential?: McpDiscoveryAuthorization,
   ) {
     this.discovery = new RemoteHttpMcpDiscovery(new SafeMcpHttpClient(network));
+  }
+
+  private discover(url: string): Promise<McpDiscoverySnapshot> {
+    return this.credential
+      ? this.credential.use((authorization) => this.discovery.discover(url, authorization))
+      : this.discovery.discover(url);
   }
 
   private async authorize(
@@ -91,7 +102,7 @@ export class McpInstallationService {
     const { installationId, url } = input;
     [authorization, scope] = snapshotContext(authorization, scope);
     await this.authorize(authorization, scope);
-    const snapshot = await this.discovery.discover(url);
+    const snapshot = await this.discover(url);
     await this.commit(
       authorization,
       scope,
@@ -123,7 +134,7 @@ export class McpInstallationService {
     )
       throw new McpRefusal("installation_unavailable");
     try {
-      const snapshot = await this.discovery.discover(record.url);
+      const snapshot = await this.discover(record.url);
       await this.commit(
         authorization,
         scope,
