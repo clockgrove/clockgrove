@@ -78,3 +78,9 @@ Native process-verdict reuse retains no world snapshots, is limited to actual va
 commands within one execution, and never authorizes a command. Standalone verification disables
 the private cache and independently replays/checks the journal. Before the minor-version reseed,
 pre/post-optimization 30-day/year bundle bytes were identical.
+
+The post-delivery CI review also reseeds the numeric schedule-reader fixture's three exact
+schedule ids for reference 1.2.0. Its actor due times and priority ordering remain exact and
+unchanged; the pending-work assertion now includes the earlier household-process deadline,
+8661600000 ms. Autonomous parity's first-consume identity changes to the committed 1.2.0
+golden's `commandid_bab21cdd64156bbc`. Neither assertion is widened.
