@@ -240,13 +240,13 @@ export async function contentLoaders(
   renderer: THREE.WebGPURenderer,
   paths: { basis: string; draco: string },
 ) {
-  const [{ GLTFLoader }, { KTX2Loader }, { DRACOLoader }, { MeshoptDecoder }] = await Promise.all([
+  const [{ GLTFLoader }, { DRACOLoader }, { MeshoptDecoder }] = await Promise.all([
     import("three/addons/loaders/GLTFLoader.js"),
-    import("three/addons/loaders/KTX2Loader.js"),
     import("three/addons/loaders/DRACOLoader.js"),
     import("three/addons/libs/meshopt_decoder.module.js"),
   ]);
-  const ktx2 = new KTX2Loader().setTranscoderPath(paths.basis).detectSupport(renderer);
+  // The renderer's shared loader with the app's pinned transcoder; `paths.basis` is not used.
+  const { ktx2, release } = await acquireKtx2(renderer);
   const draco = new DRACOLoader().setDecoderPath(paths.draco);
   draco.setDecoderConfig({ type: "wasm" });
   const gltf = new GLTFLoader()
@@ -278,8 +278,103 @@ export async function contentLoaders(
     gltf,
     ktx2,
     dispose: () => {
-      ktx2.dispose();
+      release();
       draco.dispose();
     },
   };
+}
+
+/** The compressed formats a device samples that UASTC transcodes to with alpha, best first. */
+export type AtlasTextureFormat = "astc" | "bc7" | "etc2" | "bc3";
+type KTX2Loader = import("three/addons/loaders/KTX2Loader.js").KTX2Loader;
+
+/**
+ * One KTX2 loader per renderer, shared by the platform's atlas pages and world content, so a world
+ * with both loads the Basis transcoder and its workers once. The transcoder comes from this pinned
+ * Three installation as built assets of the app, fetched from the app's own origin when the first
+ * KTX2 texture parses, never from a CDN. Each acquire returns its own release; the loader is
+ * disposed when the last holder releases it.
+ */
+const sharedKtx2 = new WeakMap<
+  THREE.WebGPURenderer,
+  { loader: Promise<KTX2Loader>; holders: number }
+>();
+async function acquireKtx2(
+  renderer: THREE.WebGPURenderer,
+): Promise<{ readonly ktx2: KTX2Loader; readonly release: () => void }> {
+  let entry = sharedKtx2.get(renderer);
+  if (!entry) {
+    const created = {
+      holders: 0,
+      loader: Promise.all([
+        import("three/addons/loaders/KTX2Loader.js"),
+        import("three/addons/libs/basis/basis_transcoder.js?url"),
+        import("three/addons/libs/basis/basis_transcoder.wasm?url"),
+      ]).then(([{ KTX2Loader }, { default: script }, { default: binary }]) => {
+        const manager = new THREE.LoadingManager();
+        manager.setURLModifier((url) =>
+          url.endsWith("basis_transcoder.js")
+            ? script
+            : url.endsWith("basis_transcoder.wasm")
+              ? binary
+              : url,
+        );
+        return new KTX2Loader(manager).setTranscoderPath("basis/").detectSupport(renderer);
+      }),
+    };
+    created.loader.catch(() => sharedKtx2.delete(renderer));
+    sharedKtx2.set(renderer, created);
+    entry = created;
+  }
+  const held = entry;
+  held.holders += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    held.holders -= 1;
+    if (held.holders > 0) return;
+    if (sharedKtx2.get(renderer) === held) sharedKtx2.delete(renderer);
+    void held.loader
+      .then((ktx2) => {
+        // Three decrements its module-wide loader count on every dispose but counts a loader only
+        // once its transcoder initialises; dispose only such a loader, so the count never drops
+        // below zero, and otherwise retire just its (empty) worker pool.
+        if (ktx2.transcoderPending) ktx2.dispose();
+        else ktx2.workerPool.dispose();
+      })
+      .catch(() => {});
+  };
+  try {
+    return { ktx2: await held.loader, release };
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+/**
+ * The shared KTX2 loader for the platform's own atlas pages, or undefined when the device samples
+ * none of the formats UASTC transcodes to with alpha (the caller then loads PNG pages). Three's
+ * KTX2Loader makes the per-device choice: ASTC 4×4, then BC7, then ETC2 RGBA8, then BC3.
+ */
+export async function atlasTextureLoader(
+  renderer: THREE.WebGPURenderer,
+): Promise<{ ktx2: KTX2Loader; format: AtlasTextureFormat; release: () => void } | undefined> {
+  const { ktx2, release } = await acquireKtx2(renderer);
+  const config = ktx2.workerConfig;
+  const format: AtlasTextureFormat | undefined = config.astcSupported
+    ? "astc"
+    : config.bptcSupported
+      ? "bc7"
+      : config.etc2Supported
+        ? "etc2"
+        : config.dxtSupported
+          ? "bc3"
+          : undefined;
+  if (!format) {
+    release();
+    return undefined;
+  }
+  return { ktx2, format, release };
 }

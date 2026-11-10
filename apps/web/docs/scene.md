@@ -51,13 +51,56 @@ path. The reducer's committed projection is untouched.
 ## Material delivery
 
 A material-enabled atlas animation exposes every named channel and supplied density. Both 1× and
-2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and BC3
-DDS texture, dimensions, byte sizes and frame rectangles. Selection considers device pixel ratio
-and what remains of the atlas page texture budget. A smaller rendition preserves the same logical frame size,
-anchor and world footprint. The product renderer loads the selected albedo PNG with the same
-hash verification as flat sprites and honours its declared colour encoding; channels it cannot shade remain available through the shared
-adapter data and do not prevent drawing albedo. The existing text fallback and reduced-motion
-policy apply to material-enabled assets too.
+2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and a
+KTX2 texture (Basis Universal UASTC, `ktx2-uastc`), dimensions, byte sizes and frame rectangles.
+The renderer loads one of the two per page, chosen per device when the first material animation
+loads:
+
+- It asks the initialized backend, WebGPU features or WebGL2 extensions, through Three's
+  `KTX2Loader.detectSupport`. When the device samples ASTC 4×4, BC7, ETC2 RGBA8 or BC3, in that
+  order of preference, it fetches the page's `.ktx2`, verifies its SHA-256 and transcodes it off
+  the main thread to that format. Desktop GPUs, which typically sample only BC formats, get BC7
+  (BC3 without BPTC); phones get ASTC, or ETC2 without it.
+- Only a device that samples none of them fetches the `.png` page and uploads RGBA8.
+  `metrics.materialTextureFormat` reports `astc`, `bc7`, `etc2`, `bc3` or `png`.
+- A compressed page that fails, whether its `.ktx2` is missing or fails its hash, the transcoder
+  does not load, the worker runs out of memory or the transcoded size is not the charged one,
+  falls back to that page's hash-verified PNG. The PNG is charged at RGBA8 against what remains
+  of the budgets; if it no longer fits, the animation draws its flat sprite. Other pages and flat
+  sprites are unaffected. Each fallback adds one to `metrics.materialTextureFallbacks` and
+  reports `asset_cache` `failed`; a page that failed is not retried. Only a failed PNG page fails
+  the scene's assets, as before.
+
+The renderer keeps one KTX2 loader, shared by material pages and world content
+(`loaders()`), so the transcoder and its workers load once per renderer; it is disposed when the
+renderer and every content loader holding it have released it. The Basis transcoder
+(`basis_transcoder.js` and `.wasm`) comes from the pinned `three` installation as built assets of
+this app, served from its own origin, and is fetched only when the first KTX2 texture parses
+(see [third-party notices](../../../THIRD_PARTY_NOTICES.md)). A transcoded page keeps its file's top-row-first orientation (`flipY` false),
+so the sprite's texture coordinates follow each texture's `flipY`.
+
+Selection considers device pixel ratio and what remains of the asset transfer and atlas page
+texture budgets, measured as this device loads the pages (`materialPageCost`): a compressed page
+costs its KTX2 bytes to fetch and 16 bytes per 4×4 block to upload, the size of every format UASTC
+transcodes to; a PNG page costs its PNG bytes and RGBA8. `atlasTextureBytes` counts the bytes each
+page actually uploaded, so a phone or desktop page costs a quarter of its PNG fallback. A smaller
+rendition preserves the same logical frame size, anchor and world footprint. The renderer honours
+the albedo's declared colour encoding on either path; channels it cannot shade remain available
+through the shared adapter data and do not prevent drawing albedo. The existing text fallback and
+reduced-motion policy apply to material-enabled assets too.
+
+`tests/visual/golden-states.journey.browser.test.mjs` proves the selection on both backends under
+SwiftShader, which samples BC, ETC2 and ASTC. Each device profile hides formats from the page's
+WebGPU adapter and device and from WebGL2 before the renderer starts: desktop (BC only) uploads
+BC7, phone (no BC) ASTC, an ETC2-only phone ETC2, and no compression PNG. Each compressed drawing
+matches the PNG drawing (BC7 and ASTC within 2 per channel, ETC2 within 16). A further case
+answers the `.ktx2` request with 404 on each backend: the page loads its PNG, the scene draws, and
+`materialTextureFallbacks` is 1.
+
+Real phones remain a maintainer step: on a recent Android phone (Chrome) and iPhone (Safari),
+open a world with material assets, confirm `metrics.materialTextureFormat` is `astc` (or `etc2`),
+the network panel shows `.ktx2` pages and no material `.png`, and the sprites draw the right way
+up.
 
 Projected `lighting` carries sun/moon directions and colours, placed light properties, weather
 intensity and a grading key. Renderer implementations consume supported parameters from this
@@ -216,7 +259,7 @@ The context supplies these values:
 | `backend` | The selected `webgpu` or `webgl2` backend, after initialization. |
 | `signal` | Aborted on content failure or adapter destruction; use it to retire asynchronous work. |
 | `place(object, { x, y, elevation? })` | Set a content anchor in the projection frame's metres; elevation defaults to zero. |
-| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and a KTX2 loader detected against the initialized renderer/backend. Both paths are explicit URLs for matching pinned decoder files. |
+| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and the renderer's shared KTX2 loader, detected against the initialized renderer/backend. `draco` is an explicit URL for matching pinned decoder files; KTX2 uses the transcoder built into the app, so `basis` is not read. |
 
 Import additional library types and values from `renderer-content.ts`, never another installed copy
 of Three. A world using this seam accepts coupling to Three **0.187.0** and the renderer contract of

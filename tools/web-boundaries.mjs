@@ -59,7 +59,7 @@ export function assertBrowserSource(source, file) {
             local === path.join(web, "renderer-content.js")
           : path.resolve(file) === content
             ? target === "three/webgpu" || target === "three/tsl" ||
-              /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js)$/u.test(target) ||
+              /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js|libs\/basis\/basis_transcoder\.(?:js|wasm)\?url)$/u.test(target) ||
               local === path.join(web, "renderer.js")
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
@@ -78,7 +78,7 @@ export function assertBrowserSource(source, file) {
 // included), class body, export, signature or new scene file does. Each file is
 // digested by the contract-drift parse, so formatting and comments never count. After reviewing a
 // deliberate vocabulary change, set the digest to the value the failure reports.
-const SUCCESSOR_VOCABULARY_DIGEST = "582d3fbfd5d647962d2478c3c06e230d3982784afeedfbd695ea0ecdcd77a5aa";
+const SUCCESSOR_VOCABULARY_DIGEST = "70445e390866b96164c9fb8cf89bc64192394ae8787469bd537399918e1afa45";
 export function successorVocabularyDigest(sources) {
   const files = Object.keys(sources)
     .filter((name) => /^scene-[\w-]+\.ts$/u.test(name))

@@ -84,8 +84,11 @@ refused with `unsupported_projection_version`. A version-1 client therefore refu
 snapshot or patch with that stable code and its recovery surface, instead of a generic field error.
 
 Material-enabled presentation bindings optionally carry `material`, versioned independently as
-`materialVersion: 1`. Each density carries named channel textures, PNG and BC3 DDS content hashes
-and byte sizes, image dimensions and frame rectangles. The owning binding supplies the asset and
+`materialVersion: 2`. Version 2 delivers compressed pages as KTX2; version 1 delivered BC3 DDS.
+Decoders accept only version 2 and refuse any other with `unsupported_material_version`, checked
+before the delivery's shape, so a client and runtime on different versions show the stable
+recovery surface (refresh the client) instead of a generic field error. Each density carries named channel textures, PNG and KTX2 (`ktx2-uastc`,
+Basis Universal UASTC) content hashes and byte sizes, image dimensions and frame rectangles. The owning binding supplies the asset and
 animation family. Runtime family changes use delivery metadata for the selected family; they do
 not reuse another family's frame grid. Legacy bindings retain the flat-sprite path. The asset build's reviewed
 `materials.json` maps `assetId/animationFamily` to this delivery data. Composition passes that map

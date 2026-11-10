@@ -1033,6 +1033,99 @@ async function rendererFixture() {
   );
 }
 
+/**
+ * Issue 163: device capability profiles. Each hides compressed formats from the page's WebGPU
+ * adapter and device and from WebGL2 before the renderer starts, as a GPU without them reports
+ * them. SwiftShader samples BC, ETC2 and ASTC, so each profile leaves the formats of the device
+ * class it stands for: a desktop GPU samples BC only, a recent phone ASTC and ETC2 without BC, an
+ * older phone ETC2 only. With none left the renderer loads PNG pages.
+ */
+const BC = {
+  gpu: ["texture-compression-bc", "texture-compression-bc-sliced-3d"],
+  webgl: [
+    "WEBGL_compressed_texture_s3tc",
+    "WEBGL_compressed_texture_s3tc_srgb",
+    "EXT_texture_compression_bptc",
+    "EXT_texture_compression_rgtc",
+  ],
+};
+const ASTC = {
+  gpu: ["texture-compression-astc", "texture-compression-astc-sliced-3d"],
+  webgl: ["WEBGL_compressed_texture_astc"],
+};
+const ETC = {
+  gpu: ["texture-compression-etc2"],
+  webgl: ["WEBGL_compressed_texture_etc", "WEBGL_compressed_texture_etc1"],
+};
+const DEVICE_PROFILES = [
+  // tolerance: the largest channel difference from the PNG page's drawing. ETC2's 4- and 5-bit
+  // base colours cannot hold every colour UASTC holds, so its transcode is the coarsest.
+  {
+    name: "desktop",
+    hidden: [ASTC, ETC],
+    format: "bc7",
+    threeFormat: "RGBA_BPTC_Format",
+    tolerance: 2,
+  },
+  {
+    name: "phone",
+    hidden: [BC],
+    format: "astc",
+    threeFormat: "RGBA_ASTC_4x4_Format",
+    tolerance: 2,
+  },
+  {
+    name: "etc2 phone",
+    hidden: [BC, ASTC],
+    format: "etc2",
+    threeFormat: "RGBA_ETC2_EAC_Format",
+    tolerance: 16,
+  },
+  {
+    name: "no compression",
+    hidden: [BC, ASTC, ETC],
+    format: "png",
+    threeFormat: "RGBAFormat",
+    tolerance: 0,
+  },
+  // A phone whose .ktx2 page is missing: that page falls back to its PNG and the scene still draws.
+  {
+    name: "phone, .ktx2 missing",
+    hidden: [BC],
+    format: "astc",
+    threeFormat: "RGBAFormat",
+    tolerance: 0,
+    missing: true,
+  },
+];
+function hideTextureFormats({ gpu, webgl }) {
+  if (globalThis.GPUSupportedFeatures) {
+    const has = GPUSupportedFeatures.prototype.has;
+    GPUSupportedFeatures.prototype.has = function (name) {
+      return !gpu.includes(name) && has.call(this, name);
+    };
+    const requestDevice = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = function (descriptor = {}) {
+      return requestDevice.call(this, {
+        ...descriptor,
+        requiredFeatures: [...(descriptor.requiredFeatures ?? [])].filter(
+          (name) => !gpu.includes(name),
+        ),
+      });
+    };
+  }
+  for (const context of [WebGLRenderingContext, WebGL2RenderingContext]) {
+    const getExtension = context.prototype.getExtension;
+    context.prototype.getExtension = function (name) {
+      return webgl.includes(name) ? null : getExtension.call(this, name);
+    };
+    const getSupportedExtensions = context.prototype.getSupportedExtensions;
+    context.prototype.getSupportedExtensions = function () {
+      return getSupportedExtensions.call(this)?.filter((name) => !webgl.includes(name)) ?? null;
+    };
+  }
+}
+
 it("draws generated material albedo at DPR 2 while retaining unsupported channels and reduced motion", async () => {
   if (isNativeWorldOwnerChild()) return;
   const { buildAtlases, encodePng, materialAtlasFiles, atlasIndex, validateSource, sha256Hex } =
@@ -1076,7 +1169,11 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
           for (let y = density; y < 3 * density; y++)
             for (let x = density; x < 3 * density; x++)
               rgba.set(
-                channel === "albedo" ? [128, 96, 64, 255] : [128, 128, 255, 255],
+                channel === "normal"
+                  ? [128, 128, 255, 255]
+                  : y < 2 * density
+                    ? [128, 96, 64, 255]
+                    : [48, 160, 208, 255],
                 (y * width + frame * 4 * density + x) * 4,
               );
         const source =
@@ -1137,73 +1234,167 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
   ];
   wire.weather.rainIntensity = 0;
   wire.effects = [];
-  const shell = JSON.parse(
+  const fixtureShell = JSON.parse(
     await readFile(path.join(root, "worlds/fixture/reference/shell.json"), "utf8"),
   );
+  // Close enough to frame the 4×4 sprite at a third of the view.
+  const shell = {
+    ...fixtureShell,
+    scene: { ...fixtureShell.scene, camera: { minZoom: 0.75, maxZoom: 64 } },
+  };
   try {
-    await withRendererProof(
-      "webgl2",
-      shell,
-      async (browser, origin) => {
-        const page = await browser.newPage({
-          viewport: { width: 960, height: 540 },
-          deviceScaleFactor: 2,
-          reducedMotion: "reduce",
-        });
-        const requested = [];
-        page.on("request", (request) => requested.push(new URL(request.url()).pathname));
-        await prepareRendererProof(
-          page,
-          origin,
-          shell,
-          "material-proof",
-          "<div id='scene' style='width:320px;height:200px'></div>",
-        );
-        const result = await page.evaluate(async (wire) => {
-          const adapter = await proofAdapter(wire);
-          await proofFrame();
-          const animation = adapter.atlas.get("material-actor/idle");
-          if (!animation) throw new Error("Missing material animation");
-          const body = adapter.drawn.get(wire.entities[0].objectId).body;
-          const result = {
-            density: animation.density,
-            image: [body.material.map.image.width, body.material.map.image.height],
-            frame: [body.userData.width, body.userData.height, body.userData.frame],
-            albedoDrawn: body.material.map === animation.frames[0].texture,
-            colourSpace: body.material.map.colorSpace,
-            normalIgnored: !body.material.normalMap,
-            channels: Object.keys(
-              adapter.projection.presentationBindings[0].material.renditions[1].channels,
-            ),
-            textureBytes: adapter.metrics.textureBytes,
-            canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
-            entityCount: adapter.metrics.entityCount,
-          };
-          adapter.destroy();
-          return result;
-        }, wire);
-        expect(result).toMatchObject({
-          density: 2,
-          image: [16, 8],
-          frame: [4, 4, 0],
-          albedoDrawn: true,
-          colourSpace: "",
-          normalIgnored: true,
-          channels: ["albedo", "normal"],
-          canvas: [640, 400],
-          entityCount: 1,
-        });
-        expect(result.textureBytes).toBeLessThanOrEqual(16777216);
-        expect(requested).toContain("/material-2x-albedo.png");
-        expect(requested.some((url) => /normal|\.dds$/u.test(url))).toBe(false);
-      },
-      assets,
-    );
+    for (const backend of ["webgpu", "webgl2"])
+      await withRendererProof(
+        backend,
+        shell,
+        async (browser, origin) => {
+          const captures = {};
+          for (const profile of DEVICE_PROFILES) {
+            const page = await browser.newPage({
+              viewport: { width: 960, height: 540 },
+              deviceScaleFactor: 2,
+              reducedMotion: "reduce",
+            });
+            const requested = [];
+            page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+            for (const hidden of profile.hidden)
+              await page.addInitScript(hideTextureFormats, hidden);
+            if (profile.missing)
+              await page.route("**/material-2x-albedo.ktx2", (route) =>
+                route.fulfill({ status: 404 }),
+              );
+            await prepareRendererProof(
+              page,
+              origin,
+              shell,
+              "material-proof",
+              "<div id='scene' style='width:320px;height:200px'></div>",
+            );
+            const result = await page.evaluate(
+              async ({ wire, threeFormat }) => {
+                const adapter = await proofAdapter(wire);
+                globalThis.materialAdapter = adapter;
+                await proofFrame();
+                const { THREE } = await proofLoad("renderer-content");
+                const animation = adapter.atlas.get("material-actor/idle");
+                if (!animation) throw new Error("Missing material animation");
+                const body = adapter.drawn.get(wire.entities[0].objectId).body;
+                const map = body.material.map;
+                const result = {
+                  backend: adapter.backend,
+                  density: animation.density,
+                  image: [map.image.width, map.image.height],
+                  frame: [body.userData.width, body.userData.height, body.userData.frame],
+                  albedoDrawn: map === animation.frames[0].texture,
+                  colourSpace: map.colorSpace,
+                  normalIgnored: !body.material.normalMap,
+                  channels: Object.keys(
+                    adapter.projection.presentationBindings[0].material.renditions[1].channels,
+                  ),
+                  materialTextureFormat: adapter.metrics.materialTextureFormat,
+                  materialTextureFallbacks: adapter.metrics.materialTextureFallbacks,
+                  compressed: map.isCompressedTexture === true,
+                  format: map.format === THREE[threeFormat],
+                  uploaded: map.isCompressedTexture ? map.mipmaps[0].data.byteLength : null,
+                  textureBytes: adapter.metrics.textureBytes,
+                  atlasTextureBytes: adapter.metrics.atlasTextureBytes,
+                  pages: adapter.atlasTextures.length,
+                  canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+                  entityCount: adapter.metrics.entityCount,
+                };
+                // Frame the sprite to a third of the view so its texels can be compared.
+                const centre = new THREE.Box3().setFromObject(body).getCenter(new THREE.Vector3());
+                adapter.setCamera({
+                  x: centre.x,
+                  y: -centre.y,
+                  zoom: adapter.viewHeight / (3 * body.userData.height),
+                });
+                await proofFrame();
+                return result;
+              },
+              { wire, threeFormat: profile.threeFormat },
+            );
+            captures[profile.name] = await page.locator("#scene canvas").screenshot();
+            await page.evaluate(() => globalThis.materialAdapter.destroy());
+            await page.close();
+            const compressed = profile.format !== "png" && !profile.missing;
+            expect(result, `${backend} ${profile.name}`).toMatchObject({
+              backend,
+              density: 2,
+              image: [16, 8],
+              frame: [4, 4, 0],
+              albedoDrawn: true,
+              colourSpace: "",
+              normalIgnored: true,
+              channels: ["albedo", "normal"],
+              materialTextureFormat: profile.format,
+              materialTextureFallbacks: profile.missing ? 1 : 0,
+              compressed,
+              format: true,
+              // UASTC targets are 16 bytes per 4×4 block: the 16×8 page uploads 128 bytes.
+              uploaded: compressed ? 128 : null,
+              pages: 2,
+              canvas: [640, 400],
+              entityCount: 1,
+            });
+            // The flat 8×4 RGBA8 page plus the material page as this device uploads it.
+            expect(result.atlasTextureBytes).toBe(8 * 4 * 4 + (compressed ? 16 * 8 : 16 * 8 * 4));
+            expect(result.textureBytes).toBeLessThanOrEqual(16777216);
+            const material = requested.filter((url) => /^\/material-\d+x-/u.test(url));
+            expect(material).toEqual(
+              profile.missing
+                ? ["/material-2x-albedo.ktx2", "/material-2x-albedo.png"]
+                : [`/material-2x-albedo.${compressed ? "ktx2" : "png"}`],
+            );
+          }
+          // Each transcoded page draws what the PNG page draws, the right way up: the albedo's
+          // top and bottom rows differ, so a flipped page would not match.
+          const page = await browser.newPage();
+          await prepareRendererProof(page, origin, shell, "material-compare", "<div></div>");
+          const differences = await page.evaluate(
+            async (captures) => {
+              const pixels = async (base64) => {
+                const bitmap = await createImageBitmap(
+                  await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+                );
+                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+                const context = canvas.getContext("2d");
+                context.drawImage(bitmap, 0, 0);
+                return context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+              };
+              const reference = await pixels(captures["no compression"]);
+              const result = {};
+              for (const [name, capture] of Object.entries(captures)) {
+                const drawn = await pixels(capture);
+                let max = 0,
+                  lit = 0;
+                for (let i = 0; i < drawn.length; i++) {
+                  max = Math.max(max, Math.abs(drawn[i] - reference[i]));
+                  if (i % 4 === 2 && reference[i] > reference[i - 2] + 64) lit += 1;
+                }
+                result[name] = { max, lit, length: drawn.length === reference.length };
+              }
+              return result;
+            },
+            Object.fromEntries(Object.entries(captures).map(([k, v]) => [k, v.toString("base64")])),
+          );
+          await page.close();
+          for (const [name, difference] of Object.entries(differences)) {
+            expect(difference.length, `${backend} ${name}`).toBe(true);
+            // The blue-dominant albedo rows are drawn.
+            expect(difference.lit, `${backend} ${name}`).toBeGreaterThan(0);
+            expect(difference.max, `${backend} ${name}`).toBeLessThanOrEqual(
+              DEVICE_PROFILES.find((profile) => profile.name === name).tolerance,
+            );
+          }
+        },
+        assets,
+      );
   } finally {
     const { rm } = await import("node:fs/promises");
     await rm(assets, { recursive: true, force: true });
   }
-}, 60_000);
+}, 120_000);
 
 it("presentation camera spans overview and half-metre close-up with picking on both backends", async () => {
   if (isNativeWorldOwnerChild()) return;

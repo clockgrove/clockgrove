@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import {
   decodeSceneMaterialDelivery,
   decodeScenePatch,
+  SceneCompatibilityError,
   type SceneMaterialDelivery,
 } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
 import {
   applyScenePatch,
   MATERIAL_DELIVERY_BUDGET,
+  materialPageCost,
   selectMaterialRendition,
 } from "../src/world-scene-adapter.js";
 import { snapshot } from "./convergence-fixture.js";
@@ -28,11 +30,11 @@ it("delivers every channel to an adapter while an albedo-only client selects den
       height: 8 * density,
       bytes: 100 * density,
     },
-    compressed: { sha256: "a".repeat(64), format: "bc3-dds", bytes: 144 * density },
+    compressed: { sha256: "a".repeat(64), format: "ktx2-uastc", bytes: 80 * density },
     frames: [{ atlasId: "atlas", x: 0, y: 0, width: 8 * density, height: 8 * density }],
   });
   const material = decodeSceneMaterialDelivery({
-    materialVersion: 1,
+    materialVersion: 2,
     renditions: [1, 2, 4].map((density) => ({
       density,
       channels: Object.fromEntries(
@@ -59,6 +61,36 @@ it("delivers every channel to an adapter while an albedo-only client selects den
   expect(
     selectMaterialRendition(material, 2, { transferBytes: 0, textureBytes: 0 }),
   ).toBeUndefined();
+  // A device that samples a compressed format fetches the KTX2 file and uploads 16 bytes per 4×4
+  // block (1 B/texel), so the same budget admits 4× where RGBA8 PNG pages stop at 2×.
+  expect(
+    materialPageCost({ image: { width: 10, height: 6, bytes: 7 }, compressed: { bytes: 5 } }, true),
+  ).toEqual({
+    transferBytes: 5,
+    textureBytes: 96,
+  });
+  expect(
+    materialPageCost(
+      { image: { width: 10, height: 6, bytes: 7 }, compressed: { bytes: 5 } },
+      false,
+    ),
+  ).toEqual({
+    transferBytes: 7,
+    textureBytes: 240,
+  });
+  expect(
+    selectMaterialRendition(material, 4, { ...budget, textureBytes: 1024 }, ["albedo"], true)
+      ?.density,
+  ).toBe(4);
+  expect(
+    selectMaterialRendition(
+      material,
+      4,
+      { transferBytes: 319, textureBytes: 1024 },
+      ["albedo"],
+      true,
+    )?.density,
+  ).toBe(2);
   expect(
     selectMaterialRendition(material, 2, { ...budget, textureBytes: 1024 }, ["albedo", "normal"])
       ?.density,
@@ -107,6 +139,15 @@ it("delivers every channel to an adapter while an albedo-only client selects den
   expect(() =>
     decodeSceneMaterialDelivery({ ...material, renditions: [material.renditions[0]] }),
   ).toThrow("expected sorted unique densities 1, 2 and optional 4");
+  // A version-1 (BC3 DDS) delivery gets the stable compatibility code, not a field error.
+  let legacy: unknown;
+  try {
+    decodeSceneMaterialDelivery({ ...material, materialVersion: 1 });
+  } catch (error) {
+    legacy = error;
+  }
+  expect(legacy).toBeInstanceOf(SceneCompatibilityError);
+  expect((legacy as SceneCompatibilityError).code).toBe("unsupported_material_version");
   const invalid: SceneMaterialDelivery = {
     ...material,
     renditions: material.renditions.map((r) => ({

@@ -155,7 +155,7 @@ world artwork still requires its own human approval.
 approved by a human for its current hash (the same `GOLDEN_NOT_APPROVED` and
 `GOLDEN_REVIEWER_NOT_HUMAN` rule as `check`). It stores every file `build` writes to `reviewed/`
 (page PNGs as `image/png`, animation manifests, `materials.json` and the `atlases.json` page index
-as `application/json`, material files) at `sha256/<hex of its bytes>`; existing keys are skipped.
+as `application/json`, material pages as `image/png` and `image/ktx2`) at `sha256/<hex of its bytes>`; existing keys are skipped.
 The store's keys are content hashes, while the shell requests files by name, so upload stores one
 more object last: the reviewed directory, `{"files": {"<name>": "sha256/<hex>"}}`, naming each
 file's key. It returns that object's key as `directory`. A composition root that serves the shell
@@ -257,14 +257,26 @@ source under the world directory. Missing sources, hash mismatches, grid or cove
 out-of-range values and excessive adjacent-frame change are refused. The loop seam is checked
 with the same world-declared bound. The pipeline never repairs a refused map.
 
-The atlas build packs channels and renditions into aligned pages and encodes BC3 DDS GPU
-textures with lossless PNG fallbacks. Compression uses fixed deterministic block choices, with
-no timestamps or external encoder state. BC3 uses 4×4 blocks with explicit alpha; see the
-[Microsoft block-compression specification](https://learn.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-block-compression)
-and [DDS header layout](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header). Delivery records include content hashes, dimensions,
-byte sizes, per-page references and frame rectangles, so adapters can select within their device and memory budgets.
-Both fallback and compressed page dimensions are padded transparently to multiples of four;
-frame rectangles and logical dimensions stay intact. BC3 is lossy, while PNG preserves the exact
+The atlas build packs channels and renditions into aligned pages and writes each page twice:
+`<page>.ktx2`, the GPU texture, and `<page>.png`, the lossless fallback. The KTX2 file holds Basis
+Universal UASTC LDR 4×4 with Zstandard supercompression (`compressed.format` `ktx2-uastc`): one
+file that a client transcodes to whichever block format its GPU samples, ASTC 4×4 on phones, BC7
+(or BC3) on desktops, or ETC2 RGBA8. Each is 16 bytes per 4×4 block, a quarter of RGBA8. See the
+[KTX 2.0 specification](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html) and
+[Basis Universal](https://github.com/BinomialLLC/basis_universal). A client uses the PNG only
+when its GPU samples none of those formats.
+
+The encoder is the Basis Universal wasm build bundled by the pinned `ktx2-encoder` dependency
+(Basis Universal is Apache-2.0; the package is MIT), loaded from its own install, never the network.
+It runs single-threaded with fixed settings: one level, no mipmaps, alpha always present, top row
+first, no rate-distortion optimisation. So the output is a function of the page alone: the same
+input gives the same bytes on every host and run, and the material pipeline journey pins two page
+hashes to prove it. A page's transfer function and the encoder's error metric follow the channel's
+declared encoding: linear when any packed asset declares that channel linear, otherwise sRGB.
+Delivery records include content hashes, dimensions, byte sizes, per-page references and frame
+rectangles, so adapters can select within their device and memory budgets. Both fallback and
+compressed page dimensions are padded transparently to multiples of four; frame rectangles and
+logical dimensions stay intact. UASTC and its transcodes are lossy, while PNG preserves the exact
 source pixels. The reviewed build and content-addressed upload include companion outputs. Existing flat assets
 retain their existing PNG output. Compressed files belong to packed atlas output, never a
 world's per-asset source declaration. Clockgrove never derives, paints, estimates or upscales a

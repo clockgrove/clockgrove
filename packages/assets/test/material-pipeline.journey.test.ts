@@ -152,6 +152,17 @@ it("validates generated fixture-style actor and prop images through CLI, packing
     expect(buildAtlases([...entries].reverse(), undefined, profile)).toEqual(atlases);
     const textures = atlases.flatMap((atlas) => atlas.materialTextures ?? []);
     expect(textures).toHaveLength(20);
+    // The encoder is pinned and single-threaded: these exact bytes on every host and run.
+    expect(
+      Object.fromEntries(
+        textures
+          .filter((t) => t.density === 1 && (t.channel === "albedo" || t.channel === "normal"))
+          .map((t) => [t.atlasId, sha256Hex(t.compressed)]),
+      ),
+    ).toEqual({
+      "lit-1x-albedo": "9e538333e160f9c583543ad4aa74ebe035c3a7164fc0a16138600b3aad8eb7ee",
+      "lit-1x-normal": "e2e551786e017394271de98764aac273f234caf851047002f8fef833a8d85f97",
+    });
     expect(materialAtlasFiles(atlases)).toHaveLength(40);
     const built = () =>
       Object.fromEntries(
@@ -183,32 +194,40 @@ it("validates generated fixture-style actor and prop images through CLI, packing
           return n + image.width * image.height * 4;
         }, 0),
     ).toBeLessThanOrEqual(budgets.atlasTextureBytes.limit);
+    // Read each KTX2 container independently (KTX 2.0 specification, Khronos Data Format 1.3).
     for (const texture of textures) {
-      const dds = new DataView(texture.compressed.buffer);
-      expect(new TextDecoder().decode(texture.compressed.subarray(0, 4))).toBe("DDS ");
-      expect(dds.getUint32(4, true)).toBe(124);
-      expect(dds.getUint32(8, true)).toBe(0x81007);
-      expect(new TextDecoder().decode(texture.compressed.subarray(84, 88))).toBe("DXT5");
-      expect([dds.getUint32(16, true), dds.getUint32(12, true)]).toEqual([
+      const ktx = new DataView(
+        texture.compressed.buffer,
+        texture.compressed.byteOffset,
+        texture.compressed.byteLength,
+      );
+      expect(Buffer.from(texture.compressed.subarray(0, 12)).toString("hex")).toBe(
+        "ab4b5458203230bb0d0a1a0a",
+      );
+      // vkFormat UNDEFINED (Basis), typeSize, width, height, depth, layers, faces, levels, Zstandard.
+      expect(Array.from({ length: 9 }, (_, i) => ktx.getUint32(12 + i * 4, true))).toEqual([
+        0,
+        1,
         texture.width,
         texture.height,
+        0,
+        0,
+        1,
+        1,
+        2,
       ]);
-      expect(texture.compressed.length).toBe(128 + texture.width * texture.height);
-      expect([dds.getUint32(76, true), dds.getUint32(80, true), dds.getUint32(108, true)]).toEqual([
-        32, 4, 0x1000,
-      ]);
-      expect(dds.getUint32(20, true)).toBe(texture.width * texture.height);
+      // Level 0 uncompresses to 16 bytes per 4×4 block: 1 byte per texel of the padded page.
+      expect(Number(ktx.getBigUint64(96, true))).toBe(texture.width * texture.height);
+      const dfd = ktx.getUint32(48, true);
+      // Basic descriptor block: UASTC colour model 166, BT.709 primaries, declared transfer.
+      expect([
+        texture.compressed[dfd + 12],
+        texture.compressed[dfd + 13],
+        texture.compressed[dfd + 14],
+      ]).toEqual([166, 1, texture.channel === "albedo" ? 2 : 1]);
+      expect(texture.format).toBe("ktx2-uastc");
       expect(decodePng(texture.png).width).toBe(texture.width);
     }
-    const normal = textures.find((t) => t.channel === "normal" && t.density === 1)!;
-    // Independently decode the 565 endpoint and alpha selector for covered texel (1,1) of block 0.
-    const block = new DataView(normal.compressed.buffer);
-    const endpoint = block.getUint16(136, true);
-    expect([(endpoint >> 11) & 31, (endpoint >> 5) & 63, endpoint & 31]).toEqual([8, 16, 8]);
-    let alphaBits = 0n;
-    for (let i = 0; i < 6; i++) alphaBits |= BigInt(normal.compressed[130 + i]!) << BigInt(i * 8);
-    expect(Number((alphaBits >> 15n) & 7n)).toBe(0);
-    expect(normal.compressed[128]).toBe(255);
     const metadata = JSON.parse(atlases[0]!.animations);
     const materials = JSON.parse(
       readFileSync(join(root, "assets/reviewed/materials.json"), "utf8"),
@@ -273,6 +292,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       },
     );
     expect(result.uploaded.length).toBe(stored.size);
+    const normal = textures.find((t) => t.channel === "normal" && t.density === 1)!;
     expect(stored.has(`sha256/${sha256Hex(normal.compressed)}`)).toBe(true);
     expect(stored.has(`sha256/${sha256Hex(normal.png)}`)).toBe(true);
   } finally {

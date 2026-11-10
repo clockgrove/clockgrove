@@ -2915,7 +2915,7 @@ the text path and reduced-motion behaviour.
 The [material source and style-policy contracts](protocols/shared-contracts.md#lit-material-source-declarations)
 connect world-supplied sources to owning asset roles and frame metadata. Image acceptance checks
 coverage, ranges and temporal stability before aligned channel/rendition packing. Packed output
-includes deterministic BC3 DDS textures and PNG fallbacks. Scene delivery exposes every channel;
+includes deterministic KTX2 (Basis Universal UASTC) textures and PNG fallbacks. Scene delivery exposes every channel;
 the product adapter can draw albedo while ignoring unsupported maps. Projected light parameters,
 weather intensity and grading provide the renderer-neutral lighting seam without inspecting art.
 

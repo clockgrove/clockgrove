@@ -17,7 +17,8 @@
     "update-golden": "node bin/clockgrove-assets.mjs update-golden"
   },
   "dependencies": {
-    "@clockgrove/contracts": "workspace:*"
+    "@clockgrove/contracts": "workspace:*",
+    "ktx2-encoder": "0.6.0"
   },
   "devDependencies": {
     "vitest": "5.1.0"

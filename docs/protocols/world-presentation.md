@@ -266,12 +266,12 @@ node ../clockgrove/apps/web/node_modules/vite/bin/vite.js --config vite.config.t
 ```
 
 For compressed assets, call `await context.loaders({ basis: "/decoders/basis/", draco:
-"/decoders/draco/" })` inside `create`. Serve `basis_transcoder.js` and `basis_transcoder.wasm`
-from the pinned installation's `apps/web/node_modules/three/examples/jsm/libs/basis/`, and the Draco
-WASM wrapper/decoder files from its `examples/jsm/libs/draco/gltf/`, at those world-owned URLs.
-Use the matching files from that exact installation. KTX2 support is detected against whichever
-backend Clockgrove selected; the GLTF loader is wired to KTX2, Draco and the same pinned Meshopt
-decoder. No external decoder CDN or second rendering library is needed. The composition root owns
+"/decoders/draco/" })` inside `create`. Serve the Draco WASM wrapper/decoder files from the pinned
+installation's `apps/web/node_modules/three/examples/jsm/libs/draco/gltf/` at the world-owned
+`draco` URL. KTX2 uses the renderer's shared loader, whose Basis transcoder is built into the app
+from the same pinned `three`, so the `basis` URL is not read and needs no files. KTX2 support is
+detected against whichever backend Clockgrove selected; the GLTF loader is wired to KTX2, Draco and
+the same pinned Meshopt decoder. No external decoder CDN or second rendering library is needed. The composition root owns
 publication and access to these static assets.
 
 A browser automation tool can wait for both the page's ready marker and `data-content="ready"`,
