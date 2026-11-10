@@ -65,6 +65,66 @@ export interface ConversationSession {
   readonly updatedAt: string;
 }
 
+export interface ModerationShadowJudgement {
+  readonly mode: "shadow";
+  readonly status: "picked" | "low-confidence" | "cant-tell" | "failed" | "skipped";
+  readonly disposition: "allow" | "flag" | "block" | null;
+  readonly injection: boolean | null;
+  readonly confidenceBp: number | null;
+  readonly modelAlias: string;
+  readonly model: string | null;
+  readonly latencyMs: number | null;
+  readonly costMicrousd: number | null;
+}
+
+export function decodeModerationShadowJudgement(
+  value: unknown,
+  path = "moderationShadow",
+): ModerationShadowJudgement {
+  const v = record(value, path);
+  exactKeys(
+    v,
+    [
+      "mode",
+      "status",
+      "disposition",
+      "injection",
+      "confidenceBp",
+      "modelAlias",
+      "model",
+      "latencyMs",
+      "costMicrousd",
+    ],
+    [],
+    path,
+  );
+  const confidenceBp =
+    v.confidenceBp === null ? null : nonNegativeInteger(v.confidenceBp, `${path}.confidenceBp`);
+  if (confidenceBp !== null && confidenceBp > 10000)
+    throw new ContractDecodeError(path, "confidence out of range");
+  if (v.injection !== null && typeof v.injection !== "boolean")
+    throw new ContractDecodeError(path, "expected nullable injection boolean");
+  return Object.freeze({
+    mode: literal(v.mode, ["shadow"], `${path}.mode`),
+    status: literal(
+      v.status,
+      ["picked", "low-confidence", "cant-tell", "failed", "skipped"],
+      `${path}.status`,
+    ),
+    disposition:
+      v.disposition === null
+        ? null
+        : literal(v.disposition, ["allow", "flag", "block"], `${path}.disposition`),
+    injection: v.injection as boolean | null,
+    confidenceBp,
+    modelAlias: string(v.modelAlias, `${path}.modelAlias`),
+    model: v.model === null ? null : string(v.model, `${path}.model`),
+    latencyMs: v.latencyMs === null ? null : nonNegativeInteger(v.latencyMs, `${path}.latencyMs`),
+    costMicrousd:
+      v.costMicrousd === null ? null : nonNegativeInteger(v.costMicrousd, `${path}.costMicrousd`),
+  });
+}
+
 /** An immutable transcript entry; `sequence` orders a session's messages from 1. */
 export interface ConversationMessage {
   readonly sessionId: string;
@@ -79,6 +139,7 @@ export interface ConversationMessage {
   readonly createdAt: string;
   /** On an actor reply: the world command proposed in that turn and what became of it, read from run evidence. */
   readonly command?: TalkCommandOutcome;
+  readonly moderationShadow?: ModerationShadowJudgement;
 }
 
 /** One input message and its answer. The scripted fixture completes a turn in its request. */
@@ -362,7 +423,7 @@ export function decodeConversationMessage(
   exactKeys(
     v,
     ["sessionId", "sequence", "messageId", "role", "authorId", "voiceMode", "text", "createdAt"],
-    ["command"],
+    ["command", "moderationShadow"],
     path,
   );
   const role = literal(v.role, ["caretaker", "actor"], `${path}.role`);
@@ -382,6 +443,14 @@ export function decodeConversationMessage(
     ...(v.command === undefined
       ? {}
       : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),
+    ...(v.moderationShadow === undefined
+      ? {}
+      : {
+          moderationShadow: decodeModerationShadowJudgement(
+            v.moderationShadow,
+            `${path}.moderationShadow`,
+          ),
+        }),
   });
 }
 

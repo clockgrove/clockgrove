@@ -1,5 +1,6 @@
 import type {
   ConversationResponder,
+  ModerationShadowPolicy,
   ShadowDecider,
   WakeTriagePolicy,
 } from "@clockgrove/application";
@@ -64,6 +65,7 @@ import worker, {
   sweepPartitionSnapshots,
   type WorldProvisioningEntrypoint,
 } from "../../src/cloudflare-entry.js";
+import { scriptedConversationReply } from "../../src/conversations.js";
 import { gatewayShadowDecider } from "../../src/decision-shadow.js";
 import { withHyperdrivePostgreSqlClient } from "../../src/hyperdrive-postgres.js";
 import type { OwnerMailboxBounds } from "../../src/mailbox.js";
@@ -229,18 +231,28 @@ interface NativeEnvironment extends RuntimeEnvironment {
  */
 export class ActorAgentDO extends ProductionActorAgentDO {
   private readonly triageScript: string | undefined;
+  private readonly moderationScript: string | undefined;
+  private readonly moderationScriptedTurns: boolean;
   private readonly triageTurnCost: number | undefined;
   constructor(...args: ConstructorParameters<typeof ProductionActorAgentDO>) {
     super(...args);
     const cost = (
       args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD?: string }
     ).NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD;
+    this.moderationScriptedTurns =
+      (args[1] as RuntimeEnvironment & { NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS?: string })
+        .NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS === "1";
     this.triageTurnCost = cost === undefined ? undefined : Number(cost);
+    this.moderationScript = (
+      args[1] as RuntimeEnvironment & { NATIVE_MODERATION_SHADOW_SCRIPT?: string }
+    ).NATIVE_MODERATION_SHADOW_SCRIPT;
     this.triageScript = (
       args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_SCRIPT?: string }
     ).NATIVE_WAKE_TRIAGE_SCRIPT;
   }
   protected override responder(): ConversationResponder {
+    if (this.moderationScriptedTurns)
+      return async (session, count, input) => scriptedConversationReply(session, count, input);
     const respond = super.responder();
     return async (...args) => {
       const response = await respond(...args);
@@ -287,6 +299,49 @@ export class ActorAgentDO extends ProductionActorAgentDO {
         }).pick(request);
       },
     };
+  }
+
+  protected override moderationDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    const source = this.moderationScript;
+    if (source === undefined) return super.moderationDecider(policy, fiber);
+    return {
+      pick: async (request) => {
+        const steps = JSON.parse(source) as ScriptedDecisionStep[];
+        const requests =
+          (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
+        const count = requests.length;
+        requests.push(request);
+        await this.objectState.storage.put("moderation-requests", requests);
+        const alias = decisionAlias({
+          alias: policy.modelAlias,
+          model: policy.model,
+          maxCostMicrousd: policy.maxCostMicrousd,
+        });
+        const decider = new ScriptedDecider({
+          [alias.route.id]:
+            steps[count] === undefined ? [] : [steps[count] as ScriptedDecisionStep],
+        });
+        const gateway = createModelGateway({
+          aliases: [],
+          adapters: {},
+          decisionAliases: [alias],
+          decisionAdapters: { "vercel-ai-gateway": decider },
+          budget: new InMemoryModelBudget(() => policy.maxCostMicrousd),
+          accounting: { record: () => undefined },
+        });
+        return gatewayShadowDecider(gateway, {
+          tenantId: fiber.scope.tenantId,
+          worldId: fiber.scope.worldId,
+          actorId: fiber.actorId,
+        }).pick(request);
+      },
+    };
+  }
+  async moderationRequestsTest(): Promise<unknown[]> {
+    return (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
   }
 
   private held: (() => void) | undefined;
@@ -1100,6 +1155,8 @@ export default {
       if (body.op === "arming") return Response.json(await actor.armingTest());
       if (body.op === "alarms") return Response.json(await actor.activationAlarmsTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
+      if (body.op === "moderation-requests")
+        return Response.json(await actor.moderationRequestsTest());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")
         return Response.json(await actor.reconcileCapabilities(Number(body.revision)));

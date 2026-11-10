@@ -26,6 +26,7 @@ export * from "./mcp-installations.js";
 export * from "./mcp-network.js";
 export * from "./mcp-oauth-http.js";
 export * from "./metrics.js";
+export * from "./moderation-shadow.js";
 export * from "./partition-replay.js";
 export * from "./partition-state.js";
 export * from "./persistence.js";

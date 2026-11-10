@@ -225,6 +225,17 @@ today's full-turn path. Actual decision cost remains nullable in the report: a r
 is not measured spend. See [the runtime procedure](../../../docs/runbooks/runtime.md#wake-triage-shadow-report)
 for configuration, report access and the maintainer's real-model measurement step.
 
+Moderation and prompt-injection judging (issue 162) also uses `decide` through a configured
+alias/model, with one combined judgement for each inbound actor message. The request contains
+only that message under its own authorization, never the actor's assembled prompt or another
+participant's private content. The disposition and injection classification are shadow evidence:
+messages are delivered and turns run even when the judge says `block`, abstains, fails or is
+disabled. Evidence remains subject to conversation privacy. Reports keep labelled accuracy apart
+from agreement between models, count `cant_tell` apart from low confidence, and preserve null cost
+as unknown. See the [moderation contract](../../../docs/protocols/decision-shadow.md#moderation-and-prompt-injection)
+and [operator report procedure](../../../docs/runbooks/runtime.md#moderation-shadow-report).
+Tool-result screening is deferred until MCP execution lands.
+
 ## Tests
 
 The offline suite (`test/model-gateway.journey.test.ts`) runs in `pnpm test`. It drives the

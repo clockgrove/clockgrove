@@ -85,3 +85,50 @@ counterfactual full-turn spend for confident bypass labels, with triage spend su
 savings. Direct-message wakes are excluded from safe bypass/savings while their raw labels and
 misses remain visible. Unknown costs remain counted as unknown, and a savings figure does not establish that
 bypassing the missed work would be acceptable.
+
+## Moderation and prompt injection
+
+Moderation is an independent shadow decision point for inbound actor messages (issue 162).
+It uses the existing `ShadowDecider` adapter and `ModelGateway.decide`, with the model alias and
+provider model supplied by configuration. The judge receives only the current authorized message,
+not the assembled actor prompt, session history, another participant's messages or private actor
+cognition. Message text is untrusted evidence to classify, never an instruction to the judge.
+Tool-result screening waits for MCP execution and is outside this point.
+
+The judgement combines a moderation disposition (`allow`, `flag` or `block`) and a prompt-injection
+classification. `cant_tell` is an explicit abstention, counted separately from a disposition below
+the configured confidence threshold or one with absent confidence. Every result is marked as
+shadow evidence. A `block` does not hide the message, cancel its turn, remove context or lock the
+session. Turning the point off, removing its credential or making the model unavailable preserves
+the existing delivery and turn path.
+
+The optional `message.moderationShadow` attaches the judgement to its message. Full cognitive
+records remain session-scoped under the conversation's privacy restrictions; a
+`ModerationShadowRecorded` journal event records a SHA-256 commitment to that evidence, without
+private text or classifications. Category-level journal authorization alone does not grant
+session participation. Historical messages need not have a judgement. The original evidence remains
+visible; a future enforcing mode must support an attributed correction or supersession so a false
+block is reversible, as recorded in [Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns).
+Retries and replay consume stored evidence rather than asking the model again. Shadow evidence has
+no physical projection delta and grants the model no world authority.
+
+Reports give labelled accuracy and cohorts per policy/alias/model, separately from pairwise agreement between models. The six-case reference set is
+written in code and independent of a world: two benign messages, one borderline message, one
+abusive message and two injection attempts. An input hash matches a record to its reference
+label, without retaining private message text in the report.
+Expected labels are report-side evidence and never enter the judge's request. Each observation
+retains its disposition, injection judgement, confidence, latency and nullable measured cost.
+Known spend is summed beside unknown-cost calls; a reserved ceiling is not measured cost.
+Accuracy counts answered judgements, including low-confidence answers, and is null without any;
+coverage separately lists reference cases not observed. Cross-model agreement compares answers
+on matching message hashes and is null without comparable answers.
+Abstentions, low-confidence answers, failures and skipped/unjudged messages remain counted apart,
+with coverage and cohorts so a report cannot silently exclude difficult cases.
+
+Miss examples include a `block` or injection flag on a labelled benign message and an `allow` on a
+labelled abusive or injection message. Repeated miss signatures (at least two occurrences, the
+existing shadow-report convention) are listed for human review rather than disappearing in an
+aggregate rate. The [runtime report procedure](../runbooks/runtime.md#moderation-shadow-report)
+describes configuration and measurement. Scripted-decider results prove the path and report
+accounting; only a maintainer's real-model run measures model quality, with numbers posted on
+issue 76 before any enforcement decision.

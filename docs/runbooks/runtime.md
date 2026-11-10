@@ -1530,3 +1530,107 @@ It does not perform the network request, connect an OAuth account, revoke a cred
 notify actors. Those steps must be composed before exposing an installation endpoint.
 There is still no capabilities-screen procedure available to operators. Do not treat a
 reviewed database candidate as a callable actor grant.
+## Moderation shadow report
+
+Moderation and prompt-injection judging is observational (issue 162). Bind
+`MODERATION_SHADOW_CONFIG` to a JSON policy with an operator-selected `modelAlias` and `model`;
+there is no production model hard-coded by this feature. Supply `AI_GATEWAY_API_KEY` separately
+through the existing credential binding. For example (replace the model placeholder):
+
+```json
+{
+  "policyVersion": "moderation-shadow@1",
+  "modelAlias": "operator.moderation",
+  "model": "<operator-selected-decision-model>",
+  "confidenceThreshold": 6500,
+  "maxCostMicrousd": 1000
+}
+```
+
+`modelAlias` and `model` are required. The other shown values are defaults: the threshold is
+65% in basis points and the per-call reservation ceiling is $0.001. These opt-in policy choices
+follow the existing wake-triage threshold and decision-gateway ceiling; they are not measured
+model prices. The gateway's existing input and timeout bounds also apply.
+Omit the policy to disable calls. Missing credentials,
+model failure, an abstention or a low-confidence result leaves message delivery and the actor turn
+on their existing path. Even a confident `block` is recorded as a shadow judgement and never
+blocks a message or changes a turn.
+
+For a local report through disposable PostgreSQL and the native actor runtime, run:
+
+```sh
+node scripts/moderation-shadow-report.mjs --output "$TMPDIR/moderation-shadow.json"
+```
+
+The output must not exist. The runner writes a new report with private permissions and removes
+its disposable world. By default it generates its fixture world and labelled conversations in
+code and uses the scripted decider. `measurement: "scripted"` identifies synthetic judgements and
+accounting, which prove the integration path rather than model quality. The reference conversations
+cover benign, borderline, abusive and injection cases without embedding a selected world's names
+or content. Expected labels are excluded from the model request. No provider credential is
+forwarded by default, even when the caller has one.
+
+To use an external compatible world, invoke the pinned platform checkout with its absolute pack
+path, following the [external-world procedure](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout):
+
+```sh
+node /path/to/pinned/clockgrove/scripts/moderation-shadow-report.mjs \
+  --pack "$PWD/worlds/sample" --output "$PWD/moderation-shadow.json"
+```
+
+The default compares two synthetic policies on the same six labelled messages (12 decision
+opportunities). The runner accepts one to three policies, bounding this calibration workload at
+18 decisions and ten minutes. These are operator-probe limits, not model limits. Actor replies
+remain scripted even with `--live`; only the inbound-message judge uses the real provider.
+
+For a maintainer's real-model measurement, set `MODERATION_SHADOW_CONFIG` to one policy, or
+`MODERATION_SHADOW_MODELS` to a JSON array of one to three policies, each with the required
+alias/model fields. Supply the existing gateway key through the environment and add `--live`.
+Only this opt-in forwards the key to the decision adapter. A live run without a key records
+`measurement: "model-unavailable"`; it does not invent model-quality evidence.
+
+For a persistent world, POST `/v1/runtime/activations/moderation-report` through its
+authenticated runtime connection with the existing activation-address shape:
+
+```json
+{
+  "version": 1,
+  "scope": {
+    "tenantId": "<tenant>",
+    "worldId": "<world>",
+    "timelineId": "<timeline>",
+    "spaceId": "<space>"
+  },
+  "actorId": "<actor>"
+}
+```
+
+Use the existing world-command operator grant and conversation privacy permission. The report
+additionally requires session participation and covers only that principal's messages to the
+addressed actor in the authorized scope; another participant's private evidence is not exposed.
+Historical messages and messages sent while the feature was off remain counted as skipped.
+The transcript's optional `message.moderationShadow` carries its judgement. Full cognitive records
+are session-scoped; the `ModerationShadowRecorded` journal event contains a SHA-256 commitment
+rather than private message content or classifications. Report miss examples use the public
+code-defined reference texts and message identifiers, not private transcript excerpts.
+
+Read each message's shadow moderation disposition and injection judgement, confidence, latency
+and measured cost. Read labelled accuracy separately from agreement between models; agreement
+is not evidence of correctness. `models` gives labelled accuracy and cohorts per policy/alias/model;
+`modelAgreement` compares pairs on matching message hashes. Accuracy includes answered
+low-confidence judgements. Cohorts and skipped/unjudged cases expose coverage. `cant_tell`
+abstentions are counted separately from low-confidence answers and failures. Null cost means
+unknown and remains counted beside known spend, never converted into a zero charge.
+
+Miss examples include a false `block` or injection flag on a benign message, and `allow` on a
+labelled abusive or injection message. Repeated miss signatures appear in the human-review list
+once seen at least twice, following the existing report convention. The judge sees only the
+message being judged, never another participant's private content or the actor's assembled
+context. Stored evidence and report reads preserve the conversation's privacy boundary.
+
+Record each candidate model's alias, policy version, workload/world revision, cohort coverage,
+labelled accuracy, model agreement, misses, abstentions, latency and known/unknown costs on
+issue 76. The owner reviews those measurements before any enforcing-mode decision. A future
+false block must be visible and reversible by an attributed correction or supersession;
+[Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns)
+records that decision. Tool-result screening remains deferred until MCP execution lands.
