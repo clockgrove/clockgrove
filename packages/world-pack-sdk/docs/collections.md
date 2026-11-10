@@ -74,6 +74,15 @@ text. A second one is `DUPLICATE_POLICY`; other
 policy types are `UNSUPPORTED_POLICY`. It is exposed as `ValidatedWorldPack.behaviorPolicy`
 (`null` when absent).
 
+**Plant yield.** Ecology plants may declare `yield: { quantity }` on a noninitial growth stage.
+The quantity is a positive safe integer of food, produced once when the plant enters that stage,
+in the plant's own food holder. The growth-stage journal event names the plant, reached stage and
+yield; ordinary resource transfers move the resulting food. Policy validation rejects malformed
+yields through `INVALID_POLICY` at the domain policy path. Genesis validates that a yielding plant
+has a food holder. See [ecology](../../domain/docs/ecology.md) for the native policy contract.
+This is a growth cause; the remaining scheduled-source migration, weather collection and declared
+process work are tracked by issue 187.
+
 **`ValidatedWorldPack.definitions`** holds the decoded, frozen `traits`, `archetypes` and `actors`
 documents (actors include `capabilities`, `placement` and `lifecycle`, `null` when absent), sorted by id and
 version, so a consumer can resolve effective objects without re-decoding resources. It is not part

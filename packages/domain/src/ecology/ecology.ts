@@ -27,6 +27,8 @@ export interface EcologyStage {
   readonly name: string;
   /** Growing milliseconds at which the stage begins; the first stage's threshold is 0. */
   readonly thresholdMs: bigint;
+  /** Food produced once when this noninitial stage is reached, held by the plant. */
+  readonly yield?: Readonly<{ quantity: number }>;
 }
 
 export interface EcologyPlant {
@@ -76,7 +78,12 @@ export type EcologyEventData =
     }>
   | Readonly<{
       type: "growth.stage-changed";
-      payload: Readonly<{ objectId: ObjectId; stageIndex: number; stageName: string }>;
+      payload: Readonly<{
+        objectId: ObjectId;
+        stageIndex: number;
+        stageName: string;
+        yield?: Readonly<{ quantity: number }>;
+      }>;
     }>
   | Readonly<{
       type: "growth.integrated";
@@ -114,6 +121,7 @@ function exactObject(
   value: unknown,
   keys: readonly string[],
   path: string,
+  optional: readonly string[] = [],
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return fail(path, "expected an object");
@@ -122,7 +130,7 @@ function exactObject(
     return fail(path, "expected a plain object");
   const descriptors = Object.getOwnPropertyDescriptors(value);
   for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== "string" || !keys.includes(key))
+    if (typeof key !== "string" || (!keys.includes(key) && !optional.includes(key)))
       return fail(`${path}.${String(key)}`, "unknown field");
     const descriptor = descriptors[key]!;
     if (!("value" in descriptor)) return fail(`${path}.${key}`, "accessors are not data");
@@ -253,9 +261,27 @@ export function validateEcologyPolicy(
     const stages = list(plant.stages, `${at}.stages`, MIN_PLANT_STAGES, MAX_PLANT_STAGES);
     const stageNames = new Set<string>();
     let previous = -1n;
+    let totalYield = 0n;
     for (const [stageIndex, stageEntry] of stages.entries()) {
       const stageAt = `${at}.stages[${stageIndex}]`;
-      const stage = exactObject(stageEntry, ["name", "thresholdMs"], stageAt);
+      const stage = exactObject(stageEntry, ["name", "thresholdMs"], stageAt, ["yield"]);
+      if (stage.yield !== undefined) {
+        if (stageIndex === 0) fail(`${stageAt}.yield`, "the initial stage cannot yield");
+        const yieldPolicy = exactObject(stage.yield, ["quantity"], `${stageAt}.yield`);
+        totalYield += BigInt(
+          safeInteger(
+            yieldPolicy.quantity,
+            `${stageAt}.yield.quantity`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+          ),
+        );
+        if (totalYield > BigInt(Number.MAX_SAFE_INTEGER))
+          fail(
+            `${stageAt}.yield.quantity`,
+            "total plant yield exceeds the material quantity range",
+          );
+      }
       const label = name(stage.name, `${stageAt}.name`);
       if (stageNames.has(label)) fail(`${stageAt}.name`, "stage names must be unique");
       stageNames.add(label);
@@ -440,7 +466,18 @@ export function ecologyDisagreement(
     const entry = record.plants[index]!;
     const at = `state.ecology.plants[${index}]`;
     if (entry.objectId !== plant.objectId) return `${at}.objectId`;
-    if (find(plant.objectId) === undefined) return `${at}.objectId`;
+    const entity = find(plant.objectId);
+    if (entity === undefined) return `${at}.objectId`;
+    if (plant.stages.some((stage) => stage.yield !== undefined)) {
+      if (entity.resource?.kind !== "food") return `policy.ecology.plants[${index}].objectId`;
+      const remaining = plant.stages.reduce(
+        (sum, stage, stageIndex) =>
+          sum + (stageIndex > entry.stage ? BigInt(stage.yield?.quantity ?? 0) : 0n),
+        0n,
+      );
+      if (BigInt(entity.resource.quantity) + remaining > BigInt(Number.MAX_SAFE_INTEGER))
+        return `${at}.stage`;
+    }
     if (entry.integratedAt > state.simulationTime) return `${at}.integratedAt`;
     if (entry.stage !== plantStageIndex(plant, entry.growingMs)) return `${at}.stage`;
   }
