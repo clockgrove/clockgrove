@@ -83,9 +83,11 @@ resource "neon_project" "world" {
     name      = local.config.resources.database.branch
     protected = var.environment == "production"
     endpoint = {
-      min_cu          = local.config.budgets.databaseMinCu
-      max_cu          = local.config.budgets.databaseMaxCu
-      suspend_timeout = var.environment == "production" ? 0 : 300
+      min_cu = local.config.budgets.databaseMinCu
+      max_cu = local.config.budgets.databaseMaxCu
+      # 0 = the plan's default (scale to zero after 5 minutes). Neon's Free plan refuses any
+      # explicit value ("not permitted on this account"). Always-on (-1) needs a paid plan.
+      suspend_timeout = 0
     }
   }
   lifecycle { prevent_destroy = true }
