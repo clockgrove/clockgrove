@@ -1648,3 +1648,26 @@ issue 76. The owner reviews those measurements before any enforcing-mode decisio
 false block must be visible and reversible by an attributed correction or supersession;
 [Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns)
 records that decision. Tool-result screening remains deferred until MCP execution lands.
+## Developer conversation CLI
+
+Run `node scripts/runtime-chat.mjs --help` for the command reference. The CLI uses the existing authenticated HTTP API; it grants no membership, opens no listener and stores no credential. Set `CLOCKGROVE_SESSION_TOKEN` in the process environment from your existing signed-in session. Do not put the token in a command argument, a committed file or a transcript.
+
+Each invocation takes an explicit command and scope. For example, with your runtime URL and IDs:
+
+```sh
+node scripts/runtime-chat.mjs create --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --actor actor-id --title 'Rain plans'
+node scripts/runtime-chat.mjs talk --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --session session-id --message-id rain-1 --text 'Will the rain pass?'
+node scripts/runtime-chat.mjs read --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --session session-id
+```
+
+`create`, `list` and `read` manage or inspect the existing sessions. `talk` is private Caretaker Talk to the session actor. `say` is explicitly public and takes `--actor`, `--message-id` and `--text`; it never adds a private transcript entry. Neither command substitutes for the other. Reuse the same message ID and text when retrying an interrupted Talk; the server answers the stored turn rather than appending a second message. To send a new message, choose a new ID.
+
+Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
+
+This first CLI part uses the current `browser` session channel and existing per-session transcripts. It does not yet bind a separate CLI channel thread or provide proactive delivery. See [channels](../protocols/channels.md) for the implemented boundary and the remaining issue 168 parts.

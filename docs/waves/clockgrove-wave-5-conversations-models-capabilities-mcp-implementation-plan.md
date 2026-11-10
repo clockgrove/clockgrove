@@ -200,6 +200,8 @@ Do not instantiate an OpenClaw daemon or repository per actor. The structure is 
 
 A session is scoped by world, timeline, subject, participant set, channel surface, external-thread reference when present, privacy boundary, voice mode, and retention policy.
 
+Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The current HTTP API stores browser sessions; the developer CLI uses that API until the channel-binding part of issue 168 lands.
+
 Required states:
 
 ```text
@@ -430,13 +432,15 @@ Expose a stateless authenticated MCP surface over application APIs for world/tim
 
 ## 13. Channel-neutral session and delivery contracts
 
-Wave 5 freezes the evergreen portal boundary while implementing browser and deterministic fake adapters only.
+Wave 5 freezes the evergreen portal boundary with browser as the production surface, a developer CLI over the authenticated HTTP API, and deterministic fake adapters. No real Slack, Discord, email, messaging or voice provider is in scope.
+
+The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. The CLI initially uses the current browser-session HTTP contract; normalized channel ingress and governed outbound delivery are separate, subsequent parts.
 
 Normalized inbound data includes provider/source identity assertions, resolved Clockgrove principal, world/timeline/actor, participant set, channel/thread, privacy policy, content parts/media refs, reply metadata, authority mode, and idempotency key.
 
 `DeliveryRequested` includes actor/session/recipient, channel binding, reason event/goal/promise/subscription, urgency, content artifact, privacy classification, consent/policy version, dedupe key, quiet-hour behavior, and budget reservation.
 
-Delivery policy may approve, delay, deduplicate, downgrade, or reject. Actors never call a provider directly. Replay records historical delivery but never sends again. Preview timelines use an isolated sink.
+Delivery policy may approve, delay, deduplicate, downgrade, or reject. Actors never call a provider directly. Replay records historical delivery but never sends again. Preview timelines use an isolated sink. Owner decisions (issue 168, 2026-11-09): proactive delivery consent is off until the member opts in per actor; quiet hours use the recipient's own timezone; the actor's proactive delivery capability is built with this boundary.
 
 Browser chat is the production surface in this wave. CLI and fake adapters prove the contract. Slack/Discord/email/messaging/voice providers remain later adapters, not alternate minds.
 
@@ -461,6 +465,8 @@ Replace the Wave 4 placeholder with:
 - cross-space continuation without losing the actor/session identity.
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
+
+Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes and preserves the explicit Talk/Say distinction; it does not replace the browser or add provider integrations.
 
 ---
 
@@ -522,7 +528,7 @@ Exit: read fixture is reliable; write fixture never duplicates and surfaces unce
 
 Implement stateless MCP endpoint, normalized inbound/delivery envelopes, semantic-action preservation across browser/CLI/fake channel adapters, identity/session resolution seams, consent/quiet-hour/dedupe policy, and isolated preview sink.
 
-Exit: the same actor/session can be addressed through browser and fake adapter without cloned identity or transcript leakage.
+Exit: browser, CLI and fake channel threads each have their own session and transcript, using the same canonical actor and participant-set session model, without cloned identity or transcript leakage (owner decision, issue 168, 2026-11-09).
 
 ### RW-0510 — Conversation, harness, and MCP qualification
 
