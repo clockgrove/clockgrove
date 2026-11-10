@@ -239,7 +239,9 @@ commit an installation. Remote claims do not authorize any operation.
 
 Refresh reads the endpoint and space from canonical storage, refuses inactive installations,
 and performs the same admitted discovery before committing drift. If discovery fails, refresh
-commits a whole-installation disable that clears reviews before returning the refusal. If that
+commits a whole-installation disable that clears reviews before returning the refusal. This
+safety invalidation uses its own command ID so retrying an earlier successful refresh cannot
+collide with that refresh receipt and prevent disabling. If that
 commit is uncertain, it returns `installation_change_failed`, never success; trusted callers must
 treat the installation as unavailable until canonical state is reconciled. A disabled installation
 is not refreshed or reactivated by this service; reconnect requires a new installation. Successful

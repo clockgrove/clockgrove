@@ -131,7 +131,8 @@ export class McpInstallationService {
         authorization,
         scope,
         { action: "disable", installationId },
-        commandId,
+        // Safety invalidation is a new command, even when the refresh command was retried.
+        crypto.randomUUID(),
         issuedAt,
       );
       if (error instanceof McpRefusal) throw error;

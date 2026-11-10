@@ -205,7 +205,9 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
         },
       });
       maliciousRefresh = true;
-      await expect(refresh()).rejects.toMatchObject({ code: "malicious_schema" });
+      await expect(
+        service.refresh(authorization, scope, "mcp", `network-${command}`, issuedAt),
+      ).rejects.toMatchObject({ code: "malicious_schema" });
       expect((await store.read(authorization, scope, "mcp"))?.status).toBe("disabled");
       expect((await store.read(authorization, scope, "mcp"))?.reviews).toEqual({});
       const disabledResolutions = resolutions;
