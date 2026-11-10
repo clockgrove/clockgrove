@@ -66,9 +66,9 @@ incidental to the order). A time group (the integrations, phase, weather and cro
 time) is emitted whole or not at all, so every stopping point leaves the record agreeing with the
 policy at the state's simulation time.
 
-**Budgets and continuation.** Environment events count toward `maxEvents` exactly as other events. The timeline computes one
-threshold time group at a time, so a bounded call does not materialize thresholds through the
-requested horizon before checking its event budget. Arrival and decision preflight use the water
+**Budgets and continuation.** Environment events count toward `maxEvents` exactly as other events. The timeline bounds each system's threshold
+lookahead by the remaining event budget, preserving the leg's speculative scheduling order without
+materializing an unbounded number of thresholds through the requested horizon. Arrival and decision preflight use the water
 inventory after integration at that time, matching the journaled event order.
 When the next time group does not fit in what is left of `maxEvents`, the call returns
 `complete: false` with the existing continuation and the chained calls produce the same material

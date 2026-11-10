@@ -2000,7 +2000,11 @@ function runWorld(
           ? dwellBarrier
           : (barrier ?? target);
       armedDue = undefined;
-      let drain = engine.drain(dispatchable(), limit);
+      let drain = engine.drain(
+        dispatchable(),
+        limit,
+        Math.max(1, payload.maxEvents - context.eventCount()),
+      );
       let pulled = true;
       while (pulled) {
         pulled = false;
@@ -2017,7 +2021,11 @@ function runWorld(
             }
           }
           if (again) {
-            drain = engine.drain(dispatchable(), limit);
+            drain = engine.drain(
+              dispatchable(),
+              limit,
+              Math.max(1, payload.maxEvents - context.eventCount()),
+            );
             pulled = true;
             break;
           }

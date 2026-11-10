@@ -11,6 +11,7 @@ import type {
 } from "@clockgrove/domain";
 import { RefusalSignal } from "../../execute/refusal.js";
 import {
+  boundedCatchUpTarget,
   CATCH_UP_ENGINE_VERSION,
   type CatchUpPayloadHandler,
   type CatchUpRegistry,
@@ -20,7 +21,6 @@ import {
   catchUpSchedules,
   continuousSystemId,
   createCatchUpRegistry,
-  nextCatchUpThreshold,
 } from "../../scheduler/catch-up.js";
 import type { ScheduleQueue } from "../../scheduler.js";
 import type { ScheduledKernelInput } from "../../transition.js";
@@ -134,7 +134,7 @@ export interface EnvironmentRunOptions {
 }
 
 export interface EnvironmentDrain {
-  /** The time the engine call reached: the next threshold, first queued decision's due time, or the target. */
+  /** The time the engine call reached: the bounded threshold horizon, first queued decision's due time, or the target. */
   readonly time: SimTimeMs;
   readonly groups: readonly EnvironmentGroup[];
   /** The decision the engine dispatched at `time`, if one was due. */
@@ -147,10 +147,14 @@ export interface EnvironmentRun {
   /** Thresholds in `(position, upTo]`, grouped by time; advances the run to `upTo`. */
   readonly step: (upTo: SimTimeMs) => readonly EnvironmentGroup[];
   /**
-   * One engine call over the real queue: advances to the next threshold, decision or target,
+   * One engine call over the real queue: advances to a bounded threshold horizon, decision or target,
    * dispatches at most that one decision, and reports the grouped thresholds. Pure until `commit`.
    */
-  readonly drain: (queue: ScheduleQueue, target: SimTimeMs) => EnvironmentDrain;
+  readonly drain: (
+    queue: ScheduleQueue,
+    target: SimTimeMs,
+    thresholdBudget: number,
+  ) => EnvironmentDrain;
   /**
    * Replaces the routine-movement systems (one per moving actor) registered for the following
    * engine calls; their states start at the run's position.
@@ -656,13 +660,12 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       states = result.systems;
       return group(result);
     },
-    drain: (queue: ScheduleQueue, target: SimTimeMs): EnvironmentDrain => {
+    drain: (queue: ScheduleQueue, target: SimTimeMs, thresholdBudget: number): EnvironmentDrain => {
       const first = queue[0];
       const wanted = first !== undefined && first.dueAt <= target ? first.dueAt : target;
       let to = (wanted < position ? position : wanted) as SimTimeMs;
-      // Bound speculative work to one time group, regardless of the requested horizon.
-      const next = nextCatchUpThreshold(registry, states);
-      if (next !== null && next < to) to = next;
+      // Keep the leg's speculative scheduling order, with lookahead bounded by the event budget.
+      to = boundedCatchUpTarget(registry, states, to, thresholdBudget);
       const outcome = catchUpSchedules(registry, {
         engineVersion: CATCH_UP_ENGINE_VERSION,
         queue,

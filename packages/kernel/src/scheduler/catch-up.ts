@@ -701,17 +701,27 @@ function run(registry: CatchUpRegistry, request: unknown): CatchUpResult {
   });
 }
 
-/** Earliest validated system threshold, without materializing the intervening timeline. */
-export function nextCatchUpThreshold(
+/** Caps lookahead by each system's threshold count, preserving its independent integration path. */
+export function boundedCatchUpTarget(
   registry: CatchUpRegistry,
   states: readonly CatchUpSystemState[],
-): SimTimeMs | null {
-  let time: SimTimeMs | null = null;
+  target: SimTimeMs,
+  thresholdBudget: number,
+): SimTimeMs {
+  let through = target;
   for (const live of parseSystems(registry, states)) {
-    const next = thresholdFor(live);
-    if (next !== null && (time === null || next.time < time)) time = next.time;
+    if (live.at >= through) continue;
+    for (let count = 1; count <= thresholdBudget; count += 1) {
+      const next = thresholdFor(live);
+      if (next === null || next.time >= through) break;
+      if (count === thresholdBudget) {
+        through = next.time;
+        break;
+      }
+      integrate(live, next.time);
+    }
   }
-  return time;
+  return through;
 }
 
 /**
