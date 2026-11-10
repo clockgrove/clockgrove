@@ -130,12 +130,12 @@ export class PostgreSqlWorldOwnerReader {
                 state.clock_owner_generation::text AS generation,
                 state.continuation_command_id IS NOT NULL AS continuation,
                 state.clock_policy, birth.clock_policy AS genesis_clock_policy,
-                (SELECT schedule.due_at::text FROM clockgrove.partition_schedules AS schedule
+                least(state.next_process_due_at, (SELECT schedule.due_at FROM clockgrove.partition_schedules AS schedule
                   WHERE schedule.tenant_id = state.tenant_id
                     AND schedule.timeline_id = state.timeline_id
                     AND schedule.partition_id = state.partition_id
                     AND schedule.status = 'pending'
-                  ORDER BY ${DUE_ORDER} LIMIT 1) AS next_due_at
+                  ORDER BY ${DUE_ORDER} LIMIT 1))::text AS next_due_at
            ${ROUTE_FROM}
            JOIN clockgrove_birth.world_birth_states AS birth USING (tenant_id, world_id, timeline_id)
           WHERE head.tenant_id = $1 AND head.world_id = $2 AND head.timeline_id = $3 AND head.space_id = $4`,

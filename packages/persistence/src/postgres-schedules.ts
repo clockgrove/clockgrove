@@ -165,12 +165,12 @@ export class PostgreSqlDueWorkReader implements DueWorkReader {
       const result = await this.client.query(
         `SELECT state.revision::text AS revision, state.simulation_time::text AS simulation_time,
                 state.continuation, state.continuation_hash, state.continuation_command_id,
-                (SELECT schedule.due_at::text FROM clockgrove.partition_schedules AS schedule
+                least(state.next_process_due_at, (SELECT schedule.due_at FROM clockgrove.partition_schedules AS schedule
                   WHERE schedule.tenant_id = state.tenant_id
                     AND schedule.timeline_id = state.timeline_id
                     AND schedule.partition_id = state.partition_id
                     AND schedule.status = 'pending'
-                  ORDER BY ${DUE_ORDER} LIMIT 1) AS next_due_at
+                  ORDER BY ${DUE_ORDER} LIMIT 1))::text AS next_due_at
            FROM clockgrove.partition_states AS state
           WHERE state.tenant_id = $1 AND state.world_id = $2 AND state.timeline_id = $3
             AND state.partition_id = $4`,

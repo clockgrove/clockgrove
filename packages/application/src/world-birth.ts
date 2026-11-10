@@ -40,7 +40,7 @@ export interface BirthSeedRef {
   readonly sha256: string;
 }
 
-export type BirthSectionName = "environment" | "ecology" | "wellbeing" | "lifecycle";
+export type BirthSectionName = "environment" | "ecology" | "wellbeing" | "lifecycle" | "processes";
 export type BirthElementKind = "frame" | "region" | "anchor-graph" | "entity";
 
 export interface BirthSectionRow {
@@ -118,6 +118,7 @@ const STATE_KEYS: ReadonlySet<string> = new Set([
   "weather",
   "environment",
   "ecology",
+  "processes",
   "wellbeing",
   "lifecycle",
   "scriptedCognition",
@@ -127,7 +128,13 @@ const STATE_KEYS: ReadonlySet<string> = new Set([
   "entities",
 ]);
 
-const SECTIONS: readonly BirthSectionName[] = ["environment", "ecology", "wellbeing", "lifecycle"];
+const SECTIONS: readonly BirthSectionName[] = [
+  "environment",
+  "ecology",
+  "wellbeing",
+  "lifecycle",
+  "processes",
+];
 
 function refuse(code: string, path: string, message: string): never {
   throw new WorldProvisioningRefusedError(code, path, message);

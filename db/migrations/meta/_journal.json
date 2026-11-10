@@ -330,6 +330,13 @@
       "when": 1795212000000,
       "tag": "0047_moderation_shadow",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795298400000,
+      "tag": "0048_world_process_deadlines",
+      "breakpoints": true
     }
   ]
 }
