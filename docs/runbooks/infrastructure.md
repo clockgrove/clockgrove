@@ -100,8 +100,10 @@ names what the first deploy checks, so a skipped step fails by name instead of h
 5. **OpenTofu state bucket.** Create an R2 bucket in the same account and an R2 API token with
    Object Read & Write on that bucket only. Its access key ID and secret become
    `INFRA_STATE_ACCESS_KEY_ID` and `INFRA_STATE_SECRET_ACCESS_KEY` ([OpenTofu state](#opentofu-state)).
-6. **Neon.** An organization API key (`NEON_API_KEY`). On Neon's Free plan, keep `retention` at
-   the Free maximum, as `staging.json` does.
+6. **Neon.** An organization API key (`NEON_API_KEY`); the key implies the organization, so the
+   config sets no `org_id`. On Neon's Free plan keep `retention` at the Free maximum, as
+   `staging.json` does, and compute within 2 CU. The config never sets a suspend timeout (it asks
+   for the plan's default, 5 minutes): Free refuses any explicit value, account-wide.
 7. **GitHub environment.** Create the environment (`staging`) with a required reviewer
    ([Staging sign-off](#staging-sign-off)). Add the environment secrets `CLOUDFLARE_API_TOKEN`,
    `NEON_API_KEY`, `BETTER_AUTH_SECRET` (at least 32 characters, no surrounding white space),
@@ -122,7 +124,8 @@ The deploy withholds command output that may hold secrets. What it does print na
 | The job never started; annotation "account is locked due to a billing issue" | GitHub billing | Step 1 |
 | `missing CLOUDFLARE_API_TOKEN` (or another secret) although the environment has it | The calling workflow passed no secrets to the reusable deploy | `release.yml` calls `deploy.yml` with `secrets: inherit`; keep it |
 | `authenticated Cloudflare … unavailable (<endpoint>, HTTP <status>: <code> …)` | Cloudflare refused that endpoint: a missing permission (step 4), or Zero Trust not set up (step 3) for `access/service_tokens` | The matching step |
-| `OpenTofu <stage> apply failed; <summary> at <resource> (codes …)` | The provider refused that resource | Read the code; a 403 or Cloudflare code 10000 is a token permission (step 4) |
+| `OpenTofu <stage> apply failed; <summary> at <resource> (codes …): <provider message>` | The provider refused that resource | Read the message; a 403 or Cloudflare code 10000 is a token permission (step 4) |
+| `… at neon_project.world[0] …: … not permitted on this account` | A setting the Neon plan doesn't allow | Step 6 |
 
 ## W0-009 protected deployment and recovery
 
