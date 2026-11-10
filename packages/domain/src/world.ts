@@ -10,7 +10,6 @@ import type {
   WorldId,
 } from "@clockgrove/contracts";
 import { decodeAttributionEnvelope } from "@clockgrove/contracts";
-
 import { DomainValidationError } from "./actor-process.js";
 import {
   type ContainmentState,
@@ -81,6 +80,13 @@ import {
   type WellbeingPolicy,
   type WellbeingState,
 } from "./wellbeing/wellbeing.js";
+import {
+  type ProcessCommandEventData,
+  validateWorldProcesses,
+  validateWorldProcessState,
+  type WorldProcess,
+  type WorldProcessState,
+} from "./world-process.js";
 
 /** First physical-behavior capability; this is not the complete World Pack manifest. */
 export interface WorldBehaviorPack {
@@ -94,6 +100,7 @@ export interface WorldBehaviorPack {
 
 /** Need/exposure values and policy weights use integer basis points (0..10,000). */
 export interface WorldBehaviorPolicy {
+  readonly processes?: readonly WorldProcess[];
   readonly schemaVersion: 1;
   readonly version: string;
   readonly decisionIntervalMs: bigint;
@@ -148,6 +155,7 @@ export interface WorldNeeds {
 }
 
 export interface WorldState {
+  readonly processes?: readonly WorldProcessState[];
   readonly schemaVersion: 1;
   readonly tenantId: TenantId;
   readonly worldId: WorldId;
@@ -226,6 +234,7 @@ export type WorldEvent = WorldEventScope &
               payload: Readonly<{ objectId: ObjectId }> & WorldNeeds;
             }>
           | Readonly<{ type: "time.advanced"; payload: Readonly<Record<string, never>> }>
+          | ProcessCommandEventData
           | ContainmentEventData
           | MovementEventData
           | PortalEventData
@@ -274,6 +283,7 @@ const POLICY_SECTIONS: readonly string[] = [
   "wellbeing",
   "utility",
   "lifecycle",
+  "processes",
 ] satisfies readonly (keyof WorldBehaviorPolicy)[];
 
 export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
@@ -311,6 +321,7 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   ] as const) {
     requireBasisPoints(policy[key], `policy.${key}`);
   }
+  if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))
@@ -330,6 +341,7 @@ export function validateWorldState(state: WorldState): void {
   }
   requireTime(state.simulationTime, "state.simulationTime");
   requireBasisPoints(state.weather.rainIntensity, "state.weather.rainIntensity");
+  if (Object.hasOwn(state, "processes")) validateWorldProcessState(state.processes);
   if (Object.hasOwn(state, "environment")) validateEnvironmentState(state.environment);
   if (Object.hasOwn(state, "ecology")) validateEcologyState(state.ecology);
   if (Object.hasOwn(state, "wellbeing")) validateWellbeingState(state.wellbeing);
@@ -498,6 +510,18 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
     simulationTime: event.simulationTime,
   };
   switch (event.type) {
+    case "process.command-attempted": {
+      const index =
+        state.processes?.findIndex((entry) => entry.processId === event.payload.processId) ?? -1;
+      if (index < 0 || state.processes![index]!.nextAt !== event.simulationTime)
+        throw new DomainValidationError("event.processId", "process occurrence is not due");
+      return createWorldState({
+        ...advanced,
+        processes: state.processes!.map((entry, at) =>
+          at === index ? { ...entry, nextAt: event.payload.nextAt } : entry,
+        ),
+      });
+    }
     case "weather.changed":
       requireBasisPoints(event.payload.rainIntensity, "event.rainIntensity");
       return createWorldState({

@@ -35,6 +35,7 @@ import {
   type MovementRecord,
   movementCompletionTime,
   type NamedRandomState,
+  nextProcessTime,
   PORTAL_COMMAND_TYPES,
   type PortalCommand,
   type PortalCommandType,
@@ -63,6 +64,7 @@ import {
   type WorldState,
   wellbeingDisagreement,
   worldEventVersion,
+  worldProcessDisagreement,
 } from "@clockgrove/domain";
 import { canonicalSerialize } from "./canonical.js";
 import { createDeterministicIdSource } from "./deterministic-id.js";
@@ -256,6 +258,8 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.spoiled",
   "resource.appeared",
   "resource.weather-integrated",
+  "process.command-attempted",
+  "resource.transferred",
   "growth.integrated",
   "growth.stage-changed",
   "needs.changed",
@@ -324,10 +328,13 @@ const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)
     "movement.completed": ["movement", "pose"],
   });
 /**
- * The only event a moving command may journal twice with the same time and payload
- * (`movement.events-ordered-and-unique@3`): two actors eating from one holder at one time.
+ * Two actors may consume together, and two declared processes may transfer identical payloads.
+ * Process transfer identity and adjacency are checked by `process.journaled-commands@1`.
  */
-const REPEATABLE_MOVING_TYPES: ReadonlySet<string> = new Set(["resource.consumed"]);
+const REPEATABLE_MOVING_TYPES: ReadonlySet<string> = new Set([
+  "resource.consumed",
+  "resource.transferred",
+]);
 /** The movement events that begin, change or end one mover's movement (not its crossings). */
 const MOVEMENT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
   "movement.started",
@@ -771,6 +778,155 @@ interface WorldRunSpec {
   readonly move?: (rt: MovementRuntime) => void;
 }
 
+function transferReferencePath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  for (const key of ["fromObjectId", "toObjectId"] as const) {
+    const entity = state.entities.find((entry) => entry.objectId === payload[key]);
+    if (entity === undefined || !active(entity)) return `payload.${key}`;
+  }
+  return undefined;
+}
+function transferAvailablePath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  const source = state.entities.find((entry) => entry.objectId === payload.fromObjectId)!;
+  if (source.resource?.kind !== payload.kind) return "payload.kind";
+  if (source.resource.quantity < payload.quantity) return "payload.quantity";
+  if (payload.fromObjectId === payload.toObjectId) return "payload.toObjectId";
+  const target = state.entities.find((entry) => entry.objectId === payload.toObjectId)!;
+  if (target.resource?.kind !== payload.kind) return "payload.kind";
+  if (target.resource.quantity > Number.MAX_SAFE_INTEGER - payload.quantity)
+    return "payload.quantity";
+  return undefined;
+}
+function transferBatchPath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  return state.ecology?.perishables.some((entry) => entry.objectId === payload.toObjectId) ===
+    true &&
+    (state.entities.find((entry) => entry.objectId === payload.toObjectId)?.resource?.quantity ??
+      0) > 0
+    ? "payload.toObjectId"
+    : undefined;
+}
+function processTransferRefusal(
+  policy: WorldBehaviorPolicy,
+  before: WorldState,
+  transfer: Extract<WorldSemanticEvent, { type: "resource.transferred" }>,
+): Refusal | undefined {
+  const payload = { schemaVersion: 1 as const, ...transfer.payload };
+  for (const [name, check] of [
+    ["containment.fixture-and-references", transferReferencePath],
+    ["resource.available-and-bounded", transferAvailablePath],
+    ["resource.perishable-single-batch", transferBatchPath],
+  ] as const) {
+    const path = check(before, payload);
+    if (path !== undefined) return refusal("precondition-failed", path, `${name}@1`);
+  }
+  try {
+    const after = reduceWorldEvent(before, transfer);
+    return checkWorldInvariants(before, after, [transfer], "resource.transfer", policy);
+  } catch {
+    return refusal("reducer-failed", "events[0]");
+  }
+}
+
+function processCommandId(state: WorldState, processId: string, at: SimTimeMs): CommandId {
+  return createDeterministicIdSource({
+    commandId: canonicalSerialize([
+      state.worldId,
+      state.timelineId,
+      state.partitionId,
+      processId,
+      at,
+    ]) as CommandId,
+    eventIndex: 0,
+    randomStream: "world-process",
+  }).next("CommandId");
+}
+function isProcessCommandEvent(events: readonly WorldEvent[], index: number): boolean {
+  const event = events[index];
+  if (event?.type === "process.command-attempted") return true;
+  const previous = events[index - 1];
+  return (
+    event?.type === "resource.transferred" &&
+    previous?.type === "process.command-attempted" &&
+    previous.payload.refusal === null &&
+    previous.simulationTime === event.simulationTime
+  );
+}
+function processJournalDisagreement(
+  policy: WorldBehaviorPolicy,
+  initial: WorldState,
+  state: WorldState,
+  events: readonly WorldSemanticEvent[],
+): string | undefined {
+  const mismatch = worldProcessDisagreement(policy, state);
+  if (mismatch !== undefined) return mismatch;
+  const firstAttempt = events.findIndex((event) => event.type === "process.command-attempted");
+  if (policy.processes === undefined)
+    return firstAttempt < 0 ? undefined : `events[${firstAttempt}].payload.processId`;
+  if (firstAttempt < 0)
+    return canonicalSerialize(initial.processes) === canonicalSerialize(state.processes)
+      ? undefined
+      : "state.processes";
+  const cursors = initial.processes?.map((entry) => ({ ...entry }));
+  let before = initial;
+  for (const [index, event] of events.entries()) {
+    if (event.type !== "process.command-attempted") {
+      before = reduceWorldEvent(before, event);
+      continue;
+    }
+    const process = policy.processes?.find((entry) => entry.id === event.payload.processId);
+    const cursor = cursors?.find((entry) => entry.processId === event.payload.processId);
+    if (process === undefined || cursor?.nextAt !== event.simulationTime)
+      return `events[${index}].payload.processId`;
+    const commandId = processCommandId(initial, process.id, event.simulationTime);
+    if (
+      event.payload.commandId !== commandId ||
+      event.attribution.principalId !== process.principalId ||
+      event.attribution.effectiveActorId !== `process:${process.id}` ||
+      event.attribution.immediateCauseId !== commandId
+    )
+      return `events[${index}].attribution`;
+    const nextAt = nextProcessTime(process, event.simulationTime);
+    if (event.payload.nextAt !== nextAt) return `events[${index}].payload.nextAt`;
+    cursor.nextAt = nextAt;
+    const { schemaVersion: _payloadVersion, ...declaredPayload } = process.command.payload;
+    const transferEvent = {
+      ...event,
+      type: "resource.transferred" as const,
+      payload: {
+        ...declaredPayload,
+        fromObjectId: declaredPayload.fromObjectId as ObjectId,
+        toObjectId: declaredPayload.toObjectId as ObjectId,
+      },
+    };
+    const expectedRefusal = processTransferRefusal(policy, before, transferEvent);
+    if (canonicalSerialize(event.payload.refusal) !== canonicalSerialize(expectedRefusal ?? null))
+      return `events[${index}].payload.refusal`;
+    if (event.payload.refusal === null) {
+      const transfer = events[index + 1];
+      const { schemaVersion: _version, ...payload } = process.command.payload;
+      if (
+        transfer?.type !== "resource.transferred" ||
+        transfer.simulationTime !== event.simulationTime ||
+        canonicalSerialize(transfer.payload) !== canonicalSerialize(payload) ||
+        canonicalSerialize(transfer.attribution) !== canonicalSerialize(event.attribution)
+      )
+        return `events[${index + 1}]`;
+    }
+    before = reduceWorldEvent(before, event);
+  }
+  if (canonicalSerialize(cursors ?? null) !== canonicalSerialize(state.processes ?? null))
+    return "state.processes";
+  return undefined;
+}
+
 function runWorld(
   context: WorldContext,
   spec: WorldRunSpec,
@@ -837,6 +993,68 @@ function runWorld(
         schedules = cancelSchedule(schedules, item.id);
         scheduleMutations.push(Object.freeze({ kind: "cancel", scheduleId: item.id }));
       }
+    }
+    return true;
+  }
+  const processesAt = (at: SimTimeMs) =>
+    (policy.processes ?? [])
+      .filter(
+        (process) =>
+          current().processes?.find((entry) => entry.processId === process.id)?.nextAt === at,
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  function fireProcesses(at: SimTimeMs): boolean {
+    const due = processesAt(at);
+    if (due.length === 0) return true;
+    // Reserve the whole instant, including a possible transfer per occurrence and settled weather.
+    const size = due.length * 2 + pendingWater(at).length;
+    if (context.eventCount() + size > payload.maxEvents) {
+      if (context.eventCount() === 0) invalid("payload.maxEvents");
+      return false;
+    }
+    integrateWaters(at);
+    const { continuation: _continuation, ...baseInput } = input;
+    for (const process of due) {
+      const trial = createWorldState({ ...current(), simulationTime: at });
+      const commandId = processCommandId(trial, process.id, at);
+      const processAttribution = {
+        principalId: process.principalId,
+        effectiveActorId: `process:${process.id}`,
+        causalRootActionId: attribution.causalRootActionId,
+        immediateCauseId: commandId,
+        authorityDecisionId: attribution.authorityDecisionId,
+      };
+      const { authorityDecisionId: _authority, ...intent } = processAttribution;
+      const nested = executeWorldKernel({
+        ...baseInput,
+        simulationTime: at,
+        partition: { ...input.partition, revision: trial.revision, state: trial },
+        schedules,
+        attribution: processAttribution,
+        input: {
+          kind: "command",
+          command: {
+            ...context.command,
+            commandId,
+            expected: { partitionRevision: trial.revision },
+            simulationTime: at,
+            attribution: intent,
+            type: process.command.type,
+            payload: process.command.payload,
+          },
+        },
+        ids: createDeterministicIdSource({ commandId, eventIndex: 0, randomStream: "process" }),
+      } as ContainmentKernelInput);
+      emit({
+        ...event("process.command-attempted", at, {
+          processId: process.id,
+          commandId,
+          nextAt: nextProcessTime(process, at),
+          refusal: nested.ok ? null : nested.error,
+        }),
+        attribution: processAttribution,
+      });
+      if (nested.ok) for (const inner of nested.result.events) emit(inner);
     }
     return true;
   }
@@ -1615,6 +1833,7 @@ function runWorld(
       }
     }
     const size =
+      processesAt(at).length * 2 +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -1990,8 +2209,24 @@ function runWorld(
         lifecyclePolicy === undefined
           ? undefined
           : nextLifecycleTime(lifecyclePolicy, current().lifecycle as never, cursor);
+      const processTime = current().processes?.reduce<SimTimeMs | undefined>(
+        (earliest, entry) =>
+          entry.nextAt !== null &&
+          entry.nextAt <= target &&
+          (earliest === undefined || entry.nextAt < earliest)
+            ? entry.nextAt
+            : earliest,
+        undefined,
+      );
+      const nextBarrier =
+        processTime !== undefined && (lifeTime === undefined || processTime < lifeTime)
+          ? processTime
+          : lifeTime;
       const barrier =
-        lifeTime !== undefined && lifeTime <= target ? (lifeTime as SimTimeMs) : undefined;
+        nextBarrier !== undefined && nextBarrier <= target ? (nextBarrier as SimTimeMs) : undefined;
+      // Processes run after the instant's physical causes and before its actor decisions.
+      const processQueue = () =>
+        dispatchable().filter((item) => processTime === undefined || item.dueAt < processTime);
       // A queued dwell is a barrier like a lifecycle time: the drain stops there to fire it.
       const dwellAt = schedules.find(isDwellItem)?.dueAt;
       const dwellBarrier = dwellAt !== undefined && dwellAt <= dwellsThrough ? dwellAt : undefined;
@@ -2001,7 +2236,7 @@ function runWorld(
           : (barrier ?? target);
       armedDue = undefined;
       let drain = engine.drain(
-        dispatchable(),
+        processQueue(),
         limit,
         Math.max(1, payload.maxEvents - context.eventCount()),
       );
@@ -2022,7 +2257,7 @@ function runWorld(
           }
           if (again) {
             drain = engine.drain(
-              dispatchable(),
+              processQueue(),
               limit,
               Math.max(1, payload.maxEvents - context.eventCount()),
             );
@@ -2085,6 +2320,14 @@ function runWorld(
           ? undefined
           : schedules.find((candidate) => candidate.id === drain.dispatched?.scheduleId);
       if (item === undefined) {
+        if (processTime !== undefined && drain.time === processTime) {
+          if (!fireProcesses(processTime)) {
+            complete = false;
+            break;
+          }
+          engine = run = buildRun();
+          continue;
+        }
         // Stopped at a dwell barrier: fire what is due, then continue from it.
         if (dwellBarrier !== undefined && drain.time === dwellBarrier) {
           if (!fireDwells(drain.time)) {
@@ -2421,6 +2664,19 @@ function registerWorldChecks(
           return "payload.rainIntensity";
         return undefined;
       },
+    }),
+    preconditions.register({
+      name: "process.state-matches-policy",
+      version: 1,
+      check: ({ state, input }) => worldProcessDisagreement(input.pack.pack.policy, state),
+    }),
+    invariants.register({
+      name: "process.journaled-commands",
+      version: 1,
+      check: ({ initial, state, events }) =>
+        activePolicy === undefined
+          ? undefined
+          : processJournalDisagreement(activePolicy, initial, state, events),
     }),
     preconditions.register({
       name: ENVIRONMENT_CHECK,
@@ -3587,6 +3843,9 @@ function passedTimeDisagreement(
       entry.arrivedAt,
     ]),
   );
+  const quantities = new Map(
+    initial.entities.map((entity) => [entity.objectId as string, entity.resource?.quantity ?? 0]),
+  );
   for (const [index, event] of events.entries()) {
     const time = event.simulationTime;
     const objectId = (event.payload as { objectId?: string }).objectId as string;
@@ -3598,11 +3857,24 @@ function passedTimeDisagreement(
         time >= source.firstAtMs &&
         (time - source.firstAtMs) % source.periodMs === 0n;
       if (arrived.has(objectId)) arrived.set(objectId, time);
+      quantities.set(objectId, (quantities.get(objectId) ?? 0) + event.payload.quantity);
     } else if (event.type === "resource.spoiled") {
       const holder = ecology?.perishables.find((candidate) => candidate.objectId === objectId);
       const since = arrived.get(objectId);
       owned = holder !== undefined && since != null && since + holder.shelfLifeMs === time;
       arrived.set(objectId, null);
+      quantities.set(objectId, 0);
+    } else if (event.type === "resource.transferred") {
+      const { fromObjectId: from, toObjectId: to, quantity } = event.payload;
+      if (arrived.has(to)) arrived.set(to, arrived.get(from) ?? time);
+      quantities.set(from, (quantities.get(from) ?? 0) - quantity);
+      quantities.set(to, (quantities.get(to) ?? 0) + quantity);
+      if (quantities.get(from) === 0 && arrived.has(from)) arrived.set(from, null);
+    } else if (event.type === "resource.consumed") {
+      quantities.set(objectId, (quantities.get(objectId) ?? 0) - event.payload.quantity);
+      if (quantities.get(objectId) === 0 && arrived.has(objectId)) arrived.set(objectId, null);
+    } else if (event.type === "growth.stage-changed" && event.payload.yield !== undefined) {
+      quantities.set(objectId, (quantities.get(objectId) ?? 0) + event.payload.yield.quantity);
     }
     if (!owned) return `events[${index}].simulationTime`;
   }
@@ -3623,6 +3895,11 @@ function movingEventAuthority(
   const { events } = subject;
   const index = events.findIndex((event, at) => {
     if (!WORLD_TIME_TYPES.includes(event.type)) return true;
+    if (
+      (event.type === "resource.transferred" || event.type === "process.command-attempted") &&
+      !isProcessCommandEvent(events, at)
+    )
+      return true;
     if (!MOVEMENT_LIFECYCLE_TYPES.has(event.type)) return false;
     if ((event.payload as { readonly objectId?: string }).objectId !== mover) return false;
     if (OWN_MOVEMENT_TYPES[type].includes(event.type)) return false;
@@ -3763,6 +4040,13 @@ function registerMovementChecks(
             return `state.${key}`;
         const released = new Map<string, Set<string>>();
         for (const event of events) {
+          if (event.type === "resource.transferred") {
+            for (const id of [event.payload.fromObjectId, event.payload.toObjectId]) {
+              const set = released.get(id) ?? new Set<string>();
+              set.add("resource");
+              released.set(id, set);
+            }
+          }
           const objectId = objectOf(event);
           const fields = MOVING_ENTITY_FIELDS[event.type];
           if (objectId === undefined || fields === undefined) continue;
@@ -3929,7 +4213,15 @@ function registerContainmentChecks(
                 "lifecycle.died",
                 "lifecycle.successor-intended",
               ];
-        const index = events.findIndex((event) => !allowed.includes(event.type));
+        const index = events.findIndex(
+          (event, index) =>
+            !allowed.includes(event.type) &&
+            !(
+              type !== "world.weather.set" &&
+              !(type in authority) &&
+              isProcessCommandEvent(events, index)
+            ),
+        );
         return index < 0 ? undefined : `events[${index}].type`;
       },
     }),
@@ -3938,6 +4230,8 @@ function registerContainmentChecks(
     ...authorityChecks,
     registerPre("containment.fixture-and-references", ({ state, payload, input, command }) => {
       if (input.continuation !== undefined) return "continuation";
+      if (command.type === "resource.transfer")
+        return transferReferencePath(state, payload as ContainmentPayload<"resource.transfer">);
       const p = payload as Record<string, unknown>;
       if (command.type === "object.create") {
         const value = (payload as ContainmentPayload<"object.create">).object;
@@ -4019,6 +4313,8 @@ function registerContainmentChecks(
     }),
     registerPre("resource.available-and-bounded", ({ state, payload, command }) => {
       if (!command.type.startsWith("resource.")) return undefined;
+      if (command.type === "resource.transfer")
+        return transferAvailablePath(state, payload as ContainmentPayload<"resource.transfer">);
       const p = payload as ContainmentPayload<"resource.transfer"> &
         ContainmentPayload<"resource.offer">;
       const source = state.entities.find(
@@ -4032,16 +4328,11 @@ function registerContainmentChecks(
         source.resource.quantity > Number.MAX_SAFE_INTEGER - p.quantity
       )
         return "payload.quantity";
-      if (command.type === "resource.transfer") {
-        if (p.fromObjectId === p.toObjectId) return "payload.toObjectId";
-        const target = state.entities.find((entity) => entity.objectId === p.toObjectId)!;
-        if (target.resource?.kind !== p.kind) return "payload.kind";
-        if (target.resource.quantity > Number.MAX_SAFE_INTEGER - p.quantity)
-          return "payload.quantity";
-      }
       return undefined;
     }),
     registerPre("resource.perishable-single-batch", ({ state, payload, command }) => {
+      if (command.type === "resource.transfer")
+        return transferBatchPath(state, payload as ContainmentPayload<"resource.transfer">);
       if (command.type !== "resource.offer" && command.type !== "resource.transfer")
         return undefined;
       const p = payload as { objectId?: string; toObjectId?: string };

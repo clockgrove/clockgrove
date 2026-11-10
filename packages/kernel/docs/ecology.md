@@ -96,7 +96,7 @@ a declared perishable holder.
 `test/plant-yield.journey.test.ts` proves literal yields at 1000 and 2000 ms, live versus aggregate
 and bounded continuation, native replay, movement-time yield, no repeat/refill, malformed policy,
 missing holder and material-range refusals, and rejection of forged journal quantities. Scheduled
-sources and declared processes remain separate migration work; the optional growth and weather
+source removal and fixture migration remain separate work; the additive growth, weather and process
 causes alone do not establish the complete closed-world contract.
 
 **Weather water holders (closed-world part 3).** Optional `ecology.waterHolders` entries declare
@@ -137,7 +137,7 @@ cover their original scenarios, which do not declare weather water holders.
 Policies without `waterHolders` preserve their state and event representation. The additive event
 registry changes simulator bundle identities even for those policies; reviewed fixture goldens
 record that registry change separately from the later physical source migration. Scheduled sources
-remain until the declared-process and fixture migration parts of issue 187. Genesis resources are
+remain until the source-removal and fixture migration part of issue 187. Genesis resources are
 the initial inventory; full closed-world validation across all reference and long runs remains a
 later part.
 
@@ -189,3 +189,43 @@ freshness after food leaves a perishable holder and other food quality; seasons;
 weather. To Wave 8 RW-0803 ("Household and social routines"; Wave 8 §6, "competition or sharing over
 limited resources"): ownership and sharing rules. To Wave 6 RW-0605: perception of the new events (none
 is in `PERCEIVABLE_EVENT_TYPES`). No wave plan links appearances or weather to live external data.
+
+**Declared world processes (closed-world part 4).** Optional `policy.processes` declares up to
+64 processes, using the ecology list bound to cap work at an instant. Each entry is
+`{id, principalId, firstAtMs, periodMs, command: {type: "resource.transfer", payload}}`.
+The payload is the ordinary version-1 resource-transfer payload, including `schemaVersion`.
+Ids use the command object-id text bound (1–512 characters without surrounding whitespace);
+process ids are unique. First time and period are positive bigint milliseconds at most 2^53,
+matching ecology duration bounds. Unknown fields, command kinds and malformed payloads are
+refused at the corresponding `pack.pack.policy.processes...` path. An explicitly empty list
+requires an explicitly empty `state.processes` list; absent lists preserve existing encoding.
+
+The matching state entries are `{processId, nextAt}` in policy order. Genesis seeds the first
+cadence instant at or after its epoch; earlier occurrences are not run retroactively. Null
+`nextAt` means the next occurrence would overflow the existing simulation-time range. Each
+`process.command-attempted@1` records process id, deterministic command id, next instant and
+an exact ordinary refusal or null for success. The reducer advances the cursor even on refusal.
+Successful occurrences immediately journal the ordinary `resource.transferred@1` event. Both
+events name the declared principal, use `process:<id>` as effective actor and link the command
+identity as immediate cause. The time-advance authority decision and causal root are retained;
+this kernel attribution does not create an application capability grant.
+
+At each instant, physical environment/ecology/growth events precede processes; processes run
+in id order before actor decisions. Every attempt passes through the production resource command
+executor, with its normal reference, inventory, single-batch and post-state checks. Transfers debit
+finite source inventory; no process-specific quantity reducer exists. Refusals consume the occurrence,
+change no inventory and stay inspectable in the journal. Process attempts and their possible transfer
+reserve an indivisible event group within the existing `maxEvents` budget; `maxInputs` continues to
+bound actor decisions. The scheduler rebuilds from changed inventories before passing more time,
+including time passed by movement. The process invariant replays the prefix and checks the declared
+cadence, identity, exact transfer/refusal and cursor updates against the ordinary resource checks.
+
+`test/world-process.journey.test.ts` proves exact weather-before-process ordering, same-time process
+id ordering, finite transfer/refusal results, live/aggregate/bounded parity, native replay, movement-time
+transfer and spoilage, repeated-time no-op and forged journal/cursor refusal. The simulator's
+`test/world-process-genesis.journey.test.ts` proves SDK build, nonzero-epoch genesis and subsequent
+transfers at and just after that epoch. Scheduled sources, fixture physical migration and the final
+all-scenario closed-world proof remain later parts of issue 187. This part schedules processes
+inside native advances and movement commands. The durable runtime currently plans autonomous wakes
+from indexed schedule rows; bridging process cursors to that wake path remains required before a
+process-only world can wake itself, or a process can wake ahead of the next actor decision.

@@ -62,8 +62,23 @@ evaporationRemainder, integratedAt}` and atomically applies the quantity changes
 state. Weather is the journaled cause of collection; evaporation is a journaled removal. Initial
 genesis quantities are the initial inventory. Policies without `waterHolders` retain their
 representation and behavior. Scheduled sources remain supported temporarily while issue 187
-migrates processes and fixture policies; this optional weather cause alone does not establish the
+migrates fixture policies and removes sources; additive weather and process causes alone do not establish the
 complete closed-world contract.
 
 Weather-holder `integratedAt` must equal the world simulation time, including after a bounded
 advance. Ordinary commands therefore change inventory only after all prior weather is accounted.
+
+## Declared process inventory causes
+
+Optional world-level `policy.processes` describes scheduled off-screen principals. Each process has
+an id, `principalId`, positive bigint `firstAtMs` and `periodMs` (at most 2^53), and an ordinary
+`resource.transfer` command with its version-1 payload. Lists hold at most 64 entries; ids are unique
+and share the command object-id text bound. Matching optional `state.processes` entries hold
+`{processId, nextAt}` in policy order. Genesis chooses the first cadence instant at or after its epoch.
+
+`process.command-attempted@1` advances that cursor, recording the ordinary command identity and
+its refusal or success. Success journals the ordinary transfer, debiting existing inventory; failure
+changes no quantities. The kernel validates these occurrences with the ordinary command path and
+attributes them to the declared principal. See [kernel ecology](../../kernel/docs/ecology.md) for
+ordering, event budgets and the native process proofs. This additive cause does not yet remove
+scheduled sources or establish the final closed-world policy restriction.

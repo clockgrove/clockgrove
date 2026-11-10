@@ -1,4 +1,5 @@
 import { ContractDecodeError, decodeOpaqueId, type SimTimeMs } from "@clockgrove/contracts";
+import { CONTAINMENT_PAYLOAD_SCHEMAS } from "./commands/containment-commands.js";
 import { containmentSchema, lifecycleSchema, resourceSchema } from "./components/catalog/index.js";
 import type { EcologyPolicy, EcologyState } from "./ecology/ecology.js";
 import type { EnvironmentPolicy, EnvironmentState } from "./environment/environment.js";
@@ -30,6 +31,7 @@ import {
   type WorldEntity,
   type WorldState,
 } from "./world.js";
+import type { WorldProcess, WorldProcessState } from "./world-process.js";
 
 /** First-slice input, not the complete WorldPackManifest or an installation/genesis receipt. */
 export interface WorldScenario {
@@ -60,12 +62,41 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "shelterWeight",
     ],
     "policy",
-    ["environment", "ecology", "wellbeing", "utility", "lifecycle"],
+    ["environment", "ecology", "wellbeing", "utility", "lifecycle", "processes"],
   );
   version(rawPolicy, "policy");
   const policy: WorldBehaviorPolicy = {
     schemaVersion: 1,
     version: text(rawPolicy.version, "policy.version"),
+    ...(rawPolicy.processes === undefined
+      ? {}
+      : {
+          processes: list(rawPolicy.processes, "policy.processes", (value, at): WorldProcess => {
+            const raw = object(
+              value,
+              ["id", "principalId", "firstAtMs", "periodMs", "command"],
+              at,
+            );
+            const command = object(raw.command, ["type", "payload"], `${at}.command`);
+            if (command.type !== "resource.transfer")
+              throw new ContractDecodeError(`${at}.command.type`, "expected resource.transfer");
+            const parsed = CONTAINMENT_PAYLOAD_SCHEMAS["resource.transfer"].safeParse(
+              command.payload,
+            );
+            if (!parsed.success)
+              throw new ContractDecodeError(
+                `${at}.command.payload`,
+                "invalid resource transfer payload",
+              );
+            return {
+              id: text(raw.id, `${at}.id`),
+              principalId: decodeOpaqueId(raw.principalId, "PrincipalId", `${at}.principalId`),
+              firstAtMs: decimal(raw.firstAtMs, `${at}.firstAtMs`),
+              periodMs: decimal(raw.periodMs, `${at}.periodMs`),
+              command: { type: "resource.transfer", payload: parsed.data },
+            };
+          }),
+        }),
     decisionIntervalMs: decimal(rawPolicy.decisionIntervalMs, "policy.decisionIntervalMs"),
     hungerPerInterval: integer(rawPolicy.hungerPerInterval, "policy.hungerPerInterval"),
     wetnessPerInterval: integer(rawPolicy.wetnessPerInterval, "policy.wetnessPerInterval"),
@@ -111,12 +142,30 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "entities",
     ],
     "initialState",
-    ["environment", "ecology", "wellbeing", "scriptedCognition", "lifecycle"],
+    ["environment", "ecology", "wellbeing", "scriptedCognition", "lifecycle", "processes"],
   );
   version(raw, "initialState");
   const weather = object(raw.weather, ["rainIntensity"], "initialState.weather");
   const initialState: WorldState = {
     schemaVersion: 1,
+    ...(raw.processes === undefined
+      ? {}
+      : {
+          processes: list(
+            raw.processes,
+            "initialState.processes",
+            (value, at): WorldProcessState => {
+              const entry = object(value, ["processId", "nextAt"], at);
+              return {
+                processId: text(entry.processId, `${at}.processId`),
+                nextAt:
+                  entry.nextAt === null
+                    ? null
+                    : (decimal(entry.nextAt, `${at}.nextAt`) as SimTimeMs),
+              };
+            },
+          ),
+        }),
     tenantId: decodeOpaqueId(raw.tenantId, "TenantId"),
     worldId: decodeOpaqueId(raw.worldId, "WorldId"),
     timelineId: decodeOpaqueId(raw.timelineId, "TimelineId"),
