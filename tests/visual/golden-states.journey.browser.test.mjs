@@ -1155,26 +1155,14 @@ it("presentation camera spans overview and half-metre close-up with picking on b
       await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/camera-proof`);
       const result = await page.evaluate(
         async ({ wire, shell }) => {
-          const { ThreeWorldSceneAdapter } = await new Function(
-            'return import("/src/renderer.ts")',
-          )();
-          const { THREE } = await new Function('return import("/src/renderer-content.ts")')();
-          const { readWorldShell, neutralShell } = await new Function(
-            'return import("/src/shell-input.ts")',
-          )();
+          const load = (path) => new Function(`return import("/src/${path}.ts")`)();
+          const { ThreeWorldSceneAdapter } = await load("renderer");
+          const { THREE } = await load("renderer-content");
+          const { readWorldShell, neutralShell } = await load("shell-input");
           const legacyCamera = readWorldShell(neutralShell).scene.camera;
           const invalid = [
-            [0, 24],
-            [-1, 24],
-            [NaN, 24],
-            [Infinity, 24],
-            [Number.MIN_VALUE, 24],
-            [2, 24],
-            [0.1, 0],
-            [0.1, -1],
-            [0.1, NaN],
-            [0.1, Infinity],
-            [0.1, 0.5],
+            ...[0, -1, NaN, Infinity, Number.MIN_VALUE, 2].map((min) => [min, 24]),
+            ...[0, -1, NaN, Infinity, 0.5].map((max) => [0.1, max]),
           ].map(([minZoom, maxZoom]) => {
             try {
               readWorldShell({ ...shell, scene: { ...shell.scene, camera: { minZoom, maxZoom } } });
