@@ -7,7 +7,12 @@ deeply frozen, `bytes` is the kernel `canonicalBytes(bundle)`, and `bundle.bundl
 canonical bytes of the bundle without that field. Refusal codes are in [Refusal codes](refusal-codes.md).
 
 The pack is seeded with `seedGenesis` (its refusals pass through unchanged), then each plan runs against the
-kernel from the genesis state. Runtime identifiers, durations, peak memory, wall-clock values and host paths
+kernel from the genesis state. The native executor checks the world invariants before every
+accepted result, including per-holder resource accounting and closed-world cause validation.
+Results supplied by an external driver are independently checked with that same registry before
+recording. An inconsistent result is refused as `RESOURCE_CAUSE_INVARIANT`; the same check runs
+in full and summarised recordings, so reference scenarios and long runs cover every transition.
+Runtime identifiers, durations, peak memory, wall-clock values and host paths
 are never part of the bundle.
 
 ## Scenario document
@@ -91,6 +96,11 @@ materially equivalent over `fields`: `events`, `eventCounts`, `finalState`, `dec
 `eventTypes` keeps only those event types, `ignoreEventTypes` drops event types, `ignoreStatePaths` removes
 state paths (for example `["revision"]`) before comparing. The bundle records the declaration, whether it
 holds, and the differing fields. A divergent variant is recorded as `equivalent: false`.
+The `events` view excludes `resource.weather-integrated` events whose collected and evaporated
+quantities are both zero: those fractional bookkeeping events vary with command boundaries.
+It retains every nonzero collection or evaporation, including an event with a zero net change.
+Both full and summarised equivalence use this material view; the journal, replay and native
+invariant checks retain all events.
 
 ## Perception
 

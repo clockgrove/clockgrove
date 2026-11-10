@@ -41,12 +41,15 @@ Kirk's recorded decision of 2026-11-09 (issue 187) requires a closed world for *
 food and water alike: water in a bowl must come from rain or someone filling it. Resource increases
 must have journaled platform causes: weather collection, plant yield, character commands or
 explicitly declared world processes. Off-screen people are allowed only as declared processes
-acting through ordinary validated commands. Scheduled ecology sources are being replaced in
-sequential parts of issue 187; journal accounting, optional plant-stage yield, opt-in rain collection/evaporation and declared
-process resource transfers inside native advances are available. Durable runtime wakes include process
-deadlines, including actorless worlds. Source removal, fixture migration and complete reference/long-run
-cause proof remain pending for the final part. The
-[kernel ecology contract](../packages/kernel/docs/ecology.md) records implemented behavior.
+acting through ordinary validated commands. Genesis quantities are declared initial inventory.
+The ecology contract has no scheduled sources: legacy declarations are refused at pack validation,
+and unbacked runtime offers or positive-inventory object creation cannot mint material. Finite
+plant-stage yield, rain collection/evaporation and actor/process transfers carry journaled causes;
+durable runtime wakes include process deadlines, including actorless worlds.
+The [kernel ecology contract](../packages/kernel/docs/ecology.md) and
+[world-pack authoring contract](../packages/world-pack-sdk/docs/collections.md#closed-world-authoring)
+describe the implemented restriction. Fixture physical outputs use reviewed scenario goldens;
+published-head CI and full wave qualification remain separate acceptance evidence.
 
 ---
 

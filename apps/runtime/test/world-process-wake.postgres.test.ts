@@ -31,7 +31,6 @@ it("recovers declared process deadlines from PostgreSQL without actors and ahead
       const source = await buildSectionHallSource({
         edit: ({ docs, manifest }) => {
           const policy = (docs["policies/behavior.json"] as Json).policy;
-          policy.ecology.sources = [];
           policy.ecology.perishables = [];
           delete policy.lifecycle;
           delete policy.utility;

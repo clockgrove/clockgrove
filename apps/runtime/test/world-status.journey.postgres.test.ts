@@ -96,10 +96,11 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       );
       await run(
         "status-offer",
-        "resource.offer",
+        "resource.transfer",
         {
           schemaVersion: 1,
-          objectId: "fixture.snack-dish",
+          fromObjectId: "fixture.household-food",
+          toObjectId: "fixture.snack-dish",
           kind: "food",
           quantity: 1,
         },
@@ -126,7 +127,11 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
             "fixture.companion",
             "fixture.companion is looking for shelter at fixture.den.",
           ],
-          ["resource", "fixture.snack-dish", "Food was offered at fixture.snack-dish."],
+          [
+            "resource",
+            "fixture.snack-dish",
+            "Food moved from fixture.household-food to fixture.snack-dish.",
+          ],
           ["weather", null, "It is raining."],
         ],
       ]);
@@ -152,7 +157,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
         ),
       );
       expect(bookkeeping[0]).toBe(
-        "WorldGenesisCreated,WorldProjectionVerified,WorldReady,growth.integrated,location.changed,movement.region-exited,movement.started,needs.changed,wellbeing.integrated",
+        "WorldGenesisCreated,WorldProjectionVerified,WorldReady,growth.integrated,location.changed,movement.region-exited,movement.started,needs.changed,resource.weather-integrated,wellbeing.integrated",
       );
       expect(fed.feed.filter((item) => bookkeeping[1].includes(item.id))).toEqual([]);
       await run("status-resume", "ResumeWorld", { schemaVersion: 1 });

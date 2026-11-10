@@ -1505,10 +1505,11 @@ const observeHall = async (backend) => {
                 0n,
                 current.document.state.revision,
               ),
-              type: index % 2 === 0 ? "resource.offer" : "resource.consume",
+              type: "resource.transfer",
               payload: {
                 schemaVersion: 1,
-                objectId: "fixture.water-bowl",
+                fromObjectId: index % 2 === 0 ? "fixture.household-water" : "fixture.water-bowl",
+                toObjectId: index % 2 === 0 ? "fixture.water-bowl" : "fixture.household-water",
                 kind: "water",
                 quantity: 1,
               },
@@ -1560,6 +1561,17 @@ const observeHall = async (backend) => {
         await page.keyboard.press("Tab");
         await page.keyboard.press("Enter");
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
+        await actionRows.first().getByRole("button").click();
+        const resourceWhy = page.getByRole("region", {
+          name: "Recorded resource causes",
+          exact: true,
+        });
+        await expect
+          .poll(() => resourceWhy.getByRole("listitem").allTextContents())
+          .toEqual([
+            `1 water at fixture.household-water: transferred from fixture.water-bowl; simulation time ${recorded[0].simulationTime}; event ${recorded[0].eventId}`,
+          ]);
+        await page.getByRole("button", { name: "Close Why", exact: true }).click();
         // Each action now has a Why button before the earlier-history control in tab order.
         await actionRows.last().getByRole("button").focus();
         await page.keyboard.press("Tab");
@@ -1898,14 +1910,15 @@ const observeHall = async (backend) => {
         // An event of a command with retained routine decisions opens the same command's Why from the feed.
         const openFeed = feed.getByRole("button", { name: "Open event feed", exact: true });
         if (await openFeed.isVisible()) await openFeed.click();
-        await feed.locator('[data-event-id="browser-why-original:event:28"]').click();
+        const whyEventId = await truth(
+          "SELECT event_id FROM clockgrove.events WHERE command_id='browser-why-original' AND event_type='routine.selected' ORDER BY partition_sequence DESC LIMIT 1",
+        );
+        await feed.locator(`[data-event-id="${whyEventId}"]`).click();
         const eventWhy = page.getByRole("region", { name: "Recorded Why", exact: true });
         await eventWhy
           .getByRole("heading", { name: "Recorded Why: browser-why-original", exact: true })
           .waitFor();
-        await eventWhy
-          .getByText("Started from event browser-why-original:event:28", { exact: true })
-          .waitFor();
+        await eventWhy.getByText(`Started from event ${whyEventId}`, { exact: true }).waitFor();
         await eventWhy.getByText("receipt: canonical", { exact: true }).waitFor();
         expect(
           await eventWhy.getByRole("heading", { name: /^Recorded decision 1 for / }).count(),
@@ -2973,8 +2986,8 @@ const observeHall = async (backend) => {
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           receiptsBefore,
         );
-        // With the world-command grant, the same kind of proposal commits through the ordinary
-        // Journal, and the member (also granted inspection) opens Why from the outcome line, which
+        // With the world-command grant, the closed world refuses an unbacked offer through the
+        // ordinary Journal. The member opens Why from the persisted refusal line, which
         // survives a reload.
         await truth(
           `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command','runtime:world-inspect'] WHERE principal_id='principal-runtime'`,
@@ -2988,7 +3001,9 @@ const observeHall = async (backend) => {
           .getByLabel("Message Keeper…", { exact: true })
           .fill("fixture:offer fixture.water-bowl water");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
-        await history.getByText("Keeper's proposal committed").waitFor({ timeout: 60_000 });
+        await history
+          .getByText("refused: World command refused: precondition_failed", { exact: false })
+          .waitFor({ timeout: 60_000 });
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           String(Number(receiptsBefore) + 1),
         );
@@ -2996,7 +3011,9 @@ const observeHall = async (backend) => {
         await talker.viewer.getByLabel("Local session credential").fill("hall-inspect");
         await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
         await openTalk();
-        await history.getByText("Keeper's proposal committed").waitFor({ timeout: 60_000 });
+        await history
+          .getByText("refused: World command refused: precondition_failed", { exact: false })
+          .waitFor({ timeout: 60_000 });
         await history.getByRole("button", { name: "Why?", exact: true }).last().click();
         await talker.viewer
           .getByRole("region", { name: "Recorded Why", exact: true })

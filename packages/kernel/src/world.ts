@@ -375,6 +375,32 @@ const SCHEDULED_MAX_EVENTS = 4096;
  */
 let activePolicy: WorldBehaviorPolicy | undefined;
 
+interface ValidatedProcessVerdict {
+  readonly scope: string;
+  readonly revision: bigint;
+  readonly at: SimTimeMs;
+  readonly payload: string;
+  readonly refusal: Refusal | undefined;
+}
+function processWorldIdentity(state: WorldState): string {
+  return canonicalSerialize([state.tenantId, state.worldId, state.timelineId, state.partitionId]);
+}
+
+let activeProcessVerdicts: Map<CommandId, ValidatedProcessVerdict> | undefined;
+
+function withProcessVerdicts<T>(
+  verdicts: Map<CommandId, ValidatedProcessVerdict> | undefined,
+  run: () => T,
+): T {
+  const previous = activeProcessVerdicts;
+  activeProcessVerdicts = verdicts;
+  try {
+    return run();
+  } finally {
+    activeProcessVerdicts = previous;
+  }
+}
+
 function withActivePolicy<T>(policy: WorldBehaviorPolicy | undefined, run: () => T): T {
   const previous = activePolicy;
   activePolicy = policy;
@@ -658,7 +684,13 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
       return invalid("continuation");
   }
   try {
-    validateDecisionQueue(state, createScheduleQueue(input.schedules), actors);
+    // A synchronous move holds its actor decision; transfers do not dispatch or alter that queue.
+    validateDecisionQueue(
+      state,
+      createScheduleQueue(input.schedules),
+      actors,
+      (command as { type: string }).type === "resource.transfer",
+    );
   } catch {
     return invalid("schedules");
   }
@@ -819,13 +851,21 @@ function processTransferRefusal(
   transfer: Extract<WorldSemanticEvent, { type: "resource.transferred" }>,
 ): Refusal | undefined {
   const payload = { schemaVersion: 1 as const, ...transfer.payload };
-  for (const [name, check] of [
-    ["containment.fixture-and-references", transferReferencePath],
-    ["resource.available-and-bounded", transferAvailablePath],
-    ["resource.perishable-single-batch", transferBatchPath],
-  ] as const) {
-    const path = check(before, payload);
-    if (path !== undefined) return refusal("precondition-failed", path, `${name}@1`);
+  if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
+  // The outer command already validates the pack archetypes; replay retains its physical state.
+  const input = {
+    pack: { pack: { policy, archetypes: before.entities.map((entity) => entity.archetypeId) } },
+  } as unknown as WorldKernelInput;
+  const command = { type: "resource.transfer", payload } as unknown as ContainmentCommand;
+  const subject = { state: before, input, command, payload, versions: {} } as WorldPrecondition;
+  for (const check of WORLD_KERNEL.kernel.definition.preconditions.ordered("resource.transfer")) {
+    const name = `${check.name}@${check.version}`;
+    try {
+      const path = check.check(subject);
+      if (path !== undefined) return refusal("precondition-failed", path, name);
+    } catch {
+      return refusal("check-error", "precondition", name);
+    }
   }
   try {
     const after = reduceWorldEvent(before, transfer);
@@ -875,10 +915,11 @@ function processJournalDisagreement(
       ? undefined
       : "state.processes";
   const cursors = initial.processes?.map((entry) => ({ ...entry }));
-  let before = initial;
+  const scope = processWorldIdentity(initial);
+  let before: WorldState | undefined = activeProcessVerdicts === undefined ? initial : undefined;
   for (const [index, event] of events.entries()) {
     if (event.type !== "process.command-attempted") {
-      before = reduceWorldEvent(before, event);
+      if (before !== undefined) before = reduceWorldEvent(before, event);
       continue;
     }
     const process = policy.processes?.find((entry) => entry.id === event.payload.processId);
@@ -906,7 +947,28 @@ function processJournalDisagreement(
         toObjectId: declaredPayload.toObjectId as ObjectId,
       },
     };
-    const expectedRefusal = processTransferRefusal(policy, before, transferEvent);
+    const validated = activeProcessVerdicts?.get(commandId);
+    // Each native reducer increments revision once, so a matching verdict identifies this prefix.
+    // Standalone verification has no cache and independently replays every event.
+    let expectedRefusal: Refusal | undefined;
+    if (
+      validated !== undefined &&
+      validated.scope === scope &&
+      validated.revision === initial.revision + BigInt(index) &&
+      validated.at === event.simulationTime &&
+      validated.payload === canonicalSerialize(process.command.payload)
+    )
+      expectedRefusal = validated.refusal;
+    else {
+      before ??= events
+        .slice(0, index)
+        .reduce((prior, event) => reduceWorldEvent(prior, event), initial);
+      expectedRefusal = processTransferRefusal(
+        policy,
+        createWorldState({ ...before, simulationTime: event.simulationTime }),
+        transferEvent,
+      );
+    }
     if (canonicalSerialize(event.payload.refusal) !== canonicalSerialize(expectedRefusal ?? null))
       return `events[${index}].payload.refusal`;
     if (event.payload.refusal === null) {
@@ -920,7 +982,7 @@ function processJournalDisagreement(
       )
         return `events[${index + 1}]`;
     }
-    before = reduceWorldEvent(before, event);
+    if (before !== undefined) before = reduceWorldEvent(before, event);
   }
   if (canonicalSerialize(cursors ?? null) !== canonicalSerialize(state.processes ?? null))
     return "state.processes";
@@ -1045,6 +1107,13 @@ function runWorld(
         },
         ids: createDeterministicIdSource({ commandId, eventIndex: 0, randomStream: "process" }),
       } as ContainmentKernelInput);
+      activeProcessVerdicts?.set(commandId, {
+        scope: processWorldIdentity(trial),
+        revision: trial.revision,
+        at,
+        payload: canonicalSerialize(process.command.payload),
+        refusal: nested.ok ? undefined : nested.error,
+      });
       emit({
         ...event("process.command-attempted", at, {
           processId: process.id,
@@ -1644,7 +1713,7 @@ function runWorld(
       }),
       rainIntensity: state.weather.rainIntensity,
       nextWeatherBoundary: state.environment?.nextWeatherBoundary ?? (MAX_TIME as SimTimeMs),
-      // A decision or arrival may have consumed from a holder: its next appearance depends on that.
+      // A decision or arrival may change the next spoilage or collection threshold.
       ...(ecologyPolicy === undefined
         ? {}
         : { holders: ecologyHolders(state, ecologyPolicy), waterHolders: ecologyWaters(state) }),
@@ -1844,7 +1913,6 @@ function runWorld(
       group.crossings.length +
       plantsToIntegrate.size +
       group.spoiled.length +
-      group.appeared.length +
       group.stages.length +
       pendingWater(at).length +
       (plan === undefined ? 0 : sizeOfLifecycle(plan, at));
@@ -1917,25 +1985,6 @@ function runWorld(
           objectId: entity.objectId,
           kind: "food",
           quantity: entity.resource.quantity,
-        }),
-      );
-    }
-    for (const objectId of group.appeared) {
-      const entity = current().entities.find((candidate) => candidate.objectId === objectId);
-      const source = ecologyPolicy?.sources.find((candidate) => candidate.objectId === objectId);
-      if (
-        entity?.resource === undefined ||
-        source === undefined ||
-        !active(entity) ||
-        entity.resource.quantity !== 0 ||
-        entity.resource.kind !== source.kind
-      )
-        throw new RangeError("appearance disagrees with the source holder");
-      emit(
-        event("resource.appeared", at, {
-          objectId: entity.objectId,
-          kind: source.kind,
-          quantity: source.quantity,
         }),
       );
     }
@@ -2163,7 +2212,6 @@ function runWorld(
     weather: false,
     crossings: [],
     spoiled: [],
-    appeared: [],
     water: [],
     stages: [],
     needs: [],
@@ -2264,6 +2312,17 @@ function runWorld(
             pulled = true;
             break;
           }
+          // Arrival re-seeds physiology; thresholds beyond it are speculative and may disappear.
+          if (
+            group.movers.some((objectId) => {
+              const movement = objectsOf(current(), objectId)?.movement;
+              return (
+                movement?.status === "active" &&
+                movementCompletionTime(movement.segment) === group.time
+              );
+            })
+          )
+            break;
         }
       }
       const groups =
@@ -3081,18 +3140,20 @@ export function checkWorldInvariants(
   if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
   const kernel = WORLD_KERNEL.kernel;
   const subject = Object.freeze({ payload, initial, state: final, events });
-  return withActivePolicy(policy, () => {
-    for (const invariant of kernel.definition.invariants.ordered(commandType)) {
-      const name = `${invariant.name}@${invariant.version}`;
-      try {
-        const offending = invariant.check(subject);
-        if (offending !== undefined) return refusal("invariant-violated", offending, name);
-      } catch {
-        return refusal("check-error", "invariant", name);
+  return withProcessVerdicts(undefined, () =>
+    withActivePolicy(policy, () => {
+      for (const invariant of kernel.definition.invariants.ordered(commandType)) {
+        const name = `${invariant.name}@${invariant.version}`;
+        try {
+          const offending = invariant.check(subject);
+          if (offending !== undefined) return refusal("invariant-violated", offending, name);
+        } catch {
+          return refusal("check-error", "invariant", name);
+        }
       }
-    }
-    return undefined;
-  });
+      return undefined;
+    }),
+  );
 }
 
 /**
@@ -3108,7 +3169,14 @@ export function executeWorldKernel(
   try {
     if (!WORLD_KERNEL.ok) return Object.freeze({ ok: false, error: WORLD_KERNEL.error });
     const kernel = WORLD_KERNEL.kernel;
-    const outcome = withActivePolicy(policyOf(input), () => kernel.execute(input, options));
+    const policy = policyOf(input);
+    const verdicts =
+      (policy?.processes?.length ?? 0) > 0
+        ? new Map<CommandId, ValidatedProcessVerdict>()
+        : undefined;
+    const outcome = withProcessVerdicts(verdicts, () =>
+      withActivePolicy(policy, () => kernel.execute(input, options)),
+    );
     if (!outcome.ok) return outcome;
     const { extra, ...execution } = outcome.result;
     if (extra === undefined)
@@ -3182,6 +3250,7 @@ function validateDecisionQueue(
   state: WorldState,
   schedules: ScheduleQueue<WorldScheduledPayload>,
   actors: readonly WorldEntity[],
+  allowHeldDecisions = false,
 ): void {
   const decisions = decisionsOf(schedules);
   if (
@@ -3209,7 +3278,7 @@ function validateDecisionQueue(
       item.payloadVersion !== 1 ||
       item.payload.schemaVersion !== 1 ||
       item.catchUpClass !== "exact" ||
-      item.dueAt < state.simulationTime ||
+      (!allowHeldDecisions && item.dueAt < state.simulationTime) ||
       !actors.some((actor) => actor.objectId === item.payload.objectId)
     )
       throw new RangeError("unsupported or foreign scheduled input");
@@ -3366,13 +3435,13 @@ function integrateNeeds(
     policy,
   );
 }
-/** Every source and perishable holder's contents, arrival and lifecycle in `state`. */
+/** Every perishable holder's contents, arrival and lifecycle in `state`. */
 function ecologyHolders(state: WorldState, policy: EcologyPolicy): EcologyHolderInit[] {
   const record = state.ecology;
   if (record === undefined) throw new RangeError("ecology policy without a state record");
   const entities = new Map(state.entities.map((entity) => [entity.objectId as string, entity]));
   const arrivals = new Map(record.perishables.map((entry) => [entry.objectId, entry.arrivedAt]));
-  const ids = new Set([...policy.sources, ...policy.perishables].map((entry) => entry.objectId));
+  const ids = new Set(policy.perishables.map((entry) => entry.objectId));
   return [...ids].map((objectId) => {
     const entity = entities.get(objectId);
     if (entity === undefined) throw new RangeError("ecology object is missing from the state");
@@ -3829,8 +3898,7 @@ function badCrossingIndex(movement: NonNullable<WorldEntity["movement"]>): numbe
 
 /**
  * The path of the first resource event of a moving command's world time that its ecology does not
- * own, or undefined: food appears only at its source's appearance times, and spoils only when its
- * holder's shelf life ends.
+ * own, or undefined: food spoils only when its holder's shelf life ends.
  */
 function passedTimeDisagreement(
   initial: WorldState,
@@ -3851,13 +3919,7 @@ function passedTimeDisagreement(
     const objectId = (event.payload as { objectId?: string }).objectId as string;
     let owned = true;
     if (event.type === "resource.appeared") {
-      const source = ecology?.sources.find((candidate) => candidate.objectId === objectId);
-      owned =
-        source !== undefined &&
-        time >= source.firstAtMs &&
-        (time - source.firstAtMs) % source.periodMs === 0n;
-      if (arrived.has(objectId)) arrived.set(objectId, time);
-      quantities.set(objectId, (quantities.get(objectId) ?? 0) + event.payload.quantity);
+      owned = false;
     } else if (event.type === "resource.spoiled") {
       const holder = ecology?.perishables.find((candidate) => candidate.objectId === objectId);
       const since = arrived.get(objectId);
@@ -4186,7 +4248,6 @@ function registerContainmentChecks(
                 "environment.phase-changed",
                 "weather.transitioned",
                 "exposure.threshold-crossed",
-                "resource.appeared",
                 "resource.weather-integrated",
                 "resource.spoiled",
                 "growth.stage-changed",
@@ -4228,6 +4289,30 @@ function registerContainmentChecks(
   );
   const results = [
     ...authorityChecks,
+    invariants.register({
+      name: "resource.closed-world",
+      version: 1,
+      check: ({ events }) => {
+        const index = events.findIndex(
+          (event) =>
+            event.type === "resource.offered" ||
+            event.type === "resource.appeared" ||
+            (event.type === "object.created" &&
+              (event.payload.quantityAdded !== 0 ||
+                (event.payload.object.resource?.quantity ?? 0) !== 0)),
+        );
+        return index < 0 ? undefined : `events[${index}].type`;
+      },
+    }),
+    registerPre("resource.closed-world", ({ payload, command }) => {
+      if (command.type === "resource.offer") return "payload.quantity";
+      if (
+        command.type === "object.create" &&
+        ((payload as ContainmentPayload<"object.create">).object.resource?.quantity ?? 0) > 0
+      )
+        return "payload.object.resource.quantity";
+      return undefined;
+    }),
     registerPre("containment.fixture-and-references", ({ state, payload, input, command }) => {
       if (input.continuation !== undefined) return "continuation";
       if (command.type === "resource.transfer")

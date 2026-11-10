@@ -304,6 +304,19 @@ export function parseSeedCommands(
       fail("UNKNOWN_COMMAND", `${loc}.type`, "command is not in the command catalog");
     if (!isRecord(record.payload) || !plainData(record.payload, 0))
       fail("INVALID_SEED_COMMAND", `${loc}.payload`, "expected a plain data record");
+    const object = record.payload.object;
+    if (
+      type === "resource.offer" ||
+      (type === "object.create" &&
+        isRecord(object) &&
+        isRecord(object.resource) &&
+        object.resource.quantity !== 0)
+    )
+      fail(
+        "INVALID_SEED_COMMAND",
+        `${loc}.payload`,
+        "closed worlds declare initial inventory in actor components",
+      );
     try {
       ports.canonicalBytes(record.payload);
     } catch {

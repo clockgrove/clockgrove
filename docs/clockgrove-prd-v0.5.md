@@ -404,12 +404,12 @@ Resource creation follows Kirk's closed-world decision of 2026-11-09 (issue 187)
 water alike: rain collects in open holders, plants yield food, and characters or explicitly
 declared world processes move resources through journaled commands. Off-screen people have no
 implicit refill authority. Genesis quantities are initial inventory; every later increase needs
-an attributable cause. The rollout currently provides per-holder journal accounting, finite
-plant-stage yield, opt-in weather water collection/evaporation and explicitly scheduled process
-resource transfers inside native advances through the ordinary command validator. Durable runtime
-wakes include process deadlines, including actorless worlds. Removal of legacy scheduled ecology
-sources, fixture migration and complete reference/long-run cause proof remain pending for the final
-part; see the
+an attributable cause. The platform enforces per-holder journal accounting, finite plant-stage
+yield, rain collection/evaporation and explicitly scheduled process transfers through the ordinary
+command validator. Durable runtime wakes include process deadlines, including actorless worlds.
+Scheduled ecology sources are removed; pack validation refuses legacy declarations and commands
+cannot mint resources through unbacked offers or positive-inventory object creation. An actor or
+household fills a bowl by debiting an existing holder. See the
 [kernel ecology contract](../packages/kernel/docs/ecology.md).
 
 ### 6.2 Visual direction
@@ -2212,7 +2212,7 @@ The first bounded command families are:
 | Family | Representative commands |
 | --- | --- |
 | Movement | `StartMovement`, `InterruptMovement`, `EnterPortal` |
-| Needs/resources | `ConsumeResource`, `Rest`, `Drink`, `OfferResource` |
+| Needs/resources | `ConsumeResource`, `Rest`, `Drink`, finite `TransferResource` |
 | Object interaction | `OpenObject`, `CloseObject`, `UseObject`, `TransferObject` |
 | Social | `Say`, `Ask`, `Tell`, `Warn`, `Teach`, `Demonstrate`, `Lead` |
 | Observation | `InspectObject`, `RequestFocus`, `AcknowledgeScopedEvents` |

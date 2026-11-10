@@ -7,6 +7,7 @@ import {
 } from "@clockgrove/domain";
 import { expect, it } from "vitest";
 import { checkWorldInvariants, executeWorldKernel, type WorldSemanticEvent } from "../src/world.js";
+import { SNACK_SPEC, utilitySample, utilityWorld } from "./decisions.scenario.js";
 import { baseSpec, ecologySample, quantityOf, resourceCommand } from "./ecology.scenario.js";
 import { advanceInput, materialState, runChain, runLive } from "./environment.scenario.js";
 import { movementInput, startPayload } from "./spatial.scenario.js";
@@ -205,6 +206,27 @@ it("journals ordinary transfer refusals without granting process authority or re
   const world = await processWorld(true);
   const run = runChain(world, "process-refusal", 4000n);
   const attempts = run.events.filter((event) => event.type === "process.command-attempted");
+  const unbackedInitial = createWorldState({
+    ...world.state,
+    entities: world.state.entities.map((entity) =>
+      entity.objectId === "tank"
+        ? { ...entity, resource: { ...entity.resource!, quantity: 0 } }
+        : entity,
+    ),
+  });
+  expect(
+    checkWorldInvariants(
+      unbackedInitial,
+      run.world.state,
+      run.events,
+      "world.advance",
+      world.template.pack.pack.policy,
+    ),
+  ).toEqual({
+    code: "invariant-violated",
+    check: "process.journaled-commands@1",
+    path: `events[${run.events.findIndex((event) => event.type === "process.command-attempted")}].payload.refusal`,
+  });
   expect(attempts.map((event) => [event.simulationTime, event.payload.refusal])).toEqual([
     [1000n, null],
     [
@@ -333,4 +355,126 @@ it("journals ordinary transfer refusals without granting process authority or re
     ok: false,
     error: { code: "invalid-input", path: "pack.pack.policy.processes[0].command.type" },
   });
+});
+
+it("journals exact ordinary refusals during a utility actor's manual movement without aborting the outer command", async () => {
+  const sample = utilitySample({ ...SNACK_SPEC, intervalMs: 2000, scripted: [] });
+  sample.pack.policy.processes = [
+    {
+      id: "household",
+      principalId: "household-principal",
+      firstAtMs: "500",
+      periodMs: "1000",
+      command: {
+        type: "resource.transfer",
+        payload: {
+          schemaVersion: 1,
+          fromObjectId: "trash-bin",
+          toObjectId: "snack-house",
+          kind: "food",
+          quantity: 1,
+        },
+      },
+    },
+  ];
+  sample.initialState.processes = [{ processId: "household", nextAt: "500" }];
+  const decoded = decodeWorldScenario(sample, await stateHash(sample));
+  const initialState = createWorldState({
+    ...decoded.initialState,
+    environment: deriveEnvironmentState(
+      decoded.pack.policy.environment!,
+      decoded.initialState.simulationTime,
+    ),
+  });
+  const template = await scenarioInput(undefined, 0, 32, {}, 32, {
+    pack: decoded.pack,
+    initialState,
+  });
+  const actor = initialState.entities.find((entry) => entry.objectId === "resident-x")!;
+  const held = {
+    ...template,
+    schedules: template.schedules.map((item) => ({ ...item, dueAt: 1000n as typeof item.dueAt })),
+  };
+  const moving = executeWorldKernel(
+    movementInput(
+      held,
+      "movement.start",
+      startPayload(
+        "resident-x",
+        {
+          kind: "pose",
+          pose: { ...actor.pose, coordinates: [fixedPoint(2000n), fixedPoint(0n)] },
+        },
+        { unitsPerSecond: fixedPoint(1000n) },
+      ),
+      "manual-process-walk",
+    ),
+    { mode: "test" },
+  );
+  if (!moving.ok) throw new Error(JSON.stringify(moving.error));
+  const actorIndex = initialState.entities.findIndex((entry) => entry.objectId === "resident-x");
+  const denied = {
+    code: "precondition-failed",
+    check: "utility.plan-matches-action@1",
+    path: `state.entities[${actorIndex}].movement`,
+  };
+  expect(
+    moving.result.events
+      .filter((event) => event.type === "process.command-attempted")
+      .map((event) => [event.simulationTime, event.payload.refusal]),
+  ).toEqual([
+    [500n, denied],
+    [1500n, denied],
+  ]);
+  expect(moving.result.events.filter((event) => event.type === "resource.transferred")).toEqual([]);
+  expect(quantityOf(moving.result.state, "trash-bin")).toBe(20);
+  expect(quantityOf(moving.result.state, "snack-house")).toBe(6);
+  expect(moving.result.state.simulationTime).toBe(2000n);
+  expect(moving.result.state.processes).toEqual([{ processId: "household", nextAt: 2500n }]);
+  let replayed = initialState;
+  for (const event of moving.result.events) {
+    if (event.type === "process.command-attempted") {
+      const at = createWorldState({ ...replayed, simulationTime: event.simulationTime });
+      const ordinary = executeWorldKernel(
+        resourceCommand(
+          { template, state: at, schedules: held.schedules },
+          "resource.transfer",
+          sample.pack.policy.processes[0].command.payload,
+          "ordinary-during-move",
+        ),
+        { mode: "test" },
+      );
+      expect(ordinary.ok ? null : ordinary.error).toEqual(event.payload.refusal);
+    }
+    replayed = reduceWorldEvent(replayed, event);
+  }
+  expect(replayed).toEqual(moving.result.state);
+});
+
+it("does not retain speculative decision deadlines past a shelter arrival in aggregate advances", async () => {
+  let world = await utilityWorld({
+    ...SNACK_SPEC,
+    scripted: [],
+    intervalMs: 5000,
+    wetnessPerInterval: 10000,
+    segments: [[20000, 10000, "rain"]],
+    items: [{ id: "shelter", kind: "shelter", at: [2000, 0], protection: 10000 }],
+  });
+  world = {
+    ...world,
+    state: createWorldState({
+      ...world.state,
+      entities: world.state.entities.map((entity) =>
+        entity.needs === undefined
+          ? entity
+          : { ...entity, needs: { ...entity.needs, wetness: 3000 } },
+      ),
+    }),
+  };
+  const aggregate = runChain(world, "arrival-aggregate", 11000n);
+  const live = runLive(world, "arrival-live", 11000n, 250n);
+  expect(materialState(aggregate.world.state)).toEqual(materialState(live.world.state));
+  expect(aggregate.world.schedules).toEqual(live.world.schedules);
+  expect(aggregate.events.filter((event) => event.type === "comfort.changed")).toEqual([]);
+  expect(aggregate.world.schedules.map((item) => item.dueAt)).toEqual([15000n]);
 });

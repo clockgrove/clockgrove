@@ -1151,7 +1151,10 @@ export type RecordedWhyEntry =
   | { readonly scheduleId: string; readonly idempotencyKey: string };
 
 /** Recorded evidence only; no browser intent in this envelope can mutate world state. */
-export type RecordedWhyRequest = BrowserScope & { readonly version: 1 } & RecordedWhyEntry;
+export type RecordedWhyRequest = BrowserScope & {
+  readonly version: 1;
+  readonly includeResourceCauses?: true;
+} & RecordedWhyEntry;
 export type PublicRoutineFeatureName =
   | "hunger"
   | "wetness"
@@ -1218,6 +1221,48 @@ export type PublicCausalEntry =
       readonly scheduleId: string;
       readonly idempotencyKey: string;
     };
+export interface PublicResourceCause {
+  readonly eventId: EventId;
+  readonly simulationTime: string;
+  readonly cause: "rain" | "growth" | "transfer";
+  readonly kind: "food" | "water";
+  readonly quantity: number;
+  readonly objectId: ObjectId;
+  readonly fromObjectId?: ObjectId;
+  readonly processId?: string;
+}
+
+function decodePublicResourceCause(value: unknown, path: string): PublicResourceCause {
+  const v = record(value, path);
+  exactKeys(
+    v,
+    ["eventId", "simulationTime", "cause", "kind", "quantity", "objectId"],
+    ["fromObjectId", "processId"],
+    path,
+  );
+  const cause = literal(v.cause, ["rain", "growth", "transfer"], `${path}.cause`);
+  const kind = literal(v.kind, ["food", "water"], `${path}.kind`);
+  if (
+    (cause === "transfer") !== (v.fromObjectId !== undefined) ||
+    (cause !== "transfer" && v.processId !== undefined) ||
+    (cause === "rain" && kind !== "water") ||
+    (cause === "growth" && kind !== "food")
+  )
+    throw new ContractDecodeError(path, "incompatible physical resource cause");
+  return {
+    eventId: decodeOpaqueId(v.eventId, "EventId", `${path}.eventId`),
+    simulationTime: observationUnsigned(v.simulationTime, `${path}.simulationTime`),
+    cause,
+    kind,
+    quantity: observationPositive(v.quantity, `${path}.quantity`),
+    objectId: decodeOpaqueId(v.objectId, "ObjectId", `${path}.objectId`),
+    ...(v.fromObjectId === undefined
+      ? {}
+      : { fromObjectId: decodeOpaqueId(v.fromObjectId, "ObjectId", `${path}.fromObjectId`) }),
+    ...(v.processId === undefined ? {} : { processId: string(v.processId, `${path}.processId`) }),
+  };
+}
+
 export interface RecordedWhy extends BrowserScope {
   readonly version: 1;
   readonly privacyClass: "public_scene";
@@ -1227,6 +1272,7 @@ export interface RecordedWhy extends BrowserScope {
   readonly actionId: ActionId | null;
   readonly receiptStatus: "pending" | "committed" | "rejected" | "failed";
   readonly traces: PublicDecisionEvidence;
+  readonly resourceCauses?: readonly PublicResourceCause[];
   readonly schedules: readonly PublicScheduledAction[];
   readonly links: PublicCausalLinks;
 }
@@ -1240,7 +1286,9 @@ export function decodeRecordedWhyRequest(value: unknown): RecordedWhyRequest {
       : "scheduleId" in v
         ? ["scheduleId", "idempotencyKey"]
         : ["commandId"];
-  exactKeys(v, [...WHY_SCOPE_KEYS, ...entryKeys], [], "why");
+  exactKeys(v, [...WHY_SCOPE_KEYS, ...entryKeys], ["includeResourceCauses"], "why");
+  if (v.includeResourceCauses !== undefined && v.includeResourceCauses !== true)
+    throw new ContractDecodeError("why.includeResourceCauses", "expected true");
   const scope = decodeObservationRequest({
     version: v.version,
     tenantId: v.tenantId,
@@ -1267,7 +1315,11 @@ export function decodeRecordedWhyRequest(value: unknown): RecordedWhyRequest {
   ])
     if (id === "" || new TextEncoder().encode(id).length > 1024)
       throw new ContractDecodeError("why", "inspector ID length out of range");
-  return { ...scope, ...entry };
+  return {
+    ...scope,
+    ...entry,
+    ...(v.includeResourceCauses === true ? { includeResourceCauses: true as const } : {}),
+  };
 }
 function decodePublicScheduledAction(value: unknown, path: string): PublicScheduledAction {
   const v = record(value, path);
@@ -1436,7 +1488,7 @@ export function decodeRecordedWhy(value: unknown): RecordedWhy {
       "schedules",
       "links",
     ],
-    [],
+    ["resourceCauses"],
     "why",
   );
   const evidence = decodeEvidenceLabels(v.evidence, RECORDED_WHY_EVIDENCE, "why.evidence");
@@ -1482,6 +1534,11 @@ export function decodeRecordedWhy(value: unknown): RecordedWhy {
     entry,
     commandId: decodeOpaqueId(v.commandId, "CommandId"),
     schedules,
+    ...(v.resourceCauses === undefined
+      ? {}
+      : {
+          resourceCauses: array(v.resourceCauses, "why.resourceCauses", decodePublicResourceCause),
+        }),
     actionId: v.actionId === null ? null : decodeOpaqueId(v.actionId, "ActionId"),
     receiptStatus: v.receiptStatus,
     traces: { status: t.status, drafts },

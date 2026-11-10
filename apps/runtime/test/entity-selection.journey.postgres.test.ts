@@ -244,8 +244,17 @@ it("observes canonical entity state and earned values without writes, pages reco
         const current = await owner.reader.hydrate(provisioned.authorization, auth.scope);
         const command = {
           ...advanceCommand(world, `selection-${index}`, 0n, current.document.state.revision),
-          type: index % 2 === 0 ? "resource.offer" : "resource.consume",
-          payload: { schemaVersion: 1, objectId: "fixture.snack-dish", kind: "food", quantity: 1 },
+          type: index % 2 === 0 ? "resource.transfer" : "resource.consume",
+          payload:
+            index % 2 === 0
+              ? {
+                  schemaVersion: 1,
+                  fromObjectId: "fixture.household-food",
+                  toObjectId: "fixture.snack-dish",
+                  kind: "food",
+                  quantity: 1,
+                }
+              : { schemaVersion: 1, objectId: "fixture.snack-dish", kind: "food", quantity: 1 },
         };
         const result = await executeWorldCommand(commandRequest(provisioned, command), {
           journal: new PostgreSqlWorldCommandJournal(client),
@@ -264,7 +273,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           const n = 101 - index;
           return [
             `selection-${n}`,
-            n % 2 === 0 ? "resource.offered" : "resource.consumed",
+            n % 2 === 0 ? "resource.transferred" : "resource.consumed",
             `action-selection-${n}`,
           ];
         }),
@@ -282,7 +291,7 @@ it("observes canonical entity state and earned values without writes, pages reco
           `SELECT json_agg(to_char(recorded_at AT TIME ZONE 'UTC',
              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') ORDER BY partition_sequence DESC)::text
            FROM (SELECT recorded_at, partition_sequence FROM clockgrove.events
-             WHERE event_type IN ('resource.offered', 'resource.consumed')
+             WHERE event_type IN ('resource.transferred', 'resource.consumed')
              ORDER BY partition_sequence DESC LIMIT 100) AS recent`,
         ),
       );
@@ -316,10 +325,11 @@ it("observes canonical entity state and earned values without writes, pages reco
           const current = await owner.reader.hydrate(provisioned.authorization, auth.scope);
           const newer = {
             ...advanceCommand(world, "selection-newer", 0n, current.document.state.revision),
-            type: "resource.offer",
+            type: "resource.transfer",
             payload: {
               schemaVersion: 1,
-              objectId: "fixture.snack-dish",
+              fromObjectId: "fixture.household-food",
+              toObjectId: "fixture.snack-dish",
               kind: "food",
               quantity: 1,
             },

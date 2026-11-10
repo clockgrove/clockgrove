@@ -61,10 +61,6 @@ const behavior = (): Json => ({
     },
     ecology: {
       schemaVersion: 1,
-      sources: [
-        { objectId: "sec.pond", kind: "water", firstAtMs: 60000n, periodMs: 60000n, quantity: 1 },
-        { objectId: "sec.crate", kind: "food", firstAtMs: 60000n, periodMs: 120000n, quantity: 1 },
-      ],
       perishables: [{ objectId: "sec.crate", shelfLifeMs: 600000n }],
       plants: [
         {

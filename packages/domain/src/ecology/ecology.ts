@@ -3,18 +3,8 @@ import type { ObjectId, SimTimeMs } from "@clockgrove/contracts";
 import { type EnvironmentPolicy, EnvironmentValidationError } from "../environment/environment.js";
 import type { WorldEntity } from "../world.js";
 
-/** Resource kinds a source can declare. */
+/** Material kinds retained for historical journal decoding. */
 export type EcologyResourceKind = "food" | "water";
-
-export interface EcologySource {
-  readonly objectId: ObjectId;
-  readonly kind: EcologyResourceKind;
-  /** Positive first appearance time; the source appears there and every period after it. */
-  readonly firstAtMs: bigint;
-  readonly periodMs: bigint;
-  /** Positive integer quantity added by each appearance. */
-  readonly quantity: number;
-}
 
 export interface EcologyPerishable {
   readonly objectId: ObjectId;
@@ -59,7 +49,6 @@ export interface EcologyWaterState {
 export interface EcologyPolicy {
   readonly waterHolders?: readonly EcologyWaterHolder[];
   readonly schemaVersion: 1;
-  readonly sources: readonly EcologySource[];
   readonly perishables: readonly EcologyPerishable[];
   readonly plants: readonly EcologyPlant[];
 }
@@ -215,35 +204,15 @@ export function validateEcologyPolicy(
   environment: EnvironmentPolicy | undefined,
   path = "policy.ecology",
 ): asserts value is EcologyPolicy {
-  const root = exactObject(value, ["schemaVersion", "sources", "perishables", "plants"], path, [
+  const root = exactObject(value, ["schemaVersion", "perishables", "plants"], path, [
     "waterHolders",
   ]);
   if (root.schemaVersion !== ECOLOGY_POLICY_VERSION)
     fail(`${path}.schemaVersion`, "unsupported ecology schema version");
   if (environment === undefined) fail(path, "ecology requires an environment record");
   const bands = new Set(environment.phases.map((phase) => phase.lightBand));
-  const sourceIds = new Set<string>();
   const perishableIds = new Set<string>();
   const plantIds = new Set<string>();
-  const perishableKinds = new Map<string, string>();
-  const sources = list(root.sources, `${path}.sources`, 0, MAX_ECOLOGY_ENTRIES);
-  for (const [index, entry] of sources.entries()) {
-    const at = `${path}.sources[${index}]`;
-    const source = exactObject(
-      entry,
-      ["objectId", "kind", "firstAtMs", "periodMs", "quantity"],
-      at,
-    );
-    const id = name(source.objectId, `${at}.objectId`);
-    if (sourceIds.has(id)) fail(`${at}.objectId`, "source object ids must be unique");
-    sourceIds.add(id);
-    if (source.kind !== "food" && source.kind !== "water")
-      fail(`${at}.kind`, "expected food or water");
-    perishableKinds.set(id, source.kind);
-    positive(source.firstAtMs, `${at}.firstAtMs`);
-    positive(source.periodMs, `${at}.periodMs`);
-    safeInteger(source.quantity, `${at}.quantity`, 1, Number.MAX_SAFE_INTEGER);
-  }
   const perishables = list(root.perishables, `${path}.perishables`, 0, MAX_ECOLOGY_ENTRIES);
   for (const [index, entry] of perishables.entries()) {
     const at = `${path}.perishables[${index}]`;
@@ -253,8 +222,6 @@ export function validateEcologyPolicy(
       fail(`${at}.objectId`, "perishable holder object ids must be unique");
     perishableIds.add(id);
     positive(holder.shelfLifeMs, `${at}.shelfLifeMs`);
-    if (perishableKinds.get(id) === "water")
-      fail(`${at}.objectId`, "perishable holders hold food, never water");
   }
   const waterIds = new Set<string>();
   if (root.waterHolders !== undefined)
@@ -271,11 +238,8 @@ export function validateEcologyPolicy(
         at,
       );
       const id = name(holder.objectId, `${at}.objectId`);
-      if (waterIds.has(id) || sourceIds.has(id) || perishableIds.has(id))
-        fail(
-          `${at}.objectId`,
-          "weather holders must be unique and separate from sources and perishables",
-        );
+      if (waterIds.has(id) || perishableIds.has(id))
+        fail(`${at}.objectId`, "weather holders must be unique and separate from perishables");
       waterIds.add(id);
       safeInteger(holder.capacity, `${at}.capacity`, 1, Number.MAX_SAFE_INTEGER);
       safeInteger(holder.catchment, `${at}.catchment`, 0, Number.MAX_SAFE_INTEGER);
@@ -293,8 +257,8 @@ export function validateEcologyPolicy(
     const id = name(plant.objectId, `${at}.objectId`);
     if (plantIds.has(id)) fail(`${at}.objectId`, "plant object ids must be unique");
     plantIds.add(id);
-    if (sourceIds.has(id) || perishableIds.has(id) || waterIds.has(id))
-      fail(`${at}.objectId`, "a plant is never also a source or perishable holder");
+    if (perishableIds.has(id) || waterIds.has(id))
+      fail(`${at}.objectId`, "a plant is never also a perishable or weather holder");
     const growing = list(
       plant.growingLightBands,
       `${at}.growingLightBands`,
@@ -533,11 +497,6 @@ export function ecologyDisagreement(
     state.entities.find((entity) => entity.objectId === id);
   if (record.perishables.length !== declared.perishables.length) return "state.ecology.perishables";
   if (record.plants.length !== declared.plants.length) return "state.ecology.plants";
-  for (const [index, source] of declared.sources.entries()) {
-    const entity = find(source.objectId);
-    if (entity === undefined) return `policy.ecology.sources[${index}].objectId`;
-    if (entity.resource?.kind !== source.kind) return `policy.ecology.sources[${index}].kind`;
-  }
   for (const [index, holder] of declared.perishables.entries()) {
     const entry = record.perishables[index]!;
     const at = `state.ecology.perishables[${index}]`;

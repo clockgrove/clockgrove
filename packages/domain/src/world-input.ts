@@ -274,9 +274,7 @@ function environmentState(input: unknown, path: string): EnvironmentState {
 }
 
 function ecologyPolicy(input: unknown, path: string): EcologyPolicy {
-  const raw = object(input, ["schemaVersion", "sources", "perishables", "plants"], path, [
-    "waterHolders",
-  ]);
+  const raw = object(input, ["schemaVersion", "perishables", "plants"], path, ["waterHolders"]);
   version(raw, path);
   return {
     schemaVersion: 1,
@@ -297,18 +295,6 @@ function ecologyPolicy(input: unknown, path: string): EcologyPolicy {
             };
           }),
         }),
-    sources: list(raw.sources, `${path}.sources`, (value, at) => {
-      const source = object(value, ["objectId", "kind", "firstAtMs", "periodMs", "quantity"], at);
-      if (source.kind !== "food" && source.kind !== "water")
-        fail(`${at}.kind`, "expected food or water");
-      return {
-        objectId: decodeOpaqueId(source.objectId, "ObjectId", `${at}.objectId`),
-        kind: source.kind,
-        firstAtMs: decimal(source.firstAtMs, `${at}.firstAtMs`),
-        periodMs: decimal(source.periodMs, `${at}.periodMs`),
-        quantity: integer(source.quantity, `${at}.quantity`),
-      };
-    }),
     perishables: list(raw.perishables, `${path}.perishables`, (value, at) => {
       const holder = object(value, ["objectId", "shelfLifeMs"], at);
       return {

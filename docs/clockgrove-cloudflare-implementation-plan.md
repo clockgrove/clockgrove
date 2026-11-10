@@ -1372,7 +1372,7 @@ The reference world's `green-lake-yard@1` pack, committed in [clockgrove/raccoon
 
 The pack contains no Cloudflare, PostgreSQL, React or Three.js implementation imports. The web shell consumes its presentation inputs (§20.8) and the kernel consumes only its validated engine-facing manifest.
 
-Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.1.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
+Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.2.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
 
 Do not build a marketplace, dependency solver, public registry, arbitrary plugin host, or community trust/signing system until those become product requirements.
 

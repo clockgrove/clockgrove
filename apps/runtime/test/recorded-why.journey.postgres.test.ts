@@ -313,17 +313,35 @@ it("reads original routine receipts through the audited inspector, never mutates
       const otherEntity = decodeEntitySelection(
         await (await worker.fetch(request("entity", { objectId: "fixture.keeper" }))).json(),
       );
-      expect([...new Set(entity.history.actions.map((action) => action.commandId))]).toEqual([
-        "why-newer",
-        "why-original",
-      ]);
+      const historyCommands = new Set<string>(
+        entity.history.actions.map((action) => action.commandId),
+      );
+      if (!historyCommands.has("why-original")) {
+        // Physical cause events can fill the first journal page before the older decision.
+        expect(entity.history.beforeSequence).not.toBeNull();
+        const older = decodeEntitySelection(
+          await (
+            await worker.fetch(
+              request("entity", {
+                objectId: "fixture.companion",
+                cursor: {
+                  observedRevision: entity.history.observedRevision,
+                  beforeSequence: entity.history.beforeSequence,
+                },
+              }),
+            )
+          ).json(),
+        );
+        for (const action of older.history.actions) historyCommands.add(action.commandId);
+      }
+      expect([...historyCommands]).toEqual(["why-newer", "why-original"]);
       expect([
         scene.simulationTime,
         entity.derived.simulationTime,
         entity.derived.canonical,
       ]).toEqual(["8812800000", "8812800000", false]);
       expect(await truth(canonical)).toBe(after);
-      // Exercise real session ownership with valid retained responses; obsolete transports ignore cancellation.
+      // Open the retained receipts across history pages; obsolete transports ignore cancellation.
       vi.useFakeTimers();
       try {
         for (const transition of [
@@ -365,7 +383,7 @@ it("reads original routine receipts through the audited inspector, never mutates
               await fixture.deliver(scene);
               session.select(entity.objectId);
               await vi.advanceTimersByTimeAsync(0);
-              session.explain(command.commandId);
+              session.explainReceipt(command.commandId);
               expect(session.getWhySnapshot()).toEqual({
                 commandId: command.commandId,
                 status: "loading",
@@ -378,12 +396,12 @@ it("reads original routine receipts through the audited inspector, never mutates
                 await fixture.deliver(scene);
                 session.select(entity.objectId);
                 await vi.advanceTimersByTimeAsync(0);
-                session.explain(newerCommand.commandId);
+                session.explainReceipt(newerCommand.commandId);
                 pending[1]?.resolve(Response.json(newer));
               } else if (transition === "socket-denied") {
                 sockets[0]?.deny();
               } else if (transition === "action" || transition === "denied") {
-                session.explain(newerCommand.commandId);
+                session.explainReceipt(newerCommand.commandId);
                 pending[1]?.resolve(
                   transition === "denied"
                     ? Response.json({ error: "authorization_refused" }, { status: 403 })

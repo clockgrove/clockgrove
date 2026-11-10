@@ -572,10 +572,11 @@ export class SceneSession {
         queryKey: this.whyKey,
         staleTime: 0,
         queryFn: async ({ signal }) => {
+          const expandedRequest: RecordedWhyRequest = { ...request, includeResourceCauses: true };
           const value = await this.readObservation(
             "/v1/runtime/why",
             credential,
-            request,
+            expandedRequest,
             signal,
             decodeRecordedWhy,
           );

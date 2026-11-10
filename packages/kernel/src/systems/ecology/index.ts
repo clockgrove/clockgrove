@@ -2,7 +2,7 @@ import type { EcologyPlantState, EcologyPolicy, EnvironmentPolicy } from "@clock
 import type { ContinuousSystem } from "../../scheduler/catch-up.js";
 import type { NeedsIntegrator } from "../environment/systems.js";
 import { createGrowthSystem } from "./growth.js";
-import { createAppearanceSystem, createSpoilageSystem, type HolderConfig } from "./holder.js";
+import { createSpoilageSystem, type HolderConfig } from "./holder.js";
 
 import { createWaterSystem, type EcologyWaterInit } from "./water.js";
 
@@ -10,7 +10,7 @@ export * from "./growth.js";
 export * from "./holder.js";
 export * from "./water.js";
 
-/** The dynamic state of one holder object (a perishable holder, a source, or both). */
+/** The dynamic state of one holder object (a perishable holder). */
 export interface EcologyHolderInit {
   readonly objectId: string;
   readonly quantity: number;
@@ -32,18 +32,9 @@ export interface EcologyRunOptions {
   readonly waterHolders?: readonly EcologyWaterInit[];
 }
 
-/** Per-object timeline configuration: a source and a perishable holder may be the same object. */
+/** Per-object timeline configuration: each perishable has one spoilage timeline. */
 export function holderConfigs(policy: EcologyPolicy): ReadonlyMap<string, HolderConfig> {
   const configs = new Map<string, HolderConfig>();
-  for (const source of policy.sources)
-    configs.set(source.objectId, {
-      objectId: source.objectId,
-      source: {
-        firstAtMs: source.firstAtMs,
-        periodMs: source.periodMs,
-        quantity: source.quantity,
-      },
-    });
   for (const holder of policy.perishables)
     configs.set(holder.objectId, {
       ...(configs.get(holder.objectId) ?? { objectId: holder.objectId }),
@@ -52,7 +43,7 @@ export function holderConfigs(policy: EcologyPolicy): ReadonlyMap<string, Holder
   return configs;
 }
 
-/** One spoilage system per perishable holder, one appearance system per source, one growth system per plant. */
+/** One spoilage system per perishable holder, one growth system per plant. */
 export function createEcologySystems(options: {
   readonly policy: EcologyPolicy;
   readonly environment: EnvironmentPolicy;
@@ -65,9 +56,6 @@ export function createEcologySystems(options: {
     ),
     ...options.policy.perishables.map((holder) =>
       createSpoilageSystem(configs.get(holder.objectId)!),
-    ),
-    ...options.policy.sources.map((source) =>
-      createAppearanceSystem(configs.get(source.objectId)!),
     ),
     ...options.policy.plants.map((plant) =>
       createGrowthSystem({ plant, environment: options.environment, integrate: options.integrate }),
