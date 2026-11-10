@@ -194,6 +194,16 @@ versions on npm; `2.0.0-dev.3.10` is its newest.
 | [ktx2-encoder](https://registry.npmjs.org/ktx2-encoder) | `0.6.0` | `2026-07-19T12:09:02.909Z` | MIT |
 | [sharp](https://registry.npmjs.org/sharp) | `0.35.5` | `2026-09-27T13:46:24.509Z` | Apache-2.0 |
 
+Issue 163 makes `packages/assets` depend on [ktx2-encoder](https://registry.npmjs.org/ktx2-encoder)
+`0.6.0` (MIT, published `2026-07-19T12:09:02.909Z`, the newest release on `2026-11-09`), which the
+lockfile already carried for the spike above, so no new package or version enters the tree. It
+bundles a single-threaded Basis Universal encoder wasm (Apache-2.0, upstream commit
+`1b33fd5098c6e7b58324146b8f5518cbb4cdfb72`, per its `THIRD_PARTY_NOTICES.md`) and depends on
+`ktx-parse` 1.1.0 (MIT); neither runs an install script. The asset build encodes material pages
+with it (see the [asset pipeline](../../packages/assets/docs/pipeline.md#lit-material-rollout)).
+The web app transcodes them with the Basis transcoder that `three` 0.187.0 ships
+(`examples/jsm/libs/basis`, Apache-2.0), built into the app's assets from the lockfile.
+
 Vite 8.3.3 was published at `2026-10-06T04:10:19.326Z` and was ineligible at this
 cutoff. Vite 8.3.2 is selected without a workspace policy exception.
 

@@ -157,7 +157,7 @@ export interface SceneMaterialTexture {
   };
   readonly compressed: {
     readonly sha256: string;
-    readonly format: "bc3-dds";
+    readonly format: "ktx2-uastc";
     readonly bytes: number;
   };
   readonly frames: readonly {
@@ -235,7 +235,7 @@ export function decodeSceneMaterialDelivery(
                   },
                   compressed: {
                     sha256: hash(compressed.sha256, `${p}.compressed.sha256`),
-                    format: literal(compressed.format, ["bc3-dds"], `${p}.compressed.format`),
+                    format: literal(compressed.format, ["ktx2-uastc"], `${p}.compressed.format`),
                     bytes: positive(compressed.bytes, `${p}.compressed.bytes`),
                   },
                 };
@@ -255,7 +255,7 @@ export function decodeSceneMaterialDelivery(
           },
           compressed: {
             sha256: hash(compressed.sha256, `${p}.compressed.sha256`),
-            format: literal(compressed.format, ["bc3-dds"], `${p}.compressed.format`),
+            format: literal(compressed.format, ["ktx2-uastc"], `${p}.compressed.format`),
             bytes: positive(compressed.bytes, `${p}.compressed.bytes`),
           },
           frames: array(t.frames, `${p}.frames`, (value, p) => {

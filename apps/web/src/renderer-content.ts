@@ -283,3 +283,52 @@ export async function contentLoaders(
     },
   };
 }
+
+/** The compressed formats a device samples that UASTC transcodes to with alpha, best first. */
+export type AtlasTextureFormat = "astc" | "bc7" | "etc2" | "bc3";
+
+/**
+ * A KTX2 loader for the platform's own atlas pages, detected against the initialized backend, or
+ * undefined when the device samples none of the formats UASTC transcodes to with alpha (the caller
+ * then loads PNG pages). The Basis transcoder comes from this pinned Three installation as built
+ * assets of the app, so it is fetched from the app's own origin, never a CDN. Three's KTX2Loader
+ * makes the per-device choice: ASTC 4×4, then BC7, then ETC2 RGBA8, then BC3.
+ */
+export async function atlasTextureLoader(renderer: THREE.WebGPURenderer): Promise<
+  | {
+      ktx2: import("three/addons/loaders/KTX2Loader.js").KTX2Loader;
+      format: AtlasTextureFormat;
+    }
+  | undefined
+> {
+  const [{ KTX2Loader }, { default: transcoderScript }, { default: transcoderBinary }] =
+    await Promise.all([
+      import("three/addons/loaders/KTX2Loader.js"),
+      import("three/addons/libs/basis/basis_transcoder.js?url"),
+      import("three/addons/libs/basis/basis_transcoder.wasm?url"),
+    ]);
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) =>
+    url.endsWith("basis_transcoder.js")
+      ? transcoderScript
+      : url.endsWith("basis_transcoder.wasm")
+        ? transcoderBinary
+        : url,
+  );
+  const ktx2 = new KTX2Loader(manager).setTranscoderPath("basis/").detectSupport(renderer);
+  const config = ktx2.workerConfig;
+  const format: AtlasTextureFormat | undefined = config.astcSupported
+    ? "astc"
+    : config.bptcSupported
+      ? "bc7"
+      : config.etc2Supported
+        ? "etc2"
+        : config.dxtSupported
+          ? "bc3"
+          : undefined;
+  if (!format) {
+    ktx2.dispose();
+    return undefined;
+  }
+  return { ktx2, format };
+}

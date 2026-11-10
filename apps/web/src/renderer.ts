@@ -11,6 +11,8 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
+  type AtlasTextureFormat,
+  atlasTextureLoader,
   type ContentFailure,
   contentDepth,
   contentLoaders,
@@ -29,6 +31,7 @@ import {
   INTERPOLATION_MS,
   isNight,
   MATERIAL_DELIVERY_BUDGET,
+  materialPageCost,
   movement,
   type PickCycle,
   pickOrder,
@@ -58,9 +61,11 @@ interface AtlasAnimation {
   readonly frames: readonly AtlasFrame[];
   readonly durationMs: number | null;
 }
+/** A PNG page is an image texture; a KTX2 page is a CompressedTexture of transcoded blocks. */
+type PageTexture = THREE.Texture<{ readonly width: number; readonly height: number }>;
 /** A reviewed animation whose frames each hold the page texture their rect indexes. */
 interface AtlasEntry extends Omit<AtlasAnimation, "frames"> {
-  readonly frames: readonly (AtlasFrame & { readonly texture: THREE.Texture<HTMLImageElement> })[];
+  readonly frames: readonly (AtlasFrame & { readonly texture: PageTexture })[];
 }
 interface AtlasPage {
   readonly image: HTMLImageElement;
@@ -94,6 +99,8 @@ export interface SceneMetrics {
   textureBytes: number;
   /** The atlas page textures: each listed page and each selected material page, once. */
   atlasTextureBytes: number;
+  /** How material pages upload: a compressed format this device samples, else PNG as RGBA8. */
+  materialTextureFormat: AtlasTextureFormat | "png" | undefined;
   contentStatus: "none" | "loading" | "ready" | "failed";
   contentFailure: ContentFailure | undefined;
   contentFailures: number;
@@ -240,6 +247,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     effectCount: 0,
     textureBytes: 0,
     atlasTextureBytes: 0,
+    materialTextureFormat: undefined,
     contentStatus: "none",
     contentFailure: undefined,
     contentFailures: 0,
@@ -269,7 +277,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private devicePixelRatio = 0;
   private resourceTextureBytes = 0;
   /** One texture per reviewed page, filled only once every listed page has loaded and verified. */
-  private atlasTextures: THREE.Texture<HTMLImageElement>[] = [];
+  private atlasTextures: PageTexture[] = [];
+  /** Created on the first material animation; undefined after when no compressed format is sampled. */
+  private materialLoader?: Promise<Awaited<ReturnType<typeof atlasTextureLoader>>>;
   private composer: THREE.RenderPipeline | undefined;
   private scenePass: ReturnType<typeof pass> | undefined;
   private labelPass: LabelPass | undefined;
@@ -322,7 +332,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private night = false;
   private lights: THREE.PointLight[] = [];
   private sky: THREE.DirectionalLight[] = [];
-  private materialPageTextures = new Map<string, THREE.Texture<HTMLImageElement>>();
+  private materialPageTextures = new Map<string, PageTexture>();
   private materialTransferBytes = 0;
   private transferHashes = new Set<string>();
   private ambient!: THREE.AmbientLight;
@@ -770,9 +780,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     page: string,
     expected: string,
     init?: RequestInit,
+    extension: "png" | "ktx2" = "png",
   ): Promise<ArrayBuffer | undefined> {
     try {
-      const response = await fetch(`/${page}.png`, init);
+      const response = await fetch(`/${page}.${extension}`, init);
       if (!response.ok) return;
       const bytes = await response.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -830,41 +841,54 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (!animation.material) return legacy;
     this.updateTextureBytes();
     const material = decodeSceneMaterialDelivery(animation.material);
-    const rendition = selectMaterialRendition(material, globalThis.devicePixelRatio ?? 1, {
-      transferBytes: Math.max(
-        0,
-        MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
-      ),
-      textureBytes: Math.max(
-        0,
-        MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
-      ),
-    });
+    this.materialLoader ??= atlasTextureLoader(this.renderer);
+    const loader = await this.materialLoader;
+    if (this.destroyed) throw new Error("renderer retired");
+    this.metrics.materialTextureFormat = loader?.format ?? "png";
+    const rendition = selectMaterialRendition(
+      material,
+      globalThis.devicePixelRatio ?? 1,
+      {
+        transferBytes: Math.max(
+          0,
+          MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
+        ),
+        textureBytes: Math.max(
+          0,
+          MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
+        ),
+      },
+      ["albedo"],
+      loader !== undefined,
+    );
     if (!rendition) return legacy;
     const albedo = rendition.channels.albedo;
-    const pages = albedo.pages ?? [{ atlasId: albedo.frames[0]?.atlasId, image: albedo.image }];
-    const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+    const pages = albedo.pages ?? [
+      { atlasId: albedo.frames[0]?.atlasId, image: albedo.image, compressed: albedo.compressed },
+    ];
+    const textures = new Map<string, PageTexture>();
     for (const page of pages) {
       if (!page.atlasId) throw new Error("material page identity missing");
-      const textureKey = `${page.image.sha256}/${albedo.encoding ?? "srgb"}`;
+      const textureKey = `${loader ? page.compressed.sha256 : page.image.sha256}/${albedo.encoding ?? "srgb"}`;
       let texture = this.materialPageTextures.get(textureKey);
       if (!texture) {
-        const bytes = await this.fetchAtlas(page.atlasId, page.image.sha256);
-        if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
-        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-        const image = new Image();
-        try {
-          await new Promise<void>((resolve, reject) => {
-            image.onload = () => resolve();
-            image.onerror = reject;
-            image.src = url;
-          });
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-        if (image.width !== page.image.width || image.height !== page.image.height)
+        texture = loader
+          ? await this.compressedPage(loader.ktx2, page.atlasId, page.compressed.sha256)
+          : await this.pngPage(page.atlasId, page.image.sha256);
+        if (
+          texture.image.width !== page.image.width ||
+          texture.image.height !== page.image.height ||
+          (loader &&
+            THREE.TextureUtils.getByteLength(
+              texture.image.width,
+              texture.image.height,
+              texture.format,
+              texture.type,
+            ) !== materialPageCost(page, true).textureBytes)
+        ) {
+          texture.dispose();
           throw new Error("material dimensions differ");
-        texture = new THREE.Texture(image);
+        }
         texture.colorSpace =
           albedo.encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
         texture.magFilter = THREE.NearestFilter;
@@ -882,6 +906,39 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }));
     if (!frames.every((frame) => frame.texture)) throw new Error("material frame page missing");
     return { ...animation, density: rendition.density, frames: frames as AtlasEntry["frames"] };
+  }
+  private async pngPage(atlasId: string, sha256: string): Promise<PageTexture> {
+    const bytes = await this.fetchAtlas(atlasId, sha256);
+    if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const image = new Image();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = reject;
+        image.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return new THREE.Texture(image);
+  }
+  /** A digest-verified KTX2 page, transcoded off the main thread to the device's format. */
+  private async compressedPage(
+    ktx2: NonNullable<Awaited<ReturnType<typeof atlasTextureLoader>>>["ktx2"],
+    atlasId: string,
+    sha256: string,
+  ): Promise<PageTexture> {
+    const bytes = await this.fetchAtlas(atlasId, sha256, undefined, "ktx2");
+    if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
+    const texture = await new Promise<THREE.CompressedTexture>((resolve, reject) =>
+      ktx2.parse(bytes, (texture) => resolve(texture as THREE.CompressedTexture), reject),
+    );
+    if (this.destroyed || texture.mipmaps?.length !== 1) {
+      texture.dispose();
+      throw new Error("material albedo unavailable");
+    }
+    return texture as unknown as PageTexture;
   }
 
   private async create(): Promise<void> {
@@ -912,7 +969,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (pages.some((page) => !page) || new Set(keys).size !== keys.length)
         return this.failAssets();
       let bytes = 0;
-      const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+      const textures = new Map<string, PageTexture>();
       (pages as AtlasPage[]).forEach(({ image }, n) => {
         const texture = new THREE.Texture(image);
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -1248,12 +1305,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       mesh.material.needsUpdate = true;
     }
     const image = frame.texture.image;
-    for (let i = 0; i < uv.count; i++)
-      uv.setXY(
-        i,
-        (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width,
-        1 - (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height,
-      );
+    // A PNG page uploads flipped (row 0 at v = 1); a KTX2 page uploads top row first at v = 0.
+    const flip = frame.texture.flipY;
+    for (let i = 0; i < uv.count; i++) {
+      const v = (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height;
+      uv.setXY(i, (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width, flip ? 1 - v : v);
+    }
     uv.needsUpdate = true;
     mesh.userData.frame = index;
     return true;
@@ -1369,7 +1426,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     mesh.geometry?.dispose();
     if (
       mesh.material?.map &&
-      !this.atlasTextures.includes(mesh.material.map as THREE.Texture<HTMLImageElement>) &&
+      !this.atlasTextures.includes(mesh.material.map as PageTexture) &&
       mesh.userData.ownsTexture !== false
     )
       mesh.material.map.dispose();
@@ -2042,6 +2099,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
     for (const texture of this.atlasTextures) texture.dispose();
     this.atlasTextures = [];
+    void this.materialLoader?.then((loader) => loader?.ktx2.dispose()).catch(() => {});
     this.canvas?.remove();
     // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
     void this.renderer?.dispose().catch(() => {});

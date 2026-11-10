@@ -291,8 +291,10 @@ and consumers; Clockgrove must refuse an over-limit source rather than repair it
 
 The material and policy decoders reject unknown fields and malformed declarations and freeze
 their results. Omitting `material` preserves the existing version-1 style-profile shape exactly.
-The atlas build packs supplied channel images at each density, emitting deterministic BC3 DDS
-textures and lossless PNG fallbacks. Delivery metadata identifies content hashes and frame
-rectangles. Clients select renditions by device pixel ratio and a texture-byte budget, and
+The atlas build packs supplied channel images at each density, emitting deterministic KTX2
+textures (Basis Universal UASTC, format `ktx2-uastc`) that clients transcode to the compressed
+format their GPU samples, and lossless PNG fallbacks. Delivery metadata identifies content hashes
+and frame rectangles. Clients select renditions by device pixel ratio and the bytes they fetch and
+upload for the format they load, and
 renderers may consume only albedo while retaining the other channel references for capable
 adapters. No per-asset compressed inputs are accepted.

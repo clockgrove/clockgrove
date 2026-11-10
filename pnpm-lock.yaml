@@ -322,6 +322,9 @@ importers:
       '@clockgrove/contracts':
         specifier: workspace:*
         version: link:../contracts
+      ktx2-encoder:
+        specifier: 0.6.0
+        version: 0.6.0
     devDependencies:
       vitest:
         specifier: 5.0.3
