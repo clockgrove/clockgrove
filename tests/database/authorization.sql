@@ -2465,12 +2465,13 @@ INSERT INTO clockgrove.conversation_sessions
 INSERT INTO clockgrove.channel_bindings
   (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
   VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-session','cli','thread');
-SET CONSTRAINTS ALL IMMEDIATE;
+SET CONSTRAINTS ALL DEFERRED;
 INSERT INTO clockgrove.conversation_participants (tenant_id,session_id,principal_id,persona_id)
   VALUES ('tenant-a','channel-unbound','principal-a','persona-a');
 INSERT INTO clockgrove.conversation_sessions
   (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
   VALUES ('tenant-a','channel-unbound','world-a','timeline-a','partition-a','space-a','keeper','cognitive','cli');
+SET CONSTRAINTS ALL IMMEDIATE;
 DO $$
 DECLARE context record;
 BEGIN

@@ -11,8 +11,8 @@ exactly its paths.
 
 The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) uses these authenticated HTTP
 routes with explicit `talk` and `say` commands. It does not resolve identity locally or grant access.
-Its initial implementation uses the existing `browser` session channel; independent channel-thread
-bindings and normalized ingress are tracked in the [channel protocol](channels.md).
+Its sessions use the `cli` channel; browser, CLI and deterministic fake threads keep independent
+transcripts under the [channel protocol](channels.md).
 
 ## Authority
 
@@ -35,7 +35,7 @@ exercises this.
 ## Sessions, messages and turns
 
 - A **session** has a participant set (`participants`: one entry per human participant, a principal
-  and their world persona), one addressed actor, one world timeline, the `browser` channel and the
+  and their world persona), one addressed actor, one world timeline, a `browser`, `cli` or `fake` channel and the
   `conversation` privacy class. A Caretaker Talk session has exactly one participant, and no route
   adds another; a later shared session adds entries without changing the shape. It records the partition
   and space where it was opened, and it can be read from any space of its timeline. Its state is
@@ -61,6 +61,12 @@ exercises this.
   itself is a `private_cognition` artifact and is never returned.
 - Every Talk attempt that reaches the model is one **run** with its steps and one terminal
   disposition, including retried and abandoned attempts. See [run and step evidence](runs.md).
+
+## Channel threads
+
+Create accepts optional `channel` (`browser`, `cli` or `fake`) and `threadId`. An explicit thread is scoped to the authenticated participant, tenant, world and timeline, and binds to one session. A retry addresses that session's canonical actor; it cannot switch actors or revive a deleted session. Without a thread ID, create retains the existing behavior of opening a new session. Session responses add optional `threadId`; existing response fields remain available.
+
+Talk accepts optional `ingress` metadata for a verified source assertion, same-session reply reference, empty media references and member authority mode. The server resolves the other normalized envelope fields from the authenticated participant and stored session. Nonempty media references are refused. See [channels](channels.md#inbound-envelope) for the exact boundary and retention.
 
 ## Talk and Say
 

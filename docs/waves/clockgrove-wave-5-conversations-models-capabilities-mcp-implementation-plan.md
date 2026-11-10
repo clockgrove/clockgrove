@@ -200,7 +200,7 @@ Do not instantiate an OpenClaw daemon or repository per actor. The structure is 
 
 A session is scoped by world, timeline, subject, participant set, channel surface, external-thread reference when present, privacy boundary, voice mode, and retention policy.
 
-Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The current HTTP API stores browser sessions; the developer CLI uses that API until the channel-binding part of issue 168 lands.
+Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The authenticated HTTP API stores browser, CLI and deterministic fake channel threads. A channel binding scopes its thread by tenant, world, timeline and participant; every thread addresses the existing canonical actor. Browser requests without explicit channel metadata retain their new-session behavior.
 
 Required states:
 
@@ -434,7 +434,7 @@ Expose a stateless authenticated MCP surface over application APIs for world/tim
 
 Wave 5 freezes the evergreen portal boundary with browser as the production surface, a developer CLI over the authenticated HTTP API, and deterministic fake adapters. No real Slack, Discord, email, messaging or voice provider is in scope.
 
-The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. The CLI initially uses the current browser-session HTTP contract; normalized channel ingress and governed outbound delivery are separate, subsequent parts.
+The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. Normalized browser, CLI and fake ingress shares the authenticated HTTP boundary. Governed outbound delivery remains a subsequent part of issue 168.
 
 Normalized inbound data includes provider/source identity assertions, resolved Clockgrove principal, world/timeline/actor, participant set, channel/thread, privacy policy, content parts/media refs, reply metadata, authority mode, and idempotency key.
 
@@ -466,7 +466,7 @@ Replace the Wave 4 placeholder with:
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
 
-Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes and preserves the explicit Talk/Say distinction; it does not replace the browser or add provider integrations.
+Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes with its own channel threads and preserves the explicit Talk/Say distinction. Browser requests retain their existing shape and production role; each thread keeps its own private transcript.
 
 ---
 

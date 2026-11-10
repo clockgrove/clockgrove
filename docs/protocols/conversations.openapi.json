@@ -9,7 +9,7 @@
     "/v1/runtime/conversations/create": {
       "post": {
         "summary": "Open a private session with an actor",
-        "description": "The actor must be an actor (an entity with needs) projected in the request's space: otherwise `409 talk_unavailable` or `409 selection_unavailable`. `409 conversation_limit_reached` past 100 sessions that are not deleted per participant and world timeline.",
+        "description": "The actor must be an actor (an entity with needs) projected in the request's space: otherwise `409 talk_unavailable` or `409 selection_unavailable`. `409 conversation_limit_reached` past 100 sessions that are not deleted per participant and world timeline. Optional channel/threadId binds a private thread to one session; explicit thread retries return that session. Browser defaults remain unchanged.",
         "security": [
           {
             "bearer": []
@@ -56,6 +56,15 @@
                     "minLength": 1,
                     "maxLength": 120,
                     "description": "No leading or trailing whitespace."
+                  },
+                  "channel": {
+                    "$ref": "#/components/schemas/ConversationChannel"
+                  },
+                  "threadId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "description": "Opaque ID, at most 1024 UTF-8 octets; no leading or trailing whitespace."
                   }
                 }
               }
@@ -717,7 +726,7 @@
     "/v1/runtime/talk": {
       "post": {
         "summary": "Private Caretaker Talk",
-        "description": "Accepts the participant's message as a recoverable turn in the session actor's owner (`ActorAgentDO`) and answers when it commits: the message and the actor's answer (the scripted model fixture) are appended together. Never spatial speech. The message ID is the turn's key: a retry or duplicate delivery joins, resumes or returns the same turn and never adds a message; other text under it answers `409 message_id_reused`. `409 conversation_busy` while another turn of the session is open, `conversation_not_active`, `conversation_full` (1,000 messages), or `turn_cancelled`. With `Accept: application/x-ndjson` the answer streams `TalkStreamFrame` lines: disposable `delta` tokens, then one `receipt` or `refused` frame. `503 turn_interrupted` (or a stream without a final frame) means the owner failed mid-turn: resend the same message ID.",
+        "description": "Accepts the participant's message as a recoverable turn in the session actor's owner (`ActorAgentDO`) and answers when it commits: the message and the actor's answer (the scripted model fixture) are appended together. Never spatial speech. The message ID is the turn's key: a retry or duplicate delivery joins, resumes or returns the same turn and never adds a message; other text under it answers `409 message_id_reused`. `409 conversation_busy` while another turn of the session is open, `conversation_not_active`, `conversation_full` (1,000 messages), or `turn_cancelled`. With `Accept: application/x-ndjson` the answer streams `TalkStreamFrame` lines: disposable `delta` tokens, then one `receipt` or `refused` frame. `503 turn_interrupted` (or a stream without a final frame) means the owner failed mid-turn: resend the same message ID. Optional ingress metadata is checked against the verified session identity. Changed normalized metadata under an existing messageId is refused as message_id_reused; reply metadata must name a message in this session.",
         "security": [
           {
             "bearer": []
@@ -771,6 +780,9 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "At most 1024 UTF-8 octets, not blank."
+                  },
+                  "ingress": {
+                    "$ref": "#/components/schemas/ChannelIngressMetadata"
                   }
                 }
               }
@@ -912,6 +924,18 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "At most 1024 UTF-8 octets, not blank."
+                  },
+                  "channel": {
+                    "$ref": "#/components/schemas/ConversationChannel"
+                  },
+                  "threadId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "description": "Opaque ID, at most 1024 UTF-8 octets; no leading or trailing whitespace."
+                  },
+                  "ingress": {
+                    "$ref": "#/components/schemas/ChannelIngressMetadata"
                   }
                 }
               }
@@ -1328,7 +1352,7 @@
             }
           },
           "channel": {
-            "const": "browser"
+            "$ref": "#/components/schemas/ConversationChannel"
           },
           "privacyClass": {
             "const": "conversation"
@@ -1369,6 +1393,12 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "Opaque ID, at most 1024 UTF-8 octets; no leading or trailing whitespace."
           }
         }
       },
@@ -1792,6 +1822,72 @@
           },
           "summary": {
             "type": "string"
+          }
+        }
+      },
+      "ConversationChannel": {
+        "type": "string",
+        "enum": [
+          "browser",
+          "cli",
+          "fake"
+        ]
+      },
+      "ChannelIngressMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceIdentityAssertion": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "subject"
+            ],
+            "properties": {
+              "kind": {
+                "const": "authenticated_session"
+              },
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "description": "Opaque ID, at most 1024 UTF-8 octets; no leading or trailing whitespace."
+              }
+            }
+          },
+          "mediaReferences": {
+            "type": "array",
+            "maxItems": 0,
+            "items": {
+              "type": "string"
+            },
+            "description": "Media execution is not supported; nonempty arrays are refused."
+          },
+          "replyMetadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "description": "Opaque ID, at most 1024 UTF-8 octets; no leading or trailing whitespace."
+                  }
+                }
+              }
+            ]
+          },
+          "authorityMode": {
+            "const": "member"
           }
         }
       }
