@@ -8,7 +8,7 @@ import type {
 } from "@clockgrove/contracts";
 import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { pass, vec4 } from "three/tsl";
+import { pass, uniform, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
   type AtlasTextureFormat,
@@ -333,6 +333,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private tier: QualityTier = "low";
   private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
   private night = false;
+  private readonly environmentGrade = uniform(new THREE.Color(0xffffff));
   private lights: THREE.PointLight[] = [];
   private sky: THREE.DirectionalLight[] = [];
   private materialPageTextures = new Map<string, PageTexture>();
@@ -1141,6 +1142,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.bloom.setResolutionScale(quality.bloomScale);
     }
     let output = this.bloom ? color.add(this.bloom) : color;
+    output = vec4(output.rgb.mul(this.environmentGrade), output.a);
     if (quality.renderScale < 1) {
       // Labels skip the reduced scene pass and draw at full resolution, so their text stays legible.
       this.scenePass.setLayers(new THREE.Layers());
@@ -1483,12 +1485,16 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private drawEnvironment(projection: SceneProjection): void {
     this.night = isNight(projection.simulationTime);
     this.scene.userData.night = this.night;
-    this.ambient.intensity = Math.PI * (this.night ? 0.4 : 1);
-    this.ambient.color.set(this.night ? 0x9caeca : 0xffffff);
+    const environment = projection.lighting?.environment;
+    this.environmentGrade.value.set(environment?.gradeColour ?? 0xffffff);
+    this.ambient.intensity = environment?.ambientIntensity ?? Math.PI * (this.night ? 0.4 : 1);
+    this.ambient.color.set(environment?.ambientColour ?? (this.night ? 0x9caeca : 0xffffff));
     if (this.scene.background instanceof THREE.Color)
-      this.scene.background.set(this.night ? 0x192b20 : 0x3f6b3a);
+      this.scene.background.set(
+        environment?.backgroundColour ?? (this.night ? 0x192b20 : 0x3f6b3a),
+      );
     if (this.scene.fog instanceof THREE.Fog)
-      this.scene.fog.color.set(this.night ? 0x25334c : 0x43534b);
+      this.scene.fog.color.set(environment?.fogColour ?? (this.night ? 0x25334c : 0x43534b));
     if (this.ground.material instanceof THREE.MeshStandardNodeMaterial)
       this.ground.material.roughness = projection.weather.rainIntensity > 0 ? 0.45 : 1;
     this.rain.visible = projection.weather.rainIntensity > 0;
@@ -1587,14 +1593,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     const shown = new Set(shownEffects(projection));
     for (const item of this.effects) {
-      const visible = shown.has(
-        effects[item.index] as NonNullable<SceneProjection["effects"]>[number],
-      );
+      const daylight = projection.lighting?.environment?.daylight;
+      const alpha = item.role !== "puddle" && daylight !== undefined ? 1 - daylight : 1;
+      const visible =
+        item.role !== "puddle" && daylight !== undefined
+          ? alpha > 0
+          : shown.has(effects[item.index] as NonNullable<SceneProjection["effects"]>[number]);
       const was = item.sprite.visible && !this.effectFades.has(item.sprite);
       if (visible) {
         this.effectFades.delete(item.sprite);
         item.sprite.visible = true;
-        item.sprite.material.opacity = 1;
+        item.sprite.material.opacity = alpha;
       } else if (was && item.role === "puddle" && !this.reducedMotion)
         this.effectFades.set(item.sprite, {
           start: performance.now(),

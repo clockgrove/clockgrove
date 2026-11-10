@@ -39,9 +39,13 @@
     "scene-connection.ts": "4104fd7777ac0d2bd2ef84436076e263d58cb2fb0fb37ef9d02c49ff5368cec0",
 
     "scene-interactions.ts": "bb9cf0e4811c6ccdfd7bda76932f89f1167652f0865b1deab8a1ef30ee761dbc",
+<<<<<<< HEAD
 
     "scene-protocol.ts": "8c0144e5daa8394c5f80ae03116f75e0959fd1c0ed5d595cfc5385dac2b605c5",
 
+=======
+    "scene-protocol.ts": "0cfd6c8c72927e3dd3a8c2139078b6434b7a1ba958b8b8ecf650b96ab16cf67c",
+>>>>>>> 0ea8f14 (feat(renderer): project continuous time-of-day lighting (part 3 of #184))
     "trusted.ts": "38f849d80ab17c736df5e93dddd309d0e81261a84307825c72cd928208b73eaa",
 
     "turn-fibers.ts": "94345be3a6050acef76344763b2cb3b3d0497bd11bca1a0e543b124f8d9b09e4",

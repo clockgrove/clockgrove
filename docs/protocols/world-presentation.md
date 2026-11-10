@@ -304,3 +304,21 @@ this for the explicitly selected pack. The fixture intentionally needs no runtim
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
 An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
 does not require an atlas texture when `scene.atlases` is `false`.
+
+### Continuous time-of-day projection
+
+Optional `SceneLighting.environment` carries finite `daylight` in [0,1], RGB hex
+`ambientColour`, nonnegative finite `ambientIntensity`, and RGB hex `backgroundColour`,
+`fogColour`, `gradeColour`. These are committed presentation data, independent of renderer APIs.
+Omitting the field preserves legacy consumers' binary environment. The renderer applies grade to
+scene pixels before the low-tier label composite; the optional environment also lets the text path
+report lamps through dawn/dusk consistently with their fading visible effects.
+
+`defaultSceneLighting(simulationTime, weather, effects)` is the shared pure presentation default
+for material worlds and offline compositions. It uses a canonical 86,400,000 ms period (the existing
+scene clock convention), normalized for negative times, smooth daylight transitions centred on
+06:00 and 18:00, warm horizon colours, and inverse-daylight lamp intensity. It never reads wall time.
+The two-hour transition and colour palette are visual policy decisions for #184, not simulation
+rules or hardware performance claims. Callers may supply their own validated lighting/environment.
+Content shares the scene's continuous ambient and directional lights through its attached root,
+without a per-world renderer branch. Its `update` frame retains the existing time/weather fields.
