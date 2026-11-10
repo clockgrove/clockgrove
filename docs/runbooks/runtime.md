@@ -339,6 +339,16 @@ Each activation starts at most four command attempts, with no new attempt starti
 events). [Runtime budgets and load curves](#runtime-budgets-and-load-curves) gives the sources and
 where each trips. New commands target
 durable schedule deadlines, so cap and delivery lateness do not introduce physical boundaries.
+
+The earliest non-null declared world-process cursor is also a durable deadline. PostgreSQL stores
+`next_process_due_at` as a generated column derived from the canonical state document, so birth,
+committed advances and other state updates keep it current without a separate write. Due-work,
+clock-owner and runtime-operation reads choose the earlier process or indexed actor-schedule deadline;
+actorless worlds can therefore wake, and a process can wake before the next actor decision. The
+ordinary autonomous clock authority admits the advance, while the native kernel attributes each
+process transfer or refusal to its declared principal. No process schedule row or new execution grant
+is added; process cursors remain canonical and the deadline is rebuildable metadata.
+
 Accepted continuations run first with their original target, attribution, random state and cursor;
 completion can exceed the cap even after a reduction to 1 ms. Every chunk still checks current
 policy authority and obeys activation and kernel budgets.

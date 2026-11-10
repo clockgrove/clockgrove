@@ -43,8 +43,9 @@ must have journaled platform causes: weather collection, plant yield, character 
 explicitly declared world processes. Off-screen people are allowed only as declared processes
 acting through ordinary validated commands. Scheduled ecology sources are being replaced in
 sequential parts of issue 187; journal accounting, optional plant-stage yield, opt-in rain collection/evaporation and declared
-process resource transfers inside native advances are available. Autonomous runtime wake integration,
-source removal and fixture migration remain pending. The
+process resource transfers inside native advances are available. Durable runtime wakes include process
+deadlines, including actorless worlds. Source removal, fixture migration and complete reference/long-run
+cause proof remain pending for the final part. The
 [kernel ecology contract](../packages/kernel/docs/ecology.md) records implemented behavior.
 
 ---

@@ -460,9 +460,9 @@ journaled weather, growth or ordinary character/process command causes. Off-scre
 explicitly declared world processes with no special command authority. Initial genesis inventory
 is accounted separately. Per-holder accounting, finite plant-stage yield and optional rain
 collection/evaporation and declared process resource transfers through ordinary validated commands
-are implemented inside native advances. Autonomous runtime wake integration, removal of legacy
-scheduled sources, fixture migration and complete reference/long-run
-cause proof remain later parts of that Objective.
+are implemented inside native advances. Durable runtime wakes include process deadlines, including
+actorless worlds. Removal of legacy scheduled sources, fixture migration and complete reference/long-run
+cause proof remain for the final part of that Objective.
 The [kernel ecology contract](../../packages/kernel/docs/ecology.md) describes the current policy.
 
 Journal-facing outputs are semantic thresholds, not numeric tick noise. Required goldens: `rain-shelter-comfort`, `food-decay-and-conservation`, and `cedar-growth`.

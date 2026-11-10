@@ -224,8 +224,21 @@ cadence, identity, exact transfer/refusal and cursor updates against the ordinar
 id ordering, finite transfer/refusal results, live/aggregate/bounded parity, native replay, movement-time
 transfer and spoilage, repeated-time no-op and forged journal/cursor refusal. The simulator's
 `test/world-process-genesis.journey.test.ts` proves SDK build, nonzero-epoch genesis and subsequent
-transfers at and just after that epoch. Scheduled sources, fixture physical migration and the final
-all-scenario closed-world proof remain later parts of issue 187. This part schedules processes
-inside native advances and movement commands. The durable runtime currently plans autonomous wakes
-from indexed schedule rows; bridging process cursors to that wake path remains required before a
-process-only world can wake itself, or a process can wake ahead of the next actor decision.
+transfers at and just after that epoch. Scheduled source removal, fixture physical migration and
+the final all-scenario closed-world proof remain for the final part of issue 187.
+
+The durable runtime also wakes for process deadlines, including worlds without actors and processes
+due before an actor decision. PostgreSQL derives `next_process_due_at` from the earliest non-null
+canonical process cursor at birth and after every state-document update. The optional process cursor
+list is preserved in reconstructable birth sections, including an explicitly empty list.
+The stored generated column
+is scheduling metadata: it changes no canonical state, queue, event or hash. Due-work, clock-owner and
+runtime-operation reads take the earlier of this deadline and the indexed pending schedule deadline.
+The existing autonomous clock principal admits the advance; process attempts still execute ordinary
+validated transfers attributed to the declared process principal. Actor schedule rows remain the
+input to `dueSchedules`; process execution stays inside the native advance and movement paths.
+
+`apps/runtime/test/world-process-wake.postgres.test.ts` proves SDK-built process worlds through
+PostgreSQL provisioning, the clock owner's alarm plan and advance, all three deadline readers,
+finite transfer and refusal, fresh-client recovery and duplicate-call no-op. It covers both an
+actorless world and a process due before the next actor decision.

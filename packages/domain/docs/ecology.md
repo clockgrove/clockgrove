@@ -80,5 +80,7 @@ and share the command object-id text bound. Matching optional `state.processes` 
 its refusal or success. Success journals the ordinary transfer, debiting existing inventory; failure
 changes no quantities. The kernel validates these occurrences with the ordinary command path and
 attributes them to the declared principal. See [kernel ecology](../../kernel/docs/ecology.md) for
-ordering, event budgets and the native process proofs. This additive cause does not yet remove
-scheduled sources or establish the final closed-world policy restriction.
+ordering, event budgets and the native process proofs. Durable runtime wake planning includes the
+earliest non-null process cursor, even without actors; PostgreSQL derives that deadline from the
+canonical state rather than adding process commands to the actor schedule queue. This additive cause
+does not yet remove scheduled sources or establish the final closed-world policy restriction.

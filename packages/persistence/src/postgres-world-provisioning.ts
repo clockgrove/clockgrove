@@ -122,7 +122,8 @@ function sectionName(value: string): BirthSectionName {
     value === "environment" ||
     value === "ecology" ||
     value === "wellbeing" ||
-    value === "lifecycle"
+    value === "lifecycle" ||
+    value === "processes"
   ) {
     return value;
   }

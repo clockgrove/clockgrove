@@ -406,9 +406,10 @@ declared world processes move resources through journaled commands. Off-screen p
 implicit refill authority. Genesis quantities are initial inventory; every later increase needs
 an attributable cause. The rollout currently provides per-holder journal accounting, finite
 plant-stage yield, opt-in weather water collection/evaporation and explicitly scheduled process
-resource transfers inside native advances through the ordinary command validator. Autonomous runtime
-wake integration, removal of legacy scheduled ecology
-sources and fixture migration remain pending; see the
+resource transfers inside native advances through the ordinary command validator. Durable runtime
+wakes include process deadlines, including actorless worlds. Removal of legacy scheduled ecology
+sources, fixture migration and complete reference/long-run cause proof remain pending for the final
+part; see the
 [kernel ecology contract](../packages/kernel/docs/ecology.md).
 
 ### 6.2 Visual direction
