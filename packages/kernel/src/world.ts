@@ -302,6 +302,7 @@ const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)
     "needs.relieved": ["needs"],
     "resource.spoiled": ["resource"],
     "resource.appeared": ["resource"],
+    "growth.stage-changed": ["resource"],
     "resource.consumed": ["resource"],
     "routine.selected": ["selectedAction"],
     "location.changed": ["locationId"],
@@ -1653,6 +1654,7 @@ function runWorld(
           objectId: entry.objectId,
           stageIndex: change.stageIndex,
           stageName: stage.name,
+          ...(stage.yield === undefined ? {} : { yield: stage.yield }),
         }),
       );
     }
@@ -2290,8 +2292,35 @@ function registerWorldChecks(
     invariants.register({
       name: ECOLOGY_CHECK,
       version: 1,
-      check: ({ state }) =>
-        activePolicy === undefined ? undefined : ecologyDisagreement(activePolicy, state),
+      check: ({ initial, state, events }) => {
+        if (activePolicy === undefined) return undefined;
+        const disagreement = ecologyDisagreement(activePolicy, state);
+        if (disagreement !== undefined) return disagreement;
+        const stages = new Map(
+          initial.ecology?.plants.map((plant) => [plant.objectId, plant.stage]),
+        );
+        for (const [index, event] of events.entries()) {
+          if (event.type !== "growth.stage-changed") continue;
+          const plant = activePolicy.ecology?.plants.find(
+            (candidate) => candidate.objectId === event.payload.objectId,
+          );
+          const stage = plant?.stages[event.payload.stageIndex];
+          if (
+            !plant?.stages.some((candidate) => candidate.yield !== undefined) &&
+            event.payload.yield === undefined
+          )
+            continue;
+          if (
+            stage === undefined ||
+            event.payload.stageIndex !== (stages.get(event.payload.objectId) ?? -1) + 1 ||
+            stage.name !== event.payload.stageName ||
+            stage.yield?.quantity !== event.payload.yield?.quantity
+          )
+            return `events[${index}].payload.yield`;
+          stages.set(event.payload.objectId, event.payload.stageIndex);
+        }
+        return undefined;
+      },
     }),
     preconditions.register({
       name: WELLBEING_CHECK,
@@ -3863,6 +3892,13 @@ function registerContainmentChecks(
                 event.payload.kind,
                 BigInt(event.payload.quantity),
               );
+              break;
+            case "growth.stage-changed":
+              if (event.payload.yield !== undefined) {
+                const quantity = BigInt(event.payload.yield.quantity);
+                changes.food! += quantity;
+                changeHolder(event.payload.objectId, "food", quantity);
+              }
               break;
             case "resource.transferred":
               changeHolder(

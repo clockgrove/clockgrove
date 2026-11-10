@@ -66,13 +66,12 @@ receipt (null when the grants refused it before the world), `status` `succeeded`
 (`TalkCommandOutcome`, `docs/protocols/conversations.md`). The model step records the model name,
 tokens and cost.
 
-
 ## Remote MCP installation foundation
 
 The [MCP installation protocol](mcp.md) describes the remote HTTP discovery and isolated
 credential ports. They do not register callable capabilities or change the three internal grants
 above. Discovered tools/resources/prompts carry untrusted data and disabled state; discovery
-alone supplies no authority. Canonical installation review, dynamic registry versions, scoped
+alone supplies no authority. Canonical installation review is persisted internally; dynamic registry versions, scoped
 bindings and actor revision invalidation remain the next integration work of issue 164.
 
 The owner-decided remote effect classes are `read`, `world-write`, `external-write`, `destructive`,
@@ -82,3 +81,9 @@ This additive vocabulary does not rename the existing internal `world_command` e
 The isolated PostgreSQL credential provider stores sealed envelopes under a dedicated role and
 forced scope RLS. It does not confer capability authority or alter registry grants. Provider
 session loss fences existing credentials and requires reconnect; see the [provider contract](mcp.md#postgresql-secret-provider).
+
+The internal MCP governance service now persists installation snapshots, exact-hash tool
+reviews and drift/revocation state under the separate owner-defaulted `runtime:mcp-install`
+grant. These are canonical governance records, not dynamic actor grants: the three internal
+registry entries above remain the only registered capabilities. Reviewed MCP tools require the
+remaining scoped binding/resolution and revision-hook integration before any actor can see them.

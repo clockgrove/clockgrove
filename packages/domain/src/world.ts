@@ -736,8 +736,39 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       )
         throw new DomainValidationError("event.stageIndex", "must advance the plant stage");
       requireName(event.payload.stageName, "event.stageName");
+      let entities = state.entities;
+      if (event.payload.yield !== undefined) {
+        if (event.payload.stageIndex !== plant.stage + 1)
+          throw new DomainValidationError(
+            "event.stageIndex",
+            "yield must enter the next plant stage",
+          );
+        const quantity = event.payload.yield.quantity;
+        const entity = requireEntity(state, plant.objectId);
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || Object.is(quantity, -0))
+          throw new DomainValidationError(
+            "event.yield.quantity",
+            "expected positive material units",
+          );
+        if (entity.resource?.kind !== "food")
+          throw new DomainValidationError("event.objectId", "a yielding plant must hold food");
+        if (entity.resource.quantity > Number.MAX_SAFE_INTEGER - quantity)
+          throw new DomainValidationError(
+            "event.yield.quantity",
+            "exceeds the material quantity range",
+          );
+        entities = state.entities.map((candidate) =>
+          candidate !== entity
+            ? candidate
+            : {
+                ...entity,
+                resource: { ...entity.resource!, quantity: entity.resource!.quantity + quantity },
+              },
+        );
+      }
       return createWorldState({
         ...advanced,
+        entities,
         ecology: {
           ...ecology,
           plants: ecology.plants.map((entry) =>

@@ -508,6 +508,7 @@ await new Promise((resolve, reject) => {
       "apps/runtime/test/causal-inspector.postgres.test.ts",
       "apps/runtime/test/prior-release-fixtures.postgres.test.ts",
       "apps/runtime/test/migration-safety.postgres.test.ts",
+      "apps/runtime/test/mcp-installations.postgres.test.ts",
       ...(writeReport
         ? ["--reporter=default", "--reporter=json", `--outputFile.json=${wave2Report}`]
         : []),

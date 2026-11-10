@@ -104,7 +104,7 @@ jobs:
 
       - name: Install pinned real browser
         if: ${{ matrix.share == 'browser-build' }}
-        run: scripts/ci/toolchain.sh browser
+        run: scripts/ci/toolchain.sh browser-deps browser
 
       - name: Browser smoke and accessibility journey
         if: ${{ matrix.share == 'browser-build' }}

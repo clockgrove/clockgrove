@@ -69,6 +69,9 @@ At the current 12.5 logical pixels per metre and 400-pixel logical view height, 
 vertical mesh then fills 150 pixels (37.5% of the height); these example limits are a
 presentation choice for issue #184’s overview-to-close-up experience, not simulation data.
 The same input applies to the local shell and explicitly composed renderer content.
+Viewport raster density is renderer policy: the output requests host dimensions times DPR,
+with bounded effective scale per quality tier. Camera limits remain logical zoom factors
+independent of backing resolution; the logical camera contains its original 640×400 view while expanding width or height to match viewport aspect; see the [scene tier policy](../../apps/web/docs/scene.md).
 
 The shell does not interpret HTML in names or copy. Presentation data is trusted deployment
 configuration, rather than player-authored content. Static asset publication remains the
@@ -177,7 +180,7 @@ CLOCKGROVE_WORLD_SHELL="$PWD/worlds/fixture/renderer/shell.json" \
 Open the printed URL. The [fixture page](../../worlds/fixture/renderer/index.html) reads its committed
 [snapshot](../../worlds/fixture/renderer/snapshot.json), generates a looping skinned mesh and normal/depth
 mapped sprite in code, and offers time, weather, reduced-motion, quality and zoom controls. Its explicit shell
-input sets a 0.1–24 zoom range without changing the platform default. No binaries,
+input sets a 0.1–96 zoom range (portrait close-ups need about 74× for a 0.5 m subject) without changing the platform default. No binaries,
 credentials or canonical commands are involved. Its diagnostic capture helpers are fixture code,
 not additional product renderer API.
 

@@ -75,7 +75,9 @@ committed data. Legacy projections without lighting retain their existing enviro
   the pan bounds include the view at the configured minimum zoom. There is no rotation.
   For a deep-zoom composition, `{ "minZoom": 0.1, "maxZoom": 24 }` spans an overview and a
   close-up: a 0.5 m vertical content mesh occupies 150 of the 400 logical view pixels at 24×
-  (0.5 × 12.5 × 24), exceeding issue #184’s one-third-height target. Zoom changes the
+  (0.5 × 12.5 × 24), exceeding issue #184’s one-third-height target at 640×400.
+  The fixture allows up to 96×: its 390×844 portrait view has logical height about 1385,
+  requiring about 74× for that same half-metre subject to occupy one third of the viewport. Zoom changes the
   orthographic projection continuously; geometry stays at its native rendering resolution.
 - **Visual entity.** Each drawn entity has explicit geometry:
   - **Footprint** in millimetres, drawn as a ground shadow.
@@ -140,7 +142,23 @@ clock/weather patches change the light rig without changing world state or rerea
 content brings its own maps through the renderer extension; it does not extend atlas bindings or decide
 issue 66's material model.
 
-The live canvas is 640×400 at DPR 1. Quality selection is conservative: software renderers
+The live canvas follows its host CSS viewport and requests its device pixel ratio. A ResizeObserver
+updates backing storage after layout changes, and the frame loop detects DPR changes. Each tier
+caps output pixels by uniformly reducing the effective scale: low 512,000, medium 1,000,000,
+high 3,000,000 pixels (issue #184 policy). Width and height round down to whole pixels,
+with per-axis minima of 2/32/16 for low/medium/high so every scene and bloom mip target stays valid.
+The logical camera contains the original 640×400 view at every host aspect: width is
+`max(640, 400 × aspect)` and height is `max(400, 640 / aspect)`. This keeps the fixed
+isometric camera's proportions and original world framing. Picking, panning and rain use those same coordinates;
+resizing preserves zoom and camera position within the updated pan bounds.
+The shell reserves the viewport height minus 260 CSS pixels for the HUD, status and heading, with a 400-pixel minimum;
+external compositions own their host size. Auto-height hosts retain a stable initial 400-pixel height.
+Texture allocation ceilings are 16/64/192 MiB for low/medium/high, apart from the separate atlas budget.
+Resource textures reserve their measured bytes before render-target sizing, so adding content can
+reduce effective output scale. Content whose resources leave no room for even the smallest output
+is retired as a content-contract failure; the built-in scene and text path remain available.
+Host sizing uses the content box, excluding padding, including for auto-height compositions.
+These are bounded allocation decisions, not hardware performance claims. Quality selection is conservative: software renderers
 (SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
 or device memory below 4 GiB choose low. WebGPU software detection reads the device adapter
 architecture/description; WebGL2 uses its debug renderer identity. Otherwise memory below 8 GiB
@@ -149,14 +167,14 @@ allocation and shader work, rather than measured device-class performance promis
 
 | Tier | Scene target / lighting | Rain particle cap | Bloom | Wind | Puddle reflections |
 | --- | --- | ---: | --- | --- | --- |
-| low | 320×200, Lambert diffuse | 0 | off | off | off |
-| medium | 640×400, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
-| high | 640×400, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
+| low | half output size, Lambert diffuse | 0 | off | off | off |
+| medium | output size, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
+| high | output size, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
 
 All tiers retain projection-driven lights, emissive, lit geometry and fog. Low uses Lambert node
 materials to avoid Standard's GGX/Fresnel specular work, and a half-resolution TSL scene pass to
 shade 75% fewer scene fragments on software/limited devices. This is a local budget policy, not a
-change to the 640×400 output canvas, logical camera, picking coordinates or text path. Medium and
+change to the logical camera, picking coordinates or text path. Labels use the effective full output resolution. Medium and
 high retain full-resolution PBR and wet specular. Tier changes preserve common material state,
 dispose replaced materials and restore puddle roughness when returning to PBR. Bloom radius is 0.2 and threshold 0.8. These tuning values
 are renderer decisions for restrained glow, replacing the bake-off's over-strong bloom. Reflections
@@ -263,7 +281,7 @@ for the pinned-checkout recipe and frame capture.
 | --- | --- | --- |
 | Initial JS (gzip, every built chunk: entry plus scene chunk) | 512 000 B | `tools/scene-budget.mjs` in `pnpm check` |
 | Reviewed asset bytes | 256 KiB | `tools/scene-budget.mjs` in `pnpm check` |
-| Texture memory, apart from atlas pages | 16 MiB | Chromium journeys |
+| Texture memory, apart from atlas pages | 16/64/192 MiB low/medium/high | Chromium journeys |
 | Atlas page texture memory | 32 MiB | Chromium journeys |
 | First scene render | 2 500 ms | Chromium journey |
 | Frame time, 95th percentile | 33.4 ms | Chromium journey |
@@ -323,3 +341,9 @@ causal-chain read under `runtime:world-inspect`. Observation alone shows an expl
 inspection denial. An authorized response displays the recorded command receipt
 identity and status; public Why remains available under `runtime:world-observe`.
 Closing or changing the panel cancels pending inspection work.
+
+The viewport browser proof in `tests/visual/golden-states.journey.browser.test.mjs` exercises
+960×540 DPR 1 and 390×844 DPR 3 profiles on both backends, each tier and live resize.
+It asserts backing/scene dimensions and accounted texture allocation. Phone emulation establishes
+correctness of the lower tier; recent-phone hardware cadence and GPU-complete timing still need
+maintainer qualification. Changed visual digests require the existing capture review workflow.

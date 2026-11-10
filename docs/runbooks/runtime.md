@@ -1499,15 +1499,14 @@ Reference calibration uses a confidence threshold of zero basis points, so any r
 can count as an answered pick. Missing confidence remains low-confidence. Reference accuracy counts
 answered picks, reports coverage separately, and is null when no case was answered.
 
-
 ## Remote MCP installation readiness
 
 Issue 164's [MCP foundation](../protocols/mcp.md) is an application-level transport and credential
 boundary with an isolated PostgreSQL secret adapter. It is not composed into the deployed Worker, and there is no installation endpoint or
 capabilities screen yet. Do not grant actor access by inserting remote names into internal grants.
 
-Before enabling the operator flow, integrate canonical Journal installation/review/binding events,
-forced scoped RLS and retention, the separate owner installation grant, trusted secret-provider composition,
+Before enabling the operator flow, compose the internal canonical installation/review service with
+binding events, trusted secret-provider ownership and lifetime,
 the actor capability revision hook and the operator browser journey. Verify Cloudflare egress
 behavior at that consumer; DNS preflight alone does not prove address pinning. A local fixture
 adapter must never become a production loopback switch.
@@ -1523,3 +1522,11 @@ in its installation scope, and operators must reconnect them. Never construct it
 allow a connection pool to reconnect behind it. Provisioning prerequisites and the isolated role
 are documented in the [database runbook](database.md#mcp-secret-provider-prerequisite). The
 PostgreSQL secret proof does not establish that the operator/runtime flow is ready.
+
+Part 3 supplies internal canonical installation governance under `runtime:mcp-install`, held
+by world owners by default. The PostgreSQL service records discovery, exact-schema review,
+refresh drift and terminal revocation with atomic attributed Journal events and scoped RLS.
+It does not perform the network request, connect an OAuth account, revoke a credential or
+notify actors. Those steps must be composed before exposing an installation endpoint.
+There is still no capabilities-screen procedure available to operators. Do not treat a
+reviewed database candidate as a callable actor grant.
