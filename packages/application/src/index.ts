@@ -23,6 +23,7 @@ export * from "./lifecycle-workflows.js";
 export * from "./logging.js";
 export * from "./mcp-credentials.js";
 export * from "./mcp-http.js";
+export * from "./mcp-installation-service.js";
 export * from "./mcp-installations.js";
 export * from "./mcp-network.js";
 export * from "./mcp-oauth-http.js";

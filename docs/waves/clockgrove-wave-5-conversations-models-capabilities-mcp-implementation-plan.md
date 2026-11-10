@@ -405,6 +405,14 @@ production installation composition or callable actor access. Authenticated HTTP
 dynamic registry versions, scoped bindings, revision invalidation and the browser journey
 remain required.
 
+Amended (2026-11-10, issue 164, part 4): an internal installation coordinator checks canonical
+installation authority before remote discovery and rechecks it at Journal commit. Refresh uses
+the stored endpoint and records per-tool drift through the existing governance service. Actual
+HTTP fixtures plus PostgreSQL prove this boundary; no deployed route, credential composition,
+registry entry or actor invocation is added. Production egress/provider ownership, full OAuth,
+scoped bindings and runtime invalidation remain part 5; the operator screen and complete
+runtime/browser/canary proof remain part 6. Every owner decision above remains required.
+
 ### 12.2 Execution
 
 1. resolve installation/binding/grant;
