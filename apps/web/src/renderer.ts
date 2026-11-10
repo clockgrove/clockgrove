@@ -130,10 +130,13 @@ export type RendererMeasurement =
     };
 export type RendererReport = (point: RendererMeasurement) => void;
 export type QualityTier = "low" | "medium" | "high";
-/** Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
+/** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
+ * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
   low: {
     renderScale: 0.5,
+    maxOutputPixels: 512_000,
+    textureBytes: 16 * 1024 * 1024,
     rain: 0,
     bloomScale: 0,
     bloomStrength: 0,
@@ -142,6 +145,8 @@ export const SCENE_QUALITY = {
   },
   medium: {
     renderScale: 1,
+    maxOutputPixels: 1_000_000,
+    textureBytes: 64 * 1024 * 1024,
     rain: 64,
     bloomScale: 0.5,
     bloomStrength: 0.08,
@@ -150,6 +155,8 @@ export const SCENE_QUALITY = {
   },
   high: {
     renderScale: 1,
+    maxOutputPixels: 3_000_000,
+    textureBytes: 192 * 1024 * 1024,
     rain: 192,
     bloomScale: 1,
     bloomStrength: 0.12,
@@ -254,6 +261,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
   private canvas: HTMLCanvasElement | undefined;
+  private resizeObserver: ResizeObserver | undefined;
+  private viewWidth = WIDTH;
+  private viewHeight = HEIGHT;
+  private outputWidth = WIDTH;
+  private outputHeight = HEIGHT;
+  private devicePixelRatio = 0;
+  private resourceTextureBytes = 0;
   /** One texture per reviewed page, filled only once every listed page has loaded and verified. */
   private atlasTextures: THREE.Texture<HTMLImageElement>[] = [];
   private composer: THREE.RenderPipeline | undefined;
@@ -436,6 +450,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.canvas = canvas;
       parent.appendChild(canvas);
       canvas.style.touchAction = "none";
+      canvas.style.display = "block";
+      canvas.style.width = "100%";
+      this.resizeObserver = new ResizeObserver(() => this.resizeViewport());
+      this.resizeObserver.observe(parent);
+      this.resizeViewport();
       canvas.addEventListener("webglcontextlost", this.lost);
       canvas.addEventListener("pointerdown", this.pointerdown);
       canvas.addEventListener("pointermove", this.pointermove);
@@ -659,6 +678,75 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.metrics.contentUpdateMs = performance.now() - started;
     }
   }
+  private resizeViewport(): void {
+    if (!this.renderer || !this.canvas || this.destroyed) return;
+    const style = getComputedStyle(this.parent);
+    const width = Math.max(
+      1,
+      this.parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) ||
+        WIDTH,
+    );
+    const height = Math.max(
+      1,
+      this.parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) ||
+        HEIGHT,
+    );
+    const quality = SCENE_QUALITY[this.tier];
+    // Three r187 targets: output 12 B/px, scene 12*scale², labels 8, bloom
+    // scale²*(8 + 16*(1 + 1/4 + ...)); use the infinite chain as an upper bound.
+    const bytesPerPixel = Math.ceil(
+      12 +
+        12 * quality.renderScale ** 2 +
+        (quality.renderScale < 1 ? 8 : 0) +
+        quality.bloomScale ** 2 * (8 + (16 * 4) / 3),
+    );
+    // BloomNode floors five mip levels: its base needs 16 pixels per axis.
+    const minSide = quality.bloomScale > 0 ? 16 / quality.bloomScale : 2;
+    const pixelBudget = Math.max(
+      minSide ** 2,
+      Math.min(
+        quality.maxOutputPixels,
+        Math.floor((quality.textureBytes - this.resourceTextureBytes) / bytesPerPixel),
+      ),
+    );
+    const dpr = globalThis.devicePixelRatio || 1;
+    const scale = Math.min(dpr, Math.sqrt(pixelBudget / (width * height)));
+    // Keep the low scene target and every bloom mip at least 1×1.
+    // Clamp area and each axis; 4096 is the renderer's existing target capability floor.
+    const outputWidth = Math.max(
+      minSide,
+      Math.min(4096, Math.floor(width * scale), Math.floor(pixelBudget / minSide)),
+    );
+    const outputHeight = Math.max(
+      minSide,
+      Math.min(4096, Math.floor(height * scale), Math.floor(pixelBudget / outputWidth)),
+    );
+    this.devicePixelRatio = dpr;
+    // Contain the original view at every host aspect without distorting isometric proportions.
+    const viewWidth = Math.max(WIDTH, (HEIGHT * width) / height);
+    const viewHeight = Math.max(HEIGHT, (WIDTH * height) / width);
+    if (viewWidth !== this.viewWidth || viewHeight !== this.viewHeight) {
+      this.viewWidth = viewWidth;
+      this.viewHeight = viewHeight;
+      this.camera.left = -viewWidth / 2;
+      this.camera.right = viewWidth / 2;
+      this.camera.top = viewHeight / 2;
+      this.camera.bottom = -viewHeight / 2;
+      this.frameCamera(
+        [...this.drawn.values()].map(({ visual }) => visual.placement),
+        false,
+      );
+    }
+    // Explicit CSS height keeps an auto-height host from growing with its backing buffer.
+    this.canvas.style.height = `${height}px`;
+    if (outputWidth === this.outputWidth && outputHeight === this.outputHeight) return;
+    this.outputWidth = outputWidth;
+    this.outputHeight = outputHeight;
+    this.renderer.setSize(outputWidth, outputHeight, false);
+    this.refreshBounds();
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
   private refreshBounds(): void {
     this.rect = this.canvas?.getBoundingClientRect();
   }
@@ -666,8 +754,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const rect = this.rect;
     return rect?.width && rect.height
       ? [
-          ((event.clientX - rect.left) * WIDTH) / rect.width,
-          ((event.clientY - rect.top) * HEIGHT) / rect.height,
+          ((event.clientX - rect.left) * this.viewWidth) / rect.width,
+          ((event.clientY - rect.top) * this.viewHeight) / rect.height,
         ]
       : [0, 0];
   }
@@ -896,8 +984,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const x = drawn.body.position.x,
         y = -drawn.body.position.y;
       if (
-        Math.abs(x - this.camera.position.x) > WIDTH / (2 * this.camera.zoom) ||
-        Math.abs(y + this.camera.position.y) > HEIGHT / (2 * this.camera.zoom)
+        Math.abs(x - this.camera.position.x) > this.viewWidth / (2 * this.camera.zoom) ||
+        Math.abs(y + this.camera.position.y) > this.viewHeight / (2 * this.camera.zoom)
       ) {
         if (this.reducedMotion) this.setCamera({ x, y, zoom: this.camera.zoom });
         else
@@ -935,11 +1023,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    this.resizeViewport();
     this.applyMaterialTier();
     this.disposePost();
     const quality = SCENE_QUALITY[tier];
     this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
-    // Low tier shades one quarter of the fragments, then composites to the unchanged logical canvas.
+    // Low tier shades one quarter of the output fragments; logical camera coordinates stay fixed.
     this.scenePass.setResolutionScale(quality.renderScale);
     const color = this.scenePass.getTextureNode("output");
     if (quality.bloomScale > 0) {
@@ -1035,8 +1124,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setCamera({ x, y, zoom }: { x: number; y: number; zoom: number }): void {
     if (!this.camera) return;
     zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, zoom));
-    const halfX = WIDTH / (2 * zoom),
-      halfY = HEIGHT / (2 * zoom);
+    const halfX = this.viewWidth / (2 * zoom),
+      halfY = this.viewHeight / (2 * zoom);
     x = Math.max(this.bounds.x + halfX, Math.min(this.bounds.x + this.bounds.width - halfX, x));
     y = Math.max(this.bounds.y + halfY, Math.min(this.bounds.y + this.bounds.height - halfY, y));
     this.camera.position.set(x, -y, 1000);
@@ -1045,7 +1134,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.camera.updateMatrixWorld();
     this.dirty = true;
   }
-  private frameCamera(placements: readonly ScenePlacement[]): void {
+  private frameCamera(placements: readonly ScenePlacement[], reset = true): void {
     const points = placements.map(iso),
       xs = points.map(([x]) => x),
       ys = points.map(([, y]) => y);
@@ -1054,14 +1143,24 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       : [0, 0, 0, 0];
     const cx = ((minX ?? 0) + (maxX ?? 0)) / 2,
       cy = ((minY ?? 0) + (maxY ?? 0)) / 2;
-    const width = Math.max((maxX ?? 0) - (minX ?? 0) + 2 * PAN_MARGIN_PX, WIDTH / ZOOM.min);
-    const height = Math.max((maxY ?? 0) - (minY ?? 0) + 2 * PAN_MARGIN_PX, HEIGHT / ZOOM.min);
+    const width = Math.max(
+      (maxX ?? 0) - (minX ?? 0) + 2 * PAN_MARGIN_PX,
+      this.viewWidth / ZOOM.min,
+    );
+    const height = Math.max(
+      (maxY ?? 0) - (minY ?? 0) + 2 * PAN_MARGIN_PX,
+      this.viewHeight / ZOOM.min,
+    );
     this.bounds = { x: cx - width / 2, y: cy - height / 2, width, height };
-    this.setCamera({ x: cx, y: cy, zoom: 1 });
+    this.setCamera(
+      reset
+        ? { x: cx, y: cy, zoom: 1 }
+        : { x: this.camera.position.x, y: -this.camera.position.y, zoom: this.camera.zoom },
+    );
   }
   private candidates(x: number, y: number, touch: boolean): ObjectId[] {
-    const wx = this.camera.position.x + (x - WIDTH / 2) / this.camera.zoom;
-    const wy = -this.camera.position.y + (y - HEIGHT / 2) / this.camera.zoom;
+    const wx = this.camera.position.x + (x - this.viewWidth / 2) / this.camera.zoom;
+    const wy = -this.camera.position.y + (y - this.viewHeight / 2) / this.camera.zoom;
     const radius = (touch ? PICK_PX.touch : PICK_PX.mouse) / this.camera.zoom;
     return this.order.filter((id) => {
       const drawn = this.drawn.get(id);
@@ -1705,8 +1804,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     if (this.rain?.visible && SCENE_QUALITY[this.tier].rain > 0) {
       const array = this.rain.geometry.getAttribute("position").array as Float32Array;
-      const width = WIDTH / this.camera.zoom,
-        height = HEIGHT / this.camera.zoom;
+      const width = this.viewWidth / this.camera.zoom,
+        height = this.viewHeight / this.camera.zoom;
       for (let i = 0; i < array.length / 6; i++) {
         const x = this.camera.position.x + (((i * 73.17) % width) - width / 2);
         const y = this.camera.position.y + height / 2 - ((i * 41.71 + t * 0.2) % height);
@@ -1754,6 +1853,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
+    if (this.devicePixelRatio !== (globalThis.devicePixelRatio || 1)) this.resizeViewport();
     if (!this.initialized || (ATLASES && this.atlasTextures.length === 0) || !this.projection)
       return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
@@ -1875,19 +1975,29 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       else bytes += size;
     }
     this.metrics.atlasTextureBytes = atlasBytes;
+    const changed = this.resourceTextureBytes !== bytes;
+    this.resourceTextureBytes = bytes;
+    // Largest minimum target is medium's 32² pixels; 54 B/px bounds all tier targets.
+    if (this.content && bytes + 55_296 > SCENE_QUALITY[this.tier].textureBytes) {
+      this.failContent("content_contract");
+      return;
+    }
+    if (changed) this.resizeViewport();
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.
-    bytes += WIDTH * HEIGHT * 12;
+    bytes += this.outputWidth * this.outputHeight * 12;
     const quality = SCENE_QUALITY[this.tier];
     bytes +=
-      Math.floor(WIDTH * quality.renderScale) * Math.floor(HEIGHT * quality.renderScale) * 12;
+      Math.floor(this.outputWidth * quality.renderScale) *
+      Math.floor(this.outputHeight * quality.renderScale) *
+      12;
     // A reduced tier's full-resolution label pass: one RGBA16F target without depth.
-    if (this.labelPass) bytes += WIDTH * HEIGHT * 8;
+    if (this.labelPass) bytes += this.outputWidth * this.outputHeight * 8;
     const scale = quality.bloomScale;
     if (scale > 0) {
       // BloomNode has a bright target and two five-level RGBA16F chains, starting at bloomScale.
-      let width = Math.floor(WIDTH * scale),
-        height = Math.floor(HEIGHT * scale);
+      let width = Math.floor(this.outputWidth * scale),
+        height = Math.floor(this.outputHeight * scale);
       bytes += width * height * 8;
       for (let level = 0; level < 5; level++) {
         bytes += width * height * 16;
@@ -1900,6 +2010,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.resizeObserver?.disconnect();
     this.restoreContentErrors?.();
     this.restoreContentErrors = undefined;
     this.contentAbort.abort();

@@ -903,14 +903,16 @@ const observeHall = async (backend) => {
           await route.continue();
         });
         const worldPoint = (objectId) => isoPoint(first, objectId);
-        const canvasPoint = (objectId) => {
+        const canvasPoint = async (objectId) => {
           const [{ x, y }, [cx, cy]] = [worldPoint(objectId), isoCentre(first)];
-          return { x: x - cx + 320, y: y - cy + 200 };
+          const { width, height } = await page.locator("canvas").boundingBox();
+          const scale = Math.min(width / 640, height / 400);
+          return { x: (x - cx) * scale + width / 2, y: (y - cy) * scale + height / 2 };
         };
         const pickedEntity = first.entities.find(
           (entity) => entity.objectId === "fixture.water-bowl",
         );
-        const pointerPosition = canvasPoint("fixture.water-bowl");
+        const pointerPosition = await canvasPoint("fixture.water-bowl");
         const water = worldPoint("fixture.water-bowl");
         // Only the selected entity gets a glowing sage ring at its feet and its name centred in a dark
         // pill (10 px side and 4 px top and bottom padding) whose bottom edge sits 6 px above its
@@ -1398,14 +1400,19 @@ const observeHall = async (backend) => {
             ).toBe("rgb(30, 33, 22)");
             await feed.getByRole("button", { name: "Collapse event feed", exact: true }).click();
             // The window, not an inner container, scrolls the canvas; picking survives the scroll.
-            const far = first.entities
-              .map((entity) => ({ objectId: entity.objectId, ...canvasPoint(entity.objectId) }))
-              .sort((a, b) => b.x - a.x)[0];
+            const far = (
+              await Promise.all(
+                first.entities.map(async (entity) => ({
+                  objectId: entity.objectId,
+                  ...(await canvasPoint(entity.objectId)),
+                })),
+              )
+            ).sort((a, b) => b.x - a.x)[0];
             const scrolled = await page.evaluate(
               ([x, y]) => {
                 const canvas = document.querySelector("canvas").getBoundingClientRect();
                 scrollTo(canvas.left + x - innerWidth / 2, canvas.top + y - innerHeight / 3);
-                return scrollX;
+                return scrollY;
               },
               [far.x, far.y],
             );
@@ -1541,7 +1548,7 @@ const observeHall = async (backend) => {
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         // Pointer and keyboard must expose identical ordered action rows through this panel.
         await scene.getByRole("button", { name: "fixture.cedar", exact: true }).click();
-        await page.locator("canvas").click({ position: pointerPosition });
+        await page.locator("canvas").click({ position: await canvasPoint("fixture.water-bowl") });
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         await scene.getByRole("button", { name: "fixture.cedar", exact: true }).click();
         await scene
@@ -2392,6 +2399,7 @@ const observeHall = async (backend) => {
                 .sort(([, a], [, b]) => b.body.renderOrder - a.body.renderOrder)
                 .map(([objectId]) => objectId),
               camera: [camera.rotation.z, camera.zoom],
+              viewport: [adapter.canvas.clientWidth, adapter.canvas.clientHeight],
               bounds: [
                 bounds.x + bounds.width / 2,
                 bounds.y + bounds.height / 2,
@@ -2431,8 +2439,14 @@ const observeHall = async (backend) => {
           [0, 1],
           [
             ...isoCentre(golden),
-            Math.max(extent(points.map(({ x }) => x)) + 320, 640 / 0.75),
-            Math.max(extent(points.map(({ y }) => y)) + 320, 400 / 0.75),
+            Math.max(
+              extent(points.map(({ x }) => x)) + 320,
+              Math.max(640, (400 * state.viewport[0]) / state.viewport[1]) / 0.75,
+            ),
+            Math.max(
+              extent(points.map(({ y }) => y)) + 320,
+              Math.max(400, (640 * state.viewport[1]) / state.viewport[0]) / 0.75,
+            ),
           ],
           true,
           [timeOfDay < 21_600_000 || timeOfDay >= 64_800_000, true],
@@ -2524,7 +2538,7 @@ const observeHall = async (backend) => {
           });
         await mouse.locator("canvas").scrollIntoViewIfNeeded();
         const canvasBox = await mouse.locator("canvas").boundingBox();
-        const middle = [canvasBox.x + 320, canvasBox.y + 200];
+        const middle = [canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2];
         await mouse.mouse.move(...middle);
         for (const [delta, zoom] of [
           [-100, 2],
@@ -2564,7 +2578,11 @@ const observeHall = async (backend) => {
           .getByRole("listitem")
           .getByRole("button", { pressed: true });
         for (const objectId of [...tapped, tapped[0]]) {
-          await hall.touchscreen.tap(touchBox.x + den.x - cx + 320, touchBox.y + den.y - cy + 200);
+          const scale = Math.min(touchBox.width / 640, touchBox.height / 400);
+          await hall.touchscreen.tap(
+            touchBox.x + touchBox.width / 2 + (den.x - cx) * scale,
+            touchBox.y + touchBox.height / 2 + (den.y - cy) * scale,
+          );
           await expect.poll(() => pressed.textContent()).toBe(objectId);
         }
         // Reduced motion snaps a short committed move, and a cue draws once per dedupe key.
