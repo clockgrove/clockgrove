@@ -466,8 +466,6 @@ async function runDeployment() {
         return owned;
       };
       const inventory = await readInventory(1);
-      // Plan review judges a retired role's deletion by the state this deploy started from.
-      const startingState = new Set(inventory.map((resource) => resource.address));
       const preserveBindings = inventory.some(
         (resource) => resource.address === "cloudflare_hyperdrive_config.world[0]",
       );
@@ -486,7 +484,7 @@ async function runDeployment() {
             `-var=preserve_bindings=${preserveBindings}`,
             `-var=preserve_public_activation=${preservePublic}`,
           ],
-          review: (proposed) => verifyPlan(proposed, config, stage, preservePublic, startingState),
+          review: (proposed) => verifyPlan(proposed, config, stage, preservePublic),
           ...options,
         });
         // Only a passed apply is backed up.

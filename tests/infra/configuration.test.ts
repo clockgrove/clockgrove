@@ -39,6 +39,7 @@ import {
   restrictedRoleKeys,
   roleCheckFailures,
 } from "../../scripts/database/deployment-roles.mjs";
+import { restore } from "../../scripts/infra-state.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -174,31 +175,20 @@ describe("restricted database roles", () => {
     }
   });
 
-  it("accepts deleting a retired API role once, at provision, and no other deletion, replacement or forget", async () => {
+  it("accepts deleting a retired API role at provision, partial migration included, and no other deletion, replacement or forget", async () => {
     const config = await readJson(root, "infra/environments/staging.json");
-    const plan = (
-      address: string,
-      actions: string[],
-      action_reason?: string,
-      prior: string[] = [],
-    ) => ({
-      prior_state: {
-        values: { root_module: { resources: prior.map((held) => ({ address: held })) } },
-      },
-      resource_changes: [{ address, action_reason, change: { actions } }],
-    });
     const review =
-      (
-        address: string,
-        actions: string[],
-        action_reason?: string,
-        stage = "provision",
-        prior: string[] = [],
-      ) =>
+      (address: string, actions: string[], action_reason?: string, stage = "provision") =>
       () =>
-        verifyPlan(plan(address, actions, action_reason, prior), config, stage, false);
+        verifyPlan(
+          { resource_changes: [{ address, action_reason, change: { actions } }] },
+          config,
+          stage,
+          false,
+        );
     const runtime = 'neon_role.database["runtime"]';
-    const once = /retired neon_role\.database\["runtime"\] may only be deleted once/u;
+    const retired =
+      /retired neon_role\.database\["runtime"\] may only be deleted, in the provision stage/u;
     expect(review(runtime, ["delete"], "delete_because_each_key")).not.toThrow();
     for (const [actions, reason] of [
       [["delete"], undefined],
@@ -206,22 +196,29 @@ describe("restricted database roles", () => {
       [["create"], undefined],
       [["no-op"], undefined],
     ] as const)
-      expect(review(runtime, [...actions], reason)).toThrow(once);
-    // Only in the provision stage.
+      expect(review(runtime, [...actions], reason)).toThrow(retired);
     for (const stage of ["bindings", "routing"])
-      expect(review(runtime, ["delete"], "delete_because_each_key", stage)).toThrow(once);
-    // Never once state holds that key's generated password, as a state restored over a migrated
-    // environment could; another key's password does not block it.
-    const password = (key: string) => [`random_password.database["${key}"]`];
-    expect(
-      review(runtime, ["delete"], "delete_because_each_key", "provision", password("runtime")),
-    ).toThrow(once);
-    expect(
-      review(runtime, ["delete"], "delete_because_each_key", "provision", password("support")),
-    ).not.toThrow();
-    // A provision retry is judged by the state the deploy started from.
-    const retry = plan(runtime, ["delete"], "delete_because_each_key", password("runtime"));
-    expect(() => verifyPlan(retry, config, "provision", false, new Set([runtime]))).not.toThrow();
+      expect(review(runtime, ["delete"], "delete_because_each_key", stage)).toThrow(retired);
+    // A run that ended mid-migration left both the API role and its generated password in state:
+    // the next provision completes the deletion.
+    const partial = {
+      prior_state: {
+        values: {
+          root_module: {
+            resources: [{ address: runtime }, { address: 'random_password.database["runtime"]' }],
+          },
+        },
+      },
+      resource_changes: [
+        {
+          address: runtime,
+          action_reason: "delete_because_each_key",
+          change: { actions: ["delete"] },
+        },
+        { address: 'random_password.database["runtime"]', change: { actions: ["no-op"] } },
+      ],
+    };
+    expect(() => verifyPlan(partial, config, "provision", false)).not.toThrow();
     expect(
       review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key"),
     ).toThrow(/destructive infrastructure plan refused/u);
@@ -231,21 +228,68 @@ describe("restricted database roles", () => {
     expect(review('random_password.database["support"]', ["create"])).not.toThrow();
   });
 
-  it("refuses to restore a pre-migration state over a migrated one", () => {
+  it("refuses to restore a pre-migration backup into a migrated environment, its state present or lost", async () => {
     const state = (type: string, keys: string[]) =>
       JSON.stringify({
         resources: [
           { type, name: "database", instances: keys.map((index_key) => ({ index_key })) },
         ],
       });
-    const migrated = state("random_password", ["runtime", "support"]);
-    expect(restoresRetiredRoles(migrated, state("neon_role", ["migrations", "runtime"]))).toBe(
-      true,
-    );
-    expect(restoresRetiredRoles(migrated, state("neon_role", ["migrations"]))).toBe(false);
-    expect(
-      restoresRetiredRoles(state("neon_role", ["runtime"]), state("neon_role", ["runtime"])),
-    ).toBe(false);
+    const pre = state("neon_role", ["migrations", "runtime"]);
+    const post = state("random_password", ["runtime", "support"]);
+    expect(restoresRetiredRoles([post], pre)).toBe(true);
+    expect(restoresRetiredRoles([post], state("neon_role", ["migrations"]))).toBe(false);
+    expect(restoresRetiredRoles([pre], pre)).toBe(false);
+    // An in-memory state bucket with the given objects.
+    const bucket = (objects: Record<string, string>) => {
+      const held = new Map(Object.entries(objects));
+      return {
+        bucket: "clockgrove-staging-state",
+        held,
+        get: async (key: string) => held.get(key) ?? null,
+        read: async (key: string) => (held.has(key) ? { body: held.get(key), etag: "e" } : null),
+        create: async (key: string, body: string) => {
+          if (held.has(key)) throw new Error("exists");
+          held.set(key, body);
+        },
+        replace: async (key: string, body: string) => {
+          held.set(key, body);
+        },
+        delete: async (key: string) => {
+          held.delete(key);
+        },
+        list: async (prefix: string) =>
+          [...held.keys()].filter((key) => key.startsWith(prefix)).sort(),
+      };
+    };
+    const backup = (name: string) => `staging/backups/${name}.tfstate`;
+    const backups = {
+      [backup("2026-11-09T10-00-00-000Z-provision-pre")]: pre,
+      [backup("2026-11-10T10-00-00-000Z-provision-post")]: post,
+    };
+    const refusal = /predates the SQL-created database roles/u;
+    // Lost state: the newer backup shows the environment migrated.
+    const lost = bucket(backups);
+    await expect(
+      restore(lost, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre")),
+    ).rejects.toThrow(refusal);
+    expect(lost.held.has("staging/terraform.tfstate")).toBe(false);
+    expect(lost.held.has("staging/terraform.tfstate.tflock")).toBe(false);
+    await expect(
+      restore(lost, "staging", backup("2026-11-10T10-00-00-000Z-provision-post")),
+    ).resolves.toMatch(/^restored/u);
+    // Present state that holds the passwords.
+    const present = bucket({ ...backups, "staging/terraform.tfstate": post });
+    await expect(
+      restore(present, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre"), {
+        replace: true,
+      }),
+    ).rejects.toThrow(refusal);
+    // An environment that never migrated restores its own backups.
+    const never = bucket({ [backup("2026-11-09T10-00-00-000Z-provision-pre")]: pre });
+    await expect(
+      restore(never, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre")),
+    ).resolves.toMatch(/^restored/u);
   });
 
   it("hands psql only letter-and-digit passwords, on standard input, and reports checks by name", async () => {

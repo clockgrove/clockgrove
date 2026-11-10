@@ -48,25 +48,41 @@ SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHE
 -- Sets one role's login, password and attributes. The password arrives as a bound parameter and
 -- the ALTER runs inside this function, so neither the statement text that pg_stat_statements
 -- stores nor a failed statement the server logs carries it, and a refusal (such as a password
--- policy) raises only the role name and SQLSTATE. NOREPLICATION and NOBYPASSRLS are named only to
--- undo drift, since changing them needs the attribute itself; the postconditions check both.
+-- policy) raises only the role name and SQLSTATE. CREATEDB, REPLICATION and BYPASSRLS are cleared
+-- only to undo drift: clearing one needs the attribute itself, so drift the migration role cannot
+-- clear is refused by name. The postconditions check all three.
 CREATE FUNCTION pg_temp.set_password(target text, secret text) RETURNS void
 LANGUAGE plpgsql AS $set_password$
 DECLARE
   existing pg_roles%ROWTYPE;
+  caller pg_roles%ROWTYPE;
 BEGIN
   SELECT * INTO existing FROM pg_roles WHERE rolname = target;
-  EXECUTE format(
-    'ALTER ROLE %I %s NOCREATEROLE NOINHERIT%s%s%s PASSWORD %L',
-    target,
-    CASE WHEN secret IS NULL THEN 'NOLOGIN' ELSE 'LOGIN' END,
-    CASE WHEN existing.rolcreatedb THEN ' NOCREATEDB' ELSE '' END,
-    CASE WHEN existing.rolreplication THEN ' NOREPLICATION' ELSE '' END,
-    CASE WHEN existing.rolbypassrls THEN ' NOBYPASSRLS' ELSE '' END,
-    secret
-  );
-EXCEPTION WHEN OTHERS THEN
-  RAISE EXCEPTION 'clockgrove role check: % password not set (%)', target, SQLSTATE;
+  SELECT * INTO caller FROM pg_roles WHERE rolname = current_user;
+  IF NOT caller.rolsuper THEN
+    IF existing.rolcreatedb AND NOT caller.rolcreatedb THEN
+      RAISE EXCEPTION 'clockgrove role check: % has CREATEDB, which % cannot clear', target, current_user;
+    END IF;
+    IF existing.rolreplication AND NOT caller.rolreplication THEN
+      RAISE EXCEPTION 'clockgrove role check: % has REPLICATION, which % cannot clear', target, current_user;
+    END IF;
+    IF existing.rolbypassrls AND NOT caller.rolbypassrls THEN
+      RAISE EXCEPTION 'clockgrove role check: % has BYPASSRLS, which % cannot clear', target, current_user;
+    END IF;
+  END IF;
+  BEGIN
+    EXECUTE format(
+      'ALTER ROLE %I %s NOCREATEROLE NOINHERIT%s%s%s PASSWORD %L',
+      target,
+      CASE WHEN secret IS NULL THEN 'NOLOGIN' ELSE 'LOGIN' END,
+      CASE WHEN existing.rolcreatedb THEN ' NOCREATEDB' ELSE '' END,
+      CASE WHEN existing.rolreplication THEN ' NOREPLICATION' ELSE '' END,
+      CASE WHEN existing.rolbypassrls THEN ' NOBYPASSRLS' ELSE '' END,
+      secret
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'clockgrove role check: % password not set (%)', target, SQLSTATE;
+  END;
 END;
 $set_password$;
 

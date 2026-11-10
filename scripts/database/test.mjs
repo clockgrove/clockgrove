@@ -74,6 +74,13 @@ await withDisposableDatabase(
     // A re-run undoes attribute drift.
     await psql(tools, environment, "ALTER ROLE clockgrove_backup CREATEDB BYPASSRLS;");
     assertStrict.equal(await provision(), "passed", "a re-run normalizes drifted attributes");
+    // Drift the migration role cannot clear (it holds no REPLICATION) is refused by name.
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup REPLICATION;");
+    assertStrict.equal(
+      await provision(),
+      "clockgrove_backup has REPLICATION, which clockgrove_migrator cannot clear",
+    );
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup NOREPLICATION;");
     // A password the server's policy refuses (passwordcheck wants a non-letter) fails by role name.
     passwords.support = generated(true);
     assertStrict.equal(await provision(), "clockgrove_support password not set (22023)");
@@ -141,6 +148,24 @@ await withDisposableDatabase(
         !statements.includes(password) && !serverLog.includes(password),
         "a generated password reached pg_stat_statements or the server log",
       );
+    // Negative control: a password in top-level statement text, as a plain ALTER ROLE sends it,
+    // is found in both, and a failed one in the log.
+    const [stored, refused] = [randomBytes(24).toString("hex"), randomBytes(24).toString("hex")];
+    await psql(tools, environment, `ALTER ROLE clockgrove_backup PASSWORD '${stored}';`);
+    await assertStrict.rejects(
+      psql(tools, environment, `ALTER ROLE clockgrove_absent PASSWORD '${refused}';`),
+    );
+    const controlStatements = await psqlQuery(
+      tools,
+      environment,
+      "SELECT query FROM pg_stat_statements",
+    );
+    const controlLog = await readFile(path.join(temporaryRoot, "postgres.log"), "utf8");
+    assertStrict.ok(
+      controlStatements.includes(stored),
+      "control: pg_stat_statements kept the text",
+    );
+    assertStrict.ok(controlLog.includes(stored) && controlLog.includes(refused), "control: logged");
   },
   {
     settings: [

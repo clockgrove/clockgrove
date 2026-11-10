@@ -240,9 +240,15 @@ statement text carries a password: not the arguments, the environment, logs or e
 not the server log, which records a failed statement's text (`log_min_error_statement`) but not its
 parameters. A refused password, such as one Neon's password policy rejects, raises only the role
 name and SQLSTATE. `pnpm run test:db` proves this with `pg_stat_statements` and `passwordcheck`
-preloaded and DDL and failed-statement logging on. One case remains: a server that logs every
-statement with its parameters (`log_statement = all`) records any password set over SQL, as
-PostgreSQL documents for `ALTER ROLE`; Neon's default does not.
+preloaded and DDL and failed-statement logging on, and its negative control finds a password sent
+as plain `ALTER ROLE` text in both. Three server settings still expose any password set over SQL,
+as PostgreSQL documents for `ALTER ROLE`, and none is Neon's default:
+
+- `log_statement = all` logs every statement with its bind parameters;
+- `log_min_duration_statement = 0` (or any threshold the call exceeds) logs the statement with its
+  bind parameters, since `log_parameter_max_length` defaults to -1 (unlimited);
+- `pg_stat_statements.track = all` also records statements run inside functions, so it stores the
+  inner `ALTER ROLE … PASSWORD` text verbatim.
 
 A failed check prints as `reviewed database-role grants failed; clockgrove_support is a member of
 neon_superuser; other sensitive command output withheld`. Re-running the SQL with the same state
@@ -264,14 +270,24 @@ retired (`retiredResources` in
 [`deployment-authority.mjs`](../../scripts/ci/deployment-authority.mjs)): the configuration no
 longer declares them, so the next provision plan deletes each through the Neon API
 (`delete_because_each_key`), which is how Neon's control plane forgets an API role. Plan review
-accepts that deletion once: only in the provision stage, only for those addresses, and only when the
-state the deploy started from holds no `random_password.database["<key>"]` for that key. A provision
-retry after a partial apply is judged by that same starting state. Every other deletion,
-replacement or forget is refused, and `pnpm infra:plan`, which reviews as the routing stage, refuses a
-state that still holds them. `pnpm infra:state restore --replace` refuses a backup holding a retired
-role over a state that holds that key's generated password, since a deploy from it would delete the
-live SQL-created role. If Neon refuses a deletion (a retired role that owns objects), the provision
-apply fails with the provider's message: reassign or drop what it owns and deploy again.
+accepts exactly that deletion, of only those addresses, only in the provision stage. Every other
+deletion, replacement or forget is refused, and `pnpm infra:plan`, which reviews as the routing
+stage, refuses a state that still holds a retired role.
+
+The deletion happens once because nothing puts a retired address back in state: the configuration
+cannot create one, and `pnpm infra:state restore` refuses a backup holding a retired role when the
+current state or any other backup holds that key's generated password, whether the state object is
+present or lost, since a deploy from it would delete the live SQL-created role. A migration that
+stopped part way (the generated password created but the deletion not applied: a failed or
+timed-out apply, exhausted retries, a cancelled runner) leaves both in state; the next deploy plans
+the remaining deletions and completes it.
+
+If Neon refuses a deletion (a retired role that owns objects), the provision apply fails with the
+provider's message: reassign or drop what it owns and deploy again. If a retired role is gone from
+Neon but still in state (deleted in the Console, say), every plan fails at refresh, since the Neon
+provider errors on a missing role. Recover by hand: take the state lock and a backup
+(`pnpm infra:state backups <environment>`), `tofu state rm 'neon_role.database["<key>"]'` for each
+such role in a workspace on the environment's R2 state, release the lock and deploy again.
 
 Only an environment with no Hyperdrive configuration in state can migrate this way. Hyperdrive's
 origin password now comes from the generated runtime password, so a provision plan over an existing

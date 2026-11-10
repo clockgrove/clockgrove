@@ -127,16 +127,17 @@ export function retiredResources() {
   return new Set(restrictedRoleKeys.map((key) => `neon_role.database["${key}"]`));
 }
 
-// Whether restoring `backup` over `current` (raw OpenTofu state files) would bring back a retired
-// Neon API role over an environment whose roles are already created with SQL: the backup holds a
-// retired instance and the current state a generated password. Plan review accepts a retired
-// deletion from such a state, which would then drop the live role of that name.
-export function restoresRetiredRoles(current, backup) {
+// Whether restoring `backup` (a raw OpenTofu state file) could bring back a retired Neon API role in
+// an environment whose roles are already created with SQL: the backup holds a retired instance
+// and one of `others` (the current state and the other backups) holds that key's generated
+// password, so the environment has been migrated. A provision plan from such a state would delete
+// the live role of that name.
+export function restoresRetiredRoles(others, backup) {
   const instances = (state, type) =>
     (JSON.parse(String(state)).resources ?? [])
       .filter((resource) => resource.type === type && resource.name === "database")
       .flatMap((resource) => resource.instances.map((instance) => instance.index_key));
-  const migrated = new Set(instances(current, "random_password"));
+  const migrated = new Set(others.flatMap((state) => instances(state, "random_password")));
   return instances(backup, "neon_role").some((key) => migrated.has(key));
 }
 
@@ -145,33 +146,19 @@ export function persistedAddresses(config) {
   return new Set([...resourceAddresses(config), ...retiredResources()]);
 }
 
-// The one deletion a plan may carry, once: a retired resource deleted only because the
-// configuration dropped its key, in the provision stage, from a starting state that holds no
-// generated password for that key yet. A state that already holds one has been through the
-// migration, so the role of that name is now created with SQL and is never deleted here. Any other
-// deletion, including a replacement, is refused.
-const retiredDeletion = (change, stage, started) =>
+// The one deletion a plan may carry: a retired resource deleted only because the configuration
+// dropped its key, in the provision stage. State holds a retired address only until that deletion
+// applies; the configuration cannot create one again, and `pnpm infra:state restore` refuses a
+// backup that would bring one back to a migrated environment. A partial migration (the generated
+// password created, the deletion not) completes on the next deploy. Any other deletion, including
+// a replacement, is refused.
+const retiredDeletion = (change, stage) =>
   stage === "provision" &&
   change.change.actions.length === 1 &&
   change.change.actions[0] === "delete" &&
-  change.action_reason === "delete_because_each_key" &&
-  !started.has(change.address.replace(/^neon_role\./u, "random_password."));
+  change.action_reason === "delete_because_each_key";
 
-// The addresses a plan's prior state holds.
-function priorAddresses(plan) {
-  const found = new Set();
-  const walk = (module) => {
-    for (const resource of module?.resources ?? []) found.add(resource.address);
-    for (const child of module?.child_modules ?? []) walk(child);
-  };
-  walk(plan.prior_state?.values?.root_module);
-  return found;
-}
-
-// `started` lists the addresses state held when the deploy began, so a provision retry after a
-// partial migration apply is judged by the same state as its first attempt; without it, the
-// plan's prior state is used.
-export function verifyPlan(plan, config, stage, preservePublic, started = priorAddresses(plan)) {
+export function verifyPlan(plan, config, stage, preservePublic) {
   const allowed = persistedAddresses(config);
   const changes = plan.resource_changes ?? [];
   assert(changes.length <= allowed.size, "infrastructure resource bound exceeded");
@@ -179,8 +166,8 @@ export function verifyPlan(plan, config, stage, preservePublic, started = priorA
     assert(allowed.has(change.address), "undeclared infrastructure resource");
     if (retiredResources().has(change.address)) {
       assert(
-        retiredDeletion(change, stage, started),
-        `retired ${change.address} may only be deleted once, in the provision stage, before its generated password exists`,
+        retiredDeletion(change, stage),
+        `retired ${change.address} may only be deleted, in the provision stage`,
       );
       continue;
     }
