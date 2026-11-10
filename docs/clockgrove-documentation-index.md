@@ -35,6 +35,19 @@ An Objective for this repository follows the Clockgrove product/runtime hierarch
 
 ---
 
+## Closed-world resource decision
+
+Kirk's recorded decision of 2026-11-09 (issue 187) requires a closed world for **all resources**,
+food and water alike: water in a bowl must come from rain or someone filling it. Resource increases
+must have journaled platform causes: weather collection, plant yield, character commands or
+explicitly declared world processes. Off-screen people are allowed only as declared processes
+acting through ordinary validated commands. Scheduled ecology sources are being replaced in
+sequential parts of issue 187; journal accounting and optional plant-stage yield are available,
+while weather collection, processes and fixture migration remain pending. The
+[kernel ecology contract](../packages/kernel/docs/ecology.md) records implemented behavior.
+
+---
+
 ## 3. Recommended reading order
 
 For product/runtime work:
