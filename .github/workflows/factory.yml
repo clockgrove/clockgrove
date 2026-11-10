@@ -58,7 +58,6 @@ jobs:
     # a sandbox the gate job takes those events and ticks this job itself).
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-tick') ||
       (github.event_name == 'issues' && (github.event.label.name == 'factory:objective' || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'factory:objective')))) ||
       (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'factory/')) ||
       (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository)
@@ -66,16 +65,21 @@ jobs:
       (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'factory/') && github.event.workflow_run.head_repository.full_name == github.repository)
     concurrency: { group: factory-dispatch, cancel-in-progress: false } # ticks run one at a time
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # a tick takes seconds; a hung one would hold every later tick for the runner's six hours
     outputs: { issues: "${{ steps.f.outputs.issues }}", count: "${{ steps.f.outputs.count }}", queue_watch: "${{ steps.f.outputs.queue_watch }}" }
     steps:
-      - uses: clockgrove/factory@v0.7.124
+      - uses: clockgrove/factory@v0.9.0
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   queue-watch:
-    # A PR the merge pass left in the merge queue with no check run on its queue commit yet: this job reads that commit
-    # every 30 s and exits once a check starts, which is within a minute on a healthy queue. A commit that starts none
-    # in 10 minutes ticks the dispatcher, whose merge pass takes the PR out and puts it back once, then Blocks, rather
-    # than waiting out the ruleset's check timeout or GitHub's cron. One watch runs at a time; a newer one waits.
+    # The PRs the merge pass left in the merge queue: this job reads each entry every 30 s until it leaves the queue,
+    # then ticks the dispatcher, whose merge pass re-enqueues a dropped PR once, then Blocks. The tick is this job's own
+    # workflow_dispatch, which GitHub never holds for approval; the `dequeued` event's run can be held (the queue's bot
+    # counts as an outside contributor under a strict approval policy). A queue commit that starts no check in 10
+    # minutes, or whose required check makes no progress (its running step past max(3 x that step's normal duration,
+    # it + 15 min), read from recent green runs with this job's actions: read; runner wait never counts), ticks it
+    # too: the merge pass takes the PR out and puts it back once (CI restarts), then Blocks. Past 12 minutes the watch
+    # ticks anyway and the dispatcher starts a new one. One watch runs at a time; a newer one waits.
     name: queue watch
     needs: dispatch
     if: needs.dispatch.outputs.queue_watch != ''
@@ -84,10 +88,10 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.7.124
+      - uses: clockgrove/factory@v0.9.0
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
-      - name: Dispatch tick (a queue commit started no check run)
+      - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
         if: steps.w.outputs.tick == 'true'
         env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" } # no checkout here: gh names the repository from GH_REPO
         run: gh workflow run factory.yml
@@ -102,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.124
+      - uses: clockgrove/factory@v0.9.0
         id: f
         with:
           mode: work
@@ -135,7 +139,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.7.124
+      - uses: clockgrove/factory@v0.9.0
         id: f
         with:
           mode: review
