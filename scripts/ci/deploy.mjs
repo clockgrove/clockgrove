@@ -54,12 +54,42 @@ export async function verifyDatabaseIsolation(connectionString) {
     await client.end().catch(() => {});
   }
 }
+// OpenTofu's error diagnostics from `-json` output, reduced to what is safe for release logs:
+// summary, resource address and provider error codes. Details can echo attribute values, so
+// they never print.
+export function tofuDiagnostics(stdout) {
+  const found = [];
+  for (const line of String(stdout ?? "").split("\n")) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const diagnostic = event?.type === "diagnostic" ? event.diagnostic : null;
+    if (diagnostic?.severity !== "error") continue;
+    const detail = String(diagnostic.detail ?? "");
+    const codes = new Set();
+    for (const match of detail.matchAll(
+      /"code"\s*:\s*(\d{3,6})|\((\d{4,6})\)|status(?: code)?:?\s*(\d{3})\b|\b([45]\d\d) (?:Bad Request|Unauthorized|Forbidden|Not Found|Conflict|Too Many Requests)/gu,
+    ))
+      codes.add(match[1] ?? match[2] ?? match[3] ?? match[4]);
+    const summary = String(diagnostic.summary ?? "error")
+      .replace(/\s+/gu, " ")
+      .slice(0, 160);
+    found.push(
+      `${summary}${diagnostic.address ? ` at ${diagnostic.address}` : ""}${codes.size ? ` (codes ${[...codes].join(", ")})` : ""}`,
+    );
+  }
+  return found.slice(0, 3).join("; ");
+}
 export function recordDeploymentPhase(result, candidate, name, executable, args, options = {}) {
+  const { explain, ...spawnOptions } = options;
   const startedAt = new Date().toISOString();
   const command = spawnSync(executable, args, {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
-    ...options,
+    ...spawnOptions,
   });
   const observed = subprocessEvidence(command);
   result.phases.push({
@@ -73,7 +103,12 @@ export function recordDeploymentPhase(result, candidate, name, executable, args,
     completedAt: new Date().toISOString(),
     outputDigest: digest(`${command.stdout ?? ""}${command.stderr ?? ""}`),
   });
-  assert.equal(observed.status, "passed", `${name} failed; sensitive command output withheld`);
+  const why = observed.status === "passed" || !explain ? "" : explain(command.stdout);
+  assert.equal(
+    observed.status,
+    "passed",
+    `${name} failed; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
+  );
   console.log(`${name}: passed`);
   return command.stdout;
 }
@@ -202,7 +237,9 @@ async function runDeployment() {
           phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan]),
         );
         verifyPlan(proposed, config, stage, preservePublic);
-        phase(`OpenTofu ${stage} apply`, "tofu", ["apply", "-input=false", plan]);
+        phase(`OpenTofu ${stage} apply`, "tofu", ["apply", "-input=false", "-json", plan], {
+          explain: tofuDiagnostics,
+        });
         const backup = await backupState(store, target, `${stage}-${candidate.slice(0, 12)}`);
         console.log(`state backup: ${store.bucket}/${backup}`);
       };
