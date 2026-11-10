@@ -1,4 +1,4 @@
-import { type McpDiscoverySnapshot, RemoteHttpMcpDiscovery } from "./mcp-http.js";
+import { RemoteHttpMcpDiscovery } from "./mcp-http.js";
 import type { McpInstallationChange, McpInstallationScope } from "./mcp-installations.js";
 import { type McpNetworkPort, McpRefusal, SafeMcpHttpClient } from "./mcp-network.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
@@ -122,11 +122,17 @@ export class McpInstallationService {
       typeof record.url !== "string"
     )
       throw new McpRefusal("installation_unavailable");
-    let snapshot: McpDiscoverySnapshot;
     try {
-      snapshot = await this.discovery.discover(record.url);
+      const snapshot = await this.discovery.discover(record.url);
+      await this.commit(
+        authorization,
+        scope,
+        { action: "refresh", installationId, snapshot },
+        commandId,
+        issuedAt,
+      );
     } catch (error) {
-      // Without a complete admitted listing, none of the old reviews is safe to retain.
+      // A failed discovery or rejected commit cannot leave potentially stale reviews active.
       await this.commit(
         authorization,
         scope,
@@ -138,13 +144,6 @@ export class McpInstallationService {
       if (error instanceof McpRefusal) throw error;
       throw new McpRefusal("discovery_failed");
     }
-    await this.commit(
-      authorization,
-      scope,
-      { action: "refresh", installationId, snapshot },
-      commandId,
-      issuedAt,
-    );
   }
 
   async change(

@@ -189,7 +189,25 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
           effectClass: "read",
           enabled: true,
         });
+      await install("valid-retry");
+      const retryCommand = `network-${++command}`;
+      await service.refresh(authorization, scope, "valid-retry", retryCommand, issuedAt);
+      await change({
+        action: "review",
+        installationId: "valid-retry",
+        candidateId: "one",
+        schemaHash: hash,
+        protocolVersion: "2025-11-25",
+        effectClass: "read",
+        enabled: true,
+      });
       changed = true;
+      await expect(
+        service.refresh(authorization, scope, "valid-retry", retryCommand, issuedAt),
+      ).rejects.toMatchObject({ code: "installation_change_failed" });
+      const rejectedRefresh = await store.read(authorization, scope, "valid-retry");
+      expect(rejectedRefresh?.status).toBe("disabled");
+      expect(rejectedRefresh?.reviews).toEqual({});
       paths.length = 0;
       await refresh();
       expect([...new Set(paths)]).toEqual(["/mcp"]);
@@ -251,8 +269,8 @@ it("admits operator discovery into the Journal, pins reviews through refresh and
         await sql(
           "SELECT count(*) FROM clockgrove.events WHERE event_type='McpInstallationChanged' AND attribution->>'principalId'='principal-j-a'",
         ),
-      ).toBe("6");
-      expect(await sql("SELECT count(*) FROM clockgrove.mcp_installations")).toBe("1");
+      ).toBe("10");
+      expect(await sql("SELECT count(*) FROM clockgrove.mcp_installations")).toBe("2");
     } finally {
       await client.close();
       server.closeAllConnections();
