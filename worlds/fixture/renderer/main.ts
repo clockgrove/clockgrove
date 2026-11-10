@@ -28,8 +28,9 @@ const adapter = new ThreeWorldSceneAdapter(parent, () => {
 }, content);
 
 const setEnvironment = (timeMs: bigint | number, rainIntensity: number) => {
-  snapshot = { ...snapshot, simulationTime: BigInt(timeMs), weather: { rainIntensity },
-    lighting: defaultSceneLighting(BigInt(timeMs), { rainIntensity }, snapshot.effects ?? []),
+  const simulationTime = typeof timeMs === "bigint" ? timeMs : BigInt(Math.round(timeMs));
+  snapshot = { ...snapshot, simulationTime, weather: { rainIntensity },
+    lighting: defaultSceneLighting(simulationTime, { rainIntensity }, snapshot.effects ?? []),
   };
   adapter.loadSnapshot(snapshot);
 };

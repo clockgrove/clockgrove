@@ -402,6 +402,25 @@ it.each(["webgpu", "webgl2"])(
       // Decision: 80 ms spans multiple frames at the existing 30 fps floor for the held-picture check.
       await page.waitForTimeout(80);
       expect(await capture()).toBe(held);
+      const sliderErrors = [];
+      page.on("pageerror", (error) => sliderErrors.push(error.message));
+      const slider = page.getByRole("slider", { name: "Time of day" });
+      await slider.click({ position: { x: 39, y: 8 } });
+      const inputTime = Number(await slider.inputValue());
+      expect(Number.isInteger(inputTime)).toBe(false);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const f = globalThis.fixtureRenderer;
+            return [
+              String(f.snapshot.simulationTime),
+              String(f.diagnostics.lastFrame.simulationTime),
+            ];
+          }),
+        )
+        .toEqual([String(Math.round(inputTime)), String(Math.round(inputTime))]);
+      expect(await capture()).not.toBe(held);
+      expect(sliderErrors).toEqual([]);
       await page.evaluate(() => globalThis.fixtureRenderer.setEnvironment(79_200_000, 9000));
       await expect
         .poll(() =>
