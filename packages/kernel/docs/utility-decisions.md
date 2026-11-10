@@ -82,17 +82,23 @@ dispatch command id). The same action continues silently, a different seek repla
 (`movement.replanned`) and `stay` interrupts (`movement.interrupted`). `world.advance` registers one movement
 system per moving actor and emits region crossings and `movement.completed` at the exact times, reusing
 `expectedCrossings` and `movementCompletionTime`. `utility.plan-matches-action@1` is a precondition and a
-post-state invariant of every command. Arrival effects: food and water take `q = min(biteQuantity, holder
+post-state invariant of every command. A decision that stops a walk applies the stopping rule of
+[spatial movement](spatial-movement.md#world-time-a-move-passes): after a `stay` interrupt the actor
+is in the active shelter standing where it stopped, or on open ground, and a walk stopped at the
+new target's coordinates arrives as a completed move does. Arrival effects: food and water take `q = min(biteQuantity, holder
 quantity)`, emit `resource.consumed {objectId: holder, kind, quantity}` then `needs.relieved` with
 `value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
 standing at the target, the sought one first (so walking to food inside a shelter enters it), and on open
-ground otherwise; an immediate arrival enters only a sought shelter. Either emits `location.changed`, before any
-consumption, unless the actor is already there. Actors are integrated before a location change, later exposure,
+ground otherwise; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
+`location.changed`, before any consumption, unless the actor is already there. Arrival events name the decision's
+plan (`plan:<objectId>@<time>`); when `world.advance` completes a movement no decision started (a moving command's,
+observed only up to `observeUntil`), they name that movement id. The two are told apart by structure: a decision's
+movement id is `movementIdFor` of the actor's decision dispatched at the movement's start. Actors are integrated before a location change, later exposure,
 comfort and health use the new protection, and relieved needs re-arm threshold crossings. Moving commands keep
 the location the same way ([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 
 **Events** (version 1, one reducer each): `location.changed` (`{objectId, locationId | null, planId}`: sets
-the actor's location) and `needs.relieved` (`{objectId, need, sourceObjectId, quantity, value, planId}`: sets the
+the location of any object, actor or not) and `needs.relieved` (`{objectId, need, sourceObjectId, quantity, value, planId}`: sets the
 need). `resource.event-authority.<world command>@1` allows the movement events, `resource.consumed` and both
 new events. `identity.events` and `reducers` grow by two, `identity.utility` is new, and
 `PERCEIVABLE_EVENT_TYPES` is unchanged.

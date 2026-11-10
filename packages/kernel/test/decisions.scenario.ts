@@ -168,9 +168,9 @@ const BASE: UtilitySpec = {
   items: [],
   utility: DEFAULT_UTILITY,
 };
-const RAIN: Pick<UtilitySpec, "segments"> = { segments: [[10000, 10000, "wet"]] };
+export const RAIN: Pick<UtilitySpec, "segments"> = { segments: [[10000, 10000, "wet"]] };
 
-const food = (
+export const food = (
   id: string,
   at: readonly [number, number],
   quantity = 4,
@@ -188,13 +188,17 @@ const water = (id: string, at: readonly [number, number], quantity = 6): ItemSpe
   at,
   quantity,
 });
-const shelter = (id: string, at: readonly [number, number], protection = 10000): ItemSpec => ({
+export const shelter = (
+  id: string,
+  at: readonly [number, number],
+  protection = 10000,
+): ItemSpec => ({
   id,
   kind: "shelter",
   at,
   protection,
 });
-const needs = (hunger: number, wetness: number, thirst: number): InitialNeeds => ({
+export const needs = (hunger: number, wetness: number, thirst: number): InitialNeeds => ({
   hunger,
   wetness,
   thirst,
@@ -1214,7 +1218,7 @@ export async function snackGoldenHashes(golden: SnackGolden) {
 // Targeted cases
 // ---------------------------------------------------------------------------------------------
 
-const WITH = (over: Partial<UtilitySpec>): UtilitySpec => ({ ...BASE, ...over });
+export const WITH = (over: Partial<UtilitySpec>): UtilitySpec => ({ ...BASE, ...over });
 
 /** Far bin with scripted entries: also the base world of the refusal inputs. */
 export const SCRIPTED_SPEC: UtilitySpec = WITH({

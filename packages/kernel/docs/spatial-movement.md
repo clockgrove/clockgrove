@@ -213,16 +213,27 @@ Three things differ from `world.advance`:
   The handler's later events are dropped, and nothing after that time is emitted.
 
 A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
-does. A location is a shelter's pose in the actor's space and frame; regions are not locations, so
-crossings do not change it. When the movement it starts or replans leaves its starting point, a
-located mover journals `location.changed` to null just before `movement.started` or
-`movement.replanned`. Where it stops (`movement.completed` or `movement.interrupted`), it journals
-`location.changed` to the active shelter standing there (the one it is in, else the first by
-object id) or to null on open ground, unless that is where it already is. A zero-length move, or
-any move that ends where it began, changes nothing. The mover's needs and wellbeing are integrated
-under the old location first and its exposure is re-seeded under the new one; the change's
-`planId` is the movement id, and its events count toward the move's event bound. Only a living
-actor with needs has a location.
+does. A location is a shelter's pose in the mover's space and frame; regions are not locations, so
+crossings do not change it. Two rules, applied to every active mover (a needs actor, a plant or any
+other object):
+
+- **Leaving.** When the movement it starts or replans leaves its starting point, a located mover
+  journals `location.changed` to null just before `movement.started` or `movement.replanned`. A
+  zero-length movement does not leave.
+- **Stopping.** Where it stops (`movement.completed` or `movement.interrupted`), it journals
+  `location.changed` to the active shelter standing there (the one it is in, else the first by
+  object id) or to null on open ground, unless that is where it already is.
+
+So a located mover that leaves and stops where it began (replanned back, or interrupted before it
+has moved) journals two changes: to null as it leaves, back to the shelter where it stops. A
+zero-length move by an unlocated mover standing at a shelter's pose enters that shelter; a located
+mover's zero-length move changes nothing. Whatever shelter protects is integrated under the old
+location first: a needs actor's needs and wellbeing (its exposure is then re-seeded under the new
+one) and a plant's growth (the world time then continues under the new protection). The change's
+`planId` is the movement id, and its events count toward the move's event bound. A command's
+movement observed only up to `observeUntil` is finished by a later `world.advance` (under a
+`utility` policy): it arrives as a decision's move does ([utility decisions](utility-decisions.md),
+"Plans and arrival"), and the plan its arrival events name is that movement id.
 
 The event authority of every moving command (`movement.event-authority.<command>@3`,
 `portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits

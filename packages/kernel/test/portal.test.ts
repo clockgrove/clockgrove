@@ -123,6 +123,33 @@ describe("portal navigation (graph 3)", () => {
     ).toBeUndefined();
   });
 
+  it("leaves the shelter a portal walk starts in and enters the one it ends in (issue 204)", async () => {
+    const hut = (id: string, x: bigint, y: bigint) =>
+      mover(id, [x, y], { shelter: { rainProtection: 5000 } } as never);
+    const base = await spatialFixture([
+      gate(),
+      hut("den", 0n, 0n),
+      mover("mover", [0n, 0n], { locationId: "den" } as never),
+      hut("shed", 8000n, 6000n),
+    ]);
+    const use = { schemaVersion: 1, objectId: "mover", portalId: "gate", unitsPerSecond: 2000n };
+    const outcome = executeWorldKernel(movementInput(base, "portal.use", use, "u1"), {
+      mode: "test",
+    });
+    if (!outcome.ok) throw new Error(outcome.error.path);
+    const t0 = base.simulationTime;
+    const moves = outcome.result.events.map((event) => [
+      event.type,
+      event.simulationTime - t0,
+      (event.payload as { locationId?: string | null }).locationId,
+    ]);
+    expect(moves).toEqual([
+      ["location.changed", 0n, null],
+      ...THROUGH_GATE.map(([type, time]) => [type, time, undefined]),
+      ["location.changed", 5000n, "shed"],
+    ]);
+  });
+
   it("routes a start off the anchor graph through a portal that separates it, or refuses", async () => {
     const open = await separated("open", [100n, 0n]);
     const through = run(
