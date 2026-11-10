@@ -38,6 +38,7 @@ const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["sche
   "weather.transitioned": 1,
   "exposure.threshold-crossed": 1,
   "resource.appeared": 1,
+  "resource.weather-integrated": 1,
   "resource.spoiled": 1,
   "growth.stage-changed": 1,
   "growth.integrated": 1,

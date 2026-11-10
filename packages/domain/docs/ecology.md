@@ -11,9 +11,10 @@ are unchanged. `validateEcologyPolicy` and `validateEcologyState` throw `Ecology
 (`policy.ecology...` / `state.ecology...`); `ecologyDisagreement(policy, state)` names the first
 differing path.
 
-Four events at version 1 are reduced by `reduceWorldEvent`: `resource.appeared` (adds a source's
+Five events at version 1 are reduced by `reduceWorldEvent`: `resource.appeared` (adds a source's
 quantity), `resource.spoiled` (removes a holder's food), `growth.stage-changed` and
-`growth.integrated`. The offer, transfer, consume and retire reducers keep perishable arrival times.
+`growth.integrated`, and `resource.weather-integrated` (collects and evaporates water while
+recording fractional integration state). The offer, transfer, consume and retire reducers keep perishable arrival times.
 `foodFreshnessBasisPoints(holder, now)` returns `floor(10000 × remaining shelf life / shelf life)`
 (0 at `arrivedAt + shelfLifeMs`, `null` for an empty holder) and `resourceAvailability(resource)`
 returns `"available"` for a positive quantity and `"unavailable"` otherwise.
@@ -35,3 +36,34 @@ atomically with the stage change, rejects unsafe amounts and requires a yield-be
 to enter the next stage. Historic events and policies without yield retain their representation.
 The event is the food's cause: growth, rather than a timer refill or an external offer. The last
 stage never repeats, so waiting longer or emptying the plant never creates another yield.
+
+
+## Weather water holders
+
+The optional `waterHolders` list in `EcologyPolicy` declares up to 64 collectors as
+`{objectId, capacity, catchment, evaporationPerHour}`. Capacity is a positive safe integer;
+catchment and evaporation are nonnegative safe integer water units per hour. Catchment is measured at
+rain intensity 10000 with shelter protection 0. Collection scales by rain intensity and by
+`10000 - protection`, each in basis points. A zero catchment collects nothing; declaring a
+positive catchment models an open collector. The holder must have a water resource and cannot
+also be a scheduled source or a plant.
+
+The matching optional `EcologyState.waterHolders` list follows policy order (including an explicit
+empty list when the policy declares one) and records
+`{objectId, collectionRemainder, evaporationRemainder, integratedAt}`. Remainders and integration
+time are bigints. Integer arithmetic retains fractional collection and evaporation between
+commands. Collection cannot exceed capacity: overflow and its fractional collection remainder
+are discarded at full capacity. Evaporation removes existing water only and clears its remainder
+at empty, so an empty holder accrues no future evaporation debt. Collection precedes evaporation
+when both become due at the same millisecond. Ordinary commands can move or consume this water.
+
+`resource.weather-integrated@1` carries `{objectId, collected, evaporated, collectionRemainder,
+evaporationRemainder, integratedAt}` and atomically applies the quantity changes and integration
+state. Weather is the journaled cause of collection; evaporation is a journaled removal. Initial
+genesis quantities are the initial inventory. Policies without `waterHolders` retain their
+representation and behavior. Scheduled sources remain supported temporarily while issue 187
+migrates processes and fixture policies; this optional weather cause alone does not establish the
+complete closed-world contract.
+
+Weather-holder `integratedAt` must equal the world simulation time, including after a bounded
+advance. Ordinary commands therefore change inventory only after all prior weather is accounted.

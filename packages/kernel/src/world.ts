@@ -46,6 +46,7 @@ import {
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceWorldEvent,
   regionsContaining,
   sameCoordinates,
   scriptedCognitionDisagreement,
@@ -131,11 +132,15 @@ import {
 import { createQuadtreeSpatialIndex } from "./spatial/quadtree.js";
 import {
   createGrowthSystem,
+  createWaterSystem,
   type EcologyHolderInit,
   type EcologyPlantInit,
   type EcologyRunOptions,
+  type EcologyWaterInit,
   growthSnapshotOf,
   growthSystemState,
+  waterSnapshotOf,
+  waterSystemState,
 } from "./systems/ecology/index.js";
 import {
   createEnvironmentRun,
@@ -250,6 +255,7 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "exposure.threshold-crossed",
   "resource.spoiled",
   "resource.appeared",
+  "resource.weather-integrated",
   "growth.integrated",
   "growth.stage-changed",
   "needs.changed",
@@ -303,6 +309,7 @@ const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)
     "needs.relieved": ["needs"],
     "resource.spoiled": ["resource"],
     "resource.appeared": ["resource"],
+    "resource.weather-integrated": ["resource"],
     "growth.stage-changed": ["resource"],
     "resource.consumed": ["resource"],
     "routine.selected": ["selectedAction"],
@@ -680,7 +687,8 @@ function validateWorldPayload(payload: unknown, { state }: { readonly state: Wor
   if (value.lazy !== undefined && value.lazy !== true) invalid("payload.lazy");
   const actors = livingActorsOf(state);
   // Every plant is integrated wherever the actors are, so the smallest budget covers them too.
-  const plantCount = state.ecology?.plants.length ?? 0;
+  const plantCount =
+    (state.ecology?.plants.length ?? 0) + (state.ecology?.waterHolders?.length ?? 0);
   // With wellbeing every integration is a needs event plus a wellbeing event.
   const perActor = state.wellbeing === undefined ? 1 : 2;
   if (
@@ -719,6 +727,7 @@ function runWorldCommand(context: WorldContext): HandlerOutput<WorldState, World
           maxEvents:
             (state.wellbeing === undefined ? 1 : 2) * livingActorsOf(state).length +
             (state.ecology?.plants.length ?? 0) +
+            (state.ecology?.waterHolders?.length ?? 0) +
             1,
         }
       : command.payload;
@@ -915,7 +924,8 @@ function runWorld(
    * same `integrateNeedsWith` through the injected integrator; there is no second wetness formula.
    */
   const ecologyPolicy = policy.ecology;
-  const plantTotal = ecologyPolicy?.plants.length ?? 0;
+  const waterTotal = ecologyPolicy?.waterHolders?.length ?? 0;
+  const plantTotal = (ecologyPolicy?.plants.length ?? 0) + waterTotal;
   const growthSystems = new Map<string, ContinuousSystem>();
   if (ecologyPolicy !== undefined && policy.environment !== undefined)
     for (const plant of ecologyPolicy.plants)
@@ -949,8 +959,22 @@ function runWorld(
       }),
     );
   }
-  function integratePlants(through: SimTimeMs): void {
+  function integratePlants(through: SimTimeMs, includeWater = true): void {
+    if (includeWater) integrateWaters(through);
     for (const objectId of pendingPlants(through)) integratePlant(objectId, through);
+  }
+  function pendingWater(through: SimTimeMs): readonly string[] {
+    return (current().ecology?.waterHolders ?? [])
+      .filter((entry) => entry.integratedAt < through)
+      .map((entry) => entry.objectId)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  }
+  function integrateWater(objectId: string, through: SimTimeMs): void {
+    const next = waterAt(current(), objectId, through, policy);
+    if (next !== undefined) emit(event("resource.weather-integrated", through, next));
+  }
+  function integrateWaters(through: SimTimeMs): void {
+    for (const id of pendingWater(through)) integrateWater(id, through);
   }
   function currentActorOf(objectId: ObjectId): WorldEntity {
     const found = current().entities.find((entity) => entity.objectId === objectId);
@@ -1382,7 +1406,9 @@ function runWorld(
       rainIntensity: state.weather.rainIntensity,
       nextWeatherBoundary: state.environment?.nextWeatherBoundary ?? (MAX_TIME as SimTimeMs),
       // A decision or arrival may have consumed from a holder: its next appearance depends on that.
-      ...(ecologyPolicy === undefined ? {} : { holders: ecologyHolders(state, ecologyPolicy) }),
+      ...(ecologyPolicy === undefined
+        ? {}
+        : { holders: ecologyHolders(state, ecologyPolicy), waterHolders: ecologyWaters(state) }),
     });
     target.setMovers(
       state.entities
@@ -1580,11 +1606,15 @@ function runWorld(
       group.spoiled.length +
       group.appeared.length +
       group.stages.length +
+      pendingWater(at).length +
       (plan === undefined ? 0 : sizeOfLifecycle(plan, at));
     if (context.eventCount() + size > payload.maxEvents) {
       if (context.eventCount() === 0) invalid("payload.maxEvents");
       return false;
     }
+    const waterBeforeWeather = group.weather
+      ? pendingWater(at).map((id) => waterAt(current(), id, at, policy)!)
+      : [];
     if (group.phase)
       emit(
         event("environment.phase-changed", at, {
@@ -1595,7 +1625,7 @@ function runWorld(
       );
     if (group.weather) {
       for (const actor of livingActorsOf(current())) integrateActor(actor, at);
-      integratePlants(at);
+      integratePlants(at, false);
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
@@ -1669,6 +1699,8 @@ function runWorld(
         }),
       );
     }
+    for (const next of waterBeforeWeather) emit(event("resource.weather-integrated", at, next));
+    integrateWaters(at);
     for (const change of group.stages) {
       integratePlant(change.objectId, at);
       const entry = current().ecology?.plants.find(
@@ -1892,6 +1924,7 @@ function runWorld(
     crossings: [],
     spoiled: [],
     appeared: [],
+    water: [],
     stages: [],
     needs: [],
     comforts: [],
@@ -2075,6 +2108,7 @@ function runWorld(
         decisionSize =
           integrationEvents(dueActor, item.dueAt) +
           pendingPlants(item.dueAt).length +
+          pendingWater(item.dueAt).length +
           1 +
           stepEvents(trialPlan.steps);
       }
@@ -2231,7 +2265,9 @@ function runWorld(
         if (!advanceTo(time as SimTimeMs, (time - 1n) as SimTimeMs)) passedTime("events");
         ended = moverDied();
         if (ended) return;
-        if (context.eventCount() >= payload.maxEvents) passedTime("events");
+        if (context.eventCount() + pendingWater(time as SimTimeMs).length >= payload.maxEvents)
+          passedTime("events");
+        integrateWaters(time as SimTimeMs);
         const at = time as SimTimeMs;
         // A move off the spot leaves the mover's location as it sets out.
         if (type === "movement.started" || type === "movement.replanned") {
@@ -2248,6 +2284,7 @@ function runWorld(
       },
     });
     const through = current().simulationTime;
+    integrateWaters(through);
     if (through > start) {
       if (!fireDwells(through)) passedTime("events");
       // The mover's decision, and any already due at the start, is due at the final time, so the
@@ -2279,6 +2316,7 @@ function runWorld(
         complete = false;
         stage = "finalize";
       } else {
+        integrateWaters(payload.targetTime);
         // A lazy advance leaves needs, wellbeing and plants stored with their `integratedAt`.
         if (payload.lazy !== true) {
           for (const actor of livingActorsOf(current())) integrateActor(actor, payload.targetTime);
@@ -2378,6 +2416,36 @@ function registerWorldChecks(
         if (activePolicy === undefined) return undefined;
         const disagreement = ecologyDisagreement(activePolicy, state);
         if (disagreement !== undefined) return disagreement;
+        const weatherIndex = events.findIndex(
+          (event) =>
+            event.type === "resource.weather-integrated" &&
+            !activePolicy!.ecology?.waterHolders?.some(
+              (holder) => holder.objectId === event.payload.objectId,
+            ),
+        );
+        if (weatherIndex >= 0) return `events[${weatherIndex}].payload.objectId`;
+        if ((activePolicy.ecology?.waterHolders?.length ?? 0) > 0) {
+          let weatherState = initial;
+          const boundaryWater = new Map<string, ReturnType<typeof waterAt>>();
+          for (const [index, event] of events.entries()) {
+            if (event.type === "weather.transitioned") {
+              for (const entry of weatherState.ecology?.waterHolders ?? [])
+                boundaryWater.set(
+                  entry.objectId,
+                  waterAt(weatherState, entry.objectId, event.simulationTime, activePolicy),
+                );
+            }
+            if (event.type === "resource.weather-integrated") {
+              const expected =
+                boundaryWater.get(event.payload.objectId) ??
+                waterAt(weatherState, event.payload.objectId, event.simulationTime, activePolicy);
+              boundaryWater.delete(event.payload.objectId);
+              if (canonicalSerialize(expected) !== canonicalSerialize(event.payload))
+                return `events[${index}].payload`;
+            }
+            weatherState = reduceWorldEvent(weatherState, event);
+          }
+        }
         const stages = new Map(
           initial.ecology?.plants.map((plant) => [plant.objectId, plant.stage]),
         );
@@ -3040,7 +3108,63 @@ function ecologyRunOptions(state: WorldState, policy: EcologyPolicy): EcologyRun
     if (entity === undefined) throw new RangeError("ecology object is missing from the state");
     return { entry, protection: rainProtectionOf(state, entity), active: active(entity) };
   });
-  return { policy, holders: ecologyHolders(state, policy), plants };
+  return {
+    policy,
+    holders: ecologyHolders(state, policy),
+    plants,
+    ...(record.waterHolders === undefined ? {} : { waterHolders: ecologyWaters(state) }),
+  };
+}
+function ecologyWaters(state: WorldState): EcologyWaterInit[] {
+  return (state.ecology?.waterHolders ?? []).map((entry) => {
+    const entity = state.entities.find((candidate) => candidate.objectId === entry.objectId)!;
+    return {
+      entry,
+      quantity: entity.resource!.quantity,
+      protection: rainProtectionOf(state, entity),
+      active: active(entity),
+    };
+  });
+}
+function waterAt(
+  state: WorldState,
+  objectId: string,
+  through: SimTimeMs,
+  policy: WorldBehaviorPolicy,
+) {
+  const init = ecologyWaters(state).find((candidate) => candidate.entry.objectId === objectId);
+  const holder = policy.ecology?.waterHolders?.find((candidate) => candidate.objectId === objectId);
+  if (
+    init === undefined ||
+    holder === undefined ||
+    policy.environment === undefined ||
+    state.environment === undefined
+  )
+    throw new RangeError("water holder without policy/state");
+  if (init.entry.integratedAt >= through) return undefined;
+  const system = createWaterSystem(holder, policy.environment);
+  const next = waterSnapshotOf(
+    system.integrate(
+      waterSystemState({
+        ...init.entry,
+        quantity: init.quantity,
+        protection: init.protection,
+        active: init.active,
+        rain: state.weather.rainIntensity,
+        rainUntil: state.environment.nextWeatherBoundary,
+      }),
+      init.entry.integratedAt,
+      through,
+    ),
+  );
+  return {
+    objectId: init.entry.objectId,
+    collected: Number(next.collected ?? 0n),
+    evaporated: Number(next.evaporated ?? 0n),
+    collectionRemainder: next.collectionRemainder,
+    evaporationRemainder: next.evaporationRemainder,
+    integratedAt: through,
+  };
 }
 /** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
@@ -3750,6 +3874,7 @@ function registerContainmentChecks(
                 "weather.transitioned",
                 "exposure.threshold-crossed",
                 "resource.appeared",
+                "resource.weather-integrated",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",
@@ -4045,6 +4170,12 @@ function registerContainmentChecks(
                 BigInt(event.payload.quantity),
               );
               break;
+            case "resource.weather-integrated": {
+              const delta = BigInt(event.payload.collected) - BigInt(event.payload.evaporated);
+              changes.water! += delta;
+              changeHolder(event.payload.objectId, "water", delta);
+              break;
+            }
             case "growth.stage-changed":
               if (event.payload.yield !== undefined) {
                 const quantity = BigInt(event.payload.yield.quantity);

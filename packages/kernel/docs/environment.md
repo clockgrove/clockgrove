@@ -72,7 +72,7 @@ When the next time group does not fit in what is left of `maxEvents`, the call r
 events as one unbounded call. A group that cannot fit an empty budget (at most `3 * actors + 2`
 events: one integration per actor, a phase, a weather event and two crossings per actor) is refused
 with `invalid-input` at `payload.maxEvents`. The bound is `3 × actors + 2` without ecology and
-`3 × actors + 2 × plants + perishable holders + sources + 2` with ecology; a budget smaller than the
+`3 × actors + 2 × plants + perishable holders + sources + water holders + 2` with ecology; a budget smaller than the
 next indivisible time group is refused with `invalid-input` at `payload.maxEvents`.
 `maxInputs` counts decisions only.
 
@@ -131,6 +131,11 @@ bounded `comparison` summary, all in `environment.json` and validated by `test/s
 [Evidence report files](evidence.md#evidence-report-files).
 Input hashes reuse `containmentInputIdentity` (`clockgrove-canonical-v1` or
 `clockgrove-malformed-input-v1`).
+
+Opt-in rain collection and evaporation use the same environment timeline; each water holder retains
+fractional integration state and journals material changes at integer-unit instants. The current
+weather override applies to collectors until the next authored boundary as it does to exposure.
+See [resources and growth](ecology.md) for the water-holder policy and journal contract.
 
 Food, water, spoilage and growth are built in [resources and growth](ecology.md) (RW-0107b); needs,
 comfort, health and threshold-driven decision timing in [needs, comfort and health](wellbeing.md)

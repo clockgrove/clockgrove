@@ -55,7 +55,7 @@ The following decisions resolve earlier open questions and control if later hist
 
 ## 1. Executive summary
 
-Clockgrove is a persistent, living simulation platform in which every meaningful character, place, object, and system can behave as a durable actor. Its first reference world, Raccoon World ([clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world)), is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons. Time passes, weather changes, trees grow, food appears and disappears, relationships develop, babies are born, actors age and die, and the world continues whether or not a player is watching.
+Clockgrove is a persistent, living simulation platform in which every meaningful character, place, object, and system can behave as a durable actor. Its first reference world, Raccoon World ([clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world)), is a cozy, cartoonish, isometric Seattle neighborhood inhabited by raccoons. Time passes, weather changes, trees grow and yield food, resources move and decay, relationships develop, babies are born, actors age and die, and the world continues whether or not a player is watching.
 
 The game is not the primary product thesis. The raccoon world is an accessible, emotionally legible test environment for a new interaction model:
 
@@ -394,11 +394,20 @@ Initial objects and systems:
 - Trash can
 - Porch and house facade
 - Den
-- Food and water sources
+- Food and water holders with declared physical causes
 - Shrubs, garden, and decorative props
 - Weather system
 - Day/night clock
 - Spatial regions and navigation anchors
+
+Resource creation follows Kirk's closed-world decision of 2026-11-09 (issue 187), for food and
+water alike: rain collects in open holders, plants yield food, and characters or explicitly
+declared world processes move resources through journaled commands. Off-screen people have no
+implicit refill authority. Genesis quantities are initial inventory; every later increase needs
+an attributable cause. The rollout currently provides per-holder journal accounting, finite
+plant-stage yield and opt-in weather water collection/evaporation. Declared processes, removal of
+legacy scheduled ecology sources and fixture migration remain pending; see the
+[kernel ecology contract](../packages/kernel/docs/ecology.md).
 
 ### 6.2 Visual direction
 

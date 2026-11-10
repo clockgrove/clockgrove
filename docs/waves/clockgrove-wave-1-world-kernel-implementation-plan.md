@@ -455,6 +455,14 @@ Required differential tests compare continuous small steps, one aggregate step, 
 **Consumes:** RW-0104–0106.  
 **Produces:** deterministic day/night, rain/weather, exposure/drying, food/water lifecycle, spoilage, and cedar growth systems.
 
+Kirk's 2026-11-09 closed-world decision (issue 187) applies to food and water: increases must have
+journaled weather, growth or ordinary character/process command causes. Off-screen agents must be
+explicitly declared world processes with no special command authority. Initial genesis inventory
+is accounted separately. Per-holder accounting, finite plant-stage yield and optional rain
+collection/evaporation are implemented; declared processes, removal of legacy scheduled sources,
+fixture migration and complete reference/long-run cause proof remain later parts of that Objective.
+The [kernel ecology contract](../../packages/kernel/docs/ecology.md) describes the current policy.
+
 Journal-facing outputs are semantic thresholds, not numeric tick noise. Required goldens: `rain-shelter-comfort`, `food-decay-and-conservation`, and `cedar-growth`.
 
 ### RW-0108 — Needs, utility decisions, health/comfort, and movement choice

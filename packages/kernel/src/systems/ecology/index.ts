@@ -4,8 +4,11 @@ import type { NeedsIntegrator } from "../environment/systems.js";
 import { createGrowthSystem } from "./growth.js";
 import { createAppearanceSystem, createSpoilageSystem, type HolderConfig } from "./holder.js";
 
+import { createWaterSystem, type EcologyWaterInit } from "./water.js";
+
 export * from "./growth.js";
 export * from "./holder.js";
+export * from "./water.js";
 
 /** The dynamic state of one holder object (a perishable holder, a source, or both). */
 export interface EcologyHolderInit {
@@ -26,6 +29,7 @@ export interface EcologyRunOptions {
   readonly policy: EcologyPolicy;
   readonly holders: readonly EcologyHolderInit[];
   readonly plants: readonly EcologyPlantInit[];
+  readonly waterHolders?: readonly EcologyWaterInit[];
 }
 
 /** Per-object timeline configuration: a source and a perishable holder may be the same object. */
@@ -56,6 +60,9 @@ export function createEcologySystems(options: {
 }): readonly ContinuousSystem[] {
   const configs = holderConfigs(options.policy);
   return Object.freeze([
+    ...(options.policy.waterHolders ?? []).map((holder) =>
+      createWaterSystem(holder, options.environment),
+    ),
     ...options.policy.perishables.map((holder) =>
       createSpoilageSystem(configs.get(holder.objectId)!),
     ),

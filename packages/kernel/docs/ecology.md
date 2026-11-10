@@ -1,8 +1,8 @@
 # Resources and growth: food, water, spoilage and cedar growth (RW-0107b)
 
 **Policy and state.** `policy.ecology` (optional, requires `environment`) declares resource
-`sources`, `perishables` (food holders with a shelf life) and `plants` (growing light bands and
-stages); `state.ecology` tracks each perishable's arrival time and each plant's stage, growing time,
+`sources`, `perishables` (food holders with a shelf life), `plants` (growing light bands and
+stages), and optional `waterHolders` (rain collectors with capacity and evaporation); `state.ecology` tracks each perishable's arrival time and each plant's stage, growing time,
 wetness and integration time. Refusals are `invalid-input` at `pack.pack.policy.ecology...` or
 `partition.state.ecology...`. `ecology.state-matches-policy@1` is a precondition and a post-state
 invariant of every command; policies without ecology behave and encode byte-identically. A movement or portal command that moves the world time emits the spoilage, appearance and stage
@@ -27,15 +27,16 @@ and sets a perishable holder's arrival time to the event time), `resource.spoile
 advance) and `growth.integrated` (`{objectId, growingMs, wetness, wetnessRemainder, integratedAt}`:
 replaces the plant's integration fields, which must move forward), each at version 1 with exactly one
 reducer. The offer, transfer, consume and retire reducers maintain arrival times without payload
-changes. `resource.quantity-conservation@1` counts `appeared` as an addition and `spoiled` as a removal
-only. The same invariant also balances each holder and resource kind independently against
-creation, retirement, offer, transfer, consumption, appearance and spoilage events. A transfer must
+changes. `resource.quantity-conservation@1` counts appearance and declared plant yield as additions,
+spoilage as a removal, and weather collection/evaporation as additions/removals. The same invariant
+also balances each holder and resource kind independently against creation, retirement, offer,
+transfer, consumption, appearance, spoilage, growth yield and weather events. A transfer must
 debit its source and credit its destination by the journaled quantity; a globally balanced but
 unjournaled movement, or a swap of resource kinds between holders, is refused at the affected
 holder's `state.entities[i].resource.quantity` path. Genesis quantities are the initial inventory.
 This accounting preserves the existing cause kinds; removal of scheduled appearances and the
 closed-world policy migration are separate changes.
-`resource.event-authority.<world command>@1` allows the four events for the world commands.
+`resource.event-authority.<world command>@1` allows the ecology events for the world commands.
 `growth.integrated` is incidental: it is emitted wherever `needs.changed` is, so its count depends on
 step boundaries.
 
@@ -43,6 +44,8 @@ step boundaries.
 system per source and one growth system per plant through `createCatchUpRegistry`, in the same
 `catchUpSchedules` calls as the environment systems. No random stream is drawn. Same-time order:
 phase, weather, exposure, spoilage, appearance, stage change, decision, each kind in object-id order.
+Weather water scheduling is placed after appearances and before stage changes; integration at a
+weather boundary records the interval under its previous rain before the transition.
 Time groups are indivisible, so `maxEvents` and continuation behave as for the environment ([see the
 bound above in Budgets and continuation](environment.md)), and re-advancing to the same time emits nothing.
 
@@ -52,8 +55,8 @@ queued. The holder at that instant includes every change before it in the same c
 arrival that consumes from a holder re-seeds that holder's spoilage and appearance schedule at its
 time, so a source drunk dry inside one `world.advance` appears at its next due time in that call, as
 it does across live steps. Perishable food spoils entirely `shelfLifeMs` after it arrived (a transfer from a perishable
-keeps the arrival time); consuming to zero clears the arrival. Water does not spoil and rain does not
-change it. A perishable holder holds a single batch: `resource.offer` or `resource.transfer` into one
+keeps the arrival time); consuming to zero clears the arrival. Water does not spoil. Rain changes only holders declared in `waterHolders`
+(see Weather water holders below). A perishable holder holds a single batch: `resource.offer` or `resource.transfer` into one
 that holds food is refused with `precondition-failed`, check `resource.perishable-single-batch@1`, at
 `payload.objectId` or `payload.toObjectId`. `foodFreshnessBasisPoints` and `resourceAvailability` are
 exported pure functions of the domain package. Freshness is `floor(10000 × remaining / shelfLifeMs)`
@@ -93,8 +96,50 @@ a declared perishable holder.
 `test/plant-yield.journey.test.ts` proves literal yields at 1000 and 2000 ms, live versus aggregate
 and bounded continuation, native replay, movement-time yield, no repeat/refill, malformed policy,
 missing holder and material-range refusals, and rejection of forged journal quantities. Scheduled
-sources, rain collection and declared processes remain separate migration work; this optional
-cause alone does not establish the complete closed-world contract.
+sources and declared processes remain separate migration work; the optional growth and weather
+causes alone do not establish the complete closed-world contract.
+
+**Weather water holders (closed-world part 3).** Optional `ecology.waterHolders` entries declare
+`{objectId, capacity, catchment, evaporationPerHour}`. Capacity is a positive safe integer; rates
+are nonnegative safe integer water units per hour. Catchment is the collection rate at rain intensity
+10000 and shelter protection 0; actual collection scales by both rain and the unprotected fraction.
+The holder must hold water, and cannot also be a source or plant. Zero catchment models no
+collection. Declaring positive catchment models an open collector; no new container-opening
+command or authority is introduced.
+
+An explicitly empty policy list requires an explicitly empty state list. The matching optional
+state list records each holder's `objectId`, `collectionRemainder`,
+`evaporationRemainder` and `integratedAt`. Every completed or bounded advance settles all water holders to the returned
+world time, so a subsequent inventory command cannot apply new water retroactively. Integer arithmetic retains fractions so live steps and
+one aggregate advance reach the same integer-unit instants. Collection is clamped at capacity,
+discarding overflow; evaporation is clamped at empty without accumulating debt. At a shared
+integer instant collection precedes evaporation. Existing shelter protection applies to collection.
+
+`resource.weather-integrated@1` carries `{objectId, collected, evaporated, collectionRemainder,
+evaporationRemainder, integratedAt}`. Its reducer credits collected water, debits evaporated water
+and records integration state atomically. Per-holder and global resource accounting include both
+deltas. The ecology invariant validates weather integration against the declared policy, preventing
+a forged collection event from authorizing unrelated creation. The journal identifies weather and
+the collecting holder as the cause. No new command or principal is added.
+
+Weather holders use the existing catch-up path, including weather boundaries and time passed by
+movement or portals. Material water changes occur at their first due millisecond; fractional
+integration at other command boundaries may emit zero-delta incidental events. A weather override
+is integrated under the previous rain before the new intensity takes effect. Ordinary resource
+commands preserve integration up to their instant and the next advance starts from the changed
+inventory, including a holder drained during one advance. Re-advancing to the same time creates no
+water. `test/weather-water.journey.test.ts` is the native executor proof for this optional cause,
+with literal quantities and times, execution-shape parity and journal replay. Material comparison
+includes weather events with nonzero collection or evaporation; zero-delta integration events are
+incidental because command boundaries vary. The existing `material-ecology` comparisons below
+cover their original scenarios, which do not declare weather water holders.
+
+Policies without `waterHolders` preserve their state and event representation. The additive event
+registry changes simulator bundle identities even for those policies; reviewed fixture goldens
+record that registry change separately from the later physical source migration. Scheduled sources
+remain until the declared-process and fixture migration parts of issue 187. Genesis resources are
+the initial inventory; full closed-world validation across all reference and long runs remains a
+later part.
 
 **Evidence.** Generated tests (named stream `behavior`, seed `ecology-resources-v1`), targeted tests,
 the `material-ecology` pairs `live-steps-vs-fast-forward` and `bounded-continuation-vs-unbounded`, and
@@ -102,10 +147,10 @@ the `food-decay-and-conservation` and `cedar-growth` goldens (committed literal 
 and Workers. `fullRuntimeEvidence` adds an `ecology` section; `ecology.json` holds the Node and Workers
 bodies and a `comparison` summary, validated by `test/spatial-evidence.ts` (see
 [Evidence report files](evidence.md#evidence-report-files)). `identity.events` grows by
-exactly the four events; commands, `PERCEIVABLE_EVENT_TYPES`, `examples/world-packs`, the scheduler,
+the four original ecology events plus `resource.weather-integrated@1`; commands, `PERCEIVABLE_EVENT_TYPES`, `examples/world-packs`, the scheduler,
 needs arithmetic and the component catalog are unchanged. Outputs for states without `ecology`
-(containment and resource command outputs included) are unchanged, and `resource.consume` emits no
-new event. Input hashes reuse `containmentInputIdentity`.
+(containment and resource command outputs included) are unchanged. For policies without weather
+holders, `resource.consume` emits no new event. Input hashes reuse `containmentInputIdentity`.
 
 **`material-ecology` equivalence.** Compares the ordered `environment.phase-changed`,
 `weather.transitioned`, `exposure.threshold-crossed`, `resource.spoiled`, `resource.appeared`,
@@ -138,7 +183,7 @@ events, final state) are committed literals asserted in Node and Workers.
 | `invalid-input` | `payload.maxEvents` (a group cannot fit an empty budget) | - |
 
 **Deferred.** To Wave 8 RW-0804 ("Environment and ecology depth"; Wave 8 §7.2 and the parent plan
-§7.8 Food, Water and Growth rows): depleted, available and unavailable events; rain refilling water;
+§7.8 Food, Water and Growth rows): depleted, available and unavailable events;
 growth death and plant removal; eating or harvesting plants beyond ordinary transfers of declared stage yields; moisture- or temperature-dependent decay;
 freshness after food leaves a perishable holder and other food quality; seasons; random appearances and
 weather. To Wave 8 RW-0803 ("Household and social routines"; Wave 8 §6, "competition or sharing over

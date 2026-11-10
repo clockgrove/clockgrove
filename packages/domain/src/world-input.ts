@@ -225,10 +225,29 @@ function environmentState(input: unknown, path: string): EnvironmentState {
 }
 
 function ecologyPolicy(input: unknown, path: string): EcologyPolicy {
-  const raw = object(input, ["schemaVersion", "sources", "perishables", "plants"], path);
+  const raw = object(input, ["schemaVersion", "sources", "perishables", "plants"], path, [
+    "waterHolders",
+  ]);
   version(raw, path);
   return {
     schemaVersion: 1,
+    ...(raw.waterHolders === undefined
+      ? {}
+      : {
+          waterHolders: list(raw.waterHolders, `${path}.waterHolders`, (value, at) => {
+            const holder = object(
+              value,
+              ["objectId", "capacity", "catchment", "evaporationPerHour"],
+              at,
+            );
+            return {
+              objectId: decodeOpaqueId(holder.objectId, "ObjectId", `${at}.objectId`),
+              capacity: integer(holder.capacity, `${at}.capacity`),
+              catchment: integer(holder.catchment, `${at}.catchment`),
+              evaporationPerHour: integer(holder.evaporationPerHour, `${at}.evaporationPerHour`),
+            };
+          }),
+        }),
     sources: list(raw.sources, `${path}.sources`, (value, at) => {
       const source = object(value, ["objectId", "kind", "firstAtMs", "periodMs", "quantity"], at);
       if (source.kind !== "food" && source.kind !== "water")
@@ -275,8 +294,28 @@ function ecologyPolicy(input: unknown, path: string): EcologyPolicy {
 }
 
 function ecologyState(input: unknown, path: string): EcologyState {
-  const raw = object(input, ["perishables", "plants"], path);
+  const raw = object(input, ["perishables", "plants"], path, ["waterHolders"]);
   return {
+    ...(raw.waterHolders === undefined
+      ? {}
+      : {
+          waterHolders: list(raw.waterHolders, `${path}.waterHolders`, (value, at) => {
+            const entry = object(
+              value,
+              ["objectId", "collectionRemainder", "evaporationRemainder", "integratedAt"],
+              at,
+            );
+            return {
+              objectId: decodeOpaqueId(entry.objectId, "ObjectId", `${at}.objectId`),
+              collectionRemainder: decimal(entry.collectionRemainder, `${at}.collectionRemainder`),
+              evaporationRemainder: decimal(
+                entry.evaporationRemainder,
+                `${at}.evaporationRemainder`,
+              ),
+              integratedAt: decimal(entry.integratedAt, `${at}.integratedAt`) as SimTimeMs,
+            };
+          }),
+        }),
     perishables: list(raw.perishables, `${path}.perishables`, (value, at) => {
       const holder = object(value, ["objectId", "arrivedAt"], at);
       return {
