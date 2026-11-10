@@ -2,6 +2,7 @@ export * from "./actor-address.js";
 export * from "./asset-manifest.js";
 export * from "./asset-style-profile.js";
 export * from "./browser-protocol.js";
+export * from "./channels.js";
 export * from "./cognition.js";
 export * from "./conformance.js";
 export * from "./conversations.js";

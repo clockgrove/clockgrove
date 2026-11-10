@@ -105,6 +105,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'inspector_accesses', 'none'),
   ('clockgrove', 'runtime_operator_actions', 'none'),
   ('clockgrove', 'conversation_sessions', 'participant'),
+  ('clockgrove', 'channel_bindings', 'participant'),
   ('clockgrove', 'conversation_participants', 'participant'),
   ('clockgrove', 'conversation_messages', 'participant'),
   ('clockgrove', 'conversation_turns', 'participant'),
@@ -271,7 +272,7 @@ BEGIN
       expected_rows := CASE WHEN table_name IN (
         'clockgrove.event_dispatches', 'clockgrove.artifact_references',
         'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
-        'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
+        'clockgrove.channel_bindings', 'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
         'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
@@ -2452,3 +2453,79 @@ $$;
 ROLLBACK;
 
 SELECT 'database_authorization_ok';
+
+-- Channel bindings (0049): channel threads grant no access beyond their scoped session.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','channel-session','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','channel-session','world-a','timeline-a','partition-a','space-a','keeper','cognitive','cli');
+INSERT INTO clockgrove.channel_bindings
+  (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+  VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-session','cli','thread');
+SET CONSTRAINTS ALL IMMEDIATE;
+INSERT INTO clockgrove.conversation_participants (tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','channel-unbound','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','channel-unbound','world-a','timeline-a','partition-a','space-a','keeper','cognitive','cli');
+DO $$
+DECLARE context record;
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.channel_bindings) <> 1 THEN
+    RAISE EXCEPTION 'participant cannot read their channel binding';
+  END IF;
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-unbound','fake','wrong-channel');
+    RAISE EXCEPTION 'binding channel differs from canonical session' USING ERRCODE='XX999';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+  FOR context IN SELECT * FROM (VALUES
+    ('tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}'),
+    ('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}')
+  ) AS contexts(tenant_id,principal_id,ceiling) LOOP
+    PERFORM pg_temp.act_as(context.tenant_id,context.principal_id,context.ceiling);
+    IF (SELECT count(*) FROM clockgrove.channel_bindings) <> 0 THEN
+      RAISE EXCEPTION 'channel binding escaped tenant, participant or privacy isolation';
+    END IF;
+    BEGIN
+      INSERT INTO clockgrove.channel_bindings
+        (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+        VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-session','cli','stolen-thread');
+      RAISE EXCEPTION 'foreign principal rebound a thread' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-b','timeline-a','principal-a','channel-session','cli','other-world');
+    RAISE EXCEPTION 'binding changed the session world' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-a','timeline-b','principal-a','channel-session','cli','other-timeline');
+    RAISE EXCEPTION 'binding changed the session timeline' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.channel_bindings SET channel='fake';
+    RAISE EXCEPTION 'binding changed channel' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.channel_bindings;
+    RAISE EXCEPTION 'binding deleted' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+ROLLBACK;

@@ -1,8 +1,10 @@
 import type {
   BrowserScope,
+  ConversationChannel,
   ConversationSession,
   ConversationTranscript,
   ObjectId,
+  SourceIdentityAssertion,
   TalkReceipt,
   TalkRequest,
   TurnPhase,
@@ -18,6 +20,7 @@ import type { RuntimeAuthorizationContext } from "./persistence.js";
 /** The participant a conversation call acts for: the authorized principal and their world persona. */
 export interface ConversationParticipant extends RuntimeAuthorizationContext {
   readonly personaId: WorldPersonaId;
+  readonly sourceIdentityAssertion?: SourceIdentityAssertion;
 }
 
 /** What the store needs to open a session; the caller has already checked the addressed actor. */
@@ -26,6 +29,8 @@ export interface OpenConversation {
   readonly actorId: ObjectId;
   readonly voiceMode: VoiceMode;
   readonly title?: string;
+  readonly channel?: ConversationChannel;
+  readonly threadId?: string;
 }
 
 /**
@@ -232,6 +237,9 @@ export type TurnAcceptance =
   | { readonly fiber: TurnFiber; readonly receipt?: undefined };
 
 export type ConversationRefusalCode =
+  | "channel_identity_unverified"
+  | "channel_thread_reused"
+  | "reply_not_found"
   | "conversation_not_found"
   | "conversation_not_active"
   | "conversation_full"

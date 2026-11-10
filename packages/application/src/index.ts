@@ -10,6 +10,7 @@ export * from "./capabilities.js";
 export * from "./capability-registry.js";
 export * from "./catch-up-workflows.js";
 export * from "./causal-inspector.js";
+export * from "./channels.js";
 export * from "./cognition.js";
 export * from "./conversations.js";
 export * from "./decision-shadow.js";

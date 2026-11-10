@@ -11,6 +11,7 @@ import {
   type Journal,
   JournalRevisionConflictError,
   JournalRouteNotFoundError,
+  normalizeInboundEnvelope,
   PartitionStateIntegrityError,
   RuntimeActionRateLimitedError,
   type RuntimeAuthorizationDenial,
@@ -21,6 +22,7 @@ import {
   type RuntimeLogIds,
   type RuntimeLogOutcome,
   type RuntimeResponseCode,
+  resolveInboundSourceIdentity,
   runtimeLogRecord,
   type WorldCommandResult,
   WorldContinuationPendingError,
@@ -996,7 +998,15 @@ export class RuntimeWorker {
         const refused = await this.unaddressable(call.scope, call.actorId, context, note);
         if (refused !== undefined) return refused;
       }
-      const participant = { ...context, personaId };
+      const participant = {
+        ...context,
+        personaId,
+        sourceIdentityAssertion: {
+          kind: "authenticated_session" as const,
+          subject: identified.identity.externalIdentityId,
+        },
+      };
+      resolveInboundSourceIdentity(participant, call.ingress);
       if (call.owner !== undefined)
         return await this.turn(request, note, call.scope, call.owner, participant, context);
       if (call.run === undefined) throw new Error("conversation call has no store operation");
@@ -1084,8 +1094,38 @@ export class RuntimeWorker {
       const refused = await this.unaddressable(say.scope, say.actorId, context, note);
       if (refused !== undefined) return refused;
       note.outcome = "read";
-      return jsonResponse(scriptedSay(say, { ...context, personaId }, new Date().toISOString()));
+      const participant = {
+        ...context,
+        personaId,
+        sourceIdentityAssertion: {
+          kind: "authenticated_session" as const,
+          subject: identified.identity.externalIdentityId,
+        },
+      };
+      const envelope = normalizeInboundEnvelope(
+        participant,
+        {
+          scope: say.scope,
+          actorId: say.actorId,
+          participants: [{ principalId: context.principalId, personaId }],
+          channel: say.channel ?? "browser",
+          threadId: say.threadId ?? say.actorId,
+          action: "say",
+          privacyPolicy: "public_scene",
+          contentParts: [{ type: "text", text: say.text }],
+          idempotencyKey: say.messageId,
+        },
+        say.ingress,
+      );
+      if (envelope.replyMetadata !== null)
+        throw new ContractDecodeError(
+          "say.ingress.replyMetadata",
+          "Say has no private reply target",
+        );
+      return jsonResponse(scriptedSay(say, participant, new Date().toISOString(), envelope));
     } catch (error) {
+      if (error instanceof ConversationRefusedError)
+        return jsonResponse({ error: error.code }, CONVERSATION_REFUSAL_STATUS[error.code]);
       return this.observationRefusal(note, error);
     }
   }

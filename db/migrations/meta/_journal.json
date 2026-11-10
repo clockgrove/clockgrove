@@ -337,6 +337,13 @@
       "when": 1795298400000,
       "tag": "0048_world_process_deadlines",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795384800000,
+      "tag": "0049_channel_bindings",
+      "breakpoints": true
     }
   ]
 }
