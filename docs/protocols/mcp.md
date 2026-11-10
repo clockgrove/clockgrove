@@ -149,6 +149,23 @@ precedes registry and runtime integration; the operator screen and complete cana
 the Objective. No installation endpoint or callable remote actor capability is
 exposed by this part.
 
+The remaining delivery groups are ordered within issue 164:
+
+- Part 4 composes authenticated installation and full operator OAuth/static-token
+  credentials with hosted outbound admission (entry 2), disabled registry candidates
+  (entry 3), runtime version drift (entry 5), scoped binding/grant resolution
+  (entry 6), immediate revision invalidation (entry 7), authenticated authority
+  (entry 8), canonical binding/grant isolation (entry 9) and fail-closed credential
+  lifecycle (entry 10). Internal snapshot submission is not a network admission
+  boundary and must not be exposed as an installation endpoint on its own.
+- Part 5 adds the operator capabilities screen and completes the composed
+  PostgreSQL, deterministic-server, actor-runtime and browser proofs (entry 11),
+  including the full credential-canary surfaces in entry 10. The final operator
+  runbook must describe those proven operations before Objective completion.
+
+These assignments preserve the full OAuth decision and every acceptance entry;
+they do not authorize production remote access or count pending proofs as passed.
+
 ## Canonical integration still required
 
 Installation and review changes are now attributed Journal events; binding and grant changes
