@@ -1220,8 +1220,8 @@ missed/duplicate/reordered Queue or webhook effects and hosted qualification rem
 ## Native local recovery qualification
 
 Existing `test:runtime` discovery runs `test/native.postgres.test.ts`; offline runtime tests
-exclude PostgreSQL journeys. Wrangler 4.147.0 bundles the production entry and adapters into
-lockfile-selected Miniflare 5.20261001.0-alpha / workerd 1.20261001.1 with `nodejs_compat`.
+exclude PostgreSQL journeys. Wrangler 4.156.2 bundles the production entry and adapters into
+lockfile-selected Miniflare 5.20261102.0-beta / workerd 1.20261102.1 with `nodejs_compat`.
 The host Vitest alias is never passed to Wrangler. The test-only inspection entry delegates
 ordinary no-op requests directly to the production Worker; inspection authenticates through the
 same default stored-session and least-privilege authority readers before initializing the three

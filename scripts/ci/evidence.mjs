@@ -384,7 +384,7 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     candidate,
     execution,
     versions: {
-      toolchain: { node: "24.21.0", pnpm: "12.9.1", opentofu: "1.13.1", wrangler: "4.147.0" },
+      toolchain: { node: "24.21.0", pnpm: "12.9.1", opentofu: "1.13.1", wrangler: "4.156.2" },
       lockfileDigest: digest(await readFile(path.join(root, "pnpm-lock.yaml"))),
       contracts,
       databaseMigrations: await fileInventory(path.join(root, "db/migrations")),

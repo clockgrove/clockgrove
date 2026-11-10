@@ -25,6 +25,6 @@
     "@clockgrove/world-pack-sdk": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "5.0.3"
+    "vitest": "5.1.0"
   }
 }

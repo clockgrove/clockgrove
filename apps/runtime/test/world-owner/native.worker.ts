@@ -406,12 +406,20 @@ export class ActorAgentDO extends ProductionActorAgentDO {
       });
       return;
     }
-    if (fault !== phase) return;
+    // `break:<phase>` faults like `<phase>` but holds until released before it aborts.
+    const breaking = fault === `break:${phase}`;
+    if (fault !== phase && !breaking) return;
     const fired = `test-turn-fault:${fiber.sessionId}:${fiber.messageId}:${phase}`;
     if ((await storage.get<boolean>(fired)) === true) return;
     await storage.put(fired, true);
     // Abort drops unflushed writes: flush the marker, so the restarted incarnation passes on.
     await (storage as unknown as { sync(): Promise<void> }).sync();
+    // Abort also drops response output still in flight, so a streamed token reaches the client
+    // only if the object outlives its delivery: the test releases once it has read the token.
+    if (breaking)
+      await new Promise<void>((resolve) => {
+        this.held = resolve;
+      });
     this.objectState.abort(`injected turn fault at ${phase}`);
   }
 }

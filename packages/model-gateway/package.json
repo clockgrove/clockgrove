@@ -16,11 +16,11 @@
     "test:live": "vitest run --config vitest.config.ts test/production-route.journey.test.ts"
   },
   "devDependencies": {
-    "vitest": "5.0.3"
+    "vitest": "5.1.0"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.97",
     "ai": "7.0.163",
-    "zod": "4.6.6"
+    "zod": "4.6.7"
   }
 }

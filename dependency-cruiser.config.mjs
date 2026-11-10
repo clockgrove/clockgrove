@@ -27,7 +27,7 @@ const ambientOrProviderModule =
 
 // Only the declared pure schema package is an external domain dependency.
 // Keep the package boundary explicit: lookalikes and other externals remain forbidden.
-const domainZodDependency = "node_modules/(?:\\.pnpm/zod@4\\.6\\.6/node_modules/)?zod(?:/|$)";
+const domainZodDependency = "node_modules/(?:\\.pnpm/zod@4\\.6\\.7/node_modules/)?zod(?:/|$)";
 
 export const forbidden = [
   {
