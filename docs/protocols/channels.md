@@ -23,3 +23,15 @@ The subsequent parts of issue 168 implement:
 - Historical replay records without resend, and an isolated preview sink on non-live timelines. Bindings, consent and deliveries require tenant/world/timeline RLS, retention entries and attack-suite proofs.
 
 These are the owner's recorded decisions, not configurable alternatives. The final part proves the complete browser/CLI/fake experience through PostgreSQL, the actor runtime and the scripted fixture model.
+
+## Delivery parts and evidence
+
+Part 1 proves the CLI subprocess through PostgreSQL and the actor runtime on the scripted model. Its second session is created over HTTP; the session's `browser` channel label does not establish a browser UI proof.
+
+| Part | Remaining acceptance and proof |
+| --- | --- |
+| 2 | Complete §13 inbound envelope; verified channel bindings; browser, CLI and fake Talk/Say ingress; binding RLS, retention and database attacks. |
+| 3 | Governed delivery with budget reservation, consent and quiet hours; replay without sends; isolated preview sink; delivery and consent RLS, retention and database attacks. |
+| 4 | Proactive actor delivery producer and the complete browser UI, CLI and fake-adapter experience through PostgreSQL and the actor runtime on the scripted model. |
+
+The Objective remains incomplete until these later parts land and their real-path proofs pass.
