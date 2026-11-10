@@ -219,6 +219,12 @@ export class PostgreSqlCommandOwner {
     this.reader = new PostgreSqlWorldOwnerReader(client);
   }
   async stored(input: WorldCommandInput, principalId: import("@clockgrove/contracts").PrincipalId) {
+    return (await this.storedWithAttribution(input, principalId))?.result;
+  }
+  private async storedWithAttribution(
+    input: WorldCommandInput,
+    principalId: import("@clockgrove/contracts").PrincipalId,
+  ) {
     const principal = principalId;
     const stored = await new PostgreSqlJournal(this.client).storedOutcome<WorldCommandValue>(
       {
@@ -231,14 +237,14 @@ export class PostgreSqlCommandOwner {
     );
     if (stored === undefined) return undefined;
     return {
-      commandId: input.command.commandId,
-      outcome: stored.status,
-      value: restoreWorldCommandValue(stored.result.value),
-      events: stored.result.events,
-      ...(stored.attribution?.personaId === undefined
-        ? {}
-        : { personaId: stored.attribution.personaId }),
-    } satisfies WorldCommandResult & { readonly personaId?: WorldPersonaId };
+      result: {
+        commandId: input.command.commandId,
+        outcome: stored.status,
+        value: restoreWorldCommandValue(stored.result.value),
+        events: stored.result.events,
+      } satisfies WorldCommandResult,
+      personaId: stored.attribution?.personaId,
+    };
   }
   /**
    * Prepares a command the server builds (an Influence intent, issue 811) in this one connection:
@@ -268,9 +274,9 @@ export class PostgreSqlCommandOwner {
       const bytes = worldCommandBytes(input, principalId);
       if (bytes.length !== prior.length || bytes.some((octet, index) => octet !== prior[index]))
         throw new CommandIdempotencyInvariantError(commandId);
-      const stored = await this.stored(input, principalId);
+      const stored = await this.storedWithAttribution(input, principalId);
       if (stored !== undefined) {
-        const { personaId, ...result } = stored;
+        const { personaId, result } = stored;
         return {
           tenantMember: true,
           ready: true,
