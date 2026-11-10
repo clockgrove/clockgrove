@@ -118,6 +118,7 @@ import type { SpatialIndexFactory } from "./spatial/index-port.js";
 import {
   crossingEvent,
   type MovementRuntime,
+  movementIdFor,
   movementPreconditionPath,
   runMovementHandler,
 } from "./spatial/movement.js";
@@ -1004,8 +1005,8 @@ function runWorld(
     (plan.comfort === undefined ? 0 : 1);
   /**
    * The arrival effects at a target for an actor whose needs are integrated in `state`. A move
-   * (`moved`) ends in the shelter standing at the target, if any; an actor already there enters
-   * only the shelter it sought.
+   * (`moved`: completed, or a walk stopped at the target) ends in the shelter standing at the
+   * target, if any; an actor that was already standing there enters only the shelter it sought.
    */
   function arrivalPlan(
     state: WorldState,
@@ -1102,6 +1103,26 @@ function runWorld(
       emit(event(type as never, crossing.time as SimTimeMs, payload as never));
     }
   }
+  /**
+   * The plan a movement `world.advance` completes belongs to: the decision plan that started or
+   * replanned it when its id is the one that decision's dispatch derives (`movementIdFor` of the
+   * actor's decision command at the movement's start), else the movement itself, which a moving
+   * command started and the world time finished.
+   */
+  function completedPlanId(objectId: string, movement: MovementRecord): string {
+    const start = movement.segment.startTime as SimTimeMs;
+    const item = decisionsOf(schedules).find((entry) => entry.payload.objectId === objectId);
+    if (item !== undefined) {
+      const decision = dispatchWorldDecision({
+        ...item,
+        dueAt: start,
+        idempotencyKey: `${item.id}:${start}`,
+      });
+      if (movementIdFor(decision.commandId) === movement.movementId)
+        return `plan:${objectId}@${start}`;
+    }
+    return movement.movementId;
+  }
   /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
   function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
@@ -1168,8 +1189,9 @@ function runWorld(
         readonly record: MovementRecord;
       }
     | { readonly kind: "unlocate" }
+    | { readonly kind: "locate"; readonly locationId: string | null }
     | { readonly kind: "start"; readonly record: MovementRecord }
-    | { readonly kind: "arrive"; readonly events: number };
+    | { readonly kind: "arrive"; readonly events: number; readonly walked: boolean };
   interface DecisionPlan {
     readonly steps: readonly DecisionStep[];
     readonly links: readonly string[];
@@ -1199,11 +1221,11 @@ function runWorld(
     if (target === undefined) {
       if (prior !== undefined) {
         stopPrior();
-        steps.push({
-          kind: "interrupt",
-          movementId: prior.movementId,
-          position: positionAt(prior.segment, t),
-        });
+        const position = positionAt(prior.segment, t);
+        steps.push({ kind: "interrupt", movementId: prior.movementId, position });
+        // Where a stopped walk stands, the actor is in the shelter standing there, or on open ground.
+        const locationId = shelterAt(state, actor, position);
+        if (locationId !== (actor.locationId ?? null)) steps.push({ kind: "locate", locationId });
       }
       return { steps, links };
     }
@@ -1224,8 +1246,10 @@ function runWorld(
           position: positionAt(prior.segment, t),
         });
       }
-      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map(), false);
-      steps.push({ kind: "arrive", events: arrivalEventCount(live) });
+      // A walk stopped at the target ends there as a completed one would.
+      const walked = prior !== undefined;
+      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map(), walked);
+      steps.push({ kind: "arrive", events: arrivalEventCount(live), walked });
       links.push(planId);
       return { steps, links };
     }
@@ -1323,11 +1347,11 @@ function runWorld(
             movement: step.record,
           } as never),
         );
-      else if (step.kind === "unlocate")
+      else if (step.kind === "unlocate" || step.kind === "locate")
         emit(
           event("location.changed", t, {
             objectId: objectId as ObjectId,
-            locationId: null,
+            locationId: (step.kind === "locate" ? step.locationId : null) as ObjectId | null,
             planId,
           }),
         );
@@ -1338,7 +1362,7 @@ function runWorld(
             movement: step.record,
           } as never),
         );
-      else emitArrival(objectId, planId, t, false);
+      else emitArrival(objectId, planId, t, step.walked);
     }
   }
   /** Re-seeds the engine states of the given (journaled) actors and re-registers the movers. */
@@ -1851,7 +1875,7 @@ function runWorld(
           movementId: movement.movementId,
         } as never),
       );
-      emitArrival(objectId, `plan:${objectId}@${movement.segment.startTime}`, at, true);
+      emitArrival(objectId, completedPlanId(objectId, movement), at, true);
     }
     arrivedActors = arrivalIds;
     return true;
@@ -2160,9 +2184,10 @@ function runWorld(
     };
     let ended = false;
     /**
-     * Journals the mover's location at `at` as a decision's move does: its needs are integrated
-     * first under the shelter it was in, and its exposure is re-seeded under the new one. Only a
-     * living needs actor has a location. `reserve` events must still fit after it.
+     * Journals the mover's location at `at` as a decision's move does. Whatever shelter protects is
+     * integrated first under the shelter it was in (a needs actor's needs and wellbeing, a plant's
+     * growth) and continues under the new one: an actor's exposure is re-seeded, and a plant's
+     * growth is rebuilt with the run. `reserve` events must still fit after it.
      */
     const relocate = (
       at: SimTimeMs,
@@ -2171,11 +2196,14 @@ function runWorld(
       reserve: number,
     ): void => {
       const actor = objectsOf(current(), mover as string);
-      if (actor?.needs === undefined || !active(actor)) return;
+      if (actor === undefined || !active(actor)) return;
       if ((actor.locationId ?? null) === locationId) return;
-      if (context.eventCount() + integrationEvents(actor, at) + 1 + reserve > payload.maxEvents)
+      const plant = pendingPlants(at).includes(actor.objectId);
+      const integration = integrationEvents(actor, at) + (plant ? 1 : 0);
+      if (context.eventCount() + integration + 1 + reserve > payload.maxEvents)
         passedTime("events");
       integrateActor(actor, at);
+      if (plant) integratePlant(actor.objectId, at);
       emit(
         event("location.changed", at, {
           objectId: actor.objectId,
@@ -2183,7 +2211,10 @@ function runWorld(
           planId,
         }),
       );
-      if (run !== undefined) refreshRun(run, [actor.objectId]);
+      if (run === undefined) return;
+      if (current().ecology?.plants.some((entry) => entry.objectId === actor.objectId))
+        run = buildRun();
+      else if (actor.needs !== undefined) refreshRun(run, [actor.objectId]);
     };
     spec.move({
       state: startState,
@@ -3011,9 +3042,10 @@ function ecologyRunOptions(state: WorldState, policy: EcologyPolicy): EcologyRun
   });
   return { policy, holders: ecologyHolders(state, policy), plants };
 }
+/** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
-  return location?.shelter?.rainProtection ?? 0;
+  return location !== undefined && active(location) ? (location.shelter?.rainProtection ?? 0) : 0;
 }
 /**
  * The world's single needs/wetness arithmetic, given the rain intensity and shelter protection in
@@ -3162,8 +3194,9 @@ function active(entity: WorldEntity): boolean {
 }
 /**
  * Where an actor that has stopped moving at `position` is: an active shelter standing there in its
- * space and frame, else open ground (null). Where several shelters stand together, the actor keeps
- * the one it is in, else takes `preferred` (the shelter it sought), else the first by object id.
+ * space and frame, other than itself (a moved shelter is never inside itself), else open ground
+ * (null). Where several shelters stand together, the actor keeps the one it is in, else takes
+ * `preferred` (the shelter it sought), else the first by object id.
  */
 function shelterAt(
   state: WorldState,
@@ -3175,6 +3208,7 @@ function shelterAt(
     .filter(
       (entity) =>
         entity.shelter !== undefined &&
+        entity.objectId !== actor.objectId &&
         active(entity) &&
         entity.spaceId === actor.spaceId &&
         entity.pose.frameId === actor.pose.frameId &&
@@ -3242,6 +3276,35 @@ function runContainmentCommand(
     case "object.retire": {
       const p = payload as ContainmentPayload<"object.retire">;
       const entity = find(p.objectId);
+      // Whatever is in a retired shelter stands on open ground from now: each is integrated first
+      // under the protection still in force, then leaves it (`location.changed` to null).
+      const occupants = state.entities.filter(
+        (occupant) => occupant.locationId === entity.objectId && active(occupant),
+      );
+      if (occupants.length > 0) {
+        const at = state.simulationTime;
+        const continuous = worldContinuousAt(state, input.pack.pack.policy, at);
+        for (const occupant of occupants) {
+          const objectId = occupant.objectId;
+          const needs = continuous.needs.find((entry) => entry.objectId === objectId)?.needs;
+          if (
+            needs !== undefined &&
+            canonicalSerialize(needs) !== canonicalSerialize(occupant.needs)
+          )
+            emit({ type: "needs.changed", payload: { objectId, ...needs } });
+          const wellbeing = continuous.wellbeing.find((entry) => entry.objectId === objectId);
+          const entry = state.wellbeing?.entries.find((item) => item.objectId === objectId);
+          if (wellbeing !== undefined && entry !== undefined && entry.integratedAt !== at)
+            emit({ type: "wellbeing.integrated", payload: { ...wellbeing, integratedAt: at } });
+          const growth = continuous.plants.find((item) => item.objectId === objectId);
+          if (growth !== undefined)
+            emit({ type: "growth.integrated", payload: { ...growth, integratedAt: at } });
+          emit({
+            type: "location.changed",
+            payload: { objectId, locationId: null, planId: context.command.commandId },
+          });
+        }
+      }
       emit({
         type: "object.retired",
         payload: {
@@ -3649,15 +3712,22 @@ function registerContainmentChecks(
 ): RegistrationResult {
   const registerPre = (name: string, check: (context: WorldPrecondition) => string | undefined) =>
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
-  const authority = {
-    "object.create": "object.created",
-    "object.retire": "object.retired",
-    "containment.put": "containment.put",
-    "containment.remove": "containment.removed",
-    "containment.transfer": "containment.transferred",
-    "resource.offer": "resource.offered",
-    "resource.consume": "resource.consumed",
-    "resource.transfer": "resource.transferred",
+  const authority: Record<ContainmentCommandType, readonly string[]> = {
+    "object.create": ["object.created"],
+    // Retiring a shelter integrates and evicts whatever is in it first.
+    "object.retire": [
+      "needs.changed",
+      "wellbeing.integrated",
+      "growth.integrated",
+      "location.changed",
+      "object.retired",
+    ],
+    "containment.put": ["containment.put"],
+    "containment.remove": ["containment.removed"],
+    "containment.transfer": ["containment.transferred"],
+    "resource.offer": ["resource.offered"],
+    "resource.consume": ["resource.consumed"],
+    "resource.transfer": ["resource.transferred"],
   };
   const authorityChecks = [
     ...CONTAINMENT_COMMAND_TYPES,
@@ -3665,12 +3735,12 @@ function registerContainmentChecks(
   ].map((type) =>
     invariants.register({
       name: `resource.event-authority.${type}`,
-      version: 1,
+      version: type === "object.retire" ? 2 : 1,
       commands: [type],
       check: ({ events }) => {
         const allowed =
           type in authority
-            ? [authority[type as ContainmentCommandType]]
+            ? authority[type as ContainmentCommandType]
             : [
                 "weather.changed",
                 "needs.changed",

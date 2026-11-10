@@ -960,9 +960,8 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       requireBasisPoints(event.payload.health, "event.health");
       return createWorldState(advanced);
     case "location.changed": {
+      // Any object may stand in a shelter (a sheltered plant, a carried object), so any may leave it.
       const entity = requireEntity(state, event.payload.objectId);
-      if (entity.needs === undefined)
-        throw new DomainValidationError("event.objectId", "entity has no needs component");
       const locationId = event.payload.locationId;
       if (locationId !== null) requireShelter(state, entity, locationId);
       requireName(event.payload.planId, "event.planId");
