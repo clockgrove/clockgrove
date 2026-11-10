@@ -994,20 +994,25 @@ function runWorld(
       readonly quantity: number;
     };
     readonly relieve?: { readonly need: "hunger" | "thirst"; readonly value: number };
-    readonly location?: string;
+    readonly location?: string | null;
     readonly comfort?: Derived;
   }
   const arrivalEventCount = (plan: ArrivalPlan): number =>
     (plan.location === undefined ? 0 : 1) +
     (plan.consume === undefined ? 0 : 2) +
     (plan.comfort === undefined ? 0 : 1);
-  /** The arrival effects at a target for an actor whose needs are integrated in `state`. */
+  /**
+   * The arrival effects at a target for an actor whose needs are integrated in `state`. A move
+   * (`moved`) ends in the shelter standing at the target, if any; an actor already there enters
+   * only the shelter it sought.
+   */
   function arrivalPlan(
     state: WorldState,
     actor: WorldEntity,
     targetId: string | undefined,
     baseline: Derived["comfort"] | undefined,
     held: ReadonlyMap<string, number>,
+    moved: boolean,
   ): ArrivalPlan {
     const target = targetId === undefined ? undefined : objectsOf(state, targetId);
     const entry = state.wellbeing?.entries.find(
@@ -1025,11 +1030,18 @@ function runWorld(
       wellbeingPolicy === undefined
     )
       return {};
+    const was = actor.locationId ?? null;
+    const location = moved
+      ? shelterAt(state, actor, target.pose.coordinates, target.objectId)
+      : target.shelter !== undefined
+        ? target.objectId
+        : was;
+    const located = location === was ? {} : { location };
     const resource = target.resource;
     if (resource !== undefined && (resource.kind === "food" || resource.kind === "water")) {
       const available = held.get(target.objectId) ?? resource.quantity;
       const quantity = Math.min(utilityPolicy.biteQuantity, available);
-      if (quantity <= 0) return {};
+      if (quantity <= 0) return located;
       const food = resource.kind === "food";
       const current = food ? needs.hunger : entry.thirst;
       const drop =
@@ -1042,14 +1054,13 @@ function runWorld(
         wetness: needs.wetness,
       });
       return {
+        ...located,
         consume: { holder: target.objectId, kind: resource.kind, quantity },
         relieve: { need: food ? "hunger" : "thirst", value },
         ...(derived.comfort === (baseline ?? entry.comfort) ? {} : { comfort: derived }),
       };
     }
-    if (target.shelter !== undefined)
-      return actor.locationId === target.objectId ? {} : { location: target.objectId };
-    return {};
+    return located;
   }
   /** A copy of the state with one actor's needs and wellbeing integrated through `through`. */
   function viewAt(objectId: string, through: SimTimeMs): WorldState {
@@ -1090,8 +1101,8 @@ function runWorld(
       emit(event(type as never, crossing.time as SimTimeMs, payload as never));
     }
   }
-  /** The immediate-or-completed arrival effects, journaled from the live state. */
-  function emitArrival(objectId: string, planId: string, at: SimTimeMs): void {
+  /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
+  function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
     if (actor === undefined) throw new RangeError("arriving actor disappeared");
     const plan = arrivalPlan(
@@ -1100,12 +1111,13 @@ function runWorld(
       actor.selectedAction?.targetObjectId,
       undefined,
       new Map(),
+      moved,
     );
     if (plan.location !== undefined)
       emit(
         event("location.changed", at, {
           objectId: objectId as ObjectId,
-          locationId: plan.location as ObjectId,
+          locationId: plan.location as ObjectId | null,
           planId,
         }),
       );
@@ -1211,7 +1223,7 @@ function runWorld(
           position: positionAt(prior.segment, t),
         });
       }
-      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map());
+      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map(), false);
       steps.push({ kind: "arrive", events: arrivalEventCount(live) });
       links.push(planId);
       return { steps, links };
@@ -1325,7 +1337,7 @@ function runWorld(
             movement: step.record,
           } as never),
         );
-      else emitArrival(objectId, planId, t);
+      else emitArrival(objectId, planId, t, false);
     }
   }
   /** Re-seeds the engine states of the given (journaled) actors and re-registers the movers. */
@@ -1512,6 +1524,7 @@ function runWorld(
           actor.selectedAction?.targetObjectId,
           comforts.get(objectId),
           held,
+          true,
         );
         if (plan.consume !== undefined) {
           const holder = objectsOf(before, plan.consume.holder);
@@ -1836,7 +1849,7 @@ function runWorld(
           movementId: movement.movementId,
         } as never),
       );
-      emitArrival(objectId, `plan:${objectId}@${movement.segment.startTime}`, at);
+      emitArrival(objectId, `plan:${objectId}@${movement.segment.startTime}`, at, true);
     }
     arrivedActors = arrivalIds;
     return true;
@@ -2144,6 +2157,32 @@ function runWorld(
       );
     };
     let ended = false;
+    /**
+     * Journals the mover's location at `at` as a decision's move does: its needs are integrated
+     * first under the shelter it was in, and its exposure is re-seeded under the new one. Only a
+     * living needs actor has a location. `reserve` events must still fit after it.
+     */
+    const relocate = (
+      at: SimTimeMs,
+      locationId: string | null,
+      planId: string,
+      reserve: number,
+    ): void => {
+      const actor = objectsOf(current(), mover as string);
+      if (actor?.needs === undefined || !active(actor)) return;
+      if ((actor.locationId ?? null) === locationId) return;
+      if (context.eventCount() + integrationEvents(actor, at) + 1 + reserve > payload.maxEvents)
+        passedTime("events");
+      integrateActor(actor, at);
+      emit(
+        event("location.changed", at, {
+          objectId: actor.objectId,
+          locationId: locationId as ObjectId | null,
+          planId,
+        }),
+      );
+      if (run !== undefined) refreshRun(run, [actor.objectId]);
+    };
     spec.move({
       state: startState,
       command: { type: context.command.type, commandId: context.command.commandId },
@@ -2160,7 +2199,19 @@ function runWorld(
         ended = moverDied();
         if (ended) return;
         if (context.eventCount() >= payload.maxEvents) passedTime("events");
-        emit(event(type as WorldEvent["type"], time as SimTimeMs, data as never));
+        const at = time as SimTimeMs;
+        // A move off the spot leaves the mover's location as it sets out.
+        if (type === "movement.started" || type === "movement.replanned") {
+          const movement = (data as { readonly movement: MovementRecord }).movement;
+          if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
+        }
+        emit(event(type as WorldEvent["type"], at, data as never));
+        // Where it stops, it is in the shelter standing there, or on open ground.
+        if (type === "movement.completed" || type === "movement.interrupted") {
+          const actor = objectsOf(current(), mover as string) as WorldEntity;
+          const movementId = (data as { readonly movementId: string }).movementId;
+          relocate(at, shelterAt(current(), actor, actor.pose.coordinates), movementId, 0);
+        }
       },
     });
     const through = current().simulationTime;
@@ -3079,6 +3130,37 @@ export function worldResourceTotals(state: WorldState): Readonly<Record<string, 
 
 function active(entity: WorldEntity): boolean {
   return entity.lifecycle === undefined || entity.lifecycle.status === "active";
+}
+/**
+ * Where an actor that has stopped moving at `position` is: an active shelter standing there in its
+ * space and frame, else open ground (null). Where several shelters stand together, the actor keeps
+ * the one it is in, else takes `preferred` (the shelter it sought), else the first by object id.
+ */
+function shelterAt(
+  state: WorldState,
+  actor: WorldEntity,
+  position: readonly bigint[],
+  preferred?: string,
+): string | null {
+  const here = state.entities
+    .filter(
+      (entity) =>
+        entity.shelter !== undefined &&
+        active(entity) &&
+        entity.spaceId === actor.spaceId &&
+        entity.pose.frameId === actor.pose.frameId &&
+        entity.pose.frameVersion === actor.pose.frameVersion &&
+        sameCoordinates(entity.pose.coordinates, position),
+    )
+    .map((entity) => entity.objectId as string);
+  for (const kept of [actor.locationId, preferred])
+    if (kept !== undefined && kept !== null && here.includes(kept)) return kept;
+  return here[0] ?? null;
+}
+/** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
+function leavesStart(movement: MovementRecord): boolean {
+  const [first, ...rest] = movement.segment.waypoints;
+  return rest.some((point) => !sameCoordinates(point, first!));
 }
 function entityPath(state: WorldState, entity: WorldEntity): string {
   return `state.entities[${state.entities.indexOf(entity)}]`;

@@ -212,6 +212,18 @@ Three things differ from `world.advance`:
   carries no cause; the `lifecycle.died` at the same time carries it (`lifespan` or `health`).
   The handler's later events are dropped, and nothing after that time is emitted.
 
+A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
+does. A location is a shelter's pose in the actor's space and frame; regions are not locations, so
+crossings do not change it. When the movement it starts or replans leaves its starting point, a
+located mover journals `location.changed` to null just before `movement.started` or
+`movement.replanned`. Where it stops (`movement.completed` or `movement.interrupted`), it journals
+`location.changed` to the active shelter standing there (the one it is in, else the first by
+object id) or to null on open ground, unless that is where it already is. A zero-length move, or
+any move that ends where it began, changes nothing. The mover's needs and wellbeing are integrated
+under the old location first and its exposure is re-seeded under the new one; the change's
+`planId` is the movement id, and its events count toward the move's event bound. Only a living
+actor with needs has a location.
+
 The event authority of every moving command (`movement.event-authority.<command>@3`,
 `portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits
 for the time it passes, other than `time.advanced`. The mover's movement events (those naming
@@ -258,7 +270,9 @@ with equal final states. It also records a replan two days ahead refused at `pay
 `walk-crossings` scenario walks the keeper across its own uncomfortable crossing (and the next
 `world.advance` runs), across a conception with its `lifecycle` draw and another actor's decision,
 and across its lifespan death, which interrupts the walk. A control run without the walks ends
-with the same `lifecycle` stream position.
+with the same `lifecycle` stream position. Its `walk-out-of-den` scenario walks the companion out of
+the den to the water bowl, back in, and then in place, live and fast-forward: one location change
+as it leaves, one as it enters and none for the move in place.
 
 Perception and audiences are built ([Perception and audiences](perception.md), RW-0105b).
 
