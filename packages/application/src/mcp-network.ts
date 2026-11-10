@@ -6,6 +6,30 @@ export class McpRefusal extends Error {
   }
 }
 
+/** Rebuild only policy refusals; messages, causes and arbitrary codes may contain credentials. */
+export function safeMcpNetworkRefusal(error: unknown): McpRefusal | undefined {
+  if (
+    error instanceof McpRefusal &&
+    [
+      "invalid_url",
+      "https_required",
+      "url_credentials_or_query_refused",
+      "private_target",
+      "private_or_unresolved_target",
+      "dns_changed",
+      "invalid_redirect",
+      "unsafe_redirect",
+      "redirect_limit",
+      "network_timeout",
+      "network_failed",
+      "response_too_large",
+      "invalid_utf8",
+    ].includes(error.code)
+  )
+    return new McpRefusal(error.code);
+  return undefined;
+}
+
 /**
  * The trusted adapter connects only to admittedAddresses, retaining HTTPS hostname verification.
  * It must honor manual redirects and the abort signal, without logging credentials or bodies.

@@ -9,7 +9,12 @@ import {
   McpInstallationService,
 } from "./mcp-installation-service.js";
 import type { McpInstallationScope } from "./mcp-installations.js";
-import { type McpNetworkPort, McpRefusal, remoteMcpUrl } from "./mcp-network.js";
+import {
+  type McpNetworkPort,
+  McpRefusal,
+  remoteMcpUrl,
+  safeMcpNetworkRefusal,
+} from "./mcp-network.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
 
 export interface McpOwnedCredentialProvider {
@@ -88,8 +93,12 @@ export class McpCredentialInstallation {
         network,
       );
     } catch (error) {
-      if (error instanceof McpRefusal) throw error;
-      throw new McpCredentialError();
+      if (
+        error instanceof McpRefusal &&
+        ["installation_authority_required", "installation_unavailable"].includes(error.code)
+      )
+        throw new McpRefusal(error.code);
+      throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
     }
   }
 
@@ -120,8 +129,8 @@ export class McpCredentialInstallation {
     try {
       await this.authorize(allowInactive);
       return await operation();
-    } catch {
-      throw new McpCredentialError();
+    } catch (error) {
+      throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
     } finally {
       this.busy = false;
     }
@@ -138,10 +147,10 @@ export class McpCredentialInstallation {
       );
       this.installed = true;
       await this.authorize();
-    } catch {
+    } catch (error) {
       // A rejected or uncertain install cannot leave a reusable credential in this handle.
       await this.close();
-      throw new McpCredentialError();
+      throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
     }
   }
 
@@ -176,9 +185,9 @@ export class McpCredentialInstallation {
       try {
         await this.provider.vault.completeOAuth(this.credentialScope, this.reference, captured);
         await this.install(commandId, issuedAt);
-      } catch {
+      } catch (error) {
         await this.close();
-        throw new McpCredentialError();
+        throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
       }
     });
   }
@@ -195,7 +204,7 @@ export class McpCredentialInstallation {
           commandId,
           issuedAt,
         );
-      } catch {
+      } catch (error) {
         try {
           await this.service.change(
             this.authorization,
@@ -207,7 +216,7 @@ export class McpCredentialInstallation {
         } finally {
           await this.close();
         }
-        throw new McpCredentialError();
+        throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
       }
     });
   }

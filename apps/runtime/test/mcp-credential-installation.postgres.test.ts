@@ -5,6 +5,7 @@ import {
   McpCredentialVault,
   type McpNetworkPort,
   McpOAuthHttpNetwork,
+  McpRefusal,
   type RuntimeAuthorizationContext,
   SafeMcpHttpClient,
 } from "@clockgrove/application";
@@ -50,10 +51,17 @@ it("owns PostgreSQL credentials across authorized static and OAuth discovery, re
     let echo = false;
     let failToken = false;
     let failRevoke = false;
+    let networkMode = "public";
+    let resolutions = 0;
     const server = createServer(async (request, response) => {
       let body = "";
       for await (const chunk of request) body += chunk;
       const path = request.url ?? "";
+      if (networkMode === "redirect") {
+        response.writeHead(307, { Location: "https://other.example/mcp" });
+        response.end();
+        return;
+      }
       headers.push([path, request.headers.authorization]);
       let result: unknown;
       if (path.startsWith("/.well-known/oauth-protected-resource/")) {
@@ -117,8 +125,24 @@ it("owns PostgreSQL credentials across authorized static and OAuth discovery, re
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const network: McpNetworkPort = {
-      resolve: async () => ["93.184.216.34"],
-      request: (url, init) => fetch(`${origin}${new URL(url).pathname}`, init),
+      resolve: async () => {
+        resolutions++;
+        return networkMode === "private"
+          ? ["127.0.0.1"]
+          : networkMode === "rebind" && resolutions > 1
+            ? ["93.184.216.35"]
+            : ["93.184.216.34"];
+      },
+      request: (url, init) => {
+        if (networkMode === "unknown") throw new McpRefusal(canary);
+        if (networkMode === "forged") {
+          const error = new McpRefusal("unsafe_redirect");
+          error.message = canary;
+          error.cause = canary;
+          throw error;
+        }
+        return fetch(`${origin}${new URL(url).pathname}`, init);
+      },
     };
     const key = await crypto.subtle.importKey("raw", new Uint8Array(32).fill(7), "AES-GCM", false, [
       "encrypt",
@@ -173,6 +197,38 @@ it("owns PostgreSQL credentials across authorized static and OAuth discovery, re
       await sql(
         "UPDATE clockgrove.world_memberships SET roles=ARRAY['owner'] WHERE principal_id='principal-j-a'",
       );
+      for (const [mode, message] of [
+        ["private", "MCP refused: private_or_unresolved_target"],
+        ["redirect", "MCP refused: unsafe_redirect"],
+        ["rebind", "MCP refused: dns_changed"],
+        ["unknown", "MCP credential unavailable"],
+        ["forged", "MCP refused: unsafe_redirect"],
+      ]) {
+        const refused = await open(`refused-${mode}`);
+        networkMode = mode!;
+        resolutions = 0;
+        const error = await refused
+          .connectStatic(canary, `refused-${mode}`, issuedAt)
+          .catch((value: unknown) => value);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(message);
+        expect((error as Error).cause).toBeUndefined();
+        expect(await governance.read(authorization, scope, `refused-${mode}`)).toBeUndefined();
+      }
+      networkMode = "public";
+      const failedRefresh = await open("network-refresh");
+      await failedRefresh.connectStatic(canary, "network-refresh-install", issuedAt);
+      networkMode = "redirect";
+      await expect(
+        failedRefresh.refresh("network-refused-refresh", issuedAt),
+      ).rejects.toMatchObject({
+        message: "MCP refused: unsafe_redirect",
+        code: "unsafe_redirect",
+      });
+      expect((await governance.read(authorization, scope, "network-refresh"))?.status).toBe(
+        "disabled",
+      );
+      networkMode = "public";
       const staticHandle = await open("static");
       await staticHandle.connectStatic(canary, "credential-static", issuedAt);
       expect((await governance.read(authorization, scope, "static"))?.owner_principal_id).toBe(

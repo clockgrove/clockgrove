@@ -316,8 +316,11 @@ canonical revocation before contacting the remote OAuth revocation endpoint, so 
 remote response cannot restore canonical enablement. Authorized cleanup also accepts an externally
 disabled or already revoked installation, preserving owner/endpoint/space checks and skipping
 a redundant canonical revoke. A failed cleanup preflight still closes the owned provider without
-making an unauthorized remote request. Fixed credential errors contain no remote
-text. Explicit close terminates the provider; the PostgreSQL adapter's existing takeover fence
+making an unauthorized remote request. Credential failures contain no remote text.
+Credential-backed discovery preserves only enumerated network-policy refusal codes, reconstructed
+as fixed errors without the original message or cause, so an operator can distinguish a private
+target, unsafe redirect or DNS change. Unknown refusal codes and credential/provider failures
+remain the generic credential-unavailable error. Explicit close terminates the provider; the PostgreSQL adapter's existing takeover fence
 requires reconnect rather than silently reopening an old reference.
 
 The handle is internal and session-owned. It is not a durable directory of installation-to-secret
