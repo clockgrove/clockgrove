@@ -70,9 +70,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // A crash at each boundary interrupts the request; the same message then resumes or retries.
       const crashed = await open();
       for (const [index, phase] of BOUNDARIES.entries()) {
-        await agent({ op: "fault", phase });
+        const streaming = phase === "model_running:streaming";
+        await agent({ op: "fault", phase: streaming ? `break:${phase}` : phase });
         const messageId = `m${index + 1}`;
-        if (phase === "model_running:streaming") {
+        if (streaming) {
           // The browser saw a streamed token, then the stream broke: tokens are not the turn.
           const streamed = await fetch(new URL("/v1/runtime/talk", await owner.origin()), {
             method: "POST",
@@ -89,7 +90,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
               text: `hello ${messageId}`,
             }),
           });
-          const text = await streamed.text().catch(() => "");
+          // Read the token, release the held fault so the owner aborts, then read to the break.
+          const reader = streamed.body!.pipeThrough(new TextDecoderStream()).getReader();
+          let text = (await reader.read()).value ?? "";
+          // The owner aborts as it releases, which can fail the release call too.
+          await agent({ op: "release" }).catch((error: Error) =>
+            expect(error.message).toContain("injected turn fault at model_running:streaming"),
+          );
+          for (;;) {
+            const chunk = await reader.read().catch(() => ({ done: true, value: undefined }));
+            if (chunk.done) break;
+            text += chunk.value;
+          }
           expect(text.startsWith('{"type":"delta","text":"Scripted "}')).toBe(true);
           expect(text).not.toContain('"receipt"');
         } else

@@ -257,7 +257,7 @@ Official metadata checked on 2026-10-06 UTC selected these newest eligible stabl
 | --- | --- | --- |
 | [ajv](https://registry.npmjs.org/ajv) | 8.20.0 | 2026-04-24T15:22:16.529Z |
 | [axe-core](https://registry.npmjs.org/axe-core) | 4.14.0 | 2026-10-05T17:43:36.099Z |
-| [playwright](https://registry.npmjs.org/playwright) | 1.63.0 | 2026-09-04T22:45:21.732Z |
+| [playwright](https://registry.npmjs.org/playwright) | 1.64.1 | 2026-10-14T11:54:49.998Z |
 
 The unchanged 1440-minute cutoff at selection was 2026-10-05T22:26:41Z. Frozen installation
 verified their complete closure under the unchanged release-age, provenance and build policy.
