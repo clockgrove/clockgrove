@@ -28,7 +28,14 @@ advance) and `growth.integrated` (`{objectId, growingMs, wetness, wetnessRemaind
 replaces the plant's integration fields, which must move forward), each at version 1 with exactly one
 reducer. The offer, transfer, consume and retire reducers maintain arrival times without payload
 changes. `resource.quantity-conservation@1` counts `appeared` as an addition and `spoiled` as a removal
-only. `resource.event-authority.<world command>@1` allows the four events for the world commands.
+only. The same invariant also balances each holder and resource kind independently against
+creation, retirement, offer, transfer, consumption, appearance and spoilage events. A transfer must
+debit its source and credit its destination by the journaled quantity; a globally balanced but
+unjournaled movement, or a swap of resource kinds between holders, is refused at the affected
+holder's `state.entities[i].resource.quantity` path. Genesis quantities are the initial inventory.
+This accounting preserves the existing cause kinds; removal of scheduled appearances and the
+closed-world policy migration are separate changes.
+`resource.event-authority.<world command>@1` allows the four events for the world commands.
 `growth.integrated` is incidental: it is emitted wherever `needs.changed` is, so its count depends on
 step boundaries.
 

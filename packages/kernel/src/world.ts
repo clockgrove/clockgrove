@@ -3812,32 +3812,103 @@ function registerContainmentChecks(
         const before = worldResourceTotals(initial),
           after = worldResourceTotals(state);
         const changes = Object.fromEntries(RESOURCE_KINDS.map((kind) => [kind, 0n]));
+        const holderChanges = new Map<ObjectId, Map<string, bigint>>();
+        const changeHolder = (objectId: ObjectId, kind: string, quantity: bigint) => {
+          const holder = holderChanges.get(objectId) ?? new Map<string, bigint>();
+          holder.set(kind, (holder.get(kind) ?? 0n) + quantity);
+          holderChanges.set(objectId, holder);
+        };
         for (const event of events) {
           switch (event.type) {
             case "object.created":
-              if (event.payload.object.resource !== undefined)
+              if (event.payload.object.resource !== undefined) {
                 changes[event.payload.object.resource.kind]! += BigInt(event.payload.quantityAdded);
+                changeHolder(
+                  event.payload.object.objectId,
+                  event.payload.object.resource.kind,
+                  BigInt(event.payload.quantityAdded),
+                );
+              }
               break;
             case "object.retired":
-              if (event.payload.kind !== null)
+              if (event.payload.kind !== null) {
                 changes[event.payload.kind]! -= BigInt(event.payload.quantityRemoved);
+                changeHolder(
+                  event.payload.objectId,
+                  event.payload.kind,
+                  -BigInt(event.payload.quantityRemoved),
+                );
+              }
               break;
             case "resource.offered":
               changes[event.payload.kind]! += BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
               break;
             case "resource.consumed":
               changes[event.payload.kind]! -= BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
               break;
             case "resource.appeared":
               changes[event.payload.kind]! += BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
+              break;
+            case "resource.transferred":
+              changeHolder(
+                event.payload.fromObjectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
+              changeHolder(
+                event.payload.toObjectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
               break;
             case "resource.spoiled":
               changes[event.payload.kind]! -= BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
               break;
           }
         }
         for (const kind of RESOURCE_KINDS)
           if (after[kind]! - before[kind]! !== changes[kind]) return `state.resources.${kind}`;
+        const beforeHolders = new Map(initial.entities.map((entity) => [entity.objectId, entity]));
+        const afterHolders = new Map(state.entities.map((entity) => [entity.objectId, entity]));
+        const holderIds = new Set([
+          ...beforeHolders.keys(),
+          ...afterHolders.keys(),
+          ...holderChanges.keys(),
+        ]);
+        for (const objectId of [...holderIds].sort()) {
+          const beforeHolder = beforeHolders.get(objectId);
+          const afterHolder = afterHolders.get(objectId);
+          for (const kind of RESOURCE_KINDS) {
+            const beforeQuantity =
+              beforeHolder?.resource?.kind === kind ? BigInt(beforeHolder.resource.quantity) : 0n;
+            const afterQuantity =
+              afterHolder?.resource?.kind === kind ? BigInt(afterHolder.resource.quantity) : 0n;
+            if (afterQuantity - beforeQuantity !== (holderChanges.get(objectId)?.get(kind) ?? 0n))
+              return afterHolder === undefined
+                ? "state.entities"
+                : `${entityPath(state, afterHolder)}.resource.quantity`;
+          }
+        }
         return undefined;
       },
     }),
