@@ -134,8 +134,9 @@ final-state and trace hashes are unchanged.
 
 **Same-time order.** RW-0108a's order through health crossings, then routine region crossings, then arrivals in
 object-id order (`movement.completed`, `location.changed`, `resource.consumed`, `needs.relieved`, then
-`comfort.changed`), then decisions (`routine.selected`, `location.changed`, the movement event, then any
-immediate arrival). Arrivals never bring a decision forward.
+`comfort.changed`), then decisions (`routine.selected`, then the decision's plan in its step order: for a new seek the unlocating
+`location.changed` then `movement.started`; for a `stay` that stops a walk `movement.interrupted` then the
+stopping `location.changed`; for a walk stopped at its new target `movement.interrupted` then the arrival). Arrivals never bring a decision forward.
 
 **`maxEvents`.** The exact minimum is unchanged by utility: `perActor*actors + plants + 1`, with `perActor` 2
 (`needs.changed` and `wellbeing.integrated` per actor, utility requires wellbeing); a smaller value is
@@ -147,7 +148,9 @@ emitted. Decision group at time t for due actor a: 0 for an unchanged decision, 
 not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the unlocate (1 when a seek
 starts and the actor has a location, else 0) plus the movement event (1 for `movement.started`,
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
-immediate-arrival events. Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
+stopping location (1 when a `stay` interrupts a walk where the shelter standing there, or open ground, differs
+from the actor's location, else 0) plus the immediate-arrival events (a walk stopped at its target counts its
+arrival's `location.changed` here). Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
 over arriving actors b of (integrationEvents(b, t) when b is not already integrated in the group, else 0, plus 1 +
 arrivalEvents(b))`, where the 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
 ends in a shelter (0 when already there), plus, for food or water, `resource.consumed` + `needs.relieved` + any

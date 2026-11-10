@@ -3194,8 +3194,9 @@ function active(entity: WorldEntity): boolean {
 }
 /**
  * Where an actor that has stopped moving at `position` is: an active shelter standing there in its
- * space and frame, else open ground (null). Where several shelters stand together, the actor keeps
- * the one it is in, else takes `preferred` (the shelter it sought), else the first by object id.
+ * space and frame, other than itself (a moved shelter is never inside itself), else open ground
+ * (null). Where several shelters stand together, the actor keeps the one it is in, else takes
+ * `preferred` (the shelter it sought), else the first by object id.
  */
 function shelterAt(
   state: WorldState,
@@ -3207,6 +3208,7 @@ function shelterAt(
     .filter(
       (entity) =>
         entity.shelter !== undefined &&
+        entity.objectId !== actor.objectId &&
         active(entity) &&
         entity.spaceId === actor.spaceId &&
         entity.pose.frameId === actor.pose.frameId &&

@@ -198,4 +198,22 @@ describe("retired shelters and objects without needs (item 5)", () => {
     expect(plant(runs[0]![1]).wetness).toBeGreaterThan(0);
     expect(plant(runs[1]![1])).toEqual(plant(runs[0]![1]));
   });
+
+  it("never locates a moved shelter inside itself, live as fast-forward", async () => {
+    const world = await utilityWorld(WALK({}));
+    const walk = { schemaVersion: 1, objectId: "porch", unitsPerSecond: 2000n };
+    const moved = command(world, "movement.start", { ...walk, destination: at(5000n) }, "walk");
+    const stayed = command(
+      moved.world,
+      "movement.start",
+      { ...walk, destination: at(5000n) },
+      "stay",
+    );
+    const journal = [...moved.events, ...stayed.events];
+    expect(replayWorldEvents(world.state, journal).entities).toEqual(stayed.world.state.entities);
+    const after = both(stayed.world, 3000n);
+    for (const run of [moved, stayed, after])
+      expect(locations(run.events).filter(([, objectId]) => objectId === "porch")).toEqual([]);
+    expect(objectOf(after, "porch").locationId).toBeUndefined();
+  });
 });
