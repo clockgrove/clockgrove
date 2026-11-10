@@ -232,9 +232,12 @@ syntax, so formatting, comments and import order never count; `node scripts/cont
 
 Offline root tests discover those controls through testkit, but never discover the real
 browser journey. Quality installs the exact lockfile-pinned Playwright Chromium and native
-libraries with `scripts/ci/toolchain.sh browser`, which runs
-`pnpm exec playwright install --with-deps chromium` unless that Chromium is already installed
-and launches. Quality then explicitly invokes
+libraries with `scripts/ci/toolchain.sh browser-deps browser`. `browser-deps` installs the
+system packages that Chromium needs with that Playwright's `install-deps chromium` (sudo, no
+`pnpm install` needed) unless the pinned Chromium already launches or none is missing.
+`browser` runs `pnpm exec playwright install chromium` into the user's Playwright cache, with no
+sudo, unless that Chromium is already installed and launches. Factory's setup step runs
+`browser-deps` and its unprivileged install step runs `browser`. Quality then explicitly invokes
 `node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts` in CI.
 This runs the retained browser/RuntimeWorker/PostgreSQL smoke and accessibility journey.
 A private browser cache or locally excluded test is not CI browser evidence.
