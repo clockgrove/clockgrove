@@ -147,39 +147,48 @@ export function retryableApply(phase, stdout, plan) {
 }
 // OpenTofu's wall-clock limits. A provider that never returns, such as the Neon provider polling
 // a failed operation forever, would otherwise hold the deploy until the job's 45-minute timeout
-// kills it mid-apply, leaving the state lock held and the evidence unuploaded. Each tofu call gets
-// `applySeconds` (apply) or `callSeconds` (init, plan, show, output), cut to what is left of
-// `budgetSeconds` since the deploy started, so the deploy ends inside the job however many calls
-// it makes. At the limit OpenTofu gets SIGINT, which it handles by stopping its providers, saving
-// state and releasing the lock, and `graceSeconds` to exit before its process group is killed.
-// The job's setup steps before the deploy and the evidence upload after it fit in what is left.
-// The provision retries (four runs of state read, plan, review and apply, 105 s of backoff)
+// kills it mid-apply, leaving the state lock held and the evidence unuploaded. An apply gets
+// `applySeconds` and starts only if all of it fits in what is left of `budgetSeconds` since the
+// deploy started; any other call (init, plan, show, output) gets `callSeconds`, cut to what is
+// left, and starts only with at least `floorSeconds` left. So the deploy ends inside the job
+// however many calls it makes, and no apply starts only to be interrupted. At the limit OpenTofu
+// gets SIGINT and `graceSeconds` to exit before its process group is killed. On SIGINT OpenTofu
+// asks its providers to stop and waits for their calls in flight, then saves state and releases
+// the lock; a provider that ignores the stop, as the Neon provider 0.1.15 does (its operation
+// wait has no context), never returns, so OpenTofu is killed and the lock stays held. The job's
+// setup steps before the deploy and the evidence upload after it fit in what the budget and grace
+// leave. The provision retries (four runs of state read, plan, review and apply, 105 s of backoff)
 // normally take minutes, and the budget bounds them even when every call nears its limit.
 export const tofuLimits = {
   applySeconds: 600,
   callSeconds: 300,
+  floorSeconds: 60,
   budgetSeconds: 1800,
   graceSeconds: 120,
 };
-// One tofu call's limit and grace, `elapsedMs` into the deploy. A call is never started without
-// budget left, so no apply begins only to be interrupted.
+// One tofu call's limit and grace, `elapsedMs` into the deploy, or `refused` with why it must not
+// start.
 export function tofuBounds(args, elapsedMs, limits = tofuLimits) {
   const left = limits.budgetSeconds * 1000 - elapsedMs;
-  assert(left > 0, `OpenTofu time budget of ${limits.budgetSeconds} s spent; nothing more started`);
+  const apply = args[0] === "apply";
+  const needed = (apply ? limits.applySeconds : limits.floorSeconds) * 1000;
+  if (left < needed)
+    return {
+      refused: `${apply ? "its" : "the minimum"} ${needed / 1000} s limit does not fit the ${Math.max(0, Math.floor(left / 1000))} s left of the deploy's ${limits.budgetSeconds} s OpenTofu budget`,
+    };
   return {
-    timeoutMs: Math.min(
-      left,
-      (args[0] === "apply" ? limits.applySeconds : limits.callSeconds) * 1000,
-    ),
+    timeoutMs: apply ? needed : Math.min(left, limits.callSeconds * 1000),
     killGraceMs: limits.graceSeconds * 1000,
   };
 }
 // A bounded call stops gracefully: SIGINT to tofu's process group (as a terminal's Ctrl-C does;
-// provider plugins ignore it and are stopped by tofu), SIGKILL after the grace.
+// provider plugins ignore it, tofu asks them to stop), SIGKILL after the grace.
 const stoppable = (executable, args, options) =>
   ownedSubprocess(executable, args, { ...options, stopSignal: "SIGINT" });
 // Runs one phase and records it. With `timeoutMs` the call is bounded as above; a call stopped at
-// its limit is `unknown` with reason `timeout`, never retried, and stops the deploy.
+// its limit is `unknown` with reason `timeout`, never retried, and stops the deploy. With
+// `refused` (from tofuBounds) nothing runs: the call is recorded `failed` with reason `budget` and
+// stops the deploy, so the evidence names why it ended.
 export async function recordDeploymentPhase(
   result,
   candidate,
@@ -193,10 +202,29 @@ export async function recordDeploymentPhase(
     retryable,
     attempt,
     timeoutMs,
+    refused,
     run = timeoutMs ? stoppable : spawnSync,
     ...spawnOptions
   } = options;
   const startedAt = new Date().toISOString();
+  const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
+  if (refused) {
+    result.phases.push({
+      commit: candidate.commit,
+      tree: candidate.tree,
+      command: [name],
+      exitCode: null,
+      status: "failed",
+      signal: null,
+      errorCode: null,
+      reason: "budget",
+      startedAt,
+      completedAt: startedAt,
+      outputDigest: digest(""),
+      ...(attempt > 1 ? { attempt } : {}),
+    });
+    throw new assert.AssertionError({ message: `${label} not started: ${refused}` });
+  }
   const command = await run(executable, args, {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
@@ -221,7 +249,6 @@ export async function recordDeploymentPhase(
     ...(attempt > 1 ? { attempt } : {}),
   };
   result.phases.push(phase);
-  const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
   if (phase.status !== "passed") {
     const why = explain ? explain(command.stdout) : "";
     const stopped = timedOut
