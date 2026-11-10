@@ -84,9 +84,12 @@ system per moving actor and emits region crossings and `movement.completed` at t
 `expectedCrossings` and `movementCompletionTime`. `utility.plan-matches-action@1` is a precondition and a
 post-state invariant of every command. Arrival effects: food and water take `q = min(biteQuantity, holder
 quantity)`, emit `resource.consumed {objectId: holder, kind, quantity}` then `needs.relieved` with
-`value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0; shelter emits `location.changed`
-unless the actor is already there. Actors are integrated before a location change, later exposure, comfort and
-health use the new protection, and relieved needs re-arm threshold crossings.
+`value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
+standing at the target, the sought one first (so walking to food inside a shelter enters it), and on open
+ground otherwise; an immediate arrival enters only a sought shelter. Either emits `location.changed`, before any
+consumption, unless the actor is already there. Actors are integrated before a location change, later exposure,
+comfort and health use the new protection, and relieved needs re-arm threshold crossings. Moving commands keep
+the location the same way ([spatial movement](spatial-movement.md#world-time-a-move-passes)).
 
 **Events** (version 1, one reducer each): `location.changed` (`{objectId, locationId | null, planId}`: sets
 the actor's location) and `needs.relieved` (`{objectId, need, sourceObjectId, quantity, value, planId}`: sets the
@@ -140,9 +143,9 @@ starts and the actor has a location, else 0) plus the movement event (1 for `mov
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
 immediate-arrival events. Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
 over arriving actors b of (integrationEvents(b, t) when b is not already integrated in the group, else 0, plus 1 +
-arrivalEvents(b))`, where the 1 is `movement.completed`; for a shelter `arrivalEvents(b)` is `location.changed`
-(0 when already there); for food or water it is `resource.consumed` + `needs.relieved` + any `comfort.changed`
-the relief causes, with consume and relieve both 0 when `q` is 0. Final group: unchanged
+arrivalEvents(b))`, where the 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
+ends in a shelter (0 when already there), plus, for food or water, `resource.consumed` + `needs.relieved` + any
+`comfort.changed` the relief causes, with consume and relieve both 0 when `q` is 0. Final group: unchanged
 `perActor*actors + plants + 1`. New events count toward `maxEvents` in indivisible
 groups with the existing continuation: a group or decision that cannot fit an empty command is `invalid-input` at
 `payload.maxEvents`; otherwise the call stops before it with a continuation. The scheduled `world.decision`

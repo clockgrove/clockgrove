@@ -26,6 +26,7 @@ export const SCENARIOS = [
   ["fixture/reference", "social-learning"],
   ["fixture/reference", "street-dwell"],
   ["fixture/reference", "walk-crossings"],
+  ["fixture/reference", "walk-out-of-den"],
 ] as const;
 
 /**
