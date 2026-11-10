@@ -44,7 +44,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install pinned real browser
-        run: scripts/ci/toolchain.sh browser
+        run: scripts/ci/toolchain.sh browser-deps browser
 
       # Exits 0 whenever the manifest is written, whatever the exit decision; a non-zero exit means
       # no manifest, and fails the job after the evidence is retained.

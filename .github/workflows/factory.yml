@@ -34,7 +34,7 @@ env:
   FACTORY_TIMEOUT_MINUTES: 300 # under 360 on hosted runners; mirrored in timeout-minutes below
   FACTORY_AUTO_MERGE: "true"
   FACTORY_NOTIFY: kirkmarple-clockgrove#318831919 # login#id: the id pins the account (setup writes it)
-  FACTORY_SETUP: corepack enable && scripts/ci/toolchain.sh postgresql pgvector
+  FACTORY_SETUP: corepack enable && scripts/ci/toolchain.sh postgresql pgvector browser-deps
   FACTORY_INSTALL: pnpm install --frozen-lockfile --ignore-scripts && scripts/ci/toolchain.sh browser # auto (from the lockfile), none, or your own command
   # pnpm check runs alone first (pnpm test reruns its turbo check tasks); the rest are independent and run together in local mode.
   FACTORY_VALIDATION: 'pnpm check, parallel: pnpm test, parallel: pnpm run test:db, parallel: pnpm run test:runtime, parallel: pnpm run db:verify, parallel: pnpm run verify:docs, parallel: env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts' # quoted: `parallel: ` inside a plain YAML value is a mapping
