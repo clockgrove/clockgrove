@@ -1,6 +1,6 @@
 import assertStrict from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { testDisposableDatabaseLifecycle } from "../../tests/database/lifecycle.mjs";
@@ -42,10 +42,10 @@ await withDisposableDatabase(
     );
     const used = [];
     const generated = (letters = false) => {
-      const bytes = randomBytes(letters ? 40 : 24);
+      // randomInt draws each letter uniformly; a byte modulo 26 would be biased.
       const value = letters
-        ? String.fromCharCode(...[...bytes].map((byte) => 97 + (byte % 26)))
-        : bytes.toString("hex");
+        ? String.fromCharCode(...Array.from({ length: 40 }, () => 97 + randomInt(26)))
+        : randomBytes(24).toString("hex");
       used.push(value);
       return value;
     };
