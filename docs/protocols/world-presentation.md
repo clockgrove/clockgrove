@@ -62,6 +62,13 @@ The document has these required fields:
 | `scene.atlases` | `true` to load every atlas page listed in the reviewed output's `atlases.json` index, which the asset build writes; `false` for neutral geometry without an atlas. |
 | `scene.accent`, `scene.panel` | Integer RGB colors used by renderer selection graphics. |
 | `scene.text` | Renderer label color. |
+| `scene.camera` | Optional renderer-neutral `{ minZoom, maxZoom }` for the fixed isometric camera. Both factors must be finite and positive (the 640-pixel logical width divided by `minZoom` must also stay finite), with `minZoom <= 1 <= maxZoom`. Omission preserves 0.75–2. Initial framing remains zoom 1; no rotation is exposed. |
+
+A deep-zoom world may set `scene.camera` to `{ "minZoom": 0.1, "maxZoom": 24 }`.
+At the current 12.5 logical pixels per metre and 400-pixel logical view height, a 0.5 m
+vertical mesh then fills 150 pixels (37.5% of the height); these example limits are a
+presentation choice for issue #184’s overview-to-close-up experience, not simulation data.
+The same input applies to the local shell and explicitly composed renderer content.
 
 The shell does not interpret HTML in names or copy. Presentation data is trusted deployment
 configuration, rather than player-authored content. Static asset publication remains the
@@ -162,13 +169,15 @@ preserves the existing rendering path.
 The in-repository offline example runs from the pinned checkout:
 
 ```sh
-pnpm --filter @clockgrove/web exec vite ../../worlds/fixture/renderer \
+CLOCKGROVE_WORLD_SHELL="$PWD/worlds/fixture/renderer/shell.json" \
+  pnpm --filter @clockgrove/web exec vite ../../worlds/fixture/renderer \
   --config vite.config.ts
 ```
 
 Open the printed URL. The [fixture page](../../worlds/fixture/renderer/index.html) reads its committed
 [snapshot](../../worlds/fixture/renderer/snapshot.json), generates a looping skinned mesh and normal/depth
-mapped sprite in code, and offers time, weather, reduced-motion and quality controls. No binaries,
+mapped sprite in code, and offers time, weather, reduced-motion, quality and zoom controls. Its explicit shell
+input sets a 0.1–24 zoom range without changing the platform default. No binaries,
 credentials or canonical commands are involved. Its diagnostic capture helpers are fixture code,
 not additional product renderer API.
 

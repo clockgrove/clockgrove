@@ -1,0 +1,23 @@
+{
+  "shellVersion": 1,
+  "name": "Clockgrove",
+  "wordmark": "Clockgrove",
+  "copy": {
+    "worldLabel": "World",
+    "chooseWorld": "Choose a world",
+    "stopped": "World stopped",
+    "provisioning": "Preparing fixture",
+    "ready": "Fixture ready"
+  },
+  "tokens": {},
+  "scene": {
+    "atlases": false,
+    "accent": 10206432,
+    "panel": 2106928,
+    "text": "#edf1f5",
+    "camera": {
+      "minZoom": 0.1,
+      "maxZoom": 24
+    }
+  }
+}
