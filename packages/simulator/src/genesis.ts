@@ -16,6 +16,7 @@ import {
   EnvironmentValidationError,
   ecologyDisagreement,
   environmentDisagreement,
+  initialWorldProcesses,
   lifecycleDisagreement,
   type NamedRandomState,
   plantStageIndex,
@@ -30,6 +31,7 @@ import {
   type WorldBehaviorPack,
   type WorldState,
   wellbeingDisagreement,
+  worldProcessDisagreement,
 } from "@clockgrove/domain";
 import {
   canonicalBytes,
@@ -384,6 +386,8 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
   if (policy === null) return state;
   const epoch = state.simulationTime;
   const extras: Record<string, unknown> = {};
+  if (policy.processes !== undefined)
+    extras.processes = initialWorldProcesses(policy.processes, epoch);
   const actors = state.entities.filter((entity) => entity.needs !== undefined);
   if (policy.environment !== undefined)
     extras.environment = deriveEnvironmentState(policy.environment, epoch);
@@ -497,6 +501,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
   const disagreement =
     environmentDisagreement(policy, next) ??
     ecologyDisagreement(policy, next) ??
+    worldProcessDisagreement(policy, next) ??
     wellbeingDisagreement(policy, next) ??
     lifecycleDisagreement(policy, next);
   if (disagreement !== undefined)

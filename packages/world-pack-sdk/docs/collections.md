@@ -99,3 +99,20 @@ fixture migration; this addition does not claim complete closed-world enforcemen
 documents (actors include `capabilities`, `placement` and `lifecycle`, `null` when absent), sorted by id and
 version, so a consumer can resolve effective objects without re-decoding resources. It is not part
 of any hash document.
+
+### Declared world processes
+
+A behavior policy may add `processes`, an ordered list of at most 64 explicit off-screen process
+entries: `{id, principalId, firstAtMs, periodMs, command: {type: "resource.transfer", payload}}`.
+The payload is the ordinary resource-transfer payload including `schemaVersion: 1`; food and water
+both debit an existing source holder. No process can offer new inventory. First time and period
+are positive bigint milliseconds at most 2^53. Process ids are unique, 1–512 characters without
+surrounding whitespace; `principalId` is a validated principal identity. Unknown fields, unsupported
+commands and malformed payloads produce `INVALID_POLICY` at the corresponding policy path.
+
+Genesis initializes matching `{processId, nextAt}` state at the first cadence instant at or after the
+world epoch, including an occurrence exactly at that epoch. Each attempt and its exact ordinary
+command refusal or successful transfer are journaled under the declared principal. There is no new
+application grant; the native command validations still apply. Absent process lists keep the existing
+encoding. See [kernel ecology](../../kernel/docs/ecology.md) for scheduling and attribution.
+Scheduled source removal and fixture cause migration remain later parts of issue 187.

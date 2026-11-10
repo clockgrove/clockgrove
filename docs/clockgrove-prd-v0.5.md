@@ -405,8 +405,10 @@ water alike: rain collects in open holders, plants yield food, and characters or
 declared world processes move resources through journaled commands. Off-screen people have no
 implicit refill authority. Genesis quantities are initial inventory; every later increase needs
 an attributable cause. The rollout currently provides per-holder journal accounting, finite
-plant-stage yield and opt-in weather water collection/evaporation. Declared processes, removal of
-legacy scheduled ecology sources and fixture migration remain pending; see the
+plant-stage yield, opt-in weather water collection/evaporation and explicitly scheduled process
+resource transfers inside native advances through the ordinary command validator. Autonomous runtime
+wake integration, removal of legacy scheduled ecology
+sources and fixture migration remain pending; see the
 [kernel ecology contract](../packages/kernel/docs/ecology.md).
 
 ### 6.2 Visual direction
