@@ -1,3 +1,6 @@
+import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   decodeBrowserScope,
   decodeConversationSession,
@@ -7,6 +10,9 @@ import {
 } from "@clockgrove/contracts";
 import { PostgreSqlArtifactStore, WebCryptoKeyring } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
+// biome-ignore format: @ts-expect-error covers only the next line.
+// @ts-expect-error -- repository-local JavaScript helpers have no declarations.
+import { applyMigrations, applySqlFile, psql, psqlQuery, repositoryRoot, withDisposableDatabase } from "../../../scripts/database/lib.mjs";
 import { FakeConversationAdapter } from "../src/channel-adapters.js";
 import {
   isNativeWorldOwnerChild,
@@ -290,6 +296,55 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ).trim(),
       ).toBe("2/1");
     });
+  },
+  240_000,
+);
+
+it.skipIf(isNativeWorldOwnerChild())(
+  "upgrades existing browser sessions into scoped channel bindings",
+  async () => {
+    const baseline = await mkdtemp(join(tmpdir(), "channel-baseline-"));
+    try {
+      const migrations = join(repositoryRoot, "db/migrations");
+      await copyFile(
+        join(migrations, "contract-steps.json"),
+        join(baseline, "contract-steps.json"),
+      );
+      for (const file of await readdir(migrations))
+        if (/^\d+.*\.sql$/.test(file) && file < "0049")
+          await copyFile(join(migrations, file), join(baseline, file));
+      await withDisposableDatabase(
+        async ({ tools, environment }: { tools: unknown; environment: unknown }) => {
+          await applyMigrations(tools, environment, { migrationDirectory: baseline });
+          await applySqlFile(tools, environment, "tests/database/seed.sql");
+          await psql(
+            tools,
+            environment,
+            `SET ROLE clockgrove_runtime; BEGIN;
+        SELECT set_config('app.tenant_id','tenant-a',true), set_config('app.principal_id','principal-a',true),
+          set_config('app.privacy_ceiling','{"version":1,"allowedCategories":["conversation"]}',true);
+        INSERT INTO clockgrove.conversation_participants(tenant_id,session_id,principal_id,persona_id)
+          VALUES('tenant-a','legacy-browser','principal-a','persona-a');
+        INSERT INTO clockgrove.conversation_sessions
+          (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode)
+          VALUES('tenant-a','legacy-browser','world-a','timeline-a','partition-a','space-a','keeper','cognitive'); COMMIT;`,
+          );
+          await applyMigrations(tools, environment);
+          expect(
+            (
+              await psqlQuery(
+                tools,
+                environment,
+                `SELECT principal_id||'/'||world_id||'/'||timeline_id||'/'||channel||'/'||thread_id||'/'||session_id
+        FROM clockgrove.channel_bindings WHERE session_id='legacy-browser'`,
+              )
+            ).trim(),
+          ).toBe("principal-a/world-a/timeline-a/browser/legacy-browser/legacy-browser");
+        },
+      );
+    } finally {
+      await rm(baseline, { recursive: true, force: true });
+    }
   },
   240_000,
 );

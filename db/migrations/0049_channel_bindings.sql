@@ -33,6 +33,9 @@ INSERT INTO clockgrove.channel_bindings (tenant_id, world_id, timeline_id, princ
     FROM clockgrove.conversation_sessions s
     JOIN clockgrove.conversation_participants p USING (tenant_id, session_id);
 
+-- Backfilled rows enqueue deferred foreign-key checks; PostgreSQL refuses ALTER TABLE until
+-- those trigger events have run, so validate them before enabling the binding policies.
+SET CONSTRAINTS ALL IMMEDIATE;
 ALTER TABLE clockgrove.channel_bindings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clockgrove.channel_bindings FORCE ROW LEVEL SECURITY;
 CREATE POLICY channel_binding_isolation ON clockgrove.channel_bindings
