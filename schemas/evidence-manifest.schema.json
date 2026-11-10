@@ -804,6 +804,11 @@
                 "usage": {
                   "type": "null",
                   "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "description": "Which run of a retried deploy phase this is; absent on the first run."
                 }
               },
               "additionalProperties": false

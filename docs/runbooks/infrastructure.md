@@ -213,6 +213,31 @@ captured in memory and never printed or placed in ordinary artifacts. Only phase
 digests enter deployment evidence. Interrupted apply or publication has an unknown effect and fails
 closed; it is never recorded as a successful activation.
 
+Each OpenTofu stage (provision, bindings, routing) plans into a saved plan, reviews it (declared
+resources only, no deletion, the stage's own limits below) and applies exactly that plan; after a
+passed apply the state is backed up. The provision stage creates the Neon project, its seven roles
+and its database. Neon runs one operation per project at a time and answers HTTP 423 (Locked) to
+another meanwhile, which its API docs call safe to retry. The Neon provider waits for the project's
+latest operation before each create, so provision applies with `-parallelism=1`: each Neon create
+then starts after the previous one finished, where parallel ones start together and all but one are
+refused. A provision apply that still fails is retried when OpenTofu exited on its own (so it saved
+state and released the lock) and every error it reported is at a Neon resource; the provider drops
+the HTTP status, so that is the signal rather than 423 itself. It runs at most four times, 15, 30
+and 60 seconds apart. Before each retry the deploy refuses a held lock and re-reads state for lost
+duplicable resources, as before the first plan, then plans, reviews and applies a new plan; a failed
+run's plan is deleted, never applied. A failed create of the Neon project itself is not retried:
+Neon may hold the project anyway, and if its name search has not caught up, a retry would make a
+second one that state then hides; the per-project lock cannot refuse that create. Any other failed
+apply, and any interrupted one, stops the deploy at once.
+
+Every run is recorded with its own state read, plan, review and apply phases; a retry's carry an
+`attempt` number from 2. Evidence validation accepts `attempt` only on those four provision phases,
+up to four, each retry starting after the previous attempt's apply did not pass and running its
+four phases in order. A failed provision apply that a later attempt passed no longer decides the
+outcome, since that attempt planned against the state it left: the deploy can still pass, and fails
+or is `unknown` only by its other phases. When every attempt fails, the deploy reports the last
+attempt's provider diagnostics and is `unknown`.
+
 The resources in state must be ones the configuration declares. A Hyperdrive configuration in state
 permits binding preservation only; it never authorizes public activation. Existing DNS and Worker
 routing in state is preserved only when Cloudflare's current DNS record and Worker route, read by
