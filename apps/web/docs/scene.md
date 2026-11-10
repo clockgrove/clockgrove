@@ -411,3 +411,11 @@ bounded scalar work per projection, no targets, textures or wall-clock animation
 project a different rig/environment without changing the renderer. The offline renderer fixture
 uses the same policy and offers a continuous time slider. Final golden approval and physical
 phone performance qualification remain separate from this backend correctness proof.
+
+Issue #184 part 4 must add explicit per-tier content-light and shadow limits and account for
+their frame-time and memory costs. Part 5 must measure the completed renderer on desktop and
+recent-phone hardware, including a working lower phone tier; allocation bounds and
+software-rendered frame cadence do not establish that hardware requirement. Part 5 must also
+re-capture the golden states at full viewport resolution and obtain review through the existing
+capture approval workflow before updating `tests/visual/approved-captures.json`. Periodic image
+equality proves determinism, not reviewed visual approval. These acceptance entries remain open.
