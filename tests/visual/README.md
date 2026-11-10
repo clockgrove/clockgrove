@@ -21,9 +21,13 @@ lanterns, puddles or atlas content. Capture success does not establish whole-wav
 
 A capture's hash depends only on the Clockgrove commit and the world. The shell renders each
 wall-clock value, such as an action's recorded-at time, in a `[data-wall-clock]` element, and every
-capture paints those as solid magenta boxes of fixed width; the shell itself still shows the real
-time. A state framed on one region, such as the event/Why inspector, places that region on a whole
-pixel, so content above it whose height depends on timing cannot shift its text.
+capture paints those as solid magenta boxes; the shell itself still shows the real time. A box is
+as wide as its text in tabular numerals, so it is the same width on every run only while the value
+keeps one length, as the shell's millisecond UTC timestamps do. A state framed on one region, such
+as the event/Why inspector, places that region on a whole pixel, so content above it whose height
+depends on timing cannot shift its text. The disconnected/recovering state holds the page clock
+from before the socket drops until the shot, and waits on the shell's `data-scene-status`; the
+shell's reconnect, which reports `connecting` and clears the scene, cannot run first.
 
 ## Fixture caller
 
