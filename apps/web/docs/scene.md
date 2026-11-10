@@ -63,10 +63,20 @@ loads:
   (BC3 without BPTC); phones get ASTC, or ETC2 without it.
 - Only a device that samples none of them fetches the `.png` page and uploads RGBA8.
   `metrics.materialTextureFormat` reports `astc`, `bc7`, `etc2`, `bc3` or `png`.
+- A compressed page that fails, whether its `.ktx2` is missing or fails its hash, the transcoder
+  does not load, the worker runs out of memory or the transcoded size is not the charged one,
+  falls back to that page's hash-verified PNG. The PNG is charged at RGBA8 against what remains
+  of the budgets; if it no longer fits, the animation draws its flat sprite. Other pages and flat
+  sprites are unaffected. Each fallback adds one to `metrics.materialTextureFallbacks` and
+  reports `asset_cache` `failed`; a page that failed is not retried. Only a failed PNG page fails
+  the scene's assets, as before.
 
-The Basis transcoder (`basis_transcoder.js` and `.wasm`) comes from the pinned `three`
-installation as built assets of this app, served from its own origin, and is fetched only when a
-material page loads. A transcoded page keeps its file's top-row-first orientation (`flipY` false),
+The renderer keeps one KTX2 loader, shared by material pages and world content
+(`loaders()`), so the transcoder and its workers load once per renderer; it is disposed when the
+renderer and every content loader holding it have released it. The Basis transcoder
+(`basis_transcoder.js` and `.wasm`) comes from the pinned `three` installation as built assets of
+this app, served from its own origin, and is fetched only when the first KTX2 texture parses
+(see [third-party notices](../../../THIRD_PARTY_NOTICES.md)). A transcoded page keeps its file's top-row-first orientation (`flipY` false),
 so the sprite's texture coordinates follow each texture's `flipY`.
 
 Selection considers device pixel ratio and what remains of the asset transfer and atlas page
@@ -83,7 +93,9 @@ reduced-motion policy apply to material-enabled assets too.
 SwiftShader, which samples BC, ETC2 and ASTC. Each device profile hides formats from the page's
 WebGPU adapter and device and from WebGL2 before the renderer starts: desktop (BC only) uploads
 BC7, phone (no BC) ASTC, an ETC2-only phone ETC2, and no compression PNG. Each compressed drawing
-matches the PNG drawing (BC7 and ASTC within 2 per channel, ETC2 within 16).
+matches the PNG drawing (BC7 and ASTC within 2 per channel, ETC2 within 16). A further case
+answers the `.ktx2` request with 404 on each backend: the page loads its PNG, the scene draws, and
+`materialTextureFallbacks` is 1.
 
 Real phones remain a maintainer step: on a recent Android phone (Chrome) and iPhone (Safari),
 open a world with material assets, confirm `metrics.materialTextureFormat` is `astc` (or `etc2`),
@@ -247,7 +259,7 @@ The context supplies these values:
 | `backend` | The selected `webgpu` or `webgl2` backend, after initialization. |
 | `signal` | Aborted on content failure or adapter destruction; use it to retire asynchronous work. |
 | `place(object, { x, y, elevation? })` | Set a content anchor in the projection frame's metres; elevation defaults to zero. |
-| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and a KTX2 loader detected against the initialized renderer/backend. Both paths are explicit URLs for matching pinned decoder files. |
+| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and the renderer's shared KTX2 loader, detected against the initialized renderer/backend. `draco` is an explicit URL for matching pinned decoder files; KTX2 uses the transcoder built into the app, so `basis` is not read. |
 
 Import additional library types and values from `renderer-content.ts`, never another installed copy
 of Three. A world using this seam accepts coupling to Three **0.187.0** and the renderer contract of

@@ -19,7 +19,7 @@
     "atlasTextureBytes": {
       "limit": 33554432,
       "measured": "browser",
-      "reason": "Decision: 32 MiB of decoded RGBA8 atlas pages, two full 2048x2048 pages (the largest page the asset build packs). The renderer uploads one Texture per page the reviewed index lists and per selected material page, and counts each once; material renditions are chosen within what remains. About twice the issue 137 multi-page journey world (four pages, 17040000 B), which tests/ci/dev-world.journey.browser.test.mjs measures on both backends."
+      "reason": "Decision: 32 MiB of uploaded atlas page storage, two full 2048x2048 RGBA8 pages (the largest page the asset build packs). The renderer uploads one Texture per page the reviewed index lists and per selected material page, and counts each once at the bytes it actually uploaded: RGBA8 (4 B/px) for flat and PNG pages, 16 B per 4x4 block (1 B/px) for material pages transcoded from KTX2, so the same budget holds eight full compressed pages. Material renditions are chosen within what remains, at the cost of the format this device loads (issue 163). About twice the issue 137 multi-page journey world (four pages, 17040000 B), which tests/ci/dev-world.journey.browser.test.mjs measures on both backends."
     },
     "firstSceneRenderMs": {
       "limit": 2500,

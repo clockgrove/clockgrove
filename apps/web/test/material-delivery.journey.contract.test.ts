@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   decodeSceneMaterialDelivery,
   decodeScenePatch,
+  SceneCompatibilityError,
   type SceneMaterialDelivery,
 } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
@@ -33,7 +34,7 @@ it("delivers every channel to an adapter while an albedo-only client selects den
     frames: [{ atlasId: "atlas", x: 0, y: 0, width: 8 * density, height: 8 * density }],
   });
   const material = decodeSceneMaterialDelivery({
-    materialVersion: 1,
+    materialVersion: 2,
     renditions: [1, 2, 4].map((density) => ({
       density,
       channels: Object.fromEntries(
@@ -138,6 +139,15 @@ it("delivers every channel to an adapter while an albedo-only client selects den
   expect(() =>
     decodeSceneMaterialDelivery({ ...material, renditions: [material.renditions[0]] }),
   ).toThrow("expected sorted unique densities 1, 2 and optional 4");
+  // A version-1 (BC3 DDS) delivery gets the stable compatibility code, not a field error.
+  let legacy: unknown;
+  try {
+    decodeSceneMaterialDelivery({ ...material, materialVersion: 1 });
+  } catch (error) {
+    legacy = error;
+  }
+  expect(legacy).toBeInstanceOf(SceneCompatibilityError);
+  expect((legacy as SceneCompatibilityError).code).toBe("unsupported_material_version");
   const invalid: SceneMaterialDelivery = {
     ...material,
     renditions: material.renditions.map((r) => ({

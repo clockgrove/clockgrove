@@ -44,6 +44,11 @@ export const SCENE_PROJECTION_VERSION = 2;
 export const SCENE_PRIOR_PROJECTION_VERSION = 1;
 export const SCENE_ASSET_MANIFEST_VERSION = 2;
 export const SCENE_CLIENT_VERSION = 1;
+/**
+ * Material delivery version. Version 2 delivers compressed pages as KTX2 (`ktx2-uastc`); version 1
+ * delivered BC3 DDS and is refused with `unsupported_material_version`.
+ */
+export const SCENE_MATERIAL_VERSION = 2;
 export type SceneLane = "projection" | "transient" | "operator";
 export interface SceneEnvelope<T> extends BrowserScope {
   readonly protocolVersion: number;
@@ -66,7 +71,8 @@ export type SceneCompatibilityCode =
   | "unsupported_protocol_version"
   | "unsupported_projection_version"
   | "unsupported_asset_manifest_version"
-  | "unsupported_client_version";
+  | "unsupported_client_version"
+  | "unsupported_material_version";
 export class SceneCompatibilityError extends ContractDecodeError {
   constructor(
     readonly code: SceneCompatibilityCode,
@@ -169,7 +175,7 @@ export interface SceneMaterialTexture {
   }[];
 }
 export interface SceneMaterialDelivery {
-  readonly materialVersion: 1;
+  readonly materialVersion: typeof SCENE_MATERIAL_VERSION;
   readonly renditions: readonly {
     readonly density: 1 | 2 | 4;
     readonly channels: import("./material.js").MaterialChannels<SceneMaterialTexture>;
@@ -185,8 +191,15 @@ export function decodeSceneMaterialDelivery(
     return id;
   };
   const v = record(value, path);
+  // Checked before shape, as projection versions are, so another version gets its stable code.
+  if ("materialVersion" in v && v.materialVersion !== SCENE_MATERIAL_VERSION)
+    throw new SceneCompatibilityError(
+      "unsupported_material_version",
+      v.materialVersion,
+      SCENE_MATERIAL_VERSION,
+      `${path}.materialVersion`,
+    );
   exactKeys(v, ["materialVersion", "renditions"], [], path);
-  if (v.materialVersion !== 1) throw new ContractDecodeError(path, "expected material version 1");
   const renditions = array(v.renditions, `${path}.renditions`, (value, p) => {
     const r = record(value, p);
     exactKeys(r, ["density", "channels"], [], p);
@@ -325,7 +338,7 @@ export function decodeSceneMaterialDelivery(
           throw new ContractDecodeError(path, "rendition frame dimensions must scale by density");
       });
   }
-  return { materialVersion: 1, renditions };
+  return { materialVersion: SCENE_MATERIAL_VERSION, renditions };
 }
 export interface SceneLighting {
   readonly directional: readonly {

@@ -101,6 +101,8 @@ export interface SceneMetrics {
   atlasTextureBytes: number;
   /** How material pages upload: a compressed format this device samples, else PNG as RGBA8. */
   materialTextureFormat: AtlasTextureFormat | "png" | undefined;
+  /** Material pages loaded from their PNG because the compressed page failed to load or transcode. */
+  materialTextureFallbacks: number;
   contentStatus: "none" | "loading" | "ready" | "failed";
   contentFailure: ContentFailure | undefined;
   contentFailures: number;
@@ -248,6 +250,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     textureBytes: 0,
     atlasTextureBytes: 0,
     materialTextureFormat: undefined,
+    materialTextureFallbacks: 0,
     contentStatus: "none",
     contentFailure: undefined,
     contentFailures: 0,
@@ -278,7 +281,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private resourceTextureBytes = 0;
   /** One texture per reviewed page, filled only once every listed page has loaded and verified. */
   private atlasTextures: PageTexture[] = [];
-  /** Created on the first material animation; undefined after when no compressed format is sampled. */
+  /** Created on the first material animation; undefined when no compressed format is sampled. */
   private materialLoader?: Promise<Awaited<ReturnType<typeof atlasTextureLoader>>>;
   private composer: THREE.RenderPipeline | undefined;
   private scenePass: ReturnType<typeof pass> | undefined;
@@ -334,6 +337,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private sky: THREE.DirectionalLight[] = [];
   private materialPageTextures = new Map<string, PageTexture>();
   private materialTransferBytes = 0;
+  /** Compressed pages that failed once; their PNG serves every later use. */
+  private failedCompressedPages = new Set<string>();
   private transferHashes = new Set<string>();
   private ambient!: THREE.AmbientLight;
   private ground!: THREE.Mesh<THREE.PlaneGeometry, LitMaterial>;
@@ -841,14 +846,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (!animation.material) return legacy;
     this.updateTextureBytes();
     const material = decodeSceneMaterialDelivery(animation.material);
-    this.materialLoader ??= atlasTextureLoader(this.renderer);
+    this.materialLoader ??= atlasTextureLoader(this.renderer).catch(() => {
+      // The loader module could not load: every page falls back to its PNG.
+      this.materialFallback();
+      return undefined;
+    });
     const loader = await this.materialLoader;
     if (this.destroyed) throw new Error("renderer retired");
     this.metrics.materialTextureFormat = loader?.format ?? "png";
-    const rendition = selectMaterialRendition(
-      material,
-      globalThis.devicePixelRatio ?? 1,
-      {
+    const remaining = () => {
+      this.updateTextureBytes();
+      return {
         transferBytes: Math.max(
           0,
           MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
@@ -857,46 +865,65 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
           0,
           MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
         ),
-      },
+      };
+    };
+    const rendition = selectMaterialRendition(
+      material,
+      globalThis.devicePixelRatio ?? 1,
+      remaining(),
       ["albedo"],
       loader !== undefined,
     );
     if (!rendition) return legacy;
     const albedo = rendition.channels.albedo;
+    const encoding = albedo.encoding ?? "srgb";
     const pages = albedo.pages ?? [
       { atlasId: albedo.frames[0]?.atlasId, image: albedo.image, compressed: albedo.compressed },
     ];
     const textures = new Map<string, PageTexture>();
     for (const page of pages) {
       if (!page.atlasId) throw new Error("material page identity missing");
-      const textureKey = `${loader ? page.compressed.sha256 : page.image.sha256}/${albedo.encoding ?? "srgb"}`;
-      let texture = this.materialPageTextures.get(textureKey);
+      const compressedKey = `${page.compressed.sha256}/${encoding}`;
+      const pngKey = `${page.image.sha256}/${encoding}`;
+      let texture =
+        (loader && this.materialPageTextures.get(compressedKey)) ||
+        this.materialPageTextures.get(pngKey);
       if (!texture) {
-        texture = loader
-          ? await this.compressedPage(loader.ktx2, page.atlasId, page.compressed.sha256)
-          : await this.pngPage(page.atlasId, page.image.sha256);
-        if (
-          texture.image.width !== page.image.width ||
-          texture.image.height !== page.image.height ||
-          (loader &&
-            THREE.TextureUtils.getByteLength(
-              texture.image.width,
-              texture.image.height,
-              texture.format,
-              texture.type,
-            ) !== materialPageCost(page, true).textureBytes)
-        ) {
-          texture.dispose();
-          throw new Error("material dimensions differ");
+        let key = pngKey;
+        if (loader && !this.failedCompressedPages.has(page.compressed.sha256)) {
+          // A missing or altered file, a transcoder that fails to load, a worker out of memory or
+          // an unexpected size costs this page its compression, not the scene its assets.
+          try {
+            texture = await this.compressedPage(loader.ktx2, { ...page, atlasId: page.atlasId });
+            key = compressedKey;
+          } catch (error) {
+            if (this.destroyed) throw error;
+            this.failedCompressedPages.add(page.compressed.sha256);
+            this.materialFallback();
+          }
         }
-        texture.colorSpace =
-          albedo.encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+        if (!texture) {
+          if (loader) {
+            // The rendition was chosen at compressed cost; its PNG must still fit at RGBA8.
+            const cost = materialPageCost(page, false);
+            const left = remaining();
+            if (cost.transferBytes > left.transferBytes || cost.textureBytes > left.textureBytes)
+              return legacy;
+          }
+          texture = await this.pngPage(page.atlasId, page.image.sha256);
+          if (
+            texture.image.width !== page.image.width ||
+            texture.image.height !== page.image.height
+          )
+            throw new Error("material dimensions differ");
+        }
+        texture.colorSpace = encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
         texture.needsUpdate = true;
         this.atlasTextures.push(texture);
-        this.materialPageTextures.set(textureKey, texture);
+        this.materialPageTextures.set(key, texture);
       }
       textures.set(page.atlasId, texture);
     }
@@ -906,6 +933,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }));
     if (!frames.every((frame) => frame.texture)) throw new Error("material frame page missing");
     return { ...animation, density: rendition.density, frames: frames as AtlasEntry["frames"] };
+  }
+  private materialFallback(): void {
+    this.metrics.materialTextureFallbacks += 1;
+    this.report({ name: "asset_cache", category: "failed", value: 1 });
   }
   private async pngPage(atlasId: string, sha256: string): Promise<PageTexture> {
     const bytes = await this.fetchAtlas(atlasId, sha256);
@@ -923,18 +954,35 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     return new THREE.Texture(image);
   }
-  /** A digest-verified KTX2 page, transcoded off the main thread to the device's format. */
+  /**
+   * A digest-verified KTX2 page, transcoded off the main thread to the device's format, whose
+   * dimensions and uploaded size are the ones its budget was charged for.
+   */
   private async compressedPage(
     ktx2: NonNullable<Awaited<ReturnType<typeof atlasTextureLoader>>>["ktx2"],
-    atlasId: string,
-    sha256: string,
+    page: {
+      readonly atlasId: string;
+      readonly image: { readonly width: number; readonly height: number; readonly bytes: number };
+      readonly compressed: { readonly sha256: string; readonly bytes: number };
+    },
   ): Promise<PageTexture> {
-    const bytes = await this.fetchAtlas(atlasId, sha256, undefined, "ktx2");
+    const bytes = await this.fetchAtlas(page.atlasId, page.compressed.sha256, undefined, "ktx2");
     if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
     const texture = await new Promise<THREE.CompressedTexture>((resolve, reject) =>
       ktx2.parse(bytes, (texture) => resolve(texture as THREE.CompressedTexture), reject),
     );
-    if (this.destroyed || texture.mipmaps?.length !== 1) {
+    if (
+      this.destroyed ||
+      texture.mipmaps?.length !== 1 ||
+      texture.image.width !== page.image.width ||
+      texture.image.height !== page.image.height ||
+      THREE.TextureUtils.getByteLength(
+        texture.image.width,
+        texture.image.height,
+        texture.format,
+        texture.type,
+      ) !== materialPageCost(page, true).textureBytes
+    ) {
       texture.dispose();
       throw new Error("material albedo unavailable");
     }
@@ -2099,7 +2147,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
     for (const texture of this.atlasTextures) texture.dispose();
     this.atlasTextures = [];
-    void this.materialLoader?.then((loader) => loader?.ktx2.dispose()).catch(() => {});
+    void this.materialLoader?.then((loader) => loader?.release()).catch(() => {});
     this.canvas?.remove();
     // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
     void this.renderer?.dispose().catch(() => {});

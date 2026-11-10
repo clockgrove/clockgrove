@@ -19,7 +19,7 @@
     "scene-arrival.ts": "d7a8b2ac7b624603d7f05813501bc530e5310384facf01a555372e87138eb83f",
     "scene-connection.ts": "4104fd7777ac0d2bd2ef84436076e263d58cb2fb0fb37ef9d02c49ff5368cec0",
     "scene-interactions.ts": "3b7308f11a5801ef3631f42b6eb85a71f2a58fcbb6be182476e855fb6f893ad6",
-    "scene-protocol.ts": "1f07293a74428b8fcdac81de507478a618af6bf9b2a8a96609aac18a9fa28f8f",
+    "scene-protocol.ts": "8c0144e5daa8394c5f80ae03116f75e0959fd1c0ed5d595cfc5385dac2b605c5",
     "trusted.ts": "38f849d80ab17c736df5e93dddd309d0e81261a84307825c72cd928208b73eaa",
     "turn-fibers.ts": "94345be3a6050acef76344763b2cb3b3d0497bd11bca1a0e543b124f8d9b09e4",
     "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1"

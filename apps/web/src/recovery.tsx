@@ -7,7 +7,7 @@ import type { ReadinessProjection } from "./scene-queries.js";
 import { worldShell } from "./shell.js";
 
 const deployment = "Refresh to load the current deployment.";
-// Only a refreshed client can match a client or asset-manifest version; the others were retried.
+// Only a refreshed client can match a client, asset-manifest or material version; the others were retried.
 const recoveries: Readonly<
   Record<SceneCompatibilityCode, { readonly explanation: string; readonly refresh: boolean }>
 > = {
@@ -17,6 +17,10 @@ const recoveries: Readonly<
   },
   unsupported_asset_manifest_version: {
     explanation: `The world's asset-manifest version is not supported by this client, so no scene is shown. ${deployment}`,
+    refresh: true,
+  },
+  unsupported_material_version: {
+    explanation: `The world's material delivery version is not supported by this client, so no scene is shown. ${deployment}`,
     refresh: true,
   },
   unsupported_protocol_version: {

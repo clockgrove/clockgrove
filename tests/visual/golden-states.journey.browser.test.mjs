@@ -1088,6 +1088,15 @@ const DEVICE_PROFILES = [
     threeFormat: "RGBAFormat",
     tolerance: 0,
   },
+  // A phone whose .ktx2 page is missing: that page falls back to its PNG and the scene still draws.
+  {
+    name: "phone, .ktx2 missing",
+    hidden: [BC],
+    format: "astc",
+    threeFormat: "RGBAFormat",
+    tolerance: 0,
+    missing: true,
+  },
 ];
 function hideTextureFormats({ gpu, webgl }) {
   if (globalThis.GPUSupportedFeatures) {
@@ -1250,6 +1259,10 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
             page.on("request", (request) => requested.push(new URL(request.url()).pathname));
             for (const hidden of profile.hidden)
               await page.addInitScript(hideTextureFormats, hidden);
+            if (profile.missing)
+              await page.route("**/material-2x-albedo.ktx2", (route) =>
+                route.fulfill({ status: 404 }),
+              );
             await prepareRendererProof(
               page,
               origin,
@@ -1279,6 +1292,7 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
                     adapter.projection.presentationBindings[0].material.renditions[1].channels,
                   ),
                   materialTextureFormat: adapter.metrics.materialTextureFormat,
+                  materialTextureFallbacks: adapter.metrics.materialTextureFallbacks,
                   compressed: map.isCompressedTexture === true,
                   format: map.format === THREE[threeFormat],
                   uploaded: map.isCompressedTexture ? map.mipmaps[0].data.byteLength : null,
@@ -1300,10 +1314,10 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
               },
               { wire, threeFormat: profile.threeFormat },
             );
-            captures[profile.format] = await page.locator("#scene canvas").screenshot();
+            captures[profile.name] = await page.locator("#scene canvas").screenshot();
             await page.evaluate(() => globalThis.materialAdapter.destroy());
             await page.close();
-            const compressed = profile.format !== "png";
+            const compressed = profile.format !== "png" && !profile.missing;
             expect(result, `${backend} ${profile.name}`).toMatchObject({
               backend,
               density: 2,
@@ -1314,6 +1328,7 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
               normalIgnored: true,
               channels: ["albedo", "normal"],
               materialTextureFormat: profile.format,
+              materialTextureFallbacks: profile.missing ? 1 : 0,
               compressed,
               format: true,
               // UASTC targets are 16 bytes per 4×4 block: the 16×8 page uploads 128 bytes.
@@ -1326,7 +1341,11 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
             expect(result.atlasTextureBytes).toBe(8 * 4 * 4 + (compressed ? 16 * 8 : 16 * 8 * 4));
             expect(result.textureBytes).toBeLessThanOrEqual(16777216);
             const material = requested.filter((url) => /^\/material-\d+x-/u.test(url));
-            expect(material).toEqual([`/material-2x-albedo.${compressed ? "ktx2" : "png"}`]);
+            expect(material).toEqual(
+              profile.missing
+                ? ["/material-2x-albedo.ktx2", "/material-2x-albedo.png"]
+                : [`/material-2x-albedo.${compressed ? "ktx2" : "png"}`],
+            );
           }
           // Each transcoded page draws what the PNG page draws, the right way up: the albedo's
           // top and bottom rows differ, so a flipped page would not match.
@@ -1343,9 +1362,9 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
                 context.drawImage(bitmap, 0, 0);
                 return context.getImageData(0, 0, bitmap.width, bitmap.height).data;
               };
-              const reference = await pixels(captures.png);
+              const reference = await pixels(captures["no compression"]);
               const result = {};
-              for (const [format, capture] of Object.entries(captures)) {
+              for (const [name, capture] of Object.entries(captures)) {
                 const drawn = await pixels(capture);
                 let max = 0,
                   lit = 0;
@@ -1353,19 +1372,19 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
                   max = Math.max(max, Math.abs(drawn[i] - reference[i]));
                   if (i % 4 === 2 && reference[i] > reference[i - 2] + 64) lit += 1;
                 }
-                result[format] = { max, lit, length: drawn.length === reference.length };
+                result[name] = { max, lit, length: drawn.length === reference.length };
               }
               return result;
             },
             Object.fromEntries(Object.entries(captures).map(([k, v]) => [k, v.toString("base64")])),
           );
           await page.close();
-          for (const [format, difference] of Object.entries(differences)) {
-            expect(difference.length, `${backend} ${format}`).toBe(true);
+          for (const [name, difference] of Object.entries(differences)) {
+            expect(difference.length, `${backend} ${name}`).toBe(true);
             // The blue-dominant albedo rows are drawn.
-            expect(difference.lit, `${backend} ${format}`).toBeGreaterThan(0);
-            expect(difference.max, `${backend} ${format}`).toBeLessThanOrEqual(
-              DEVICE_PROFILES.find((profile) => profile.format === format).tolerance,
+            expect(difference.lit, `${backend} ${name}`).toBeGreaterThan(0);
+            expect(difference.max, `${backend} ${name}`).toBeLessThanOrEqual(
+              DEVICE_PROFILES.find((profile) => profile.name === name).tolerance,
             );
           }
         },

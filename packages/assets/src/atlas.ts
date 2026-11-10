@@ -283,7 +283,7 @@ export function buildAtlases(
   const deliveries = new Map<
     string,
     {
-      materialVersion: 1;
+      materialVersion: 2;
       renditions: {
         density: 1 | 2 | 4;
         channels: Partial<Record<MaterialChannel, TextureReference>>;
@@ -291,7 +291,7 @@ export function buildAtlases(
     }
   >();
   for (const entry of materialEntries)
-    deliveries.set(assetKey(entry.manifest), { materialVersion: 1, renditions: [] });
+    deliveries.set(assetKey(entry.manifest), { materialVersion: 2, renditions: [] });
   for (const density of [1, 2, 4] as const) {
     const roles = layout.filter((manifest) =>
       manifest.material?.renditions.some((r) => r.density === density),
