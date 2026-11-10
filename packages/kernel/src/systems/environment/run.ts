@@ -11,6 +11,7 @@ import type {
 } from "@clockgrove/domain";
 import { RefusalSignal } from "../../execute/refusal.js";
 import {
+  boundedCatchUpTarget,
   CATCH_UP_ENGINE_VERSION,
   type CatchUpPayloadHandler,
   type CatchUpRegistry,
@@ -29,11 +30,14 @@ import {
   ECOLOGY_SYSTEM_VERSION,
   type EcologyHolderInit,
   type EcologyRunOptions,
+  type EcologyWaterInit,
   growthSystemKind,
   growthSystemState,
   holderSystemState,
   STAGE_THRESHOLD_PREFIX,
   spoilageSystemKind,
+  waterSystemKind,
+  waterSystemState,
 } from "../ecology/index.js";
 import {
   createWellbeingSystem,
@@ -76,6 +80,7 @@ export interface EnvironmentGroup {
   readonly spoiled: readonly string[];
   /** Sources that appear here, in object id code-unit order. */
   readonly appeared: readonly string[];
+  readonly water: readonly string[];
   /** Plants that reach a new stage here, in object id code-unit order. */
   readonly stages: readonly EcologyStageChange[];
   /** Need crossings (hunger before thirst, then object id order). */
@@ -129,7 +134,7 @@ export interface EnvironmentRunOptions {
 }
 
 export interface EnvironmentDrain {
-  /** The time the engine call reached: the first queued decision's due time, or the target. */
+  /** The time the engine call reached: the bounded threshold horizon, first queued decision's due time, or the target. */
   readonly time: SimTimeMs;
   readonly groups: readonly EnvironmentGroup[];
   /** The decision the engine dispatched at `time`, if one was due. */
@@ -142,10 +147,14 @@ export interface EnvironmentRun {
   /** Thresholds in `(position, upTo]`, grouped by time; advances the run to `upTo`. */
   readonly step: (upTo: SimTimeMs) => readonly EnvironmentGroup[];
   /**
-   * One engine call over the real queue: advances to the first due decision (or the target),
+   * One engine call over the real queue: advances to a bounded threshold horizon, decision or target,
    * dispatches at most that one decision, and reports the grouped thresholds. Pure until `commit`.
    */
-  readonly drain: (queue: ScheduleQueue, target: SimTimeMs) => EnvironmentDrain;
+  readonly drain: (
+    queue: ScheduleQueue,
+    target: SimTimeMs,
+    thresholdBudget: number,
+  ) => EnvironmentDrain;
   /**
    * Replaces the routine-movement systems (one per moving actor) registered for the following
    * engine calls; their states start at the run's position.
@@ -171,6 +180,7 @@ export interface EnvironmentReseed {
    * quantity a decision changes must reach the appearance schedule at the instant it changes.
    */
   readonly holders?: readonly EcologyHolderInit[];
+  readonly waterHolders?: readonly EcologyWaterInit[];
   readonly rainIntensity: number;
   readonly nextWeatherBoundary: SimTimeMs;
 }
@@ -180,6 +190,7 @@ const RANK_WEATHER = 1;
 const RANK_EXPOSURE = 2;
 const RANK_SPOILAGE = 3;
 const RANK_APPEARANCE = 4;
+const RANK_WATER = 4.5;
 const RANK_STAGE = 5;
 const RANK_WELLBEING = 6;
 const RANK_MOVEMENT = 7;
@@ -327,6 +338,22 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
         state: holderState(source.objectId),
       });
     }
+    for (const init of ecology.waterHolders ?? []) {
+      const id = continuousSystemId(waterSystemKind(init.entry.objectId), 1);
+      ecologyObjects.set(id, { rank: RANK_WATER, objectId: init.entry.objectId });
+      ecologyStates.push({
+        systemId: id,
+        at: options.position,
+        state: waterSystemState({
+          ...init.entry,
+          quantity: init.quantity,
+          protection: init.protection,
+          active: init.active,
+          rain: options.rainIntensity,
+          rainUntil: options.nextWeatherBoundary,
+        }),
+      });
+    }
     for (const plant of ecology.policy.plants) {
       const init = ecology.plants.find((candidate) => candidate.entry.objectId === plant.objectId);
       if (init === undefined) throw new RangeError("ecology plant without state");
@@ -456,6 +483,7 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       crossings: EnvironmentCrossing[];
       spoiled: string[];
       appeared: string[];
+      water: string[];
       stages: EcologyStageChange[];
       needs: { objectId: string; need: WellbeingNeed }[];
       comforts: { objectId: string; comfort: Comfort }[];
@@ -473,6 +501,7 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
           crossings: [],
           spoiled: [],
           appeared: [],
+          water: [],
           stages: [],
           needs: [],
           comforts: [],
@@ -487,6 +516,7 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       else if (rank === RANK_WEATHER) group.weather = true;
       else if (rank === RANK_SPOILAGE) group.spoiled.push(objectId as string);
       else if (rank === RANK_APPEARANCE) group.appeared.push(objectId as string);
+      else if (rank === RANK_WATER) group.water.push(objectId as string);
       else if (rank === RANK_STAGE)
         group.stages.push({
           objectId: objectId as string,
@@ -560,6 +590,25 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       states = Object.freeze(
         states.map((state): CatchUpSystemState => {
           const ecologyObject = ecologyObjects.get(state.systemId);
+          if (ecologyObject?.rank === RANK_WATER) {
+            const init = reseed.waterHolders?.find(
+              (entry) => entry.entry.objectId === ecologyObject.objectId,
+            );
+            if (init !== undefined)
+              return {
+                systemId: state.systemId,
+                at: position,
+                state: waterSystemState({
+                  ...init.entry,
+                  quantity: init.quantity,
+                  protection: init.protection,
+                  active: init.active,
+                  rain: reseed.rainIntensity,
+                  rainUntil: reseed.nextWeatherBoundary,
+                }),
+              };
+            return state;
+          }
           const holder =
             ecologyObject === undefined || ecologyObject.rank === RANK_STAGE
               ? undefined
@@ -611,10 +660,12 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       states = result.systems;
       return group(result);
     },
-    drain: (queue: ScheduleQueue, target: SimTimeMs): EnvironmentDrain => {
+    drain: (queue: ScheduleQueue, target: SimTimeMs, thresholdBudget: number): EnvironmentDrain => {
       const first = queue[0];
       const wanted = first !== undefined && first.dueAt <= target ? first.dueAt : target;
-      const to = (wanted < position ? position : wanted) as SimTimeMs;
+      let to = (wanted < position ? position : wanted) as SimTimeMs;
+      // Keep the leg's speculative scheduling order, with lookahead bounded by the event budget.
+      to = boundedCatchUpTarget(registry, states, to, thresholdBudget);
       const outcome = catchUpSchedules(registry, {
         engineVersion: CATCH_UP_ENGINE_VERSION,
         queue,

@@ -80,8 +80,20 @@ in the plant's own food holder. The growth-stage journal event names the plant, 
 yield; ordinary resource transfers move the resulting food. Policy validation rejects malformed
 yields through `INVALID_POLICY` at the domain policy path. Genesis validates that a yielding plant
 has a food holder. See [ecology](../../domain/docs/ecology.md) for the native policy contract.
-This is a growth cause; the remaining scheduled-source migration, weather collection and declared
-process work are tracked by issue 187.
+This is a growth cause; the remaining scheduled-source migration and declared process work are
+tracked by issue 187.
+
+**Weather water holders.** Optional `ecology.waterHolders` entries declare `{objectId, capacity,
+catchment, evaporationPerHour}`. Rates are integer water units per hour; catchment is measured at
+rain intensity 10000 and shelter protection 0, and scales by rain and unprotected exposure. The
+water holder's capacity bounds collection, and evaporation removes existing water without debt.
+The native journal records collection and evaporation through `resource.weather-integrated@1`;
+ordinary commands can move the resulting water. Matching state entries retain fractional
+remainders and integration time. Invalid policy data is refused through `INVALID_POLICY` at the
+domain policy path. These are optional platform causes with world-authored values; absent fields
+preserve existing encodings. See [ecology](../../domain/docs/ecology.md#weather-water-holders) for
+the policy/state contract. Scheduled sources remain temporarily pending issue 187's process and
+fixture migration; this addition does not claim complete closed-world enforcement.
 
 **`ValidatedWorldPack.definitions`** holds the decoded, frozen `traits`, `archetypes` and `actors`
 documents (actors include `capabilities`, `placement` and `lifecycle`, `null` when absent), sorted by id and

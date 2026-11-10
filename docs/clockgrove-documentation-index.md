@@ -42,8 +42,8 @@ food and water alike: water in a bowl must come from rain or someone filling it.
 must have journaled platform causes: weather collection, plant yield, character commands or
 explicitly declared world processes. Off-screen people are allowed only as declared processes
 acting through ordinary validated commands. Scheduled ecology sources are being replaced in
-sequential parts of issue 187; journal accounting and optional plant-stage yield are available,
-while weather collection, processes and fixture migration remain pending. The
+sequential parts of issue 187; journal accounting, optional plant-stage yield and opt-in rain collection/evaporation are available,
+while declared processes, source removal and fixture migration remain pending. The
 [kernel ecology contract](../packages/kernel/docs/ecology.md) records implemented behavior.
 
 ---

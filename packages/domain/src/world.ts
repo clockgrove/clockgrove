@@ -668,6 +668,45 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         ),
       });
     }
+    case "resource.weather-integrated": {
+      const entity = requireEntity(state, event.payload.objectId);
+      const ecology = requireEcology(state);
+      const entry = ecology.waterHolders?.find(
+        (candidate) => candidate.objectId === entity.objectId,
+      );
+      const { collected, evaporated, integratedAt, collectionRemainder, evaporationRemainder } =
+        event.payload;
+      if (
+        entry === undefined ||
+        entity.resource?.kind !== "water" ||
+        integratedAt !== event.simulationTime ||
+        integratedAt <= entry.integratedAt ||
+        !Number.isSafeInteger(collected) ||
+        collected < 0 ||
+        !Number.isSafeInteger(evaporated) ||
+        evaporated < 0
+      )
+        throw new DomainValidationError("event", "invalid weather integration");
+      const quantity = BigInt(entity.resource.quantity) + BigInt(collected) - BigInt(evaporated);
+      if (quantity < 0n || quantity > BigInt(Number.MAX_SAFE_INTEGER))
+        throw new DomainValidationError("event", "invalid weather inventory");
+      return createWorldState({
+        ...advanced,
+        entities: state.entities.map((candidate) =>
+          candidate.objectId !== entity.objectId
+            ? candidate
+            : { ...candidate, resource: { ...entity.resource!, quantity: Number(quantity) } },
+        ),
+        ecology: {
+          ...ecology,
+          waterHolders: ecology.waterHolders!.map((candidate) =>
+            candidate.objectId !== entity.objectId
+              ? candidate
+              : { ...candidate, collectionRemainder, evaporationRemainder, integratedAt },
+          ),
+        },
+      });
+    }
     case "resource.appeared": {
       const entity = requireEntity(state, event.payload.objectId);
       if (!Number.isSafeInteger(event.payload.quantity) || event.payload.quantity <= 0)

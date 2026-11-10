@@ -405,6 +405,16 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
         wetnessRemainder: 0n,
         integratedAt: epoch,
       })),
+      ...(policy.ecology.waterHolders === undefined
+        ? {}
+        : {
+            waterHolders: policy.ecology.waterHolders.map((holder) => ({
+              objectId: holder.objectId,
+              collectionRemainder: 0n,
+              evaporationRemainder: 0n,
+              integratedAt: epoch,
+            })),
+          }),
     };
   if (policy.wellbeing !== undefined)
     extras.wellbeing = {
