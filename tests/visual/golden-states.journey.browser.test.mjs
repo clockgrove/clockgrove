@@ -45,7 +45,8 @@ const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
 const TIERS = ["low", "medium", "high"];
 // The shell renders each wall-clock value, such as an action's recorded-at time, in a
 // `[data-wall-clock]` element; it differs on every run. The capture paints each one as a solid
-// box of fixed width, so a capture's hash depends only on the commit and the world.
+// box, so a capture's hash depends only on the commit and the world. The box is as wide as its
+// text in tabular numerals: a value of another length, not another time, changes the hash.
 const WALL_CLOCK_MASK =
   "[data-wall-clock] { color: transparent !important; background: #ff00ff !important; font-variant-numeric: tabular-nums !important; }";
 // scripts/capture-world.mjs asks a run to stop by creating this file. Vitest exits at once on a
@@ -302,6 +303,8 @@ const captureGoldenStates = async (backend) => {
           }))
         : undefined;
       const captures = [];
+      // Pages whose clock a state holds (Playwright's page.clock); only the capture advances it.
+      const held = new Set();
       const capture = async (state, page, check) => {
         throwIfStopped();
         // A check may name the region its state is about; the capture frames it, else the page top.
@@ -339,19 +342,20 @@ const captureGoldenStates = async (backend) => {
           ).toSatisfy(Number.isInteger);
         // Two animation frames let the canvas present the committed state before the capture. The
         // window scrolls the narrow layout and the scene column scrolls the desktop frame.
-        await page.evaluate(
-          (framed) =>
-            new Promise((resolve) => {
-              if (!framed)
-                for (const scroller of [
-                  document.scrollingElement,
-                  ...document.querySelectorAll(".rw-main"),
-                ])
-                  scroller.scrollTo(0, 0);
-              requestAnimationFrame(() => requestAnimationFrame(resolve));
-            }),
-          region !== undefined,
-        );
+        await page.evaluate((framed) => {
+          if (!framed)
+            for (const scroller of [
+              document.scrollingElement,
+              ...document.querySelectorAll(".rw-main"),
+            ])
+              scroller.scrollTo(0, 0);
+          globalThis.hallPresented = new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+        }, region !== undefined);
+        // A held page clock runs only those two frames (16 ms each), so no page timer runs late.
+        if (held.has(page)) await page.clock.runFor(50);
+        await page.evaluate(() => globalThis.hallPresented);
         // Nothing passes under the HUD: the scene column starts below it and either clips its own
         // scrolling content (the desktop frame) or scrolls the HUD away with it (the narrow page).
         // A framed region's top edge is the region itself, never the HUD or anything over it.
@@ -752,13 +756,36 @@ const captureGoldenStates = async (backend) => {
           .getByText(/^Selected entity at canonical revision /u)
           .waitFor();
       });
+      // The live scene socket drops: the shell keeps the committed scene and says it is recovering.
+      // After a backoff of at least 500 ms (half of SCENE_RECONNECT.firstDelayMs) it opens a new
+      // socket, and that connection reports `connecting`, which drops the scene and the selection.
+      // The page clock is held from before the drop until the shot, so the backoff cannot end
+      // first, and the capture waits on the shell's scene status, not its text.
+      const sceneStatus = (page) =>
+        page.locator("#rw-observation-status").getAttribute("data-scene-status");
       await each("disconnected-recovering", async (page) => {
-        // Every new scene socket is refused, then the live one drops: the shell keeps the committed
-        // scene and says it is recovering.
-        await page.routeWebSocket(/\/v1\/projection/u, (socket) => socket.close());
+        // The installed clock runs from now, and pausing jumps it to a later instant; the jump runs
+        // only page timers set since the install, before any drop.
+        await page.clock.install();
+        await page.clock.pauseAt(Date.now() + 1000);
+        held.add(page);
         await page.evaluate(() => globalThis.hallSceneSocket.close());
-        await page.getByText("Observation: degraded. Recovering committed scene.").waitFor();
+        // The scene state reaches React through zero-delay timers (Query's notifications); they
+        // run without moving the held clock.
+        await expect
+          .poll(async () => {
+            await page.clock.runFor(0);
+            return sceneStatus(page);
+          })
+          .toBe("degraded");
       });
+      // Each shot showed the first recovery: even after every shot, each shell is still recovering
+      // and its latest scene socket is the dropped one, so no reconnect has started.
+      for (const page of pages)
+        expect([
+          await sceneStatus(page),
+          await page.evaluate(() => globalThis.hallSceneSocket.readyState),
+        ]).toEqual(["degraded", 3]);
       // A principal holds at most four scene sockets (SCENE_SOCKET_BOUNDS.perPrincipal), so each
       // canvas viewer hands in its measurements and closes before the text viewers open.
       const points = [];

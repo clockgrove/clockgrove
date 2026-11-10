@@ -507,7 +507,8 @@ export function WorldApp({
             Retry observation
           </button>
         )}
-        <p id="rw-observation-status">
+        {/* The scene state as data, so a test can wait on it without reading the announced text. */}
+        <p id="rw-observation-status" data-scene-status={state.status}>
           {observationStatus}
           <span className="rw-observation-details">
             {live && scene
