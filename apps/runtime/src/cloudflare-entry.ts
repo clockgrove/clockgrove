@@ -364,6 +364,8 @@ export function composeActivationOwners(
       ),
     );
   return {
+    moderationReport: async (scope, context, participant, actorId) =>
+      (await owner(scope, actorId)).moderationShadowReport(scope, context, participant, actorId),
     triageReport: async (scope, context, participant, actorId) =>
       (await owner(scope, actorId)).wakeTriageReport(scope, context, participant, actorId),
     configure: async (scope, context, participant, actorId, configuration, policy) =>
@@ -625,6 +627,7 @@ export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
+  readonly MODERATION_SHADOW_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   readonly MANAGEMENT_DATABASE_URL?: string;
@@ -675,6 +678,7 @@ export interface RuntimeEnvironment {
       | "inspectActivations"
       | "hintActivations"
       | "wakeTriageReport"
+      | "moderationShadowReport"
     >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;

@@ -35,6 +35,7 @@ import {
   decodeConversationMessage,
   decodeConversationSession,
   decodeConversationTurn,
+  decodeModerationShadowJudgement,
   decodeOpaqueId,
   type ObjectId,
   type PartitionId,
@@ -80,7 +81,10 @@ const SESSION_COLUMNS = `session_id, tenant_id, world_id, timeline_id, partition
     WHERE participant.tenant_id = conversation_sessions.tenant_id
       AND participant.session_id = conversation_sessions.session_id) AS participants`;
 const MESSAGE_COLUMNS = `session_id, sequence, message_id, role, author_id, voice_mode,
-  content_artifact_id, ${timestamp("created_at")}`;
+  content_artifact_id, ${timestamp("created_at")},
+  (SELECT q.record FROM clockgrove.moderation_shadow q
+    WHERE q.tenant_id=conversation_messages.tenant_id AND q.session_id=conversation_messages.session_id
+      AND q.message_id=conversation_messages.message_id) AS moderation_shadow`;
 const TURN_COLUMNS = `session_id, turn, input_sequence, output_sequence, model, state,
   ${timestamp("created_at")}`;
 /** Same scope filter for every session read; RLS admits only sessions the caller participates in. */
@@ -1257,6 +1261,28 @@ export class PostgreSqlConversationStore implements ConversationStore {
       voiceMode: row.voice_mode,
       text: await this.text(participant, stored, String(row.content_artifact_id)),
       createdAt: row.created_at,
+      ...(row.moderation_shadow == null
+        ? {}
+        : {
+            moderationShadow: (() => {
+              const record = row.moderation_shadow as Record<string, unknown>;
+              return decodeModerationShadowJudgement(
+                Object.fromEntries(
+                  [
+                    "mode",
+                    "status",
+                    "disposition",
+                    "injection",
+                    "confidenceBp",
+                    "modelAlias",
+                    "model",
+                    "latencyMs",
+                    "costMicrousd",
+                  ].map((key) => [key, record[key]]),
+                ),
+              );
+            })(),
+          }),
     });
   }
 

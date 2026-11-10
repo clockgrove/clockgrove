@@ -1,8 +1,8 @@
 # Clockgrove Wave 5: Durable Conversations, Actor Harness, Models, Capabilities, and MCP
 
 **Status:** Coding-agent implementation specification  
-**Version:** 1.9  
-**Date:** October 19, 2026
+**Version:** 1.10
+**Date:** November 09, 2026
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 5 of 13  
@@ -213,6 +213,8 @@ Sessions retain independent ordered transcripts. A user can create, title, list,
 Messages are immutable user/actor/system artifacts with source, channel, content parts, media references, privacy, moderation disposition, and created world/wall time. Edits create revisions or supersession; they never rewrite evidence invisibly.
 
 Turns declare input message, actor policy/model version, grounded world revision, context manifest, run, stream state, cancellation, output message, proposed commands/effects, final disposition, and cost.
+
+Decision (Kirk, 2026-11-09, issue 162): moderation and prompt-injection judging run in shadow mode through the configured decision-model tier for inbound messages. The message carries its explicitly marked shadow judgement (`allow`, `flag` or `block`, plus the injection judgement), confidence and model/policy evidence. It does not replace the delivered message or alter the actor turn. Disabled judging, missing credentials and model failure preserve today's delivery and execution. A false `block` remains visible as evidence; any later enforcing mode must make it reversible through an attributed correction or supersession, never an invisible rewrite of the original judgement. Enforcement awaits owner review of the measurements. Tool-result screening waits for MCP execution and is outside issue 162. See the [moderation shadow contract](../protocols/decision-shadow.md#moderation-and-prompt-injection) and [report procedure](../runbooks/runtime.md#moderation-shadow-report).
 
 ### 6.3 Voice disclosure
 

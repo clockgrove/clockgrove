@@ -147,6 +147,52 @@ it(
           ],
         }),
       ).rejects.toThrow("deploy retry of a phase that is never retried");
+      // A phase stopped at its time limit is unknown and ends the deploy (tests/infra as above).
+      const timedOut = {
+        ...observed,
+        command: ["OpenTofu provision apply"],
+        status: "unknown",
+        exitCode: null,
+        signal: "SIGKILL",
+        errorCode: "ETIMEDOUT",
+        reason: "timeout",
+      };
+      const buildDigest = `sha256:${"1".repeat(64)}`;
+      const stopped = (phases) => ({
+        ...manifest,
+        candidate: { ...manifest.candidate, buildDigest },
+        artifacts: manifest.artifacts.map((artifact) => ({ ...artifact, buildDigest })),
+        deployments: [
+          {
+            environment: "staging",
+            commit: manifest.candidate.commit,
+            buildDigest,
+            status: "unknown",
+            phases,
+          },
+        ],
+      });
+      await expect(validateEvidence(stopped([timedOut]))).resolves.toBeDefined();
+      await expect(
+        validateEvidence(
+          stopped([timedOut, { ...publication("passed"), command: ["Hyperdrive identity"] }]),
+        ),
+      ).rejects.toThrow("deployment continued after a time-limited phase");
+      // A call refused for the deploy's time budget never ran: failed with no observation.
+      const refused = {
+        ...timedOut,
+        status: "failed",
+        signal: null,
+        errorCode: null,
+        reason: "budget",
+        completedAt: timedOut.startedAt,
+      };
+      await expect(
+        validateEvidence({
+          ...stopped([refused]),
+          deployments: [{ ...stopped([refused]).deployments[0], status: "failed" }],
+        }),
+      ).resolves.toBeDefined();
       await expect(recordCommand(directory, "node-version", ["node", "--version"])).rejects.toThrow(
         "refuse overwriting prior command evidence",
       );

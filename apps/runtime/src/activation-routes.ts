@@ -15,10 +15,17 @@ export const ACTIVATION_ROUTES = [
   "/v1/runtime/activations/wake",
   "/v1/runtime/activations/inspect",
   "/v1/runtime/activations/triage-report",
+  "/v1/runtime/activations/moderation-report",
 ] as const;
 export type ActivationRoute = (typeof ACTIVATION_ROUTES)[number];
 
 export interface ActivationOwners {
+  moderationReport?(
+    scope: BrowserScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ): Promise<unknown>;
   triageReport(
     scope: BrowserScope,
     context: TrustedExecutionContext,
@@ -127,6 +134,15 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   if (body.version !== 1) invalid("version");
   const scope = decodeBrowserScope(body.scope);
   const actorId = text(body.actorId, "actorId");
+  if (route === "/v1/runtime/activations/moderation-report")
+    return {
+      scope,
+      actorId,
+      run: (owners, context, participant) => {
+        if (owners.moderationReport === undefined) throw new Error("moderation report unavailable");
+        return owners.moderationReport(scope, context, participant, actorId);
+      },
+    };
   if (route === "/v1/runtime/activations/triage-report")
     return {
       scope,

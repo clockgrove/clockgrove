@@ -23,6 +23,7 @@ import {
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
+  type ModerationShadowPolicy,
   ProvisioningCaseConflictError,
   type ProvisioningRefusal,
   ProvisioningStageError,
@@ -68,6 +69,7 @@ import {
 import {
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
+  PostgreSqlModerationShadow,
   PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
@@ -122,6 +124,11 @@ import {
   type OwnerMailboxState,
   SPACE_MAILBOX_BOUNDS,
 } from "./mailbox.js";
+import {
+  moderationShadowDecider,
+  moderationShadowPolicy,
+  shadowActorMessage,
+} from "./moderation-shadow.js";
 import { PostgreSqlSceneStreamReader } from "./observation.js";
 import {
   OWNER_ACTIVATION_BUDGET,
@@ -1295,6 +1302,27 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     });
   }
 
+  async moderationShadowReport(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ) {
+    assertWorldCommandContext(context, scope);
+    if (!context.privacyCeiling.allowedCategories.includes("conversation"))
+      throw new AuthorizationRefusedError("moderation report refused");
+    await this.ready(scope, context, actorId);
+    return withWakeTriageClient(this.environment, (client) =>
+      new PostgreSqlModerationShadow(client).report(participant, scope as BrowserScope, actorId),
+    );
+  }
+  protected moderationDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    return moderationShadowDecider(this.environment, policy, fiber);
+  }
+
   async wakeTriageReport(
     scope: RuntimeScope,
     context: TrustedExecutionContext,
@@ -1973,6 +2001,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       beforeModel: async (participant, fiber, input) => {
+        let autonomous = false;
         if (fiber.messageId.startsWith("activation:")) {
           const result = await withActivations(this.environment, (store) =>
             store.beforeModel(
@@ -1980,8 +2009,34 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
               fiber,
             ),
           );
+          autonomous = result !== undefined;
           if (result === "deferred" || result === "noop" || result === "completed")
             throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+        }
+        if (!autonomous) {
+          try {
+            const policy = moderationShadowPolicy(this.environment.MODERATION_SHADOW_CONFIG);
+            if (policy !== undefined)
+              await withWakeTriageClient(this.environment, (client) =>
+                shadowActorMessage(
+                  client,
+                  participant,
+                  fiber,
+                  input,
+                  policy,
+                  this.moderationDecider(policy, fiber),
+                ),
+              );
+          } catch {
+            console.warn(
+              JSON.stringify({
+                event: "moderation-shadow-evidence-failed",
+                actorId: fiber.actorId,
+                sessionId: fiber.sessionId,
+                messageId: fiber.messageId,
+              }),
+            );
+          }
         }
         try {
           const policy = wakeTriagePolicy(this.environment.WAKE_TRIAGE_CONFIG);

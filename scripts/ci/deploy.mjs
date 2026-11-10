@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deploymentRolesInput, roleCheckFailures } from "../database/deployment-roles.mjs";
 import { databaseIsolationQuery } from "../database/isolation.mjs";
+import { ownedSubprocess } from "../lib/subprocess.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
   assertNoUnrecordedDuplicates,
@@ -147,35 +148,124 @@ export function retryableApply(phase, stdout, plan) {
     !errors.some(({ address }) => /^neon_project\./u.test(address) && created.has(address))
   );
 }
-export function recordDeploymentPhase(result, candidate, name, executable, args, options = {}) {
-  const { explain, retryable, attempt, run = spawnSync, ...spawnOptions } = options;
+// OpenTofu's wall-clock limits. A provider that never returns, such as the Neon provider polling
+// a failed operation forever, would otherwise hold the deploy until the job's 45-minute timeout
+// kills it mid-apply, leaving the state lock held and the evidence unuploaded. An apply gets
+// `applySeconds` and starts only if all of it fits in what is left of `budgetSeconds` since the
+// deploy started; any other call (init, plan, show, output) gets `callSeconds`, cut to what is
+// left, and starts only with at least `floorSeconds` left. So the deploy ends inside the job
+// however many calls it makes, and no apply starts only to be interrupted. At the limit OpenTofu
+// gets SIGINT and `graceSeconds` to exit before its process group is killed. On SIGINT OpenTofu
+// asks its providers to stop and waits for their calls in flight, then saves state and releases
+// the lock; a provider that ignores the stop, as the Neon provider 0.1.15 does (its operation
+// wait has no context), never returns, so OpenTofu is killed and the lock stays held. The job's
+// setup steps before the deploy and the evidence upload after it fit in what the budget and grace
+// leave. The provision retries (four runs of state read, plan, review and apply, 105 s of backoff)
+// normally take minutes, and the budget bounds them even when every call nears its limit.
+export const tofuLimits = {
+  applySeconds: 600,
+  callSeconds: 300,
+  floorSeconds: 60,
+  budgetSeconds: 1800,
+  graceSeconds: 120,
+};
+// One tofu call's limit and grace, `elapsedMs` into the deploy, or `refused` with why it must not
+// start.
+export function tofuBounds(args, elapsedMs, limits = tofuLimits) {
+  const left = limits.budgetSeconds * 1000 - elapsedMs;
+  const apply = args[0] === "apply";
+  const needed = (apply ? limits.applySeconds : limits.floorSeconds) * 1000;
+  if (left < needed)
+    return {
+      refused: `${apply ? "its" : "the minimum"} ${needed / 1000} s limit does not fit the ${Math.max(0, Math.floor(left / 1000))} s left of the deploy's ${limits.budgetSeconds} s OpenTofu budget`,
+    };
+  return {
+    timeoutMs: apply ? needed : Math.min(left, limits.callSeconds * 1000),
+    killGraceMs: limits.graceSeconds * 1000,
+  };
+}
+// A bounded call stops gracefully: SIGINT to tofu's process group (as a terminal's Ctrl-C does;
+// provider plugins ignore it, tofu asks them to stop), SIGKILL after the grace.
+const stoppable = (executable, args, options) =>
+  ownedSubprocess(executable, args, { ...options, stopSignal: "SIGINT" });
+// Runs one phase and records it. With `timeoutMs` the call is bounded as above; a call stopped at
+// its limit is `unknown` with reason `timeout`, never retried, and stops the deploy. With
+// `refused` (from tofuBounds) nothing runs: the call is recorded `failed` with reason `budget` and
+// stops the deploy, so the evidence names why it ended.
+export async function recordDeploymentPhase(
+  result,
+  candidate,
+  name,
+  executable,
+  args,
+  options = {},
+) {
+  const {
+    explain,
+    retryable,
+    attempt,
+    timeoutMs,
+    refused,
+    run = timeoutMs ? stoppable : spawnSync,
+    ...spawnOptions
+  } = options;
   const startedAt = new Date().toISOString();
-  const command = run(executable, args, {
+  const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
+  if (refused) {
+    result.phases.push({
+      commit: candidate.commit,
+      tree: candidate.tree,
+      command: [name],
+      exitCode: null,
+      status: "failed",
+      signal: null,
+      errorCode: null,
+      reason: "budget",
+      startedAt,
+      completedAt: startedAt,
+      outputDigest: digest(""),
+      ...(attempt > 1 ? { attempt } : {}),
+    });
+    throw new assert.AssertionError({ message: `${label} not started: ${refused}` });
+  }
+  const command = await run(executable, args, {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
+    timeoutMs,
     ...spawnOptions,
   });
   const observed = subprocessEvidence(command);
+  const timedOut = command.timedOut === true;
   const phase = {
     commit: candidate.commit,
     tree: candidate.tree,
     command: [name],
     ...observed,
     status:
-      observed.status === "failed" && /apply|publication/u.test(name) ? "unknown" : observed.status,
+      timedOut || (observed.status === "failed" && /apply|publication/u.test(name))
+        ? "unknown"
+        : observed.status,
+    ...(timedOut ? { reason: "timeout" } : {}),
     startedAt,
     completedAt: new Date().toISOString(),
     outputDigest: digest(`${command.stdout ?? ""}${command.stderr ?? ""}`),
     ...(attempt > 1 ? { attempt } : {}),
   };
   result.phases.push(phase);
-  const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
-  if (observed.status !== "passed") {
+  if (phase.status !== "passed") {
     const why = explain ? explain(command.stdout, command.stderr) : "";
+    const stopped = timedOut
+      ? `stopped: no result within ${Math.round(timeoutMs / 1000)} s; interrupted with SIGINT${
+          command.signal === "SIGKILL"
+            ? ", then killed after the grace; the state lock may be held"
+            : ", exited within the grace"
+        }`
+      : "failed";
     const error = new assert.AssertionError({
-      message: `${label} failed; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
+      message: `${label} ${stopped}; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
     });
-    error.retryable = retryable?.(phase, command.stdout) === true;
+    // A timeout is never a Neon lock: the provider may still be waiting on its operation.
+    error.retryable = !timedOut && retryable?.(phase, command.stdout) === true;
     throw error;
   }
   console.log(`${label}: passed`);
@@ -198,15 +288,18 @@ export async function applyStage(stage, context) {
   } = context;
   for (let attempt = 1; ; attempt++) {
     const plan = path.join(work, attempt > 1 ? `${stage}-${attempt}.tfplan` : `${stage}.tfplan`);
-    phase(`OpenTofu ${stage} plan`, "tofu", ["plan", "-input=false", ...planArgs, `-out=${plan}`], {
-      attempt,
-    });
+    await phase(
+      `OpenTofu ${stage} plan`,
+      "tofu",
+      ["plan", "-input=false", ...planArgs, `-out=${plan}`],
+      { attempt },
+    );
     const proposed = JSON.parse(
-      phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan], { attempt }),
+      await phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan], { attempt }),
     );
     review(proposed);
     try {
-      phase(
+      await phase(
         `OpenTofu ${stage} apply`,
         "tofu",
         ["apply", "-input=false", "-json", ...applyArgs, plan],
@@ -308,13 +401,16 @@ async function runDeployment() {
   let store;
   let providerIpc;
   let connections;
+  const started = Date.now();
   const phase = (name, executable, args, options = {}) => {
+    const tofu = executable === "tofu";
     return recordDeploymentPhase(result, manifest.candidate, name, executable, args, {
       cwd: work,
       env: {
         ...env,
-        ...(executable === "tofu" ? hostedTofuEnv(env, providerIpc, work) : {}),
+        ...(tofu ? hostedTofuEnv(env, providerIpc, work) : {}),
       },
+      ...(tofu ? tofuBounds(args, Date.now() - started) : {}),
       ...options,
     });
   };
@@ -345,14 +441,18 @@ async function runDeployment() {
     ({ temporary, work } = await stateWorkspace(target, config, env));
     await withProviderIpc(work, async (ipc) => {
       providerIpc = ipc;
-      phase("OpenTofu initialization", "tofu", ["init", "-input=false", "-lockfile=readonly"]);
+      await phase("OpenTofu initialization", "tofu", [
+        "init",
+        "-input=false",
+        "-lockfile=readonly",
+      ]);
       // Owned resources must be declared, and state must not have lost a duplicable one. Checked
       // before the first plan and again before a provision retry, since a failed apply can have
       // created a resource it did not record.
       const readInventory = async (attempt) => {
         const owned = ownedInventory(
           JSON.parse(
-            phase("read owned persisted resource identities", "tofu", ["show", "-json"], {
+            await phase("read owned persisted resource identities", "tofu", ["show", "-json"], {
               attempt,
             }),
           ),
@@ -393,7 +493,7 @@ async function runDeployment() {
       };
       await apply("provision", provisionOptions(store, target, readInventory));
       const credentials = JSON.parse(
-        phase("owned generated role credentials", "tofu", [
+        await phase("owned generated role credentials", "tofu", [
           "output",
           "-json",
           "database_credentials",
@@ -415,7 +515,7 @@ async function runDeployment() {
       // Creates or updates the restricted roles with SQL. Their passwords reach psql only on
       // standard input; a failed role check is reported by role name, the rest of psql's output
       // is withheld.
-      phase(
+      await phase(
         "reviewed database-role grants",
         "psql",
         ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
@@ -425,9 +525,14 @@ async function runDeployment() {
           explain: (_stdout, stderr) => roleCheckFailures(stderr),
         },
       );
-      phase("database migrations", "node", [path.join(root, "scripts/database/migrate.mjs")], {
-        env: migrationEnv,
-      });
+      await phase(
+        "database migrations",
+        "node",
+        [path.join(root, "scripts/database/migrate.mjs")],
+        {
+          env: migrationEnv,
+        },
+      );
       await verifyDatabaseIsolation(connections.MIGRATION_DATABASE_URL);
       const runtime = new Client({ connectionString: connections.DATABASE_URL });
       runtime.on("error", () => {});
@@ -480,7 +585,7 @@ async function runDeployment() {
       }
       await apply("bindings");
       const hyperdrive = JSON.parse(
-        phase("Hyperdrive identity", "tofu", ["output", "-json", "hyperdrive_id"]),
+        await phase("Hyperdrive identity", "tofu", ["output", "-json", "hyperdrive_id"]),
       );
       const wrangler = JSON.parse(
         await readFile(path.join(root, `infra/wrangler/${target}.json`), "utf8"),
@@ -513,7 +618,7 @@ async function runDeployment() {
       const wranglerFile = path.join(work, "wrangler.json");
       await writeFile(wranglerFile, JSON.stringify(wrangler));
       const wranglerBin = path.join(root, "node_modules/.bin/wrangler");
-      phase(
+      await phase(
         "Wrangler secret publication",
         wranglerBin,
         ["secret", "bulk", "--config", wranglerFile],
@@ -526,7 +631,7 @@ async function runDeployment() {
           }),
         },
       );
-      phase("Wrangler Worker publication", wranglerBin, [
+      await phase("Wrangler Worker publication", wranglerBin, [
         "deploy",
         "--config",
         wranglerFile,
@@ -536,9 +641,15 @@ async function runDeployment() {
       result.status = "passed";
     });
   } catch (error) {
-    // A lock still held after a failed OpenTofu phase is named, since that phase's output is not.
+    // A lock still held after a failed OpenTofu phase, or one stopped at its time limit, is named,
+    // since that phase's output is not.
     const last = result.phases.at(-1);
-    if (store && last && last.status !== "passed" && last.command[0].startsWith("OpenTofu"))
+    if (
+      store &&
+      last &&
+      last.status !== "passed" &&
+      (last.command[0].startsWith("OpenTofu") || last.reason === "timeout")
+    )
       await readLock(store, target)
         .then((lock) => lock && console.error(describeLock(target, store, lock)))
         .catch(() => {});

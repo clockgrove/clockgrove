@@ -93,7 +93,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 2 | `clockgrove-wave-2-journal-replay-implementation-plan.md` | 1.7 | PostgreSQL journal, world lifecycle, replay and attribution persistence |
 | 3 | `clockgrove-wave-3-actor-fabric-implementation-plan.md` | 1.11 | Cloudflare actor fabric, runtime coordinator, perpetual scheduling and provisioning |
 | 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality, world-agnostic React/Three.js projection, readiness/navigation and full-3D adapter compatibility |
-| 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.9 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
+| 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.10 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
 | 6 | `clockgrove-wave-6-context-memory-learning-implementation-plan.md` | 1.7 | Memory, relationships, governed cognitive documents, bounded compiled-policy learning, field guides and provenance |
 | 7 | `clockgrove-wave-7-rules-timelines-authoring-implementation-plan.md` | 1.8 | Rules, preview timelines, bounded counterfactual Why, previewed pack upgrades and reusable exports |
 | 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona, delivered in clockgrove/raccoon-world against the platform |
