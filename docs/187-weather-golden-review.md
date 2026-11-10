@@ -20,5 +20,8 @@ These fixtures do not yet declare weather water holders. Their scheduled sources
 | social-learning | [worlds/fixture/reference/goldens/social-learning.json](../worlds/fixture/reference/goldens/social-learning.json) | Add weather event/reducer identity; recompute bundle hash; all physical outputs unchanged. |
 | street-dwell | [worlds/fixture/reference/goldens/street-dwell.json](../worlds/fixture/reference/goldens/street-dwell.json) | Add weather event/reducer identity; recompute bundle hash; all physical outputs unchanged. |
 | walk-crossings | [worlds/fixture/reference/goldens/walk-crossings.json](../worlds/fixture/reference/goldens/walk-crossings.json) | Add weather event/reducer identity; recompute bundle hash; all physical outputs unchanged. |
+| walk-out-of-den | [worlds/fixture/reference/goldens/walk-out-of-den.json](../worlds/fixture/reference/goldens/walk-out-of-den.json) | Add weather event/reducer identity; recompute bundle hash; all physical outputs unchanged. |
 
 The focused conformance suite must pass after copying the exact reviewed bytes; Node executes all reference scenarios and Node/workerd parity covers the neutral fixture. Full reference workerd and long-run qualification remain in their existing CI lanes.
+
+Rebase review on default branch `ce9c973`: retained the default branch’s updated movement and shelter outputs for boundary-walk and walk-crossings, and its new walk-out-of-den scenario. Compared each conformance-generated actual bundle to that default-branch golden: the only changes are the weather event/reducer entries and derived bundle hash. Accepted the exact reviewed bytes. This expands the registry review to 15 scenario bundles.
