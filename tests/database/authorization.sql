@@ -106,6 +106,9 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'runtime_operator_actions', 'none'),
   ('clockgrove', 'conversation_sessions', 'participant'),
   ('clockgrove', 'channel_bindings', 'participant'),
+  ('clockgrove', 'delivery_consent', 'participant'),
+  ('clockgrove', 'deliveries', 'participant'),
+  ('clockgrove', 'delivery_sink_receipts', 'participant'),
   ('clockgrove', 'conversation_participants', 'participant'),
   ('clockgrove', 'conversation_messages', 'participant'),
   ('clockgrove', 'conversation_turns', 'participant'),
@@ -273,6 +276,7 @@ BEGIN
       expected_rows := CASE WHEN table_name IN (
         'clockgrove.event_dispatches', 'clockgrove.artifact_references',
         'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
+        'clockgrove.delivery_consent', 'clockgrove.deliveries', 'clockgrove.delivery_sink_receipts',
         'clockgrove.channel_bindings', 'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
         'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
@@ -2530,4 +2534,113 @@ BEGIN
   END;
 END;
 $$;
+ROLLBACK;
+
+-- Governed delivery (0051): recipients own consent; scope and session provenance survive
+-- hostile SQL, reservations are trigger-owned, and sink selection follows canonical timeline.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a','principal-a');
+INSERT INTO clockgrove.conversation_participants(tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','delivery-session','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','delivery-session','world-a','timeline-a','partition-a','space-a','keeper','cognitive','fake');
+INSERT INTO clockgrove.channel_bindings
+  (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+  VALUES ('tenant-a','world-a','timeline-a','principal-a','delivery-session','fake','delivery-thread');
+INSERT INTO clockgrove.artifact_data_keys(tenant_id,world_id,privacy_class,key_version,kek_id,wrapped_key)
+  VALUES ('tenant-a','world-a','conversation',1,'kek-test',decode(repeat('c1',61),'hex'));
+INSERT INTO clockgrove.artifact_references
+  (tenant_id,world_id,timeline_id,partition_id,space_id,artifact_id,content_hash,media_type,
+    inline_content,byte_length,privacy_class,retention_class,encryption,data_key_version)
+  SELECT 'tenant-a','world-a','timeline-a','partition-a','space-a','delivery-content',
+    'sha256:'||encode(sha256(bytes),'hex'),'text/plain;charset=utf-8',bytes,octet_length(bytes),
+    'conversation','durable','aes-256-gcm-v1',1
+    FROM (VALUES (decode('01'||repeat('c2',40),'hex'))) AS sealed(bytes);
+INSERT INTO clockgrove.conversation_messages
+  (tenant_id,session_id,sequence,message_id,role,author_id,voice_mode,content_artifact_id)
+  VALUES ('tenant-a','delivery-session',1,'delivery-message','actor','keeper','cognitive','delivery-content');
+INSERT INTO clockgrove.delivery_consent
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,enabled,timezone,version,budget_limit)
+  VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a',true,'America/Los_Angeles',1,1);
+CREATE FUNCTION pg_temp.delivery_attack_request(k text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object('type','DeliveryRequested','version',1,'scope',
+    jsonb_build_object('tenantId','tenant-a','worldId','world-a','timelineId','timeline-a','spaceId','space-a'),
+    'actorId','keeper','sessionId','delivery-session','recipientPrincipalId','principal-a',
+    'channelBinding',jsonb_build_object('channel','fake','threadId','delivery-thread'),
+    'reason',jsonb_build_object('kind','event','id','event-a'),'urgency','normal',
+    'contentArtifactId','delivery-content','privacyClass','conversation','consentVersion',1,
+    'policyVersion','delivery-policy-v1','dedupeKey',k,'quietHoursBehavior','delay',
+    'budgetReservation',jsonb_build_object('id',k,'units',1))
+$$;
+INSERT INTO clockgrove.deliveries
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,session_id,dedupe_key,reservation_id,
+    reserved_units,content_artifact_id,request,receipt,status)
+  SELECT 'tenant-a','world-a','timeline-a','space-a','keeper','principal-a','delivery-session','one','one',
+    0,'delivery-content',r,jsonb_build_object('request',r,'status','reserved','reservedUnits',0,'sink',NULL),'reserved'
+    FROM (VALUES (pg_temp.delivery_attack_request('one'))) AS q(r);
+UPDATE clockgrove.deliveries SET status='approved',receipt=receipt||'{"status":"approved","sink":"fake"}';
+INSERT INTO clockgrove.delivery_sink_receipts
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,dedupe_key,sink,content_artifact_id)
+  VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a','one','fake','delivery-content');
+DO $$ DECLARE context record; BEGIN
+  IF (SELECT reserved_units FROM clockgrove.delivery_consent)<>1
+    OR (SELECT count(*) FROM clockgrove.deliveries)<>1
+    OR (SELECT count(*) FROM clockgrove.delivery_sink_receipts)<>1 THEN
+    RAISE EXCEPTION 'delivery did not reserve before exactly one sink receipt'; END IF;
+  BEGIN
+    UPDATE clockgrove.delivery_consent SET reserved_units=0;
+    RAISE EXCEPTION 'runtime rewrote trigger-owned delivery spend' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.deliveries
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,session_id,dedupe_key,reservation_id,
+        reserved_units,content_artifact_id,request,receipt,status)
+      SELECT 'tenant-a','world-a','timeline-a','space-a','keeper','principal-a','delivery-session','two','two',
+        0,'delivery-content',r,jsonb_build_object('request',r,'status','reserved','reservedUnits',0,'sink',NULL),'reserved'
+        FROM (VALUES (pg_temp.delivery_attack_request('two'))) AS q(r);
+    UPDATE clockgrove.deliveries SET status='approved',receipt=receipt||'{"status":"approved","sink":"fake"}' WHERE dedupe_key='two';
+    RAISE EXCEPTION 'exhausted budget authorized another send' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  FOR context IN SELECT * FROM (VALUES
+    ('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-other','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}')
+  ) AS contexts(tenant,principal,ceiling) LOOP
+    PERFORM pg_temp.act_as(context.tenant,context.principal,context.ceiling);
+    IF (SELECT count(*) FROM clockgrove.delivery_consent)<>0 OR (SELECT count(*) FROM clockgrove.deliveries)<>0
+      OR (SELECT count(*) FROM clockgrove.delivery_sink_receipts)<>0 THEN
+      RAISE EXCEPTION 'delivery escaped tenant, recipient or privacy ceiling'; END IF;
+    BEGIN
+      INSERT INTO clockgrove.delivery_consent
+        (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,enabled,timezone,version,budget_limit)
+        VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a',true,'UTC',1,1);
+      RAISE EXCEPTION 'foreign principal changed delivery consent' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  BEGIN
+    INSERT INTO clockgrove.delivery_consent
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,timezone,version,budget_limit)
+      VALUES ('tenant-a','world-b','timeline-a','space-a','keeper','principal-a','UTC',1,1);
+    RAISE EXCEPTION 'delivery consent crossed worlds' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.delivery_consent
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,timezone,version,budget_limit)
+      VALUES ('tenant-a','world-a','timeline-b','space-a','keeper','principal-a','UTC',1,1);
+    RAISE EXCEPTION 'delivery consent crossed timelines' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.delivery_sink_receipts
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,dedupe_key,sink,content_artifact_id)
+      VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a','one','preview','delivery-content');
+    RAISE EXCEPTION 'live timeline entered preview sink' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  BEGIN
+    UPDATE clockgrove.deliveries SET status='delayed';
+    RAISE EXCEPTION 'terminal delivery became pending' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+END $$;
+SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

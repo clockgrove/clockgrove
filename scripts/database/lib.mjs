@@ -364,10 +364,17 @@ export async function psql(tools, environment, sql, extraArguments = []) {
 }
 
 export async function psqlQuery(tools, environment, sql, options = {}) {
+  const { viaStdin = false, ...execution } = options;
   return capture(
     tools.psql,
-    ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--tuples-only", "--no-align", "--command", sql],
-    { ...options, environment },
+    [
+      "--no-psqlrc",
+      "--set=ON_ERROR_STOP=1",
+      "--tuples-only",
+      "--no-align",
+      ...(viaStdin ? ["--file", "-"] : ["--command", sql]),
+    ],
+    { ...execution, environment, ...(viaStdin ? { input: sql } : {}) },
   );
 }
 

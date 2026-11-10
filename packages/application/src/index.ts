@@ -14,6 +14,7 @@ export * from "./channels.js";
 export * from "./cognition.js";
 export * from "./conversations.js";
 export * from "./decision-shadow.js";
+export * from "./deliveries.js";
 export * from "./dispatch.js";
 export * from "./event-registry.js";
 export * from "./journal.js";

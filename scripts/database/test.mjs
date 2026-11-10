@@ -198,6 +198,7 @@ async function runAttackSuite(tools, environment) {
     tools,
     { ...environment, PGUSER: "clockgrove_runtime" },
     await readFile(attackSuitePath, "utf8"),
+    { viaStdin: true },
   );
 }
 
