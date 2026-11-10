@@ -3,14 +3,14 @@
 -- spend the same unit twice. Canonical content remains in encrypted conversation artifacts.
 CREATE FUNCTION clockgrove.runtime_delivery_authorized(t text,w text,tl text,s text,p text,a text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,clockgrove AS $$
-  SELECT EXISTS (SELECT 1 FROM clockgrove.world_memberships m
-    WHERE m.tenant_id=t AND m.world_id=w AND m.timeline_id=tl AND m.space_id=s
-      AND m.principal_id=p AND m.revoked_at IS NULL AND 'runtime:world-observe'=ANY(m.grants)
+  SELECT EXISTS (SELECT 1 FROM clockgrove.conversation_sessions cs
+    JOIN clockgrove.conversation_participants cp USING (tenant_id,session_id)
+    JOIN clockgrove.world_memberships m ON m.tenant_id=cs.tenant_id AND m.world_id=cs.world_id
+      AND m.timeline_id=cs.timeline_id AND m.space_id=cs.space_id AND m.principal_id=cp.principal_id
+    WHERE cs.tenant_id=t AND cs.world_id=w AND cs.timeline_id=tl AND (s IS NULL OR cs.space_id=s)
+      AND cs.actor_id=a AND cp.principal_id=p AND cs.state<>'deleted'
+      AND m.revoked_at IS NULL AND 'runtime:world-observe'=ANY(m.grants)
       AND m.privacy_ceiling->'allowedCategories' ? 'conversation')
-    AND EXISTS (SELECT 1 FROM clockgrove.conversation_sessions cs
-      JOIN clockgrove.conversation_participants cp USING (tenant_id,session_id)
-      WHERE cs.tenant_id=t AND cs.world_id=w AND cs.timeline_id=tl AND cs.space_id=s
-        AND cs.actor_id=a AND cp.principal_id=p AND cs.state<>'deleted')
 $$;
 REVOKE ALL ON FUNCTION clockgrove.runtime_delivery_authorized(text,text,text,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clockgrove.runtime_delivery_authorized(text,text,text,text,text,text) TO clockgrove_runtime;
@@ -66,15 +66,17 @@ CREATE TABLE clockgrove.delivery_sink_receipts (
     REFERENCES clockgrove.deliveries (tenant_id,world_id,timeline_id,actor_id,principal_id,dedupe_key)
 );
 
-DO $$ DECLARE n text; BEGIN
+DO $$ DECLARE n text; authorization_space text; BEGIN
   FOREACH n IN ARRAY ARRAY['delivery_consent','deliveries','delivery_sink_receipts'] LOOP
+    -- Consent follows its actor/recipient key across spaces; deliveries retain exact space scope.
+    authorization_space:=CASE WHEN n='delivery_consent' THEN 'NULL::text' ELSE 'space_id' END;
     EXECUTE format('ALTER TABLE clockgrove.%I ENABLE ROW LEVEL SECURITY',n);
     EXECUTE format('ALTER TABLE clockgrove.%I FORCE ROW LEVEL SECURITY',n);
     EXECUTE format('CREATE POLICY recipient_isolation ON clockgrove.%I
       USING (clockgrove.runtime_can_access(tenant_id,''conversation'') AND principal_id=clockgrove.runtime_principal_id()
-        AND clockgrove.runtime_delivery_authorized(tenant_id,world_id,timeline_id,space_id,principal_id,actor_id))
+        AND clockgrove.runtime_delivery_authorized(tenant_id,world_id,timeline_id,%s,principal_id,actor_id))
       WITH CHECK (clockgrove.runtime_can_access(tenant_id,''conversation'') AND principal_id=clockgrove.runtime_principal_id()
-        AND clockgrove.runtime_delivery_authorized(tenant_id,world_id,timeline_id,space_id,principal_id,actor_id))',n);
+        AND clockgrove.runtime_delivery_authorized(tenant_id,world_id,timeline_id,%s,principal_id,actor_id))',n,authorization_space,authorization_space);
     EXECUTE format('REVOKE ALL ON clockgrove.%I FROM PUBLIC',n);
     EXECUTE format('GRANT SELECT,INSERT ON clockgrove.%I TO clockgrove_runtime',n);
     EXECUTE format('CREATE TRIGGER %I BEFORE DELETE OR TRUNCATE ON clockgrove.%I

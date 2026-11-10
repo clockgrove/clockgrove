@@ -6,7 +6,7 @@ import {
   decodeOpaqueId,
   decodeTalkReceipt,
 } from "@clockgrove/contracts";
-import { PostgreSqlGovernedDelivery } from "@clockgrove/persistence";
+import { PostgreSqlGovernedDelivery, withClientTransaction } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
 import { truthOf } from "./world-fixture.js";
 import {
@@ -236,5 +236,64 @@ it("reserves before governed delivery, preserves private provenance and isolates
     await expect(store((s) => s.replay(authorization, target, "preview"))).rejects.toMatchObject({
       code: "delivery_target_invalid",
     });
+    await owner.sql("UPDATE clockgrove.world_memberships SET revoked_at=NULL");
+    // Consent and its cumulative reservations outlive the original space's sessions.
+    await owner.sql(`BEGIN;
+      INSERT INTO clockgrove.timeline_partitions
+        (tenant_id,world_id,timeline_id,partition_id,space_id)
+        SELECT tenant_id,world_id,timeline_id,'delivery-second-partition','delivery-second-space'
+        FROM clockgrove.conversation_sessions WHERE session_id='${session.sessionId}';
+      INSERT INTO clockgrove.world_memberships
+        SELECT tenant_id,world_id,timeline_id,'delivery-second-space',principal_id,
+          'delivery-second-membership',persona_id,roles,grants,privacy_ceiling,committed_at,revoked_at
+        FROM clockgrove.world_memberships WHERE principal_id='${authorization.principalId}'
+          AND space_id='${owner.scope.spaceId}';
+      INSERT INTO clockgrove.conversation_participants
+        (tenant_id,session_id,principal_id,persona_id)
+        SELECT tenant_id,'delivery-second-session',principal_id,persona_id
+        FROM clockgrove.conversation_participants WHERE session_id='${session.sessionId}';
+      INSERT INTO clockgrove.conversation_sessions
+        (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,channel,voice_mode)
+        SELECT tenant_id,'delivery-second-session',world_id,timeline_id,
+          'delivery-second-partition','delivery-second-space',actor_id,channel,voice_mode
+        FROM clockgrove.conversation_sessions WHERE session_id='${session.sessionId}';
+      INSERT INTO clockgrove.channel_bindings
+        (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+        SELECT tenant_id,world_id,timeline_id,principal_id,'delivery-second-session',channel,'second-thread'
+        FROM clockgrove.channel_bindings WHERE session_id='${session.sessionId}';
+      UPDATE clockgrove.conversation_sessions SET state='deleted'
+        WHERE space_id='${owner.scope.spaceId}';
+      COMMIT;`);
+    const secondTarget = {
+      ...target,
+      scope: decodeBrowserScope({ ...owner.scope, spaceId: "delivery-second-space" }),
+      sessionId: decodeOpaqueId("delivery-second-session", "SessionId"),
+    };
+    const reconfigure = (budgetLimit: number) =>
+      store((s) =>
+        s.configureConsent(authorization, secondTarget, {
+          enabled: true,
+          timezone: "America/Los_Angeles",
+          quietHours: null,
+          budgetLimit,
+        }),
+      );
+    const visibleConsent = () =>
+      owner.withSqlClient((c) =>
+        withClientTransaction(c, { authorization }, async () => {
+          await c.query("SET LOCAL ROLE clockgrove_runtime");
+          return (await c.query("SELECT reserved_units FROM clockgrove.delivery_consent")).rows;
+        }),
+      );
+    expect(await visibleConsent()).toEqual([{ reserved_units: "8" }]);
+    expect(await reconfigure(8)).toMatchObject({ version: 5, reservedUnits: 8, budgetLimit: 8 });
+    await expect(reconfigure(7)).rejects.toThrow();
+    expect(await reconfigure(9)).toMatchObject({ version: 6, reservedUnits: 8, budgetLimit: 9 });
+    expect(await owner.sql("SELECT count(*) FROM clockgrove.delivery_consent")).toBe("1");
+    await owner.sql(
+      "UPDATE clockgrove.conversation_sessions SET state='deleted' WHERE session_id='delivery-second-session'",
+    );
+    await expect(reconfigure(9)).rejects.toMatchObject({ code: "delivery_target_invalid" });
+    expect(await visibleConsent()).toEqual([]);
   });
 }, 240_000);
