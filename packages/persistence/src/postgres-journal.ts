@@ -24,6 +24,7 @@ import type { CommandId } from "@clockgrove/contracts";
 import {
   CommandIdempotencyInvariantError,
   decodeActorTargetBinding,
+  decodeAttributionIntent,
   decodeEventEnvelope,
 } from "@clockgrove/contracts";
 
@@ -89,7 +90,7 @@ export class PostgreSqlJournal implements Journal, JournalOutcomeReader {
   ): Promise<StoredJournalOutcome<TResult> | undefined> {
     const query = await withClientTransaction(this.client, { authorization }, () =>
       this.client.query(
-        `SELECT status, result
+        `SELECT status, result, attribution
            FROM clockgrove.command_receipts
           WHERE tenant_id = $1 AND command_id = $2
             AND command_bytes = $3::bytea
@@ -99,11 +100,18 @@ export class PostgreSqlJournal implements Journal, JournalOutcomeReader {
     );
     const row = query.rows[0];
     if (row === undefined) return undefined;
-    const { status } = row as { readonly status?: unknown };
+    const { status, attribution } = row as {
+      readonly status?: unknown;
+      readonly attribution?: unknown;
+    };
     if (status !== "committed" && status !== "rejected") {
       throw new TypeError("PostgreSQL returned a malformed receipt status");
     }
-    return { status, result: decodeResult<TResult>(row) };
+    return {
+      status,
+      result: decodeResult<TResult>(row),
+      attribution: decodeAttributionIntent(attribution),
+    };
   }
 
   /** The exact accepted bytes of a command ID's receipt in any status, for a server-built retry. */

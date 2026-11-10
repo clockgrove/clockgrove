@@ -190,7 +190,7 @@ A movement or portal command that moves the world time runs the time it passes a
 would, inside its own events. Up to each of the command's events it applies, through the same
 systems, group emitter and decision loop as `world.advance`: day/night phase changes, weather
 transitions (with every actor and plant integrated first), every actor's exposure, need, comfort
-and health crossings, spoilage, appearance and plant stage changes, lifecycle actions, routine
+and health crossings, spoilage, weather collection and plant stage changes, lifecycle actions, routine
 movers' crossings and arrivals, dwells, and other actors' due decisions, including those a
 crossing brings forward. Each lands at its exact time, before the command's own events at that
 time. Lifecycle draws from the `lifecycle` random stream in the same order as `world.advance`, and
@@ -247,7 +247,7 @@ time order and no repeated event (same type, time and payload). The one exceptio
 `resource.consumed`: two actors eating from one holder at one time each journal the same
 consumption. `movement.scope@4` refuses:
 
-- an appearance or spoilage at a time its ecology does not own (`events[i].simulationTime`);
+- spoilage at a time its ecology does not own (`events[i].simulationTime`);
 - no movement event of the mover, or a movement event of another object that is not a needs actor
   (the only objects routine movers move); dwells (`movement.region-remained`) may name any object
   (`events`);
@@ -274,7 +274,7 @@ The time a move passes is bounded by `movement.passed-time@2` (`precondition-fai
 The reference fixture's `boundary-walk` scenario moves the keeper across 6:00 while its dwell falls
 due and every actor's decision due at the start waits for the move's end (`movement.start`), dusk
 (`movement.start`), midnight as the rain begins (`movement.start`), dawn with spoilage and
-appearance (`movement.start`), the end of the rain (`movement.interrupt`), a herb stage change
+physical resource change (`movement.start`), the end of the rain (`movement.interrupt`), a herb stage change
 (`movement.replan`), dusk as rain begins again (`portal.use`), and the other two actors' decisions
 at midnight while the keeper's waits for the walk's end (`movement.start`), live and fast-forward,
 with equal final states. It also records a replan two days ahead refused at `payload.at`. Its

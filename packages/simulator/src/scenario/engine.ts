@@ -14,6 +14,7 @@ import {
 } from "@clockgrove/domain";
 import {
   canonicalBytes,
+  checkWorldTransitionInvariants,
   createDeterministicIdSource,
   dispatchWorldDecision,
   evaluateRules,
@@ -33,7 +34,7 @@ import { checkCapabilityCommand, type ValidatedWorldPack } from "@clockgrove/wor
 import { decodeCanonicalBytes } from "../canonical-decode.js";
 import type { GenesisBundle } from "../genesis.js";
 import type { RandomStreamRecord, RecordList, ScenarioRun } from "./bundle.js";
-import { eventMatches } from "./compare.js";
+import { eventMatches, materialEvent } from "./compare.js";
 import type { CapabilityVia, ScenarioDocument, ScenarioStep } from "./document.js";
 import { SCENARIO_LIMITS } from "./document.js";
 import { DigestStream, SubjectTable } from "./summary.js";
@@ -547,6 +548,13 @@ export async function executePlan(
         check: outcome.error.check === undefined ? undefined : String(outcome.error.check),
       };
     const result = outcome.result;
+    // Drivers may aggregate catch-up and client commands; native calls validate each command.
+    const causeFailure =
+      driver === undefined
+        ? undefined
+        : checkWorldTransitionInvariants(state, result.state, result.events, behavior.policy);
+    if (causeFailure !== undefined)
+      refuse("RESOURCE_CAUSE_INVARIANT", String(causeFailure.path), String(causeFailure.check));
     const call = callCount;
     callCount += 1;
     const before = state;
@@ -573,6 +581,7 @@ export async function executePlan(
       for (const view of views) {
         const { eventTypes, ignoreEventTypes } = view.declared;
         if (
+          !materialEvent(record) ||
           ignoreEventTypes.includes(type) ||
           (eventTypes.length > 0 && !eventTypes.includes(type))
         )

@@ -11,9 +11,6 @@ it("seeds declared process cursors on the authored cadence at a nonzero world ep
         kind: "water",
         quantity: 0,
       };
-      policy.ecology.sources = policy.ecology.sources.filter(
-        (entry: Json) => entry.objectId !== "sec.crate",
-      );
       policy.ecology.perishables = [];
       policy.processes = [
         {

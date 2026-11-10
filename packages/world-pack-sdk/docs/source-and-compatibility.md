@@ -10,6 +10,14 @@
   exactly one manifest entry and match its declared `sha256`.
 - `dependencyArtifacts` are the only dependency candidates. Nothing is looked up implicitly.
 
+### Closed-world compatibility
+
+Food and water use declared genesis inventory, rainfall collection, finite plant-stage yield and
+ordinary finite transfers. Legacy ecology `sources` fields are refused, including empty lists;
+remove the field and declare physical causes before building against this contract. Off-screen
+agents must be explicit world processes using the same validated commands as characters.
+See [closed-world authoring](collections.md#closed-world-authoring) for migration details.
+
 ### Resource encoding
 
 Definition, policy and cognitive-seed resources are compact UTF-8 JSON with keys sorted by

@@ -1,6 +1,7 @@
 import type {
   ActorAddress,
   AttributionEnvelope,
+  AttributionIntent,
   AuthorityDecision,
   CommandEnvelope,
   CommandId,
@@ -101,6 +102,7 @@ export interface Journal {
 /** The stored outcome of an already decided command. */
 export interface StoredJournalOutcome<TResult = unknown> {
   readonly status: "committed" | "rejected";
+  readonly attribution?: AttributionIntent;
   readonly result: JournalExecuteResult<TResult>;
 }
 

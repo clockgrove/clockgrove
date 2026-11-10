@@ -279,7 +279,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         ),
       ).toBe(`${authorization.principalId} served,${authorization.principalId} served`);
 
-      // Influence proposes; the world accepts, commits and records the consequence, attributed.
+      // Influence without a finite donor is refused and records an attributed receipt.
       const before = await truth("SELECT count(*) FROM clockgrove.command_receipts");
       const { revision } = (await owner.reader.hydrate(authorization, scope)).document.state;
       const intent = {
@@ -291,15 +291,20 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const [offered, offeredBody] = await post("influence", intent);
       const receipt = decodeInfluenceReceipt(offeredBody);
       expect([offered, receipt.status, receipt.attribution]).toEqual([
-        200,
-        "committed",
+        409,
+        "rejected",
         { principalId: authorization.principalId, personaId: "persona-caretaker" },
       ]);
+      expect(receipt.status === "rejected" && receipt.reason).toBe(
+        "precondition-failed at payload.quantity",
+      );
       expect(
-        receipt.status === "committed" && receipt.consequences.map((event) => event.type),
-      ).toEqual(["resource.offered"]);
+        await truth(
+          `SELECT count(*) FROM clockgrove.events WHERE command_id = '${receipt.commandId}'`,
+        ),
+      ).toBe("0");
       // A retried intent replays its stored receipt; another proposal under its ID is a reuse.
-      expect(await post("influence", intent)).toEqual([200, offeredBody]);
+      expect(await post("influence", intent)).toEqual([409, offeredBody]);
       expect(await post("influence", { ...intent, resourceKind: "food" })).toEqual([
         409,
         { error: "command_id_reused" },
@@ -308,7 +313,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         await truth(
           `SELECT status || ' ' || (attribution->>'personaId') || ' ' || (attribution->>'effectiveActorId') FROM clockgrove.command_receipts WHERE command_id = '${receipt.commandId}'`,
         ),
-      ).toBe(`committed persona-caretaker ${authorization.principalId}`);
+      ).toBe(`rejected persona-caretaker ${authorization.principalId}`);
       // Without the command grant the intent is rejected, and the rejection is a recorded receipt.
       grants = [observe];
       const [rejected, rejectedBody] = await post("influence", { ...intent, intentId: "offer-2" });

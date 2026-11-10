@@ -20,6 +20,9 @@
   also at `manifest.actors[<index>]#lifecycle` (a needs actor without a lifecycle seed),
   `manifest.actors[<index>]#lifecycle.parentIds` (a parent that is not another declared needs actor) and
   `manifest.actors[<index>]#lifecycle.bornAt` (after the clock epoch).
+- `RESOURCE_CAUSE_INVARIANT`: an accepted scenario driver result violates a native world invariant;
+  the path identifies the inconsistent state or event and the message names the invariant check.
+  Every accepted transition is checked in full and summarised recording, including injected drivers.
 - `SEED_COMMAND_REFUSED` at `manifest.seedCommands[<index>]`: the kernel refused the command.
 - `SEED_PROJECTION_MISMATCH` at `manifest.expectedSeedProjectionHash`; the message states the expected and
   actual hashes.

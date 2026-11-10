@@ -247,7 +247,6 @@ it("journals weather water at exact instants with bounded inventory and executio
   arriving.pack.policy.ecology = {
     schemaVersion: 1,
     perishables: [],
-    sources: [],
     plants: [],
     waterHolders: [{ objectId: "collector", capacity: 1, catchment: 3600, evaporationPerHour: 0 }],
   };

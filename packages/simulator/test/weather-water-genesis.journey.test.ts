@@ -8,7 +8,6 @@ it("seeds an SDK-built weather collector with its initial inventory and epoch", 
   const source = await buildSectionHallSource({
     edit: ({ docs }) => {
       const ecology = (docs["policies/behavior.json"] as Json).policy.ecology;
-      ecology.sources = ecology.sources.filter((entry: Json) => entry.objectId !== "sec.pond");
       ecology.waterHolders = [
         { objectId: "sec.pond", capacity: 10, catchment: 3600, evaporationPerHour: 1 },
       ];

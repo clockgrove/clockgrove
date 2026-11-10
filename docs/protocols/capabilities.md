@@ -47,7 +47,10 @@ still proposes only through this decision, so it cannot widen a grant.
 ## Executing a world command
 
 An accepted `world.command` proposal becomes the ordinary command `resource.offer`, built by the
-server (`apps/runtime/src/actor-model.ts`), never taken from the model's text:
+server (`apps/runtime/src/actor-model.ts`), never taken from the model's text. Under the
+[closed-world contract](../../packages/kernel/docs/ecology.md), this unbacked offer is refused by
+`resource.closed-world@1` at `payload.quantity`; capability admission cannot create inventory.
+The refusal retains the ordinary command receipt and attribution:
 
 - Effective actor: the configured actor. Initiator persona, principal and membership are sealed from
   the member's trusted context, as for the member's own Influence. The causal root is

@@ -30,7 +30,7 @@ it.skipIf(isNativeWorldOwnerChild())(
 );
 
 it.skipIf(!isNativeWorldOwnerChild())(
-  "commits Keeper's granted proposal through the ordinary Journal and refuses every ungranted one",
+  "refuses Keeper's unbacked offer through the ordinary Journal and every ungranted proposal",
   async () => {
     await withNativeWorldOwner(async (owner) => {
       const post = (path: string, fields: object) =>
@@ -45,13 +45,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       };
       const rows = (query: string) => owner.sql(query);
 
-      // A granted proposal commits as an ordinary command: Keeper the executing actor, the member
-      // the initiator, and the turn's run records the step.
+      // A granted offer still needs a physical donor; its ordinary refusal is journaled,
+      // with Keeper the executing actor and the member the initiator.
       const offered = await say("m1", "fixture:offer fixture.water-bowl water");
       expect(offered.command).toMatchObject({
         capability: "world.command",
-        status: "committed",
-        code: null,
+        status: "refused",
+        code: "precondition_failed",
       });
       const commandId = offered.command?.commandId;
       expect(
@@ -60,14 +60,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
                   (attribution->>'personaId') || ' ' || (attribution->>'causalRootActionId')
              FROM clockgrove.command_receipts WHERE command_id = '${commandId}'`,
         ),
-      ).toBe(`committed ${KEEPER} persona-caretaker action-${commandId}`);
+      ).toBe(`rejected ${KEEPER} persona-caretaker action-${commandId}`);
       expect(
         await rows(
           `SELECT s.status || ' ' || s.tool || ' ' || s.command_id
              FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r ON r.run_id = s.run_id
             WHERE r.session_id = '${sessionId}' AND s.kind = 'world_command_proposal'`,
         ),
-      ).toBe(`succeeded world.command ${commandId}`);
+      ).toBe(`failed world.command ${commandId}`);
+
+      expect(
+        await rows(`SELECT count(*) FROM clockgrove.events WHERE command_id = '${commandId}'`),
+      ).toBe("0");
 
       // The validator's refusal is a receipt too; the proposal text cannot bypass it.
       const wrongKind = await say("m2", "fixture:offer fixture.water-bowl gold");

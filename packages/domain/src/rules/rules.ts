@@ -398,6 +398,12 @@ export function validateRuleDefinition(
     const ip = `${path}.intents[${i}]`;
     const o = exactRecord(raw, ip, ["commandType", "commandVersion", "payload"]);
     const commandType = text(o["commandType"], `${ip}.commandType`);
+    if (commandType === "resource.offer")
+      fail(
+        `${ip}.commandType`,
+        "closed worlds require a transfer from existing inventory",
+        "rule.closed-world",
+      );
     const commandVersion = intInRange(
       o["commandVersion"],
       `${ip}.commandVersion`,

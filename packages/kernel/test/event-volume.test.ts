@@ -101,7 +101,6 @@ async function fixtureWorld(source: UtilitySpec): Promise<EnvironmentWorld> {
   );
   sample.pack.policy.ecology = {
     schemaVersion: 1,
-    sources: [],
     perishables: [],
     plants: [
       {

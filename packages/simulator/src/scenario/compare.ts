@@ -23,6 +23,12 @@ function omitCall(entry: Rec): Rec {
   return rest;
 }
 
+export function materialEvent(event: Rec): boolean {
+  if (event.type !== "resource.weather-integrated") return true;
+  const payload = event.payload as Rec;
+  return payload.collected !== 0 || payload.evaporated !== 0;
+}
+
 /** The comparable view of one run for one field under the declared ignore lists. */
 function view(
   run: ScenarioRun,
@@ -46,7 +52,9 @@ function view(
   switch (field) {
     case "events":
       return records(run.events)
-        .filter((event) => typeof event.type === "string" && compared(event.type))
+        .filter(
+          (event) => materialEvent(event) && typeof event.type === "string" && compared(event.type),
+        )
         .map((event) => ({
           type: event.type,
           simulationTime: event.simulationTime,

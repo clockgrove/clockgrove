@@ -81,7 +81,7 @@ export async function autonomousQuiescent(
 ): Promise<boolean> {
   return (
     (await owner.sql(
-      `SELECT (NOT EXISTS (SELECT 1 FROM clockgrove.partition_states WHERE continuation_command_id IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM clockgrove.partition_schedules WHERE status='pending' AND due_at <= ${through}))::text`,
+      `SELECT (NOT EXISTS (SELECT 1 FROM clockgrove.partition_states WHERE continuation_command_id IS NOT NULL OR next_process_due_at <= ${through}) AND NOT EXISTS (SELECT 1 FROM clockgrove.partition_schedules WHERE status='pending' AND due_at <= ${through}))::text`,
     )) === "true"
   );
 }
@@ -364,11 +364,22 @@ function continuousReference(): (
     let current = start;
     let outcome: WorldKernelOutcome | undefined;
     const events: Event[] = [];
-    for (
-      let due = current.schedules[0]?.dueAt;
-      due !== undefined && due <= through;
-      due = current.schedules[0]?.dueAt
-    ) {
+    const decisions: Extract<
+      WorldKernelOutcome,
+      { ok: true }
+    >["result"]["decisionDrafts"][number][] = [];
+    const mutations: Extract<
+      WorldKernelOutcome,
+      { ok: true }
+    >["result"]["scheduleMutations"][number][] = [];
+    const nextDeadline = (): bigint | undefined => {
+      let next = current.schedules[0]?.dueAt;
+      for (const process of current.partition.state.processes ?? [])
+        if (process.nextAt !== null && (next === undefined || process.nextAt < next))
+          next = process.nextAt;
+      return next;
+    };
+    for (let due = nextDeadline(); due !== undefined && due <= through; due = nextDeadline()) {
       const state = current.partition.state;
       const step = {
         ...command,
@@ -388,6 +399,8 @@ function continuousReference(): (
         if (!outcome.ok) return [current, outcome, events];
         const { result } = outcome;
         events.push(...result.events);
+        decisions.push(...result.decisionDrafts);
+        mutations.push(...result.scheduleMutations);
         continuation = result.continuation;
         current = {
           ...current,
@@ -398,7 +411,21 @@ function continuousReference(): (
         };
       } while (!outcome.result.complete);
     }
-    return [current, outcome, events];
+    return [
+      current,
+      outcome?.ok
+        ? {
+            ...outcome,
+            result: {
+              ...outcome.result,
+              events,
+              decisionDrafts: decisions,
+              scheduleMutations: mutations,
+            },
+          }
+        : outcome,
+      events,
+    ];
   };
   return async (input) => {
     const command = input.input.kind === "command" ? input.input.command : undefined;
@@ -415,7 +442,8 @@ function continuousReference(): (
       type: "world.advance",
       payload: { schemaVersion: 1, targetTime: earned, maxInputs: 64, maxEvents: 4096 },
     } as Step;
-    const [due, , events] = throughDeadlines(input, advance, earned);
+    const [due, caughtUp, events] = throughDeadlines(input, advance, earned);
+    if (caughtUp !== undefined && !caughtUp.ok) return caughtUp;
     const state = due.partition.state;
     const lazy = executeWorldKernel({
       ...due,
@@ -467,7 +495,23 @@ function continuousReference(): (
       input: { kind: "command", command: { ...command, expected: seen } },
     } as WorldKernelInput);
     return outcome.ok
-      ? { ...outcome, result: { ...outcome.result, events: [...events, ...outcome.result.events] } }
+      ? {
+          ...outcome,
+          result: {
+            ...outcome.result,
+            events: [...events, ...outcome.result.events],
+            decisionDrafts: [
+              ...(caughtUp?.ok ? caughtUp.result.decisionDrafts : []),
+              ...(boundaries ? result.decisionDrafts : []),
+              ...outcome.result.decisionDrafts,
+            ],
+            scheduleMutations: [
+              ...(caughtUp?.ok ? caughtUp.result.scheduleMutations : []),
+              ...(boundaries ? result.scheduleMutations : []),
+              ...outcome.result.scheduleMutations,
+            ],
+          },
+        }
       : outcome;
   };
 }

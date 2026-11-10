@@ -128,7 +128,8 @@ inspector audit internals. See [living-yard observation](../protocols/living-yar
 `/v1/runtime/viewed-space` answers a `ChangeViewedSpace` with a follow disposition and never
 commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewed-spaces-and-follow-decisions).
 `/v1/runtime/influence` submits an interaction card's typed Influence intent as a server-built
-`resource.offer` world command under `runtime:world-command`. `/v1/runtime/conversations/*` and
+`resource.offer` world command under `runtime:world-command`. The closed-world kernel refuses
+that unbacked creation; callers must use a finite donor transfer to add inventory. `/v1/runtime/conversations/*` and
 `/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
 category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
 answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
@@ -1286,8 +1287,9 @@ published-head Quality/browser/artifact evidence are still required before integ
 `ActorAgentDO` answers Talk through the `stevie.pilot` model alias when `ANTHROPIC_API_KEY` or
 `AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives the
 member's authorized public scene, asks for a structured `{reply, command}`, and the turn's
-`proposal_validating` phase decides the command against the member-bounded grants and submits an
-accepted `resource.offer` to the world owner ([capabilities](../protocols/capabilities.md)). The
+`proposal_validating` phase decides the command against the member-bounded grants and submits a
+proposed `resource.offer` to the world owner, where the closed-world kernel refuses unbacked
+creation ([capabilities](../protocols/capabilities.md)). The
 owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
 abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
 [the Stevie pilot](https://github.com/clockgrove/raccoon-world/blob/main/docs/runbooks/stevie-pilot.md).

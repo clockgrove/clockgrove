@@ -41,7 +41,9 @@ or `operator-authoring` (`INVALID_CAPABILITY`). Every command must be in the cat
 (`DUPLICATE_IDENTITY`); type and version must be in the catalog (`UNKNOWN_COMMAND` at `.type`);
 `payload` is required (`MISSING_FIELD`) and must be a plain data record that
 `ports.canonicalBytes` encodes (`INVALID_SEED_COMMAND`). More than 1024 is `LIMIT_EXCEEDED`.
-Order is preserved and hashed; nothing is executed here.
+Unbacked `resource.offer` and positive-inventory `object.create` commands are refused as
+`INVALID_SEED_COMMAND` at `manifest.seedCommands[i].payload`; declare initial quantities in actor
+resource components instead. Order is preserved and hashed; nothing is executed here.
 
 **Actor placement and capability bindings.** Actor documents list `capabilities` as declared
 `{ id, version }` refs (`UNKNOWN_CAPABILITY` otherwise) and may carry
@@ -80,8 +82,7 @@ in the plant's own food holder. The growth-stage journal event names the plant, 
 yield; ordinary resource transfers move the resulting food. Policy validation rejects malformed
 yields through `INVALID_POLICY` at the domain policy path. Genesis validates that a yielding plant
 has a food holder. See [ecology](../../domain/docs/ecology.md) for the native policy contract.
-This is a growth cause; the remaining scheduled-source migration and declared process work are
-tracked by issue 187.
+This is a finite growth cause; the last stage never repeats.
 
 **Weather water holders.** Optional `ecology.waterHolders` entries declare `{objectId, capacity,
 catchment, evaporationPerHour}`. Rates are integer water units per hour; catchment is measured at
@@ -92,8 +93,7 @@ ordinary commands can move the resulting water. Matching state entries retain fr
 remainders and integration time. Invalid policy data is refused through `INVALID_POLICY` at the
 domain policy path. These are optional platform causes with world-authored values; absent fields
 preserve existing encodings. See [ecology](../../domain/docs/ecology.md#weather-water-holders) for
-the policy/state contract. Scheduled sources remain temporarily pending issue 187's process and
-fixture migration; this addition does not claim complete closed-world enforcement.
+the policy/state contract.
 
 **`ValidatedWorldPack.definitions`** holds the decoded, frozen `traits`, `archetypes` and `actors`
 documents (actors include `capabilities`, `placement` and `lifecycle`, `null` when absent), sorted by id and
@@ -115,4 +115,18 @@ world epoch, including an occurrence exactly at that epoch. Each attempt and its
 command refusal or successful transfer are journaled under the declared principal. There is no new
 application grant; the native command validations still apply. Absent process lists keep the existing
 encoding. See [kernel ecology](../../kernel/docs/ecology.md) for scheduling and attribution.
-Scheduled source removal and fixture cause migration remain later parts of issue 187.
+
+### Closed-world authoring
+
+Declare all initial inventory in genesis actor components. Ecology no longer accepts `sources`,
+including an empty list: legacy policies are refused as `INVALID_POLICY` at the corresponding
+`manifest.policies[i]#policy.ecology.sources` path. Subsequent food and water increases must come
+from rain collection, finite plant-stage yield or transfers from existing holders. A household
+that fills a bowl must name a finite donor in its process `resource.transfer`; exhaustion produces
+the ordinary journaled refusal rather than a refill.
+
+`resource.offer` and resource-bearing object creation cannot supply runtime inventory. Create an
+empty holder, then transfer declared material. Rules that could mint material are rejected during
+pack validation; process commands remain limited to ordinary validated transfers. Historical
+event reducers remain for replay and do not authorize new creation. The journal and Why evidence
+retain the weather holder, plant/stage or transfer donor and command attribution.

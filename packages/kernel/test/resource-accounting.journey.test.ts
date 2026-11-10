@@ -1,10 +1,18 @@
 import { createWorldState } from "@clockgrove/domain";
 import { expect, it } from "vitest";
 import { checkWorldInvariants, executeWorldKernel } from "../src/world.js";
-import { containmentFixture, containmentInput, fixturePayload } from "./containment.scenario.js";
+import {
+  containmentFixture,
+  containmentInput,
+  withFixtureInventory,
+} from "./containment.scenario.js";
 
 it("accounts each holder and resource kind against the native command journal", async () => {
-  let current = await containmentFixture();
+  let current = withFixtureInventory(await containmentFixture(), [
+    { objectId: "food-a", kind: "food", quantity: 8 },
+    { objectId: "food-b", kind: "food", quantity: 2 },
+    { objectId: "water", kind: "water", quantity: 8 },
+  ]);
   let commandIndex = 0;
   const run = (type: string, payload: unknown) => {
     const input = containmentInput(current, type, payload, `accounting-${commandIndex++}`);
@@ -23,9 +31,6 @@ it("accounts each holder and resource kind against the native command journal", 
     };
     return outcome.result;
   };
-  run("object.create", fixturePayload(current, "food-a", { kind: "food", quantity: 8 }));
-  run("object.create", fixturePayload(current, "food-b", { kind: "food", quantity: 2 }));
-  run("object.create", fixturePayload(current, "water", { kind: "water", quantity: 8 }));
   const initial = current.partition.state;
   const transfer = run("resource.transfer", {
     schemaVersion: 1,
@@ -77,10 +82,9 @@ it("accounts each holder and resource kind against the native command journal", 
     check: "resource.quantity-conservation@1",
     path: "state.entities[0].resource.quantity",
   });
-  run("resource.offer", { schemaVersion: 1, objectId: "food-b", kind: "food", quantity: 2 });
   run("resource.consume", { schemaVersion: 1, objectId: "food-b", kind: "food", quantity: 1 });
   run("object.retire", { schemaVersion: 1, objectId: "water", disposition: "discard" });
   expect(current.partition.state.entities.map((entity) => entity.resource?.quantity)).toEqual([
-    5, 6, 0,
+    5, 4, 0,
   ]);
 });

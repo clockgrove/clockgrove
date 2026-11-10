@@ -128,6 +128,7 @@ const MATERIAL_EVENTS: ReadonlyMap<string, readonly [WorldFeedCategory, string]>
   ["resource.consumed", ["resource", "A resource was consumed."]],
   ["resource.transferred", ["resource", "A resource changed hands."]],
   ["resource.spoiled", ["resource", "Food spoiled."]],
+  ["resource.weather-integrated", ["resource", "Weather changed a water holder."]],
 ]);
 
 /** The kernel event's payload fields of a world-command journal event, when it has them. */
@@ -228,6 +229,10 @@ function feedSentence(
         return named("portalId") === undefined
           ? undefined
           : `${named("portalId")} ${type === "portal.opened" ? "opened" : "closed"}.`;
+      case "resource.weather-integrated":
+        return who === undefined
+          ? undefined
+          : `${who} collected ${String(field("collected"))} water from rain; ${String(field("evaporated"))} evaporated.`;
       case "resource.offered":
         return who === undefined || Kind === undefined
           ? undefined
@@ -249,7 +254,7 @@ function feedSentence(
   return sentence ?? fallback;
 }
 
-/** The single entity an event concerns: its actor or object, else the portal; null otherwise. */
+/** A transfer concerns its receiving holder; other events name their actor, object or portal. */
 function concernedObjectId(event: StoredEvent): ObjectId | null {
   const payload = kernelPayloadOf(event);
   const id =
@@ -257,9 +262,11 @@ function concernedObjectId(event: StoredEvent): ObjectId | null {
       ? undefined
       : "objectId" in payload
         ? payload.objectId
-        : "portalId" in payload
-          ? payload.portalId
-          : undefined;
+        : "toObjectId" in payload
+          ? payload.toObjectId
+          : "portalId" in payload
+            ? payload.portalId
+            : undefined;
   return typeof id === "string" ? decodeOpaqueId(id, "ObjectId") : null;
 }
 
@@ -314,6 +321,16 @@ export class PostgreSqlWorldStatusReader {
       feed: recent.events.flatMap((event) => {
         const material = MATERIAL_EVENTS.get(event.type);
         if (material === undefined || !isSharedSceneEligible(event.privacyClass)) return [];
+        const payload = kernelPayloadOf(event);
+        if (
+          event.type === "resource.weather-integrated" &&
+          payload !== undefined &&
+          "collected" in payload &&
+          "evaporated" in payload &&
+          payload.collected === 0 &&
+          payload.evaporated === 0
+        )
+          return [];
         return [
           {
             id: event.eventId,
@@ -449,6 +466,7 @@ const SCENE_BACKFILL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "resource.consumed",
   "resource.transferred",
   "resource.spoiled",
+  "resource.weather-integrated",
 ]);
 
 /** Request-owned PostgreSQL recovery; no patch cache or additional durable projection. */
@@ -707,6 +725,14 @@ export class PostgreSqlEntitySelectionReader {
     const actions = history.events.flatMap((event) => {
       const payload = kernelPayloadOf(event);
       if (payload === undefined) return [];
+      if (
+        event.type === "resource.weather-integrated" &&
+        "collected" in payload &&
+        "evaporated" in payload &&
+        payload.collected === 0 &&
+        payload.evaporated === 0
+      )
+        return [];
       const touches =
         ("objectId" in payload && payload.objectId === input.objectId) ||
         ("fromObjectId" in payload && payload.fromObjectId === input.objectId) ||

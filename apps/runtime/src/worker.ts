@@ -800,7 +800,8 @@ export class RuntimeWorker {
       if (bindings === undefined) throw new WorldOwnerUnavailableError();
       const prepared = decoded.prepared ?? (await bindings.prepare(input, identified.principalId));
       if (!prepared.tenantMember) throw new AuthorizationRefusedError("tenant membership required");
-      if (prepared.stored !== undefined) return answer(prepared.stored, "replayed");
+      if (prepared.stored !== undefined)
+        return answer(prepared.stored, "replayed", decoded.prepared?.storedPersonaId);
       if (!prepared.ready) return refusal(note, "world_not_ready", 409);
       let context: TrustedContext;
       try {

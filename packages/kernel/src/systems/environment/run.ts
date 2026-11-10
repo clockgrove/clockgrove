@@ -25,7 +25,6 @@ import {
 import type { ScheduleQueue } from "../../scheduler.js";
 import type { ScheduledKernelInput } from "../../transition.js";
 import {
-  appearanceSystemKind,
   createEcologySystems,
   ECOLOGY_SYSTEM_VERSION,
   type EcologyHolderInit,
@@ -78,8 +77,6 @@ export interface EnvironmentGroup {
   readonly crossings: readonly EnvironmentCrossing[];
   /** Perishable holders whose food spoils here, in object id code-unit order. */
   readonly spoiled: readonly string[];
-  /** Sources that appear here, in object id code-unit order. */
-  readonly appeared: readonly string[];
   readonly water: readonly string[];
   /** Plants that reach a new stage here, in object id code-unit order. */
   readonly stages: readonly EcologyStageChange[];
@@ -161,7 +158,7 @@ export interface EnvironmentRun {
    */
   readonly setMovers: (movers: readonly EnvironmentMover[]) => void;
   /**
-   * Re-seeds the exposure and wellbeing states of the given actors, and the spoilage and appearance
+   * Re-seeds the exposure and wellbeing states of the given actors, and the spoilage
    * states of the given ecology holders, at the run's position, from values the caller has just
    * journaled (a location change, a relief, a consumption or a new decision).
    */
@@ -176,8 +173,8 @@ export interface EnvironmentMover {
 export interface EnvironmentReseed {
   readonly actors: readonly EnvironmentActor[];
   /**
-   * Holder contents at the run's position. A source appears only into an empty holder, so a
-   * quantity a decision changes must reach the appearance schedule at the instant it changes.
+   * Holder contents at the run's position. A quantity a decision changes must
+   * reach the spoilage schedule at the instant it changes.
    */
   readonly holders?: readonly EcologyHolderInit[];
   readonly waterHolders?: readonly EcologyWaterInit[];
@@ -189,7 +186,6 @@ const RANK_PHASE = 0;
 const RANK_WEATHER = 1;
 const RANK_EXPOSURE = 2;
 const RANK_SPOILAGE = 3;
-const RANK_APPEARANCE = 4;
 const RANK_WATER = 4.5;
 const RANK_STAGE = 5;
 const RANK_WELLBEING = 6;
@@ -327,15 +323,6 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
         systemId: id,
         at: options.position,
         state: holderState(holder.objectId),
-      });
-    }
-    for (const source of ecology.policy.sources) {
-      const id = continuousSystemId(appearanceSystemKind(source.objectId), ECOLOGY_SYSTEM_VERSION);
-      ecologyObjects.set(id, { rank: RANK_APPEARANCE, objectId: source.objectId });
-      ecologyStates.push({
-        systemId: id,
-        at: options.position,
-        state: holderState(source.objectId),
       });
     }
     for (const init of ecology.waterHolders ?? []) {
@@ -482,7 +469,6 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       weather: boolean;
       crossings: EnvironmentCrossing[];
       spoiled: string[];
-      appeared: string[];
       water: string[];
       stages: EcologyStageChange[];
       needs: { objectId: string; need: WellbeingNeed }[];
@@ -500,7 +486,6 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
           weather: false,
           crossings: [],
           spoiled: [],
-          appeared: [],
           water: [],
           stages: [],
           needs: [],
@@ -515,7 +500,6 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       else if (rank === RANK_PHASE) group.phase = true;
       else if (rank === RANK_WEATHER) group.weather = true;
       else if (rank === RANK_SPOILAGE) group.spoiled.push(objectId as string);
-      else if (rank === RANK_APPEARANCE) group.appeared.push(objectId as string);
       else if (rank === RANK_WATER) group.water.push(objectId as string);
       else if (rank === RANK_STAGE)
         group.stages.push({

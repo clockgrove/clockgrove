@@ -230,7 +230,8 @@ export function assertProjectionContracts(sources) {
     PublicDecisionEvidence: { status: '\"available\" | \"unavailable\" | \"redacted\"', drafts: "readonly PublicDecisionTrace[]" },
     PublicCausalLinks: { parents: "readonly CommandId[]", children: "readonly CommandId[]" },
     PublicScheduledAction: { scheduleId: "string", idempotencyKey: "string", kind: "string", dueAt: "string", status: '\"pending\" | \"done\"', scheduledBy: "CommandId", completedBy: "CommandId | null" },
-    RecordedWhy: { version: "1", privacyClass: '\"public_scene\"', evidence: "typeof RECORDED_WHY_EVIDENCE", entry: "PublicCausalEntry", commandId: "CommandId", actionId: "ActionId | null", receiptStatus: '\"pending\" | \"committed\" | \"rejected\" | \"failed\"', traces: "PublicDecisionEvidence", schedules: "readonly PublicScheduledAction[]", links: "PublicCausalLinks" },
+    PublicResourceCause: { eventId: "EventId", simulationTime: "string", cause: '\"rain\" | \"growth\" | \"transfer\"', kind: '\"food\" | \"water\"', quantity: "number", objectId: "ObjectId", "fromObjectId?": "ObjectId", "processId?": "string" },
+    RecordedWhy: { version: "1", privacyClass: '\"public_scene\"', evidence: "typeof RECORDED_WHY_EVIDENCE", entry: "PublicCausalEntry", commandId: "CommandId", actionId: "ActionId | null", receiptStatus: '\"pending\" | \"committed\" | \"rejected\" | \"failed\"', traces: "PublicDecisionEvidence", "resourceCauses?": "readonly PublicResourceCause[]", schedules: "readonly PublicScheduledAction[]", links: "PublicCausalLinks" },
     SceneEntity: { id: "string", label: "string", description: "string" },
     DiagnosticSceneProjection: {
       version: "1",
@@ -255,7 +256,7 @@ export function assertProjectionContracts(sources) {
   const aliases = {
     RecordedWhyEntry:
       "| { readonly commandId: CommandId } | { readonly eventId: EventId } | { readonly scheduleId: string; readonly idempotencyKey: string }",
-    RecordedWhyRequest: "BrowserScope & { readonly version: 1 } & RecordedWhyEntry",
+    RecordedWhyRequest: "BrowserScope & { readonly version: 1; readonly includeResourceCauses?: true } & RecordedWhyEntry",
     PublicCausalEntry:
       '| { readonly kind: "command" } | { readonly kind: "event"; readonly eventId: EventId } | { readonly kind: "scheduled-action"; readonly scheduleId: string; readonly idempotencyKey: string }',
   };

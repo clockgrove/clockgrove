@@ -540,6 +540,7 @@ export class SpaceDO extends ProductionSpaceDO {
   private control: AlarmTestControl = { wallTime: "", commandLimit: 4 };
   private deliveries = 0;
   private completed = 0;
+  private readonly alarmFlights = new Set<Promise<void>>();
   private failReconciliation = false;
   /** Whether an alarm batch advanced since the interruption was armed. */
   private advanced = false;
@@ -630,7 +631,12 @@ export class SpaceDO extends ProductionSpaceDO {
     this.control = { ...control, enabled: schedule };
     await this.state.storage.put("native-alarm-control", this.control);
     if (schedule) await this.reconcileAlarm(scope);
-    else await this.state.storage.deleteAlarm();
+    else {
+      await this.state.storage.deleteAlarm();
+      await Promise.allSettled([...this.alarmFlights]);
+      // A delivery already in flight may have reconciled its next alarm while being drained.
+      await this.state.storage.deleteAlarm();
+    }
     return this.alarmTestStatus();
   }
   async interruptAlarmTest(scope: RuntimeScope) {
@@ -691,8 +697,14 @@ export class SpaceDO extends ProductionSpaceDO {
   override async alarm(): Promise<void> {
     if (this.control.enabled === false) return;
     this.deliveries += 1;
-    await super.alarm();
-    this.completed += 1;
+    const flight = super.alarm();
+    this.alarmFlights.add(flight);
+    try {
+      await flight;
+      this.completed += 1;
+    } finally {
+      this.alarmFlights.delete(flight);
+    }
   }
 }
 

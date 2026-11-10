@@ -1394,20 +1394,20 @@ export const ECOLOGY_PAIR_NAMES = [
 ] as const;
 export const ECOLOGY_EQUIVALENCE = "material-ecology";
 export const ECOLOGY_EVENT_TYPES = [
-  "resource.appeared",
   "resource.spoiled",
+  "resource.transferred",
   "growth.stage-changed",
   "growth.integrated",
 ] as const;
-/** Same-time rank of the material events: phase and weather, exposure, spoilage, appearance, stage, decision. */
+/** Same-time rank of the material events: phase and weather, exposure, spoilage, stage, transfer, decision. */
 const ECOLOGY_RANK: Readonly<Record<string, number>> = {
   "environment.phase-changed": 0,
   "weather.transitioned": 1,
   "exposure.threshold-crossed": 2,
   "resource.spoiled": 3,
-  "resource.appeared": 4,
+  "resource.transferred": 6,
   "growth.stage-changed": 5,
-  "routine.selected": 6,
+  "routine.selected": 7,
 };
 const ECOLOGY_CHECK = "ecology.state-matches-policy@1";
 const ECOLOGY_BATCH_CHECK = "resource.perishable-single-batch@1";
@@ -1417,8 +1417,8 @@ const ECOLOGY_KINDS = ["food", "water"] as const;
 export const ECOLOGY_GOLDENS = [
   {
     name: "food-decay-and-conservation",
-    materialEventHash: "72a52ddf64ac477802cf56200d49a2ffed84e242578c5607d6ebbc894e0bf28b",
-    finalStateHash: "f80d1e1050641b4f1e6605a2af384b92e7932d6c7bb32e2c07d2602692702765",
+    materialEventHash: "4b1cec5f49e5de4a73ca09c54c6c0a3956226434082aebf0c29da9885680a195",
+    finalStateHash: "0d16048f434a14072b36c38396fbcde2df4ca40972739debf004719321005640",
   },
   {
     name: "cedar-growth",
@@ -1442,13 +1442,11 @@ const ecoInvariant = (name: string): SchedulerRefusalCase =>
 export const ECOLOGY_REFUSAL_CASES: readonly SchedulerRefusalCase[] = [
   ecoPolicy("policy-null"),
   ecoPolicy("policy-wrong-type"),
-  ecoPolicy("policy-missing-field", ".sources"),
+  ecoPolicy("policy-missing-field", ".perishables"),
   ecoPolicy("policy-extra-field", ".extra"),
+  ecoPolicy("legacy-sources", ".sources"),
   ecoPolicy("unknown-version", ".schemaVersion"),
   ecoPolicy("policy-without-environment"),
-  ecoPolicy("source-null", ".sources[0]"),
-  ecoPolicy("source-missing-field", ".sources[0].quantity"),
-  ecoPolicy("source-extra-field", ".sources[0].extra"),
   ecoPolicy("perishable-null", ".perishables[0]"),
   ecoPolicy("perishable-missing-field", ".perishables[0].shelfLifeMs"),
   ecoPolicy("perishable-extra-field", ".perishables[0].extra"),
@@ -1458,21 +1456,10 @@ export const ECOLOGY_REFUSAL_CASES: readonly SchedulerRefusalCase[] = [
   ecoPolicy("stage-null", ".plants[0].stages[0]"),
   ecoPolicy("stage-missing-field", ".plants[0].stages[0].name"),
   ecoPolicy("stage-extra-field", ".plants[0].stages[0].extra"),
-  ecoPolicy("first-time-zero", ".sources[0].firstAtMs"),
-  ecoPolicy("first-time-negative", ".sources[0].firstAtMs"),
-  ecoPolicy("first-time-wrong-type", ".sources[0].firstAtMs"),
-  ecoPolicy("first-time-out-of-range", ".sources[0].firstAtMs"),
-  ecoPolicy("period-zero", ".sources[0].periodMs"),
-  ecoPolicy("period-out-of-range", ".sources[0].periodMs"),
-  ecoPolicy("quantity-zero", ".sources[0].quantity"),
-  ecoPolicy("quantity-negative", ".sources[0].quantity"),
-  ecoPolicy("quantity-wrong-type", ".sources[0].quantity"),
-  ecoPolicy("quantity-out-of-range", ".sources[0].quantity"),
   ecoPolicy("shelf-life-zero", ".perishables[0].shelfLifeMs"),
   ecoPolicy("shelf-life-out-of-range", ".perishables[0].shelfLifeMs"),
   ecoPolicy("threshold-negative", ".plants[0].stages[1].thresholdMs"),
   ecoPolicy("threshold-out-of-range", ".plants[0].stages[1].thresholdMs"),
-  ecoPolicy("sources-too-many", ".sources"),
   ecoPolicy("perishables-too-many", ".perishables"),
   ecoPolicy("plants-too-many", ".plants"),
   ecoPolicy("bands-too-many", ".plants[0].growingLightBands"),
@@ -1482,10 +1469,8 @@ export const ECOLOGY_REFUSAL_CASES: readonly SchedulerRefusalCase[] = [
   ecoPolicy("first-stage-not-zero", ".plants[0].stages[0].thresholdMs"),
   ecoPolicy("thresholds-not-increasing", ".plants[0].stages[2].thresholdMs"),
   ecoPolicy("duplicate-stage-name", ".plants[0].stages[1].name"),
-  ecoPolicy("duplicate-source-id", ".sources[1].objectId"),
   ecoPolicy("duplicate-perishable-id", ".perishables[1].objectId"),
   ecoPolicy("duplicate-plant-id", ".plants[1].objectId"),
-  ecoPolicy("plant-also-source", ".plants[0].objectId"),
   ecoPolicy("plant-also-perishable", ".plants[0].objectId"),
   ecoPolicy("unknown-light-band", ".plants[0].growingLightBands[0]"),
   ecoState("state-null"),
@@ -1506,9 +1491,6 @@ export const ECOLOGY_REFUSAL_CASES: readonly SchedulerRefusalCase[] = [
   ecoDisagrees("plants-count-differs", "state.ecology.plants"),
   ecoDisagrees("perishable-id-differs", "state.ecology.perishables[0].objectId"),
   ecoDisagrees("plant-id-differs", "state.ecology.plants[0].objectId"),
-  ecoDisagrees("source-object-missing", "policy.ecology.sources[1].objectId"),
-  ecoDisagrees("source-kind-differs", "policy.ecology.sources[1].kind"),
-  ecoDisagrees("source-without-resource", "policy.ecology.sources[1].kind"),
   ecoDisagrees("perishable-object-missing", "state.ecology.perishables[1].objectId"),
   ecoDisagrees("perishable-not-food", "state.ecology.perishables[1].objectId"),
   ecoDisagrees("plant-object-missing", "state.ecology.plants[0].objectId"),
@@ -1522,18 +1504,18 @@ export const ECOLOGY_REFUSAL_CASES: readonly SchedulerRefusalCase[] = [
   ecoInvariant("invariant-weather-set"),
   ecoInvariant("invariant-containment"),
   ecoInvariant("invariant-movement"),
-  sched("perishable-offer", "precondition-failed", "payload.objectId", ECOLOGY_BATCH_CHECK),
+  sched("perishable-offer", "precondition-failed", "payload.quantity", "resource.closed-world@1"),
   sched("perishable-transfer", "precondition-failed", "payload.toObjectId", ECOLOGY_BATCH_CHECK),
   sched("system-exception", "check-error", "request.systems[0]", "catch-up.system@1"),
   sched("handler-exception", "handler-failed", "handler"),
-  sched("reducer-exception", "reducer-failed", "events[1]"),
+  sched("reducer-exception", "reducer-failed", "events[2]"),
 ];
 
 /** Targeted engine calls that Node and Workers must both record (`targeted:<name>:<call index>`). */
 const ECOLOGY_TARGETED_RUNS = [
-  "skip-appearance",
-  "skip-appearance-eat",
-  "skip-appearance-later",
+  "finite-holder-wait",
+  "finite-holder-eat",
+  "empty-stays-empty",
   "consume-partial",
   "consume-to-zero",
   "transfer-advance",
@@ -1674,7 +1656,7 @@ export function ecologyEvidenceProblems(value: unknown, path = "ecology"): strin
           else if (time === previousTime && rank < previousRank)
             bad(
               where,
-              "same-time order must be phase/weather, exposure, spoilage, appearance, stage change, then decision",
+              "same-time order must be phase/weather, exposure, spoilage, stage change, transfer, then decision",
             );
           previousTime = time;
           previousRank = rank;

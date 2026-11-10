@@ -461,8 +461,11 @@ explicitly declared world processes with no special command authority. Initial g
 is accounted separately. Per-holder accounting, finite plant-stage yield and optional rain
 collection/evaporation and declared process resource transfers through ordinary validated commands
 are implemented inside native advances. Durable runtime wakes include process deadlines, including
-actorless worlds. Removal of legacy scheduled sources, fixture migration and complete reference/long-run
-cause proof remain for the final part of that Objective.
+actorless worlds. Scheduled sources are removed from the ecology contract. Pack validation refuses
+legacy source declarations and rules that could mint resources. Runtime offers and positive-inventory
+object creation cannot create material; actors and processes fill holders by finite transfer.
+Reference scenarios and long runs exercise per-holder cause accounting, replay and their declared
+small-step/aggregate equivalences; physical golden changes require semantic review.
 The [kernel ecology contract](../../packages/kernel/docs/ecology.md) describes the current policy.
 
 Journal-facing outputs are semantic thresholds, not numeric tick noise. Required goldens: `rain-shelter-comfort`, `food-decay-and-conservation`, and `cedar-growth`.
