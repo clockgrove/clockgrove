@@ -166,9 +166,16 @@ body {
   box-sizing: border-box;
 }
 
+.rw-canvas {
+  width: 100%;
+  /* #184: bound the scene to the shell viewport, leaving 260px for the HUD, status and heading. */
+  height: calc(100dvh - 260px);
+  min-height: 400px;
+  overflow: hidden;
+}
+
 .rw-canvas canvas {
-  /* Never CSS-scaled: the renderer maps pointers through the canvas bounds, re-read on any scroll. */
-  max-width: none;
+  max-width: 100%;
 }
 
 .rw-main [role="alert"] {

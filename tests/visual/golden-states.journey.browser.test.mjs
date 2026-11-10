@@ -513,22 +513,38 @@ const captureGoldenStates = async (backend) => {
                   const frame = animation.frames[0];
                   const camera = adapter.camera;
                   const left = Math.round(
-                    (sprite.position.x - animation.anchor.x - camera.position.x) * camera.zoom +
+                    ((sprite.position.x - animation.anchor.x - camera.position.x) *
+                      camera.zoom *
+                      image.width) /
+                      (camera.right - camera.left) +
                       image.width / 2,
                   );
                   const top = Math.round(
-                    (-sprite.position.y - animation.anchor.y + camera.position.y) * camera.zoom +
+                    ((-sprite.position.y - animation.anchor.y + camera.position.y) *
+                      camera.zoom *
+                      image.height) /
+                      (camera.top - camera.bottom) +
                       image.height / 2,
                   );
                   let warmPixels = 0;
                   for (
                     let y = Math.max(0, top);
-                    y < Math.min(image.height, top + frame.height * camera.zoom);
+                    y <
+                    Math.min(
+                      image.height,
+                      top +
+                        (frame.height * camera.zoom * image.height) / (camera.top - camera.bottom),
+                    );
                     y++
                   )
                     for (
                       let x = Math.max(0, left);
-                      x < Math.min(image.width, left + frame.width * camera.zoom);
+                      x <
+                      Math.min(
+                        image.width,
+                        left +
+                          (frame.width * camera.zoom * image.width) / (camera.right - camera.left),
+                      );
                       x++
                     ) {
                       const offset = (y * image.width + x) * 4;
@@ -550,6 +566,8 @@ const captureGoldenStates = async (backend) => {
                   adapter.scenePass.renderTarget.height,
                 ],
                 canvasSize: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+                hostSize: [adapter.parent.clientWidth, adapter.parent.clientHeight],
+                dpr: devicePixelRatio,
                 litMaterials: [
                   ...new Set(
                     [
@@ -611,9 +629,21 @@ const captureGoldenStates = async (backend) => {
             if (backend === "webgpu") expect(pixels.adapter.architecture).toBe("swiftshader");
             else expect(pixels.adapter.renderer).toMatch(/SwiftShader/i);
             expect(pixels.meanLuminance).toBeGreaterThan(0);
-            expect(pixels.textureBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
-            expect(pixels.canvasSize).toEqual([640, 400]);
-            expect(pixels.renderSize).toEqual(tier === "low" ? [320, 200] : [640, 400]);
+            expect(pixels.textureBytes).toBeLessThanOrEqual(
+              { low: 16, medium: 64, high: 192 }[tier] * 1024 * 1024,
+            );
+            const outputScale = Math.min(
+              pixels.dpr,
+              Math.sqrt(
+                { low: 512000, medium: 1000000, high: 3000000 }[tier] /
+                  (pixels.hostSize[0] * pixels.hostSize[1]),
+              ),
+            );
+            const outputSize = pixels.hostSize.map((value) => Math.floor(value * outputScale));
+            expect(pixels.canvasSize).toEqual(outputSize);
+            expect(pixels.renderSize).toEqual(
+              outputSize.map((value) => Math.floor(value * (tier === "low" ? 0.5 : 1))),
+            );
             expect([pixels.atlasShared, pixels.reflectionUvs]).toEqual([true, true]);
             expect(pixels.reflectionBlending.length > 0).toBe(tier === "high");
             expect(pixels.reflectionBlending).toEqual(
@@ -709,15 +739,19 @@ const captureGoldenStates = async (backend) => {
               return [
                 adapter.tier,
                 labels.length,
-                size(adapter.scenePass.renderTarget),
-                size(adapter.labelPass.renderTarget),
+                size(adapter.scenePass.renderTarget).map(
+                  (value, i) => value === Math.floor(size(adapter.labelPass.renderTarget)[i] / 2),
+                ),
+                size(adapter.labelPass.renderTarget).map(
+                  (value, i) => value === [adapter.canvas.width, adapter.canvas.height][i],
+                ),
                 labels.some((label) => label.layers.test(adapter.camera.layers)),
                 labels.every((label) => !adapter.scenePass._layers.test(label.layers)),
                 labels.every((label) => adapter.labelPass._layers.test(label.layers)),
               ];
             }),
           )
-          .toEqual(["low", 2, [320, 200], [640, 400], true, true, true]);
+          .toEqual(["low", 2, [true, true], [true, true], true, true, true]);
       });
       await each("event-why-inspector", async (page) => {
         await selected(page)
@@ -896,6 +930,82 @@ it.each(BACKENDS)(
   240_000,
 );
 
+async function withRendererProof(backend, shell, run, publicDir) {
+  let server, browser;
+  try {
+    server = await createServer({
+      root: path.join(root, "apps/web"),
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      publicDir,
+      define: { __WORLD_SHELL__: JSON.stringify(shell) },
+      server: { host: "127.0.0.1", port: 0 },
+      plugins: [
+        {
+          name: "renderer-proof-backend",
+          transform(code, id) {
+            if (
+              backend === "webgl2" &&
+              id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts")
+            )
+              return {
+                code: code.replace(
+                  "new THREE.WebGPURenderer({",
+                  "new THREE.WebGPURenderer({ forceWebGL: true,",
+                ),
+                map: null,
+              };
+          },
+        },
+      ],
+    });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+    await run(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+}
+
+async function prepareRendererProof(page, origin, shell, name, body) {
+  await page.addInitScript((shell) => {
+    globalThis.__WORLD_SHELL__ = shell;
+    globalThis.proofFrame = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    globalThis.proofLoad = (module) => new Function(`return import("/src/${module}.ts")`)();
+    globalThis.proofAdapter = async (wire, content) => {
+      const { ThreeWorldSceneAdapter } = await proofLoad("renderer");
+      let adapter;
+      await new Promise((resolve, reject) => {
+        adapter = new ThreeWorldSceneAdapter(
+          document.querySelector("#scene"),
+          resolve,
+          (reason) => reject(new Error(reason)),
+          () => {},
+          content,
+        );
+      });
+      adapter.setReducedMotion(true);
+      adapter.loadSnapshot({
+        ...wire,
+        revision: BigInt(wire.revision),
+        simulationTime: BigInt(wire.simulationTime),
+      });
+      return adapter;
+    };
+  }, shell);
+  await page.route(`**/${name}`, (route) => route.fulfill({ contentType: "text/html", body }));
+  await page.goto(`${origin}/${name}`);
+}
+
+async function rendererFixture() {
+  return Promise.all(
+    ["shell.json", "snapshot.json"].map(async (name) =>
+      JSON.parse(await readFile(path.join(root, "worlds/fixture/renderer", name), "utf8")),
+    ),
+  );
+}
+
 it("draws generated material albedo at DPR 2 while retaining unsupported channels and reduced motion", async () => {
   if (isNativeWorldOwnerChild()) return;
   const { buildAtlases, encodePng, materialAtlasFiles, atlasIndex, validateSource, sha256Hex } =
@@ -1003,98 +1113,66 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
   const shell = JSON.parse(
     await readFile(path.join(root, "worlds/fixture/reference/shell.json"), "utf8"),
   );
-  let server, browser;
   try {
-    server = await createServer({
-      root: path.join(root, "apps/web"),
-      configFile: path.join(root, "apps/web/vite.config.ts"),
-      publicDir: assets,
-      define: { __WORLD_SHELL__: JSON.stringify(shell) },
-      server: { host: "127.0.0.1", port: 0 },
-      plugins: [
-        {
-          name: "material-proof-webgl",
-          transform(code, id) {
-            if (id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts"))
-              return {
-                code: code.replace(
-                  "new THREE.WebGPURenderer({",
-                  "new THREE.WebGPURenderer({ forceWebGL: true,",
-                ),
-                map: null,
-              };
-          },
-        },
-      ],
-    });
-    await server.listen();
-    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
-    const page = await browser.newPage({
-      viewport: { width: 960, height: 540 },
-      deviceScaleFactor: 2,
-      reducedMotion: "reduce",
-    });
-    await page.addInitScript((shell) => {
-      globalThis.__WORLD_SHELL__ = shell;
-    }, shell);
-    const requested = [];
-    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
-    await page.route("**/material-proof", (route) =>
-      route.fulfill({ contentType: "text/html", body: "<div id='scene'></div>" }),
-    );
-    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/material-proof`);
-    const result = await page.evaluate(async (wire) => {
-      const { ThreeWorldSceneAdapter } = await new Function('return import("/src/renderer.ts")')();
-      let adapter;
-      await new Promise((resolve, reject) => {
-        adapter = new ThreeWorldSceneAdapter(document.querySelector("#scene"), resolve, (reason) =>
-          reject(new Error(reason)),
+    await withRendererProof(
+      "webgl2",
+      shell,
+      async (browser, origin) => {
+        const page = await browser.newPage({
+          viewport: { width: 960, height: 540 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        const requested = [];
+        page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+        await prepareRendererProof(
+          page,
+          origin,
+          shell,
+          "material-proof",
+          "<div id='scene' style='width:320px;height:200px'></div>",
         );
-      });
-      adapter.setReducedMotion(true);
-      adapter.loadSnapshot({
-        ...wire,
-        revision: BigInt(wire.revision),
-        simulationTime: BigInt(wire.simulationTime),
-      });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const animation = adapter.atlas.get("material-actor/idle");
-      if (!animation) throw new Error("Missing material animation");
-      const body = adapter.drawn.get(wire.entities[0].objectId).body;
-      const result = {
-        density: animation.density,
-        image: [body.material.map.image.width, body.material.map.image.height],
-        frame: [body.userData.width, body.userData.height, body.userData.frame],
-        albedoDrawn: body.material.map === animation.frames[0].texture,
-        colourSpace: body.material.map.colorSpace,
-        normalIgnored: !body.material.normalMap,
-        channels: Object.keys(
-          adapter.projection.presentationBindings[0].material.renditions[1].channels,
-        ),
-        textureBytes: adapter.metrics.textureBytes,
-        canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
-        entityCount: adapter.metrics.entityCount,
-      };
-      adapter.destroy();
-      return result;
-    }, wire);
-    expect(result).toMatchObject({
-      density: 2,
-      image: [16, 8],
-      frame: [4, 4, 0],
-      albedoDrawn: true,
-      colourSpace: "",
-      normalIgnored: true,
-      channels: ["albedo", "normal"],
-      canvas: [640, 400],
-      entityCount: 1,
-    });
-    expect(result.textureBytes).toBeLessThanOrEqual(16777216);
-    expect(requested).toContain("/material-2x-albedo.png");
-    expect(requested.some((url) => /normal|\.dds$/u.test(url))).toBe(false);
+        const result = await page.evaluate(async (wire) => {
+          const adapter = await proofAdapter(wire);
+          await proofFrame();
+          const animation = adapter.atlas.get("material-actor/idle");
+          if (!animation) throw new Error("Missing material animation");
+          const body = adapter.drawn.get(wire.entities[0].objectId).body;
+          const result = {
+            density: animation.density,
+            image: [body.material.map.image.width, body.material.map.image.height],
+            frame: [body.userData.width, body.userData.height, body.userData.frame],
+            albedoDrawn: body.material.map === animation.frames[0].texture,
+            colourSpace: body.material.map.colorSpace,
+            normalIgnored: !body.material.normalMap,
+            channels: Object.keys(
+              adapter.projection.presentationBindings[0].material.renditions[1].channels,
+            ),
+            textureBytes: adapter.metrics.textureBytes,
+            canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+            entityCount: adapter.metrics.entityCount,
+          };
+          adapter.destroy();
+          return result;
+        }, wire);
+        expect(result).toMatchObject({
+          density: 2,
+          image: [16, 8],
+          frame: [4, 4, 0],
+          albedoDrawn: true,
+          colourSpace: "",
+          normalIgnored: true,
+          channels: ["albedo", "normal"],
+          canvas: [640, 400],
+          entityCount: 1,
+        });
+        expect(result.textureBytes).toBeLessThanOrEqual(16777216);
+        expect(requested).toContain("/material-2x-albedo.png");
+        expect(requested.some((url) => /normal|\.dds$/u.test(url))).toBe(false);
+      },
+      assets,
+    );
   } finally {
-    await browser?.close();
-    await server?.close();
     const { rm } = await import("node:fs/promises");
     await rm(assets, { recursive: true, force: true });
   }
@@ -1102,63 +1180,26 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
 
 it("presentation camera spans overview and half-metre close-up with picking on both backends", async () => {
   if (isNativeWorldOwnerChild()) return;
-  const shell = JSON.parse(
-    await readFile(path.join(root, "worlds/fixture/renderer/shell.json"), "utf8"),
-  );
-  const wire = JSON.parse(
-    await readFile(path.join(root, "worlds/fixture/renderer/snapshot.json"), "utf8"),
-  );
+  const [shell, wire] = await rendererFixture();
   for (const backend of ["webgpu", "webgl2"]) {
-    let server, browser;
-    try {
-      server = await createServer({
-        root: path.join(root, "apps/web"),
-        configFile: path.join(root, "apps/web/vite.config.ts"),
-        define: { __WORLD_SHELL__: JSON.stringify(shell) },
-        server: { host: "127.0.0.1", port: 0 },
-        plugins: [
-          {
-            name: "camera-proof-backend",
-            transform(code, id) {
-              if (
-                backend === "webgl2" &&
-                id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts")
-              )
-                return {
-                  code: code.replace(
-                    "new THREE.WebGPURenderer({",
-                    "new THREE.WebGPURenderer({ forceWebGL: true,",
-                  ),
-                  map: null,
-                };
-            },
-          },
-        ],
-      });
-      await server.listen();
-      browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+    await withRendererProof(backend, shell, async (browser, origin) => {
       const page = await browser.newPage({
         viewport: { width: 800, height: 600 },
         reducedMotion: "reduce",
       });
       const pageErrors = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
-      await page.addInitScript((shell) => {
-        globalThis.__WORLD_SHELL__ = shell;
-      }, shell);
-      await page.route("**/camera-proof", (route) =>
-        route.fulfill({
-          contentType: "text/html",
-          body: '<div id="scene" style="width:640px;height:400px"></div>',
-        }),
+      await prepareRendererProof(
+        page,
+        origin,
+        shell,
+        "camera-proof",
+        '<div id="scene" style="width:640px;height:400px"></div>',
       );
-      await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/camera-proof`);
       const result = await page.evaluate(
         async ({ wire, shell }) => {
-          const load = (path) => new Function(`return import("/src/${path}.ts")`)();
-          const { ThreeWorldSceneAdapter } = await load("renderer");
-          const { THREE } = await load("renderer-content");
-          const { readWorldShell, neutralShell } = await load("shell-input");
+          const { THREE } = await proofLoad("renderer-content");
+          const { readWorldShell, neutralShell } = await proofLoad("shell-input");
           const legacyCamera = readWorldShell(neutralShell).scene.camera;
           const invalid = [
             ...[0, -1, NaN, Infinity, Number.MIN_VALUE, 2].map((min) => [min, 24]),
@@ -1186,28 +1227,13 @@ it("presentation camera spans overview and half-metre close-up with picking on b
               return { root, update() {} };
             },
           };
-          await new Promise((resolve, reject) => {
-            adapter = new ThreeWorldSceneAdapter(
-              document.querySelector("#scene"),
-              resolve,
-              reject,
-              () => {},
-              content,
-            );
-          });
-          adapter.setReducedMotion(true);
-          adapter.loadSnapshot({
-            ...wire,
-            revision: BigInt(wire.revision),
-            simulationTime: BigInt(wire.simulationTime),
-          });
-          await new Promise((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve)),
-          );
+          adapter = await proofAdapter(wire, content);
+          await proofFrame();
           adapter.setCamera({ x: 0, y: 0, zoom: 0 });
           const overview = adapter.camera.zoom;
           adapter.setCamera({ x: 0, y: 0, zoom: 100 });
           const closeup = adapter.camera.zoom;
+          adapter.setCamera({ x: 0, y: 0, zoom: 24 });
           subject.updateMatrixWorld(true);
           const bounds = new THREE.Box3().setFromObject(subject);
           const bottom = new THREE.Vector3(0, bounds.min.y, 0).project(adapter.camera);
@@ -1226,7 +1252,7 @@ it("presentation camera spans overview and half-metre close-up with picking on b
             x: rect.left + ((center.x + 1) * rect.width) / 2,
             y: rect.top + ((1 - center.y) * rect.height) / 2,
           };
-          globalThis.cameraProof = { adapter, intents };
+          globalThis.cameraProof = { adapter, intents, subject };
           const rotation = adapter.camera.rotation.toArray().slice(0, 3);
           return {
             invalid,
@@ -1253,14 +1279,13 @@ it("presentation camera spans overview and half-metre close-up with picking on b
       await page.mouse.click(result.pointer.x, result.pointer.y);
       const intents = await page.evaluate(() => {
         const { adapter, intents } = globalThis.cameraProof;
-        adapter.destroy();
-        return intents;
+        return [...intents];
       });
       delete result.pointer;
       expect({ ...result, wheelZoom, intents }).toEqual({
         invalid: [true, true, true, true, true, true, true, true, true, true, true],
         overview: 0.1,
-        closeup: 24,
+        closeup: 96,
         height: 150,
         wheelZoom: 21.6,
         intents: [{ type: "select", objectId: "object-fixture" }],
@@ -1268,10 +1293,210 @@ it("presentation camera spans overview and half-metre close-up with picking on b
         actualBackend: backend,
         legacyCamera: "omitted",
       });
+      await page.setViewportSize({ width: 390, height: 844 });
+      const portrait = await page.evaluate(async () => {
+        const { adapter, subject } = cameraProof;
+        adapter.parent.style.cssText = "width:390px;height:844px";
+        await proofFrame();
+        adapter.setCamera({ x: 0, y: 0, zoom: 74 });
+        const { THREE } = await proofLoad("renderer-content");
+        const bounds = new THREE.Box3().setFromObject(subject);
+        const top = new THREE.Vector3(0, bounds.max.y, 0).project(adapter.camera);
+        const bottom = new THREE.Vector3(0, bounds.min.y, 0).project(adapter.camera);
+        const body = adapter.drawn.get("object-fixture");
+        const center = new THREE.Vector3(
+          body.body.position.x,
+          body.body.position.y + body.visual.height / 2,
+          0,
+        ).project(adapter.camera);
+        const rect = adapter.canvas.getBoundingClientRect();
+        return {
+          height: ((top.y - bottom.y) * rect.height) / 2,
+          x: rect.left + ((center.x + 1) * rect.width) / 2,
+          y: rect.top + ((1 - center.y) * rect.height) / 2,
+        };
+      });
+      expect(portrait.height).toBeCloseTo(281.8359375, 6);
+      await page.mouse.click(portrait.x, portrait.y);
+      expect(await page.evaluate(() => cameraProof.intents)).toEqual([
+        { type: "select", objectId: "object-fixture" },
+        { type: "select", objectId: "object-fixture" },
+      ]);
+      await page.evaluate(() => cameraProof.adapter.destroy());
       expect(pageErrors).toEqual([]);
-    } finally {
-      await browser?.close();
-      await server?.close();
-    }
+    });
+  }
+}, 120_000);
+
+it("viewport DPR sizing stays bounded across tiers, resizes and phone profiles on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const [shell, wire] = await rendererFixture();
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      for (const profile of [
+        { width: 960, height: 540, dpr: 1 },
+        { width: 390, height: 844, dpr: 3 },
+      ]) {
+        const page = await browser.newPage({
+          viewport: profile,
+          deviceScaleFactor: profile.dpr,
+          reducedMotion: "reduce",
+        });
+        const errors = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await prepareRendererProof(
+          page,
+          origin,
+          shell,
+          "viewport-proof",
+          '<style>body{margin:0}#scene{width:100vw;height:100vh}</style><div id="scene"></div>',
+        );
+        await page.evaluate(async (wire) => {
+          const adapter = await proofAdapter(wire);
+          globalThis.viewportProof = adapter;
+        }, wire);
+        for (const tier of TIERS) {
+          const result = await page.evaluate(async (tier) => {
+            const a = globalThis.viewportProof;
+            a.setQuality(tier);
+            await proofFrame();
+            const canvas = a.canvas;
+            return {
+              backend: a.backend,
+              tier: a.tier,
+              output: [canvas.width, canvas.height],
+              css: [canvas.clientWidth, canvas.clientHeight],
+              scene: [a.scenePass.renderTarget.width, a.scenePass.renderTarget.height],
+              bytes: a.metrics.textureBytes,
+              camera: [a.camera.left, a.camera.right, a.camera.top, a.camera.bottom],
+            };
+          }, tier);
+          const caps = { low: 512000, medium: 1000000, high: 3000000 };
+          const scale = Math.min(
+            profile.dpr,
+            Math.sqrt(caps[tier] / (profile.width * profile.height)),
+          );
+          const expected = [Math.floor(profile.width * scale), Math.floor(profile.height * scale)];
+          expect(result).toMatchObject({
+            backend,
+            tier,
+            output: expected,
+            css: [profile.width, profile.height],
+            camera: [
+              -Math.max(320, (200 * profile.width) / profile.height),
+              Math.max(320, (200 * profile.width) / profile.height),
+              Math.max(200, (320 * profile.height) / profile.width),
+              -Math.max(200, (320 * profile.height) / profile.width),
+            ],
+          });
+          expect(result.scene).toEqual(
+            expected.map((value) => Math.floor(value * (tier === "low" ? 0.5 : 1))),
+          );
+          expect(result.bytes).toBeLessThanOrEqual(
+            { low: 16, medium: 64, high: 192 }[tier] * 1024 * 1024,
+          );
+          expect(result.bytes).toBeGreaterThan(0);
+        }
+        const contentBudget = await page.evaluate(async (wire) => {
+          viewportProof.destroy();
+          const a = await proofAdapter(wire, {
+            version: 1,
+            create({ THREE }) {
+              const texture = new THREE.DataTexture(new Uint8Array(8 * 1024 * 1024), 2048, 1024);
+              return { root: new THREE.Group(), textures: [texture], update() {} };
+            },
+          });
+          a.setQuality("low");
+          await proofFrame();
+          const result = {
+            status: a.metrics.contentStatus,
+            bytes: a.metrics.textureBytes,
+            pixels: a.canvas.width * a.canvas.height,
+          };
+          a.setQuality("high");
+          globalThis.viewportProof = a;
+          return result;
+        }, wire);
+        expect(contentBudget.status).toBe("ready");
+        expect(contentBudget.bytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+        expect(contentBudget.pixels).toBeLessThan(365000);
+        await page.setViewportSize({ width: 800, height: 400 });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [
+              viewportProof.camera.left,
+              viewportProof.camera.right,
+              viewportProof.camera.top,
+              viewportProof.camera.bottom,
+            ]),
+          )
+          .toEqual([-400, 400, 200, -200]);
+        await page.setViewportSize({ width: 320, height: 200 });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [viewportProof.canvas.width, viewportProof.canvas.height]),
+          )
+          .toEqual([320 * profile.dpr, 200 * profile.dpr]);
+        await page.evaluate(() => {
+          const host = document.querySelector("#scene");
+          host.style.height = "auto";
+          host.style.width = "240px";
+          host.style.padding = "20px";
+        });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [
+              viewportProof.canvas.clientWidth,
+              viewportProof.canvas.clientHeight,
+            ]),
+          )
+          .toEqual([240, 200]);
+        await page.waitForTimeout(100);
+        expect(await page.evaluate(() => document.querySelector("#scene").clientHeight)).toBe(240);
+        for (const tier of TIERS) {
+          const tiny = await page.evaluate(async (tier) => {
+            const host = document.querySelector("#scene");
+            host.style.cssText = "width:1px;height:1px;padding:0";
+            viewportProof.setQuality(tier);
+            await proofFrame();
+            const a = viewportProof;
+            return {
+              output: [a.canvas.width, a.canvas.height],
+              scene: [a.scenePass.renderTarget.width, a.scenePass.renderTarget.height],
+              mips: a.bloom
+                ? [...a.bloom._renderTargetsHorizontal, ...a.bloom._renderTargetsVertical].map(
+                    (t) => [t.width, t.height],
+                  )
+                : [],
+            };
+          }, tier);
+          const side = tier === "low" ? Math.max(2, profile.dpr) : tier === "medium" ? 32 : 16;
+          expect(tiny.output).toEqual([side, side]);
+          expect(tiny.scene).toEqual([
+            Math.floor(side * (tier === "low" ? 0.5 : 1)),
+            Math.floor(side * (tier === "low" ? 0.5 : 1)),
+          ]);
+          expect(tiny.mips).toEqual(
+            tier === "low"
+              ? []
+              : [
+                  [16, 16],
+                  [8, 8],
+                  [4, 4],
+                  [2, 2],
+                  [1, 1],
+                  [16, 16],
+                  [8, 8],
+                  [4, 4],
+                  [2, 2],
+                  [1, 1],
+                ],
+          );
+        }
+        await page.evaluate(() => viewportProof.destroy());
+        expect(errors).toEqual([]);
+        await page.close();
+      }
+    });
   }
 }, 120_000);

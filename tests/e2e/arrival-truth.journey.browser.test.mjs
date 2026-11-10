@@ -267,13 +267,19 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
         const adapter = globalThis.fixtureAdapter;
         const body = adapter.drawn.get("beacon.lamp").body;
         return {
-          x: 320 + (body.position.x - adapter.camera.position.x) * adapter.camera.zoom,
-          y: 200 - (body.position.y - adapter.camera.position.y) * adapter.camera.zoom,
+          x:
+            0.5 +
+            ((body.position.x - adapter.camera.position.x) * adapter.camera.zoom) /
+              (adapter.camera.right - adapter.camera.left),
+          y:
+            0.5 -
+            ((body.position.y - adapter.camera.position.y) * adapter.camera.zoom) /
+              (adapter.camera.top - adapter.camera.bottom),
         };
       });
       const bounds = await canvas.boundingBox();
       await canvas.click({
-        position: { x: (point.x * bounds.width) / 640, y: (point.y * bounds.height) / 400 },
+        position: { x: point.x * bounds.width, y: point.y * bounds.height },
       });
       expect(await entity.getAttribute("aria-pressed")).toBe("true");
       expect(await canvas.screenshot()).not.toEqual(before);
