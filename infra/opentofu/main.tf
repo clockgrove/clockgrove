@@ -30,6 +30,15 @@ locals {
     { for key, queue in local.config.resources.queues : key => queue.name },
     { for key, queue in local.config.resources.queues : "${key}-dlq" => queue.deadLetter }
   ) : {}
+  # The one Neon API role, and the database roles it creates with SQL: every other declared role.
+  api_roles = local.cloud ? { migrations = local.config.resources.database.roles.migrations } : {}
+  restricted_roles = local.cloud ? {
+    for key, name in local.config.resources.database.roles : key => name if key != "migrations"
+  } : {}
+  role_passwords = merge(
+    { for key, role in neon_role.database : key => role.password },
+    { for key, generated in random_password.database : key => generated.result },
+  )
   # The zone's rate-limiting rule, chosen by the environment's Cloudflare zone plan. A Free zone
   # allows only the Path field with 10-second periods and timeouts, so its rule counts the runtime
   # API on every host of the zone. A paid zone (Pro and up) counts the runtime host per minute.
@@ -92,11 +101,25 @@ resource "neon_project" "world" {
   }
   lifecycle { prevent_destroy = true }
 }
+# Only the migration role is a Neon API role. Neon makes every role it creates through its API a
+# member of neon_superuser, which reads and writes all data, and a non-superuser cannot revoke that
+# (https://neon.com/docs/manage/roles). The restricted roles are therefore created with SQL by the
+# migration role (scripts/database/deployment-grants.sql) from the passwords generated here.
+# Instances of the other keys left in state from before are retired: their planned deletion is the
+# one deletion the deploy's plan review accepts (retiredResources in deployment-authority.mjs).
 resource "neon_role" "database" {
-  for_each   = local.cloud ? local.config.resources.database.roles : {}
+  for_each   = local.api_roles
   project_id = neon_project.world[0].id
   branch_id  = neon_project.world[0].branch.id
   name       = each.value
+}
+resource "random_password" "database" {
+  for_each    = local.restricted_roles
+  length      = 48
+  special     = false
+  min_lower   = 1
+  min_upper   = 1
+  min_numeric = 1
 }
 resource "neon_database" "world" {
   count      = local.count
@@ -113,8 +136,8 @@ resource "cloudflare_hyperdrive_config" "world" {
   origin = {
     database = neon_database.world[0].name
     host     = neon_project.world[0].branch.endpoint.host
-    user     = neon_role.database["runtime"].name
-    password = neon_role.database["runtime"].password
+    user     = local.config.resources.database.roles.runtime
+    password = local.role_passwords["runtime"]
     port     = 5432
     scheme   = "postgresql"
   }
@@ -216,9 +239,9 @@ output "database_credentials" {
     host           = neon_project.world[0].branch.endpoint.host
     database       = neon_database.world[0].name
     authentication = local.config.authentication
-    roles = { for key, role in neon_role.database : key => {
-      name     = role.name
-      password = neon_role.database[key].password
+    roles = { for key, name in local.config.resources.database.roles : key => {
+      name     = name
+      password = local.role_passwords[key]
     } }
   } : null
 }

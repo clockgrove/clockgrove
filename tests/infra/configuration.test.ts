@@ -16,7 +16,13 @@ import {
   tofuLimits,
 } from "../../scripts/ci/deploy.mjs";
 import {
+  awaitNeonOperations,
   duplicableResources,
+  persistedAddresses,
+  resourceAddresses,
+  restoresRetiredRoles,
+  restrictedRolePasswords,
+  retiredResources,
   stateBackend,
   unrecordedDuplicates,
   verifyPlan,
@@ -28,6 +34,12 @@ import {
 } from "../../scripts/ci/evidence.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
 import { describeLock, isBackupKey, signV4 } from "../../scripts/ci/state-store.mjs";
+import {
+  deploymentRolesInput,
+  restrictedRoleKeys,
+  roleCheckFailures,
+} from "../../scripts/database/deployment-roles.mjs";
+import { restore } from "../../scripts/infra-state.mjs";
 
 // infra:validate proves the committed manifests pass; these prove the validator still refuses drift.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -131,6 +143,236 @@ describe("hosted deploy inputs", () => {
         found.map((item) => ({ ...item, ids: [] })),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("restricted database roles", () => {
+  const generated = () =>
+    Array.from({ length: 2 }, () => crypto.randomUUID())
+      .join("")
+      .replaceAll("-", "");
+  const credentials = (config: { resources: { database: { roles: Record<string, string> } } }) => ({
+    roles: Object.fromEntries(
+      Object.entries(config.resources.database.roles).map(([key, name]) => [
+        key,
+        { name, password: generated() },
+      ]),
+    ),
+  });
+
+  it("owns only the migration role as a Neon API role and retires the others' API roles", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const owned = resourceAddresses(config);
+    const retired = [...retiredResources()];
+    expect(retired).toHaveLength(6);
+    expect(retired.filter((address) => owned.has(address))).toEqual([]);
+    expect([...owned].filter((address) => address.startsWith("neon_role."))).toEqual([
+      'neon_role.database["migrations"]',
+    ]);
+    for (const key of restrictedRoleKeys) {
+      expect(owned.has(`random_password.database["${key}"]`)).toBe(true);
+      expect(persistedAddresses(config).has(`neon_role.database["${key}"]`)).toBe(true);
+    }
+  });
+
+  it("accepts deleting a retired API role at provision, partial migration included, and no other deletion, replacement or forget", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const review =
+      (address: string, actions: string[], action_reason?: string, stage = "provision") =>
+      () =>
+        verifyPlan(
+          { resource_changes: [{ address, action_reason, change: { actions } }] },
+          config,
+          stage,
+          false,
+        );
+    const runtime = 'neon_role.database["runtime"]';
+    const retired =
+      /retired neon_role\.database\["runtime"\] may only be deleted, in the provision stage/u;
+    expect(review(runtime, ["delete"], "delete_because_each_key")).not.toThrow();
+    for (const [actions, reason] of [
+      [["delete"], undefined],
+      [["delete", "create"], "delete_because_each_key"],
+      [["create"], undefined],
+      [["no-op"], undefined],
+    ] as const)
+      expect(review(runtime, [...actions], reason)).toThrow(retired);
+    for (const stage of ["bindings", "routing"])
+      expect(review(runtime, ["delete"], "delete_because_each_key", stage)).toThrow(retired);
+    // A run that ended mid-migration left both the API role and its generated password in state:
+    // the next provision completes the deletion.
+    const partial = {
+      prior_state: {
+        values: {
+          root_module: {
+            resources: [{ address: runtime }, { address: 'random_password.database["runtime"]' }],
+          },
+        },
+      },
+      resource_changes: [
+        {
+          address: runtime,
+          action_reason: "delete_because_each_key",
+          change: { actions: ["delete"] },
+        },
+        { address: 'random_password.database["runtime"]', change: { actions: ["no-op"] } },
+      ],
+    };
+    expect(() => verifyPlan(partial, config, "provision", false)).not.toThrow();
+    expect(
+      review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key"),
+    ).toThrow(/destructive infrastructure plan refused/u);
+    expect(review("neon_project.world[0]", ["forget"])).toThrow(
+      /unreviewed infrastructure plan action/u,
+    );
+    expect(review('random_password.database["support"]', ["create"])).not.toThrow();
+  });
+
+  it("refuses to restore a pre-migration backup into a migrated environment, its state present or lost", async () => {
+    const state = (type: string, keys: string[]) =>
+      JSON.stringify({
+        resources: [
+          { type, name: "database", instances: keys.map((index_key) => ({ index_key })) },
+        ],
+      });
+    const pre = state("neon_role", ["migrations", "runtime"]);
+    const post = state("random_password", ["runtime", "support"]);
+    expect(restoresRetiredRoles([post], pre)).toBe(true);
+    expect(restoresRetiredRoles([post], state("neon_role", ["migrations"]))).toBe(false);
+    expect(restoresRetiredRoles([pre], pre)).toBe(false);
+    // An in-memory state bucket with the given objects.
+    const bucket = (objects: Record<string, string>) => {
+      const held = new Map(Object.entries(objects));
+      return {
+        bucket: "clockgrove-staging-state",
+        held,
+        get: async (key: string) => held.get(key) ?? null,
+        read: async (key: string) => (held.has(key) ? { body: held.get(key), etag: "e" } : null),
+        create: async (key: string, body: string) => {
+          if (held.has(key)) throw new Error("exists");
+          held.set(key, body);
+        },
+        replace: async (key: string, body: string) => {
+          held.set(key, body);
+        },
+        delete: async (key: string) => {
+          held.delete(key);
+        },
+        list: async (prefix: string) =>
+          [...held.keys()].filter((key) => key.startsWith(prefix)).sort(),
+      };
+    };
+    const backup = (name: string) => `staging/backups/${name}.tfstate`;
+    const backups = {
+      [backup("2026-11-09T10-00-00-000Z-provision-pre")]: pre,
+      [backup("2026-11-10T10-00-00-000Z-provision-post")]: post,
+    };
+    const refusal = /predates the SQL-created database roles/u;
+    // Lost state: the newer backup shows the environment migrated.
+    const lost = bucket(backups);
+    await expect(
+      restore(lost, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre")),
+    ).rejects.toThrow(refusal);
+    expect(lost.held.has("staging/terraform.tfstate")).toBe(false);
+    expect(lost.held.has("staging/terraform.tfstate.tflock")).toBe(false);
+    await expect(
+      restore(lost, "staging", backup("2026-11-10T10-00-00-000Z-provision-post")),
+    ).resolves.toMatch(/^restored/u);
+    // Present state that holds the passwords.
+    const present = bucket({ ...backups, "staging/terraform.tfstate": post });
+    await expect(
+      restore(present, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre"), {
+        replace: true,
+      }),
+    ).rejects.toThrow(refusal);
+    // An environment that never migrated restores its own backups.
+    const never = bucket({ [backup("2026-11-09T10-00-00-000Z-provision-pre")]: pre });
+    await expect(
+      restore(never, "staging", backup("2026-11-09T10-00-00-000Z-provision-pre")),
+    ).resolves.toMatch(/^restored/u);
+  });
+
+  it("hands psql only letter-and-digit passwords, on standard input, and reports checks by name", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const passwords = restrictedRolePasswords(credentials(config), config);
+    expect(Object.keys(passwords)).toEqual(restrictedRoleKeys);
+    const input = await deploymentRolesInput(passwords);
+    expect(input.split("\n").slice(0, 6)).toEqual(
+      restrictedRoleKeys.map((key) => `\\set password_${key} '${passwords[key]}'`),
+    );
+    expect(input).toContain("\\bind 'clockgrove_world_reader' :password_worldAuthorization \\g");
+    for (const unsafe of [`${generated()}'`, `${generated()}\n\\! id`, generated().slice(0, 20)])
+      await expect(deploymentRolesInput({ ...passwords, backup: unsafe })).rejects.toThrow(
+        /backup role password/u,
+      );
+    const renamed = credentials(config);
+    renamed.roles.support.name = "clockgrove_migrator";
+    expect(() => restrictedRolePasswords(renamed, config)).toThrow(/support role credential/u);
+    expect(
+      roleCheckFailures(
+        "psql:<stdin>:12: ERROR:  clockgrove role check: clockgrove_support is a member of neon_superuser\nCONTEXT:  PL/pgSQL function inline_code_block line 18 at RAISE\n",
+      ),
+    ).toBe("clockgrove_support is a member of neon_superuser");
+    expect(roleCheckFailures(`ERROR:  syntax error at or near "${generated()}"`)).toBe("");
+  });
+
+  it("waits a bounded time for Neon's operations, retries one 5xx, and names what failed or never finished", async () => {
+    const replies = (...answers: (string[] | number)[]) => {
+      const requests: string[] = [];
+      const request = async (url: string) => {
+        requests.push(url);
+        const answer = (answers.length > 1 ? answers.shift() : answers[0]) ?? [];
+        if (typeof answer === "number") return new Response("{}", { status: answer });
+        return new Response(
+          JSON.stringify({
+            operations: answer.map((status) => ({
+              action: "apply_config",
+              status,
+              created_at: "2026-11-10T00:01:00Z",
+            })),
+          }),
+        );
+      };
+      return { request, requests };
+    };
+    let clock = 0;
+    const sleeps: number[] = [];
+    const timing = {
+      since: Date.parse("2026-11-10T00:00:00Z"),
+      now: () => clock,
+      sleep: async (seconds: number) => {
+        sleeps.push(seconds);
+        clock += seconds * 1000;
+      },
+    };
+    const settled = replies(["running", "finished"], 503, ["finished"]);
+    await awaitNeonOperations("project-1", "token", { ...timing, request: settled.request });
+    expect(settled.requests).toEqual(
+      Array(3).fill("https://console.neon.tech/api/v2/projects/project-1/operations?limit=50"),
+    );
+    expect(sleeps).toEqual([5, 5]);
+    const stuck = replies(["scheduling"]);
+    await expect(
+      awaitNeonOperations("project-1", "token", { ...timing, request: stuck.request }),
+    ).rejects.toThrow("still in progress after 180 s: apply_config (scheduling)");
+    expect(stuck.requests).toHaveLength(37);
+    await expect(
+      awaitNeonOperations("project-1", "token", { ...timing, request: replies(503, 502).request }),
+    ).rejects.toThrow(/Neon operation listing unavailable \(HTTP 502/u);
+    await expect(
+      awaitNeonOperations("project-1", "token", {
+        ...timing,
+        request: replies(["finished", "failed"]).request,
+      }),
+    ).rejects.toThrow("Neon operations of this deploy did not succeed: apply_config (failed)");
+    // A failure from before this deploy is not its own.
+    await expect(
+      awaitNeonOperations("project-1", "token", {
+        ...timing,
+        since: Date.parse("2026-11-10T00:02:00Z"),
+        request: replies(["cancelled"]).request,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
