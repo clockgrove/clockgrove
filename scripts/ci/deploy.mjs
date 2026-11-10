@@ -18,7 +18,14 @@ import {
   verifyPlan,
   verifyPriorActivation,
 } from "./deployment-authority.mjs";
-import { digest, fileInventory, root, subprocessEvidence, validateEvidence } from "./evidence.mjs";
+import {
+  digest,
+  fileInventory,
+  outstandingPhases,
+  root,
+  subprocessEvidence,
+  validateEvidence,
+} from "./evidence.mjs";
 import { assertRoutingMetadata } from "./routing-metadata.mjs";
 import { assertUnlocked, backupState, describeLock, readLock } from "./state-store.mjs";
 
@@ -74,8 +81,9 @@ export function providerMessage(detail) {
     .trim()
     .slice(0, 200);
 }
-export function tofuDiagnostics(stdout) {
-  const found = [];
+// The error diagnostics in OpenTofu's `-json` output.
+function tofuErrors(stdout) {
+  const errors = [];
   for (const line of String(stdout ?? "").split("\n")) {
     let event;
     try {
@@ -84,7 +92,13 @@ export function tofuDiagnostics(stdout) {
       continue;
     }
     const diagnostic = event?.type === "diagnostic" ? event.diagnostic : null;
-    if (diagnostic?.severity !== "error") continue;
+    if (diagnostic?.severity === "error") errors.push(diagnostic);
+  }
+  return errors;
+}
+export function tofuDiagnostics(stdout) {
+  const found = [];
+  for (const diagnostic of tofuErrors(stdout)) {
     const detail = String(diagnostic.detail ?? "");
     const codes = new Set();
     for (const match of detail.matchAll(
@@ -101,16 +115,39 @@ export function tofuDiagnostics(stdout) {
   }
   return found.slice(0, 3).join("; ");
 }
+// Whether a failed apply may be planned and applied again. OpenTofu must have exited on its own
+// (no signal or spawn error), so it saved state and released its lock, and every error it reported
+// must be at a Neon resource. Neon runs one operation per project at a time and refuses another
+// with 423 Locked meanwhile, which its docs call safe to retry. The Neon provider waits for the
+// project's latest operation before each create but drops the HTTP status from its errors, so a
+// 423 is told apart from other Neon refusals only by message text; any Neon resource error is
+// retried instead, a bounded number of times. Errors without a resource address, such as a state
+// that failed to save, are never retried.
+export function retryableApply(phase, stdout) {
+  const errors = tofuErrors(stdout);
+  return (
+    Number.isInteger(phase.exitCode) &&
+    phase.exitCode !== 0 &&
+    !phase.signal &&
+    !phase.errorCode &&
+    errors.length > 0 &&
+    errors.every((error) => /^neon_/u.test(String(error.address ?? "")))
+  );
+}
+// Provision creates the Neon project, its roles and its database. Four tries, 15, 30 and 60 s
+// apart, keep the worst case of repeated provision plans and applies well inside the deploy
+// job's 45-minute timeout.
+export const provisionRetry = { attempts: 4, backoffSeconds: [15, 30, 60] };
 export function recordDeploymentPhase(result, candidate, name, executable, args, options = {}) {
-  const { explain, ...spawnOptions } = options;
+  const { explain, retryable, attempt, run = spawnSync, ...spawnOptions } = options;
   const startedAt = new Date().toISOString();
-  const command = spawnSync(executable, args, {
+  const command = run(executable, args, {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
     ...spawnOptions,
   });
   const observed = subprocessEvidence(command);
-  result.phases.push({
+  const phase = {
     commit: candidate.commit,
     tree: candidate.tree,
     command: [name],
@@ -120,15 +157,68 @@ export function recordDeploymentPhase(result, candidate, name, executable, args,
     startedAt,
     completedAt: new Date().toISOString(),
     outputDigest: digest(`${command.stdout ?? ""}${command.stderr ?? ""}`),
-  });
-  const why = observed.status === "passed" || !explain ? "" : explain(command.stdout);
-  assert.equal(
-    observed.status,
-    "passed",
-    `${name} failed; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
-  );
-  console.log(`${name}: passed`);
+    ...(attempt > 1 ? { attempt } : {}),
+  };
+  result.phases.push(phase);
+  const label = attempt > 1 ? `${name} (attempt ${attempt})` : name;
+  if (observed.status !== "passed") {
+    const why = explain ? explain(command.stdout) : "";
+    const error = new assert.AssertionError({
+      message: `${label} failed; ${why ? `${why}; other ` : ""}sensitive command output withheld`,
+    });
+    error.retryable = retryable?.(phase, command.stdout) === true;
+    throw error;
+  }
+  console.log(`${label}: passed`);
   return command.stdout;
+}
+// Plans one stage, reviews the saved plan and applies exactly that plan. A failed apply that
+// `retryable` accepts is planned, reviewed and applied again, up to `attempts` runs in all, after
+// `beforeRetry` (which re-checks the lock and lost state). Every run is recorded as its own phases;
+// a stale plan is never applied, since each run writes and applies a new one.
+export async function applyStage(stage, context) {
+  const {
+    work,
+    planArgs,
+    phase,
+    review,
+    applyArgs = [],
+    retry = { attempts: 1, backoffSeconds: [] },
+    beforeRetry = async () => {},
+    sleep = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
+  } = context;
+  for (let attempt = 1; ; attempt++) {
+    const plan = path.join(work, attempt > 1 ? `${stage}-${attempt}.tfplan` : `${stage}.tfplan`);
+    phase(`OpenTofu ${stage} plan`, "tofu", ["plan", "-input=false", ...planArgs, `-out=${plan}`], {
+      attempt,
+    });
+    review(
+      JSON.parse(phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan], { attempt })),
+    );
+    try {
+      phase(
+        `OpenTofu ${stage} apply`,
+        "tofu",
+        ["apply", "-input=false", "-json", ...applyArgs, plan],
+        {
+          attempt,
+          explain: tofuDiagnostics,
+          retryable: retryableApply,
+        },
+      );
+      return;
+    } catch (error) {
+      if (!error.retryable || attempt >= retry.attempts) throw error;
+      const wait = retry.backoffSeconds[attempt - 1] ?? retry.backoffSeconds.at(-1) ?? 0;
+      console.error(
+        `${error.message}; retrying in ${wait} s (${attempt} of ${retry.attempts} tries used)`,
+      );
+      // Saved plans hold generated credentials; the failed one is never applied again.
+      await rm(plan, { force: true });
+      await sleep(wait);
+      await beforeRetry(attempt + 1);
+    }
+  }
 }
 async function runDeployment() {
   const target = required("DEPLOY_ENVIRONMENT");
@@ -222,16 +312,26 @@ async function runDeployment() {
     await withProviderIpc(work, async (ipc) => {
       providerIpc = ipc;
       phase("OpenTofu initialization", "tofu", ["init", "-input=false", "-lockfile=readonly"]);
-      const inventory = ownedInventory(
-        JSON.parse(phase("read owned persisted resource identities", "tofu", ["show", "-json"])),
-      );
-      const allowed = resourceAddresses(config);
-      assert(
-        inventory.length <= allowed.size &&
-          inventory.every((resource) => allowed.has(resource.address)),
-        "persisted resource ownership bounds exceeded",
-      );
-      await assertNoUnrecordedDuplicates(config, env, inventory, target);
+      // Owned resources must be declared, and state must not have lost a duplicable one. Checked
+      // before the first plan and again before a provision retry, since a failed apply can have
+      // created a resource it did not record.
+      const readInventory = async (attempt) => {
+        const owned = ownedInventory(
+          JSON.parse(
+            phase("read owned persisted resource identities", "tofu", ["show", "-json"], {
+              attempt,
+            }),
+          ),
+        );
+        const allowed = resourceAddresses(config);
+        assert(
+          owned.length <= allowed.size && owned.every((resource) => allowed.has(resource.address)),
+          "persisted resource ownership bounds exceeded",
+        );
+        await assertNoUnrecordedDuplicates(config, env, owned, target);
+        return owned;
+      };
+      const inventory = await readInventory(1);
       const preserveBindings = inventory.some(
         (resource) => resource.address === "cloudflare_hyperdrive_config.world[0]",
       );
@@ -240,28 +340,34 @@ async function runDeployment() {
         env.CLOUDFLARE_API_TOKEN,
         inventory,
       );
-      const apply = async (stage) => {
-        const plan = path.join(work, `${stage}.tfplan`);
-        phase(`OpenTofu ${stage} plan`, "tofu", [
-          "plan",
-          "-input=false",
-          `-var=environment=${target}`,
-          `-var=activation_stage=${stage}`,
-          `-var=preserve_bindings=${preserveBindings}`,
-          `-var=preserve_public_activation=${preservePublic}`,
-          `-out=${plan}`,
-        ]);
-        const proposed = JSON.parse(
-          phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan]),
-        );
-        verifyPlan(proposed, config, stage, preservePublic);
-        phase(`OpenTofu ${stage} apply`, "tofu", ["apply", "-input=false", "-json", plan], {
-          explain: tofuDiagnostics,
+      const apply = async (stage, options = {}) => {
+        await applyStage(stage, {
+          work,
+          phase,
+          planArgs: [
+            `-var=environment=${target}`,
+            `-var=activation_stage=${stage}`,
+            `-var=preserve_bindings=${preserveBindings}`,
+            `-var=preserve_public_activation=${preservePublic}`,
+          ],
+          review: (proposed) => verifyPlan(proposed, config, stage, preservePublic),
+          ...options,
         });
+        // Only a passed apply is backed up.
         const backup = await backupState(store, target, `${stage}-${candidate.slice(0, 12)}`);
         console.log(`state backup: ${store.bucket}/${backup}`);
       };
-      await apply("provision");
+      // One Neon request at a time: the provider waits for the project's latest operation before
+      // each create, so serial creates each start after the previous one finished, where parallel
+      // ones all start at once and all but one get 423 Locked. Retries cover what is left.
+      await apply("provision", {
+        applyArgs: ["-parallelism=1"],
+        retry: provisionRetry,
+        beforeRetry: async (attempt) => {
+          await assertUnlocked(store, target);
+          await readInventory(attempt);
+        },
+      });
       const credentials = JSON.parse(
         phase("owned generated role credentials", "tofu", [
           "output",
@@ -406,7 +512,8 @@ async function runDeployment() {
       await readLock(store, target)
         .then((lock) => lock && console.error(describeLock(target, store, lock)))
         .catch(() => {});
-    result.status = result.phases.some((phase) => phase.status === "unknown")
+    // A failed provision apply that a later retry passed no longer decides the outcome.
+    result.status = outstandingPhases(result.phases).some((phase) => phase.status === "unknown")
       ? "unknown"
       : work
         ? "failed"

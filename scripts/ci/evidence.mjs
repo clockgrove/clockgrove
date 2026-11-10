@@ -32,6 +32,22 @@ export async function readPassingReceipt(directory, name, candidate, command) {
   );
   return receipt;
 }
+// A deployment's phases that still decide its outcome: all but a failed or unknown run that a later
+// run of the same phase, with a higher attempt number, passed. That retry re-planned against the
+// state the failed run left, so the failed run's effect is no longer open.
+export function outstandingPhases(phases) {
+  const attempt = (phase) => phase.attempt ?? 1;
+  return phases.filter(
+    (phase) =>
+      phase.status === "passed" ||
+      !phases.some(
+        (later) =>
+          later.status === "passed" &&
+          later.command[0] === phase.command[0] &&
+          attempt(later) > attempt(phase),
+      ),
+  );
+}
 // Child observations only: wrapper failures have a separate nonzero CLI result.
 export function subprocessEvidence(result) {
   const exitCode = typeof result.status === "number" ? result.status : null;
@@ -104,12 +120,25 @@ export async function validateEvidence(manifest) {
       assertPassingReceiptFacts(result, manifest.candidate, result.command);
   }
   for (const deployment of manifest.deployments) {
-    if (deployment.phases.some((phase) => phase.status === "unknown"))
+    deployment.phases.forEach((phase, index) =>
+      assert(
+        !phase.attempt ||
+          deployment.phases
+            .slice(0, index)
+            .some(
+              (earlier) =>
+                earlier.command[0] === phase.command[0] &&
+                (earlier.attempt ?? 1) === phase.attempt - 1,
+            ),
+        "deployment retry without its earlier attempt",
+      ),
+    );
+    const outstanding = outstandingPhases(deployment.phases);
+    if (outstanding.some((phase) => phase.status === "unknown"))
       assert.equal(deployment.status, "unknown", "deployment effect uncertainty mismatch");
     if (deployment.status === "passed")
       assert(
-        deployment.phases.length > 0 &&
-          deployment.phases.every((phase) => phase.status === "passed"),
+        deployment.phases.length > 0 && outstanding.every((phase) => phase.status === "passed"),
         "deployment outcome mismatch",
       );
     assert.equal(deployment.commit, manifest.candidate.commit, "deployment candidate mismatch");

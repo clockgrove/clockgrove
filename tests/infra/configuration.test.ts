@@ -1,15 +1,24 @@
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-configuration.mjs";
 import { environmentSchema } from "../../infra/environment-schema.ts";
-import { providerMessage, tofuDiagnostics } from "../../scripts/ci/deploy.mjs";
+import {
+  applyStage,
+  providerMessage,
+  provisionRetry,
+  recordDeploymentPhase,
+  tofuDiagnostics,
+} from "../../scripts/ci/deploy.mjs";
 import {
   duplicableResources,
   stateBackend,
   unrecordedDuplicates,
+  verifyPlan,
 } from "../../scripts/ci/deployment-authority.mjs";
+import { outstandingPhases } from "../../scripts/ci/evidence.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
 import { describeLock, isBackupKey, signV4 } from "../../scripts/ci/state-store.mjs";
 
@@ -215,5 +224,118 @@ describe("deploy diagnostics", () => {
     const url = ["postgres://role:", long, "@host/db"].join("");
     const said = providerMessage(`got error: ${url} token=${short} password: ${short} ${long}`);
     for (const secret of [long, short]) expect(said).not.toContain(secret);
+  });
+});
+
+describe("provision retry", () => {
+  type Phase = { command: string[]; status: string; attempt?: number };
+  type Reply = { status: number | null; signal?: string; stdout: string };
+  const refusal = (address?: string) =>
+    JSON.stringify({
+      type: "diagnostic",
+      diagnostic: {
+        severity: "error",
+        summary: "Client Error",
+        detail:
+          '{"code":"","message":"project already has running conflicting operations, scheduling of new ones is prohibited"}',
+        ...(address ? { address } : {}),
+      },
+    });
+  const locked = refusal('neon_role.database["migrations"]');
+  const create = { address: 'neon_role.database["migrations"]', change: { actions: ["create"] } };
+  // Runs one provision stage against a stubbed `tofu`: each apply answers from `applies` in turn,
+  // each review shows the next of `plans` (the last one repeats).
+  async function provision(applies: Reply[], plans: object[] = [{ resource_changes: [create] }]) {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const result = { phases: [] as Phase[] };
+    const calls: string[][] = [];
+    const sleeps: number[] = [];
+    const retries: number[] = [];
+    const run = (_tofu: string, args: string[]) => {
+      calls.push(args);
+      if (args[0] === "apply") return applies.shift();
+      if (args[0] === "show")
+        return { status: 0, stdout: JSON.stringify(plans.length > 1 ? plans.shift() : plans[0]) };
+      return { status: 0, stdout: "" };
+    };
+    const outcome = applyStage("provision", {
+      work: tmpdir(),
+      planArgs: ["-var=activation_stage=provision"],
+      phase: (name: string, executable: string, args: string[], options: object) =>
+        recordDeploymentPhase(
+          result,
+          { commit: "a".repeat(40), tree: "b".repeat(40) },
+          name,
+          executable,
+          args,
+          { ...options, run },
+        ),
+      review: (plan: object) => verifyPlan(plan, config, "provision", false),
+      retry: provisionRetry,
+      beforeRetry: async (attempt: number) => {
+        retries.push(attempt);
+      },
+      sleep: async (seconds: number) => {
+        sleeps.push(seconds);
+      },
+    }).then(
+      () => "passed",
+      (error: Error) => error.message,
+    );
+    return { outcome: await outcome, result, calls, sleeps, retries };
+  }
+  const steps = (phases: Phase[]) =>
+    phases.map(({ command, status, attempt }) => `${command[0]} ${attempt ?? 1} ${status}`);
+
+  it("re-plans, re-reviews and applies a new plan after a Neon lock, and the retry decides", async () => {
+    const run = await provision([
+      { status: 1, stdout: locked },
+      { status: 0, stdout: "" },
+    ]);
+    expect(run.outcome).toBe("passed");
+    expect(steps(run.result.phases)).toEqual([
+      "OpenTofu provision plan 1 passed",
+      "OpenTofu provision review 1 passed",
+      "OpenTofu provision apply 1 unknown",
+      "OpenTofu provision plan 2 passed",
+      "OpenTofu provision review 2 passed",
+      "OpenTofu provision apply 2 passed",
+    ]);
+    const applied = run.calls.filter((args) => args[0] === "apply").map((args) => args.at(-1));
+    expect(new Set(applied).size).toBe(2);
+    expect(run.sleeps).toEqual([15]);
+    expect(run.retries).toEqual([2]);
+    expect(outstandingPhases(run.result.phases).every(({ status }) => status === "passed")).toBe(
+      true,
+    );
+  });
+
+  it("stops after the last try with its diagnostics, its effect still unknown", async () => {
+    const run = await provision(Array.from({ length: 5 }, () => ({ status: 1, stdout: locked })));
+    expect(run.outcome).toMatch(
+      /^OpenTofu provision apply \(attempt 4\) failed; Client Error at neon_role\.database\["migrations"\]: project already has running conflicting operations/u,
+    );
+    expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(4);
+    expect(run.sleeps).toEqual([15, 30, 60]);
+    expect(outstandingPhases(run.result.phases).map(({ status }) => status)).toContain("unknown");
+  });
+
+  it("does not retry a non-Neon error, an interrupted apply or a plan that turned destructive", async () => {
+    for (const reply of [
+      { status: 1, stdout: refusal("cloudflare_queue.runtime") },
+      { status: 1, stdout: refusal() },
+      { status: null, signal: "SIGTERM", stdout: locked },
+    ]) {
+      const run = await provision([reply, { status: 0, stdout: "" }]);
+      expect(run.outcome).toMatch(/^OpenTofu provision apply failed/u);
+      expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(1);
+    }
+    const destroy = { ...create, change: { actions: ["delete"] } };
+    const run = await provision(
+      [{ status: 1, stdout: locked }],
+      [{ resource_changes: [create] }, { resource_changes: [destroy] }],
+    );
+    expect(run.outcome).toBe("destructive infrastructure plan refused");
+    expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(1);
   });
 });
