@@ -22,6 +22,7 @@ import {
   digest,
   fileInventory,
   outstandingPhases,
+  provisionRetry,
   root,
   subprocessEvidence,
   validateEvidence,
@@ -122,22 +123,27 @@ export function tofuDiagnostics(stdout) {
 // project's latest operation before each create but drops the HTTP status from its errors, so a
 // 423 is told apart from other Neon refusals only by message text; any Neon resource error is
 // retried instead, a bounded number of times. Errors without a resource address, such as a state
-// that failed to save, are never retried.
-export function retryableApply(phase, stdout) {
+// that failed to save, are never retried. Nor is a failed create of the Neon project that the
+// reviewed `plan` proposed: Neon may have made the project anyway, and if its name search has not
+// caught up, a retry would make a second one that state then hides. A project create cannot meet
+// the per-project lock that the retry is for.
+export function retryableApply(phase, stdout, plan) {
   const errors = tofuErrors(stdout);
+  const created = new Set(
+    (plan?.resource_changes ?? [])
+      .filter((change) => change.change?.actions?.includes("create"))
+      .map((change) => change.address),
+  );
   return (
     Number.isInteger(phase.exitCode) &&
     phase.exitCode !== 0 &&
     !phase.signal &&
     !phase.errorCode &&
     errors.length > 0 &&
-    errors.every((error) => /^neon_/u.test(String(error.address ?? "")))
+    errors.every((error) => /^neon_/u.test(String(error.address ?? ""))) &&
+    !errors.some(({ address }) => /^neon_project\./u.test(address) && created.has(address))
   );
 }
-// Provision creates the Neon project, its roles and its database. Four tries, 15, 30 and 60 s
-// apart, keep the worst case of repeated provision plans and applies well inside the deploy
-// job's 45-minute timeout.
-export const provisionRetry = { attempts: 4, backoffSeconds: [15, 30, 60] };
 export function recordDeploymentPhase(result, candidate, name, executable, args, options = {}) {
   const { explain, retryable, attempt, run = spawnSync, ...spawnOptions } = options;
   const startedAt = new Date().toISOString();
@@ -192,9 +198,10 @@ export async function applyStage(stage, context) {
     phase(`OpenTofu ${stage} plan`, "tofu", ["plan", "-input=false", ...planArgs, `-out=${plan}`], {
       attempt,
     });
-    review(
-      JSON.parse(phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan], { attempt })),
+    const proposed = JSON.parse(
+      phase(`OpenTofu ${stage} review`, "tofu", ["show", "-json", plan], { attempt }),
     );
+    review(proposed);
     try {
       phase(
         `OpenTofu ${stage} apply`,
@@ -203,7 +210,7 @@ export async function applyStage(stage, context) {
         {
           attempt,
           explain: tofuDiagnostics,
-          retryable: retryableApply,
+          retryable: (record, stdout) => retryableApply(record, stdout, proposed),
         },
       );
       return;
@@ -219,6 +226,30 @@ export async function applyStage(stage, context) {
       await beforeRetry(attempt + 1);
     }
   }
+}
+// The provision stage's apply options. One Neon request at a time: the provider waits for the
+// project's latest operation before each create, so serial creates each start after the previous
+// one finished, where parallel ones all start at once and all but one get 423 Locked. Retries cover
+// what is left; each first refuses a held lock and re-reads state for a lost duplicable resource.
+export function provisionOptions(store, target, readInventory) {
+  return {
+    applyArgs: ["-parallelism=1"],
+    retry: provisionRetry,
+    beforeRetry: async (attempt) => {
+      await assertUnlocked(store, target);
+      await readInventory(attempt);
+    },
+  };
+}
+// A failed deployment's status: `unknown` while an apply or publication with an open effect
+// decides it (a provision apply that a later attempt passed does not), else `failed` once the
+// workspace exists, else `held`.
+export function failedDeploymentStatus(phases, started) {
+  return outstandingPhases(phases).some((phase) => phase.status === "unknown")
+    ? "unknown"
+    : started
+      ? "failed"
+      : "held";
 }
 async function runDeployment() {
   const target = required("DEPLOY_ENVIRONMENT");
@@ -357,17 +388,7 @@ async function runDeployment() {
         const backup = await backupState(store, target, `${stage}-${candidate.slice(0, 12)}`);
         console.log(`state backup: ${store.bucket}/${backup}`);
       };
-      // One Neon request at a time: the provider waits for the project's latest operation before
-      // each create, so serial creates each start after the previous one finished, where parallel
-      // ones all start at once and all but one get 423 Locked. Retries cover what is left.
-      await apply("provision", {
-        applyArgs: ["-parallelism=1"],
-        retry: provisionRetry,
-        beforeRetry: async (attempt) => {
-          await assertUnlocked(store, target);
-          await readInventory(attempt);
-        },
-      });
+      await apply("provision", provisionOptions(store, target, readInventory));
       const credentials = JSON.parse(
         phase("owned generated role credentials", "tofu", [
           "output",
@@ -512,12 +533,7 @@ async function runDeployment() {
       await readLock(store, target)
         .then((lock) => lock && console.error(describeLock(target, store, lock)))
         .catch(() => {});
-    // A failed provision apply that a later retry passed no longer decides the outcome.
-    result.status = outstandingPhases(result.phases).some((phase) => phase.status === "unknown")
-      ? "unknown"
-      : work
-        ? "failed"
-        : "held";
+    result.status = failedDeploymentStatus(result.phases, Boolean(work));
     throw error;
   } finally {
     await validateEvidence(manifest);

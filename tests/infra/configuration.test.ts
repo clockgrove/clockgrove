@@ -1,14 +1,15 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-configuration.mjs";
 import { environmentSchema } from "../../infra/environment-schema.ts";
 import {
   applyStage,
+  failedDeploymentStatus,
   providerMessage,
-  provisionRetry,
+  provisionOptions,
   recordDeploymentPhase,
   tofuDiagnostics,
 } from "../../scripts/ci/deploy.mjs";
@@ -18,7 +19,11 @@ import {
   unrecordedDuplicates,
   verifyPlan,
 } from "../../scripts/ci/deployment-authority.mjs";
-import { outstandingPhases } from "../../scripts/ci/evidence.mjs";
+import {
+  assertDeploymentOutcome,
+  outstandingPhases,
+  provisionRetry,
+} from "../../scripts/ci/evidence.mjs";
 import { missingRoutingMetadata } from "../../scripts/ci/routing-metadata.mjs";
 import { describeLock, isBackupKey, signV4 } from "../../scripts/ci/state-store.mjs";
 
@@ -242,10 +247,20 @@ describe("provision retry", () => {
       },
     });
   const locked = refusal('neon_role.database["migrations"]');
-  const create = { address: 'neon_role.database["migrations"]', change: { actions: ["create"] } };
+  const change = (address: string, action: string) => ({ address, change: { actions: [action] } });
+  const create = change('neon_role.database["migrations"]', "create");
+  let work = "";
+  beforeAll(async () => {
+    work = await mkdtemp(path.join(tmpdir(), "clockgrove-provision-"));
+  });
+  afterAll(() => rm(work, { recursive: true, force: true }));
   // Runs one provision stage against a stubbed `tofu`: each apply answers from `applies` in turn,
-  // each review shows the next of `plans` (the last one repeats).
-  async function provision(applies: Reply[], plans: object[] = [{ resource_changes: [create] }]) {
+  // each review shows the next of `plans` (the last one repeats). `options` replaces the retry hook.
+  async function provision(
+    applies: Reply[],
+    plans: object[] = [{ resource_changes: [create] }],
+    options: object = {},
+  ) {
     const config = await readJson(root, "infra/environments/staging.json");
     const result = { phases: [] as Phase[] };
     const calls: string[][] = [];
@@ -259,16 +274,16 @@ describe("provision retry", () => {
       return { status: 0, stdout: "" };
     };
     const outcome = applyStage("provision", {
-      work: tmpdir(),
+      work,
       planArgs: ["-var=activation_stage=provision"],
-      phase: (name: string, executable: string, args: string[], options: object) =>
+      phase: (name: string, executable: string, args: string[], phaseOptions: object) =>
         recordDeploymentPhase(
           result,
           { commit: "a".repeat(40), tree: "b".repeat(40) },
           name,
           executable,
           args,
-          { ...options, run },
+          { ...phaseOptions, run },
         ),
       review: (plan: object) => verifyPlan(plan, config, "provision", false),
       retry: provisionRetry,
@@ -278,12 +293,14 @@ describe("provision retry", () => {
       sleep: async (seconds: number) => {
         sleeps.push(seconds);
       },
+      ...options,
     }).then(
       () => "passed",
       (error: Error) => error.message,
     );
     return { outcome: await outcome, result, calls, sleeps, retries };
   }
+  const applies = (calls: string[][]) => calls.filter((args) => args[0] === "apply");
   const steps = (phases: Phase[]) =>
     phases.map(({ command, status, attempt }) => `${command[0]} ${attempt ?? 1} ${status}`);
 
@@ -301,8 +318,7 @@ describe("provision retry", () => {
       "OpenTofu provision review 2 passed",
       "OpenTofu provision apply 2 passed",
     ]);
-    const applied = run.calls.filter((args) => args[0] === "apply").map((args) => args.at(-1));
-    expect(new Set(applied).size).toBe(2);
+    expect(new Set(applies(run.calls).map((args) => args.at(-1))).size).toBe(2);
     expect(run.sleeps).toEqual([15]);
     expect(run.retries).toEqual([2]);
     expect(outstandingPhases(run.result.phases).every(({ status }) => status === "passed")).toBe(
@@ -315,12 +331,12 @@ describe("provision retry", () => {
     expect(run.outcome).toMatch(
       /^OpenTofu provision apply \(attempt 4\) failed; Client Error at neon_role\.database\["migrations"\]: project already has running conflicting operations/u,
     );
-    expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(4);
+    expect(applies(run.calls)).toHaveLength(4);
     expect(run.sleeps).toEqual([15, 30, 60]);
-    expect(outstandingPhases(run.result.phases).map(({ status }) => status)).toContain("unknown");
+    expect(failedDeploymentStatus(run.result.phases, true)).toBe("unknown");
   });
 
-  it("does not retry a non-Neon error, an interrupted apply or a plan that turned destructive", async () => {
+  it("does not retry a non-Neon error, an interrupted apply, a failed project create or a plan that turned destructive", async () => {
     for (const reply of [
       { status: 1, stdout: refusal("cloudflare_queue.runtime") },
       { status: 1, stdout: refusal() },
@@ -328,14 +344,124 @@ describe("provision retry", () => {
     ]) {
       const run = await provision([reply, { status: 0, stdout: "" }]);
       expect(run.outcome).toMatch(/^OpenTofu provision apply failed/u);
-      expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(1);
+      expect(applies(run.calls)).toHaveLength(1);
     }
-    const destroy = { ...create, change: { actions: ["delete"] } };
+    // Neon may hold a project whose create failed; a retry could make a second one.
+    const project = "neon_project.world[0]";
+    const created = await provision(
+      [
+        { status: 1, stdout: refusal(project) },
+        { status: 0, stdout: "" },
+      ],
+      [{ resource_changes: [change(project, "create"), create] }],
+    );
+    expect(applies(created.calls)).toHaveLength(1);
+    const updated = await provision(
+      [
+        { status: 1, stdout: refusal(project) },
+        { status: 0, stdout: "" },
+      ],
+      [{ resource_changes: [change(project, "update"), create] }],
+    );
+    expect(updated.outcome).toBe("passed");
+    const destroy = change('neon_role.database["migrations"]', "delete");
     const run = await provision(
       [{ status: 1, stdout: locked }],
       [{ resource_changes: [create] }, { resource_changes: [destroy] }],
     );
     expect(run.outcome).toBe("destructive infrastructure plan refused");
-    expect(run.calls.filter((args) => args[0] === "apply")).toHaveLength(1);
+    expect(applies(run.calls)).toHaveLength(1);
+  });
+
+  it("checks the lock and lost state before a retry, as the deploy wires it", async () => {
+    // A state bucket holding nothing but, when `held`, the lock object.
+    const store = (held: boolean) => ({
+      bucket: "clockgrove-staging-state",
+      read: async (key: string) =>
+        held && key.endsWith(".tflock")
+          ? { body: Buffer.from('{"ID":"lock-1","Who":"runner@host"}'), etag: "e" }
+          : null,
+    });
+    const reads: number[] = [];
+    const readInventory = async (attempt: number) => {
+      reads.push(attempt);
+    };
+    const failThenPass = () => [
+      { status: 1, stdout: locked },
+      { status: 0, stdout: "" },
+    ];
+    const free = await provision(failThenPass(), undefined, {
+      ...provisionOptions(store(false), "staging", readInventory),
+    });
+    expect(free.outcome).toBe("passed");
+    expect(applies(free.calls)[0]).toContain("-parallelism=1");
+    expect(reads).toEqual([2]);
+    const migrations = { command: ["database migrations"], status: "failed" };
+    expect(failedDeploymentStatus([...free.result.phases, migrations], true)).toBe("failed");
+    const held = await provision(failThenPass(), undefined, {
+      ...provisionOptions(store(true), "staging", readInventory),
+    });
+    expect(held.outcome).toMatch(/^state lock clockgrove-staging-state\/staging\/terraform/u);
+    expect(reads).toEqual([2]);
+    expect(failedDeploymentStatus(held.result.phases, true)).toBe("unknown");
+  });
+
+  it("accepts only retry evidence the deploy produces", () => {
+    const phase = (command: string, status: string, attempt?: number) => ({
+      command: [command],
+      status,
+      ...(attempt ? { attempt } : {}),
+    });
+    const run = (attempt: number | undefined, applied: string) => [
+      phase("read owned persisted resource identities", "passed", attempt),
+      phase("OpenTofu provision plan", "passed", attempt),
+      phase("OpenTofu provision review", "passed", attempt),
+      phase("OpenTofu provision apply", applied, attempt),
+    ];
+    const deployment = (status: string, phases: object[]) => ({ status, phases });
+    const outcome = (status: string, phases: object[]) => {
+      try {
+        assertDeploymentOutcome(deployment(status, phases));
+        return "accepted";
+      } catch (error) {
+        return (error as Error).message.split("\n")[0];
+      }
+    };
+    const retried = [...run(undefined, "unknown"), ...run(2, "passed")];
+    const later = (name: string, status: string, attempt?: number) => [
+      ...retried,
+      phase(name, status, attempt),
+    ];
+    expect(outcome("passed", retried)).toBe("accepted");
+    expect(outcome("failed", later("database migrations", "failed"))).toBe("accepted");
+    const exhausted = [1, 2, 3, 4].flatMap((n) => run(n > 1 ? n : undefined, "unknown"));
+    expect(outcome("unknown", exhausted)).toBe("accepted");
+    expect(outcome("failed", exhausted)).toBe("deployment effect uncertainty mismatch");
+    expect(outcome("passed", run(undefined, "unknown"))).toBe(
+      "deployment effect uncertainty mismatch",
+    );
+    expect(
+      outcome("passed", [
+        ...run(undefined, "unknown"),
+        phase("OpenTofu provision apply", "passed", 2),
+      ]),
+    ).toBe("deploy retry phases out of order");
+    expect(
+      outcome("passed", [
+        ...run(undefined, "passed"),
+        phase("Wrangler Worker publication", "unknown"),
+        phase("Wrangler Worker publication", "passed", 2),
+      ]),
+    ).toBe("deploy retry of a phase that is never retried");
+    expect(outcome("passed", later("OpenTofu bindings apply", "passed", 2))).toBe(
+      "deploy retry of a phase that is never retried",
+    );
+    expect(outcome("passed", [...run(undefined, "passed"), ...run(2, "passed")])).toBe(
+      "deploy retry without a failed provision apply before it",
+    );
+    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) =>
+      run(n > 1 ? n : undefined, n < 9 ? "unknown" : "passed"),
+    );
+    expect(outcome("passed", nine)).toBe("deploy retry beyond its attempt limit");
   });
 });

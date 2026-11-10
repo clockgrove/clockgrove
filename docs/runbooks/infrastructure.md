@@ -225,14 +225,18 @@ state and released the lock) and every error it reported is at a Neon resource; 
 the HTTP status, so that is the signal rather than 423 itself. It runs at most four times, 15, 30
 and 60 seconds apart. Before each retry the deploy refuses a held lock and re-reads state for lost
 duplicable resources, as before the first plan, then plans, reviews and applies a new plan; a failed
-run's plan is deleted, never applied. Any other failed apply, and any interrupted one, stops the
-deploy at once.
+run's plan is deleted, never applied. A failed create of the Neon project itself is not retried:
+Neon may hold the project anyway, and if its name search has not caught up, a retry would make a
+second one that state then hides; the per-project lock cannot refuse that create. Any other failed
+apply, and any interrupted one, stops the deploy at once.
 
-Every run is recorded with its own plan, review and apply phases; a retry's carry an `attempt`
-number from 2. A failed provision apply that a later attempt passed no longer decides the outcome,
-since that attempt planned against the state it left: the deploy can still pass, and fails or is
-`unknown` only by its other phases. When every attempt fails, the deploy reports the last attempt's
-provider diagnostics and is `unknown`.
+Every run is recorded with its own state read, plan, review and apply phases; a retry's carry an
+`attempt` number from 2. Evidence validation accepts `attempt` only on those four provision phases,
+up to four, each retry starting after the previous attempt's apply did not pass and running its
+four phases in order. A failed provision apply that a later attempt passed no longer decides the
+outcome, since that attempt planned against the state it left: the deploy can still pass, and fails
+or is `unknown` only by its other phases. When every attempt fails, the deploy reports the last
+attempt's provider diagnostics and is `unknown`.
 
 The resources in state must be ones the configuration declares. A Hyperdrive configuration in state
 permits binding preservation only; it never authorizes public activation. Existing DNS and Worker
