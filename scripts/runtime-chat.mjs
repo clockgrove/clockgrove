@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 const HELP = `Usage: node scripts/runtime-chat.mjs <create|list|read|talk|say> [options]
 Required: --url --tenant --world --timeline --space
 Authentication: CLOCKGROVE_SESSION_TOKEN environment variable
-create: --actor [--title]    list: [--actor]
+create: --actor [--title] [--thread]    list: [--actor]
 read: --session [--after-sequence] [--limit]
 talk: --session --message-id --text
 say: --actor --message-id --text
@@ -14,7 +14,11 @@ Talk is private; Say explicitly requests public speech. Output is JSON.
 `;
 const COMMON = ["url", "tenant", "world", "timeline", "space"];
 const OPERATIONS = {
-  create: { route: "/v1/runtime/conversations/create", required: ["actor"], optional: ["title"] },
+  create: {
+    route: "/v1/runtime/conversations/create",
+    required: ["actor"],
+    optional: ["title", "thread"],
+  },
   list: { route: "/v1/runtime/conversations/list", required: [], optional: ["actor"] },
   read: {
     route: "/v1/runtime/conversations/read",
@@ -30,6 +34,7 @@ const FIELDS = {
   "message-id": "messageId",
   text: "text",
   title: "title",
+  thread: "threadId",
   "after-sequence": "afterSequence",
   limit: "limit",
 };
@@ -88,6 +93,7 @@ export async function main(argv) {
       body[field] = number;
     } else body[field] = values[name];
   }
+  if (command === "create" || command === "say") body.channel = "cli";
   const response = await fetch(new URL(operation.route, origin), {
     method: "POST",
     redirect: "error",

@@ -1,4 +1,11 @@
 import { type BrowserScope, decodeBrowserScope } from "./browser-protocol.js";
+import {
+  type ChannelIngressMetadata,
+  CONVERSATION_CHANNELS,
+  type ConversationChannel,
+  decodeChannelId,
+  decodeChannelIngressMetadata,
+} from "./channels.js";
 import { decodeOpaqueId, type ObjectId, type PrincipalId, type WorldPersonaId } from "./ids.js";
 import {
   array,
@@ -54,7 +61,8 @@ export interface ConversationSession {
   readonly actorId: ObjectId;
   /** At least one, ordered by principal ID; a principal and a persona appear at most once each. */
   readonly participants: readonly ConversationSessionParticipant[];
-  readonly channel: "browser";
+  readonly channel: ConversationChannel;
+  readonly threadId?: string;
   readonly privacyClass: "conversation";
   readonly voiceMode: VoiceMode;
   readonly disclosure: string;
@@ -193,6 +201,8 @@ export interface CreateConversationRequest {
   readonly scope: BrowserScope;
   readonly actorId: ObjectId;
   readonly title?: string;
+  readonly channel?: ConversationChannel;
+  readonly threadId?: string;
 }
 export interface ConversationListRequest {
   readonly scope: BrowserScope;
@@ -223,6 +233,7 @@ export interface TalkRequest {
   readonly sessionId: string;
   readonly messageId: string;
   readonly text: string;
+  readonly ingress?: ChannelIngressMetadata;
 }
 
 const SCOPE_KEYS = ["version", "tenantId", "worldId", "timelineId", "spaceId"] as const;
@@ -279,10 +290,16 @@ function boolean(value: unknown, path: string): boolean {
 
 export function decodeCreateConversationRequest(value: unknown): CreateConversationRequest {
   const path = "createConversation";
-  const { v, scope } = scoped(value, path, ["actorId"], ["title"]);
+  const { v, scope } = scoped(value, path, ["actorId"], ["title", "channel", "threadId"]);
   return Object.freeze({
     scope,
     actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
+    ...(v.channel === undefined
+      ? {}
+      : { channel: literal(v.channel, CONVERSATION_CHANNELS, `${path}.channel`) }),
+    ...(v.threadId === undefined
+      ? {}
+      : { threadId: decodeChannelId(v.threadId, `${path}.threadId`) }),
     ...(v.title === undefined ? {} : { title: decodeConversationTitle(v.title, `${path}.title`) }),
   });
 }
@@ -343,12 +360,13 @@ export function decodeConversationDeleteRequest(value: unknown): ConversationDel
 
 export function decodeTalkRequest(value: unknown): TalkRequest {
   const path = "talk";
-  const { v, scope } = scoped(value, path, ["sessionId", "messageId", "text"]);
+  const { v, scope } = scoped(value, path, ["sessionId", "messageId", "text"], ["ingress"]);
   return Object.freeze({
     scope,
     sessionId: boundedId(v.sessionId, `${path}.sessionId`),
     messageId: talkMessageId(v.messageId, `${path}.messageId`),
     text: decodeConversationText(v.text, `${path}.text`),
+    ...(v.ingress === undefined ? {} : { ingress: decodeChannelIngressMetadata(v.ingress) }),
   });
 }
 
@@ -374,7 +392,7 @@ export function decodeConversationSession(
       "createdAt",
       "updatedAt",
     ],
-    [],
+    ["threadId"],
     path,
   );
   const participants = array(v.participants, `${path}.participants`, (item, itemPath) => {
@@ -403,7 +421,10 @@ export function decodeConversationSession(
     scope: decodeBrowserScope(v.scope),
     actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
     participants,
-    channel: literal(v.channel, ["browser"], `${path}.channel`),
+    channel: literal(v.channel, CONVERSATION_CHANNELS, `${path}.channel`),
+    ...(v.threadId === undefined
+      ? {}
+      : { threadId: decodeChannelId(v.threadId, `${path}.threadId`) }),
     privacyClass: literal(v.privacyClass, ["conversation"], `${path}.privacyClass`),
     voiceMode,
     disclosure: VOICE_DISCLOSURES[voiceMode],

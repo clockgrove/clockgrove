@@ -86,6 +86,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         [{ principalId: "principal-runtime", personaId: "persona-runtime" }],
       ]);
       expect(session.sessionId).not.toBe(browser.sessionId);
+      expect([session.channel, browser.channel]).toEqual(["cli", "browser"]);
       const args = [
         "talk",
         "--session",

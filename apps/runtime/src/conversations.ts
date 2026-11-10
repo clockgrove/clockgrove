@@ -6,6 +6,7 @@ import {
 } from "@clockgrove/application";
 import {
   type BrowserScope,
+  type ChannelIngressMetadata,
   type ConversationSession,
   decodeConversationArchiveRequest,
   decodeConversationDeleteRequest,
@@ -116,6 +117,7 @@ export interface TurnOwners {
 }
 
 export interface ConversationCall {
+  readonly ingress?: ChannelIngressMetadata;
   /** The scope to authorize: the request's world timeline and space. */
   readonly scope: BrowserScope;
   /** The actor a new session addresses; the caller checks it is projected first. */
@@ -196,6 +198,7 @@ export function conversationCall(route: ConversationRoute, body: unknown): Conve
       const input = decodeTalkRequest(body);
       return {
         scope: input.scope,
+        ...(input.ingress === undefined ? {} : { ingress: input.ingress }),
         owner: {
           sessionId: input.sessionId,
           run: (owners, actorId, participant, context) =>
@@ -225,6 +228,9 @@ export function conversationCall(route: ConversationRoute, body: unknown): Conve
 export const CONVERSATION_REFUSAL_STATUS: Readonly<
   Record<ConversationRefusedError["code"], number>
 > = {
+  channel_identity_unverified: 403,
+  channel_thread_reused: 409,
+  reply_not_found: 409,
   conversation_not_found: 404,
   conversation_not_active: 409,
   conversation_full: 409,

@@ -142,8 +142,8 @@ export class TurnFibers {
   /**
    * Accepts a Caretaker message and runs its turn, streaming deltas to the first caller only. An
    * activation the perception inbox did not admit (a duplicate) joins this owner's acceptance or
-   * run of that message without accepting it again; one this owner is not handling falls to the
-   * fiber's key in PostgreSQL, which answers its stored receipt or resumes it.
+   * run only after PostgreSQL verifies the exact input and normalized envelope. One this owner
+   * is not handling falls to the fiber's key, which answers its stored receipt or resumes it.
    */
   talk(
     participant: ConversationParticipant,
@@ -154,7 +154,8 @@ export class TurnFibers {
     const key = activationKey({ kind: "direct_message", ...request });
     if (!admitted) {
       const joined = this.accepting.get(key) ?? this.running.get(key);
-      if (joined !== undefined) return joined;
+      if (joined !== undefined)
+        return this.store((store) => store.acceptTurn(participant, request)).then(() => joined);
     }
     const accepting = this.accept(participant, request, emit);
     this.accepting.set(key, accepting);
