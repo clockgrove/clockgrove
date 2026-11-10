@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { stateStoreFor } from "./ci/deployment-authority.mjs";
+import { restoresRetiredRoles, stateStoreFor } from "./ci/deployment-authority.mjs";
 import { root } from "./ci/evidence.mjs";
 import { assertRoutingMetadata } from "./ci/routing-metadata.mjs";
 import {
@@ -90,6 +90,10 @@ export async function restore(store, target, key, { replace = false } = {}, now 
     assert(
       replace,
       `${store.bucket}/${keys.state} exists; rerun with --replace to back it up and replace it`,
+    );
+    assert(
+      !restoresRetiredRoles(current.body, backup),
+      `${key} predates the SQL-created database roles and holds their retired Neon API roles; a deploy from it would delete the live roles (see docs/runbooks/infrastructure.md, Database roles)`,
     );
     const saved = await saveBackup(store, target, "replaced", current.body, now, [key]);
     await store.replace(keys.state, backup, current.etag);

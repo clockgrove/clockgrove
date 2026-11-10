@@ -32,6 +32,6 @@ export async function deploymentRolesInput(passwords) {
 // messages are kept, reduced to role-name characters; nothing else psql printed is echoed.
 export function roleCheckFailures(stderr) {
   return [...String(stderr ?? "").matchAll(/ERROR: +clockgrove role check: ([^\n]*)/gu)]
-    .map(([, said]) => said.replace(/[^A-Za-z0-9_, ]/gu, "").slice(0, 200))
+    .map(([, said]) => said.replace(/[^A-Za-z0-9_, ()]/gu, "").slice(0, 200))
     .join("; ");
 }

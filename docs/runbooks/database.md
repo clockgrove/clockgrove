@@ -97,8 +97,13 @@ the six restricted roles and `clockgrove_mcp_secrets` with SQL, with the attribu
 OpenTofu-generated passwords, and refuses by name any of them that is a member of another role. See
 [Database roles](infrastructure.md#database-roles). `pnpm run test:db` runs that SQL in a disposable
 cluster shaped like Neon (a CREATEROLE `clockgrove_migrator` that is a `neon_superuser` member, no
-restricted role yet), applies the migrations and passes the deploy's isolation query, and proves
-the SQL refuses a role it did not create and a `neon_superuser` member by name.
+restricted role yet), with `pg_stat_statements` and `passwordcheck` preloaded and DDL and
+failed-statement logging on. It checks each stored SCRAM verifier against its generated password,
+applies the migrations and passes the deploy's isolation query. It proves the SQL normalizes
+drifted attributes, refuses by name a role it did not create, a `neon_superuser` member and a
+password the server's policy rejects, and that no generated password reaches `pg_stat_statements`
+or the server log. The disposable fixture takes extra server settings through
+`withDisposableDatabase(operation, { settings })`.
 
 Migration `0002_authentication_authority.sql` is additive; the applied journal migration bytes stay
 unchanged. Migration `0003_tenant_scoped_event_ids.sql` scopes event identity to `(tenant_id, event_id)`:

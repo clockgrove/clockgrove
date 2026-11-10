@@ -45,18 +45,39 @@ SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHE
  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = restricted)
 \gexec
 
-SELECT format('ALTER ROLE %I LOGIN NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L', restricted, generated)
-  FROM (VALUES
-    ('clockgrove_runtime', :'password_runtime'),
-    ('clockgrove_support', :'password_support'),
-    ('clockgrove_backup', :'password_backup'),
-    ('clockgrove_auth_verifier', :'password_authentication'),
-    ('clockgrove_management_reader', :'password_management'),
-    ('clockgrove_world_reader', :'password_worldAuthorization')
-  ) AS login(restricted, generated)
-\gexec
+-- Sets one role's login, password and attributes. The password arrives as a bound parameter and
+-- the ALTER runs inside this function, so neither the statement text that pg_stat_statements
+-- stores nor a failed statement the server logs carries it, and a refusal (such as a password
+-- policy) raises only the role name and SQLSTATE. NOREPLICATION and NOBYPASSRLS are named only to
+-- undo drift, since changing them needs the attribute itself; the postconditions check both.
+CREATE FUNCTION pg_temp.set_password(target text, secret text) RETURNS void
+LANGUAGE plpgsql AS $set_password$
+DECLARE
+  existing pg_roles%ROWTYPE;
+BEGIN
+  SELECT * INTO existing FROM pg_roles WHERE rolname = target;
+  EXECUTE format(
+    'ALTER ROLE %I %s NOCREATEROLE NOINHERIT%s%s%s PASSWORD %L',
+    target,
+    CASE WHEN secret IS NULL THEN 'NOLOGIN' ELSE 'LOGIN' END,
+    CASE WHEN existing.rolcreatedb THEN ' NOCREATEDB' ELSE '' END,
+    CASE WHEN existing.rolreplication THEN ' NOREPLICATION' ELSE '' END,
+    CASE WHEN existing.rolbypassrls THEN ' NOBYPASSRLS' ELSE '' END,
+    secret
+  );
+EXCEPTION WHEN OTHERS THEN
+  RAISE EXCEPTION 'clockgrove role check: % password not set (%)', target, SQLSTATE;
+END;
+$set_password$;
 
-ALTER ROLE clockgrove_mcp_secrets NOLOGIN NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD NULL;
+-- The values are letters and digits only, so psql's unquoted interpolation passes each exactly.
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_runtime' :password_runtime \g
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_support' :password_support \g
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_backup' :password_backup \g
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_auth_verifier' :password_authentication \g
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_management_reader' :password_management \g
+SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_world_reader' :password_worldAuthorization \g
+SELECT pg_temp.set_password('clockgrove_mcp_secrets', NULL);
 
 -- Every restricted role ends with no role membership and no elevated or unexpected attribute.
 DO $postconditions$

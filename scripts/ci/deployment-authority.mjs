@@ -127,27 +127,61 @@ export function retiredResources() {
   return new Set(restrictedRoleKeys.map((key) => `neon_role.database["${key}"]`));
 }
 
+// Whether restoring `backup` over `current` (raw OpenTofu state files) would bring back a retired
+// Neon API role over an environment whose roles are already created with SQL: the backup holds a
+// retired instance and the current state a generated password. Plan review accepts a retired
+// deletion from such a state, which would then drop the live role of that name.
+export function restoresRetiredRoles(current, backup) {
+  const instances = (state, type) =>
+    (JSON.parse(String(state)).resources ?? [])
+      .filter((resource) => resource.type === type && resource.name === "database")
+      .flatMap((resource) => resource.instances.map((instance) => instance.index_key));
+  const migrated = new Set(instances(current, "random_password"));
+  return instances(backup, "neon_role").some((key) => migrated.has(key));
+}
+
 // Every address state may hold: the owned resources and the retired ones not yet deleted.
 export function persistedAddresses(config) {
   return new Set([...resourceAddresses(config), ...retiredResources()]);
 }
 
-// The one deletion a plan may carry: a retired resource, deleted only because the configuration
-// dropped its key. Any other deletion, including a replacement, is refused.
-const retiredDeletion = (change) =>
-  retiredResources().has(change.address) &&
+// The one deletion a plan may carry, once: a retired resource deleted only because the
+// configuration dropped its key, in the provision stage, from a starting state that holds no
+// generated password for that key yet. A state that already holds one has been through the
+// migration, so the role of that name is now created with SQL and is never deleted here. Any other
+// deletion, including a replacement, is refused.
+const retiredDeletion = (change, stage, started) =>
+  stage === "provision" &&
   change.change.actions.length === 1 &&
   change.change.actions[0] === "delete" &&
-  change.action_reason === "delete_because_each_key";
+  change.action_reason === "delete_because_each_key" &&
+  !started.has(change.address.replace(/^neon_role\./u, "random_password."));
 
-export function verifyPlan(plan, config, stage, preservePublic) {
+// The addresses a plan's prior state holds.
+function priorAddresses(plan) {
+  const found = new Set();
+  const walk = (module) => {
+    for (const resource of module?.resources ?? []) found.add(resource.address);
+    for (const child of module?.child_modules ?? []) walk(child);
+  };
+  walk(plan.prior_state?.values?.root_module);
+  return found;
+}
+
+// `started` lists the addresses state held when the deploy began, so a provision retry after a
+// partial migration apply is judged by the same state as its first attempt; without it, the
+// plan's prior state is used.
+export function verifyPlan(plan, config, stage, preservePublic, started = priorAddresses(plan)) {
   const allowed = persistedAddresses(config);
   const changes = plan.resource_changes ?? [];
   assert(changes.length <= allowed.size, "infrastructure resource bound exceeded");
   for (const change of changes) {
     assert(allowed.has(change.address), "undeclared infrastructure resource");
     if (retiredResources().has(change.address)) {
-      assert(retiredDeletion(change), "retired infrastructure resource may only be deleted");
+      assert(
+        retiredDeletion(change, stage, started),
+        `retired ${change.address} may only be deleted once, in the provision stage, before its generated password exists`,
+      );
       continue;
     }
     assert(!change.change.actions.includes("delete"), "destructive infrastructure plan refused");
@@ -351,34 +385,60 @@ export function restrictedRolePasswords(credentials, config) {
 
 // Neon applies a role change to the compute after its API request returns, and the provider waits
 // only before each request. The role SQL runs once the project has no operation in progress, so it
-// never meets a retired API role that is still being dropped.
+// never meets a retired API role that is still being dropped. The wait is bounded (`maxSeconds`
+// in all, polling every `interval`); one 5xx answer is retried. An operation created since `since`
+// (the deploy's start) that ended failed, in error or cancelled stops the deploy, named.
+const operationNames = (operations) =>
+  operations
+    .map(({ action, status }) => `${String(action).replace(/[^a-z_]/gu, "")} (${status})`)
+    .join(", ");
 export async function awaitNeonOperations(projectId, token, options = {}) {
   const {
-    attempts = 60,
+    since = 0,
+    maxSeconds = 180,
+    interval = 5,
     sleep = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
     request = fetch,
+    now = Date.now,
   } = options;
-  for (let attempt = 1; ; attempt++) {
+  const deadline = now() + maxSeconds * 1000;
+  let serverErrors = 0;
+  for (;;) {
     const response = await request(
       `https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}/operations?limit=50`,
       {
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok)
-      assert.fail(`authenticated Neon operation listing unavailable (${await refusal(response)})`);
-    const { operations } = await response.json();
-    assert(Array.isArray(operations), "Neon operation listing refused");
-    const pending = operations.filter(({ status }) =>
-      ["scheduling", "running", "cancelling"].includes(status),
-    );
-    if (pending.length === 0) return;
+    let pending = [];
+    if (response.status >= 500 && ++serverErrors === 1) {
+      pending = [{ action: "listing", status: `HTTP ${response.status}` }];
+    } else {
+      if (!response.ok)
+        assert.fail(
+          `authenticated Neon operation listing unavailable (${await refusal(response)})`,
+        );
+      const { operations } = await response.json();
+      assert(Array.isArray(operations), "Neon operation listing refused");
+      const ended = operations.filter(
+        ({ status, created_at }) =>
+          ["failed", "error", "cancelled"].includes(status) && Date.parse(created_at) >= since,
+      );
+      assert(
+        ended.length === 0,
+        `Neon operations of this deploy did not succeed: ${operationNames(ended)}`,
+      );
+      pending = operations.filter(({ status }) =>
+        ["scheduling", "running", "cancelling"].includes(status),
+      );
+      if (pending.length === 0) return;
+    }
     assert(
-      attempt < attempts,
-      `Neon project operations still in progress: ${pending.map(({ action }) => String(action).replace(/[^a-z_]/gu, "")).join(", ")}`,
+      now() + interval * 1000 <= deadline,
+      `Neon project operations still in progress after ${maxSeconds} s: ${operationNames(pending)}`,
     );
-    await sleep(5);
+    await sleep(interval);
   }
 }
 

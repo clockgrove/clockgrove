@@ -1,6 +1,6 @@
 import assertStrict from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { testDisposableDatabaseLifecycle } from "../../tests/database/lifecycle.mjs";
@@ -18,73 +18,138 @@ await testDisposableDatabaseLifecycle();
 
 // The hosted role SQL (deployment-grants.sql) as a deploy runs it on Neon: the migration role is a
 // CREATEROLE, CREATEDB member of neon_superuser but no superuser, and creates the restricted roles.
-await withDisposableDatabase(async ({ tools, environment }) => {
-  const restricted = [
-    "clockgrove_runtime",
-    "clockgrove_support",
-    "clockgrove_backup",
-    "clockgrove_auth_verifier",
-    "clockgrove_management_reader",
-    "clockgrove_world_reader",
-    "clockgrove_mcp_secrets",
-  ];
-  await psql(
-    tools,
-    environment,
-    `DROP ROLE ${restricted.join(", ")};
+// pg_stat_statements, a password policy and DDL plus failed-statement logging run alongside, and
+// no generated password may reach the statement statistics or the server log.
+await withDisposableDatabase(
+  async ({ tools, environment, temporaryRoot }) => {
+    const restricted = [
+      "clockgrove_runtime",
+      "clockgrove_support",
+      "clockgrove_backup",
+      "clockgrove_auth_verifier",
+      "clockgrove_management_reader",
+      "clockgrove_world_reader",
+      "clockgrove_mcp_secrets",
+    ];
+    await psql(
+      tools,
+      environment,
+      `DROP ROLE ${restricted.join(", ")};
      CREATE ROLE neon_superuser NOLOGIN;
      ALTER ROLE clockgrove_migrator CREATEROLE CREATEDB;
-     GRANT neon_superuser TO clockgrove_migrator;`,
-  );
-  const passwords = Object.fromEntries(
-    restrictedRoleKeys.map((key) => [key, randomBytes(24).toString("hex")]),
-  );
-  const provision = async () => {
-    const result = await ownedSubprocess(
-      tools.psql,
-      ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
-      {
-        env: environment,
-        input: `SET ROLE clockgrove_migrator;\n${await deploymentRolesInput(passwords)}`,
-      },
+     GRANT neon_superuser TO clockgrove_migrator;
+     CREATE EXTENSION pg_stat_statements;`,
     );
-    return result.status === 0 ? "passed" : roleCheckFailures(result.stderr) || result.stderr;
-  };
-  // A same-named role the migration role did not create, as a Neon API role, is refused by name.
-  await psql(tools, environment, "CREATE ROLE clockgrove_backup LOGIN;");
-  assertStrict.equal(
-    await provision(),
-    "clockgrove_backup is not administered by clockgrove_migrator",
-  );
-  await psql(tools, environment, "DROP ROLE clockgrove_backup;");
-  assertStrict.equal(await provision(), "passed");
-  passwords.runtime = randomBytes(24).toString("hex");
-  assertStrict.equal(await provision(), "passed", "a second run updates the roles in place");
-  assertStrict.equal(
-    (
-      await psqlQuery(
-        tools,
-        environment,
-        `SELECT count(*) FILTER (WHERE rolcanlogin AND rolpassword LIKE 'SCRAM-SHA-256$%')
+    const used = [];
+    const generated = (letters = false) => {
+      const bytes = randomBytes(letters ? 40 : 24);
+      const value = letters
+        ? String.fromCharCode(...[...bytes].map((byte) => 97 + (byte % 26)))
+        : bytes.toString("hex");
+      used.push(value);
+      return value;
+    };
+    const passwords = Object.fromEntries(restrictedRoleKeys.map((key) => [key, generated()]));
+    const provision = async () => {
+      const result = await ownedSubprocess(
+        tools.psql,
+        ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
+        {
+          env: environment,
+          input: `SET ROLE clockgrove_migrator;\n${await deploymentRolesInput(passwords)}`,
+        },
+      );
+      return result.status === 0 ? "passed" : roleCheckFailures(result.stderr) || result.stderr;
+    };
+    // A same-named role the migration role did not create, as a Neon API role, is refused by name.
+    await psql(tools, environment, "CREATE ROLE clockgrove_backup LOGIN;");
+    assertStrict.equal(
+      await provision(),
+      "clockgrove_backup is not administered by clockgrove_migrator",
+    );
+    await psql(tools, environment, "DROP ROLE clockgrove_backup;");
+    assertStrict.equal(await provision(), "passed");
+    passwords.runtime = generated();
+    assertStrict.equal(await provision(), "passed", "a second run updates the roles in place");
+    // A re-run undoes attribute drift.
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup CREATEDB BYPASSRLS;");
+    assertStrict.equal(await provision(), "passed", "a re-run normalizes drifted attributes");
+    // A password the server's policy refuses (passwordcheck wants a non-letter) fails by role name.
+    passwords.support = generated(true);
+    assertStrict.equal(await provision(), "clockgrove_support password not set (22023)");
+    passwords.support = generated();
+    assertStrict.equal(await provision(), "passed");
+    assertStrict.equal(
+      (
+        await psqlQuery(
+          tools,
+          environment,
+          `SELECT count(*) FILTER (WHERE rolcanlogin AND rolpassword LIKE 'SCRAM-SHA-256$%')
                 || '|' || count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pg_auth_members m
                   WHERE m.roleid = a.oid AND m.admin_option
                     AND m.member = 'clockgrove_migrator'::regrole))
            FROM pg_authid a WHERE rolname IN (${restricted.map((name) => `'${name}'`).join(", ")})`,
-      )
-    ).trim(),
-    "6|7",
-  );
-  await applyMigrations(tools, environment);
-  const isolation = await psqlQuery(
-    tools,
-    environment,
-    `SET ROLE clockgrove_migrator; ${databaseIsolationQuery}`,
-  );
-  assertStrict.match(isolation.trim().split("\n").at(-1), /^t(?:\|t)+$/u, "hosted-shape isolation");
-  // Membership in neon_superuser, which Neon gives its API roles, is refused by name.
-  await psql(tools, environment, "GRANT neon_superuser TO clockgrove_support;");
-  assertStrict.equal(await provision(), "clockgrove_support is a member of neon_superuser");
-});
+        )
+      ).trim(),
+      "6|7",
+    );
+    // Each login role's stored SCRAM verifier is the one for its generated password.
+    const verifiers = await psqlQuery(
+      tools,
+      environment,
+      `SELECT rolname, rolpassword FROM pg_authid WHERE rolcanlogin AND rolname = ANY (ARRAY[${restricted.map((name) => `'${name}'`).join(", ")}])`,
+    );
+    const keyOf = Object.fromEntries(
+      restrictedRoleKeys.map((key, index) => [restricted[index], key]),
+    );
+    for (const line of verifiers.trim().split("\n")) {
+      const [name, verifier] = line.split("|");
+      const [, rounds, salt, storedKey] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$([^:]+):/u.exec(verifier);
+      const salted = pbkdf2Sync(
+        passwords[keyOf[name]],
+        Buffer.from(salt, "base64"),
+        Number(rounds),
+        32,
+        "sha256",
+      );
+      const clientKey = createHmac("sha256", salted).update("Client Key").digest();
+      assertStrict.equal(createHash("sha256").update(clientKey).digest("base64"), storedKey, name);
+    }
+    await applyMigrations(tools, environment);
+    const isolation = await psqlQuery(
+      tools,
+      environment,
+      `SET ROLE clockgrove_migrator; ${databaseIsolationQuery}`,
+    );
+    assertStrict.match(
+      isolation.trim().split("\n").at(-1),
+      /^t(?:\|t)+$/u,
+      "hosted-shape isolation",
+    );
+    // Membership in neon_superuser, which Neon gives its API roles, is refused by name.
+    await psql(tools, environment, "GRANT neon_superuser TO clockgrove_support;");
+    assertStrict.equal(await provision(), "clockgrove_support is a member of neon_superuser");
+    const statements = await psqlQuery(tools, environment, "SELECT query FROM pg_stat_statements");
+    const serverLog = await readFile(path.join(temporaryRoot, "postgres.log"), "utf8");
+    assertStrict.ok(
+      statements.includes("set_password"),
+      "pg_stat_statements recorded the role SQL",
+    );
+    assertStrict.ok(serverLog.includes("clockgrove_support password not set"), "refusal logged");
+    for (const password of used)
+      assertStrict.ok(
+        !statements.includes(password) && !serverLog.includes(password),
+        "a generated password reached pg_stat_statements or the server log",
+      );
+  },
+  {
+    settings: [
+      "shared_preload_libraries=pg_stat_statements,passwordcheck",
+      "log_statement=ddl",
+      "log_min_error_statement=error",
+    ],
+  },
+);
 
 const attackSuitePath = new URL("../../tests/database/authorization.sql", import.meta.url);
 // The crash windows of one journal transaction (Wave 2 plan §14), each injected server-side.

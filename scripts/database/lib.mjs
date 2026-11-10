@@ -76,13 +76,14 @@ export async function discoverPostgresTools() {
 /**
  * `deadlineMs` bounds the cluster's commands; long runs pass a wider bound than the default.
  * `maxConnections` replaces PostgreSQL's default of 100 (the load curves need more).
+ * `settings` adds server settings as `name=value` strings, such as preloaded libraries.
  */
 export async function withDisposableDatabase(
   operation,
-  { deadlineMs = 5 * 60_000, maxConnections } = {},
+  { deadlineMs = 5 * 60_000, maxConnections, settings = [] } = {},
 ) {
   return await withSubprocessDeadline(
-    () => createDisposableDatabase(operation, maxConnections),
+    () => createDisposableDatabase(operation, maxConnections, settings),
     deadlineMs,
   );
 }
@@ -104,7 +105,7 @@ export function databaseTransport(environment = process.env) {
   return environment.FACTORY_LOCAL === "1" ? "loopback" : "socket";
 }
 
-async function createDisposableDatabase(operation, maxConnections) {
+async function createDisposableDatabase(operation, maxConnections, settings) {
   const transport = databaseTransport();
   const tools = await discoverPostgresTools();
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "clockgrove-postgres-"));
@@ -156,6 +157,7 @@ async function createDisposableDatabase(operation, maxConnections) {
       "-p",
       String(port),
       ...(maxConnections === undefined ? [] : ["-c", `max_connections=${maxConnections}`]),
+      ...settings.flatMap((setting) => ["-c", setting]),
     ]
       .map(shellWord)
       .join(" ");

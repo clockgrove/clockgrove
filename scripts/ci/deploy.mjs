@@ -466,6 +466,8 @@ async function runDeployment() {
         return owned;
       };
       const inventory = await readInventory(1);
+      // Plan review judges a retired role's deletion by the state this deploy started from.
+      const startingState = new Set(inventory.map((resource) => resource.address));
       const preserveBindings = inventory.some(
         (resource) => resource.address === "cloudflare_hyperdrive_config.world[0]",
       );
@@ -484,7 +486,7 @@ async function runDeployment() {
             `-var=preserve_bindings=${preserveBindings}`,
             `-var=preserve_public_activation=${preservePublic}`,
           ],
-          review: (proposed) => verifyPlan(proposed, config, stage, preservePublic),
+          review: (proposed) => verifyPlan(proposed, config, stage, preservePublic, startingState),
           ...options,
         });
         // Only a passed apply is backed up.
@@ -501,7 +503,7 @@ async function runDeployment() {
       );
       connections = roleConnections(credentials, config);
       const rolePasswords = restrictedRolePasswords(credentials, config);
-      await awaitNeonOperations(credentials.project_id, env.NEON_API_KEY);
+      await awaitNeonOperations(credentials.project_id, env.NEON_API_KEY, { since: started });
       const migrator = new URL(connections.MIGRATION_DATABASE_URL);
       const migrationEnv = {
         ...env,

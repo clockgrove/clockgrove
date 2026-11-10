@@ -53,7 +53,7 @@ The repository root lists these names, without values, in two examples generated
 
 Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets enter OpenTofu state even when marked sensitive. Development and staging keep state in a Cloudflare R2 bucket, described under [OpenTofu state](#opentofu-state); saved plans live only in a temporary directory that is removed after use. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
 
-`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion (other than of a [retired Neon API role](#database-roles)) or an undeclared resource, as the deploy does.
+`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does (it reviews as the routing stage, so it also refuses a [retired Neon API role](#database-roles) still in state).
 
 - `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
 - `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
@@ -211,8 +211,10 @@ earlier calls slow, then dispatch it again.
 
 `clockgrove_migrator` is the only Neon API role (`neon_role.database["migrations"]`), and it owns the
 database. After the provision apply, the deploy waits until the Neon project has no operation in
-progress, then runs [`deployment-grants.sql`](../../scripts/database/deployment-grants.sql) as
-`clockgrove_migrator` in one transaction (phase "reviewed database-role grants"). The SQL:
+progress (at most 180 seconds, one 5xx answer retried; an operation of this deploy that ended
+failed, in error or cancelled stops it, named), then runs
+[`deployment-grants.sql`](../../scripts/database/deployment-grants.sql) as `clockgrove_migrator` in
+one transaction (phase "reviewed database-role grants"). The SQL:
 
 1. refuses, by name, a restricted role that already exists but is a member of any role (a Neon API
    role is a member of `neon_superuser`) or that `clockgrove_migrator` does not administer;
@@ -221,30 +223,62 @@ progress, then runs [`deployment-grants.sql`](../../scripts/database/deployment-
    `clockgrove_mcp_secrets`, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, NOREPLICATION and
    NOBYPASSRLS. On PostgreSQL 16 and later the creating role administers the roles it creates, so
    every later deploy can alter them;
-3. sets LOGIN and each login role's password from `database_credentials` (OpenTofu's
-   `random_password.database["<key>"]`, 48 letters and digits), and NOLOGIN with no password for
-   `clockgrove_mcp_secrets`. Neon accepts plain-text passwords only, not SCRAM verifiers;
+3. sets LOGIN, NOCREATEROLE, NOINHERIT and each login role's password from `database_credentials`
+   (OpenTofu's `random_password.database["<key>"]`, 48 letters and digits), and NOLOGIN with no
+   password for `clockgrove_mcp_secrets`. It also clears CREATEDB, REPLICATION or BYPASSRLS on a role
+   that has drifted to one; it names them only then, since clearing one needs the attribute itself.
+   Neon accepts plain-text passwords only, not SCRAM verifiers;
 4. refuses, by name, any restricted role left with a role membership or an elevated attribute, then
    revokes `CREATE` on schema `public` and on the database from `PUBLIC`.
 
 The passwords reach `psql` only on standard input, as `\set password_<key>` lines that
 [`deployment-roles.mjs`](../../scripts/database/deployment-roles.mjs) prepends after refusing
-anything but 32 to 128 letters and digits; never in arguments, the environment, logs or evidence. A
-failed check prints as `reviewed database-role grants failed; clockgrove_support is a member of
-neon_superuser; other sensitive command output withheld`. Re-running the SQL with the same state
-changes nothing but resetting the same passwords. A lost state generates new passwords, which the
-next deploy sets.
+anything but 32 to 128 letters and digits. psql sends each as a bound parameter of
+`SELECT pg_temp.set_password($1, $2)`, a temporary function that runs the `ALTER ROLE` itself. So no
+statement text carries a password: not the arguments, the environment, logs or evidence, not
+`pg_stat_statements` (which stores top-level statement text, even of a rolled-back transaction), and
+not the server log, which records a failed statement's text (`log_min_error_statement`) but not its
+parameters. A refused password, such as one Neon's password policy rejects, raises only the role
+name and SQLSTATE. `pnpm run test:db` proves this with `pg_stat_statements` and `passwordcheck`
+preloaded and DDL and failed-statement logging on. One case remains: a server that logs every
+statement with its parameters (`log_statement = all`) records any password set over SQL, as
+PostgreSQL documents for `ALTER ROLE`; Neon's default does not.
 
-Before this design the provision stage created all seven roles through the Neon API. Their state
-addresses `neon_role.database["<key>"]` for the six restricted keys are now retired
-(`retiredResources` in [`deployment-authority.mjs`](../../scripts/ci/deployment-authority.mjs)): the
-configuration no longer declares them, so the next provision plan deletes each through the Neon API
+A failed check prints as `reviewed database-role grants failed; clockgrove_support is a member of
+neon_superuser; other sensitive command output withheld`. Re-running the SQL with the same state
+changes nothing but resetting the same passwords.
+
+**Rotating a generated password.** `random_password` has no keepers, and `tofu apply -replace` plans a
+replacement, which plan review refuses. Rotation is a deliberate state step: with the state lock
+held and a backup taken (`pnpm infra:state backups <environment>`), remove
+`random_password.database["<key>"]` from state (`tofu state rm`), then deploy. The provision plan
+creates a new password and the role SQL sets it. Between the role SQL and the Wrangler secret
+publication, the running Worker's reader connections use the old password and fail. The runtime
+key cannot be rotated this way: Hyperdrive's origin carries its password, and the provision stage
+refuses a Hyperdrive change until the isolation checks have run. A lost state likewise generates new
+passwords, with the same effects.
+
+**Retired Neon API roles.** Before this design the provision stage created all seven roles through
+the Neon API. Their state addresses `neon_role.database["<key>"]` for the six restricted keys are now
+retired (`retiredResources` in
+[`deployment-authority.mjs`](../../scripts/ci/deployment-authority.mjs)): the configuration no
+longer declares them, so the next provision plan deletes each through the Neon API
 (`delete_because_each_key`), which is how Neon's control plane forgets an API role. Plan review
-accepts exactly that deletion of exactly those addresses and refuses every other deletion,
-replacement or forget. The deploy then waits for Neon's operations and the role SQL creates the six
-roles with SQL. An environment provisioned after this change never holds them. If Neon refuses a
-deletion (a retired role that owns objects), the provision apply fails with the provider's message:
-reassign or drop what it owns and deploy again.
+accepts that deletion once: only in the provision stage, only for those addresses, and only when the
+state the deploy started from holds no `random_password.database["<key>"]` for that key. A provision
+retry after a partial apply is judged by that same starting state. Every other deletion,
+replacement or forget is refused, and `pnpm infra:plan`, which reviews as the routing stage, refuses a
+state that still holds them. `pnpm infra:state restore --replace` refuses a backup holding a retired
+role over a state that holds that key's generated password, since a deploy from it would delete the
+live SQL-created role. If Neon refuses a deletion (a retired role that owns objects), the provision
+apply fails with the provider's message: reassign or drop what it owns and deploy again.
+
+Only an environment with no Hyperdrive configuration in state can migrate this way. Hyperdrive's
+origin password now comes from the generated runtime password, so a provision plan over an existing
+Hyperdrive shows an update, which the provision stage refuses. Staging never reached the bindings
+stage (its first deploys stopped at the role grants), development has never deployed (its manifest
+still carries placeholder routing metadata), and production deployment is disabled, so none holds
+one. An environment that does needs a reviewed migration of its own.
 
 ### Deploy phases
 
@@ -333,7 +367,7 @@ the other fails closed. With completed bindings and incomplete publication, the 
 preserves owned bindings without mutation, then applies current role normalization, migrations and
 effective-role verification before binding updates and successful qualified Wrangler publication.
 Only then may the routing stage introduce DNS or Worker routing. All stages enforce declared
-resource bounds and refuse every deletion except a retired resource's (below), and every action
+resource bounds and refuse every deletion except a [retired resource's](#database-roles) once at provision, and every action
 other than create, read, update and no-op, so a plan cannot `forget` an owned resource; previously active public resources must be no-op until
 the newly qualified publication. Recovery never destroys resources merely to repeat a phase.
 

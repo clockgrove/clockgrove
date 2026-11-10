@@ -20,6 +20,7 @@ import {
   duplicableResources,
   persistedAddresses,
   resourceAddresses,
+  restoresRetiredRoles,
   restrictedRolePasswords,
   retiredResources,
   stateBackend,
@@ -173,16 +174,31 @@ describe("restricted database roles", () => {
     }
   });
 
-  it("accepts deleting a retired API role, and no other deletion, replacement or forget", async () => {
+  it("accepts deleting a retired API role once, at provision, and no other deletion, replacement or forget", async () => {
     const config = await readJson(root, "infra/environments/staging.json");
-    const review = (address: string, actions: string[], action_reason?: string) => () =>
-      verifyPlan(
-        { resource_changes: [{ address, action_reason, change: { actions } }] },
-        config,
-        "provision",
-        false,
-      );
+    const plan = (
+      address: string,
+      actions: string[],
+      action_reason?: string,
+      prior: string[] = [],
+    ) => ({
+      prior_state: {
+        values: { root_module: { resources: prior.map((held) => ({ address: held })) } },
+      },
+      resource_changes: [{ address, action_reason, change: { actions } }],
+    });
+    const review =
+      (
+        address: string,
+        actions: string[],
+        action_reason?: string,
+        stage = "provision",
+        prior: string[] = [],
+      ) =>
+      () =>
+        verifyPlan(plan(address, actions, action_reason, prior), config, stage, false);
     const runtime = 'neon_role.database["runtime"]';
+    const once = /retired neon_role\.database\["runtime"\] may only be deleted once/u;
     expect(review(runtime, ["delete"], "delete_because_each_key")).not.toThrow();
     for (const [actions, reason] of [
       [["delete"], undefined],
@@ -190,9 +206,22 @@ describe("restricted database roles", () => {
       [["create"], undefined],
       [["no-op"], undefined],
     ] as const)
-      expect(review(runtime, [...actions], reason)).toThrow(
-        /retired infrastructure resource may only be deleted/u,
-      );
+      expect(review(runtime, [...actions], reason)).toThrow(once);
+    // Only in the provision stage.
+    for (const stage of ["bindings", "routing"])
+      expect(review(runtime, ["delete"], "delete_because_each_key", stage)).toThrow(once);
+    // Never once state holds that key's generated password, as a state restored over a migrated
+    // environment could; another key's password does not block it.
+    const password = (key: string) => [`random_password.database["${key}"]`];
+    expect(
+      review(runtime, ["delete"], "delete_because_each_key", "provision", password("runtime")),
+    ).toThrow(once);
+    expect(
+      review(runtime, ["delete"], "delete_because_each_key", "provision", password("support")),
+    ).not.toThrow();
+    // A provision retry is judged by the state the deploy started from.
+    const retry = plan(runtime, ["delete"], "delete_because_each_key", password("runtime"));
+    expect(() => verifyPlan(retry, config, "provision", false, new Set([runtime]))).not.toThrow();
     expect(
       review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key"),
     ).toThrow(/destructive infrastructure plan refused/u);
@@ -200,6 +229,23 @@ describe("restricted database roles", () => {
       /unreviewed infrastructure plan action/u,
     );
     expect(review('random_password.database["support"]', ["create"])).not.toThrow();
+  });
+
+  it("refuses to restore a pre-migration state over a migrated one", () => {
+    const state = (type: string, keys: string[]) =>
+      JSON.stringify({
+        resources: [
+          { type, name: "database", instances: keys.map((index_key) => ({ index_key })) },
+        ],
+      });
+    const migrated = state("random_password", ["runtime", "support"]);
+    expect(restoresRetiredRoles(migrated, state("neon_role", ["migrations", "runtime"]))).toBe(
+      true,
+    );
+    expect(restoresRetiredRoles(migrated, state("neon_role", ["migrations"]))).toBe(false);
+    expect(
+      restoresRetiredRoles(state("neon_role", ["runtime"]), state("neon_role", ["runtime"])),
+    ).toBe(false);
   });
 
   it("hands psql only letter-and-digit passwords, on standard input, and reports checks by name", async () => {
@@ -210,7 +256,7 @@ describe("restricted database roles", () => {
     expect(input.split("\n").slice(0, 6)).toEqual(
       restrictedRoleKeys.map((key) => `\\set password_${key} '${passwords[key]}'`),
     );
-    expect(input).toContain("('clockgrove_world_reader', :'password_worldAuthorization')");
+    expect(input).toContain("\\bind 'clockgrove_world_reader' :password_worldAuthorization \\g");
     for (const unsafe of [`${generated()}'`, `${generated()}\n\\! id`, generated().slice(0, 20)])
       await expect(deploymentRolesInput({ ...passwords, backup: unsafe })).rejects.toThrow(
         /backup role password/u,
@@ -226,36 +272,63 @@ describe("restricted database roles", () => {
     expect(roleCheckFailures(`ERROR:  syntax error at or near "${generated()}"`)).toBe("");
   });
 
-  it("waits for Neon's operations to finish before the role SQL, and names what never finished", async () => {
-    const replies = (...statuses: string[][]) => {
+  it("waits a bounded time for Neon's operations, retries one 5xx, and names what failed or never finished", async () => {
+    const replies = (...answers: (string[] | number)[]) => {
       const requests: string[] = [];
       const request = async (url: string) => {
         requests.push(url);
-        const operations = (statuses.length > 1 ? statuses.shift() : statuses[0]) ?? [];
+        const answer = (answers.length > 1 ? answers.shift() : answers[0]) ?? [];
+        if (typeof answer === "number") return new Response("{}", { status: answer });
         return new Response(
           JSON.stringify({
-            operations: operations.map((status) => ({ action: "apply_config", status })),
+            operations: answer.map((status) => ({
+              action: "apply_config",
+              status,
+              created_at: "2026-11-10T00:01:00Z",
+            })),
           }),
         );
       };
       return { request, requests };
     };
+    let clock = 0;
     const sleeps: number[] = [];
-    const sleep = async (seconds: number) => {
-      sleeps.push(seconds);
+    const timing = {
+      since: Date.parse("2026-11-10T00:00:00Z"),
+      now: () => clock,
+      sleep: async (seconds: number) => {
+        sleeps.push(seconds);
+        clock += seconds * 1000;
+      },
     };
-    const settled = replies(["running", "finished"], ["finished"]);
-    await awaitNeonOperations("project-1", "token", { request: settled.request, sleep });
-    expect(settled.requests).toEqual([
-      "https://console.neon.tech/api/v2/projects/project-1/operations?limit=50",
-      "https://console.neon.tech/api/v2/projects/project-1/operations?limit=50",
-    ]);
-    expect(sleeps).toEqual([5]);
+    const settled = replies(["running", "finished"], 503, ["finished"]);
+    await awaitNeonOperations("project-1", "token", { ...timing, request: settled.request });
+    expect(settled.requests).toEqual(
+      Array(3).fill("https://console.neon.tech/api/v2/projects/project-1/operations?limit=50"),
+    );
+    expect(sleeps).toEqual([5, 5]);
     const stuck = replies(["scheduling"]);
     await expect(
-      awaitNeonOperations("project-1", "token", { request: stuck.request, sleep, attempts: 3 }),
-    ).rejects.toThrow("Neon project operations still in progress: apply_config");
-    expect(stuck.requests).toHaveLength(3);
+      awaitNeonOperations("project-1", "token", { ...timing, request: stuck.request }),
+    ).rejects.toThrow("still in progress after 180 s: apply_config (scheduling)");
+    expect(stuck.requests).toHaveLength(37);
+    await expect(
+      awaitNeonOperations("project-1", "token", { ...timing, request: replies(503, 502).request }),
+    ).rejects.toThrow(/Neon operation listing unavailable \(HTTP 502/u);
+    await expect(
+      awaitNeonOperations("project-1", "token", {
+        ...timing,
+        request: replies(["finished", "failed"]).request,
+      }),
+    ).rejects.toThrow("Neon operations of this deploy did not succeed: apply_config (failed)");
+    // A failure from before this deploy is not its own.
+    await expect(
+      awaitNeonOperations("project-1", "token", {
+        ...timing,
+        since: Date.parse("2026-11-10T00:02:00Z"),
+        request: replies(["cancelled"]).request,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
