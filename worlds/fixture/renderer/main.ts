@@ -1,5 +1,6 @@
 import { decodeSceneProjection } from "../../../packages/contracts/src/index.js";
 import { ThreeWorldSceneAdapter, type QualityTier } from "../../../apps/web/src/renderer.js";
+import { worldShell } from "../../../apps/web/src/shell.js";
 import { diagnostics, fixtureContent } from "./content.js";
 import committed from "./snapshot.json";
 
@@ -78,3 +79,15 @@ document.querySelector<HTMLSelectElement>("#quality")!.onchange = (event) => {
   setQuality((event.target as HTMLSelectElement).value as QualityTier);
 };
 globalThis.addEventListener("pagehide", () => adapter.destroy(), { once: true });
+
+const zoom = document.querySelector<HTMLInputElement>("#zoom")!;
+zoom.min = String(worldShell.scene.camera?.minZoom ?? 0.75);
+zoom.max = String(worldShell.scene.camera?.maxZoom ?? 2);
+zoom.oninput = () => {
+  if (!internal.camera) return;
+  adapter.setCamera({
+    x: internal.camera.position.x,
+    y: -internal.camera.position.y,
+    zoom: Number(zoom.value),
+  });
+};

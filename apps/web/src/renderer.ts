@@ -165,7 +165,10 @@ const ATLAS_INDEX = "atlases.json";
 const WIDTH = 640,
   HEIGHT = 400;
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
-const ZOOM = { min: 0.75, max: 2 } as const;
+const ZOOM = {
+  min: worldShell.scene.camera?.minZoom ?? 0.75,
+  max: worldShell.scene.camera?.maxZoom ?? 2,
+};
 const PAN_MARGIN_PX = 160; // Existing Wave 4 camera contract: twice the reviewed kit sprite.
 const DRAG_PX = 4,
   PICK_PX = { mouse: 12, touch: 24 }; // docs/scene.md interaction decisions.
@@ -288,10 +291,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private motions = new Map<Native, Motion>();
   private focusMotion: Motion | undefined;
   private bounds = {
-    x: -WIDTH / 1.5,
-    y: -HEIGHT / 1.5,
-    width: WIDTH / 0.75,
-    height: HEIGHT / 0.75,
+    x: -WIDTH / (2 * ZOOM.min),
+    y: -HEIGHT / (2 * ZOOM.min),
+    width: WIDTH / ZOOM.min,
+    height: HEIGHT / ZOOM.min,
   };
   private rect: DOMRect | undefined;
   private destroyed = false;

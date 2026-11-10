@@ -1099,3 +1099,191 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
     await rm(assets, { recursive: true, force: true });
   }
 }, 60_000);
+
+it("presentation camera spans overview and half-metre close-up with picking on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const shell = JSON.parse(
+    await readFile(path.join(root, "worlds/fixture/renderer/shell.json"), "utf8"),
+  );
+  const wire = JSON.parse(
+    await readFile(path.join(root, "worlds/fixture/renderer/snapshot.json"), "utf8"),
+  );
+  for (const backend of ["webgpu", "webgl2"]) {
+    let server, browser;
+    try {
+      server = await createServer({
+        root: path.join(root, "apps/web"),
+        configFile: path.join(root, "apps/web/vite.config.ts"),
+        define: { __WORLD_SHELL__: JSON.stringify(shell) },
+        server: { host: "127.0.0.1", port: 0 },
+        plugins: [
+          {
+            name: "camera-proof-backend",
+            transform(code, id) {
+              if (
+                backend === "webgl2" &&
+                id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts")
+              )
+                return {
+                  code: code.replace(
+                    "new THREE.WebGPURenderer({",
+                    "new THREE.WebGPURenderer({ forceWebGL: true,",
+                  ),
+                  map: null,
+                };
+            },
+          },
+        ],
+      });
+      await server.listen();
+      browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+        reducedMotion: "reduce",
+      });
+      const pageErrors = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.addInitScript((shell) => {
+        globalThis.__WORLD_SHELL__ = shell;
+      }, shell);
+      await page.route("**/camera-proof", (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: '<div id="scene" style="width:640px;height:400px"></div>',
+        }),
+      );
+      await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/camera-proof`);
+      const result = await page.evaluate(
+        async ({ wire, shell }) => {
+          const { ThreeWorldSceneAdapter } = await new Function(
+            'return import("/src/renderer.ts")',
+          )();
+          const { THREE } = await new Function('return import("/src/renderer-content.ts")')();
+          const { readWorldShell, neutralShell } = await new Function(
+            'return import("/src/shell-input.ts")',
+          )();
+          const legacyCamera = readWorldShell(neutralShell).scene.camera;
+          const invalid = [
+            [0, 24],
+            [-1, 24],
+            [NaN, 24],
+            [Infinity, 24],
+            [Number.MIN_VALUE, 24],
+            [2, 24],
+            [0.1, 0],
+            [0.1, -1],
+            [0.1, NaN],
+            [0.1, Infinity],
+            [0.1, 0.5],
+          ].map(([minZoom, maxZoom]) => {
+            try {
+              readWorldShell({ ...shell, scene: { ...shell.scene, camera: { minZoom, maxZoom } } });
+              return false;
+            } catch {
+              return true;
+            }
+          });
+          let adapter, actualBackend, subject;
+          const content = {
+            version: 1,
+            create({ THREE, backend, place }) {
+              actualBackend = backend;
+              const root = new THREE.Group();
+              subject = new THREE.Mesh(
+                new THREE.BoxGeometry(0.1, 0.5, 0.1).translate(0, 0.25, 0),
+                new THREE.MeshStandardNodeMaterial(),
+              );
+              place(subject, { x: 0, y: 0 });
+              root.add(subject);
+              return { root, update() {} };
+            },
+          };
+          await new Promise((resolve, reject) => {
+            adapter = new ThreeWorldSceneAdapter(
+              document.querySelector("#scene"),
+              resolve,
+              reject,
+              () => {},
+              content,
+            );
+          });
+          adapter.setReducedMotion(true);
+          adapter.loadSnapshot({
+            ...wire,
+            revision: BigInt(wire.revision),
+            simulationTime: BigInt(wire.simulationTime),
+          });
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          adapter.setCamera({ x: 0, y: 0, zoom: 0 });
+          const overview = adapter.camera.zoom;
+          adapter.setCamera({ x: 0, y: 0, zoom: 100 });
+          const closeup = adapter.camera.zoom;
+          subject.updateMatrixWorld(true);
+          const bounds = new THREE.Box3().setFromObject(subject);
+          const bottom = new THREE.Vector3(0, bounds.min.y, 0).project(adapter.camera);
+          const top = new THREE.Vector3(0, bounds.max.y, 0).project(adapter.camera);
+          const height = (top.y - bottom.y) * 200;
+          const body = adapter.drawn.get("object-fixture");
+          const center = new THREE.Vector3(
+            body.body.position.x,
+            body.body.position.y + body.visual.height / 2,
+            0,
+          ).project(adapter.camera);
+          const intents = [];
+          adapter.onIntent((intent) => intents.push(intent));
+          const rect = adapter.canvas.getBoundingClientRect();
+          const pointer = {
+            x: rect.left + ((center.x + 1) * rect.width) / 2,
+            y: rect.top + ((1 - center.y) * rect.height) / 2,
+          };
+          globalThis.cameraProof = { adapter, intents };
+          const rotation = adapter.camera.rotation.toArray().slice(0, 3);
+          return {
+            invalid,
+            overview,
+            closeup,
+            height,
+            pointer,
+            rotation,
+            actualBackend,
+            legacyCamera: legacyCamera ?? "omitted",
+          };
+        },
+        { wire, shell },
+      );
+      await page.mouse.move(result.pointer.x, result.pointer.y);
+      await page.mouse.wheel(0, 100);
+      await page.waitForFunction(() => globalThis.cameraProof.adapter.camera.zoom === 21.6);
+      const wheelZoom = await page.evaluate(() => {
+        const adapter = globalThis.cameraProof.adapter;
+        const value = adapter.camera.zoom;
+        adapter.setCamera({ x: 0, y: 0, zoom: 24 });
+        return value;
+      });
+      await page.mouse.click(result.pointer.x, result.pointer.y);
+      const intents = await page.evaluate(() => {
+        const { adapter, intents } = globalThis.cameraProof;
+        adapter.destroy();
+        return intents;
+      });
+      delete result.pointer;
+      expect({ ...result, wheelZoom, intents }).toEqual({
+        invalid: [true, true, true, true, true, true, true, true, true, true, true],
+        overview: 0.1,
+        closeup: 24,
+        height: 150,
+        wheelZoom: 21.6,
+        intents: [{ type: "select", objectId: "object-fixture" }],
+        rotation: [0, 0, 0],
+        actualBackend: backend,
+        legacyCamera: "omitted",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await server?.close();
+    }
+  }
+}, 120_000);

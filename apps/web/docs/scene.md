@@ -70,7 +70,13 @@ committed data. Legacy projections without lighting retain their existing enviro
   sprites draw 1:1. Frame units become metres by unit name (metre, millimetre); an unknown unit counts
   as metres. On each scope's first snapshot the camera is centred on the projected entities. Panning
   (by drag) is bounded to 160 px beyond them, and never less than the view at the smallest zoom. Zoom
-  (by wheel) is clamped to 0.75–2. There is no rotation.
+  (by wheel) is clamped to `scene.camera.minZoom`–`maxZoom` from the browser shell presentation.
+  Omitted camera input retains 0.75–2. Limits must be finite, positive and include initial zoom 1;
+  the pan bounds include the view at the configured minimum zoom. There is no rotation.
+  For a deep-zoom composition, `{ "minZoom": 0.1, "maxZoom": 24 }` spans an overview and a
+  close-up: a 0.5 m vertical content mesh occupies 150 of the 400 logical view pixels at 24×
+  (0.5 × 12.5 × 24), exceeding issue #184’s one-third-height target. Zoom changes the
+  orthographic projection continuously; geometry stays at its native rendering resolution.
 - **Visual entity.** Each drawn entity has explicit geometry:
   - **Footprint** in millimetres, drawn as a ground shadow.
   - **Anchor**, the frame pixel that stands on the pose.
