@@ -55,8 +55,25 @@ export async function verifyDatabaseIsolation(connectionString) {
   }
 }
 // OpenTofu's error diagnostics from `-json` output, reduced to what is safe for release logs:
-// summary, resource address and provider error codes. Details can echo attribute values, so
-// they never print.
+// summary, resource address, provider error codes and the provider's redacted message. The rest
+// of a detail can echo attribute values, so it never prints.
+// The provider's own words from a diagnostic detail, for release logs: the API's error message,
+// with anything shaped like a credential redacted and the text capped.
+export function providerMessage(detail) {
+  const text = String(detail ?? "");
+  const json = [...text.matchAll(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/gu)].map((match) => match[1]);
+  const said = json.length ? json.join("; ") : (text.split(/got error:|error:/iu).pop() ?? "");
+  return said
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s/@]*@[^\s]*/giu, "<url>")
+    .replace(
+      /\b(password|passwd|secret|token|key|authorization)\b\s*[=:]\s*\S+/giu,
+      "$1=<redacted>",
+    )
+    .replace(/[A-Za-z0-9_+/=.-]{24,}/gu, "<redacted>")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 200);
+}
 export function tofuDiagnostics(stdout) {
   const found = [];
   for (const line of String(stdout ?? "").split("\n")) {
@@ -77,8 +94,9 @@ export function tofuDiagnostics(stdout) {
     const summary = String(diagnostic.summary ?? "error")
       .replace(/\s+/gu, " ")
       .slice(0, 160);
+    const said = providerMessage(detail);
     found.push(
-      `${summary}${diagnostic.address ? ` at ${diagnostic.address}` : ""}${codes.size ? ` (codes ${[...codes].join(", ")})` : ""}`,
+      `${summary}${diagnostic.address ? ` at ${diagnostic.address}` : ""}${codes.size ? ` (codes ${[...codes].join(", ")})` : ""}${said ? `: ${said}` : ""}`,
     );
   }
   return found.slice(0, 3).join("; ");

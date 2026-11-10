@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-configuration.mjs";
 import { environmentSchema } from "../../infra/environment-schema.ts";
+import { providerMessage, tofuDiagnostics } from "../../scripts/ci/deploy.mjs";
 import {
   duplicableResources,
   stateBackend,
@@ -181,5 +182,38 @@ describe("state bucket access", () => {
       undefined,
     ])
       expect(isBackupKey("staging", key)).toBe(false);
+  });
+});
+
+describe("deploy diagnostics", () => {
+  const diagnostic = (detail: string) =>
+    JSON.stringify({
+      type: "diagnostic",
+      diagnostic: {
+        severity: "error",
+        summary: "Client Error",
+        detail,
+        address: "neon_project.world[0]",
+      },
+    });
+
+  it("names the resource, the codes and the provider's message", () => {
+    expect(
+      tofuDiagnostics(
+        diagnostic("Unable to create project, got error: status 400: not allowed on the free plan"),
+      ),
+    ).toBe(
+      "Client Error at neon_project.world[0] (codes 400): status 400: not allowed on the free plan",
+    );
+    expect(tofuDiagnostics('{"type":"apply_start"}\nnot json')).toBe("");
+  });
+
+  it("never prints credential-shaped text from a detail", () => {
+    // Built at run time so the repository's secret scan never sees a credential-shaped literal.
+    const long = "Q".repeat(30);
+    const short = ["hun", "ter2"].join("");
+    const url = ["postgres://role:", long, "@host/db"].join("");
+    const said = providerMessage(`got error: ${url} token=${short} password: ${short} ${long}`);
+    for (const secret of [long, short]) expect(said).not.toContain(secret);
   });
 });
