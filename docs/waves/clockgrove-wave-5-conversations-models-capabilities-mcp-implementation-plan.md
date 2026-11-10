@@ -394,6 +394,12 @@ and requires reconnect, preserving fail-closed uncertainty without granting ordi
 access. It remains uncomposed; canonical installation and operator OAuth composition are pending.
 Canonical records, scoped grants, runtime revision invalidation and the operator browser journey
 remain required before the installation outcome can be accepted.
+Amended (2026-11-09, issue 164, part 3): an internal PostgreSQL governance service records
+installation snapshots, reviewed tool hashes, drift and terminal revocation through attributed
+Journal events under the separate owner-defaulted `runtime:mcp-install` grant. This is not
+production installation composition or callable actor access. Authenticated HTTP/OAuth,
+dynamic registry versions, scoped bindings, revision invalidation and the browser journey
+remain required.
 
 ### 12.2 Execution
 

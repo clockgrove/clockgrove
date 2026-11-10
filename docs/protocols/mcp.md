@@ -1,9 +1,9 @@
 # Remote MCP installation
 
-Issue 164 provides discovery and isolated credential foundations, including a PostgreSQL secret adapter. It does not yet
-install a server into a world, write canonical installation events, register actor capabilities,
-or expose operator HTTP routes. Those consumers must preserve the contract below before remote
-capabilities become usable. The existing [capability registry](capabilities.md) remains unchanged.
+Issue 164 provides discovery, isolated PostgreSQL credentials and internal canonical installation
+governance. It does not yet compose production installation, register actor capabilities or expose
+operator HTTP routes. Those consumers must preserve the contract below before remote capabilities
+become usable. The existing [capability registry](capabilities.md) remains unchanged.
 
 ## Transport and untrusted discovery
 
@@ -44,7 +44,8 @@ server hints. Tool schemas use a bounded subset refusing remote references and e
 keywords; unsupported schemas fail discovery without returning a partial snapshot. Hashes are
 SHA-256 over deterministic JSON with sorted object keys; tool hashes include input and optional
 output schemas. Resources and prompts hash their candidate metadata. These hashes are discovery
-evidence; durable version pins and drift disabling require canonical integration.
+evidence; the internal governance service records pins and disables drift, while actor capability
+version integration remains pending.
 
 The existing `McpTransportPort` stays compatible. The foundation does not bypass it to expose
 remote tools to an actor; future adapters must implement that port behind installation authority.
@@ -117,39 +118,41 @@ verified hosted adapter leaves an actual rebinding hole, use an egress adapter t
 ## Acceptance boundary
 
 The foundation is a sequential delivery part, not acceptance of issue 164 as a whole.
-In particular, address admission is not hosted installation safety; a discovery snapshot is not
-a canonical installation or registry version; a schema hash is not drift detection; ciphertext
-owner binding is not installation authorization; and credential fencing is not actor grant
+In particular, address admission is not hosted installation safety; a discovery snapshot alone is
+not a canonical installation or registry version; ciphertext owner binding alone is not
+installation authorization; and credential fencing is not actor grant
 revocation. The PostgreSQL secret journey establishes secret persistence and isolation only; it does not establish the complete PostgreSQL/runtime/browser installation path. No operator installation procedure is available yet.
-All of those obligations remain in the canonical integration below before deployment.
+The internal governance service below supplies canonical installation records and reviews; all
+remaining composition obligations must be delivered before deployment.
 
 ## Remaining acceptance by delivery part
 
-The PostgreSQL provider is part 2, independently reviewable under the Factory
-`implement-split` sequential-delivery rule. Its passing proof does not complete any
-of the following installation acceptance entries. The remaining work stays in issue
+The PostgreSQL provider (part 2) and internal governance (part 3) are independently
+reviewable under the Factory `implement-split` sequential-delivery rule. Their passing
+proofs do not complete the following installation acceptance entries. The remaining work stays in issue
 164; these are prerequisites for remote actor access, not optional follow-ups.
 
 | Issue acceptance | Required integration and real-path proof |
 | --- | --- |
 | 2: Network safety at install | Authenticated installation endpoint and production outbound adapter; readable sanitized refusals and malicious-schema, redirect, SSRF and rebinding installation journeys. Hosted egress verification precedes exposure. |
-| 3: Discovery recorded | Attributed canonical installation records containing identity, protocol metadata and hashed tool/resource/prompt candidates; disabled tools registered in the one capability registry. |
-| 5: Pinning and drift | Durable protocol/schema pins compared on connection listing and operator refresh; PostgreSQL/runtime proof that changed versions disable and unchanged versions remain usable. |
+| 3: Discovery recorded | Internal attributed snapshots are persisted in part 3. Remaining: compose admitted discovery into installations and register disabled tools in the one capability registry. |
+| 5: Pinning and drift | Internal refresh drops changed-schema and protocol-drift reviews in part 3. Remaining: connection/operator refresh composition and PostgreSQL/runtime proof for callable registry versions. |
 | 6: Bindings and grants | Scoped bindings and grants narrowing inputs, destinations, call counts, effects, budget and expiry; most-specific deny and session approval resolution through the actor runtime. |
 | 7: Immediate revocation | Canonical installation, binding and capability disable/revoke operations notify the actor capability revision hook and fence new use without cognition. Credential fencing alone is insufficient. |
-| 8: Operator authority | Separate installation grant defaulted to world owners and authenticated install, enable, bind and revoke routes; actors cannot install, supply credentials or grant access. The secret-provider database role supplies no operator authority. |
-| 9: Canonical isolation | Installation, binding, grant and review Journal records with operator attribution, tenant/world/timeline isolation, RLS attack coverage and retention entries. Secret envelopes remain outside the Journal. |
+| 8: Operator authority | The separate owner-defaulted installation grant governs internal changes in part 3. Remaining: authenticated install, enable, bind and revoke routes; actors cannot install, supply credentials or grant access. The secret-provider database role supplies no operator authority. |
+| 9: Canonical isolation | Installation/review Journal records, scoped RLS and retention ship in part 3. Binding/grant events and full composed isolation proof remain. Secret envelopes remain outside the Journal. |
 | 10: Credential exclusion | Composed authenticated OAuth/static-token installation, refresh, failure and revoke journey through PostgreSQL, with canary exclusion checked in Journal, runtime evidence, logs, traces, prompts, errors, R2 keys and Durable Object names. Memory OAuth tests alone are insufficient. |
 | 11: Real-path experience | Deterministic fixture installation through PostgreSQL and actor grants/runtime, plus the operator capabilities-screen browser journey for connect, inspect, review, bind, refresh and revoke. |
 
-Canonical governance and authenticated credential composition precede registry and
-runtime integration; the operator screen and complete canary/browser proof finish
+Internal canonical governance is available in part 3. Authenticated credential composition
+precedes registry and runtime integration; the operator screen and complete canary/browser proof finish
 the Objective. No installation endpoint or callable remote actor capability is
 exposed by this part.
 
 ## Canonical integration still required
 
-Installation, binding, grant and review changes must be attributed Journal events, backed by
+Installation and review changes are now attributed Journal events; binding and grant changes
+must follow that path. All are backed by
 PostgreSQL with tenant/world/timeline RLS and retention entries. Only the separate installation
 grant, held by world owners by default, may install, enable, bind or revoke. Actors and decision
 models cannot supply credentials, authorize operations or grant themselves access.
@@ -165,3 +168,41 @@ suite and a real operator browser journey for connect, inspect, review, bind, re
 Resources stay disabled until Wave 6 ingestion; provider prompts remain untrusted candidates.
 The [runtime runbook](../runbooks/runtime.md#remote-mcp-installation-readiness) records this
 readiness boundary rather than presenting future procedures as available commands.
+
+## Canonical installation governance
+
+Part 3 adds `PostgreSqlMcpInstallations` in
+`packages/persistence/src/postgres-mcp-installations.ts`, backed by migration 0046. It records an admitted discovery
+snapshot and its installation scope, installing operator, remote endpoint, server identity,
+protocol metadata and schema hashes. Credential-reference attachment remains part of trusted
+credential composition. This service is not an HTTP
+installation endpoint: trusted composition must first perform network admission and discovery
+through the transport port. It accepts no credential plaintext and makes no remote calls.
+
+The separate `runtime:mcp-install` grant governs installation changes; world owners hold it by
+default. An actor, a model and a principal holding only `runtime:world-operate` cannot authorize
+these changes. Authorization uses canonical membership and grants inside the database
+transaction, rather than accepting server assertions or a caller-supplied grant list.
+
+Discovery starts with every candidate disabled and classified `external-write`. An operator
+reviews an exact tool schema hash and assigns one of `read`, `world-write`, `external-write`,
+`destructive`, `network` or `cost`. Resources and prompts remain disabled untrusted records;
+none of their text becomes policy. Refresh compares the admitted snapshot with recorded pins.
+Changed or removed tools lose enablement; unchanged tool reviews survive. Current changed tools
+are recorded in the `drifted` list until exact-pin review clears them. A protocol change
+requires renewed review of tools. Revocation is terminal for the installation.
+
+Installation, refresh, review and revocation write attributed canonical Journal events in the
+same transaction as their state changes. The event payload stores deterministic `operationJson`
+text so arbitrary finite schema numbers survive the Journal's integer-only canonical payload
+encoding; the database parses that same operation into structured installation state. Scoped RLS
+protects the records, and their retention
+entries describe installation-lifetime state. Encrypted credential material remains exclusively
+in the isolated secret provider. The PostgreSQL governance journey proves this internal path,
+not authenticated OAuth composition or actor revocation.
+
+No reviewed candidate becomes callable in this part. Registering remote versions in the one
+capability registry, scoped binding/grant resolution and actor revision notification are the
+next integration group, together with authenticated network and credential composition.
+The capabilities screen and complete PostgreSQL/runtime/browser canary journey finish the
+Objective. Until those are delivered there is no operator installation procedure to run.

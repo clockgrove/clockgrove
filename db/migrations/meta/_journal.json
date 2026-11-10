@@ -316,6 +316,13 @@
       "when": 1795039200000,
       "tag": "0045_mcp_secret_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795125600000,
+      "tag": "0046_mcp_installations",
+      "breakpoints": true
     }
   ]
 }
