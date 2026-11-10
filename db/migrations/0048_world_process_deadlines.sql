@@ -41,13 +41,9 @@ BEGIN
 END;
 $$;
 
--- Let PostgreSQL populate existing rows during DDL, then retain those values as an ordinary
--- column so full-row clones/restores can supply it. Subsequent writes are derived by the trigger.
-ALTER TABLE clockgrove.partition_states
-  ADD COLUMN next_process_due_at bigint GENERATED ALWAYS AS
-    (clockgrove.world_process_deadline(document)) STORED;
-ALTER TABLE clockgrove.partition_states
-  ALTER COLUMN next_process_due_at DROP EXPRESSION;
+-- Expansion is metadata-only for existing rows. applyMigrations subsequently fills and verifies
+-- the hint through the checkpointed world-process backfill before readers switch.
+ALTER TABLE clockgrove.partition_states ADD COLUMN next_process_due_at bigint;
 
 -- Derive supplied hints too: whole-row restores/clones may name this column, but cannot change
 -- the deadline independently of the canonical cursor list.

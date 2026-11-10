@@ -14,6 +14,7 @@ import {
 
 import { assertContractSteps } from "./contract-steps.mjs";
 import { withOwnedPostgresWireBridge } from "./native-transport.mjs";
+import { backfillWorldProcessDeadlines } from "./world-process-backfill.mjs";
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -315,17 +316,27 @@ export async function applyMigrations(tools, environment, options = {}) {
         `SELECT checksum FROM clockgrove.schema_migrations WHERE migration_name = ${literal(name)}`,
       )
     ).trim();
-    if (existing === checksum) continue;
-    if (existing !== "") throw new Error(`migration checksum changed after application: ${name}`);
-    await psql(
-      tools,
-      environment,
-      `SET ROLE clockgrove_migrator;
+    if (existing !== "" && existing !== checksum)
+      throw new Error(`migration checksum changed after application: ${name}`);
+    if (existing === "")
+      await psql(
+        tools,
+        environment,
+        `SET ROLE clockgrove_migrator;
        ${sql}
        INSERT INTO clockgrove.schema_migrations (migration_name, checksum)
        VALUES (${literal(name)}, ${literal(checksum)});`,
-      ["--single-transaction"],
-    );
+        ["--single-transaction"],
+      );
+    if (
+      name === "0048_world_process_deadlines.sql" &&
+      checksum ===
+        createHash("sha256")
+          .update(await readFile(path.join(repositoryRoot, "db/migrations", name), "utf8"))
+          .digest("hex")
+    ) {
+      await backfillWorldProcessDeadlines(tools, environment, options.backfillOptions);
+    }
   }
 }
 

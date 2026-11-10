@@ -343,7 +343,10 @@ durable schedule deadlines, so cap and delivery lateness do not introduce physic
 The earliest non-null declared world-process cursor is also a durable deadline. PostgreSQL stores
 `next_process_due_at` as a derived column maintained from the canonical state document by a database
 trigger, so birth, committed advances and other state updates keep it current without a separate write.
-Full-row inserts may include the hint; the trigger overwrites it from the document. Due-work,
+Expansion adds the nullable hint and trigger first. The migration runner then completes and verifies
+a bounded, checkpointed backfill before returning; deploy the deadline readers only after it succeeds.
+A failed or interrupted backfill must be resumed through the same migration runner before switching
+readers. Full-row inserts may include the hint; the trigger overwrites it from the document. Due-work,
 clock-owner and runtime-operation reads choose the earlier process or indexed actor-schedule deadline;
 actorless worlds can therefore wake, and a process can wake before the next actor decision. The
 ordinary autonomous clock authority admits the advance, while the native kernel attributes each

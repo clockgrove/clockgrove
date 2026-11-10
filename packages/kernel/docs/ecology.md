@@ -232,6 +232,9 @@ due before an actor decision. PostgreSQL derives `next_process_due_at` from the 
 canonical process cursor at birth and after every state-document update. The optional process cursor
 list is preserved in reconstructable birth sections, including an explicitly empty list.
 A database trigger maintains the stored derived column on inserts and document or hint updates.
+Expansion adds an ordinary nullable column without rewriting existing rows. Before the migration
+runner returns and deadline readers switch, it fills and verifies existing rows through the bounded,
+checkpointed `runBackfill` path; interrupted runs resume after the last committed batch.
 It is scheduling metadata: it changes no canonical state, queue, event or hash. Due-work, clock-owner and
 runtime-operation reads take the earlier of this deadline and the indexed pending schedule deadline.
 The existing autonomous clock principal admits the advance; process attempts still execute ordinary
