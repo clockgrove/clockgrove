@@ -68,7 +68,7 @@ COMMIT;
 --   process         SELECT and INSERT, processes also UPDATE of their lease, only of the installed
 --                   tenant; a segment only under the current lease epoch (actor processes, 0038)
 --   participant_read SELECT only, scoped to conversation participants; writes only through
---                   moderation-shadow reservation and completion functions (0045)
+--                   moderation-shadow reservation and completion functions (0047)
 --   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
 --                   through the wake-triage reservation and completion functions (0041)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
