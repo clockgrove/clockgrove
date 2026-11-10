@@ -143,12 +143,35 @@ export function verifyPlan(plan, config, stage, preservePublic) {
   }
 }
 
+// Why a provider refused, safe for release logs: the HTTP status and the provider's own error
+// codes and messages. Nothing this process sent (headers, tokens, bodies) is echoed.
+async function refusal(response) {
+  let detail = "";
+  try {
+    const body = await response.json();
+    const errors = Array.isArray(body?.errors) ? body.errors : body?.message ? [body] : [];
+    detail = errors
+      .slice(0, 3)
+      .map((error) => `${error.code ?? "?"} ${String(error.message ?? "").slice(0, 160)}`)
+      .join("; ");
+  } catch {
+    // A body that is not JSON adds nothing beyond the status.
+  }
+  return `HTTP ${response.status}${detail ? `: ${detail}` : ""}`;
+}
+
+// The endpoint a refusal came from, without the account or zone ID or the query.
+const endpoint = (suffix) => suffix.replace(/^(?:accounts|zones)\/[^/]+\//u, "").split("?")[0];
+
 export async function cloudflareFact(token, suffix) {
   const response = await fetch(`https://api.cloudflare.com/client/v4/${suffix}`, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(30_000),
   });
-  assert(response.ok, "authenticated Cloudflare activation facts unavailable");
+  if (!response.ok)
+    assert.fail(
+      `authenticated Cloudflare activation facts unavailable (${endpoint(suffix)}, ${await refusal(response)})`,
+    );
   const body = await response.json();
   assert(body.success, "authenticated Cloudflare activation facts refused");
   return body.result;
@@ -186,7 +209,10 @@ async function cloudflareList(token, suffix) {
       `https://api.cloudflare.com/client/v4/${suffix}${separator}page=${page}&per_page=50`,
       { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
     );
-    assert(response.ok, "authenticated Cloudflare resource listing unavailable");
+    if (!response.ok)
+      assert.fail(
+        `authenticated Cloudflare resource listing unavailable (${endpoint(suffix)}, ${await refusal(response)})`,
+      );
     const body = await response.json();
     assert(body.success && Array.isArray(body.result), "authenticated Cloudflare listing refused");
     items.push(...body.result);
@@ -207,7 +233,8 @@ export async function existingByName(resource, config, env) {
         signal: AbortSignal.timeout(30_000),
       },
     );
-    assert(response.ok, "authenticated Neon project listing unavailable");
+    if (!response.ok)
+      assert.fail(`authenticated Neon project listing unavailable (${await refusal(response)})`);
     const { projects } = await response.json();
     assert(Array.isArray(projects) && projects.length < 400, "Neon project listing incomplete");
     return projects.filter((project) => project.name === resource.name).map(({ id }) => id);
