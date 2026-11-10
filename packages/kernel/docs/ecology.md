@@ -69,6 +69,33 @@ counts as growing when the light band at `t` is one of the plant's bands and wet
 least `wetThreshold`. A `growth.stage-changed` event is emitted at the first millisecond growing time
 reaches a stage threshold, after the plant's `growth.integrated` event; the last stage stays.
 
+**Finite plant yield (closed-world part 2).** A noninitial stage may opt into
+`yield: { quantity }`, producing that many food units in the plant's own food resource holder once
+when growth enters the stage. Yield quantities are positive safe integers and their sum cannot
+exceed the material range. A yielding plant must have a food resource holder, and current inventory
+plus all remaining yields must fit that range; otherwise `ecology.state-matches-policy@1` refuses
+the state at `policy.ecology.plants[i].objectId` or `state.ecology.plants[i].stage`, respectively.
+Malformed quantities and initial-stage yields are refused as `invalid-input` under the stage's
+`policy.ecology.plants[i].stages[j].yield` path (prefixed `pack.pack.` at kernel pack validation).
+
+Yield is optional data on `growth.stage-changed@1`, alongside the plant id, stage index and name.
+The event atomically advances the plant and credits its food inventory. The ecology invariant
+checks sequential stage entry and exact agreement of the event's yield with the declared policy
+for yielding plants. Resource conservation credits both the global food total and the individual
+plant holder. Yield follows existing stage-change ordering and instant boundaries, including time
+passed by movement and portal commands, and needs no extra scheduled event or event-budget slot.
+The journal retains the plant and stage as the physical cause; ordinary transfers can move the
+food elsewhere. The initial stage and already reached stages never yield; the final stage stays
+and does not regenerate food after consumption. Existing plants without yield preserve their
+events and hashes. Plants still cannot be perishable holders; spoilage applies after transfer to
+a declared perishable holder.
+
+`test/plant-yield.journey.test.ts` proves literal yields at 1000 and 2000 ms, live versus aggregate
+and bounded continuation, native replay, movement-time yield, no repeat/refill, malformed policy,
+missing holder and material-range refusals, and rejection of forged journal quantities. Scheduled
+sources, rain collection and declared processes remain separate migration work; this optional
+cause alone does not establish the complete closed-world contract.
+
 **Evidence.** Generated tests (named stream `behavior`, seed `ecology-resources-v1`), targeted tests,
 the `material-ecology` pairs `live-steps-vs-fast-forward` and `bounded-continuation-vs-unbounded`, and
 the `food-decay-and-conservation` and `cedar-growth` goldens (committed literal hashes) run in Node
@@ -112,7 +139,7 @@ events, final state) are committed literals asserted in Node and Workers.
 
 **Deferred.** To Wave 8 RW-0804 ("Environment and ecology depth"; Wave 8 §7.2 and the parent plan
 §7.8 Food, Water and Growth rows): depleted, available and unavailable events; rain refilling water;
-growth death and plant removal; eating or harvesting plants; moisture- or temperature-dependent decay;
+growth death and plant removal; eating or harvesting plants beyond ordinary transfers of declared stage yields; moisture- or temperature-dependent decay;
 freshness after food leaves a perishable holder and other food quality; seasons; random appearances and
 weather. To Wave 8 RW-0803 ("Household and social routines"; Wave 8 §6, "competition or sharing over
 limited resources"): ownership and sharing rules. To Wave 6 RW-0605: perception of the new events (none

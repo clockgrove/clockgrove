@@ -254,10 +254,19 @@ function ecologyPolicy(input: unknown, path: string): EcologyPolicy {
         objectId: decodeOpaqueId(plant.objectId, "ObjectId", `${at}.objectId`),
         growingLightBands: list(plant.growingLightBands, `${at}.growingLightBands`, text),
         stages: list(plant.stages, `${at}.stages`, (stageValue, stageAt) => {
-          const stage = object(stageValue, ["name", "thresholdMs"], stageAt);
+          const stage = object(stageValue, ["name", "thresholdMs"], stageAt, ["yield"]);
+          const yieldPolicy =
+            stage.yield === undefined
+              ? undefined
+              : object(stage.yield, ["quantity"], `${stageAt}.yield`);
           return {
             name: text(stage.name, `${stageAt}.name`),
             thresholdMs: decimal(stage.thresholdMs, `${stageAt}.thresholdMs`),
+            ...(yieldPolicy === undefined
+              ? {}
+              : {
+                  yield: { quantity: integer(yieldPolicy.quantity, `${stageAt}.yield.quantity`) },
+                }),
           };
         }),
       };
