@@ -20,6 +20,7 @@ import {
   catchUpSchedules,
   continuousSystemId,
   createCatchUpRegistry,
+  nextCatchUpThreshold,
 } from "../../scheduler/catch-up.js";
 import type { ScheduleQueue } from "../../scheduler.js";
 import type { ScheduledKernelInput } from "../../transition.js";
@@ -133,7 +134,7 @@ export interface EnvironmentRunOptions {
 }
 
 export interface EnvironmentDrain {
-  /** The time the engine call reached: the first queued decision's due time, or the target. */
+  /** The time the engine call reached: the next threshold, first queued decision's due time, or the target. */
   readonly time: SimTimeMs;
   readonly groups: readonly EnvironmentGroup[];
   /** The decision the engine dispatched at `time`, if one was due. */
@@ -146,7 +147,7 @@ export interface EnvironmentRun {
   /** Thresholds in `(position, upTo]`, grouped by time; advances the run to `upTo`. */
   readonly step: (upTo: SimTimeMs) => readonly EnvironmentGroup[];
   /**
-   * One engine call over the real queue: advances to the first due decision (or the target),
+   * One engine call over the real queue: advances to the next threshold, decision or target,
    * dispatches at most that one decision, and reports the grouped thresholds. Pure until `commit`.
    */
   readonly drain: (queue: ScheduleQueue, target: SimTimeMs) => EnvironmentDrain;
@@ -658,7 +659,10 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
     drain: (queue: ScheduleQueue, target: SimTimeMs): EnvironmentDrain => {
       const first = queue[0];
       const wanted = first !== undefined && first.dueAt <= target ? first.dueAt : target;
-      const to = (wanted < position ? position : wanted) as SimTimeMs;
+      let to = (wanted < position ? position : wanted) as SimTimeMs;
+      // Bound speculative work to one time group, regardless of the requested horizon.
+      const next = nextCatchUpThreshold(registry, states);
+      if (next !== null && next < to) to = next;
       const outcome = catchUpSchedules(registry, {
         engineVersion: CATCH_UP_ENGINE_VERSION,
         queue,

@@ -1147,6 +1147,27 @@ function runWorld(
     }
     return movement.movementId;
   }
+  /** The inventory arrivals and decisions observe after this time's water integration. */
+  function waterViewAt(state: WorldState, through: SimTimeMs): WorldState {
+    const pending = pendingWater(through);
+    if (pending.length === 0) return state;
+    const changes = new Map(pending.map((id) => [id, waterAt(current(), id, through, policy)!]));
+    return {
+      ...state,
+      entities: state.entities.map((entity) => {
+        const change = changes.get(entity.objectId);
+        return change === undefined || entity.resource === undefined
+          ? entity
+          : {
+              ...entity,
+              resource: {
+                ...entity.resource,
+                quantity: entity.resource.quantity + change.collected - change.evaporated,
+              },
+            };
+      }),
+    };
+  }
   /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
   function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
@@ -1567,7 +1588,7 @@ function runWorld(
       for (const { objectId, movement } of moverCrossings) {
         if (movementCompletionTime(movement.segment) !== at) continue;
         arrivalIds.push(objectId);
-        const view = viewAt(objectId, at);
+        const view = waterViewAt(viewAt(objectId, at), at);
         const actor = objectsOf(view, objectId) as WorldEntity;
         const plan = arrivalPlan(
           view,
@@ -1578,7 +1599,7 @@ function runWorld(
           true,
         );
         if (plan.consume !== undefined) {
-          const holder = objectsOf(before, plan.consume.holder);
+          const holder = objectsOf(view, plan.consume.holder);
           held.set(
             plan.consume.holder,
             (held.get(plan.consume.holder) ?? holder?.resource?.quantity ?? 0) -
@@ -2064,8 +2085,8 @@ function runWorld(
           }
           continue;
         }
-        // Stopped at a lifecycle barrier short of the target: continue from it.
-        if (barrier !== undefined && drain.time < target) continue;
+        // Stopped at a threshold or lifecycle barrier short of the target: continue from it.
+        if (drain.time < target) continue;
         break;
       }
       // A decision is decided on the due actor's integrated view first. It is material when it
@@ -2076,7 +2097,7 @@ function runWorld(
         (entity) => entity.objectId === item.payload.objectId,
       );
       if (dueActor === undefined) throw new RangeError("scheduled actor disappeared");
-      const view = viewAt(dueActor.objectId, item.dueAt);
+      const view = waterViewAt(viewAt(dueActor.objectId, item.dueAt), item.dueAt);
       const viewActor = objectsOf(view, dueActor.objectId) as WorldEntity;
       let unchanged: DecisionTrace | undefined;
       let decisionSize: number;

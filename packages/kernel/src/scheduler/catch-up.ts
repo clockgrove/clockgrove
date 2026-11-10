@@ -701,6 +701,19 @@ function run(registry: CatchUpRegistry, request: unknown): CatchUpResult {
   });
 }
 
+/** Earliest validated system threshold, without materializing the intervening timeline. */
+export function nextCatchUpThreshold(
+  registry: CatchUpRegistry,
+  states: readonly CatchUpSystemState[],
+): SimTimeMs | null {
+  let time: SimTimeMs | null = null;
+  for (const live of parseSystems(registry, states)) {
+    const next = thresholdFor(live);
+    if (next !== null && (time === null || next.time < time)) time = next.time;
+  }
+  return time;
+}
+
 /**
  * Pure, deterministic catch-up. It reads only its arguments, never recurses into its own output
  * and never throws: malformed input and engine failures are returned as frozen refusals.

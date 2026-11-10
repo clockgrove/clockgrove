@@ -7,6 +7,7 @@ import {
 } from "@clockgrove/domain";
 import { expect, it } from "vitest";
 import { checkWorldInvariants, executeWorldKernel, type WorldSemanticEvent } from "../src/world.js";
+import { SNACK_SPEC, utilitySample } from "./decisions.scenario.js";
 import { baseSpec, ecologySample, quantityOf, runResource } from "./ecology.scenario.js";
 import {
   advanceInput,
@@ -18,6 +19,22 @@ import {
 } from "./environment.scenario.js";
 import { movementInput, startPayload } from "./spatial.scenario.js";
 import { scenarioInput, stateHash } from "./weather-needs.scenario.js";
+
+async function waterWorld(sample: ReturnType<typeof ecologySample>) {
+  const decoded = decodeWorldScenario(sample, await stateHash(sample));
+  const initialState = createWorldState({
+    ...decoded.initialState,
+    environment: deriveEnvironmentState(
+      decoded.pack.policy.environment!,
+      decoded.initialState.simulationTime,
+    ),
+  });
+  const template = await scenarioInput(undefined, 0, 32, {}, 32, {
+    pack: decoded.pack,
+    initialState,
+  });
+  return { template, state: template.partition.state, schedules: template.schedules };
+}
 
 it("journals weather water at exact instants with bounded inventory and execution-shape parity", async () => {
   const sample = ecologySample(
@@ -59,19 +76,9 @@ it("journals weather water at exact instants with bounded inventory and executio
       integratedAt: "0",
     }),
   );
-  const decoded = decodeWorldScenario(sample, await stateHash(sample));
-  const initialState = createWorldState({
-    ...decoded.initialState,
-    environment: deriveEnvironmentState(
-      decoded.pack.policy.environment!,
-      decoded.initialState.simulationTime,
-    ),
-  });
-  const template = await scenarioInput(undefined, 0, 32, {}, 32, {
-    pack: decoded.pack,
-    initialState,
-  });
-  const world = { template, state: template.partition.state, schedules: template.schedules };
+  const world = await waterWorld(sample);
+  const template = world.template;
+  const decoded = { pack: template.pack.pack };
   const material = (events: readonly WorldSemanticEvent[]) =>
     events.flatMap((event) =>
       event.type === "resource.weather-integrated" &&
@@ -200,4 +207,118 @@ it("journals weather water at exact instants with bounded inventory and executio
       decoded.pack.policy,
     ),
   ).toMatchObject({ code: "invariant-violated", check: "ecology.state-matches-policy@1" });
+
+  const churn = ecologySample(
+    baseSpec({
+      actors: [],
+      holders: [{ objectId: "churn", kind: "water", quantity: 0 }],
+      phases: [["only", 0, "all"]],
+      segments: [[10000, 10000, "rain"]],
+    }),
+  );
+  churn.pack.policy.ecology.waterHolders = [
+    { objectId: "churn", capacity: 1, catchment: 3600000, evaporationPerHour: 3600000 },
+  ];
+  churn.initialState.ecology.waterHolders = [
+    { objectId: "churn", integratedAt: "0", collectionRemainder: "0", evaporationRemainder: "0" },
+  ];
+  const churnWorld = await waterWorld(churn);
+  const churned = executeWorldKernel(advanceInput(churnWorld, "bounded-churn", 3600000n, 1, 2), {
+    mode: "test",
+  });
+  if (!churned.ok) throw new Error(JSON.stringify(churned.error));
+  expect(churned.result.complete).toBe(false);
+  expect(churned.result.state.simulationTime).toBe(2n);
+  expect(quantityOf(churned.result.state, "churn")).toBe(0);
+  expect(material(churned.result.events)).toEqual([
+    { time: 1n, objectId: "churn", collected: 1, evaporated: 0 },
+    { time: 2n, objectId: "churn", collected: 0, evaporated: 1 },
+  ]);
+
+  const arriving = utilitySample({
+    ...SNACK_SPEC,
+    scripted: [],
+    intervalMs: 10000,
+    hungerPerInterval: 400,
+    wetnessPerInterval: 0,
+    segments: [[20000, 10000, "rain"]],
+    items: [{ id: "collector", kind: "water", at: [2000, 0], quantity: 0 }],
+  });
+  arriving.pack.policy.ecology = {
+    schemaVersion: 1,
+    perishables: [],
+    sources: [],
+    plants: [],
+    waterHolders: [{ objectId: "collector", capacity: 1, catchment: 3600, evaporationPerHour: 0 }],
+  };
+  arriving.initialState.ecology = {
+    perishables: [],
+    plants: [],
+    waterHolders: [
+      {
+        objectId: "collector",
+        integratedAt: "0",
+        collectionRemainder: "0",
+        evaporationRemainder: "0",
+      },
+    ],
+  };
+  const arrivalWorld = await waterWorld(arriving);
+  arrivalWorld.state = createWorldState({
+    ...arrivalWorld.state,
+    entities: arrivalWorld.state.entities.map((entity) =>
+      entity.objectId === "resident-x"
+        ? { ...entity, selectedAction: { kind: "seek-water", targetObjectId: "collector" } }
+        : entity,
+    ),
+  } as never);
+  arrivalWorld.template = {
+    ...arrivalWorld.template,
+    partition: { ...arrivalWorld.template.partition, state: arrivalWorld.state },
+  };
+  const moving = applyCommand(
+    arrivalWorld,
+    movementInput(
+      arrivalWorld.template,
+      "movement.start",
+      startPayload(
+        "resident-x",
+        {
+          kind: "pose",
+          pose: {
+            ...arrivalWorld.state.entities[0]!.pose,
+            coordinates: [fixedPoint(2000n), fixedPoint(0n)],
+          },
+        },
+        { observeUntil: 0n },
+      ),
+      "arrival-start",
+    ) as never,
+  ).world;
+  const started = {
+    ...moving,
+    schedules: moving.schedules.map((item) => ({ ...item, dueAt: 10000n as typeof item.dueAt })),
+  };
+  for (const budget of [4, 5])
+    expect(
+      executeWorldKernel(advanceInput(started, `arrival-small-${budget}`, 1000n, 1, budget), {
+        mode: "test",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "invalid-input", path: "payload.maxEvents" } });
+  const arrived = executeWorldKernel(advanceInput(started, "arrival-fit", 1000n, 1, 6), {
+    mode: "test",
+  });
+  if (!arrived.ok) throw new Error(JSON.stringify(arrived.error));
+  expect(arrived.result.events.map((event) => [event.simulationTime, event.type])).toEqual([
+    [1000n, "resource.weather-integrated"],
+    [1000n, "needs.changed"],
+    [1000n, "wellbeing.integrated"],
+    [1000n, "movement.completed"],
+    [1000n, "resource.consumed"],
+    [1000n, "needs.relieved"],
+  ]);
+  expect(quantityOf(arrived.result.state, "collector")).toBe(0);
+  expect(arrived.result.events.reduce(reduceWorldEvent, started.state)).toEqual(
+    arrived.result.state,
+  );
 });
