@@ -255,7 +255,10 @@ it("foundation-only encrypted storage completes OAuth through a local HTTP issue
       expect(authorization).toBe("Bearer static-canary");
     });
     const row = rows.get(staticRef)!;
-    rows.set(staticRef, { ...row, ciphertext: [0, ...row.ciphertext.slice(1)] });
+    rows.set(staticRef, {
+      ...row,
+      ciphertext: [row.ciphertext[0]! ^ 1, ...row.ciphertext.slice(1)],
+    });
     await expect(vault.use(scope, staticRef, async () => undefined)).rejects.toThrow(
       "MCP credential unavailable",
     );

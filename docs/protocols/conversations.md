@@ -9,6 +9,11 @@ The HTTP surface is described by [conversations.openapi.json](conversations.open
 journey `apps/runtime/test/conversations.journey.postgres.test.ts` checks that the runtime serves
 exactly its paths.
 
+The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) uses these authenticated HTTP
+routes with explicit `talk` and `say` commands. It does not resolve identity locally or grant access.
+Its initial implementation uses the existing `browser` session channel; independent channel-thread
+bindings and normalized ingress are tracked in the [channel protocol](channels.md).
+
 ## Authority
 
 Every route is `POST`, version 1, with the browser scope (tenant, world, timeline and space) in the
