@@ -11,7 +11,5 @@ allowBuilds:
   core-js-pure: false
 
 overrides:
-  "zod@<4.6.6": "4.6.6"
+  "zod@<4.6.7": "4.6.7"
   "ajv@8.20.0>fast-uri": "3.1.9"
-  "miniflare@5.20261001.0-alpha>undici": "7.30.1"
-  "miniflare@5.20261001.0-alpha>sharp": "0.35.5"

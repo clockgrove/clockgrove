@@ -17,9 +17,9 @@
   "dependencies": {
     "@clockgrove/application": "workspace:*",
     "@clockgrove/contracts": "workspace:*",
-    "drizzle-orm": "0.45.3"
+    "drizzle-orm": "0.45.4"
   },
   "devDependencies": {
-    "vitest": "5.0.3"
+    "vitest": "5.1.0"
   }
 }

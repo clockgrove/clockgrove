@@ -7,7 +7,7 @@ Stable repository facts for contributors, human or agent. Each rule has its reas
 - Node 24.21.0 and pnpm 12.9.1 on `PATH`. They are pinned in `mise.toml` and `package.json`.
 - PostgreSQL 18.6 with pgvector 0.8.7 on `PATH`, for `test:db`, `test:runtime` and `db:verify`. See [database.md](database.md) for the exact supported set; no other version is compatible.
 - Python 3, for `verify:docs`.
-- OpenTofu 1.13.1 on `PATH`, required by `scripts/infra-validate.mjs` for the configuration in `infra/`. Wrangler 4.147.0 is pinned in the root development dependencies.
+- OpenTofu 1.13.1 on `PATH`, required by `scripts/infra-validate.mjs` for the configuration in `infra/`. Wrangler 4.156.2 is pinned in the root development dependencies.
 - On Ubuntu 26.04, `scripts/ci/toolchain.sh` installs or verifies the pinned PostgreSQL, pgvector, OpenTofu, OpenTofu provider mirror and Playwright Chromium. It installs only a component that is missing or not the exact pinned version, and `--check` only verifies. Quality's toolchain action uses it, so CI and developer machines share one set of pins. The action caches the staged pgvector build per pinned pgvector and PostgreSQL version and runner image (`PGVECTOR_STAGE`); the script reuses it only when its library digest matches its stamp.
 - Run `pnpm install --frozen-lockfile --ignore-scripts` before any check. The lockfile is the dependency contract. Dependency lifecycle scripts must remain disabled for adapter work; if an install script that is not approved under `allowBuilds` runs, stop and report to the maintainer (approved builds are listed in [Dependency install scripts](#dependency-install-scripts)). Work in the checkout you were given: don't create extra git worktrees, because pnpm installs in each one.
 
@@ -72,7 +72,7 @@ When the stack is up, it prints the world route to open (`/worlds/{tenant}/{worl
 
 ## Better Auth reference composition
 
-- The runtime pins Better Auth 1.7.7. Its adapter uses `better-auth`, Kysely 0.29.6's built-in `PostgresDialect` and `pg` 8.23.1. Each authentication request owns a `Pool` limited to one connection, destroyed in `finally`. Request-owned Client and Pool error listeners retain connection failures through cleanup and refuse authentication before returning an identity. Ending a connection can discard a termination the request has not read yet (issue 983; per-transport results in issue 1004): on Workers, `pg-cloudflare` 1.4.1 `CloudflareSocket.end()` calls the workerd socket's `close()`, which drops data its read loop has not delivered, and passes a failed write only to its callback; on a Unix socket `pg` ignores its Terminate write's EPIPE while ending. Node over TCP, with or without TLS, read the termination first. So once the identity is resolved the adapter sends one `SELECT 1` on the connection it used (the pool's idle timeout is off, so that connection is still the one), and a termination fails that round trip on every transport. It costs one round trip per successful authentication. A termination that reaches the connection only while it closes, after every read, is not observed. SDK types remain in `apps/runtime/src/better-auth-adapter.ts`; the composition root consumes project-owned configuration and ports.
+- The runtime pins Better Auth 1.7.15. Its adapter uses `better-auth`, Kysely 0.29.8's built-in `PostgresDialect` and `pg` 8.23.1. Each authentication request owns a `Pool` limited to one connection, destroyed in `finally`. Request-owned Client and Pool error listeners retain connection failures through cleanup and refuse authentication before returning an identity. Ending a connection can discard a termination the request has not read yet (issue 983; per-transport results in issue 1004): on Workers, `pg-cloudflare` 1.4.1 `CloudflareSocket.end()` calls the workerd socket's `close()`, which drops data its read loop has not delivered, and passes a failed write only to its callback; on a Unix socket `pg` ignores its Terminate write's EPIPE while ending. Node over TCP, with or without TLS, read the termination first. So once the identity is resolved the adapter sends one `SELECT 1` on the connection it used (the pool's idle timeout is off, so that connection is still the one), and a termination fails that round trip on every transport. It costs one round trip per successful authentication. A termination that reaches the connection only while it closes, after every read, is not observed. SDK types remain in `apps/runtime/src/better-auth-adapter.ts`; the composition root consumes project-owned configuration and ports.
 - The existing named secret is `BETTER_AUTH_SECRET`. Supply it through the environment's secret binding, never a committed value. It must contain at least 32 characters with no surrounding whitespace. No default or process-environment secret discovery is used by the adapter.
 - The five manifests declare `AUTH_ORIGIN` as the exact HTTPS runtime origin and `PROVIDER_ENVIRONMENT` as the canonical environment. Default composition consumes `AUTH_DATABASE_URL` (`clockgrove_auth_verifier`), `MANAGEMENT_DATABASE_URL` (`clockgrove_management_reader`) and `WORLD_AUTHORIZATION_DATABASE_URL` (`clockgrove_world_reader`) through direct PostgreSQL transport. These generated connections stay in the existing protected handoff; no function-valued deployment binding or process-environment discovery is used. Hyperdrive retains `clockgrove_runtime` exclusively for canonical state/journal traffic.
 - Forward migration `0002_authentication_authority.sql` owns the pinned Better Auth core schema in `clockgrove_auth`, Management principals/identity links/optional workspace administration in `clockgrove_management`, and Runtime committed participation in `clockgrove.world_memberships`. Verification can SELECT only user/session storage; it cannot enroll, refresh, link accounts or write canonical participation. Management and World readers use separate request-owned clients, read-only transactions, exact transaction-local scopes and forced RLS. Runtime World access requires committed membership/persona, explicit grants and decoded privacy categories; workspace administration never supplies World authority.
@@ -107,42 +107,43 @@ All five Wrangler configurations enable `nodejs_compat`.
 
 ## Pinned dependency selection
 
-Official npm publication metadata was read at `2026-10-06T06:17:05.204Z`; the unchanged
-1440-minute release-age cutoff was `2026-10-05T06:17:05.204Z`. These are the newest
-eligible stable releases; Node typings stay on the supported Node 24 major. All resolved
+Official npm publication metadata was read at `2026-10-06T06:17:05.204Z`, and again on `2026-11-10` for
+the rows the minor-and-patch npm update moved; every selection is older than the unchanged 1440-minute
+release-age cutoff at its selection. These are the newest eligible stable releases; Node typings stay on the supported Node 24 major. All resolved
 dependencies must also pass pnpm's unchanged age, provenance and build controls during
 `pnpm install --frozen-lockfile --ignore-scripts`. No release-age exclusions are authorized.
 
 | Official package | Exact selection | Publication time (UTC) |
 | --- | --- | --- |
 | [@ai-sdk/anthropic](https://registry.npmjs.org/%40ai-sdk%2Fanthropic) | `4.0.97` | `2026-11-05T01:11:40.981Z` |
-| [@biomejs/biome](https://registry.npmjs.org/%40biomejs%2Fbiome) | `2.5.15` | `2026-09-30T15:23:18.673Z` |
+| [@biomejs/biome](https://registry.npmjs.org/%40biomejs%2Fbiome) | `2.6.4` | `2026-10-28T23:54:35.729Z` |
 | [@types/node](https://registry.npmjs.org/%40types%2Fnode) | `24.19.1` | `2026-10-01T22:38:02.894Z` |
 | [@types/react](https://registry.npmjs.org/%40types%2Freact) | `19.3.0` | `2026-09-09T18:08:49.750Z` |
 | [@types/react-dom](https://registry.npmjs.org/%40types%2Freact-dom) | `19.3.0` | `2026-09-09T18:07:51.886Z` |
 | [@typescript/typescript6](https://registry.npmjs.org/%40typescript%2Ftypescript6) | `6.0.2` | `2026-07-06T18:06:47.459Z` |
 | [ai](https://registry.npmjs.org/ai) | `7.0.163` | `2026-11-05T01:12:02.967Z` |
-| [better-auth](https://registry.npmjs.org/better-auth) | `1.7.7` | `2026-09-30T21:30:55.572Z` |
-| [dependency-cruiser](https://registry.npmjs.org/dependency-cruiser) | `18.5.0` | `2026-09-30T19:18:29.691Z` |
-| [drizzle-orm](https://registry.npmjs.org/drizzle-orm) | `0.45.3` | `2026-09-21T10:06:39.969Z` |
-| [kysely](https://registry.npmjs.org/kysely) | `0.29.6` | `2026-09-16T00:59:27.614Z` |
+| [better-auth](https://registry.npmjs.org/better-auth) | `1.7.15` | `2026-11-01T09:14:09.595Z` |
+| [dependency-cruiser](https://registry.npmjs.org/dependency-cruiser) | `18.7.1` | `2026-11-01T23:44:30.330Z` |
+| [drizzle-orm](https://registry.npmjs.org/drizzle-orm) | `0.45.4` | `2026-10-08T10:50:41.953Z` |
+| [kysely](https://registry.npmjs.org/kysely) | `0.29.8` | `2026-11-01T02:05:55.068Z` |
 | [@types/pg](https://registry.npmjs.org/%40types%2Fpg) | `8.23.1` | `2026-08-17T20:10:18.296Z` |
 | [pnpm](https://registry.npmjs.org/pnpm) | `12.9.1` | `2026-10-03T20:48:16.304Z` |
 | [pg](https://registry.npmjs.org/pg) | `8.23.1` | `2026-09-30T15:39:58.489Z` |
-| [react](https://registry.npmjs.org/react) | `19.3.0` | `2026-09-09T17:21:30.071Z` |
-| [react-dom](https://registry.npmjs.org/react-dom) | `19.3.0` | `2026-09-09T17:17:39.744Z` |
-| [turbo](https://registry.npmjs.org/turbo) | `2.11.7` | `2026-10-02T14:58:24.627Z` |
+| [react](https://registry.npmjs.org/react) | `19.3.1` | `2026-10-14T16:47:15.290Z` |
+| [react-dom](https://registry.npmjs.org/react-dom) | `19.3.1` | `2026-10-14T16:49:10.081Z` |
+| [turbo](https://registry.npmjs.org/turbo) | `2.11.10` | `2026-10-20T20:35:57.341Z` |
 | [typescript](https://registry.npmjs.org/typescript) | `7.0.2` | `2026-07-08T15:55:18.431Z` |
-| [vite](https://registry.npmjs.org/vite) | `8.3.2` | `2026-10-01T10:17:44.767Z` |
-| [vitest](https://registry.npmjs.org/vitest) | `5.0.3` | `2026-09-30T11:30:42.429Z` |
-| [wrangler](https://registry.npmjs.org/wrangler) | `4.147.0` | `2026-10-02T11:30:47.699Z` |
-| [zod](https://registry.npmjs.org/zod) | `4.6.6` | `2026-10-11T16:18:23.878Z` |
+| [vite](https://registry.npmjs.org/vite) | `8.3.5` | `2026-10-21T06:38:54.907Z` |
+| [vitest](https://registry.npmjs.org/vitest) | `5.1.0` | `2026-11-02T16:12:37.770Z` |
+| [wrangler](https://registry.npmjs.org/wrangler) | `4.156.2` | `2026-11-02T15:35:39.760Z` |
+| [zod](https://registry.npmjs.org/zod) | `4.6.7` | `2026-10-12T16:29:37.778Z` |
 
 Advisories published after `2026-10-22` moved three locked packages to their patched releases on
-`2026-10-27`, all older than the unchanged 1440-minute cutoff: `zod` 4.6.6 (direct; `better-auth` 1.7.7
-pins 4.6.5, so `pnpm-workspace.yaml` overrides `zod@<4.6.6`), and through scoped overrides `fast-uri`
-3.1.9 (`2026-10-19T23:05:26.357Z`, via `ajv` 8.20.0) and `undici` 7.30.1 (`2026-10-15T14:18:31.283Z`,
-via `miniflare`); `undici` 8.12.3 is unchanged. The domain's declared Zod path pin in
+`2026-10-27`, all older than the unchanged 1440-minute cutoff: `zod` (now 4.6.7, direct; `better-auth`
+and the AI SDK declare ranges that still admit older releases, so `pnpm-workspace.yaml` overrides `zod@<4.6.7`
+to the direct version and the workspace bundles one Zod), through a scoped override `fast-uri` 3.1.9
+(`2026-10-19T23:05:26.357Z`, via `ajv` 8.20.0), and `undici` 7.30.1 (`2026-10-15T14:18:31.283Z`), which
+`miniflare` 5.20261102.0-beta now declares itself; `undici` 8.12.3 is unchanged. The domain's declared Zod path pin in
 `dependency-cruiser.config.mjs` follows the `zod` version.
 
 The driver swap reconfirmed official npm metadata at `2026-10-06T10:50:38Z`:
@@ -181,7 +182,7 @@ Issue 77 added the 3D Stevie spike's ship tools (`spikes/renderer-bakeoff/script
 devDependencies of the throwaway `spikes/renderer-bakeoff` workspace package only, resolved on `2026-11-08` through
 pnpm under the unchanged release-age, provenance, build and licence controls. No product package depends on them.
 `sharp` runs no install script: its prebuilt `@img/sharp-*` binaries are optional dependencies, and the lockfile
-already carried `sharp` 0.35.5 through the `miniflare` override. The Khronos validator publishes only `-dev`
+already carried `sharp` 0.35.5 through `miniflare`. The Khronos validator publishes only `-dev`
 versions on npm; `2.0.0-dev.3.10` is its newest.
 
 | Official package | Exact selection | Publication time (UTC) | License |

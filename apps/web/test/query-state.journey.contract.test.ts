@@ -7,6 +7,7 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
+import type { SceneSession } from "../src/scene-api.js";
 import { useSceneStateProjection } from "../src/scene-queries.js";
 import { useSceneView, useWhyView } from "../src/scene-state.js";
 import { sceneSession, selectionOf } from "./scene-socket-fixture.js";
@@ -58,6 +59,8 @@ function beginReply(action: () => void) {
   };
 }
 const reply = (value: unknown, action: () => void) => beginReply(action)(value);
+const Projection = ({ session }: { readonly session: SceneSession }) =>
+  createElement("output", null, useSceneStateProjection(session).scene?.revision);
 async function observing() {
   vi.useFakeTimers();
   vi.stubGlobal("fetch", vi.fn());
@@ -78,9 +81,7 @@ it("makes committed projection and entity query state authoritative, refreshing 
   ]);
   const updated = { ...committed, scene: { ...scene, revision: "11" } };
   queries.setQueryData(["living-scene", "projection"], updated);
-  const Projection = () =>
-    createElement("output", null, useSceneStateProjection(session).scene?.revision);
-  expect(renderToStaticMarkup(createElement(Projection))).toBe("<output>11</output>");
+  expect(renderToStaticMarkup(createElement(Projection, { session }))).toBe("<output>11</output>");
   queries.setQueryData(["living-scene", "projection"], committed);
   const pending = beginReply(() => session.select(first.objectId));
   expect(queries.getQueryState(session.getSelectionKey())?.status).toBe("pending");
