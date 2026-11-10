@@ -18,10 +18,12 @@ afterAll(() => scratch.dispose());
 describe("pack test", () => {
   it("passes every check for the committed reference fixture pack", async () => {
     const { run, envelope, checks } = await packTest(referenceArtifact);
+    // The expected checks come from the pack's own scenarios/ directory, so adding or removing a
+    // scenario needs no edit here. Conformance (per PR) pairs each scenario with its golden.
     const scenarios = (await readdir(join(REPO_ROOT, "worlds/fixture/reference/scenarios")))
       .map((file) => file.slice(0, -".json".length))
       .sort();
-    expect(scenarios).toHaveLength(11);
+    expect(scenarios.length).toBeGreaterThan(0);
     expect(run.exitCode).toBe(0);
     expect(envelope.status).toBe("ok");
     expect(envelope.refusal).toBeNull();
