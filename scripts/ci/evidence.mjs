@@ -87,8 +87,33 @@ export function assertRetryEvidence(phases) {
     if (name === provisionApply) lastApply = { attempt: n, status: phase.status };
   }
 }
+// OpenTofu's time limits (scripts/ci/deploy.mjs) end a deploy at the phase they hit, retrying
+// nothing. A phase stopped at its limit (reason `timeout`) was interrupted with no result, so its
+// effect is unknown; one refused because its limit did not fit the deploy's budget (reason
+// `budget`) never started, so it failed with no effect and no observation.
+export function assertTimeoutEvidence(phases) {
+  phases.forEach((phase, index) => {
+    if (!phase.reason) return;
+    if (phase.reason === "timeout")
+      assert(
+        phase.status === "unknown" && phase.errorCode === "ETIMEDOUT",
+        "timed-out phase outcome mismatch",
+      );
+    else
+      assert(
+        phase.status === "failed" &&
+          phase.exitCode === null &&
+          !phase.signal &&
+          !phase.errorCode &&
+          phase.startedAt === phase.completedAt,
+        "refused phase outcome mismatch",
+      );
+    assert.equal(index, phases.length - 1, "deployment continued after a time-limited phase");
+  });
+}
 // One deployment's outcome against its phases.
 export function assertDeploymentOutcome(deployment) {
+  assertTimeoutEvidence(deployment.phases);
   assertRetryEvidence(deployment.phases);
   const outstanding = outstandingPhases(deployment.phases);
   if (outstanding.some((phase) => phase.status === "unknown"))
@@ -157,6 +182,8 @@ export async function validateEvidence(manifest) {
       result.exitCode === 0 && !result.signal && !result.errorCode,
       "execution outcome mismatch",
     );
+    // A deploy phase refused for time never ran (assertTimeoutEvidence holds it to that).
+    if (deploymentPhases.includes(result) && result.reason === "budget") continue;
     if (result.exitCode === null || result.signal || result.errorCode)
       assert.equal(result.status, "unknown", "unobserved execution outcome mismatch");
     else if (result.exitCode !== 0)
