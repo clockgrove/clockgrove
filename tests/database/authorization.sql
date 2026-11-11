@@ -124,6 +124,8 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'wake_triage', 'operator_read'),
   ('clockgrove', 'mcp_installations', 'operator_read'),
   ('clockgrove', 'mcp_bindings', 'operator_read'),
+  ('clockgrove', 'effect_intents', 'operator_read'),
+  ('clockgrove', 'effect_attempts', 'operator_read'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -284,6 +286,7 @@ BEGIN
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
+        'clockgrove.effect_intents', 'clockgrove.effect_attempts',
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN

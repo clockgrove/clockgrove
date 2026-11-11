@@ -763,9 +763,26 @@ Migration `0011_preview_effect_policy.sql` adds trigger `event_dispatches_previe
 (BEFORE INSERT on `clockgrove.event_dispatches`). It refuses an `external-effects` dispatch unless its
 timeline's kind is `live`, with `CG012` (`JournalPreviewEffectRefusedError`), so the whole command
 writes nothing. A timeline the inserting role cannot see counts as not live. This is the Wave 2
-enforcement of the preview gate: the `effect_intents` table is deferred to Wave 5, the first wave that
-produces an external effect. Simulate mode is not built. `pnpm run db:verify` checks the trigger;
+enforcement of the preview gate. Wave 5 adds the canonical effect ledger in migration
+`0056_effect_ledger.sql`; it does not replace or relax this dispatch gate. Runtime execution and
+simulate mode are not yet built. `pnpm run db:verify` checks the trigger;
 `apps/runtime/test/journal-isolation.postgres.test.ts` covers branch refusal and live commit.
+
+## Effect ledger foundation
+
+Migration `0056_effect_ledger.sql` adds `effect_intents` and `effect_attempts` as canonical
+history, with forced RLS and no ordinary runtime write privilege. Scoped operator-evidence
+reads do not authorize execution. The first issue 165 delivery part installs storage and
+its attack proof only; the governed writer, Queue consumer and actor continuation are
+subsequent delivery parts.
+
+Retain intent identity, idempotency and attempt dispositions for world lifetime, as recorded
+in `db/retention.json`. Deleting those rows could allow a replay to lose the evidence that a
+call already started. Arguments and results are encrypted artifact references; never put
+credentials or remote error bodies in this ledger. An unknown actual cost is NULL, not zero.
+An interrupted call needs explicit reconciliation; its uncertain outcome must not be guessed.
+See the [MCP protocol](../protocols/mcp.md#effect-ledger-foundation-issue-165-part-1) for the
+remaining execution boundary.
 
 ## World birth tables and provisioning cases
 

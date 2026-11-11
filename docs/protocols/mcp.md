@@ -418,3 +418,52 @@ admission without cognition, including after a missed notification. Remote tool 
 canonical call/spend reservations remain RW-0508. The
 [runtime runbook](../runbooks/runtime.md#local-operator-lifecycle) describes install, review, bind,
 refresh, reconnect and revoke.
+
+## Effect ledger foundation (issue 165, part 1)
+
+Migration `0056_effect_ledger.sql` introduces canonical `effect_intents` and `effect_attempts`.
+This is the first delivery part of read-only research, not a callable MCP execution path.
+The ordinary runtime can read ledger metadata only with current scoped MCP installation
+authority and an operator-evidence privacy ceiling. It cannot insert, update or delete ledger
+rows. A later part must supply the governed reservation and execution port before any
+actor can use these records. Installation and binding authority alone never authorizes a call.
+
+Intent identity and the scoped idempotency key survive for world lifetime. Each intent permits
+one attempt: an interrupted read cannot be resent automatically under that identity. Attempts
+retain an explicit terminal disposition, including uncertainty; an uncertain remote outcome is never
+guessed into success or failure. A terminal attempt may precede settlement of its started
+intent; recovery must read that attempt and settle the matching intent without another call.
+A successful attempt requires a recorded encrypted result. Unknown cost remains distinct from a
+known zero. Arguments and results belong in encrypted artifacts, rather than plaintext ledger
+payloads. The
+[database runbook](../runbooks/database.md#preview-effect-policy) describes the unchanged
+`external-effects` dispatch gate: non-live timelines cannot enqueue external calls.
+
+Remaining delivery parts supply atomic grant and budget reservation, Queue execution and
+dead-letter handling, immediate global/world/installation kill switches, durable
+`tool_waiting`/`tool_completed` recovery, the bounded model loop, safe MCP execution and result
+sanitization, citations and the scripted browser journey. Historical replay must consume the
+recorded result without contacting a server. Preview work must remain blocked or simulated.
+None of those execution guarantees is established by the schema foundation alone.
+
+### Internal attempt persistence (delivery part 2)
+
+`PostgreSqlEffects` in `packages/persistence/src/postgres-effects.ts` provides the internal
+attempt lifecycle on an existing intent. Its client must already possess trusted ledger-write
+authority. It is not composed into the actor runtime, does not create intents or reserve budgets,
+and grants no SQL permissions. The ordinary runtime role still cannot write the ledger.
+Future Queue composition must complete installation, binding, member-grant, argument, network
+and budget admission before invoking this adapter.
+
+Claiming locks the complete tenant/world/timeline/effect identity. Only the transaction that
+moves a pending intent to started may begin its one attempt. Duplicate deliveries read the
+existing state and receive no execution claim. A started attempt remains in flight until an
+explicit outcome is recorded; elapsed time alone does not turn it into failure or permit retry.
+Completion records the attempt and settles the intent in one transaction. Recovery can also
+settle a started intent from its previously recorded terminal attempt, preserving its exact
+outcome and timestamp. An uncertain outcome stays terminal. Scoped reads return encrypted
+result references for future replay consumers; they never contact a server. Accounting keeps
+known cost and the number of terminal attempts with unknown cost separate.
+
+These PostgreSQL guarantees do not yet establish Queue delivery, actor recovery, admission,
+remote execution, result screening or browser research acceptance. Those remain later parts.
