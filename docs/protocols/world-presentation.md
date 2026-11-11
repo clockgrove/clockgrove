@@ -167,7 +167,12 @@ Install the pinned checkout's frozen dependencies first. Use its rendering libra
 static `THREE`/`TSL` exports; do not install another Three copy in the world. A composition root can
 also pass `content` to the live `WorldApp` as an optional prop alongside its authentication port.
 The shell JSON, grants and renderer-neutral presentation records remain unchanged. Omitted content
-preserves the existing rendering path.
+preserves the existing rendering path. Optional content-light descriptors and shadow participation
+are visual composition data owned by that separate content seam; they grant no world authority.
+The renderer validates and bounds them by quality tier, shares their illumination with content
+and ground, and owns GPU lights and shadow resources. See the
+[content lighting policy](../../apps/web/docs/scene.md#content-lights-and-shadows) for units,
+limits, retirement and phone-tier behavior.
 
 The in-repository offline example runs from the pinned checkout:
 

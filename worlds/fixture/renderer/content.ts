@@ -16,11 +16,14 @@ export const diagnostics = {
   depthMap: undefined as any,
   loaders: undefined as any,
   normalMap: undefined as any,
+  lightSources: undefined as any,
+  shadowCaster: undefined as any,
+  shadowReceiver: undefined as any,
   setAnchor: (_x: number, _y: number) => {},
   setModelAnchor: (_x: number, _y: number) => {},
 };
 
-export function fixtureContent(options: { failure?: string; workMs?: number } = {}): RendererContent {
+export function fixtureContent(options: { failure?: string; workMs?: number; lighting?: boolean } = {}): RendererContent {
   return {
     version: 1,
     create(context) {
@@ -107,11 +110,30 @@ export function fixtureContent(options: { failure?: string; workMs?: number } = 
       spriteAnchor.add(sprite);
       context.place(spriteAnchor, { x: 0, y: 0 });
       root.add(spriteAnchor);
-      Object.assign(diagnostics, { ready: true, model, sprite, root, normalMap, depthMap });
+      const lightSources = Array.from({ length: 10 }, () => ({
+        position: [-4, 2, 8] as [number, number, number], colour: "#ff8844", intensity: 60000, rangeMetres: 30,
+      }));
+      let shadowCaster: any, shadowReceiver: any;
+      if (options.lighting) {
+        shadowReceiver = new THREE.Mesh(new THREE.PlaneGeometry(180, 180),
+          new THREE.MeshStandardNodeMaterial({ color: 0xcccccc, roughness: 1 }));
+        shadowReceiver.position.set(-100, 80, -30);
+        shadowReceiver.receiveShadow = true;
+        root.add(shadowReceiver);
+        shadowCaster = new THREE.Mesh(new THREE.BoxGeometry(36, 36, 36),
+          new THREE.MeshStandardNodeMaterial({ color: 0xdd6666, roughness: 1 }));
+        shadowCaster.position.set(-100, 80, 10);
+        shadowCaster.castShadow = true;
+        shadowCaster.receiveShadow = true;
+        root.add(shadowCaster);
+      }
+      Object.assign(diagnostics, { ready: true, model, sprite, root, normalMap, depthMap, lightSources, shadowCaster, shadowReceiver });
       diagnostics.setAnchor = (x, y) => context.place(spriteAnchor, { x, y });
       diagnostics.setModelAnchor = (x, y) => context.place(modelAnchor, { x, y });
       return {
         root,
+        lights: options.lighting ? lightSources : undefined,
+        shadows: options.lighting,
         update(frame) {
           if (options.failure === "update") throw new Error("Fixture update failure");
           diagnostics.updates++;

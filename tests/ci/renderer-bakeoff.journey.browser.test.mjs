@@ -197,7 +197,7 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
 // Decision: 180 s per backend bounds software shader compilation and two 120-frame tier windows
 // inside the existing browser job; these are correctness checks, never hardware timing claims.
 it.each(["webgpu", "webgl2"])(
-  "world content shares the product look and contains failures (%s)",
+  "world content shares the product look, content lights and shadows, and contains failures (%s)",
   async (backend) => {
     const root = path.resolve(".");
     const [{ encodeToKTX2 }, { MeshoptEncoder }] = await Promise.all([
@@ -347,6 +347,161 @@ it.each(["webgpu", "webgl2"])(
         );
         return page;
       };
+      const lit = await open("?lighting");
+      await lit.waitForFunction(
+        () => globalThis.fixtureRenderer.adapter.metrics.contentStatus === "ready",
+      );
+      const lighting = await lit.evaluate(async () => {
+        const f = globalThis.fixtureRenderer;
+        const adapter = f.adapter;
+        f.setReducedMotion(true);
+        f.setEnvironment(32_400_000, 0);
+        const capture = async () => {
+          await new Promise(requestAnimationFrame);
+          return f.capture();
+        };
+        const counts = [];
+        for (const tier of ["low", "medium", "high"]) {
+          f.setQuality(tier);
+          adapter.updateContent(0);
+          await capture();
+          counts.push([
+            adapter.metrics.contentLights,
+            adapter.metrics.shadowMaps,
+            adapter.metrics.shadowTextureBytes,
+            adapter.metrics.textureBytes,
+          ]);
+        }
+        f.setContentShadows(false);
+        f.setContentLights(false);
+        const unlit = await capture();
+        f.setContentLights(true);
+        const local = await capture();
+        f.setContentLights(false);
+        const noShadow = await capture();
+        f.setContentShadows(true);
+        const shadow = await capture();
+        const pixels = async (url) => {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          const canvas = document.createElement("canvas");
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const context = canvas.getContext("2d");
+          context.drawImage(image, 0, 0);
+          return context.getImageData(0, 0, canvas.width, canvas.height).data;
+        };
+        const dark = await pixels(unlit),
+          bright = await pixels(local);
+        const before = await pixels(noShadow),
+          after = await pixels(shadow);
+        const changed = (first, second, x, y, z, darker = false) => {
+          const point = f.diagnostics.shadowReceiver.position
+            .clone()
+            .set(x, y, z)
+            .project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          const cx = Math.round(((point.x + 1) * width) / 2),
+            cy = Math.round(((1 - point.y) * height) / 2);
+          let count = 0;
+          for (let py = cy - 12; py <= cy + 12; py++)
+            for (let px = cx - 12; px <= cx + 12; px++) {
+              const offset = (py * width + px) * 4;
+              const delta =
+                second[offset] +
+                second[offset + 1] +
+                second[offset + 2] -
+                first[offset] -
+                first[offset + 1] -
+                first[offset + 2];
+              if (darker ? delta < -10 : delta > 10) count++;
+            }
+          return count;
+        };
+        const surfaceChanges = [
+          changed(dark, bright, -150, 120, -30),
+          changed(dark, bright, 70, -40, -100),
+          changed(before, after, -50, 80, -30, true),
+          changed(before, after, 10, 80, -100, true),
+        ];
+        const oldMaps = adapter.sky.map((light) => light.shadow.map);
+        let retired = 0;
+        for (const map of oldMaps) map?.addEventListener("dispose", () => retired++);
+        adapter.setCamera({ x: 80, y: 80, zoom: 2 });
+        const direction = adapter.sky[0].position
+          .clone()
+          .sub(adapter.sky[0].target.position)
+          .normalize();
+        f.setQuality("low");
+        await capture();
+        const lowDirection = adapter.sky[0].position
+          .clone()
+          .sub(adapter.sky[0].target.position)
+          .normalize();
+        const directionError = direction.distanceTo(lowDirection);
+        const low = [
+          adapter.metrics.contentLights,
+          adapter.metrics.shadowMaps,
+          adapter.metrics.shadowTextureBytes,
+          adapter.sky.every((light) => !light.castShadow),
+        ];
+        const status = adapter.metrics.contentStatus;
+        f.setQuality("high");
+        await capture();
+        let failureRetired = 0;
+        for (const light of adapter.sky)
+          light.shadow.map?.addEventListener("dispose", () => failureRetired++);
+        f.diagnostics.lightSources[0].position = new Array(3);
+        adapter.updateContent(0);
+        await capture();
+        const failure = [
+          adapter.metrics.contentStatus,
+          adapter.metrics.contentFailure,
+          adapter.metrics.contentLights,
+          adapter.metrics.shadowMaps,
+          adapter.metrics.shadowTextureBytes,
+          f.diagnostics.root.parent === null,
+          document.querySelector("#status").textContent,
+        ];
+        f.destroy();
+        return {
+          status,
+          counts,
+          surfaceChanges,
+          retired,
+          low,
+          directionError,
+          failureRetired,
+          failure,
+          disposed: adapter.contentLights.length === 0,
+        };
+      });
+      expect(lighting.counts.map((row) => row.slice(0, 3))).toEqual([
+        [2, 0, 0],
+        [4, 1, 3_145_728],
+        [8, 2, 25_165_824],
+      ]);
+      for (let i = 0; i < 3; i++)
+        expect(lighting.counts[i][3]).toBeLessThanOrEqual([16, 64, 192][i] * 1024 * 1024);
+      expect(lighting.status).toBe("ready");
+      for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);
+      expect(lighting.retired).toBeGreaterThanOrEqual(2);
+      expect(lighting.low).toEqual([2, 0, 0, true]);
+      expect(lighting.directionError).toBeLessThan(1e-12);
+      expect(lighting.failure).toEqual([
+        "failed",
+        "content_contract",
+        0,
+        0,
+        0,
+        true,
+        "Scene ready",
+      ]);
+      expect(lighting.failureRetired).toBeGreaterThanOrEqual(2);
+      expect(lighting.disposed).toBe(true);
+      await lit.close();
       const page = await open();
       await page.waitForFunction(
         () => globalThis.fixtureRenderer.adapter.metrics.contentStatus !== "loading",

@@ -10,6 +10,7 @@ const params = new URLSearchParams(location.search);
 const reports: unknown[] = [];
 let snapshot = decodeSceneProjection(committed);
 const content = params.get("content") === "none" ? undefined : fixtureContent({
+  lighting: params.has("lighting"),
   failure: params.get("failure") ?? undefined,
   // Decision: cap this fixture-only stress knob at 50ms; 40ms exceeds the product's 33.4ms budget.
   workMs: Math.min(50, Math.max(0, Number(params.get("workMs") ?? 0))),
@@ -45,6 +46,15 @@ const api = {
   setEnvironment,
   setReducedMotion,
   setQuality,
+  setContentLights(enabled: boolean) {
+    for (const source of diagnostics.lightSources ?? []) source.intensity = enabled ? 60000 : 0;
+    internal.updateContent(0);
+    internal.dirty = true;
+  },
+  setContentShadows(enabled: boolean) {
+    if (diagnostics.shadowCaster) diagnostics.shadowCaster.castShadow = enabled;
+    internal.dirty = true;
+  },
   capture() {
     if (internal.composer) internal.composer.render();
     else internal.renderer.render(internal.scene, internal.camera);

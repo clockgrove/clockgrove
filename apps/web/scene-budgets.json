@@ -133,17 +133,26 @@
     "tiers": {
       "low": {
         "maxOutputPixels": 512000,
-        "textureBytes": 16777216
+        "textureBytes": 16777216,
+        "contentLights": 2,
+        "shadowMaps": 0,
+        "shadowMapSize": 0
       },
       "medium": {
         "maxOutputPixels": 1000000,
-        "textureBytes": 67108864
+        "textureBytes": 67108864,
+        "contentLights": 4,
+        "shadowMaps": 1,
+        "shadowMapSize": 512
       },
       "high": {
         "maxOutputPixels": 3000000,
-        "textureBytes": 201326592
+        "textureBytes": 201326592,
+        "contentLights": 8,
+        "shadowMaps": 2,
+        "shadowMapSize": 1024
       }
     },
-    "reason": "Canvas requests viewport CSS dimensions times DPR, capped uniformly by tier output pixels. Caps leave allocation headroom for content and labels after conservative renderer output, scene, label and bloom targets. Low retains the existing 16 MiB phone floor; medium/high permit desktop targets. Atlas budget remains separate. Hardware frame time remains an outstanding qualification."
+    "reason": "Canvas requests viewport CSS dimensions times DPR, capped uniformly by tier output pixels. Caps leave allocation headroom for content and labels after conservative renderer output, scene, label and bloom targets. Low retains the existing 16 MiB phone floor; medium/high permit desktop targets. Atlas budget remains separate. Hardware frame time remains an outstanding qualification. Issue #184 content policy bounds local point lights at 2/4/8 and opt-in directional shadow maps at 0/1/2 of side 0/512/1024; reserve shadow depth/color storage inside the same texture ceiling before sizing viewport targets. Low retains illumination without shadow passes."
   }
 }
