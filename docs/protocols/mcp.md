@@ -418,3 +418,30 @@ admission without cognition, including after a missed notification. Remote tool 
 canonical call/spend reservations remain RW-0508. The
 [runtime runbook](../runbooks/runtime.md#local-operator-lifecycle) describes install, review, bind,
 refresh, reconnect and revoke.
+
+## Effect ledger foundation (issue 165, part 1)
+
+Migration `0056_effect_ledger.sql` introduces canonical `effect_intents` and `effect_attempts`.
+This is the first delivery part of read-only research, not a callable MCP execution path.
+The ordinary runtime can read ledger metadata only with current scoped MCP installation
+authority and an operator-evidence privacy ceiling. It cannot insert, update or delete ledger
+rows. A later part must supply the governed reservation and execution port before any
+actor can use these records. Installation and binding authority alone never authorizes a call.
+
+Intent identity and the scoped idempotency key survive for world lifetime. Each intent permits
+one attempt: an interrupted read cannot be resent automatically under that identity. Attempts
+retain an explicit terminal disposition, including uncertainty; an uncertain remote outcome is never
+guessed into success or failure. A terminal attempt may precede settlement of its started
+intent; recovery must read that attempt and settle the matching intent without another call.
+A successful attempt requires a recorded encrypted result. Unknown cost remains distinct from a
+known zero. Arguments and results belong in encrypted artifacts, rather than plaintext ledger
+payloads. The
+[database runbook](../runbooks/database.md#preview-effect-policy) describes the unchanged
+`external-effects` dispatch gate: non-live timelines cannot enqueue external calls.
+
+Remaining delivery parts supply atomic grant and budget reservation, Queue execution and
+dead-letter handling, immediate global/world/installation kill switches, durable
+`tool_waiting`/`tool_completed` recovery, the bounded model loop, safe MCP execution and result
+sanitization, citations and the scripted browser journey. Historical replay must consume the
+recorded result without contacting a server. Preview work must remain blocked or simulated.
+None of those execution guarantees is established by the schema foundation alone.

@@ -386,6 +386,13 @@
       "when": 1795816800000,
       "tag": "0055_boundary_exchange_birth",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1795903200000,
+      "tag": "0056_effect_ledger",
+      "breakpoints": true
     }
   ]
 }

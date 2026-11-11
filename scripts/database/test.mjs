@@ -254,6 +254,12 @@ await withDisposableDatabase(async ({ tools, environment }) => {
   if (!result.includes("database_authorization_ok")) {
     throw new Error(`database authorization checks did not complete: ${result.trim()}`);
   }
+  const effects = await readFile(
+    new URL("../../tests/database/effect-ledger.sql", import.meta.url),
+    "utf8",
+  );
+  const effectsResult = await psqlQuery(tools, environment, effects, { viaStdin: true });
+  assertStrict.ok(effectsResult.includes("effect_ledger_ok"), "effect ledger checks failed");
   await testJournal(tools, environment);
   await testAttributedJournal(tools, environment);
   await testJournalImmutability(tools, environment);
