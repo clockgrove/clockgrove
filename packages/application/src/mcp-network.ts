@@ -143,12 +143,13 @@ export class SafeMcpHttpClient {
   async request(
     input: string,
     init: Omit<RequestInit, "redirect" | "signal">,
+    redirects: "follow" | "refuse" = "follow",
   ): Promise<McpHttpResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), MCP_HTTP_LIMITS.timeoutMs);
     try {
       return await Promise.race([
-        this.perform(input, init, controller.signal),
+        this.perform(input, init, controller.signal, redirects),
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener(
             "abort",
@@ -181,6 +182,7 @@ export class SafeMcpHttpClient {
     input: string,
     init: RequestInit,
     signal: AbortSignal,
+    redirects: "follow" | "refuse",
   ): Promise<McpHttpResponse> {
     let url = remoteMcpUrl(input);
     const initialOrigin = url.origin;
@@ -209,6 +211,8 @@ export class SafeMcpHttpClient {
         const after = await this.addresses(url);
         if (addresses.join(",") !== after.join(",")) throw new McpRefusal("dns_changed");
         if (response.status >= 300 && response.status < 400) {
+          // An execution POST may already have run; never resend it at a redirect target.
+          if (redirects === "refuse") throw new McpRefusal("unsafe_redirect");
           const location = response.headers.get("location");
           if (!location) throw new McpRefusal("invalid_redirect");
           const next = remoteMcpUrl(new URL(location, url).href);
