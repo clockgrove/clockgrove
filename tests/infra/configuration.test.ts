@@ -19,11 +19,9 @@ import {
   assertWorkersDevSubdomain,
   awaitNeonOperations,
   duplicableResources,
-  persistedAddresses,
   resourceAddresses,
   restoresRetiredRoles,
   restrictedRolePasswords,
-  retiredResources,
   stateBackend,
   unrecordedDuplicates,
   verifyPlan,
@@ -216,23 +214,17 @@ describe("restricted database roles", () => {
     ),
   });
 
-  it("owns only the migration role as a Neon API role and retires the others' API roles", async () => {
+  it("owns only the migration role as a Neon API role, and plan review refuses deleting any role at every stage", async () => {
     const config = await readJson(root, "infra/environments/staging.json");
     const owned = resourceAddresses(config);
-    const retired = [...retiredResources()];
-    expect(retired).toHaveLength(6);
-    expect(retired.filter((address) => owned.has(address))).toEqual([]);
     expect([...owned].filter((address) => address.startsWith("neon_role."))).toEqual([
       'neon_role.database["migrations"]',
     ]);
     for (const key of restrictedRoleKeys) {
       expect(owned.has(`random_password.database["${key}"]`)).toBe(true);
-      expect(persistedAddresses(config).has(`neon_role.database["${key}"]`)).toBe(true);
+      // A state holding a restricted API role is outside the owned addresses.
+      expect(owned.has(`neon_role.database["${key}"]`)).toBe(false);
     }
-  });
-
-  it("accepts deleting a retired API role at provision, partial migration included, and no other deletion, replacement or forget", async () => {
-    const config = await readJson(root, "infra/environments/staging.json");
     const review =
       (address: string, actions: string[], action_reason?: string, stage = "provision") =>
       () =>
@@ -242,42 +234,14 @@ describe("restricted database roles", () => {
           stage,
           false,
         );
-    const runtime = 'neon_role.database["runtime"]';
-    const retired =
-      /retired neon_role\.database\["runtime"\] may only be deleted, in the provision stage/u;
-    expect(review(runtime, ["delete"], "delete_because_each_key")).not.toThrow();
-    for (const [actions, reason] of [
-      [["delete"], undefined],
-      [["delete", "create"], "delete_because_each_key"],
-      [["create"], undefined],
-      [["no-op"], undefined],
-    ] as const)
-      expect(review(runtime, [...actions], reason)).toThrow(retired);
-    for (const stage of ["bindings", "routing"])
-      expect(review(runtime, ["delete"], "delete_because_each_key", stage)).toThrow(retired);
-    // A run that ended mid-migration left both the API role and its generated password in state:
-    // the next provision completes the deletion.
-    const partial = {
-      prior_state: {
-        values: {
-          root_module: {
-            resources: [{ address: runtime }, { address: 'random_password.database["runtime"]' }],
-          },
-        },
-      },
-      resource_changes: [
-        {
-          address: runtime,
-          action_reason: "delete_because_each_key",
-          change: { actions: ["delete"] },
-        },
-        { address: 'random_password.database["runtime"]', change: { actions: ["no-op"] } },
-      ],
-    };
-    expect(() => verifyPlan(partial, config, "provision", false)).not.toThrow();
-    expect(
-      review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key"),
-    ).toThrow(/destructive infrastructure plan refused/u);
+    for (const stage of ["provision", "bindings", "routing"]) {
+      expect(
+        review('neon_role.database["runtime"]', ["delete"], "delete_because_each_key", stage),
+      ).toThrow(/undeclared infrastructure resource/u);
+      expect(
+        review('neon_role.database["migrations"]', ["delete"], "delete_because_each_key", stage),
+      ).toThrow(/destructive infrastructure plan refused/u);
+    }
     expect(review("neon_project.world[0]", ["forget"])).toThrow(
       /unreviewed infrastructure plan action/u,
     );

@@ -104,9 +104,9 @@ resource "neon_project" "world" {
 # Only the migration role is a Neon API role. Neon makes every role it creates through its API a
 # member of neon_superuser, which reads and writes all data, and a non-superuser cannot revoke that
 # (https://neon.com/docs/manage/roles). The restricted roles are therefore created with SQL by the
-# migration role (scripts/database/deployment-grants.sql) from the passwords generated here.
-# Instances of the other keys left in state from before are retired: their planned deletion is the
-# one deletion the deploy's plan review accepts (retiredResources in deployment-authority.mjs).
+# migration role (scripts/database/deployment-grants.sql) from the passwords generated here. A
+# state holding an API role for another key is outside the owned addresses, and the deploy's plan
+# review refuses its deletion like every other.
 resource "neon_role" "database" {
   for_each   = local.api_roles
   project_id = neon_project.world[0].id

@@ -14,7 +14,7 @@ import {
   awaitNeonOperations,
   hostedTofuEnv,
   ownedInventory,
-  persistedAddresses,
+  resourceAddresses,
   restrictedRolePasswords,
   roleConnections,
   stateSecrets,
@@ -471,7 +471,7 @@ async function runDeployment() {
             }),
           ),
         );
-        const allowed = persistedAddresses(config);
+        const allowed = resourceAddresses(config);
         assert(
           owned.length <= allowed.size && owned.every((resource) => allowed.has(resource.address)),
           "persisted resource ownership bounds exceeded",
