@@ -39,7 +39,6 @@ import {
 const FILE = "apps/runtime/test/mcp-actor.journey.postgres.test.ts";
 const ACTOR = "fixture.keeper";
 const REMOTE = `mcp:fixture:lookup:2025-11-25:${"1".repeat(64)}`;
-
 it.skipIf(isNativeWorldOwnerChild())(
   "owns PostgreSQL and workerd",
   async () => {
@@ -54,7 +53,6 @@ it.skipIf(isNativeWorldOwnerChild())(
   },
   240_000,
 );
-
 it.skipIf(!isNativeWorldOwnerChild())(
   "refreshes canonical MCP admission before actor use without executing remote tools",
   async () => {
@@ -216,14 +214,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
           throw new Error("hosted actor must not read remote admission");
         },
       );
-      expect(hosted.registry.names()).toEqual(["inspect", "why", "world.command"]);
+      expect(hosted.registry.names()).toEqual(
+        "delivery.request inspect why world.command".split(" "),
+      );
       expect(hosted.grants.available()).toEqual(["inspect", "why"]);
       expect(hosted.grants.authorize({ capability: REMOTE, input: {} })).toEqual({
         accepted: false,
         code: "unknown_capability",
       });
       expect(admission.revision).toBe(3);
-      expect(admission.registry.names()).toEqual(["inspect", REMOTE, "why", "world.command"]);
+      expect(admission.registry.names()).toEqual(
+        `delivery.request inspect ${REMOTE} why world.command`.split(" "),
+      );
       expect(admission.grants.available()).toEqual(["inspect", "why", REMOTE]);
       const say = async (messageId: string) => {
         const response = await post("/v1/runtime/talk", {
@@ -285,7 +287,6 @@ it.skipIf(!isNativeWorldOwnerChild())(
   },
   240_000,
 );
-
 it.skipIf(!isNativeWorldOwnerChild())(
   "keeps an owned credential out of actor prompts, populated run evidence, R2 keys and allocated owner names",
   async () => {
