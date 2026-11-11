@@ -313,7 +313,18 @@ describe("restricted database roles", () => {
         "psql:<stdin>:12: ERROR:  clockgrove role check: clockgrove_support is a member of neon_superuser\nCONTEXT:  PL/pgSQL function inline_code_block line 18 at RAISE\n",
       ),
     ).toBe("clockgrove_support is a member of neon_superuser");
-    expect(roleCheckFailures(`ERROR:  syntax error at or near "${generated()}"`)).toBe("");
+    // Without a named check, PostgreSQL's own first error lines are kept, token-length text redacted.
+    const leaked = generated();
+    const said = roleCheckFailures(
+      `psql:<stdin>:3: ERROR:  syntax error at or near "${leaked}"\nLINE 1: ${leaked}\n`,
+    );
+    expect(said).toBe('syntax error at or near "<redacted>"');
+    expect(said).not.toContain(leaked);
+    expect(
+      roleCheckFailures(
+        "psql:<stdin>:40: ERROR:  permission denied to create role\nDETAIL:  Only roles with the CREATEROLE attribute may create roles.\n",
+      ),
+    ).toBe("permission denied to create role");
   });
 
   it("waits a bounded time for Neon's operations, retries one 5xx, and names what failed or never finished", async () => {
