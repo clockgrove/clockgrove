@@ -10,8 +10,15 @@ import {
   restrictedRoleKeys,
   roleCheckFailures,
 } from "./deployment-roles.mjs";
-import { databaseIsolationQuery } from "./isolation.mjs";
-import { applyMigrations, applySqlFile, psql, psqlQuery, withDisposableDatabase } from "./lib.mjs";
+import { databaseIsolationQuery, runtimeRoleIsolationQuery } from "./isolation.mjs";
+import {
+  applyMigrations,
+  applySqlFile,
+  psql,
+  psqlQuery,
+  scramVerifier,
+  withDisposableDatabase,
+} from "./lib.mjs";
 import { restoredSchemaPolicy, withRestoredHistory } from "./restore.mjs";
 
 await testDisposableDatabaseLifecycle();
@@ -36,7 +43,8 @@ await withDisposableDatabase(
       environment,
       `DROP ROLE ${restricted.join(", ")};
      CREATE ROLE neon_superuser NOLOGIN;
-     ALTER ROLE clockgrove_migrator CREATEROLE CREATEDB;
+     ALTER ROLE clockgrove_migrator LOGIN CREATEROLE CREATEDB;
+     ${environment.PGPASSWORD === undefined ? "" : `ALTER ROLE clockgrove_migrator PASSWORD '${scramVerifier(environment.PGPASSWORD)}';`}
      GRANT neon_superuser TO clockgrove_migrator;
      CREATE EXTENSION pg_stat_statements;`,
     );
@@ -122,17 +130,40 @@ await withDisposableDatabase(
       const clientKey = createHmac("sha256", salted).update("Client Key").digest();
       assertStrict.equal(createHash("sha256").update(clientKey).digest("base64"), storedKey, name);
     }
-    await applyMigrations(tools, environment);
-    const isolation = await psqlQuery(
-      tools,
-      environment,
-      `SET ROLE clockgrove_migrator; ${databaseIsolationQuery}`,
+    // The deploy logs in as the migration role, a non-superuser, and runs every migration as it:
+    // none may need superuser rights. Neon lets neon_superuser members create the extensions it
+    // supports; upstream pgvector is not a trusted extension, so here the superuser creates it.
+    await psql(tools, environment, "CREATE EXTENSION vector;");
+    const migrator = { ...environment, PGUSER: "clockgrove_migrator" };
+    await applyMigrations(tools, migrator);
+    const isolation = await psqlQuery(tools, migrator, databaseIsolationQuery);
+    assertStrict.match(isolation.trim(), /^t(?:\|t)+$/u, "hosted-shape isolation");
+    // The deploy's own checks of the runtime connection and each reader connection, as those roles
+    // with their generated passwords.
+    const as = (role, key) => ({ ...environment, PGUSER: role, PGPASSWORD: passwords[key] });
+    assertStrict.equal(
+      (
+        await psqlQuery(tools, as("clockgrove_runtime", "runtime"), runtimeRoleIsolationQuery)
+      ).trim(),
+      "t",
+      "hosted-shape runtime isolation",
     );
-    assertStrict.match(
-      isolation.trim().split("\n").at(-1),
-      /^t(?:\|t)+$/u,
-      "hosted-shape isolation",
-    );
+    for (const [role, key] of [
+      ["clockgrove_auth_verifier", "authentication"],
+      ["clockgrove_management_reader", "management"],
+      ["clockgrove_world_reader", "worldAuthorization"],
+    ])
+      assertStrict.equal(
+        (
+          await psqlQuery(
+            tools,
+            as(role, key),
+            `SELECT current_user = '${role}' AND current_database() = 'clockgrove'`,
+          )
+        ).trim(),
+        "t",
+        `hosted-shape ${role} identity`,
+      );
     // Membership in neon_superuser, which Neon gives its API roles, is refused by name.
     await psql(tools, environment, "GRANT neon_superuser TO clockgrove_support;");
     assertStrict.equal(await provision(), "clockgrove_support is a member of neon_superuser");

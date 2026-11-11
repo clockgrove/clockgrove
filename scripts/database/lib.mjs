@@ -425,7 +425,7 @@ async function availablePort() {
 }
 
 // PostgreSQL's stored SCRAM-SHA-256 form (RFC 5802, RFC 7677); a hex password needs no SASLprep.
-function scramVerifier(password) {
+export function scramVerifier(password) {
   const iterations = 4096;
   const salt = randomBytes(16);
   const salted = pbkdf2Sync(password, salt, iterations, 32, "sha256");

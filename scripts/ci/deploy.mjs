@@ -5,11 +5,12 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deploymentRolesInput, roleCheckFailures } from "../database/deployment-roles.mjs";
-import { databaseIsolationQuery } from "../database/isolation.mjs";
+import { databaseIsolationQuery, runtimeRoleIsolationQuery } from "../database/isolation.mjs";
 import { ownedSubprocess } from "../lib/subprocess.mjs";
 import { withProviderIpc } from "../provider-ipc.mjs";
 import {
   assertNoUnrecordedDuplicates,
+  assertWorkersDevSubdomain,
   awaitNeonOperations,
   hostedTofuEnv,
   ownedInventory,
@@ -21,6 +22,7 @@ import {
   stateWorkspace,
   verifyPlan,
   verifyPriorActivation,
+  workersDevSubdomainRequired,
 } from "./deployment-authority.mjs";
 import {
   digest,
@@ -434,6 +436,18 @@ async function runDeployment() {
       "true",
       "activation prerequisite issue 2 remains pending",
     );
+    // Facts that would otherwise stop the deploy only after provisioning and migrations, checked
+    // while nothing has changed.
+    assert(
+      env.BETTER_AUTH_SECRET.length >= 32 &&
+        env.BETTER_AUTH_SECRET.trim() === env.BETTER_AUTH_SECRET,
+      "invalid BETTER_AUTH_SECRET",
+    );
+    const wrangler = JSON.parse(
+      await readFile(path.join(root, `infra/wrangler/${target}.json`), "utf8"),
+    );
+    if (workersDevSubdomainRequired(wrangler))
+      await assertWorkersDevSubdomain(config, env.CLOUDFLARE_API_TOKEN);
     // A lock left by an interrupted run would fail the first plan with its output withheld, so it
     // is reported first by holder and age. It is never cleared here.
     store = stateStoreFor(target, config, env);
@@ -544,9 +558,7 @@ async function runDeployment() {
       runtime.on("error", () => {});
       try {
         await runtime.connect();
-        const result = await runtime.query(
-          "SELECT current_user = 'clockgrove_runtime' AND NOT has_schema_privilege(current_user, 'clockgrove', 'CREATE') AS isolated",
-        );
+        const result = await runtime.query(runtimeRoleIsolationQuery);
         assert.equal(
           result.rows[0]?.isolated,
           true,
@@ -557,11 +569,6 @@ async function runDeployment() {
       } finally {
         await runtime.end().catch(() => {});
       }
-      assert(
-        env.BETTER_AUTH_SECRET.length >= 32 &&
-          env.BETTER_AUTH_SECRET.trim() === env.BETTER_AUTH_SECRET,
-        "invalid BETTER_AUTH_SECRET",
-      );
       // Authenticate each generated connection independently before protected publication.
       for (const [name, role] of [
         ["AUTH_DATABASE_URL", "clockgrove_auth_verifier"],
@@ -592,9 +599,6 @@ async function runDeployment() {
       await apply("bindings");
       const hyperdrive = JSON.parse(
         await phase("Hyperdrive identity", "tofu", ["output", "-json", "hyperdrive_id"]),
-      );
-      const wrangler = JSON.parse(
-        await readFile(path.join(root, `infra/wrangler/${target}.json`), "utf8"),
       );
       wrangler.main = path.join(evidenceDirectory, "build/worker/cloudflare-entry.js");
       wrangler.hyperdrive = [{ binding: "HYPERDRIVE", id: hyperdrive }];
