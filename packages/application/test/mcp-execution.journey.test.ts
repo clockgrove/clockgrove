@@ -23,6 +23,13 @@ const server = createServer(async (req, res) => {
     authorization: req.headers.authorization,
     params: rpc.params,
   });
+  if (["/call-307", "/call-308"].includes(path) && rpc.method === "tools/call") {
+    res.writeHead(path === "/call-307" ? 307 : 308, {
+      location: "https://fixture.example/redirected",
+    });
+    res.end();
+    return;
+  }
   if (path === "/redirect" || (path === "/call-redirect" && rpc.method === "tools/call")) {
     res.writeHead(307, { location: "https://other.example/mcp" });
     res.end();
@@ -168,6 +175,8 @@ it("refuses unsupported, malformed and oversized results before exposing them, w
     ["/oversized", "response_too_large", "not_sent"],
     ["/down", "network_failed", "uncertain"],
     ["/call-redirect", "unsafe_redirect", "uncertain"],
+    ["/call-307", "unsafe_redirect", "uncertain"],
+    ["/call-308", "unsafe_redirect", "uncertain"],
     ["/call-oversized", "response_too_large", "uncertain"],
   ]) {
     calls.length = 0;
@@ -286,6 +295,14 @@ it("resolves credentials inside the vault callback and excludes decoded echoes, 
       message: `MCP read refused: ${code}`,
     });
   }
+  const paddedReference = await vault.store(scope, `${canary} `);
+  await expect(
+    transport.execute({ ...request("/echo"), credential: { scope, reference: paddedReference } }),
+  ).rejects.toMatchObject({
+    code: "credential_echo_refused",
+    disposition: "result_refused",
+    message: "MCP read refused: credential_echo_refused",
+  });
   const failing = new RemoteHttpMcpReadAdapter(new SafeMcpHttpClient(network()), {
     use: async () => {
       throw new Error(canary);

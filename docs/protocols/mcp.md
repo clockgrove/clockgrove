@@ -494,7 +494,9 @@ and discovery API stay compatible.
 
 The adapter reuses `SafeMcpHttpClient` and the pinned 2025-11-25 initialization lifecycle.
 It initializes a connection, acknowledges initialization and issues one `tools/call` request,
-without retries. The credential is obtained inside the adapter through the vault callback;
+without retries. Execution refuses every tools/call redirect, including same-origin 307/308,
+and records uncertainty without sending to the redirect target. Discovery retains its existing
+safe-redirect policy. The credential is obtained inside the adapter through the vault callback;
 callers provide only the scoped opaque credential reference. The network policy still
 requires HTTPS, admitted public addresses, pinned connections, safe redirects, bounded
 responses and DNS checks. Test-owned public-name mappings to a loopback HTTP fixture
@@ -515,7 +517,8 @@ untrusted evidence, never facts or capability proposals. Embedded instructions h
 policy, catalog or grant dispatch path. Control and bidirectional override characters are
 replaced and the resulting text is size-checked again; metadata and annotations are discarded. Unsupported content and
 malformed/oversized results are refused before model inclusion; server error text and
-credential echoes are never exposed as diagnostics. Tool cost remains unknown rather than inferred as zero.
+credential echoes are never exposed as diagnostics. Echo screening uses the normalized
+Authorization header token actually transmitted, including when the stored credential is padded. Tool cost remains unknown rather than inferred as zero.
 The owner-deferred shadow judge is not added here.
 
 This part does not compose ledger admission, the external-effects Queue consumer or DLQ,

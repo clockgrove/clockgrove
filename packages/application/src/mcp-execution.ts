@@ -188,7 +188,10 @@ export class RemoteHttpMcpReadAdapter {
       let stage: McpReadFailureDisposition = "not_sent";
       try {
         let session: string | undefined;
-        const token = authorization?.replace(/^Bearer\s+/iu, "");
+        const transmittedAuthorization = new Headers(
+          authorization ? { Authorization: authorization } : {},
+        ).get("Authorization");
+        const token = transmittedAuthorization?.replace(/^Bearer\s+/iu, "");
         const headers = (): Headers =>
           new Headers({
             "Content-Type": "application/json",
@@ -202,11 +205,15 @@ export class RemoteHttpMcpReadAdapter {
           method: string,
           params: object,
         ): Promise<Record<string, unknown>> => {
-          const response = await this.http.request(endpoint, {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-          });
+          const response = await this.http.request(
+            endpoint,
+            {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+            },
+            method === "tools/call" ? "refuse" : "follow",
+          );
           if (method === "tools/call") stage = "result_refused";
           lastStage = stage;
           if (response.status !== 200) throw new McpRefusal("http_failed");
