@@ -24,6 +24,7 @@ import {
   type RuntimeResponseCode,
   resolveInboundSourceIdentity,
   runtimeLogRecord,
+  safeMcpNetworkRefusal,
   type WorldCommandResult,
   WorldContinuationPendingError,
 } from "@clockgrove/application";
@@ -124,6 +125,12 @@ import {
 } from "./interactions.js";
 import { MemoryRuntimeLocalStorage } from "./local-storage.js";
 import { OwnerMailboxError } from "./mailbox.js";
+import {
+  MCP_INSTALL_GRANT,
+  MCP_ROUTES,
+  type McpRuntimeAction,
+  type McpRuntimePort,
+} from "./mcp.js";
 import { EntitySelectionUnavailableError } from "./observation.js";
 import {
   AUTHORIZATION_REFUSED_RESULT,
@@ -165,6 +172,7 @@ export interface RuntimeRequestAuthenticator {
 }
 
 export interface RuntimeOwnerBindings {
+  readonly mcp?: McpRuntimePort | undefined;
   readonly sceneConnection?: (
     scope: RuntimeScope,
     context: TrustedContext,
@@ -390,6 +398,41 @@ export class RuntimeWorker {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname.startsWith("/v1/runtime/mcp/")) {
+      const action = url.pathname.slice("/v1/runtime/mcp/".length);
+      if (!(MCP_ROUTES as readonly string[]).includes(action))
+        return jsonResponse({ error: "not_found" }, 404);
+      try {
+        const identified = await this.authenticator.identify(request.clone());
+        const context = await this.authenticator.authorize(
+          identified,
+          undefined,
+          MCP_INSTALL_GRANT,
+        );
+        if (!this.bindings.mcp) return jsonResponse({ error: "mcp_unavailable" }, 503);
+        const input: unknown = await request.json();
+        if (!input || typeof input !== "object" || Array.isArray(input))
+          return jsonResponse({ error: "invalid_mcp_request" }, 400);
+        return jsonResponse(
+          await this.bindings.mcp.execute(
+            action as McpRuntimeAction,
+            input as Record<string, unknown>,
+            context,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof AuthenticationRefusedError)
+          return jsonResponse({ error: "authentication_refused" }, 401);
+        if (error instanceof AuthorizationRefusedError)
+          return jsonResponse({ error: "authorization_refused" }, 403);
+        // Closed refusal codes only; no request body, provider text or exception enters logs.
+        const refusal = safeMcpNetworkRefusal(error);
+        return jsonResponse(
+          { error: refusal?.code ?? "mcp_operation_failed" },
+          refusal ? 400 : 503,
+        );
+      }
+    }
     if (request.method === "GET" && url.pathname === "/v1/projection")
       return this.joinScene(request);
     if (request.method === "POST" && url.pathname === "/v1/runtime/why")

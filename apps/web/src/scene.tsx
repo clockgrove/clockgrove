@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserAuthenticationPort } from "./api.js";
 import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
+import { McpCapabilities } from "./mcp-capabilities.js";
 import { clientMeasurements, measure, measurePoint } from "./measurements.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
 import type { RendererContent } from "./renderer-content.js";
@@ -297,6 +298,9 @@ export function WorldApp({
   const path = useWorldChoice((choice) => choice.path);
   const show = useWorldChoice((choice) => choice.show);
   const [credential, setCredential] = useState("");
+  const [capabilitiesOpen, setCapabilitiesOpen] = useState(
+    new URLSearchParams(location.search).has("state"),
+  );
   const selected = useSceneView((view) => view.selected);
   const select = useSceneView((view) => view.select);
   const focused = useEntityFocus((view) => view.focused);
@@ -452,6 +456,15 @@ export function WorldApp({
         </div>
         {scene && shown && <WorldClockHud status={status} scene={scene} />}
         <div className="rw-hud-end">
+          {signedIn && entry && (
+            <button
+              type="button"
+              aria-expanded={capabilitiesOpen}
+              onClick={() => setCapabilitiesOpen(!capabilitiesOpen)}
+            >
+              Capabilities
+            </button>
+          )}
           {scene && shown && (
             <button
               type="button"
@@ -469,6 +482,9 @@ export function WorldApp({
         </div>
       </header>
       <main className="rw-main">
+        {signedIn && entry && capabilitiesOpen && (
+          <McpCapabilities key={worldRoutePath(entry)} session={session} scope={entry} />
+        )}
         <p className="rw-observation-details">
           Observe an authorized world. This view grants no world mutation authority.
         </p>

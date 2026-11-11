@@ -1,10 +1,12 @@
 # Remote MCP installation
 
-Issue 164 provides discovery, isolated PostgreSQL credentials, internal canonical installation
-governance, scoped binding policy, reviewed-version registry admission and an owned credential-backed
-discovery coordinator. It does not yet compose production installation, wire remote actor capabilities or expose
-operator HTTP routes. Those consumers must preserve the contract below before remote capabilities
-become usable. The existing [capability registry](capabilities.md) accepts additive remote admission snapshots; deployed actors still use the internal capabilities.
+Issue 164 provides local authenticated installation routes, a capabilities screen, isolated PostgreSQL
+credentials, canonical installation/review/binding governance and actor revision integration.
+The [local runtime composition](#local-runtime-composition) and
+[operator procedure](../runbooks/runtime.md#local-operator-lifecycle) describe the current path.
+Production remote MCP remains guarded off pending issue 3's hosted egress receipt after issue 2's
+staging deployment. Remote execution belongs to RW-0508. Earlier delivery-part sections below
+record the foundation boundaries; the final local integration supersedes their pending local work.
 
 ## Transport and untrusted discovery
 
@@ -336,3 +338,50 @@ were checked on 2026-11-10: public routing is a platform boundary, while DNS pre
 cannot pin an independently resolved connection. No global-fetch adapter or production network
 switch is introduced here. The final consumer must verify and prove the owner-decided hosted
 private-egress protection and document residual rebinding behavior before exposing endpoints.
+
+## Hosted evidence ownership
+
+Owner amendment (2026-11-10, issue 164): the hosted private-egress verification belongs to
+issue 3 and runs on staging after issue 2's first successful deployment. Local operator,
+credential and actor integration does not wait for that receipt. Production remote MCP
+composition remains disabled until that candidate-bound hosted receipt exists; local fixture
+results do not substitute for it. The required checks include private/metadata destinations,
+redirect admission and DNS rebinding with the platform's public-egress boundary. Any residual
+hole still requires pinned egress under the original decision.
+
+Bearer-bearing endpoint or redirect URLs are refused, including decoded URL matches, before
+outbound requests. This keeps credentials out of URL-derived evidence as well as response data;
+operators receive the fixed `credential_url_refused` code.
+
+## Local runtime composition
+
+`McpRuntimeOperator` retains isolated provider ownership across authenticated operator requests,
+including OAuth begin/callback, refresh and revoke. It performs canonical installation-authority
+checks before outbound work and Journal commits. Anonymous discovery uses the same safe HTTP
+policy. Static/OAuth bearer values are supplied only inside the vault callback. The browser sees
+sanitized fixed refusal codes, discovery data and canonical policy state, never a credential
+reference or provider exception text. Listing returns tool/resource/prompt candidates; review
+and binding changes use exact pins and the attributed Journal path.
+
+`composeMcpOperator` requires a separate direct secret database connection, a dedicated versioned
+keyring and trusted network/OAuth configuration. Local Workers forward authenticated operator
+requests over the internal `MCP_OPERATOR_DO` binding to `McpOperatorDO`. This Durable Object owns
+the retained sockets, so OAuth callbacks and refreshes may use them from later requests. One
+local owner preserves the configured installation capacity across all scoped installations;
+its fixed non-secret name contains no credential, endpoint or installation data. It writes no
+Durable Object storage; PostgreSQL remains canonical. The runtime retains its owner across requests;
+provider close disables credential installations. Lost owners cannot be transparently recreated
+from a pooled connection: refresh fails closed and reconnect uses a new installation identifier.
+These are local composition boundaries, not permission to expose a production network adapter.
+`RuntimeComposition.mcpConfiguration` wires local owner lifetime and actor revision notification;
+non-local composition is guarded off pending the hosted receipt owned by issue 3.
+
+`actor_mcp_admission` reads the canonical live participant and membership before returning a scoped
+registry snapshot without endpoint, owner or secret metadata. Installation and binding scope is
+tenant/world/timeline, so admission and revision notifications span spaces within that scope;
+the participant still needs live membership in the session's own space. Actor owners reload before claim,
+model context and proposal and reconcile the revision hook. Revocation therefore stops new
+admission without cognition, including after a missed notification. Remote tool execution and
+canonical call/spend reservations remain RW-0508. The
+[runtime runbook](../runbooks/runtime.md#local-operator-lifecycle) describes install, review, bind,
+refresh, reconnect and revoke.

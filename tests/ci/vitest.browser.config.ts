@@ -15,6 +15,7 @@ export default defineConfig({
     include: [
       "tests/e2e/living-hall.journey.browser.test.mjs",
       "tests/e2e/arrival-truth.journey.browser.test.mjs",
+      "tests/e2e/mcp-installation.journey.browser.test.mjs",
       "tests/accessibility/text-path.journey.browser.test.mjs",
       "tests/visual/golden-states.journey.browser.test.mjs",
       "tests/load/realtime/fanout.journey.browser.test.mjs",

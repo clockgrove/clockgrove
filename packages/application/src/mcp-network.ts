@@ -14,6 +14,7 @@ export function safeMcpNetworkRefusal(error: unknown): McpRefusal | undefined {
       "invalid_url",
       "https_required",
       "url_credentials_or_query_refused",
+      "credential_url_refused",
       "private_target",
       "private_or_unresolved_target",
       "dns_changed",
@@ -185,6 +186,18 @@ export class SafeMcpHttpClient {
     const initialOrigin = url.origin;
     for (let hop = 0; hop <= MCP_HTTP_LIMITS.redirects; hop++) {
       if (signal.aborted) throw new McpRefusal("network_timeout");
+      const authorization = new Headers(init.headers).get("authorization");
+      if (authorization?.startsWith("Bearer ")) {
+        const token = authorization.slice(7);
+        let decoded = url.href;
+        try {
+          decoded = decodeURIComponent(decoded);
+        } catch {
+          /* Invalid escapes remain encoded. */
+        }
+        if (token && (url.href.includes(token) || decoded.includes(token)))
+          throw new McpRefusal("credential_url_refused");
+      }
       const addresses = await this.addresses(url);
       if (signal.aborted) throw new McpRefusal("network_timeout");
       const response = await this.network.request(

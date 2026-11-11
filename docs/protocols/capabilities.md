@@ -81,8 +81,8 @@ The separate owner-defaulted `runtime:mcp-install` grant governs installation an
 changes. The isolated secret-provider role confers no installation or capability authority.
 Provider-session loss fences old credentials and requires reconnect; see the
 [provider contract](mcp.md#postgresql-secret-provider). Credential-backed discovery now has an
-owned internal coordinator, including OAuth, but deployed routes and provider ownership remain
-pending. The deployed actor path still has only the internal capabilities above.
+owned coordinator, including OAuth, composed through local authenticated routes and retained provider
+ownership. Hosted routes and remote actor admission remain guarded off pending issue 3.
 
 ## MCP binding admission (part 5)
 
@@ -95,13 +95,26 @@ Remote metadata is data, never registry instructions. Version names encode the f
 `CapabilityGrants.authorize` accepts optional trusted use metadata for destination and cost
 constraints; internal capability behavior is unchanged. Grants with such constraints refuse
 missing metadata. Runtime counters and reservations must be canonical at the executor boundary;
-this stateless check does not reserve spend or execute remote tools. The deployed actor path
-still uses only internal definitions. Loading these snapshots before new use and invalidating
-them via the actor capability revision hook remain final-part integration, so these proofs do
-not yet establish immediate deployed actor revocation.
+this stateless check does not reserve spend or execute remote tools. The local actor path loads these snapshots before new use and reconciles the capability revision
+hook. Hosted remote admission remains guarded off; internal definitions stay available there.
+
+## Local actor integration and hosted guard
+
+Local actor admission reloads canonical MCP records through `actor_mcp_admission` for the live
+session participant before claim, model context and capability proposal. The read function checks
+canonical membership, persona, actor and session; operator mutation authority and table RLS are
+unchanged. Installation/binding changes announce their canonical revision through
+`reconcileCapabilities`; a missed notification cannot preserve a stale grant at new use.
+The registry preserves internal definitions. Remote admission remains non-executable until
+RW-0508, and no server prompt or description enters actor instructions.
+
+Hosted MCP composition and remote admission remain disabled pending issue 3's hosted egress
+receipt after issue 2's staging deployment. The local factory/network path is not evidence for
+hosted SSRF or DNS rebinding protection. See the [operator lifecycle](../runbooks/runtime.md#local-operator-lifecycle).
 
 ## Proactive delivery producer
 
 An activation configuration may explicitly request private delivery of the actor reply with `delivery: {urgency, quietHoursBehavior}`. Omitting it preserves ordinary activation behavior. This is a compiled producer, not a general model-selected delivery tool. It cannot select a foreign recipient, artifact, session or provider. The activation snapshots this intent at admission, and coalesced wakes inherit the canonical leader’s intent.
 
 The native actor owner commits its ordinary recoverable turn, then asks `delivery.request` to deliver the stored actor reply before settling the activation. The producer rechecks current activation authority and existing private session/binding provenance. It derives a stable request and reservation identity from the activation. A retry reads the durable receipt before constructing a new request, preserving the original consent version and spending no second reservation. All delivery decisions go through the [governed boundary](channels.md#governed-outbound-delivery). Automatic quiet-hour resumption remains Part 5 of issue 168.
+

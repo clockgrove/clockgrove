@@ -209,6 +209,9 @@ it("refuses a server-selected protocol and decoded credential echoes with fixed 
     message: "MCP refused: credential_echo_refused",
     code: "credential_echo_refused",
   });
+  await expect(
+    discovery().discover("https://fixture.example/canary-test-token", "Bearer canary-test-token"),
+  ).rejects.toMatchObject({ code: "credential_url_refused" });
   const failed: McpNetworkPort = {
     resolve: async () => {
       throw new Error("canary-test-token");

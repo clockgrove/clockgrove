@@ -217,6 +217,32 @@ export class SceneSession {
   }
   readonly getSnapshot = (): SceneStateProjection =>
     this.queries.getQueryData<SceneStateProjection>(sceneProjectionKey) ?? emptyScene;
+  /** Operator requests retain the authenticated session and never persist entered credentials. */
+  async mcpRequest<T>(scope: BrowserScope, operation: string, payload: object = {}): Promise<T> {
+    const credential = this.account?.credential;
+    if (!credential) throw new ApiRefusal(401);
+    const response = await fetch(new URL(`/v1/runtime/mcp/${operation}`, this.origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        ...scope,
+        ...payload,
+        commandId: crypto.randomUUID(),
+        issuedAt: new Date().toISOString(),
+      }),
+    });
+    const result: unknown = await response.json();
+    if (!response.ok) {
+      const code =
+        typeof result === "object" && result !== null && "error" in result
+          ? result.error
+          : undefined;
+      throw new Error(
+        typeof code === "string" && /^[a-z_]+$/.test(code) ? code : "MCP request refused",
+      );
+    }
+    return result as T;
+  }
   readonly getDirectoryKey = (): DirectoryQueryKey => this.directoryKey;
   readonly getSelectionKey = (): EntityQueryKey => this.selectionKey;
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;

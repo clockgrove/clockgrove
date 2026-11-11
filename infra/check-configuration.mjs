@@ -54,11 +54,20 @@ export function verifyWrangler(config, manifest, surface, root, configPath) {
     assert.equal(new Set(items.map((item) => item[key])).size, items.length, "duplicate binding");
     return Object.fromEntries(items.map((item) => [item[key], item.class_name]));
   };
-  assert.deepEqual(pairs(config.durable_objects.bindings, "name"), surface.manifest.durableObjects);
+  const localObjects = manifest.environment === "local" ? surface.manifest.localDurableObjects : {};
+  assert.deepEqual(pairs(config.durable_objects.bindings, "name"), {
+    ...surface.manifest.durableObjects,
+    ...localObjects,
+  });
   assert.deepEqual(pairs(config.workflows, "binding"), surface.manifest.workflows);
   const classes = Object.values(surface.manifest.durableObjects);
-  assert.deepEqual(config.migrations, [{ tag: "v1", new_sqlite_classes: classes }]);
-  for (const name of [...classes, ...Object.values(surface.manifest.workflows)])
+  assert.deepEqual(config.migrations, [
+    { tag: "v1", new_sqlite_classes: classes },
+    ...(Object.keys(localObjects).length > 0
+      ? [{ tag: "v2", new_sqlite_classes: Object.values(localObjects) }]
+      : []),
+  ]);
+  for (const name of [...classes, ...Object.values(localObjects), ...Object.values(surface.manifest.workflows)])
     assert(surface.exports.has(name), `${name} must be exported`);
   assert.equal(new Set(config.workflows.map(({ name }) => name)).size, config.workflows.length);
   assert.deepEqual(Object.keys(config.vars).sort(), [...surface.manifest.variables].sort());
