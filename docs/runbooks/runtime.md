@@ -1659,7 +1659,7 @@ node scripts/runtime-chat.mjs read --url https://runtime.example.test \
 
 Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
 
-New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. It exposes no operator HTTP or CLI command yet; Part 4 connects explicitly configured proactive actor wakes internally, while automatic delayed-request scheduling and the final cross-adapter completion proof remain Part 5. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
+New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. Part 4 connects explicitly configured proactive actor wakes internally. Part 5 adds the recipient-owned consent HTTP surface and delayed proactive delivery recovery described below; there is no CLI consent command. Ordinary response governance and the final cross-adapter completion proof remain Part 6. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
 
 ## MCP part 5 internal composition
 
@@ -1729,17 +1729,49 @@ committed actor reply. Omitting the field preserves ordinary activation behavior
 The source session must belong to the authenticated participant and canonical actor.
 Coalesced wakes share the admitted leader’s immutable delivery intent.
 
-Recipient-owned consent is configured through the internal
-`PostgreSqlGovernedDelivery.configureConsent` API; there is no public consent HTTP
-or CLI command in this part. It defaults off, per actor and world timeline, and
-contains recipient timezone, quiet hours and lifetime message-unit capacity.
+Recipient-owned consent is configured with authenticated
+`POST /v1/runtime/deliveries/consent`. It defaults off, per actor and world timeline,
+and contains recipient timezone, quiet hours and lifetime message-unit capacity.
+The existing observe grant, conversation privacy ceiling and own session participation
+are required; the recipient is resolved from the bearer identity. There is no CLI
+consent command.
 A wake never grants consent. The native
 `apps/runtime/test/proactive-delivery.journey.postgres.test.ts` journey demonstrates
 the configured producer through the real actor owner and PostgreSQL.
 
 Delivery is recorded before activation settlement. Retrying uses the historical
 receipt and stable activation key, without another reservation or sink write.
-A delayed receipt remains pending until explicit internal `resume`; automatic
-resumption and the complete browser/CLI/fake completion proof remain Part 5 of
-issue 168. No external messaging provider is configured.
+Actor activation alarms automatically resume delayed proactive deliveries. Each
+callback persists a successor before work and reads pending deliveries from
+PostgreSQL, so owner interruption does not lose the request. Dispatch rechecks
+current consent, membership and recipient-local quiet hours. Repeated callbacks
+reuse the original reservation and sink receipt. Ordinary response governance and
+the complete browser/CLI/fake completion proof remain Part 6 of issue 168. No
+external messaging provider is configured.
 
+For example, POST this JSON with the member's existing authenticated HTTP client
+to `/v1/runtime/deliveries/consent`:
+
+```json
+{
+  "version": 1,
+  "tenantId": "tenant-id",
+  "worldId": "world-id",
+  "timelineId": "timeline-id",
+  "spaceId": "space-id",
+  "actorId": "actor-id",
+  "sessionId": "session-id",
+  "consent": {
+    "enabled": true,
+    "timezone": "America/Los_Angeles",
+    "quietHours": { "startMinute": 1320, "endMinute": 420 },
+    "budgetLimit": 20
+  }
+}
+```
+
+These example policy values opt in to at most 20 lifetime delivery units and quiet
+hours from 22:00 to 07:00 in the recipient timezone. Set `enabled` to false to
+revoke consent. Changing policy increments its version; pending requests recheck
+that version before dispatch. Lowering capacity below already reserved units is
+refused. A wake cannot choose another recipient or bypass that policy.
