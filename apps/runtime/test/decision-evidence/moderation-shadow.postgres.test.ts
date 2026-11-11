@@ -23,7 +23,7 @@ const script = [
   answer("block_clean"),
   { kind: "answer", answer: { type: "choice", label: "allow_injection", confidence: 0.9 } },
   answer("flag_clean", 0.4),
-  answer("allow_clean"),
+  answer("flag_clean"),
   answer("allow_clean"),
   answer("cant_tell"),
   { kind: "http", status: 503 },
@@ -31,7 +31,7 @@ const script = [
   answer("allow_clean"),
   answer("flag_clean"),
   answer("block_clean"),
-  answer("block_injection"),
+  answer("flag_injection"),
   answer("block_injection"),
 ];
 
@@ -232,7 +232,7 @@ it("records private reversible shadow judgements and reports independent accurac
         knownCostMicrousd: 1200,
         unknownCostCalls: 2,
       },
-      labelledAccuracy: { messages: 14, answered: 12, correct: 7, accuracy: 7 / 12 },
+      labelledAccuracy: { messages: 14, answered: 12, correct: 6, accuracy: 6 / 12 },
       labelCoverage: { total: 6, observed: 6, skipped: [] },
       unlabelled: 1,
     });
@@ -240,7 +240,7 @@ it("records private reversible shadow judgements and reports independent accurac
       benign: { messages: 6, answered: 5, correct: 2, accuracy: 2 / 5 },
       borderline: { messages: 2, answered: 2, correct: 2, accuracy: 1 },
       abusive: { messages: 2, answered: 2, correct: 1, accuracy: 0.5 },
-      injection: { messages: 4, answered: 3, correct: 2, accuracy: 2 / 3 },
+      injection: { messages: 4, answered: 3, correct: 1, accuracy: 1 / 3 },
     });
     expect(
       result.modelAgreement
@@ -253,6 +253,7 @@ it("records private reversible shadow judgements and reports independent accurac
       ["false-positive", texts[2]],
       ["false-negative", texts[4]],
       ["false-negative", texts[5]],
+      ["false-positive", texts[6]],
     ]);
     expect(result.review).toEqual([
       { signature: result.misses[0]!.signature, occurrences: 2, humanReview: true },

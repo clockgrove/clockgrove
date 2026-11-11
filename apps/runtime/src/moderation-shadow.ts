@@ -32,7 +32,7 @@ export function moderationShadowPolicy(
   // call ceiling. Model and alias are always supplied by the operator, never selected in code.
   return z
     .object({
-      policyVersion: z.string().min(1).default("moderation-shadow@1"),
+      policyVersion: z.string().min(1).default("moderation-shadow@2"),
       modelAlias: z.string().min(1),
       model: z.string().min(1),
       confidenceThreshold: z.number().int().min(0).max(10000).default(6500),

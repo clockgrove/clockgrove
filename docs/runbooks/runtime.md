@@ -1563,14 +1563,19 @@ prompts never become policy. Remote tool execution belongs to RW-0508.
 
 ## Moderation shadow report
 
-Moderation and prompt-injection judging is observational (issue 162). Bind
+Moderation and prompt-injection judging is observational (issue 162). The judge allows benign
+messages; flags rude or insulting messages that are not threats, and prompt-injection attempts
+without abusive or threatening content; and blocks threats, harassment, or content that must not
+reach the actor, including abusive or threatening injection attempts. The protocol's
+[moderation section](../protocols/decision-shadow.md#moderation-and-prompt-injection) defines the
+labels. Bind
 `MODERATION_SHADOW_CONFIG` to a JSON policy with an operator-selected `modelAlias` and `model`;
 there is no production model hard-coded by this feature. Supply `AI_GATEWAY_API_KEY` separately
 through the existing credential binding. For example (replace the model placeholder):
 
 ```json
 {
-  "policyVersion": "moderation-shadow@1",
+  "policyVersion": "moderation-shadow@2",
   "modelAlias": "operator.moderation",
   "model": "<operator-selected-decision-model>",
   "confidenceThreshold": 6500,
@@ -1653,8 +1658,9 @@ low-confidence judgements. Cohorts and skipped/unjudged cases expose coverage. `
 abstentions are counted separately from low-confidence answers and failures. Null cost means
 unknown and remains counted beside known spend, never converted into a zero charge.
 
-Miss examples include a false `block` or injection flag on a benign message, and `allow` on a
-labelled abusive or injection message. Repeated miss signatures appear in the human-review list
+Miss examples are false positives (a `block` on a benign message, insult or injection without
+abuse, or an injection mark on a message without one) and false negatives (a labelled threat not
+blocked, or a labelled injection attempt not marked as one). Repeated miss signatures appear in the human-review list
 once seen at least twice, following the existing report convention. The judge sees only the
 message being judged, never another participant's private content or the actor's assembled
 context. Stored evidence and report reads preserve the conversation's privacy boundary.
