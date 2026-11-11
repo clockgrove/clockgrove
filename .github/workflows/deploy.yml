@@ -107,6 +107,18 @@ jobs:
           INFRA_STATE_ACCESS_KEY_ID: ${{ secrets.INFRA_STATE_ACCESS_KEY_ID }}
           INFRA_STATE_SECRET_ACCESS_KEY: ${{ secrets.INFRA_STATE_SECRET_ACCESS_KEY }}
         run: node scripts/ci/deploy.mjs
+      # The deployed environment proves itself with the same commands people run: a read-only plan
+      # with no pending change, then the cloud suite (the plan twice with one change-set digest, the
+      # web shell over HTTPS, and a 401 on an unauthenticated runtime request).
+      - name: Prove the deployed environment (read-only plan and cloud suite)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          INFRA_STATE_ACCESS_KEY_ID: ${{ secrets.INFRA_STATE_ACCESS_KEY_ID }}
+          INFRA_STATE_SECRET_ACCESS_KEY: ${{ secrets.INFRA_STATE_SECRET_ACCESS_KEY }}
+        run: |
+          pnpm run infra:plan "$DEPLOY_ENVIRONMENT"
+          pnpm run test:cloud "$DEPLOY_ENVIRONMENT"
       - name: Retain deployment results without state or plans
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
