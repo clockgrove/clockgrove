@@ -316,6 +316,54 @@ under both software backends. Software rendering establishes correctness, not ph
 See [external renderer composition](../../../docs/protocols/world-presentation.md#external-renderer-composition)
 for the pinned-checkout recipe and frame capture.
 
+### Content lights and shadows
+
+Content may opt into renderer-owned local lights and scene-light shadows. This is additive to
+content v1: omitting the optional fields preserves existing content and capture output. Arbitrary
+Three light objects remain invalid in the content root. Light descriptors are presentation data;
+the renderer owns the actual lights, tier selection and GPU resource retirement.
+
+| Tier | Active content lights | Directional shadow maps | Map side |
+| --- | ---: | ---: | ---: |
+| low | 2 | 0 | 0 |
+| medium | 4 | 1 | 512 |
+| high | 8 | 2 | 1024 |
+
+The instance's optional `lights` array contains `{ position: [x, y, z], colour,
+intensity, rangeMetres }` descriptors. Positions are screen-aligned metres relative to the scene
+origin, with all three axes scaled by 12.5; unlike `place`, their depth is not compressed.
+`colour` is `#rrggbb`, intensity is nonnegative, and range is positive. All numbers must be
+finite. Admission uses array order, up to the active tier's cap; extra valid descriptors remain
+inactive. At most 64 descriptors are accepted. Absolute position components and intensity are
+bounded by 1,000,000, and range by 100,000 metres. These defensive #184 presentation limits
+bound validation work and avoid overflow; invalid values fail the content contract.
+Descriptors can change during `update`; the renderer revalidates them before rendering.
+
+The instance's optional `shadows: true` enables content mesh `castShadow` and `receiveShadow`
+flags and ground shadow reception. Meshes choose their flags individually; the renderer bounds
+scene directional shadow maps by tier. Omission or `false` disables participation. Point lights
+from descriptors illuminate surfaces but do not allocate point-light shadow cube maps.
+The standalone fixture opts in with `?lighting`.
+
+These are explicit #184 visual policy decisions to bound per-fragment light work and shadow
+allocation. The lower tier retains local illumination with shadow passes disabled. Existing
+projection lights continue to follow committed time-of-day data. Content illumination reaches
+other lit content and the ground; shadow participation is opt-in and uses scene directional
+lights. Content does not choose another camera or replace the scene light rig.
+
+Shadow storage conservatively reserves 12 bytes per map pixel before choosing viewport dimensions
+and counts in `textureBytes`: 3,145,728 bytes at medium and 25,165,824 at high when both scene
+directional sources are present. `metrics.contentLights`, `shadowMaps` and `shadowTextureBytes`
+report active admission and reserved storage. Shadow coverage follows the fixed camera and zoom
+using the visible rectangle’s diagonal radius and 128 logical pixels of caster margin. The light
+target sits at depth -50 between content and ground (-100); the source distance is the larger of
+1000 or coverage radius plus 128, with near 0.1 and far distance plus radius plus 128. Bias is -0.0001.
+These are explicit renderer presentation choices for #184, bounding coverage while limiting acne.
+Tier changes, content failure and destruction retire unused light and shadow resources. The
+existing frame-cadence downgrade includes the cost of content lights and shadows. Software
+backend fixtures establish correctness and bounded allocation; physical phone timing remains
+part of #184's final qualification.
+
 ## Budgets (§9.3)
 
 [`scene-budgets.json`](../scene-budgets.json) records each limit with its source or decision.
@@ -412,8 +460,8 @@ project a different rig/environment without changing the renderer. The offline r
 uses the same policy and offers a continuous time slider. Final golden approval and physical
 phone performance qualification remain separate from this backend correctness proof.
 
-Issue #184 part 4 must add explicit per-tier content-light and shadow limits and account for
-their frame-time and memory costs. Part 5 must measure the completed renderer on desktop and
+Issue #184 part 4 adds bounded content lights and opt-in scene shadows, accounted within tier
+texture ceilings and the existing frame-cadence downgrade. Part 5 must measure the completed renderer on desktop and
 recent-phone hardware, including a working lower phone tier; allocation bounds and
 software-rendered frame cadence do not establish that hardware requirement. Part 5 must also
 re-capture the golden states at full viewport resolution and obtain review through the existing

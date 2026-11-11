@@ -23,6 +23,7 @@ import {
   rendererLibrary,
   rendererNodes,
   validateContent,
+  validateContentLighting,
 } from "./renderer-content.js";
 import { worldShell } from "./shell.js";
 import {
@@ -108,6 +109,9 @@ export interface SceneMetrics {
   contentFailures: number;
   contentObjects: number;
   contentUpdateMs: number;
+  contentLights: number;
+  shadowMaps: number;
+  shadowTextureBytes: number;
 }
 export type RendererMeasurement =
   | {
@@ -143,6 +147,9 @@ export type QualityTier = "low" | "medium" | "high";
  * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
   low: {
+    contentLights: 2,
+    shadowMaps: 0,
+    shadowMapSize: 0,
     renderScale: 0.5,
     maxOutputPixels: 512_000,
     textureBytes: 16 * 1024 * 1024,
@@ -153,6 +160,9 @@ export const SCENE_QUALITY = {
     wind: false,
   },
   medium: {
+    contentLights: 4,
+    shadowMaps: 1,
+    shadowMapSize: 512,
     renderScale: 1,
     maxOutputPixels: 1_000_000,
     textureBytes: 64 * 1024 * 1024,
@@ -163,6 +173,9 @@ export const SCENE_QUALITY = {
     wind: true,
   },
   high: {
+    contentLights: 8,
+    shadowMaps: 2,
+    shadowMapSize: 1024,
     renderScale: 1,
     maxOutputPixels: 3_000_000,
     textureBytes: 192 * 1024 * 1024,
@@ -256,11 +269,15 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     contentFailures: 0,
     contentObjects: 0,
     contentUpdateMs: 0,
+    contentLights: 0,
+    shadowMaps: 0,
+    shadowTextureBytes: 0,
   };
   private content: RendererContentInstance | undefined;
   private readonly contentAbort = new AbortController();
   private readonly contentLoaderDisposers = new Set<() => void>();
   private contentTime = 0;
+  private contentLights: THREE.PointLight[] = [];
   private restoreContentErrors: (() => void) | undefined;
   private readonly contentRoughness = new WeakMap<THREE.Material, number>();
   private readonly started = performance.now();
@@ -610,7 +627,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         !(instance.root instanceof THREE.Group) ||
         instance.root.parent ||
         typeof instance.update !== "function" ||
-        !validateContent(instance.root)
+        !validateContent(instance.root) ||
+        !validateContentLighting(instance)
       ) {
         this.failContent("content_contract");
         return;
@@ -644,6 +662,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const instance = this.content;
     this.content = undefined;
     if (instance) this.disposeInstance(instance);
+    this.syncContentLighting();
     for (const dispose of this.contentLoaderDisposers) {
       try {
         dispose();
@@ -676,7 +695,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       );
       this.applyMaterialTier(true);
       if (!this.content) return true;
-      if (instance.root.parent !== this.scene || !validateContent(instance.root)) {
+      if (
+        instance.root.parent !== this.scene ||
+        !validateContent(instance.root) ||
+        !validateContentLighting(instance)
+      ) {
         this.failContent("content_contract");
         return true;
       }
@@ -685,6 +708,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         count += 1;
       });
       this.metrics.contentObjects = count;
+      this.syncContentLighting();
       this.updateTextureBytes();
       return true;
     } catch {
@@ -1129,6 +1153,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    this.syncContentLighting();
+    this.updateTextureBytes();
     this.resizeViewport();
     this.applyMaterialTier();
     this.disposePost();
@@ -1239,6 +1265,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.camera.zoom = zoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
+    this.syncContentLighting();
     this.dirty = true;
   }
   private frameCamera(placements: readonly ScenePlacement[], reset = true): void {
@@ -1509,13 +1536,14 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         light.color.set(source.colour);
         light.intensity = source.intensity;
         light.position.set(...(source.direction.map((v) => -v) as [number, number, number]));
+        light.userData.shadowDirection = light.position.clone().normalize();
       });
       while (this.sky.length > projection.lighting.directional.length)
-        this.sky.pop()?.removeFromParent();
+        this.retireSky(this.sky.pop()!);
       this.scene.userData.gradingKey = projection.lighting.gradingKey;
       this.scene.userData.weatherIntensity = projection.lighting.weatherIntensity;
     } else {
-      while (this.sky.length > 1) this.sky.pop()?.removeFromParent();
+      while (this.sky.length > 1) this.retireSky(this.sky.pop()!);
       if (!this.sky[0]) {
         const sky = new THREE.DirectionalLight();
         this.sky.push(sky);
@@ -1526,6 +1554,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         sky.color.set(0xcbdcff);
         sky.intensity = 0.25 * Math.PI;
         sky.position.set(-200, 400, 500);
+        sky.userData.shadowDirection = sky.position.clone().normalize();
       }
       delete this.scene.userData.gradingKey;
       delete this.scene.userData.weatherIntensity;
@@ -1557,6 +1586,102 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       light.position.set(x, -y + 12, 35);
     }
     while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();
+    this.syncContentLighting();
+  }
+  private retireSky(light: THREE.DirectionalLight): void {
+    light.dispose();
+    light.shadow.dispose();
+    light.shadow.map = null;
+    light.shadow.mapPass = null;
+    light.removeFromParent();
+    light.target.removeFromParent();
+  }
+  private syncContentLighting(): void {
+    if (!this.renderer || !this.scene) return;
+    if (this.content && !validateContentLighting(this.content)) {
+      this.failContent("content_contract");
+      return;
+    }
+    const quality = SCENE_QUALITY[this.tier];
+    const sources = this.content?.lights ?? [];
+    const count = Math.min(sources.length, quality.contentLights);
+    for (let index = 0; index < count; index++) {
+      const source = sources[index]!;
+      let light = this.contentLights[index];
+      if (!light) {
+        light = new THREE.PointLight();
+        this.contentLights.push(light);
+        this.scene.add(light);
+      }
+      light.color.set(source.colour);
+      light.intensity = source.intensity;
+      light.distance = source.rangeMetres * PX_PER_METRE;
+      light.position.set(
+        ...(source.position.map((value) => value * PX_PER_METRE) as [number, number, number]),
+      );
+    }
+    while (this.contentLights.length > count) {
+      const light = this.contentLights.pop()!;
+      light.removeFromParent();
+      light.dispose();
+    }
+    this.metrics.contentLights = count;
+    const shadows = this.content?.shadows === true;
+    const maps = shadows ? Math.min(this.sky.length, quality.shadowMaps) : 0;
+    this.renderer.shadowMap.enabled = maps > 0;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.ground.receiveShadow = maps > 0;
+    this.sky.forEach((original, index) => {
+      const enabled = index < maps;
+      let light = original;
+      // Three r187 retains depth bindings across a target resize; a new light retires that cache (#184).
+      if (enabled && original.castShadow && original.shadow.mapSize.x !== quality.shadowMapSize) {
+        light = new THREE.DirectionalLight(original.color, original.intensity);
+        light.position.copy(original.position);
+        light.userData.shadowDirection = original.userData.shadowDirection;
+        this.retireSky(original);
+        this.sky[index] = light;
+        this.scene.add(light);
+      }
+      const retiringShadow = !enabled && light.castShadow;
+      if (retiringShadow) {
+        light.dispose();
+        light.shadow.dispose();
+        light.shadow.map = null;
+        light.shadow.mapPass = null;
+      }
+      light.castShadow = enabled;
+      if (!enabled) {
+        if (retiringShadow && light.userData.shadowDirection)
+          light.position.copy(light.userData.shadowDirection);
+        light.target.position.set(0, 0, 0);
+        light.target.updateMatrixWorld();
+        return;
+      }
+      light.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
+      const direction = light.userData.shadowDirection ?? light.position.clone().normalize();
+      light.target.position.set(this.camera.position.x, this.camera.position.y, -50);
+      light.target.updateMatrixWorld();
+      const camera = light.shadow.camera;
+      // #184: diagonal radius covers the view for every light direction; 128px includes nearby casters.
+      const extent =
+        Math.hypot(
+          (this.camera.right - this.camera.left) / this.camera.zoom / 2,
+          (this.camera.top - this.camera.bottom) / this.camera.zoom / 2,
+          50,
+        ) + 128;
+      const distance = Math.max(1000, extent + 128);
+      light.position.copy(light.target.position).addScaledVector(direction, distance);
+      camera.left = camera.bottom = -extent;
+      camera.right = camera.top = extent;
+      camera.near = 0.1;
+      camera.far = distance + extent + 128;
+      camera.updateProjectionMatrix();
+      light.shadow.bias = -0.0001;
+    });
+    this.metrics.shadowMaps = maps;
+    // Three r187 ShadowNode: reserve 12 B/px conservatively for RGBA, depth and backend overhead.
+    this.metrics.shadowTextureBytes = maps * quality.shadowMapSize ** 2 * 12;
   }
   private drawEffects(projection: SceneProjection): void {
     const effects = projection.effects ?? [];
@@ -2088,6 +2213,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (pages.has(texture)) atlasBytes += size;
       else bytes += size;
     }
+    bytes += this.metrics.shadowTextureBytes;
     this.metrics.atlasTextureBytes = atlasBytes;
     const changed = this.resourceTextureBytes !== bytes;
     this.resourceTextureBytes = bytes;
@@ -2130,6 +2256,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.contentAbort.abort();
     if (this.content) this.disposeInstance(this.content);
     this.content = undefined;
+    this.syncContentLighting();
+    for (const light of this.sky) this.retireSky(light);
     for (const dispose of this.contentLoaderDisposers) {
       try {
         dispose();

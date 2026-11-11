@@ -111,8 +111,19 @@ export interface RendererContentContext {
     ktx2: import("three/addons/loaders/KTX2Loader.js").KTX2Loader;
   }>;
 }
+export interface RendererContentLight {
+  /** Screen-aligned metres, XYZ, before the anchor depth compression used by place(). */
+  readonly position: readonly [number, number, number];
+  readonly colour: string;
+  readonly intensity: number;
+  readonly rangeMetres: number;
+}
 export interface RendererContentInstance {
   readonly root: THREE.Group;
+  /** Renderer-owned, unshadowed point lights, admitted in array order within the tier cap. */
+  readonly lights?: readonly RendererContentLight[];
+  /** Opt into scene directional shadows; meshes still choose castShadow and receiveShadow. */
+  readonly shadows?: boolean;
   /** Register textures hidden inside deferred shader callbacks for accounting and retirement. */
   readonly textures?: readonly THREE.Texture[];
   /** Update only owned objects. Use absolute time, including zero when motion is reduced. */
@@ -194,6 +205,31 @@ export function validateContent(root: THREE.Group): boolean {
     }
   });
   return valid;
+}
+
+export function validateContentLighting(instance: RendererContentInstance): boolean {
+  if (instance.shadows !== undefined && typeof instance.shadows !== "boolean") return false;
+  if (instance.lights === undefined) return true;
+  // #184: bound validation work even when a content producer supplies more lights than a tier admits.
+  if (!Array.isArray(instance.lights) || instance.lights.length > 64) return false;
+  return Array.from(instance.lights).every(
+    (light) =>
+      light &&
+      Array.isArray(light.position) &&
+      light.position.length === 3 &&
+      [0, 1, 2].every(
+        (index) =>
+          Number.isFinite(light.position[index]) && Math.abs(light.position[index]!) <= 1_000_000,
+      ) &&
+      typeof light.colour === "string" &&
+      /^#[0-9a-f]{6}$/i.test(light.colour) &&
+      Number.isFinite(light.intensity) &&
+      light.intensity >= 0 &&
+      light.intensity <= 1_000_000 &&
+      Number.isFinite(light.rangeMetres) &&
+      light.rangeMetres > 0 &&
+      light.rangeMetres <= 100_000,
+  );
 }
 
 export function materialTextures(material: THREE.Material): Set<THREE.Texture> {
