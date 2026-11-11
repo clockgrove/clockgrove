@@ -773,8 +773,9 @@ simulate mode are not yet built. `pnpm run db:verify` checks the trigger;
 Migration `0056_effect_ledger.sql` adds `effect_intents` and `effect_attempts` as canonical
 history, with forced RLS and no ordinary runtime write privilege. Scoped operator-evidence
 reads do not authorize execution. The first issue 165 delivery part installs storage and
-its attack proof only; the governed writer, Queue consumer and actor continuation are
-subsequent delivery parts.
+its attack proof only. Part 3 adds internal atomic persistence of already-admitted intents
+and external-effects outbox rows; it adds no runtime write privilege. The governed writer,
+Queue consumer and actor continuation remain subsequent delivery parts.
 
 Retain intent identity, idempotency and attempt dispositions for world lifetime, as recorded
 in `db/retention.json`. Deleting those rows could allow a replay to lose the evidence that a
