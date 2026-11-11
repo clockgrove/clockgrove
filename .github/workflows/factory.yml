@@ -12,7 +12,7 @@ on:
     inputs:
       issue: { description: Objective issue number (empty runs the dispatcher), required: false }
       harness: { description: "Override FACTORY_HARNESS for this run (claude | codex | copilot)", required: false }
-      wake: { description: "Set by the wake job only (the deadline it slept to); leave empty", required: false }
+      wake: { description: "Set by a wake job only (the deadline it slept to); leave empty", required: false }
   issues: # a new Objective dispatches at once (labelled at creation, or labelled later); closed: an Objective blocked by that issue is ready now
     types: [opened, labeled, closed]
   pull_request: # fires because the App (not the job token) applies factory:review, a human marks a Question draft ready (the App's own ready mark starts no job), a Factory PR merged (siblings may be stale now), or the merge queue dropped one (the dispatcher re-enqueues it once, then Blocks)
@@ -69,9 +69,14 @@ jobs:
     concurrency: { group: factory-dispatch, cancel-in-progress: false } # ticks run one at a time
     runs-on: ubuntu-latest
     timeout-minutes: 15 # a tick takes seconds; a hung one would hold every later tick for the runner's six hours
-    outputs: { issues: "${{ steps.f.outputs.issues }}", count: "${{ steps.f.outputs.count }}", queue_watch: "${{ steps.f.outputs.queue_watch }}", wake_at: "${{ steps.f.outputs.wake_at }}", wake_kind: "${{ steps.f.outputs.wake_kind }}" }
+    outputs:
+      issues: "${{ steps.f.outputs.issues }}"
+      count: "${{ steps.f.outputs.count }}"
+      queue_watch: "${{ steps.f.outputs.queue_watch }}"
+      wake_at: "${{ steps.f.outputs.wake_at }}"
+      wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/factory@v0.9.5
+      - uses: clockgrove/factory@v0.9.6
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   queue-watch:
@@ -91,7 +96,7 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.9.5
+      - uses: clockgrove/factory@v0.9.6
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
@@ -137,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.5
+      - uses: clockgrove/factory@v0.9.6
         id: f
         with:
           mode: work
@@ -170,7 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.5
+      - uses: clockgrove/factory@v0.9.6
         id: f
         with:
           mode: review
