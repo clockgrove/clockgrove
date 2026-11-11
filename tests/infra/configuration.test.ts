@@ -325,6 +325,15 @@ describe("restricted database roles", () => {
         "psql:<stdin>:40: ERROR:  permission denied to create role\nDETAIL:  Only roles with the CREATEROLE attribute may create roles.\n",
       ),
     ).toBe("permission denied to create role");
+    // psql's own client-side errors (connection, TLS, meta-commands) are named too.
+    expect(
+      roleCheckFailures(
+        'psql: error: connection to server at "ep-x.neon.tech" (1.2.3.4), port 5432 failed: root certificate file "/home/runner/.postgresql/root.crt" does not exist\n',
+      ),
+    ).toContain("root certificate file");
+    expect(roleCheckFailures("psql:<stdin>:7: error: \\bind: missing parameter\n")).toContain(
+      "bind",
+    );
   });
 
   it("waits a bounded time for Neon's operations, retries one 5xx, and names what failed or never finished", async () => {

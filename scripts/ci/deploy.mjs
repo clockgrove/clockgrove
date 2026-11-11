@@ -511,6 +511,10 @@ async function runDeployment() {
         PGUSER: decodeURIComponent(migrator.username),
         PGPASSWORD: decodeURIComponent(migrator.password),
         PGSSLMODE: "verify-full",
+        // libpq's verify-full otherwise looks for ~/.postgresql/root.crt, which a hosted runner
+        // lacks, so psql never connects. "system" (libpq 16+) trusts the OS certificate store,
+        // as node-postgres already does for the deploy's other database checks.
+        PGSSLROOTCERT: "system",
       };
       // Creates or updates the restricted roles with SQL. Their passwords reach psql only on
       // standard input; a failed role check is reported by role name, the rest of psql's output
