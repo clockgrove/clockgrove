@@ -1,8 +1,7 @@
 # Capability registry and grants
 
 Contract of RW-0506's first subset (issue 19): the typed registry, per-actor grants and the
-`world.command` path, plus issue 164’s additive MCP admission snapshots. Subscriptions, schedules,
-delivery and document-write capabilities come later and add to the same registry.
+`world.command` path, plus issue 164’s additive MCP admission snapshots. Issue 168 adds an explicitly configured proactive `delivery.request` producer. Subscription, schedule and document-write capabilities remain separate additions to the same registry.
 
 ## Registry
 
@@ -15,6 +14,7 @@ function that accepts one exact input shape and refuses everything else.
 | `inspect`       | `read`          | `runtime:world-observe`  | none                                 |
 | `why`           | `read`          | `runtime:world-observe`  | `commandId`                          |
 | `world.command` | `world_command` | `runtime:world-command`  | `type`, `objectId`, `kind`           |
+| `delivery.request` | `external-write` | Authorized proactive activation only; current `runtime:world-command` and delivery authority | `urgency`, `quietHoursBehavior` |
 
 The read capabilities are registered and grantable. Nothing executes them in this checkpoint: a
 model proposal for one is refused as `not_executable`.
@@ -22,7 +22,7 @@ model proposal for one is refused as `not_executable`.
 ## Grants, budgets and revocation
 
 `registry.grantsFor(memberGrants)` returns one `CapabilityGrant` per capability whose required
-runtime grant the member holds. An actor therefore never holds more than the member it talks with.
+runtime grant the member holds. An actor therefore never holds more than the member it talks with. `delivery.request` is excluded from default grants; only the authorized proactive producer constructs its one-call grant, and recipient-owned consent and budget still govern the request.
 Decisions:
 
 - Each grant allows one call per turn. Stevie proposes at most one command a turn.
@@ -87,8 +87,7 @@ pending. The deployed actor path still has only the internal capabilities above.
 ## MCP binding admission (part 5)
 
 `resolveMcpCapabilityRegistry` now builds reviewed remote versions in this same registry from
-canonical installation and binding snapshots. It preserves all three internal definitions and
-their existing default grants. Remote discovery alone adds no grant. Scoped deny, exact review
+canonical installation and binding snapshots. It preserves the internal definitions and their existing default grants. The proactive-only `delivery.request` definition has no default grant. Remote discovery alone adds no grant. Scoped deny, exact review
 pins, drift, input/destination/effect/call/budget/expiry limits and a narrowing session overlay
 govern admission; see the [binding contract](mcp.md#scoped-binding-policy-and-registry-admission).
 Remote metadata is data, never registry instructions. Version names encode the full pin.
@@ -100,3 +99,9 @@ this stateless check does not reserve spend or execute remote tools. The deploye
 still uses only internal definitions. Loading these snapshots before new use and invalidating
 them via the actor capability revision hook remain final-part integration, so these proofs do
 not yet establish immediate deployed actor revocation.
+
+## Proactive delivery producer
+
+An activation configuration may explicitly request private delivery of the actor reply with `delivery: {urgency, quietHoursBehavior}`. Omitting it preserves ordinary activation behavior. This is a compiled producer, not a general model-selected delivery tool. It cannot select a foreign recipient, artifact, session or provider. The activation snapshots this intent at admission, and coalesced wakes inherit the canonical leader’s intent.
+
+The native actor owner commits its ordinary recoverable turn, then asks `delivery.request` to deliver the stored actor reply before settling the activation. The producer rechecks current activation authority and existing private session/binding provenance. It derives a stable request and reservation identity from the activation. A retry reads the durable receipt before constructing a new request, preserving the original consent version and spending no second reservation. All delivery decisions go through the [governed boundary](channels.md#governed-outbound-delivery). Automatic quiet-hour resumption remains Part 5 of issue 168.

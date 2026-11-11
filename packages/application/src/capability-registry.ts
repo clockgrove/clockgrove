@@ -174,8 +174,28 @@ function identifier(value: unknown): string {
   return value;
 }
 
-/** `inspect`, `why` and `world.command`, the internal capabilities of the first cognitive checkpoint. */
+/** Internal definitions; delivery.request is admitted only by the proactive producer. */
 export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
+  {
+    name: "delivery.request",
+    description: "Request governed private delivery of an authorized proactive actor reply.",
+    effect: "external-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => {
+      const value = record(input, ["urgency", "quietHoursBehavior"]);
+      if (
+        typeof value.urgency !== "string" ||
+        !["normal", "urgent"].includes(value.urgency) ||
+        typeof value.quietHoursBehavior !== "string" ||
+        !["delay", "silent", "reject"].includes(value.quietHoursBehavior)
+      )
+        throw new CapabilityInputError("delivery intent refused");
+      return {
+        urgency: value.urgency,
+        quietHoursBehavior: value.quietHoursBehavior,
+      };
+    },
+  },
   {
     name: "inspect",
     description: "Read the authorized scene around the actor.",

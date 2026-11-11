@@ -187,7 +187,7 @@ of that participant and actor.
 A configuration contains `id`, `sessionId`, `kind`, `nextWakeAt` (epoch milliseconds or null),
 `intervalMs` (milliseconds or null, at least 60,000 when set), optional `eventType`, `input`,
 `priority` (0–100), `enabled` and
-`compiledRoutine` (`noop` or `escalate`). The policy contains `allowModel` and `modelBudget`, a
+`compiledRoutine` (`noop` or `escalate`), plus optional `delivery` with `urgency` (`normal` or `urgent`) and `quietHoursBehavior` (`delay`, `silent` or `reject`). Omitting delivery preserves existing behavior. The policy contains `allowModel` and `modelBudget`, a
 lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations.
 An opportunity is reserved before model escalation; interrupted model retries reserve another. A wake
 contains `configurationId`, `causalRoot`, `reason` and `evidence`. Its discriminated reason is one
@@ -248,3 +248,9 @@ identity and can resume when an operator changes the policy or allowance.
 These routes provide the local operator and inspector surface. The activation journey is intended
 for native workerd/PostgreSQL local proof; it does not establish hosted delivery. Wave 5
 qualification and hosted delivery remain separate obligations.
+
+### Proactive governed delivery
+
+An explicitly configured delivery snapshots its intent into the admitted activation receipt (migration 0052). Coalesced wakes inherit the canonical leader’s intent; later configuration edits cannot change it. After the ordinary turn commits its encrypted actor reply, the actor owner requests governed private delivery before settling the activation. The producer derives the recipient, channel/thread and artifact from the stored authorized session and reply, and rechecks current activation authority. Recovery uses the stable activation delivery key and historical receipt, so an interruption after delivery cannot send or reserve twice.
+
+The registered `delivery.request` capability has no default grant for ordinary Talk turns. The compiled proactive producer is its first executor; recipient-owned per-actor consent and reserved budget remain mandatory. Quiet-hour delay remains pending until an explicit resume in this part. Automatic delayed dispatch and the final cross-adapter completion proof remain Part 5 of issue 168. See [channels](channels.md#governed-outbound-delivery).

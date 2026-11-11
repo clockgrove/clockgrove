@@ -1,4 +1,7 @@
 import {
+  type ActivationAddress,
+  CAPABILITY_REGISTRY,
+  CapabilityGrants,
   DeliveryRefusedError,
   type DeliveryTarget,
   evaluateDeliveryPolicy,
@@ -180,79 +183,192 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
     if (r.recipientPrincipalId !== a.principalId)
       throw new DeliveryRefusedError("delivery_target_invalid");
     const t: DeliveryTarget = { scope: r.scope, actorId: r.actorId, sessionId: r.sessionId };
-    return withClientTransaction(this.client, { authorization: a }, async () => {
-      const sink = await this.target(a, t, r);
-      await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
-        JSON.stringify([...key(a, t), r.dedupeKey]),
-      ]);
-      const existing = await this.client.query(
-        `SELECT receipt,request=$7::jsonb AS matches FROM clockgrove.deliveries WHERE ${KEY} AND dedupe_key=$6`,
-        [...key(a, t), r.dedupeKey, JSON.stringify(r)],
-      );
-      if (existing.rows[0]) {
-        const row = existing.rows[0] as Row;
-        if (!row.matches) throw new DeliveryRefusedError("delivery_key_reused");
-        return { disposition: "deduplicated", receipt: row.receipt as DeliveryReceipt };
-      }
-      const c = await this.client.query(
-        `SELECT * FROM clockgrove.delivery_consent WHERE ${KEY} FOR UPDATE`,
-        key(a, t),
-      );
-      const consent = c.rows[0] ? consentOf(c.rows[0] as Row) : undefined;
-      const collision = await this.client.query(
-        `SELECT 1 FROM clockgrove.deliveries WHERE ${KEY} AND reservation_id=$6`,
-        [...key(a, t), r.budgetReservation.id],
-      );
-      if (collision.rows.length) throw new DeliveryRefusedError("delivery_key_reused");
-      const now = this.instant();
-      const draft = {
-        status: "reserved",
-        reason: "allowed",
-        effectiveUrgency: r.urgency,
-        request: r,
-        evaluatedAt: now.toISOString(),
-        reservedUnits: 0,
-        sink: null,
-      };
-      const inserted = await this.client.query(
-        `INSERT INTO clockgrove.deliveries
+    return withClientTransaction(this.client, { authorization: a }, () =>
+      this.requestHere(a, r, t),
+    );
+  }
+
+  private async requestHere(
+    a: RuntimeAuthorizationContext,
+    r: DeliveryRequested,
+    t: DeliveryTarget,
+  ): Promise<DeliveryResult> {
+    const sink = await this.target(a, t, r);
+    await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      JSON.stringify([...key(a, t), r.dedupeKey]),
+    ]);
+    const existing = await this.client.query(
+      `SELECT receipt,request=$7::jsonb AS matches FROM clockgrove.deliveries WHERE ${KEY} AND dedupe_key=$6`,
+      [...key(a, t), r.dedupeKey, JSON.stringify(r)],
+    );
+    if (existing.rows[0]) {
+      const row = existing.rows[0] as Row;
+      if (!row.matches) throw new DeliveryRefusedError("delivery_key_reused");
+      return { disposition: "deduplicated", receipt: row.receipt as DeliveryReceipt };
+    }
+    const c = await this.client.query(
+      `SELECT * FROM clockgrove.delivery_consent WHERE ${KEY} FOR UPDATE`,
+      key(a, t),
+    );
+    const consent = c.rows[0] ? consentOf(c.rows[0] as Row) : undefined;
+    const collision = await this.client.query(
+      `SELECT 1 FROM clockgrove.deliveries WHERE ${KEY} AND reservation_id=$6`,
+      [...key(a, t), r.budgetReservation.id],
+    );
+    if (collision.rows.length) throw new DeliveryRefusedError("delivery_key_reused");
+    const now = this.instant();
+    const draft = {
+      status: "reserved",
+      reason: "allowed",
+      effectiveUrgency: r.urgency,
+      request: r,
+      evaluatedAt: now.toISOString(),
+      reservedUnits: 0,
+      sink: null,
+    };
+    const inserted = await this.client.query(
+      `INSERT INTO clockgrove.deliveries
         (tenant_id,world_id,timeline_id,actor_id,principal_id,space_id,session_id,dedupe_key,reservation_id,reserved_units,content_artifact_id,request,receipt,status)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11::jsonb,$12::jsonb,'reserved') RETURNING reserved_units`,
+      [
+        ...key(a, t),
+        t.scope.spaceId,
+        t.sessionId,
+        r.dedupeKey,
+        r.budgetReservation.id,
+        r.contentArtifactId,
+        JSON.stringify(r),
+        JSON.stringify(draft),
+      ],
+    );
+    const reserved = Number((inserted.rows[0] as Row).reserved_units);
+    const decision =
+      reserved === 0
+        ? {
+            status: "rejected" as const,
+            reason: "budget_exhausted" as const,
+            effectiveUrgency: r.urgency,
+          }
+        : evaluateDeliveryPolicy(r, consent, now);
+    const receipt: DeliveryReceipt = {
+      ...decision,
+      request: r,
+      evaluatedAt: now.toISOString(),
+      reservedUnits: reserved,
+      sink: decision.status === "approved" || decision.status === "downgraded" ? sink : null,
+    };
+    await this.client.query(
+      `UPDATE clockgrove.deliveries SET receipt=$7::jsonb,status=$8 WHERE ${KEY} AND dedupe_key=$6`,
+      [...key(a, t), r.dedupeKey, JSON.stringify(receipt), receipt.status],
+    );
+    await this.send(a, t, receipt);
+    return { disposition: "recorded", receipt };
+  }
+
+  requestActivation(
+    a: ActivationAddress,
+    activationId: string,
+  ): Promise<DeliveryResult | undefined> {
+    return withClientTransaction(this.client, { authorization: a.participant }, async () => {
+      const leader = await this.client.query(
+        `SELECT * FROM clockgrove.actor_activations
+         WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND actor_id=$4
+           AND principal_id=$5 AND space_id=$6 AND activation_id=$7 AND leader=true FOR UPDATE`,
         [
-          ...key(a, t),
-          t.scope.spaceId,
-          t.sessionId,
-          r.dedupeKey,
-          r.budgetReservation.id,
-          r.contentArtifactId,
-          JSON.stringify(r),
-          JSON.stringify(draft),
+          a.scope.tenantId,
+          a.scope.worldId,
+          a.scope.timelineId,
+          a.actorId,
+          a.participant.principalId,
+          a.scope.spaceId,
+          activationId,
         ],
       );
-      const reserved = Number((inserted.rows[0] as Row).reserved_units);
-      const decision =
-        reserved === 0
-          ? {
-              status: "rejected" as const,
-              reason: "budget_exhausted" as const,
-              effectiveUrgency: r.urgency,
-            }
-          : evaluateDeliveryPolicy(r, consent, now);
-      const receipt: DeliveryReceipt = {
-        ...decision,
-        request: r,
-        evaluatedAt: now.toISOString(),
-        reservedUnits: reserved,
-        sink: decision.status === "approved" || decision.status === "downgraded" ? sink : null,
-      };
-      await this.client.query(
-        `UPDATE clockgrove.deliveries SET receipt=$7::jsonb,status=$8 WHERE ${KEY} AND dedupe_key=$6`,
-        [...key(a, t), r.dedupeKey, JSON.stringify(receipt), receipt.status],
+      const row = leader.rows[0] as Row | undefined;
+      if (!row) throw new DeliveryRefusedError("delivery_target_invalid");
+      if (row.delivery_intent == null) return undefined;
+      const authority = await this.client.query(
+        `SELECT clockgrove.lock_activation_delivery_authority($1,$2,$3,$4,$5) AS allowed`,
+        [
+          a.scope.tenantId,
+          a.scope.worldId,
+          a.scope.timelineId,
+          a.scope.spaceId,
+          a.participant.principalId,
+        ],
       );
-      await this.send(a, t, receipt);
-      return { disposition: "recorded", receipt };
+      if (!(authority.rows[0] as Row)?.allowed)
+        throw new DeliveryRefusedError("delivery_target_invalid");
+      const target: DeliveryTarget = {
+        scope: a.scope,
+        actorId: a.actorId,
+        sessionId: String(row.session_id),
+      };
+      const dedupeKey = `activation:${activationId}`;
+      const previous = await this.client.query(
+        `SELECT receipt FROM clockgrove.deliveries WHERE ${KEY} AND dedupe_key=$6`,
+        [...key(a.participant, target), dedupeKey],
+      );
+      const historical = (previous.rows[0] as Row | undefined)?.receipt as
+        | DeliveryReceipt
+        | undefined;
+      if (!historical && row.status !== "pending") return undefined;
+      const grants = new CapabilityGrants(
+        CAPABILITY_REGISTRY,
+        [{ capability: "delivery.request", callsPerTurn: 1 }],
+        new Set(),
+      );
+      const decision = grants.authorize({
+        capability: "delivery.request",
+        input: row.delivery_intent,
+      });
+      if (!decision.accepted) throw new DeliveryRefusedError("delivery_policy_invalid");
+      const source = await this.client.query(
+        `SELECT cm.content_artifact_id,b.channel,b.thread_id,c.version
+         FROM clockgrove.conversation_messages cm
+         JOIN clockgrove.channel_bindings b USING(tenant_id,session_id)
+         LEFT JOIN clockgrove.delivery_consent c ON c.tenant_id=b.tenant_id AND c.world_id=b.world_id
+           AND c.timeline_id=b.timeline_id AND c.actor_id=$4 AND c.principal_id=b.principal_id
+         WHERE cm.tenant_id=$1 AND cm.session_id=$2 AND cm.message_id=$3 AND cm.role='actor'
+           AND cm.author_id=$4 AND b.principal_id=$5`,
+        [
+          a.scope.tenantId,
+          target.sessionId,
+          `${row.message_id}:reply`,
+          a.actorId,
+          a.participant.principalId,
+        ],
+      );
+      const content = source.rows[0] as Row | undefined;
+      if (!content || source.rows.length !== 1)
+        throw new DeliveryRefusedError("delivery_target_invalid");
+      const intent = decision.input as {
+        urgency: "normal" | "urgent";
+        quietHoursBehavior: "delay" | "silent" | "reject";
+      };
+      const request: DeliveryRequested = {
+        type: "DeliveryRequested",
+        version: 1,
+        ...target,
+        recipientPrincipalId: a.participant.principalId,
+        channelBinding: {
+          channel: content.channel as DeliveryRequested["channelBinding"]["channel"],
+          threadId: String(content.thread_id),
+        },
+        reason: { kind: "event", id: activationId },
+        ...intent,
+        contentArtifactId: String(content.content_artifact_id),
+        privacyClass: "conversation",
+        consentVersion: historical?.request.consentVersion ?? Number(content.version ?? 0),
+        policyVersion: "delivery-policy-v1",
+        dedupeKey,
+        budgetReservation: { id: dedupeKey, units: 1 },
+      };
+      validateRequest(request);
+      return this.requestHere(a.participant, request, target);
     });
   }
+
   private async send(
     a: RuntimeAuthorizationContext,
     t: DeliveryTarget,

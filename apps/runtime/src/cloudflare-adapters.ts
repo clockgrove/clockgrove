@@ -1411,6 +1411,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         () => undefined,
         false,
       );
+      if (result.receipt !== undefined && admitted.delivery !== undefined)
+        await withActivations(this.environment, (store) =>
+          store.deliver(address, admitted.activationId),
+        );
       await withActivations(this.environment, (store) =>
         store.settle(
           address,

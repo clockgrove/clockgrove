@@ -193,7 +193,13 @@ it("journals exact-pin scoped MCP policy and rejects self-grants, stale pins and
       ]);
       expect((await installations.read(auth, scope, "installation"))?.revision).toBe("3");
       const admitted = await resolve();
-      expect(admitted.registry.names()).toEqual(["inspect", remoteName, "why", "world.command"]);
+      expect(admitted.registry.names()).toEqual([
+        "delivery.request",
+        "inspect",
+        remoteName,
+        "why",
+        "world.command",
+      ]);
       expect(admitted.grants.available()).toEqual([remoteName]);
       expect(admitted.registry.get(remoteName)?.effect).toBe("read");
       expect(
