@@ -535,6 +535,8 @@ async function runDeployment() {
         [path.join(root, "scripts/database/migrate.mjs")],
         {
           env: migrationEnv,
+          // Migration SQL carries no secrets; the first error line names why it stopped.
+          explain: (_stdout, stderr) => roleCheckFailures(stderr),
         },
       );
       await verifyDatabaseIsolation(connections.MIGRATION_DATABASE_URL);

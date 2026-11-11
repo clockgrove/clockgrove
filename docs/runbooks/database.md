@@ -6,7 +6,7 @@ artifact references are acceleration metadata; journal events remain canonical.
 
 ## Local prerequisites and isolation
 
-The supported database policy is exactly PostgreSQL 18.6 with pgvector 0.8.7. The former
+The supported database policy is exactly PostgreSQL 18.6 with pgvector 0.8.7 for local and CI. Hosted Neon PostgreSQL 18 ships pgvector 0.8.6, which migrations also accept: 0.8.7 only fixes an IVFFlat index-build overflow and the vector `avg` aggregate over no rows, and Clockgrove uses neither. The former
 pgvector 0.8.1 and 0.8.6 versions are rejected. No other PostgreSQL minor or pgvector version is
 implicitly compatible. The fixture looks for `initdb`, `pg_ctl`, `postgres`, `psql`, `pg_config`,
 `pg_dump`, and `pg_restore` on `PATH` first. A tool missing there is taken from `pg_config --bindir`,
