@@ -29,7 +29,7 @@ import { checkTestBudget } from "./check-test-budget.mjs";
 import { checkTestTimeouts } from "./check-test-timeouts.mjs";
 import { checkWorldBoundaries } from "./check-world-boundaries.mjs";
 import { assertCloudflareBoundary } from "./cloudflare-boundaries.mjs";
-import { checkContractDrift, contractBaseline } from "./contract-drift.mjs";
+import { checkContractDrift } from "./contract-drift.mjs";
 import { assertContractSteps } from "./database/contract-steps.mjs";
 import {
   checkDependencyPolicy,
@@ -1140,12 +1140,7 @@ process.chdir(repositoryRoot);
 await assertRandomAdapterBoundaries();
 await assertCompilerResolution();
 await checkDependencyPolicy(repositoryRoot);
-await checkContractDrift(
-  repositoryRoot,
-  process.env.CONTRACT_BASE_COMMIT
-    ? await contractBaseline(repositoryRoot, process.env.CONTRACT_BASE_COMMIT)
-    : undefined,
-);
+await checkContractDrift(repositoryRoot);
 await checkInfrastructure(repositoryRoot);
 await checkTestBudget(repositoryRoot);
 await checkRetention(repositoryRoot);

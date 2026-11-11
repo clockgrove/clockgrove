@@ -142,8 +142,8 @@
           ],
           "properties": {
             "version": {
-              "type": "integer",
-              "minimum": 1
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
             },
             "files": {
               "type": "object",
