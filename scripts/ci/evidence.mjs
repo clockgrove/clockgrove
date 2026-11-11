@@ -376,9 +376,12 @@ export async function collectEvidence(directory, execution, buildDirectory) {
   const runtimeShardLabels = runtimeShardCommands.map(([label]) => label);
   // Quality's shards observe test:runtime only as a complete set.
   const shardedRuntime = runtime !== null && runtimeShardLabels.every(observed);
-  const contracts = JSON.parse(
+  // Imported here, not at the top: bootstrap loads this module before dependencies are installed.
+  const { contractVersion } = await import("../contract-drift.mjs");
+  const inventory = JSON.parse(
     await readFile(path.join(root, "scripts/contracts.generated.json"), "utf8"),
   );
+  const contracts = { version: contractVersion(inventory.files), files: inventory.files };
   const manifest = {
     manifestVersion: 1,
     candidate,

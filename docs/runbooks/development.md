@@ -237,9 +237,13 @@ contract checker refuses drift, evidence never promotes an unobserved outcome, `
 shards run each file once and count only as a complete set, Quality measures
 a pull request against the main its merge commit was built on, and CI deadlines settle
 termination-resistant descendants. Contract drift requires
-both regeneration and a version increase relative to the CI base. Drift is measured on the parsed
-syntax, so formatting, comments and import order never count; `node scripts/contract-drift.mjs .
---generate` bumps the version only when the meaning differs from `HEAD`. No fixture is exempted.
+`scripts/contracts.generated.json` to match the sources: it holds one digest per contract file, so a
+contract change cannot land without its digest line in the diff. The contract version is derived
+from those digests (one `sha256:` digest of the set), never hand-assigned, so pull requests that
+change different contracts merge in either order without predicting each other's version; the
+evidence manifest records it. Drift is measured on the parsed syntax, so formatting, comments and
+import order never count; `node scripts/contract-drift.mjs . --generate` rewrites the inventory and
+prints the version. No fixture is exempted.
 
 Offline root tests discover those controls through testkit, but never discover the real
 browser journey. Quality installs the exact lockfile-pinned Playwright Chromium and native
