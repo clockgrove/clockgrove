@@ -1,5 +1,5 @@
 {
-  "version": 37,
+  "version": 38,
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
     "asset-manifest.ts": "3a5242db98d525eb97e40d3edad03a2a70ab10161758e58c85638795cce02e18",
@@ -9,9 +9,10 @@
     "cognition.ts": "c5b2361398760b18215b2795297dd13cb2e1f8a51b3e9a7834c8948b7517848b",
     "conformance.ts": "f58094883f98f00ef4f023146449fe765070ff4ade92d378cc014443db83c3a4",
     "conversations.ts": "204276243a6f6b91fbf268c0f15ab8f86f95d215dd79c1626231109f434aa242",
+    "deliveries.ts": "fd28270dfbcf831db3582231730b09502be439a93a736fc20fe210bd43aea612",
     "execution-context.ts": "8c09a549f3f403ba0a8e14be07479ec44ba3d65f3c43acf5eb8e2bdd33c03030",
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
-    "index.ts": "53fecc77d5fa8e9b9ea167e38ea6daadc59d6178b57931c2db394a62ba3c6fc6",
+    "index.ts": "94acbb39a16c20c28a736f6e8709b419101a499fff7d408477cf1e54a0cdf5f1",
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
     "material.ts": "2840d7a6d9b4f5b09fd55d6ca7f06f6a06fdbf78260e9cc825b69dd3dab3cab6",
     "privacy.ts": "eee0e6d1cc4846816e590b3d4a59c46e35909831e303249b54c326e7b9bd9c28",

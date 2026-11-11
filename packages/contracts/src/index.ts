@@ -6,6 +6,7 @@ export * from "./channels.js";
 export * from "./cognition.js";
 export * from "./conformance.js";
 export * from "./conversations.js";
+export * from "./deliveries.js";
 export {
   decodeExecutionContext,
   decodeExecutionContextRef,

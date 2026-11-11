@@ -108,3 +108,7 @@ Decided limits:
 Past these limits a request answers `409 conversation_full` or `409 conversation_limit_reached`.
 Delete hides a session and its messages from every route and refuses new messages. Its rows and
 ciphertext remain until Wave 9 RW-0902 crypto-shreds the data key (`db/retention.json`).
+
+## Governed outbound boundary
+
+The internal [delivery boundary](channels.md#governed-outbound-delivery) stores recipient-owned per-actor consent and budget reservations, evaluates quiet hours in the recipient timezone, and records deterministic fake or isolated preview sink receipts. It preserves private conversation privacy and channel-thread bindings. Part 4 of issue 168 will connect proactive actor wakes to this boundary; this persistence/policy part does not change the existing browser Talk response path.

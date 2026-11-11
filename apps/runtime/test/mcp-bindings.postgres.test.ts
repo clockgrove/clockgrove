@@ -33,6 +33,7 @@ it("journals exact-pin scoped MCP policy and rejects self-grants, stale pins and
       fixture.tools,
       { ...fixture.environment, PGUSER: "clockgrove_runtime" },
       await readFile(new URL("../../../tests/database/authorization.sql", import.meta.url), "utf8"),
+      { viaStdin: true },
     );
     const sql = async (q: string) =>
       (await psqlQuery(fixture.tools, fixture.environment, q)).trim();

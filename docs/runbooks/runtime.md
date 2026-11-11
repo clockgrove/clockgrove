@@ -1680,7 +1680,7 @@ node scripts/runtime-chat.mjs read --url https://runtime.example.test \
 
 Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
 
-New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. Proactive delivery remains a later part. See [channels](../protocols/channels.md) for the implemented boundary and the remaining issue 168 parts.
+New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. It exposes no operator HTTP or CLI command yet; the proactive actor producer and delayed-request scheduling remain Part 4. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
 
 ## MCP part 5 internal composition
 
