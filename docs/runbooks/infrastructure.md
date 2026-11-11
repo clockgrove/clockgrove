@@ -115,7 +115,9 @@ names what the first deploy checks, so a skipped step fails by name instead of h
    the release selector name an environment.
 8. **First deploy.** A push to main never selects staging. Run the **Guarded release** workflow by
    hand with `candidate` (a main commit) and `quality_run_id` (that commit's successful main
-   Quality run), then approve the waiting `staging` job.
+   Quality run), then approve the waiting `staging` job. The deploy ends by running
+   `pnpm infra:plan <environment>` (no pending change) and `pnpm test:cloud <environment>` (the web
+   shell over HTTPS and a 401 on an unauthenticated runtime request) against what it published.
 
 ### When a deploy fails
 
@@ -128,6 +130,9 @@ The deploy withholds command output that may hold secrets. What it does print na
 | `authenticated Cloudflare … unavailable (<endpoint>, HTTP <status>: <code> …)` | Cloudflare refused that endpoint: a missing permission (step 4), or Zero Trust not set up (step 3) for `access/service_tokens` | The matching step |
 | `OpenTofu <stage> apply failed; <summary> at <resource> (codes …): <provider message>` | The provider refused that resource | Read the message; a 403 or Cloudflare code 10000 is a token permission (step 4) |
 | `… at neon_project.world[0] …: … not permitted on this account` | A setting the Neon plan doesn't allow | Step 6 |
+| `Cloudflare account workers.dev subdomain unavailable …` | The account has no workers.dev subdomain | Step 3a |
+| `database migrations` fails with `available pgvector extension must be exactly one of …; found <version>` | Neon ships a pgvector version the migrations don't accept yet | Check Neon's extension list, then add the version to `supportedPgvectorVersions` in `scripts/database/lib.mjs` |
+| The release run finds no candidate: no main commit has a successful main Quality run | A main Quality run hasn't finished yet | Wait for the newest main run; pushes to main never cancel it |
 
 ## W0-009 protected deployment and recovery
 
