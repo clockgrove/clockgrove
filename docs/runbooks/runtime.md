@@ -1809,3 +1809,29 @@ hours from 22:00 to 07:00 in the recipient timezone. Set `enabled` to false to
 revoke consent. Changing policy increments its version; pending requests recheck
 that version before dispatch. Lowering capacity below already reserved units is
 refused. A wake cannot choose another recipient or bypass that policy.
+
+
+## Internal external-effects recovery
+
+Issue 165 part 4 adds an internal typed consumer for already-admitted effect intents;
+it is not activated by the deployed queue factory. See the
+[MCP execution boundary](../protocols/mcp.md#internal-queue-execution-boundary-delivery-part-4).
+There is no operator kill-switch command yet. Global, world and installation switches
+and governed local activation remain part 5; actor tool-call evidence and citations
+remain part 6.
+
+For an internal fixture execution, read `effect_intents` and `effect_attempts` using
+the complete tenant/world/timeline/effect identity under authorized database access.
+The intent links actor, principal, run, call, grant, policy version and argument hash;
+the attempt links disposition and encrypted result reference. Content belongs in
+scoped encrypted artifacts, never queue bodies or error text. A terminal attempt can
+be reconciled into its intent without invoking the adapter. A started attempt remains
+explicitly in flight: do not reset it to pending or create a replacement identity to
+retry the same call. Investigate and record a justified terminal outcome, including
+uncertainty when the response cannot be recovered. Queue redelivery alone cannot
+establish whether an interrupted server call finished.
+
+The existing physical Queue retry/dead-letter path will handle thrown consumer failures
+when composition is connected. External-effects source-row DLQ diagnostics and automatic
+actor notification are not delivered in this part. Do not treat a passing fake-adapter
+PostgreSQL proof as hosted delivery or end-to-end actor research evidence.

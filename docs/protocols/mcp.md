@@ -555,3 +555,39 @@ values and remote error bodies have no place in the reservation metadata or queu
 This persistence API does not establish atomic policy/budget admission or Queue execution.
 The real consumer, kill switches, durable actor waits, tool loop and integrated research
 experience remain subsequent delivery parts of issue 165.
+
+### Internal Queue execution boundary (delivery part 4)
+
+`apps/runtime/src/external-effects.ts` supplies an internal `external-effects`
+consumer using `TypedQueueConsumer`. It accepts an identity-only queue payload,
+then verifies the dispatch against canonical PostgreSQL event and intent metadata.
+Tenant, world, timeline, source event, correlation, space, partition and conversation
+privacy must agree. A transport attempt hint is not an execution fence. Queue
+payloads never supply endpoint, arguments, grant, policy or credential authority.
+The admitted request is cloned and its argument hash checked again before adapter use.
+Argument identity is the lowercase SHA-256 of UTF-8 JSON with recursively sorted
+object keys and preserved array order; finite decimal values remain valid.
+Non-JSON values are refused rather than silently changed by serialization.
+
+Trusted composition must supply fresh admission and request loading, the read
+adapter, and encrypted result-artifact persistence. These are required internal
+ports, not optional bypasses. This boundary does not implement canonical grant or
+budget admission itself. Production composition remains disabled. The existing
+runtime queue factory still refuses external effects until governed local
+composition is connected in a subsequent part.
+
+The consumer claims the ledger attempt before calling its adapter. Only the winner
+may execute. Terminal duplicates reconcile and return without another adapter call;
+a duplicate of a started attempt fails visibly rather than acknowledging unfinished
+work or resending. Successful evidence must be saved as an encrypted scoped artifact
+before the attempt can succeed. Tool failures and interrupted execution record fixed
+outcome codes, never exception text. Unknown cost remains null and is counted by the
+ledger's accounting query. A storage failure is retried as recovery, never as a second
+remote call under the same identity.
+
+The retained PostgreSQL proof exercises the typed consumer with a deterministic fake
+adapter. It does not establish hosted Queue delivery, DLQ routing or an actor turn.
+Canonical admission and kill switches, publication and deployed Queue/DLQ composition,
+turn waits, the model loop, citations and the browser research journey remain parts
+5–6. The existing Queue retry/dead-letter wrapper is unchanged; its source-row
+dead-letter diagnostic currently covers world reactions only.

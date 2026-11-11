@@ -1,3 +1,4 @@
+import type { QueueEnvelope } from "@clockgrove/contracts";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 export interface EffectAddress {
@@ -191,6 +192,62 @@ export class PostgreSqlEffects {
         if (dispatch.rows.length !== 0) throw new Error("Effect disposition conflicts");
       }
       return (await this.recorded(address)) as RecordedEffect;
+    });
+  }
+
+  /** Queue identity is a reference, never authority or an adapter request. */
+  async resolveDispatch(message: QueueEnvelope<unknown>): Promise<EffectIntentMetadata | null> {
+    const payload = message.payload;
+    if (
+      message.channel !== "external-effects" ||
+      !message.worldId ||
+      !message.timelineId ||
+      !message.sourceEventId ||
+      payload === null ||
+      typeof payload !== "object" ||
+      Array.isArray(payload) ||
+      Object.keys(payload).length !== 1 ||
+      Object.keys(payload)[0] !== "effectId" ||
+      !("effectId" in payload) ||
+      typeof payload.effectId !== "string" ||
+      !identity(payload.effectId) ||
+      (message.effectId !== undefined && message.effectId !== payload.effectId)
+    )
+      return null;
+    const effectId = payload.effectId;
+    return this.transaction(async () => {
+      const result = await this.client.query(
+        `SELECT i.tenant_id AS "tenantId",i.world_id AS "worldId",i.timeline_id AS "timelineId",
+          i.effect_id AS "effectId",i.space_id AS "spaceId",i.idempotency_key AS "idempotencyKey",
+          i.actor_id AS "actorId",i.principal_id AS "principalId",i.run_id AS "runId",
+          i.call_id AS "callId",i.capability_id AS "capabilityId",i.grant_id AS "grantId",
+          i.policy_version AS "policyVersion",i.arguments_hash AS "argumentsHash",
+          i.arguments_artifact_id AS "argumentsArtifactId",i.reserved_microusd::text AS "reservedMicrousd"
+        FROM clockgrove.event_dispatches d
+        JOIN clockgrove.events e ON e.tenant_id=d.tenant_id AND e.event_id=d.event_id
+        JOIN clockgrove.effect_intents i ON i.tenant_id=d.tenant_id AND i.world_id=d.world_id
+          AND i.timeline_id=d.timeline_id AND i.effect_id=$7 AND i.space_id=d.space_id
+        JOIN clockgrove.timelines t ON t.tenant_id=i.tenant_id AND t.world_id=i.world_id
+          AND t.timeline_id=i.timeline_id AND t.kind='live'
+        WHERE d.tenant_id=$1 AND d.world_id=$2 AND d.timeline_id=$3 AND d.dispatch_id=$4
+          AND d.event_id=$5 AND e.correlation_id=$6 AND d.channel='external-effects'
+          AND d.privacy_class='conversation' AND d.payload=jsonb_build_object('effectId',$7::text)
+          AND e.world_id=d.world_id AND e.timeline_id=d.timeline_id
+          AND e.partition_id=d.partition_id AND e.space_id=d.space_id AND e.privacy_class='conversation'`,
+        [
+          message.tenantId,
+          message.worldId,
+          message.timelineId,
+          message.messageId,
+          message.sourceEventId,
+          message.correlationId,
+          effectId,
+        ],
+      );
+      const row = result.rows[0] as
+        | (Omit<EffectIntentMetadata, "reservedMicrousd"> & { reservedMicrousd: string })
+        | undefined;
+      return row ? { ...row, reservedMicrousd: Number(row.reservedMicrousd) } : null;
     });
   }
 
