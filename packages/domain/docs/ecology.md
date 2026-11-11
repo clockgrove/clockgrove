@@ -85,7 +85,8 @@ canonical state rather than adding process commands to the actor schedule queue.
 
 Genesis quantities are declared initial inventory. Every later increase in a food or water holder
 requires a journaled rain collection, finite plant-stage yield, or ordinary transfer debiting an
-existing holder, or an explicitly declared finite boundary exchange. Actors and processes use the same transfer validation; no declared principal
+existing holder, or an explicitly declared finite boundary exchange. Actors and processes use the
+same transfer validation; no declared principal
 can bypass finite availability, destination bounds or perishable batch checks. Spoilage,
 evaporation, consumption and explicit discard remain journaled removals.
 
@@ -93,8 +94,8 @@ The ecology policy has no `sources` field. A legacy source declaration is refuse
 validation, including an empty list; it is not silently ignored. Runtime `resource.offer` and
 `object.create` with a positive resource quantity cannot create material. Rule declarations cannot
 introduce those unbacked causes either. Create an empty holder and transfer existing inventory,
-or declare weather collection or plant yield. The journal's transfer source, growth plant/stage
-and weather holder identify the physical cause; command attribution identifies the actor or
+or declare weather collection, plant yield or finite boundary exchanges. The journal's transfer
+source, growth plant/stage, weather holder and boundary source identify the physical cause; command attribution identifies the actor or
 declared process. Historical event reduction does not grant new execution authority.
 
 ## Declared boundary exchanges

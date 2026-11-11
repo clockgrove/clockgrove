@@ -311,7 +311,7 @@ The Why panel requests `includeResourceCauses: true` to receive optional
 on that command. Requests without the flag retain their previous response shape, and older
 envelopes without the field remain valid. The flag accepts only `true` when present.
 Each entry records `eventId`, `simulationTime` (decimal text), `cause` (`rain`, `growth`,
-`transfer`, `boundary-exchange`), resource `kind`, positive integer `quantity` and receiving `objectId`. Transfers also
+`transfer`, `boundary-exchange`), resource `kind`, positive integer `quantity` and resource-holder `objectId`. Transfers also
 name `fromObjectId`. A successful immediately preceding declared process attempt may add its
 public `processId` when its command identity matches the transfer's recorded immediate cause.
 Boundary entries additionally carry `boundaryId`, `boundaryName`, `actorId` and `direction`

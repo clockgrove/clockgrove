@@ -230,7 +230,7 @@ export function assertProjectionContracts(sources) {
     PublicDecisionEvidence: { status: '\"available\" | \"unavailable\" | \"redacted\"', drafts: "readonly PublicDecisionTrace[]" },
     PublicCausalLinks: { parents: "readonly CommandId[]", children: "readonly CommandId[]" },
     PublicScheduledAction: { scheduleId: "string", idempotencyKey: "string", kind: "string", dueAt: "string", status: '\"pending\" | \"done\"', scheduledBy: "CommandId", completedBy: "CommandId | null" },
-    PublicResourceCause: { eventId: "EventId", simulationTime: "string", cause: '\"rain\" | \"growth\" | \"transfer\"', kind: '\"food\" | \"water\"', quantity: "number", objectId: "ObjectId", "fromObjectId?": "ObjectId", "processId?": "string" },
+    PublicResourceCause: { eventId: "EventId", simulationTime: "string", cause: '\"rain\" | \"growth\" | \"transfer\" | \"boundary-exchange\"', kind: '\"food\" | \"water\"', quantity: "number", objectId: "ObjectId", "fromObjectId?": "ObjectId", "processId?": "string", "boundaryId?": "string", "boundaryName?": "string", "actorId?": "ObjectId", "direction?": '\"import\" | \"export\"' },
     RecordedWhy: { version: "1", privacyClass: '\"public_scene\"', evidence: "typeof RECORDED_WHY_EVIDENCE", entry: "PublicCausalEntry", commandId: "CommandId", actionId: "ActionId | null", receiptStatus: '\"pending\" | \"committed\" | \"rejected\" | \"failed\"', traces: "PublicDecisionEvidence", "resourceCauses?": "readonly PublicResourceCause[]", schedules: "readonly PublicScheduledAction[]", links: "PublicCausalLinks" },
     SceneEntity: { id: "string", label: "string", description: "string" },
     DiagnosticSceneProjection: {

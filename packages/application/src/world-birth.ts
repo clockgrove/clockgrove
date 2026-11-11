@@ -40,7 +40,13 @@ export interface BirthSeedRef {
   readonly sha256: string;
 }
 
-export type BirthSectionName = "environment" | "ecology" | "wellbeing" | "lifecycle" | "processes" | "boundaryExchanges";
+export type BirthSectionName =
+  | "environment"
+  | "ecology"
+  | "wellbeing"
+  | "lifecycle"
+  | "processes"
+  | "boundaryExchanges";
 export type BirthElementKind = "frame" | "region" | "anchor-graph" | "entity";
 
 export interface BirthSectionRow {
