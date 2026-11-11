@@ -101,3 +101,18 @@ an absent approval or changed digest remains pending until reviewed again. Captu
 the named captures and reports, never the approval decisions. Commit the captures, hashes and
 reviewed approvals in the world repository. Keep changes to the pinned Clockgrove commit explicit:
 upgrading the platform can change the resulting captures and require renewed review.
+
+### Issue 184 delegated review
+
+The owner explicitly delegated approval of this Objective’s exact capture digests on
+2026-11-11 (issue #184, “Visual review delegated”). The agent reviewer inspects the fixture
+captures committed beside this document, then records each reviewed digest in
+[`approved-captures.json`](approved-captures.json). [`captures.json`](captures.json) retains
+the native traversal report, including the WebGPU and WebGL2 tier comparisons;
+[`webgl2/captures.json`](webgl2/captures.json) retains the fallback report.
+The owner session reviews these captures in the PR before merge. This delegation applies to
+these captures only; capture commands and CI still cannot create approvals.
+
+The same decision accepts software-GPU traversal plus the documented tier budgets as policy
+for this Objective. Physical desktop/recent-phone frame time and memory are quality-lab
+follow-up work in raccoon-world#45 and the Clockgrove-renderer follow-up filed when it closes.
