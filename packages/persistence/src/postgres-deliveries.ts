@@ -89,7 +89,7 @@ function validateRequest(r: DeliveryRequested): void {
       r.budgetReservation.id,
     ].every(id) ||
     !["browser", "cli", "fake"].includes(r.channelBinding.channel) ||
-    !["event", "goal", "promise", "subscription"].includes(r.reason.kind) ||
+    !["event", "goal", "promise", "subscription", "response"].includes(r.reason.kind) ||
     !["normal", "urgent"].includes(r.urgency) ||
     !["delay", "silent", "reject"].includes(r.quietHoursBehavior) ||
     r.privacyClass !== "conversation" ||
@@ -269,6 +269,49 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
     );
     await this.send(a, t, receipt);
     return { disposition: "recorded", receipt };
+  }
+
+  /** Runs inside the conversation commit transaction: receipt and reply commit together. */
+  async requestResponseHere(
+    a: RuntimeAuthorizationContext,
+    target: DeliveryTarget,
+    messageId: string,
+    contentArtifactId: string,
+  ): Promise<DeliveryResult | undefined> {
+    const binding = await this.client.query(
+      `SELECT b.channel,b.thread_id,
+         'response:'||encode(sha256(convert_to(octet_length(b.session_id)::text||':'||b.session_id||$4,'UTF8')),'hex') AS response_key
+       FROM clockgrove.channel_bindings b
+       WHERE b.tenant_id=$1 AND b.session_id=$2 AND b.principal_id=$3
+         AND NOT EXISTS (SELECT 1 FROM clockgrove.actor_activations aa
+           WHERE aa.tenant_id=b.tenant_id AND aa.session_id=b.session_id AND aa.message_id=$4)`,
+      [a.tenantId, target.sessionId, a.principalId, messageId],
+    );
+    const row = binding.rows[0] as Row | undefined;
+    if (!row) return undefined;
+    // Session and message IDs together identify one response allowance across all channels.
+    const dedupeKey = String(row.response_key);
+    const request: DeliveryRequested = {
+      type: "DeliveryRequested",
+      version: 1,
+      ...target,
+      recipientPrincipalId: a.principalId,
+      channelBinding: {
+        channel: row.channel as DeliveryRequested["channelBinding"]["channel"],
+        threadId: String(row.thread_id),
+      },
+      reason: { kind: "response", id: messageId },
+      urgency: "normal",
+      contentArtifactId,
+      privacyClass: "conversation",
+      consentVersion: 0,
+      policyVersion: "delivery-policy-v1",
+      dedupeKey,
+      quietHoursBehavior: "reject",
+      budgetReservation: { id: dedupeKey, units: 1 },
+    };
+    validateRequest(request);
+    return this.requestHere(a, request, target);
   }
 
   requestActivation(

@@ -9,7 +9,7 @@ import {
 const FILE = "apps/runtime/test/turn-fibers.journey.postgres.test.ts";
 const MEMBER = "local-reader-session";
 const KEEPER = "fixture.keeper";
-// Every §7.1 phase boundary a scripted turn crosses; `model_running:streaming` is mid-stream.
+// The streaming fault label is retained; text now starts only after governed commit.
 const BOUNDARIES = [
   "accepted",
   "context_pending",
@@ -93,6 +93,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
           // Read the token, release the held fault so the owner aborts, then read to the break.
           const reader = streamed.body!.pipeThrough(new TextDecoderStream()).getReader();
           let text = (await reader.read()).value ?? "";
+          expect(
+            await rows(`SELECT d.status || '/' || d.reserved_units || '/' || s.sink
+              FROM clockgrove.deliveries d JOIN clockgrove.delivery_sink_receipts s
+                USING (tenant_id,world_id,timeline_id,actor_id,principal_id,dedupe_key)
+              WHERE d.session_id='${crashed}' AND d.request->'reason'->>'id'='${messageId}'
+                AND d.request->'reason'->>'kind'='response'`),
+          ).toBe("approved/1/fake");
           // The owner aborts as it releases, which can fail the release call too.
           await agent({ op: "release" }).catch((error: Error) =>
             expect(error.message).toContain("injected turn fault at model_running:streaming"),
@@ -141,7 +148,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "m1=completed/1:completed",
           "m2=completed/2:abandoned/owner_lost+completed",
           "m3=completed/2:abandoned/owner_lost+completed",
-          "m4=completed/2:abandoned/owner_lost+completed",
+          "m4=completed/2:completed",
           "m5=completed/2:abandoned/owner_lost+completed",
           "m6=completed/2:abandoned/owner_lost+completed",
           "m7=completed/2:completed",

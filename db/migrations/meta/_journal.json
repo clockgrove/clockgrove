@@ -407,6 +407,13 @@
       "when": 1796076000000,
       "tag": "0058_mcp_read_retry_refusals",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1796076000001,
+      "tag": "0059_solicited_delivery",
+      "breakpoints": true
     }
   ]
 }

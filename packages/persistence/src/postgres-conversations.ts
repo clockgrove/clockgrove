@@ -55,6 +55,7 @@ import {
   PostgreSqlActorDocuments,
   PostgreSqlContextManifests,
 } from "./postgres-actor-documents.js";
+import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
 import { PostgreSqlRunRecorder, SCRIPTED_MODEL, type TalkRunStart } from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
@@ -1122,6 +1123,12 @@ export class PostgreSqlConversationStore implements ConversationStore {
         (sequence + 1) / 2,
         replyId,
         step,
+      );
+      await new PostgreSqlGovernedDelivery(this.client).requestResponseHere(
+        participant,
+        { scope, sessionId, actorId: String(stored.row.actor_id) },
+        messageId,
+        replyArtifact,
       );
       const moved = await checkpoint();
       if (moved === undefined) throw new TurnFencedError();

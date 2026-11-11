@@ -2660,6 +2660,17 @@ DO $$ DECLARE context record; BEGIN
     RAISE EXCEPTION 'live timeline entered preview sink' USING ERRCODE='XX999';
   EXCEPTION WHEN raise_exception THEN NULL; END;
   BEGIN
+    INSERT INTO clockgrove.deliveries
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,session_id,dedupe_key,reservation_id,
+        reserved_units,content_artifact_id,request,receipt,status)
+      SELECT 'tenant-a','world-a','timeline-a','space-a','keeper','principal-a','delivery-session','forged-response','forged-response',
+        0,'delivery-content',r,jsonb_build_object('request',r,'status','reserved','reservedUnits',0,'sink',NULL),'reserved'
+      FROM (SELECT pg_temp.delivery_attack_request('forged-response') || jsonb_build_object(
+        'reason',jsonb_build_object('kind','response','id','missing-caretaker-turn'),
+        'consentVersion',0,'urgency','normal','quietHoursBehavior','reject') AS r) q;
+    RAISE EXCEPTION 'response label bypassed exhausted proactive budget without a solicited turn' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  BEGIN
     UPDATE clockgrove.deliveries SET status='delayed';
     RAISE EXCEPTION 'terminal delivery became pending' USING ERRCODE='XX999';
   EXCEPTION WHEN raise_exception THEN NULL; END;

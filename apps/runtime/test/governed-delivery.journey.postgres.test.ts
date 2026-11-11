@@ -224,11 +224,15 @@ it("reserves before governed delivery, preserves private provenance and isolates
     expect(await store((s) => s.resume(authorization, target, "preview"))).toEqual(preview.receipt);
     expect(
       await owner.sql(
-        "SELECT sink||':'||count(*) FROM clockgrove.delivery_sink_receipts GROUP BY sink ORDER BY sink",
+        "SELECT sink||':'||count(*) FROM clockgrove.delivery_sink_receipts WHERE dedupe_key NOT LIKE 'response:%' GROUP BY sink ORDER BY sink",
       ),
     ).toBe("fake:3\npreview:1");
     expect(await owner.sql("SELECT reserved_units FROM clockgrove.delivery_consent")).toBe("8");
-    expect(await owner.sql("SELECT count(*) FROM clockgrove.deliveries")).toBe("10");
+    expect(
+      await owner.sql(
+        "SELECT count(*) FROM clockgrove.deliveries WHERE request->'reason'->>'kind'<>'response'",
+      ),
+    ).toBe("10");
     expect(
       await owner.sql("SELECT count(*) FROM clockgrove.deliveries WHERE status='reserved'"),
     ).toBe("0");
