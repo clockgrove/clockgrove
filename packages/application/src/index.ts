@@ -26,6 +26,7 @@ export * from "./mcp-bindings.js";
 export * from "./mcp-capability-registry.js";
 export * from "./mcp-credential-installation.js";
 export * from "./mcp-credentials.js";
+export * from "./mcp-execution.js";
 export * from "./mcp-http.js";
 export * from "./mcp-installation-service.js";
 export * from "./mcp-installations.js";
