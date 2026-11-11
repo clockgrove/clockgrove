@@ -8,6 +8,7 @@ import {
   canonicalResponse,
   isNativeWorldOwnerChild,
   runNativeWorldOwnerProcess,
+  waitForOwnerSql,
   withNativeWorldOwner,
 } from "./world-owner/native-harness.js";
 
@@ -102,9 +103,16 @@ it.skipIf(!isNativeWorldOwnerChild())(
           advanceCommand(owner.world, "mcp-repair", 120_000n, null),
         );
         expect(advance.status, JSON.stringify(advance.body)).toBe(200);
+        // The post-commit hint uses waitUntil; the command response does not settle attempt one.
+        await waitForOwnerSql(
+          owner.sql,
+          `SELECT status || '|' || attempts FROM clockgrove.event_dispatches WHERE dispatch_id='${action.messageId}'`,
+          "pending|1",
+          500,
+        );
         for (let attempt = 2; attempt <= 4; attempt++) {
           await owner.sql(
-            "UPDATE clockgrove.event_dispatches SET next_attempt_at=now()-interval '1 second'",
+            `UPDATE clockgrove.event_dispatches SET next_attempt_at=now()-interval '1 second' WHERE dispatch_id='${action.messageId}'`,
           );
           await owner.reconcileDispatches();
         }
