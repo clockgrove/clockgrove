@@ -2,34 +2,46 @@
 
 ## First-party server readiness
 
-Issue 167 part 1 provides an internal read-tool adapter in
-`apps/runtime/src/world-mcp-reads.ts`. It calls the existing runtime HTTP use cases
-in process: world directory/status, entity inspection, command receipts, run receipts
-and run search. Each invocation supplies its own bearer credential. The application
-authenticates and authorizes every dispatched read using its existing observe or
-inspect grant, privacy ceiling and inspector audit rules; the adapter neither resolves
-authority nor reads SQL. See [run receipts](runs.md) for inspector authorization.
+Issue 167 parts 1 and 2 provide an internal read-tool adapter in
+`apps/runtime/src/world-mcp-reads.ts` and a stateless MCP transport in
+`apps/runtime/src/world-mcp-server.ts`. The transport uses the current Agents
+`createMcpHandler` from `agents/mcp/server`, with a fresh server for each request.
+It declares six tools: `world_directory`, `world_status`, `entity_inspect`,
+`command_receipt`, `run_receipt` and `run_search`. Each tool calls the existing
+runtime HTTP use case in process; neither adapter resolves authority nor reads SQL.
+See [run receipts](runs.md) for inspector authorization.
 
-Arguments are strict versioned application envelopes and are limited to 64 KiB of
-UTF-8 JSON, an engineering bound chosen for metadata reads. Successful responses retain
-their application representation; failures return only fixed adapter codes and status.
+Every protocol request, including initialization and tool listing, supplies its own
+bearer credential and authenticates through the ordinary world-directory use case.
+Tool dispatch authenticates again through its application use case, which applies
+its existing observe or inspect grant, privacy ceiling and inspector audit rules.
 There is no retained credential, actor memory, conversation or connection session.
+The handler accepts the current SDK stateless protocol with finite JSON responses;
+legacy protocol requests are rejected rather than retaining a connection or stream.
 
-`WORLD_MCP_READ_TOOLS` is the internal read-adapter allowlist, not an external MCP
-tool registration. The native PostgreSQL proof exercises that adapter through runtime
-HTTP; it does not prove an MCP handler or client connection. Part 1 leaves the full
-Objective acceptance open.
+Published tool schemas use strict versioned application envelopes. Arguments remain
+limited to 64 KiB of UTF-8 JSON, an engineering bound chosen for metadata reads, and
+the application decoders remain authoritative. Raw requests are bounded before parsing
+at 128 KiB, an engineering choice allowing the argument envelope plus protocol metadata.
+Successful tool responses retain their application representation; failures return
+fixed public errors without application or provider exception details.
 
-This is an internal foundation, not a connectable MCP endpoint. Later parts of issue
-167 provide the current Agents stateless handler and real MCP-client proof, OAuth
-authorization and web-issued member API tokens with immediate revocation, principal
-rate/cost admission and MCP-surface database attack coverage, full world/timeline
-discovery, attributed ordinary command and operator tools, and explicit Wave 7
-changeset refusals. Both authentication modes and existing operator grants remain
-required. Talk stays on the channel-neutral session path. No client connection procedure
-is available until that transport and credential composition ships; that delivery must
-document the endpoint, authentication setup and a working client connection procedure
-in the runtime runbook.
+The real MCP SDK client proof in
+`apps/runtime/test/world-mcp-server.postgres.test.ts` bridges Streamable HTTP fetches
+to this internal handler and exercises the native runtime with real PostgreSQL and
+the fixture world. It proves the internal transport, not a deployed endpoint, OAuth
+flow or member API-token issuer.
+
+This is an internal foundation, not a connectable deployed MCP endpoint. Later parts
+of issue 167 provide OAuth through the auth adapter and web-issued member API tokens
+with immediate revocation, principal-wide rate/cost admission, authenticated endpoint
+composition and MCP-surface database attack coverage, full world/timeline discovery,
+attributed ordinary command and operator tools, and explicit Wave 7 changeset refusals.
+Both authentication modes and existing operator grants remain required. Commands must
+preserve the member's world persona, MCP client channel and causal root through the
+ordinary validator and Journal. Talk stays on the channel-neutral session path. The
+endpoint, authentication setup and working client connection procedure must ship in
+the runtime runbook with that composition; none is available yet.
 
 ## Remote MCP installation
 

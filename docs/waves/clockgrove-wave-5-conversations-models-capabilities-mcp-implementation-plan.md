@@ -461,12 +461,23 @@ Initial fixtures:
 
 Expose a stateless authenticated MCP surface over application APIs for world/timeline list, authorized search/inspection, command submission, run receipt, and changeset placeholders. It does not host actor memory or session state inside the MCP connection.
 
-Issue 167 part 1 supplies an internal bounded read adapter over the authenticated runtime
-HTTP use cases, without exposing a client endpoint. The
-[first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
-records the remaining transport, both owner-decided credential modes, principal limits,
-attributed commands/operator tools, changeset refusals and real MCP-client proof. These
-remain Objective acceptance obligations; the internal adapter alone does not complete RW-0509.
+Issue 167 parts 1 and 2 supply an internal bounded read adapter and the current
+Agents stateless MCP handler over authenticated runtime HTTP use cases, with no
+composed public endpoint. Six declared tools cover world directory/status, entity
+inspection, command/run receipts and run search. Every request authenticates through
+the ordinary directory use case, and tool reads retain application authorization.
+Strict schemas and 64 KiB argument/128 KiB request bounds constrain untrusted input;
+finite JSON responses use the current SDK protocol and reject legacy requests.
+A real MCP SDK client exercises the handler through an in-process fetch bridge to
+the native fixture runtime and PostgreSQL. This does not prove deployed authentication.
+The [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
+records the remaining OAuth and web-issued/revocable member-token modes, principal-wide
+rate/cost admission, authenticated endpoint composition and database attack proof,
+full discovery, attributed commands/operator tools and Wave 7 changeset refusals.
+Commands must preserve member persona, MCP client channel and causal root through the
+ordinary validator and Journal. Talk stays on the channel-neutral session path.
+These remain Objective acceptance obligations; the internal transport alone does
+not complete RW-0509.
 
 ---
 

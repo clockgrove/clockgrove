@@ -239,9 +239,12 @@ importers:
       '@clockgrove/world-pack-sdk':
         specifier: workspace:*
         version: link:../../packages/world-pack-sdk
+      '@modelcontextprotocol/server':
+        specifier: 2.4.0
+        version: 2.4.0
       agents:
         specifier: 0.33.0
-        version: 0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@8.1.0)(@babel/runtime@7.29.13)(@modelcontextprotocol/client@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1))(zod@4.6.7)
+        version: 0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@8.1.0)(@babel/runtime@7.29.13)(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/server@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1))(zod@4.6.7)
       better-auth:
         specifier: 1.7.15
         version: 1.7.15(@opentelemetry/api@1.10.0)(drizzle-orm@0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.1)(vite@8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1)))
@@ -252,6 +255,9 @@ importers:
         specifier: 8.23.1
         version: 8.23.1
     devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.4.0
+        version: 2.4.0
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
@@ -1175,6 +1181,10 @@ packages:
 
   '@modelcontextprotocol/core@2.4.0':
     resolution: {integrity: sha512-z8QBKqdfXLPzkLQuG4xp8hrVEMm1PZ1IgxMN2sMbJiFiAKOWXnAzogXn2W4aqIBlP1ea6U5yiqVquvUNM1Cj6Q==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.4.0':
+    resolution: {integrity: sha512-rgR9yxSaAJ+bcsi/XroT/S2AfPiIWloXAnrdfYSCms9ivVju0ishu/wW0J21Ho6+ZOR1r7RyeRbjiRuF87ix5Q==}
     engines: {node: '>=20'}
 
   '@noble/ciphers@2.4.0':
@@ -3497,6 +3507,11 @@ snapshots:
     dependencies:
       zod: 4.6.7
 
+  '@modelcontextprotocol/server@2.4.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.4.0
+      zod: 4.6.7
+
   '@noble/ciphers@2.4.0': {}
 
   '@noble/hashes@2.4.0': {}
@@ -3777,7 +3792,7 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  agents@0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@8.1.0)(@babel/runtime@7.29.13)(@modelcontextprotocol/client@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1))(zod@4.6.7):
+  agents@0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@8.1.0)(@babel/runtime@7.29.13)(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/server@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1))(zod@4.6.7):
     dependencies:
       '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@8.1.0)
       '@cfworker/json-schema': 4.1.6
@@ -3794,6 +3809,7 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       '@ai-sdk/provider': 4.0.36
+      '@modelcontextprotocol/server': 2.4.0
       ai: 7.0.163(zod@4.6.7)
       react: 19.3.1
       vite: 8.3.5(@types/node@24.19.1)(esbuild@0.28.2)(yaml@2.9.1)

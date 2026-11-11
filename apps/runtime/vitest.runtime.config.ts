@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       "cloudflare:workers": `${import.meta.dirname}/test/cloudflare-native-fake.ts`,
       "cloudflare:workflows": `${import.meta.dirname}/test/cloudflare-native-fake.ts`,
+      "agents/mcp/server": `${import.meta.dirname}/node_modules/agents/dist/mcp/server/index.js`,
       // The Agents SDK needs the Workers runtime; node-side tests never run its owner.
       agents: `${import.meta.dirname}/test/cloudflare-native-fake.ts`,
     },

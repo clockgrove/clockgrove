@@ -28,12 +28,14 @@
     "@clockgrove/persistence": "workspace:*",
     "@clockgrove/simulator": "workspace:*",
     "@clockgrove/world-pack-sdk": "workspace:*",
+    "@modelcontextprotocol/server": "2.4.0",
     "agents": "0.33.0",
     "better-auth": "1.7.15",
     "kysely": "0.29.8",
     "pg": "8.23.1"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/pg": "8.23.1",
     "undici": "8.12.3",
     "vitest": "5.1.0"
