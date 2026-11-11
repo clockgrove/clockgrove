@@ -11,9 +11,13 @@ on:
   push:
     branches: [main]
 
+# A pull request's newer push supersedes its running check. A push to main never cancels the main
+# run in progress: a release deploys only from a main commit whose Quality run succeeded, and with
+# merges landing faster than a run, cancelling would leave no qualified commit at all. GitHub keeps
+# one pending run per group, so a burst of merges still skips to the newest commit.
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
