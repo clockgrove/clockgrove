@@ -769,7 +769,7 @@ produces an external effect. Simulate mode is not built. `pnpm run db:verify` ch
 
 ## World birth tables and provisioning cases
 
-Migration `0054_boundary_exchange_birth.sql` admits the optional `boundaryExchanges` birth
+Migration `0055_boundary_exchange_birth.sql` admits the optional `boundaryExchanges` birth
 section. Its finite balance records are stored and reconstructed with the existing versioned
 sections; no new table or permission is introduced.
 
