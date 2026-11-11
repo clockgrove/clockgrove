@@ -68,6 +68,18 @@ describe("infrastructure validator", () => {
     const manifest = await fixture();
     const file = "infra/wrangler/development.json";
     const original = await readJson(root, file);
+    const localFile = "infra/wrangler/local.json";
+    const local = await readJson(root, localFile);
+    const localManifest = await readJson(root, "infra/environments/local.json");
+    expect(() => verifyWrangler(local, localManifest, surface, root, localFile)).not.toThrow();
+    const missingOwner = structuredClone(local);
+    missingOwner.durable_objects.bindings = missingOwner.durable_objects.bindings.filter(
+      ({ name }: { name: string }) => name !== "MCP_OPERATOR_DO",
+    );
+    expect(() => verifyWrangler(missingOwner, localManifest, surface, root, localFile)).toThrow();
+    const hostedOwner = structuredClone(original);
+    hostedOwner.durable_objects.bindings.push(local.durable_objects.bindings.at(-1));
+    expect(() => verifyWrangler(hostedOwner, manifest, surface, root, file)).toThrow();
     for (const change of [
       (config: typeof original) => {
         config.vars.PROVIDER_ENVIRONMENT = "production";

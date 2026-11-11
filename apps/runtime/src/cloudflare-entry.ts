@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type {
   Journal,
   JournalOutcomeReader,
@@ -16,12 +16,14 @@ import {
   JOURNAL_EVENT_REGISTRY,
   JournalRangeReader,
   type LifecycleWorkflowEnvelope,
+  McpRefusal,
   maintainPartitionSnapshot,
   NO_METRICS,
   NO_PRIVACY_CEILING,
   type ProvisionWorldRequest,
   type RuntimeLogger,
   releaseRuntimeLogger,
+  safeMcpNetworkRefusal,
   sweepDispatches,
 } from "@clockgrove/application";
 import {
@@ -673,6 +675,8 @@ export interface RuntimeEnvironment {
     > &
       Partial<Pick<SpaceDO, "catchUp" | "prepareCatchUp" | "runtimeState" | "fetch">>
   >;
+  /** Local-only retained credential owner; never exposed as a public route. */
+  readonly MCP_OPERATOR_DO?: DurableObjectNamespace<Pick<McpOperatorDO, "execute" | "close">>;
   readonly ACTOR_AGENT_DO: DurableObjectNamespace<
     Pick<
       ActorAgentDO,
@@ -728,6 +732,7 @@ export const runtimeBindingManifest = {
     SPACE_DO: "SpaceDO",
     ACTOR_AGENT_DO: "ActorAgentDO",
   },
+  localDurableObjects: { MCP_OPERATOR_DO: "McpOperatorDO" },
   queues: ["WORLD_REACTIONS_QUEUE", "COGNITIVE_INDEXING_QUEUE", "EXTERNAL_EFFECTS_QUEUE"],
   workflows: {
     WORLD_PROVISIONING_WORKFLOW: "WorldProvisioningWorkflow",
@@ -848,8 +853,6 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   };
 }
 
-const mcpOperators = new WeakMap<RuntimeEnvironment, import("./mcp.js").McpRuntimePort>();
-
 function composeGuardedMcpOperator(
   env: RuntimeEnvironment,
   supplied: Pick<RuntimeComposition, "mcp" | "mcpConfiguration">,
@@ -857,16 +860,66 @@ function composeGuardedMcpOperator(
   if (env.PROVIDER_ENVIRONMENT !== "local") return undefined;
   if (supplied.mcp !== undefined) return supplied.mcp;
   if (supplied.mcpConfiguration === undefined) return undefined;
-  let operator = mcpOperators.get(env);
-  if (operator !== undefined) return operator;
-  operator = composeMcpOperator({
-    ...supplied.mcpConfiguration,
-    environment: env.PROVIDER_ENVIRONMENT,
+  const owners = env.MCP_OPERATOR_DO;
+  if (owners === undefined) return undefined;
+  return {
+    execute: async (action, input, context) => {
+      const result = await owners
+        .get(owners.idFromName("local-mcp-operator"))
+        .execute(action, input, context);
+      if (result.ok) return result.value;
+      const refusal = safeMcpNetworkRefusal(new McpRefusal(result.code));
+      throw refusal ?? new Error("MCP operation failed");
+    },
+  };
+}
+
+/** Socket I/O belongs to this object across RPCs, never to a Worker request context. */
+class McpOperatorDO extends DurableObject<RuntimeEnvironment> {
+  private operator: ReturnType<typeof composeOwnedMcpOperator> | undefined;
+
+  constructor(
+    state: unknown,
+    private readonly environment: RuntimeEnvironment,
+  ) {
+    super(state, environment);
+  }
+
+  async execute(
+    action: import("./mcp.js").McpRuntimeAction,
+    input: Record<string, unknown>,
+    context: TrustedContext,
+  ): Promise<{ ok: true; value: unknown } | { ok: false; code: string }> {
+    try {
+      if (this.environment.PROVIDER_ENVIRONMENT !== "local") throw new Error("MCP unavailable");
+      const supplied = suppliedComposition(this.environment);
+      if (supplied.mcpConfiguration === undefined) throw new Error("MCP unavailable");
+      this.operator ??= composeOwnedMcpOperator(this.environment, supplied.mcpConfiguration);
+      return { ok: true, value: await this.operator.execute(action, input, context) };
+    } catch (error) {
+      // RPC serializes Errors without their class identity. Reconstruct only closed policy codes.
+      return { ok: false, code: safeMcpNetworkRefusal(error)?.code ?? "mcp_operation_failed" };
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.operator?.close();
+  }
+}
+
+export { McpOperatorDO };
+
+function composeOwnedMcpOperator(
+  env: RuntimeEnvironment,
+  configuration: NonNullable<RuntimeComposition["mcpConfiguration"]>,
+): ReturnType<typeof composeMcpOperator> {
+  return composeMcpOperator({
+    ...configuration,
+    environment: env.PROVIDER_ENVIRONMENT ?? "",
     runtimeDatabaseUrl: env.HYPERDRIVE?.connectionString ?? "",
     withClient: (operation) =>
       withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation),
-    openSecretClient: () =>
-      new HyperdrivePostgreSqlClient(supplied.mcpConfiguration?.secretDatabaseUrl ?? ""),
+    openSecretClient: () => new HyperdrivePostgreSqlClient(configuration.secretDatabaseUrl),
     changed: async (authorization, scope) => {
       const targets = await withHyperdrivePostgreSqlClient(
         env.HYPERDRIVE?.connectionString ?? "",
@@ -900,8 +953,6 @@ function composeGuardedMcpOperator(
       }
     },
   });
-  mcpOperators.set(env, operator);
-  return operator;
 }
 
 /** Scalar bindings only; generated credentials use distinct least-privilege roles. */

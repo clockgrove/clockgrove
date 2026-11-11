@@ -364,7 +364,12 @@ reference or provider exception text. Listing returns tool/resource/prompt candi
 and binding changes use exact pins and the attributed Journal path.
 
 `composeMcpOperator` requires a separate direct secret database connection, a dedicated versioned
-keyring and trusted network/OAuth configuration. The runtime retains its owner across requests;
+keyring and trusted network/OAuth configuration. Local Workers forward authenticated operator
+requests over the internal `MCP_OPERATOR_DO` binding to `McpOperatorDO`. This Durable Object owns
+the retained sockets, so OAuth callbacks and refreshes may use them from later requests. One
+local owner preserves the configured installation capacity across all scoped installations;
+its fixed non-secret name contains no credential, endpoint or installation data. It writes no
+Durable Object storage; PostgreSQL remains canonical. The runtime retains its owner across requests;
 provider close disables credential installations. Lost owners cannot be transparently recreated
 from a pooled connection: refresh fails closed and reconnect uses a new installation identifier.
 These are local composition boundaries, not permission to expose a production network adapter.

@@ -1709,8 +1709,11 @@ the installation grant by default; ordinary operating grants do not imply it.
 
 Trusted local composition uses `composeMcpOperator` with separate runtime and direct secret
 PostgreSQL URLs, a dedicated versioned credential keyring, the test-only network port, registered
-OAuth clients and an explicit provider capacity. `RuntimeComposition.mcpConfiguration` retains
-the operator per runtime environment and supplies canonical actor revision notifications.
+OAuth clients and an explicit provider capacity. The local Wrangler configuration binds
+`MCP_OPERATOR_DO` to `McpOperatorDO`; the internal Durable Object owns retained PostgreSQL
+sockets across Worker requests. Without that binding the composed MCP routes stay unavailable.
+`RuntimeComposition.mcpConfiguration` supplies canonical actor revision notifications and
+configuration for the retained operator.
 Both the composition factory and deployed Worker refuse hosted activation pending issue 3.
 Do not substitute `ARTIFACT_KEYRING`, runtime database privileges, transaction pooling or a
 per-request provider. Closing the owner disables its credential installations; after owner loss,
