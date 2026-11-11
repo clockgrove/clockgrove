@@ -395,7 +395,33 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
   ): Promise<DeliveryReceipt> {
     return withClientTransaction(this.client, { authorization: a }, async () => {
       const sink = await this.target(a, t);
-      // Same ordering as request: receipt/advisory lock before the lifetime budget row.
+      const pending = await this.client.query(
+        `SELECT receipt FROM clockgrove.deliveries WHERE ${KEY} AND dedupe_key=$6`,
+        [...key(a, t), dedupeKey],
+      );
+      const candidate = (pending.rows[0] as Row | undefined)?.receipt as
+        | DeliveryReceipt
+        | undefined;
+      if (
+        candidate?.status === "delayed" &&
+        candidate.request.reason.kind === "event" &&
+        candidate.request.dedupeKey === `activation:${candidate.request.reason.id}`
+      ) {
+        // Hold the same membership lock as the producer until dispatch commits.
+        const authority = await this.client.query(
+          `SELECT clockgrove.lock_activation_delivery_authority($1,$2,$3,$4,$5) AS allowed`,
+          [
+            candidate.request.scope.tenantId,
+            candidate.request.scope.worldId,
+            candidate.request.scope.timelineId,
+            candidate.request.scope.spaceId,
+            a.principalId,
+          ],
+        );
+        if (!(authority.rows[0] as Row)?.allowed)
+          throw new DeliveryRefusedError("delivery_target_invalid");
+      }
+      // Producer and resumer lock membership before the receipt, then the lifetime budget row.
       await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
         JSON.stringify([...key(a, t), dedupeKey]),
       ]);

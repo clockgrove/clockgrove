@@ -125,7 +125,31 @@ it("automatically resumes quiet-hour delivery after actor replacement without an
     expect(
       await owner.sql("SELECT count(*) FROM clockgrove.deliveries WHERE status='delayed'"),
     ).toBe("1");
+    await owner.sql(
+      "UPDATE clockgrove.world_memberships SET grants=array_remove(grants,'runtime:world-command')",
+    );
+    await configureConsent(true, 0, 0);
+    const pending = await owner.withSqlClient(async (client) => {
+      const delivery = new PostgreSqlGovernedDelivery(client);
+      const address = {
+        scope: decodeBrowserScope({ ...target.scope, spaceId: "unrelated-alarm-space" }),
+        actorId,
+        participant,
+      };
+      // Observe still permits scanning; dispatch must check the receipt's original space.
+      const found = await delivery.pending(address);
+      await delivery.resumePending(address, null);
+      return found;
+    });
+    expect(pending).toBe(true);
+    expect(
+      await owner.sql("SELECT count(*) FROM clockgrove.deliveries WHERE status='delayed'"),
+    ).toBe("1");
+    expect(await owner.sql("SELECT count(*) FROM clockgrove.delivery_sink_receipts")).toBe("1");
     await configureConsent(false, 0, 0);
+    await owner.sql(
+      "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-command')",
+    );
     // An explicit configuration change requests an early check, but never resumes a delivery itself.
     await configure();
     await expect
