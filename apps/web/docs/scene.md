@@ -361,8 +361,10 @@ target sits at depth -50 between content and ground (-100); the source distance 
 These are explicit renderer presentation choices for #184, bounding coverage while limiting acne.
 Tier changes, content failure and destruction retire unused light and shadow resources. The
 existing frame-cadence downgrade includes the cost of content lights and shadows. Software
-backend fixtures establish correctness and bounded allocation; physical phone timing remains
-part of #184's final qualification.
+backend fixtures establish correctness and bounded allocation. Per the owner’s 2026-11-11
+decision in #184, software-GPU traversal plus these tier budgets as policy close this Objective.
+Physical desktop/recent-phone timing comes from the owner’s quality-lab runs in raccoon-world#45
+and the Clockgrove-renderer follow-up filed when it closes.
 
 ## Budgets (§9.3)
 
@@ -460,10 +462,11 @@ project a different rig/environment without changing the renderer. The offline r
 uses the same policy and offers a continuous time slider. Final golden approval and physical
 phone performance qualification remain separate from this backend correctness proof.
 
-Issue #184 part 4 adds bounded content lights and opt-in scene shadows, accounted within tier
-texture ceilings and the existing frame-cadence downgrade. Part 5 must measure the completed renderer on desktop and
-recent-phone hardware, including a working lower phone tier; allocation bounds and
-software-rendered frame cadence do not establish that hardware requirement. Part 5 must also
-re-capture the golden states at full viewport resolution and obtain review through the existing
-capture approval workflow before updating `tests/visual/approved-captures.json`. Periodic image
-equality proves determinism, not reviewed visual approval. These acceptance entries remain open.
+Issue #184 adds bounded content lights and opt-in scene shadows, accounted within tier
+texture ceilings and the existing frame-cadence downgrade. The owner’s 2026-11-11 decision
+closes this Objective on the software-GPU traversal and tier budgets as policy, including the
+working lower phone profile. Physical desktop/recent-phone measurements remain quality-lab
+follow-up work in raccoon-world#45 and the Clockgrove-renderer follow-up filed when it closes;
+software cadence is not hardware performance evidence. The full-resolution golden states and
+exact-digest approvals are retained under `tests/visual/`, reviewed under the owner’s explicit
+2026-11-11 delegation. The owner session reviews these captures in the PR before merge.

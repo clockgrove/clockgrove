@@ -1,0 +1,1220 @@
+{
+  "viewports": [
+    {
+      "width": 1536,
+      "height": 864
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "captures": [
+    {
+      "state": "daylight-dry",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "daylight-dry@1536x864.png",
+      "sha256": "sha256:94d7e079bf5937dd1243f901416a6ff94c115ea57779f6d0083907c9dcbd90d6",
+      "bytes": 123379,
+      "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "daylight-dry",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "daylight-dry@1280x720.png",
+      "sha256": "sha256:367afc2668589610da1aef05b6d4aa90ba1a35868e7007bf02060bf45d93fcfc",
+      "bytes": 91972,
+      "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "daylight-dry",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "daylight-dry@390x844.png",
+      "sha256": "sha256:d11fb7baac6fb3f125e93f6839081dd387dbde88b277de878165f58f6b458e86",
+      "bytes": 46626,
+      "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-low",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "dusk-rain-low@1536x864.png",
+      "sha256": "sha256:7f96a78569176f99e7316e036d704f776fdad60fde3f32bc989747855e8da700",
+      "bytes": 138157,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-low",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "dusk-rain-low@1280x720.png",
+      "sha256": "sha256:62cfa7a260ef96022447f8db6458b241ff7cf92aef3a7c1df905ca0ccebdcbc9",
+      "bytes": 99931,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-low",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "dusk-rain-low@390x844.png",
+      "sha256": "sha256:e6e8ae935bf47da35a0b1b88d4dbbcc514ba3e0bcafb962e95e7ddcbee94d0a8",
+      "bytes": 34537,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-medium",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "dusk-rain-medium@1536x864.png",
+      "sha256": "sha256:d6938c83f533976a9d83f94dfa54ce5b17d7a8983063b41a31d20b8d6c0abbae",
+      "bytes": 97189,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-medium",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "dusk-rain-medium@1280x720.png",
+      "sha256": "sha256:9d999b213815d2cfb560f99988288c5a32bc23a4778cde5d69cceb8842dcecad",
+      "bytes": 83294,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-medium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "dusk-rain-medium@390x844.png",
+      "sha256": "sha256:3cc483b9bc225ad51d404e9d8bfe476d1cdd5f616ca9b2d39605cd88ceba7adf",
+      "bytes": 33788,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-high",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "dusk-rain-high@1536x864.png",
+      "sha256": "sha256:85688bf8f9bd965c6a9b3f04ad9e39c0372ebbda2784a56d7cc2bcdbd097fcf0",
+      "bytes": 100352,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-high",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "dusk-rain-high@1280x720.png",
+      "sha256": "sha256:497abc1477f73de660a889b4a82e1f9139866ff93dc92e501c70d790e94dbee2",
+      "bytes": 85791,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain-high",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "dusk-rain-high@390x844.png",
+      "sha256": "sha256:65b779238ed3267523697cb079b59ab3e996b6e2b9c1ebc5d08554fa0f8d3b29",
+      "bytes": 34862,
+      "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "dusk-rain@1536x864.png",
+      "sha256": "sha256:396acbb247e0ed2e7fa293d799cb19226c58f5a52d8e681761e2bbe97256b8e5",
+      "bytes": 99023,
+      "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "dusk-rain@1280x720.png",
+      "sha256": "sha256:afd71829b891a73c4a1b13cf64c9bf168a4e43762021edac118a446e6f256bea",
+      "bytes": 85035,
+      "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "dusk-rain",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "dusk-rain@390x844.png",
+      "sha256": "sha256:9e094a8b039d94a057df486ab7cebcf8904e56f587d04bee9710bad1dab5fdfa",
+      "bytes": 48560,
+      "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-low",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "night-rain-low@1536x864.png",
+      "sha256": "sha256:785f60d03007ce5dc2d77243e9f58a9ae4d46392b704a87448b87a17da2f5b7e",
+      "bytes": 131897,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-low",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "night-rain-low@1280x720.png",
+      "sha256": "sha256:2dba45f44d3645f670903c4e5e241dd93af91cf1e69fbef1b9ed434ea05995c4",
+      "bytes": 99764,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-low",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "night-rain-low@390x844.png",
+      "sha256": "sha256:9877aa8423c103163f3122e0f44c063b1f49ad323a222419e342f59b15b6349e",
+      "bytes": 33473,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-medium",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "night-rain-medium@1536x864.png",
+      "sha256": "sha256:460130eab39e87a82cdcfd376066ee8ce537f2607585dfbf44c929097ab90b56",
+      "bytes": 99022,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-medium",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "night-rain-medium@1280x720.png",
+      "sha256": "sha256:a4adcb9b2784a5c5b422b7b3e95d893e2faaca21d575be3da58ba5efb0e0c9a7",
+      "bytes": 86212,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-medium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "night-rain-medium@390x844.png",
+      "sha256": "sha256:00a7747ce5677933ea51fecbb613a32bc0ae33a77fbc193462647b5c07903861",
+      "bytes": 33901,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-high",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "night-rain-high@1536x864.png",
+      "sha256": "sha256:ca77ee2d85b0fb6f4d9c1ced580866fad5a0c6ddf8aa64d369dcdc1bff157023",
+      "bytes": 101764,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-high",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "night-rain-high@1280x720.png",
+      "sha256": "sha256:6203b37d34946db24d4e4231dda3603631ab1de3a6fe7bd1ffa7b566983cfa15",
+      "bytes": 88828,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "night-rain-high",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "night-rain-high@390x844.png",
+      "sha256": "sha256:ccae40923c9b75639c80ad5781a4d975044bea3fda760f1bcb57b50e753cb371",
+      "bytes": 34995,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-actor-rail",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "selected-actor-rail@1536x864.png",
+      "sha256": "sha256:f78cbf31e90301412d7a8e18506d040f840200314255e98a908ccd5907628225",
+      "bytes": 201430,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-actor-rail",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "selected-actor-rail@1280x720.png",
+      "sha256": "sha256:4d212ebbd21cc8e727e7d12ad3a1ac9668f249b542e50a63feea82e8d8b759e0",
+      "bytes": 144646,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-actor-rail",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "selected-actor-rail@390x844.png",
+      "sha256": "sha256:a2b1427556756b887e8b96e666821d1029156371316c285c09e625d66476dc90",
+      "bytes": 59374,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "event-why-inspector",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "event-why-inspector@1536x864.png",
+      "sha256": "sha256:362bff8ae2b7ac009f20187c4e13e73283a6b31a5e40fc97c99d413d3d7ce67f",
+      "bytes": 237407,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "event-why-inspector",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "event-why-inspector@1280x720.png",
+      "sha256": "sha256:43882f548c1be5f9a104433a7ffb9b675872e2aee1fe6ea7b62ed3357dd58967",
+      "bytes": 184214,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "event-why-inspector",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "event-why-inspector@390x844.png",
+      "sha256": "sha256:2a101e13107f32ceb55e7e0d857da7d1aa55f7cdeea7fd059d02ac732db04caf",
+      "bytes": 71631,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-inspectable-object",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "selected-inspectable-object@1536x864.png",
+      "sha256": "sha256:e895b6f9e9bf4e02d2af39e0b0c79b410acd40e110b814108e7ff965e1621c7d",
+      "bytes": 193132,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-inspectable-object",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "selected-inspectable-object@1280x720.png",
+      "sha256": "sha256:2c05f7b8e2852890c15d0691a91f70a5062a4341d0281f104d728be7c0e42b6e",
+      "bytes": 140972,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "selected-inspectable-object",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "selected-inspectable-object@390x844.png",
+      "sha256": "sha256:5a6c087483a7b450ad512edd9f66a0c0458d33e74063067b14c6e321d7c94a6f",
+      "bytes": 62664,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "disconnected-recovering",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "disconnected-recovering@1536x864.png",
+      "sha256": "sha256:3668147315f2b3b81dbb52b03b6c2b813a03e11999b2cbc4ef19cb1cb89bce0e",
+      "bytes": 196121,
+      "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "disconnected-recovering",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "disconnected-recovering@1280x720.png",
+      "sha256": "sha256:812a9f62370caa6adf5ab2e9c299eb0360b67529974cdb8acdd6e4a142fbcf14",
+      "bytes": 144350,
+      "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "disconnected-recovering",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "disconnected-recovering@390x844.png",
+      "sha256": "sha256:3444529f9d301a85e85298ffb7dae2d0fce43a16ef28aa5111524580a5bc8dbb",
+      "bytes": 65611,
+      "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "text-access",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "file": "text-access@1536x864.png",
+      "sha256": "sha256:3242c5f28ec7c611d364815ac6fca048791230ddc2a25f93047022a0296b6bbe",
+      "bytes": 173046,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "text-access",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "file": "text-access@1280x720.png",
+      "sha256": "sha256:fcbbf94b904777193ef1997149fbca2fdacb77af058640bff704e94bafe19d8b",
+      "bytes": 169894,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    },
+    {
+      "state": "text-access",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "file": "text-access@390x844.png",
+      "sha256": "sha256:563cf62d6cf71db7d6a546616ea63cf2c1a8da250e710d22099121ac8afb6b4a",
+      "bytes": 92675,
+      "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
+    }
+  ],
+  "rendererBackends": ["webgl2"],
+  "tierComparisons": [
+    {
+      "state": "dusk",
+      "tier": "low",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 99.04213172686316,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 11868568,
+      "renderSize": [427, 299],
+      "canvasSize": [854, 599],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "low",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 98.9995757146341,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 7182212,
+      "renderSize": [334, 230],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "low",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 98.79147293876333,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 4914228,
+      "renderSize": [179, 292],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "medium",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 97.75237542340992,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 16389972,
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "medium",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 97.76617878300009,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 9740836,
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "medium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 98.16293438145652,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 6652868,
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "high",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 97.91951732871381,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 27824660,
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "high",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 97.98344572782499,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 16507556,
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "dusk",
+      "tier": "high",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 0,
+      "clipped": 0,
+      "sources": [],
+      "meanLuminance": 98.33125072989036,
+      "lights": 0,
+      "backend": "webgl2",
+      "textureBytes": 11249284,
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "low",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 594,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 441
+        },
+        {
+          "role": "window",
+          "warmPixels": 441
+        }
+      ],
+      "meanLuminance": 35.24139036677192,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 11868568,
+      "renderSize": [427, 299],
+      "canvasSize": [854, 599],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "low",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 385,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 272
+        },
+        {
+          "role": "window",
+          "warmPixels": 272
+        }
+      ],
+      "meanLuminance": 35.23098118469232,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 7182212,
+      "renderSize": [334, 230],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "low",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 134,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 81
+        },
+        {
+          "role": "window",
+          "warmPixels": 81
+        }
+      ],
+      "meanLuminance": 35.02069319844581,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 4914228,
+      "renderSize": [179, 292],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "medium",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 567,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 420
+        },
+        {
+          "role": "window",
+          "warmPixels": 420
+        }
+      ],
+      "meanLuminance": 36.5830971486499,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 16389972,
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "medium",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 334,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 256
+        },
+        {
+          "role": "window",
+          "warmPixels": 256
+        }
+      ],
+      "meanLuminance": 36.62681895054845,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 9740836,
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "medium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 110,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 81
+        },
+        {
+          "role": "window",
+          "warmPixels": 81
+        }
+      ],
+      "meanLuminance": 36.496780740543905,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 6652868,
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "high",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "warm": 565,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 420
+        },
+        {
+          "role": "window",
+          "warmPixels": 420
+        }
+      ],
+      "meanLuminance": 36.87043918509372,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 27824660,
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "high",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "warm": 334,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 256
+        },
+        {
+          "role": "window",
+          "warmPixels": 256
+        }
+      ],
+      "meanLuminance": 37.004036880625314,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 16507556,
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    },
+    {
+      "state": "night",
+      "tier": "high",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "warm": 110,
+      "clipped": 0,
+      "sources": [
+        {
+          "role": "lantern",
+          "warmPixels": 81
+        },
+        {
+          "role": "window",
+          "warmPixels": 81
+        }
+      ],
+      "meanLuminance": 36.79830004011395,
+      "lights": 2,
+      "backend": "webgl2",
+      "textureBytes": 11249284,
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
+      "dpr": 1,
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+      "atlasShared": true,
+      "reflectionBlending": [
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
+      ],
+      "reflectionUvs": true,
+      "adapter": {
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "api": true
+    }
+  ],
+  "measurements": [
+    "accessibility_mode",
+    "asset_cache",
+    "client_errors",
+    "frame_ms",
+    "inspector_traversal",
+    "reducer_latency_ms",
+    "scene_apply_ms",
+    "scene_recovery"
+  ],
+  "webVitals": [
+    {
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "text": false,
+      "cls": 0,
+      "ttfbMs": 16.799999998882413,
+      "fcpMs": 268,
+      "lcpMs": 268
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "text": false,
+      "cls": 0,
+      "ttfbMs": 3,
+      "fcpMs": 148,
+      "lcpMs": 148
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "text": false,
+      "cls": 0,
+      "ttfbMs": 2.799999998882413,
+      "fcpMs": 140,
+      "lcpMs": 140
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "text": false,
+      "cls": 0,
+      "ttfbMs": 5.199999999254942,
+      "fcpMs": 184,
+      "lcpMs": 184
+    },
+    {
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "text": true,
+      "cls": 0,
+      "ttfbMs": 3.900000000372529,
+      "fcpMs": 192,
+      "lcpMs": 192
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "text": true,
+      "cls": 0,
+      "ttfbMs": 3.400000000372529,
+      "fcpMs": 176,
+      "lcpMs": 176
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "text": true,
+      "cls": 0,
+      "ttfbMs": 3.5,
+      "fcpMs": 180,
+      "lcpMs": 180
+    }
+  ]
+}
