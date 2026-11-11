@@ -53,7 +53,7 @@ The repository root lists these names, without values, in two examples generated
 
 Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets enter OpenTofu state even when marked sensitive. Development and staging keep state in a Cloudflare R2 bucket, described under [OpenTofu state](#opentofu-state); saved plans live only in a temporary directory that is removed after use. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
 
-`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does (it reviews as the routing stage, so it also refuses a [retired Neon API role](#database-roles) still in state).
+`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does (it reviews as the routing stage).
 
 - `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
 - `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
@@ -334,37 +334,14 @@ key cannot be rotated this way: Hyperdrive's origin carries its password, and th
 refuses a Hyperdrive change until the isolation checks have run. A lost state likewise generates new
 passwords, with the same effects.
 
-**Retired Neon API roles.** Before this design the provision stage created all seven roles through
-the Neon API. Their state addresses `neon_role.database["<key>"]` for the six restricted keys are now
-retired (`retiredResources` in
-[`deployment-authority.mjs`](../../scripts/ci/deployment-authority.mjs)): the configuration no
-longer declares them, so the next provision plan deletes each through the Neon API
-(`delete_because_each_key`), which is how Neon's control plane forgets an API role. Plan review
-accepts exactly that deletion, of only those addresses, only in the provision stage. Every other
-deletion, replacement or forget is refused, and `pnpm infra:plan`, which reviews as the routing
-stage, refuses a state that still holds a retired role.
-
-The deletion happens once because nothing puts a retired address back in state: the configuration
-cannot create one, and `pnpm infra:state restore` refuses a backup holding a retired role when the
-current state or any other backup holds that key's generated password, whether the state object is
-present or lost, since a deploy from it would delete the live SQL-created role. A migration that
-stopped part way (the generated password created but the deletion not applied: a failed or
-timed-out apply, exhausted retries, a cancelled runner) leaves both in state; the next deploy plans
-the remaining deletions and completes it.
-
-If Neon refuses a deletion (a retired role that owns objects), the provision apply fails with the
-provider's message: reassign or drop what it owns and deploy again. If a retired role is gone from
-Neon but still in state (deleted in the Console, say), every plan fails at refresh, since the Neon
-provider errors on a missing role. Recover by hand: take the state lock and a backup
-(`pnpm infra:state backups <environment>`), `tofu state rm 'neon_role.database["<key>"]'` for each
-such role in a workspace on the environment's R2 state, release the lock and deploy again.
-
-Only an environment with no Hyperdrive configuration in state can migrate this way. Hyperdrive's
-origin password now comes from the generated runtime password, so a provision plan over an existing
-Hyperdrive shows an update, which the provision stage refuses. Staging never reached the bindings
-stage (its first deploys stopped at the role grants), development has never deployed (its manifest
-still carries placeholder routing metadata), and production deployment is disabled, so none holds
-one. An environment that does needs a reviewed migration of its own.
+**No restricted Neon API roles.** The six restricted roles are SQL-created only; the configuration
+declares no `neon_role.database["<key>"]` for them, so a state that holds one is outside the owned
+addresses. Plan review refuses every deletion, replacement or forget at every stage, including the
+deletion of such a role, and the deploy refuses a state holding one before it plans.
+`pnpm infra:state restore` refuses a backup that holds a restricted Neon API role when the current
+state or any other backup holds that key's generated password, whether the state object is present
+or lost, since the role of that name is live and SQL-created. A deploy from such a state would be
+refused at plan review anyway.
 
 ### Deploy phases
 
@@ -403,7 +380,7 @@ digests enter deployment evidence. Interrupted apply or publication has an unkno
 closed; it is never recorded as a successful activation.
 
 Each OpenTofu stage (provision, bindings, routing) plans into a saved plan, reviews it (declared
-resources only, no deletion but of a retired resource, the stage's own limits below) and applies
+resources only, no deletion, the stage's own limits below) and applies
 exactly that plan; after a passed apply the state is backed up. The provision stage creates the Neon
 project, its database and the migration role, and generates the other roles' passwords. Neon runs one operation per project at a time and answers HTTP 423 (Locked) to
 another meanwhile, which its API docs call safe to retry. The Neon provider waits for the project's
@@ -460,7 +437,7 @@ the other fails closed. With completed bindings and incomplete publication, the 
 preserves owned bindings without mutation, then applies current role normalization, migrations and
 effective-role verification before binding updates and successful qualified Wrangler publication.
 Only then may the routing stage introduce DNS or Worker routing. All stages enforce declared
-resource bounds and refuse every deletion except a [retired resource's](#database-roles) once at provision, and every action
+resource bounds and refuse every deletion, and every action
 other than create, read, update and no-op, so a plan cannot `forget` an owned resource; previously active public resources must be no-op until
 the newly qualified publication. Recovery never destroys resources merely to repeat a phase.
 

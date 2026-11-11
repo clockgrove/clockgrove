@@ -120,18 +120,11 @@ export function resourceAddresses(config) {
   ]);
 }
 
-// Resources an earlier configuration owned and this one no longer declares. The restricted
-// database roles were Neon API roles, which Neon makes members of neon_superuser; the migration role
-// now creates them with SQL. State may still hold them until one provision apply deletes them.
-export function retiredResources() {
-  return new Set(restrictedRoleKeys.map((key) => `neon_role.database["${key}"]`));
-}
-
-// Whether restoring `backup` (a raw OpenTofu state file) could bring back a retired Neon API role in
-// an environment whose roles are already created with SQL: the backup holds a retired instance
-// and one of `others` (the current state and the other backups) holds that key's generated
-// password, so the environment has been migrated. A provision plan from such a state would delete
-// the live role of that name.
+// Whether restoring `backup` (a raw OpenTofu state file) would bring a Neon API role back to an
+// environment whose restricted roles are created with SQL: the backup holds a `neon_role.database`
+// instance and one of `others` (the current state and the other backups) holds that key's
+// generated password, so the environment's roles are SQL-created. Plan review would refuse the
+// deploy from such a state, and the role of that name is live, so the restore is refused too.
 export function restoresRetiredRoles(others, backup) {
   const instances = (state, type) =>
     (JSON.parse(String(state)).resources ?? [])
@@ -141,36 +134,12 @@ export function restoresRetiredRoles(others, backup) {
   return instances(backup, "neon_role").some((key) => migrated.has(key));
 }
 
-// Every address state may hold: the owned resources and the retired ones not yet deleted.
-export function persistedAddresses(config) {
-  return new Set([...resourceAddresses(config), ...retiredResources()]);
-}
-
-// The one deletion a plan may carry: a retired resource deleted only because the configuration
-// dropped its key, in the provision stage. State holds a retired address only until that deletion
-// applies; the configuration cannot create one again, and `pnpm infra:state restore` refuses a
-// backup that would bring one back to a migrated environment. A partial migration (the generated
-// password created, the deletion not) completes on the next deploy. Any other deletion, including
-// a replacement, is refused.
-const retiredDeletion = (change, stage) =>
-  stage === "provision" &&
-  change.change.actions.length === 1 &&
-  change.change.actions[0] === "delete" &&
-  change.action_reason === "delete_because_each_key";
-
 export function verifyPlan(plan, config, stage, preservePublic) {
-  const allowed = persistedAddresses(config);
+  const allowed = resourceAddresses(config);
   const changes = plan.resource_changes ?? [];
   assert(changes.length <= allowed.size, "infrastructure resource bound exceeded");
   for (const change of changes) {
     assert(allowed.has(change.address), "undeclared infrastructure resource");
-    if (retiredResources().has(change.address)) {
-      assert(
-        retiredDeletion(change, stage),
-        `retired ${change.address} may only be deleted, in the provision stage`,
-      );
-      continue;
-    }
     assert(!change.change.actions.includes("delete"), "destructive infrastructure plan refused");
     assert(
       change.change.actions.every((action) =>
@@ -406,7 +375,7 @@ export function restrictedRolePasswords(credentials, config) {
 
 // Neon applies a role change to the compute after its API request returns, and the provider waits
 // only before each request. The role SQL runs once the project has no operation in progress, so it
-// never meets a retired API role that is still being dropped. The wait is bounded (`maxSeconds`
+// never meets an API role change that is still being applied. The wait is bounded (`maxSeconds`
 // in all, polling every `interval`); one 5xx answer is retried. An operation created since `since`
 // (the deploy's start) that ended failed, in error or cancelled stops the deploy, named.
 const operationNames = (operations) =>

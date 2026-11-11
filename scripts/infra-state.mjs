@@ -91,7 +91,7 @@ export async function restore(store, target, key, { replace = false } = {}, now 
     );
     assert(
       !restoresRetiredRoles([current?.body, ...others].filter(Boolean), backup),
-      `${key} predates the SQL-created database roles and holds their retired Neon API roles; a deploy from it would delete the live roles (see docs/runbooks/infrastructure.md, Database roles)`,
+      `${key} predates the SQL-created database roles and holds Neon API roles of those names; plan review would refuse a deploy from it (see docs/runbooks/infrastructure.md, Database roles)`,
     );
     if (!current) {
       await store.create(keys.state, backup);
