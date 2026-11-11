@@ -187,6 +187,37 @@ it("journals a finite carried boundary import/export with literal actor, source,
       payload,
     ),
   ).toMatchObject({ check: "boundary.journaled-exchange@1" });
+  for (const quantity of [-1, 0, 4]) {
+    const forgedQuantity = imported.events.map((event) =>
+      event.type === "resource.boundary-exchanged"
+        ? { ...event, payload: { ...event.payload, quantity } }
+        : event,
+    );
+    expect(
+      checkWorldInvariants(
+        initial.state,
+        imported.world.state,
+        forgedQuantity,
+        "boundary.exchange",
+        initial.template.pack.pack.policy,
+        payload,
+      ),
+    ).toMatchObject({ check: "boundary.journaled-exchange@1" });
+  }
+  const futureEvents = imported.events.map((event) => ({
+    ...event,
+    simulationTime: 1n as typeof event.simulationTime,
+  }));
+  expect(
+    checkWorldInvariants(
+      initial.state,
+      imported.world.state,
+      futureEvents,
+      "boundary.exchange",
+      initial.template.pack.pack.policy,
+      payload,
+    ),
+  ).toMatchObject({ check: "boundary.journaled-exchange@1", path: "events[0].simulationTime" });
   const tight = { ...initial.template.pack.pack.policy };
   delete tight.boundaryExchanges;
   const tightState = { ...initial.state };

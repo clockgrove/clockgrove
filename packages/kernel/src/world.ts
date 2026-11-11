@@ -4321,7 +4321,13 @@ function boundaryJournalDisagreement(
     !events.some(crossing)
   )
     return undefined;
-  if (activePolicy === undefined) return events.some(crossing) ? "events" : undefined;
+  if (activePolicy === undefined) {
+    if (events.some(crossing)) return "events";
+    return canonicalSerialize(initial.boundaryExchanges ?? null) ===
+      canonicalSerialize(final.boundaryExchanges ?? null)
+      ? undefined
+      : "state.boundaryExchanges";
+  }
   const mismatch = boundaryExchangeDisagreement(activePolicy, final);
   if (mismatch !== undefined) return mismatch;
   if (
@@ -4333,6 +4339,7 @@ function boundaryJournalDisagreement(
   for (let index = 0; index < events.length; index++) {
     const event = events[index]!;
     if (event.type === "boundary.departed") {
+      if (event.simulationTime !== state.simulationTime) return `events[${index}].simulationTime`;
       const exchange = events[index + 1];
       const returned = events[index + 2];
       if (
