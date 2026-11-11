@@ -157,6 +157,12 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
     validateDeliveryConsent(input);
     return withClientTransaction(this.client, { authorization: a }, async () => {
       await this.target(a, t);
+      const timezone = await this.client.query(
+        "SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name=$1) AS valid",
+        [input.timezone],
+      );
+      if (!(timezone.rows[0] as Row)?.valid)
+        throw new DeliveryRefusedError("delivery_policy_invalid");
       const r = await this.client.query(
         `INSERT INTO clockgrove.delivery_consent
         (tenant_id,world_id,timeline_id,actor_id,principal_id,space_id,enabled,timezone,quiet_start,quiet_end,budget_limit,version)
@@ -431,6 +437,68 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
       return receipt;
     });
   }
+  /** Only currently authorized targets keep this principal's actor alarm alive. */
+  pending(address: ActivationAddress): Promise<boolean> {
+    return withClientTransaction(this.client, { authorization: address.participant }, async () => {
+      const rows = await this.pendingRows(address, null, 1);
+      return rows.length > 0;
+    });
+  }
+
+  private async pendingRows(address: ActivationAddress, after: string | null, limit: number) {
+    if (address.scope.tenantId !== address.participant.tenantId)
+      throw new DeliveryRefusedError("delivery_target_invalid");
+    const rows = await this.client.query(
+      `SELECT d.receipt FROM clockgrove.deliveries d
+       JOIN clockgrove.conversation_sessions s USING (tenant_id,session_id)
+       WHERE d.tenant_id=$1 AND d.world_id=$2 AND d.timeline_id=$3
+         AND d.actor_id=$4 AND d.principal_id=$5 AND d.status='delayed' AND s.state<>'deleted'
+         AND clockgrove.runtime_delivery_authorized(d.tenant_id,d.world_id,d.timeline_id,d.space_id,d.principal_id,d.actor_id)
+         AND ($6::text IS NULL OR d.dedupe_key>$6)
+       ORDER BY d.dedupe_key LIMIT $7`,
+      [
+        address.scope.tenantId,
+        address.scope.worldId,
+        address.scope.timelineId,
+        address.actorId,
+        address.participant.principalId,
+        after,
+        limit,
+      ],
+    );
+    return rows.rows.map((row) => (row as Row).receipt as DeliveryReceipt);
+  }
+
+  /** The cursor is only a fairness hint; loss restarts from canonical pending receipts. */
+  async resumePending(address: ActivationAddress, after: string | null): Promise<string | null> {
+    // Decision: sixteen sequential resumes bound each callback's database work; later callbacks
+    // rotate past quiet requests so one recipient's earlier requests cannot starve later ones.
+    const limit = 16;
+    const receipts = await withClientTransaction(
+      this.client,
+      { authorization: address.participant },
+      () => this.pendingRows(address, after, limit),
+    );
+    for (const receipt of receipts) {
+      try {
+        await this.resume(
+          address.participant,
+          {
+            scope: receipt.request.scope,
+            actorId: address.actorId,
+            sessionId: receipt.request.sessionId,
+          },
+          receipt.request.dedupeKey,
+        );
+      } catch (error) {
+        // Revocation/deletion between the scan and resume must not strand other targets.
+        if (!(error instanceof DeliveryRefusedError) || error.code !== "delivery_target_invalid")
+          throw error;
+      }
+    }
+    return receipts.length === limit ? receipts[receipts.length - 1]!.request.dedupeKey : null;
+  }
+
   replay(
     a: RuntimeAuthorizationContext,
     t: DeliveryTarget,

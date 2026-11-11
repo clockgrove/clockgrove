@@ -200,7 +200,7 @@ Do not instantiate an OpenClaw daemon or repository per actor. The structure is 
 
 A session is scoped by world, timeline, subject, participant set, channel surface, external-thread reference when present, privacy boundary, voice mode, and retention policy.
 
-Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The authenticated HTTP API stores browser, CLI and deterministic fake channel threads. A channel binding scopes its thread by tenant, world, timeline and participant; every thread addresses the existing canonical actor. Browser requests without explicit channel metadata retain their new-session behavior.
+Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The authenticated HTTP API stores browser, CLI and deterministic fake channel threads. A channel binding scopes its thread by tenant, world, timeline and participant; every thread addresses the existing canonical actor. Browser requests without explicit channel metadata retain their new-session behavior. Part 5 of issue 168 configures recipient-owned delivery consent against an authorized session; it does not merge channel threads or change their participant sets.
 
 Required states:
 
@@ -467,7 +467,7 @@ Expose a stateless authenticated MCP surface over application APIs for world/tim
 
 Wave 5 freezes the evergreen portal boundary with browser as the production surface, a developer CLI over the authenticated HTTP API, and deterministic fake adapters. No real Slack, Discord, email, messaging or voice provider is in scope.
 
-The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. Normalized browser, CLI and fake ingress shares the authenticated HTTP boundary. Part 3 of issue 168 adds the internal durable governed-delivery boundary with per-actor opt-in, reserved delivery-unit budgets, recipient-timezone quiet hours, deterministic fake receipts, isolated branch preview receipts and read-only replay. Part 4 connects explicitly configured proactive actor wakes to this boundary using their canonical private reply artifacts. Automatic delayed dispatch and the complete browser/CLI/fake completion proof remain Part 5.
+The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. Normalized browser, CLI and fake ingress shares the authenticated HTTP boundary. Part 3 of issue 168 adds the internal durable governed-delivery boundary with per-actor opt-in, reserved delivery-unit budgets, recipient-timezone quiet hours, deterministic fake receipts, isolated branch preview receipts and read-only replay. Part 4 connects explicitly configured proactive actor wakes to this boundary using their canonical private reply artifacts. Part 5 adds recipient-owned consent over authenticated HTTP and automatic delayed proactive dispatch through recoverable actor activation alarms. Ordinary actor-response governance and the complete browser/CLI/fake completion proof remain Part 6.
 
 Normalized inbound data includes provider/source identity assertions, resolved Clockgrove principal, world/timeline/actor, participant set, channel/thread, privacy policy, content parts/media refs, reply metadata, authority mode, and idempotency key.
 
@@ -499,7 +499,7 @@ Replace the Wave 4 placeholder with:
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
 
-Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes with its own channel threads and preserves the explicit Talk/Say distinction. Browser requests retain their existing shape and production role; each thread keeps its own private transcript.
+Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes with its own channel threads and preserves the explicit Talk/Say distinction. Browser requests retain their existing shape and production role; each thread keeps its own private transcript. Recipient-owned consent can now be configured through the authenticated HTTP surface described in the [runtime runbook](../runbooks/runtime.md#proactive-delivery-configuration); this part adds no browser consent control.
 
 ---
 

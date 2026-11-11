@@ -46,6 +46,7 @@ import {
   type PostgreSqlClient,
   PostgreSqlConversationStore,
   PostgreSqlDispatchStore,
+  PostgreSqlGovernedDelivery,
   PostgreSqlJournal,
   PostgreSqlJournalRangeSource,
   PostgreSqlLifecycleWorkflowStore,
@@ -358,6 +359,15 @@ export function withActivations<T>(
 ): Promise<T> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
     operation(new PostgreSqlActivations(client)),
+  );
+}
+
+export function withGovernedDelivery<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (delivery: PostgreSqlGovernedDelivery) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    operation(new PostgreSqlGovernedDelivery(client)),
   );
 }
 
@@ -1147,6 +1157,7 @@ export default {
           ? {}
           : {
               conversations,
+              deliveries: (operation) => withGovernedDelivery(env, operation),
               turns: composeTurnOwners(env),
               activations: composeActivationOwners(env),
             }),

@@ -101,6 +101,7 @@ import {
   withActorCapabilityClient,
   withActorProcesses,
   withCommandOwner,
+  withGovernedDelivery,
   withLifecycleWorkflowClient,
   withWakeTriageClient,
   worldReactionNotifier,
@@ -1214,6 +1215,7 @@ const INBOX_KEY = "actor-agent-inbox";
 const ACTIVATION_ADDRESS_KEY = "activation-address";
 /** Prefix of the activation alarm keys, one per principal that armed this actor. */
 const ACTIVATION_ALARM_KEY = "activation-alarm";
+const DELIVERY_CURSOR_KEY = "delivery-cursor";
 
 /** Why an activation arming runs, which decides how soon it plans the next check. */
 export interface ActivationArming {
@@ -1466,6 +1468,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       forceRecovery: true,
     });
     try {
+      const cursorKey = `${DELIVERY_CURSOR_KEY}:${address.participant.principalId}`;
+      const cursor = await this.objectState.storage.get<string | null>(cursorKey);
+      const nextCursor = await withGovernedDelivery(this.environment, (store) =>
+        store.resumePending(address, cursor ?? null),
+      );
+      await this.objectState.storage.put(cursorKey, nextCursor);
       for (const deferred of inspection.activations.filter((a) => a.status === "deferred")) {
         try {
           await this.admitActivation(address, {
@@ -1556,7 +1564,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         if (inspection.configurations.length > 0)
           await this.objectState.storage.put(ACTIVATION_ADDRESS_KEY, address);
         await this.activationPlanning(arming);
-        await this.planActivationAlarm(address, inspection, arming);
+        const delayed = await withGovernedDelivery(this.environment, (store) =>
+          store.pending(address),
+        );
+        await this.planActivationAlarm(address, inspection, arming, delayed);
         return inspection;
       } finally {
         this.activationArmingStep(arming, "settled");
@@ -1589,6 +1600,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       forceRecovery = false,
       prompt = false,
     }: ActivationArming,
+    delayed: boolean,
   ): Promise<void> {
     // Each principal's arming plans only that principal's alarm: activation policies are private
     // to their principal, so another principal's arming reads none of them and must not cancel or
@@ -1614,11 +1626,16 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const next = times.length ? Math.min(...times) : null;
     const candidates = [
       next,
+      // Decision: delayed recipient contacts reuse the one-minute quiet subscription cadence.
+      delayed ? Date.now() + 60000 : null,
       poll || pending || (initial && inspection.activations.some((a) => a.status === "deferred"))
         ? Date.now() + (initial || pending || (poll && prompt) ? 1000 : 60000)
         : null,
     ].filter((value): value is number => value !== null);
-    if ((inspection.activations.length >= 1000 && !pending) || candidates.length === 0) {
+    if (
+      (inspection.activations.length >= 1000 && !pending && !delayed) ||
+      candidates.length === 0
+    ) {
       await this.objectState.storage.put(key, null);
       if (stored) await this.cancelSchedule(stored.id);
       return;

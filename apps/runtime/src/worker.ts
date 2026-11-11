@@ -2,6 +2,7 @@ import {
   AuthenticationRefusedError,
   AuthorizationRefusedError,
   CanonicalNodeError,
+  DeliveryRefusedError,
   encodeCanonicalNode,
   InspectedCommandNotFoundError,
   InspectedEventNotFoundError,
@@ -102,6 +103,7 @@ import {
   lastTalkFrame,
   type TurnOwners,
 } from "./conversations.js";
+import { type DeliveryStores, deliveryConsentCall } from "./delivery-routes.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -240,6 +242,7 @@ export interface RuntimeOwnerBindings {
   /** The actor owners that run Talk turns (`ActorAgentDO`); absent, Talk fails closed too. */
   readonly turns?: TurnOwners;
   readonly activations?: ActivationOwners;
+  readonly deliveries?: DeliveryStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
@@ -473,6 +476,10 @@ export class RuntimeWorker {
     )
       return this.answer("scene_observation_answered", (note) =>
         this.activation(request, note, url.pathname as ActivationRoute),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/deliveries/consent")
+      return this.answer("scene_observation_answered", (note) =>
+        this.deliveryConsent(request, note),
       );
     if (request.method === "POST" && isConversationRoute(url.pathname))
       return this.answer("scene_observation_answered", (note) =>
@@ -952,6 +959,51 @@ export class RuntimeWorker {
       note.outcome = "read";
       return jsonResponse(scene);
     } catch (error) {
+      return this.observationRefusal(note, error);
+    }
+  }
+
+  private async deliveryConsent(request: Request, note: RequestNote): Promise<Response> {
+    try {
+      const identified = await this.authenticator.identify(request.clone());
+      const call = deliveryConsentCall(await request.json());
+      const metadata = readMetadata(identified.correlationHeader);
+      note.ids = { ...call.target.scope, ...metadata };
+      const context = await this.authenticator.authorize(identified, metadata, OBSERVE_GRANT);
+      if (
+        !context.privacyCeiling.allowedCategories.includes("conversation") ||
+        context.personaId === undefined
+      )
+        throw new AuthorizationRefusedError("delivery consent refused");
+      assertContextScope(context, call.target.scope);
+      note.authorization = "authorized";
+      const stores = this.bindings.deliveries;
+      if (stores === undefined) {
+        note.outcome = "unavailable";
+        return jsonResponse({ error: "delivery_unavailable" }, 503);
+      }
+      const answer = await stores((store) =>
+        store.configureConsent(context, call.target, call.consent),
+      );
+      note.outcome = "read";
+      return jsonResponse(answer);
+    } catch (error) {
+      if (error instanceof DeliveryRefusedError) {
+        note.outcome = "refused";
+        return jsonResponse(
+          { error: error.code },
+          error.code === "delivery_target_invalid" ? 404 : 400,
+        );
+      }
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "23514"
+      ) {
+        note.outcome = "refused";
+        return jsonResponse({ error: "delivery_policy_invalid" }, 400);
+      }
       return this.observationRefusal(note, error);
     }
   }
