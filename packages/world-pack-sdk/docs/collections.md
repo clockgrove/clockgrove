@@ -121,7 +121,8 @@ encoding. See [kernel ecology](../../kernel/docs/ecology.md) for scheduling and 
 Declare all initial inventory in genesis actor components. Ecology no longer accepts `sources`,
 including an empty list: legacy policies are refused as `INVALID_POLICY` at the corresponding
 `manifest.policies[i]#policy.ecology.sources` path. Subsequent food and water increases must come
-from rain collection, finite plant-stage yield or transfers from existing holders. A household
+from rain collection, finite plant-stage yield, transfers from existing holders or explicitly
+declared finite boundary imports. A household
 that fills a bowl must name a finite donor in its process `resource.transfer`; exhaustion produces
 the ordinary journaled refusal rather than a refill.
 
@@ -130,3 +131,25 @@ empty holder, then transfer declared material. Rules that could mint material ar
 pack validation; process commands remain limited to ordinary validated transfers. Historical
 event reducers remain for replay and do not authorize new creation. The journal and Why evidence
 retain the weather holder, plant/stage or transfer donor and command attribution.
+
+### Boundary exchange authoring
+
+A behavior policy may add `boundaryExchanges`, an ordered list of at most 64 off-map declarations:
+
+```json
+{
+  "boundaryExchanges": [
+    { "id": "neighbours-bins", "name": "The neighbour's bins down the street",
+      "kind": "food", "supply": 8, "absorb": 2, "actorIds": ["keeper"] }
+  ]
+}
+```
+
+The example's quotas are authored choices. Both quotas are required nonnegative safe integers;
+zero disables that direction. They are lifetime quantities, never automatic refills. Actor ids
+must identify in-world actors with needs. `boundary.exchange` takes the boundary id, actor id,
+carried resource holder id, resource kind, `import`/`export` direction and positive quantity.
+It journals the whole departure/exchange/return trip atomically, preserving actor attribution.
+Genesis creates finite balances and durable birth reconstruction retains them. Omit the list for
+a tight world; the platform invents no off-map source. See [domain ecology](../../domain/docs/ecology.md#declared-boundary-exchanges)
+and [kernel containment](../../kernel/docs/containment.md#finite-boundary-trips) for the native contract.

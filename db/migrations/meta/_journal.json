@@ -379,6 +379,13 @@
       "when": 1795730400001,
       "tag": "0054_delayed_delivery_index",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795816800000,
+      "tag": "0055_boundary_exchange_birth",
+      "breakpoints": true
     }
   ]
 }

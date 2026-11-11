@@ -48,6 +48,9 @@ produced by the domain rules and checked with the domain `*Disagreement` helpers
 - `wellbeing`: one entry per needs actor in object id order with `thirst` 0, `thirstRemainder` 0,
   `health` 10000, `healthRemainder` 0, `comfort` from `deriveComfort` (with thirst 0 and the actor's needs)
   and `integratedAt` equal to the actor's `needs.integratedAt`.
+- `boundaryExchanges`: matching declaration-order entries `{boundaryId, supplyRemaining,
+  absorbRemaining}`, initialized from each finite `supply` and `absorb` quota. Empty lists remain
+  explicitly empty; absent declarations add no state.
 - `utility`: no state of its own; see scripted cognition below.
 - `lifecycle`: one entry per needs actor in object id order. `householdId`, `parentIds`, `generation` and
   `bornAt` come from the actor document `lifecycle` seed; `stageIndex` is

@@ -2,7 +2,7 @@
 
 `executeWorldKernel` accepts `ContainmentKernelInput` alongside existing world input. The
 shared `CommandEnvelope` and attribution/target/policy/pack/random/id-seed validation remain
-in force. All eight commands have payload `schemaVersion: 1`, closed field validation, owner
+in force. The existing eight commands have payload `schemaVersion: 1`, closed field validation, owner
 `clockgrove.containment` (object/containment commands) or `clockgrove.resource` (resource
 commands), and `expectedRevision: required`. Missing revision is `invalid-input` at
 `command.expected.partitionRevision`; a stale revision, including retry against successful
@@ -53,7 +53,7 @@ participant may be put, removed, transferred, offered to, consumed from or retir
 Terminal objects cannot contain active children or change through later commands.
 
 For each resource kind, exact bigint `after - before` must equal journaled physical additions
-(plant yield and weather collection) minus consume, retire, spoilage and evaporation removals.
+(plant yield, weather collection and declared boundary imports) minus consume, retire, spoilage, evaporation and declared boundary export removals.
 Transfers balance each source and destination independently. New `object.created.quantityAdded`
 is zero; historical creation and offer events retain their reducers for replay only. `object.retired.quantityRemoved` is the entire
 prior quantity and records its kind and explicit discard disposition. Transfers and all
@@ -119,3 +119,25 @@ hash. There are no missing/sentinel hashes. This test-only representation does n
 production encoding. Fixed-seed generated sequences assert every successful post-state,
 resource delta, replay, input retention and retry conflict in both runtimes. Independent final
 review must inspect complete fresh report bodies and retained historical comparisons.
+
+## Finite boundary trips
+
+`boundary.exchange` extends the ordinary revision-checked resource command path. Its version-1
+payload is `{schemaVersion: 1, boundaryId, actorId, objectId, kind, direction, quantity}`;
+`direction` is `import` or `export`. The world must explicitly declare that boundary and eligible
+actor, with finite supply and absorption quotas. See [domain ecology](../../domain/docs/ecology.md#declared-boundary-exchanges)
+for declaration and balance fields.
+
+One accepted command journals `boundary.departed`, `resource.boundary-exchanged`, and
+`boundary.returned`, in that order. The exchange carries `{boundaryId, boundaryName, actorId,
+objectId, kind, direction, quantity}`; travel markers carry `{boundaryId, actorId}`. All retain
+sealed command attribution and simulation time. The complete trip is atomic and returns to the
+same in-world location, so no scheduler observes an actor temporarily outside the map.
+The actor must be active and match effective attribution; the resource holder must be the actor
+or its contained inventory. A boundary import is a checked journal cause in per-holder and global
+resource accounting; an export is a checked removal. Quota exhaustion refuses the command and
+changes nothing. Replayed exchange events reproduce both quantities and remaining quotas.
+
+The native boundary journey proves exact finite imports/exports, ordinary actor/carrier checks,
+forged-journal rejection, no-declaration refusal and replay/advance parity using fixture-world
+inputs. Boundary declarations grant no application permission and introduce no external service.
