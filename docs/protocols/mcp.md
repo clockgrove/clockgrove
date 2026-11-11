@@ -464,8 +464,10 @@ None of those execution guarantees is established by the schema foundation alone
 
 `PostgreSqlEffects` in `packages/persistence/src/postgres-effects.ts` provides the internal
 attempt lifecycle on an existing intent. Its client must already possess trusted ledger-write
-authority. It is not composed into the actor runtime, does not create intents or reserve budgets,
-and grants no SQL permissions. The ordinary runtime role still cannot write the ledger.
+authority. These lifecycle methods operate on existing intents; the part 3 `reserve` method
+described below creates already-admitted intents atomically with their outbox rows. The adapter
+is not composed into the actor runtime, does not enforce turn budgets and grants no SQL
+permissions. The ordinary runtime role still cannot write the ledger.
 Future Queue composition must complete installation, binding, member-grant, argument, network
 and budget admission before invoking this adapter.
 
