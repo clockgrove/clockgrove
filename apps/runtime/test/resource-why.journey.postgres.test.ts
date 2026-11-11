@@ -1,5 +1,10 @@
 import { executeWorldCommand } from "@clockgrove/application";
-import { decodeEntitySelection, decodeRecordedWhy, decodeWorldStatus } from "@clockgrove/contracts";
+import {
+  decodeEntitySelection,
+  decodeOpaqueId,
+  decodeRecordedWhy,
+  decodeWorldStatus,
+} from "@clockgrove/contracts";
 import { PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
 import type { Json } from "../../../packages/simulator/test/fixtures/lamp-hall.js";
@@ -26,13 +31,24 @@ import {
   withClient,
 } from "./world-fixture.js";
 
-it("shows retained rain, plant and finite process transfer causes through public Why without private attribution or mutations", async () => {
+it("shows retained rain, plant, process and outside meal causes through public Why without private attribution or mutations", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
     const source = await buildSectionHallSource({
       edit: ({ docs, manifest }) => {
         const policy = (docs["policies/behavior.json"] as Json).policy;
         policy.ecology.perishables = [];
+        policy.boundaryExchanges = [
+          {
+            id: "neighbour-bins",
+            name: "Neighbour bins",
+            kind: "food",
+            supply: 1,
+            absorb: 0,
+            actorIds: ["sec.sprout"],
+          },
+        ];
+        (docs["archetypes/sprout.json"] as Json).traits = [{ id: "sec.needs", version: 1 }];
         for (const key of ["lifecycle", "utility", "wellbeing"]) delete policy[key];
         policy.environment.wetThreshold = 1;
         policy.decisionIntervalMs = 1000n;
@@ -147,7 +163,61 @@ it("shows retained rain, plant and finite process transfer causes through public
         },
       };
       expect((await execute(transfer)).outcome).toBe("committed");
+      const outside = {
+        ...advanceCommand(world, "outside-meal", 100002n, null),
+        type: "boundary.exchange",
+        attribution: {
+          effectiveActorId: "sec.sprout",
+          causalRootActionId: decodeOpaqueId("action-outside-meal", "ActionId"),
+        },
+        payload: {
+          schemaVersion: 1,
+          boundaryId: "neighbour-bins",
+          actorId: "sec.sprout",
+          objectId: "sec.sprout",
+          kind: "food",
+          direction: "import",
+          quantity: 1,
+        },
+      };
+      expect((await execute(outside)).outcome).toBe("committed");
+      expect(
+        (
+          await execute({
+            ...advanceCommand(world, "eat-outside-meal", 100002n, null),
+            type: "resource.consume",
+            payload: { schemaVersion: 1, objectId: "sec.sprout", kind: "food", quantity: 1 },
+          })
+        ).outcome,
+      ).toBe("committed");
       const before = await truth(canonical);
+      const boundary = decodeRecordedWhy(await read("why", { commandId: "outside-meal" }));
+      const boundaryEventId = await truth(
+        "SELECT event_id FROM clockgrove.events WHERE command_id='outside-meal' AND event_type='resource.boundary-exchanged'",
+      );
+      expect(boundary.resourceCauses).toEqual([
+        {
+          eventId: boundaryEventId,
+          simulationTime: "100002",
+          cause: "boundary-exchange",
+          kind: "food",
+          quantity: 1,
+          objectId: "sec.sprout",
+          boundaryId: "neighbour-bins",
+          boundaryName: "Neighbour bins",
+          actorId: "sec.sprout",
+          direction: "import",
+        },
+      ]);
+      expect(
+        decodeRecordedWhy(await read("why", { eventId: boundaryEventId })).resourceCauses,
+      ).toEqual(boundary.resourceCauses);
+      const mealHolder = decodeEntitySelection(await read("entity", { objectId: "sec.sprout" }));
+      expect(
+        mealHolder.history.actions
+          .filter((entry) => entry.type === "resource.boundary-exchanged")
+          .map((entry) => [entry.eventId, entry.commandId, entry.simulationTime]),
+      ).toEqual([[boundaryEventId, "outside-meal", "100002"]]);
       const why = decodeRecordedWhy(await read("why", { commandId: "physical-causes" }));
       expect(why.traces).toEqual({ status: "available", drafts: [] });
       const rows = (value: ReturnType<typeof decodeRecordedWhy>) =>
@@ -184,6 +254,13 @@ it("shows retained rain, plant and finite process transfer causes through public
       ).toEqual(historic);
       expect(JSON.stringify(why)).not.toMatch(/PRIVATE-PRINCIPAL-SENTINEL|authorityDecisionId/);
       const scene = decodeWorldStatus(await read("world-status"));
+      expect(
+        scene.feed
+          .filter((event) => event.text.includes("outside the world"))
+          .map((event) => event.text),
+      ).toEqual([
+        "sec.sprout imported 1 food from outside the world at Neighbour bins into sec.sprout.",
+      ]);
       expect(
         scene.feed.filter((event) => event.text.includes("from rain")).map((event) => event.text),
       ).toEqual([

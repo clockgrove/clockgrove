@@ -1224,12 +1224,16 @@ export type PublicCausalEntry =
 export interface PublicResourceCause {
   readonly eventId: EventId;
   readonly simulationTime: string;
-  readonly cause: "rain" | "growth" | "transfer";
+  readonly cause: "rain" | "growth" | "transfer" | "boundary-exchange";
   readonly kind: "food" | "water";
   readonly quantity: number;
   readonly objectId: ObjectId;
   readonly fromObjectId?: ObjectId;
   readonly processId?: string;
+  readonly boundaryId?: string;
+  readonly boundaryName?: string;
+  readonly actorId?: ObjectId;
+  readonly direction?: "import" | "export";
 }
 
 function decodePublicResourceCause(value: unknown, path: string): PublicResourceCause {
@@ -1237,16 +1241,23 @@ function decodePublicResourceCause(value: unknown, path: string): PublicResource
   exactKeys(
     v,
     ["eventId", "simulationTime", "cause", "kind", "quantity", "objectId"],
-    ["fromObjectId", "processId"],
+    ["fromObjectId", "processId", "boundaryId", "boundaryName", "actorId", "direction"],
     path,
   );
-  const cause = literal(v.cause, ["rain", "growth", "transfer"], `${path}.cause`);
+  const cause = literal(
+    v.cause,
+    ["rain", "growth", "transfer", "boundary-exchange"],
+    `${path}.cause`,
+  );
   const kind = literal(v.kind, ["food", "water"], `${path}.kind`);
   if (
     (cause === "transfer") !== (v.fromObjectId !== undefined) ||
     (cause !== "transfer" && v.processId !== undefined) ||
     (cause === "rain" && kind !== "water") ||
-    (cause === "growth" && kind !== "food")
+    (cause === "growth" && kind !== "food") ||
+    ["boundaryId", "boundaryName", "actorId", "direction"].some(
+      (key) => (cause === "boundary-exchange") !== (v[key] !== undefined),
+    )
   )
     throw new ContractDecodeError(path, "incompatible physical resource cause");
   return {
@@ -1260,6 +1271,14 @@ function decodePublicResourceCause(value: unknown, path: string): PublicResource
       ? {}
       : { fromObjectId: decodeOpaqueId(v.fromObjectId, "ObjectId", `${path}.fromObjectId`) }),
     ...(v.processId === undefined ? {} : { processId: string(v.processId, `${path}.processId`) }),
+    ...(cause === "boundary-exchange"
+      ? {
+          boundaryId: string(v.boundaryId, `${path}.boundaryId`),
+          boundaryName: string(v.boundaryName, `${path}.boundaryName`),
+          actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
+          direction: literal(v.direction, ["import", "export"], `${path}.direction`),
+        }
+      : {}),
   };
 }
 
