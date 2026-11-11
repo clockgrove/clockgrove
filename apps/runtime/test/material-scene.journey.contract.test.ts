@@ -286,6 +286,14 @@ it("projects generated material bindings, time-of-day lights and weather without
     })),
     weatherIntensity: 0.6,
     gradingKey: "night",
+    environment: {
+      daylight: 0,
+      ambientColour: "#9caeca",
+      ambientIntensity: Math.PI * 0.4,
+      backgroundColour: "#192b20",
+      fogColour: "#25334c",
+      gradeColour: "#d6dfff",
+    },
   });
   const noon = materialSceneLighting(
     { packId: "generated-world" },
@@ -297,6 +305,20 @@ it("projects generated material bindings, time-of-day lights and weather without
   expect(noon?.directional.map((light) => light.intensity)).toEqual([Math.PI, 0]);
   expect(noon?.placed.map((light) => light.intensity)).toEqual([0, 0]);
   expect(noon?.gradingKey).toBe("day");
+  expect(noon?.environment).toEqual({
+    daylight: 1,
+    ambientColour: "#ffffff",
+    ambientIntensity: Math.PI,
+    backgroundColour: "#3f6b3a",
+    fogColour: "#43534b",
+    gradeColour: "#ffffff",
+  });
+  expect(() =>
+    decodeSceneProjection({
+      ...base,
+      lighting: { ...night, environment: { ...night?.environment, daylight: 2 } },
+    }),
+  ).toThrow();
   expect(
     materialSceneLighting({ packId: "legacy" }, [], 0n, { rainIntensity: 0 }, []),
   ).toBeUndefined();

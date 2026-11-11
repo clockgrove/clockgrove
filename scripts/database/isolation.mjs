@@ -1,4 +1,7 @@
 // Shared effective catalog verification; no credentials or provider calls.
+// The runtime connection's own check: it is the runtime role and cannot create in the canonical schema.
+export const runtimeRoleIsolationQuery =
+  "SELECT current_user = 'clockgrove_runtime' AND NOT has_schema_privilege(current_user, 'clockgrove', 'CREATE') AS isolated";
 export const databaseIsolationQuery = `
       WITH RECURSIVE effective AS (
         SELECT oid AS role_oid, oid AS inherited FROM pg_roles WHERE rolname IN ('clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets')

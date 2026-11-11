@@ -15,9 +15,11 @@
   <h1>Scene content fixture</h1>
   <p>A looping model and mapped sprite share the scene with a projected marker.</p>
   <label>Time <select id="clock"><option value="43200000">Day</option><option value="79200000">Night</option></select></label>
+  <label>Time of day <input id="time" type="range" min="0" max="86400000" value="43200000" step="any" aria-label="Time of day"></label>
   <label><input type="checkbox" id="rain"> Rain</label>
   <label><input type="checkbox" id="motion"> Reduced motion</label>
   <label>Quality <select id="quality"><option>low</option><option>medium</option><option>high</option></select></label>
+  <label>Zoom <input type="range" id="zoom" value="1" step="any" aria-label="Scene zoom"></label>
   <p id="status" role="status">Loading scene</p>
   <div id="scene" aria-label="Fixture scene"></div>
   <script type="module" src="./main.ts"></script>

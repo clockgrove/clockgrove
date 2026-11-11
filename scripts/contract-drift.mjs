@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -87,61 +86,43 @@ export async function contractInventory(root) {
     readFile(path.join(root, sourceDirectory, name), "utf8"),
   );
 }
-// Recomputes the base commit's digests from its sources, so the version-bump decision never depends
-// on how an older inventory stored its digests.
-export async function contractBaseline(root, commit) {
-  const git = (...args) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  const stored = git("show", `${commit}:scripts/contracts.generated.json`);
-  const listed = git("ls-tree", "--name-only", `${commit}:${sourceDirectory}`);
-  if (stored.status !== 0 || listed.status !== 0) return undefined;
-  return {
-    version: JSON.parse(stored.stdout).version,
-    files: await inventory(listed.stdout.split("\n"), (name) => {
-      const shown = git("show", `${commit}:${sourceDirectory}/${name}`);
-      assert.equal(shown.status, 0, `contract drift: cannot read ${name} at ${commit}`);
-      return shown.stdout;
-    }),
-  };
+// The contract version is derived from the committed per-file digests, never hand-assigned, so two
+// pull requests that change different contracts merge in either order without predicting each
+// other's number (issue 237). Any change to a contract's meaning changes its digest, so it changes
+// the version; the same contract set always has the same version.
+export function contractVersion(files) {
+  const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
+  return `sha256:${createHash("sha256").update(JSON.stringify(sorted)).digest("hex")}`;
 }
-export async function checkContractDrift(root, baseline) {
+// Refuses a committed inventory that differs from the sources, so a contract change cannot land
+// without its digest line in the diff; returns the inventory with its derived version.
+export async function checkContractDrift(root) {
   const generated = JSON.parse(
     await readFile(path.join(root, "scripts/contracts.generated.json"), "utf8"),
   );
+  const files = await contractInventory(root);
   assert.deepEqual(
-    generated.files,
-    await contractInventory(root),
+    generated,
+    { files },
     "contract drift: regenerate scripts/contracts.generated.json",
   );
-  if (baseline && JSON.stringify(baseline.files) !== JSON.stringify(generated.files)) {
-    assert(
-      generated.version > baseline.version,
-      "contract drift: contract inventory version bump required",
-    );
-  }
-  return generated;
+  return { version: contractVersion(files), files };
+}
+// A blank line between entries keeps neighbouring digests in separate merge hunks, so pull requests
+// that change adjacent contract files merge without a textual conflict.
+export async function generateContractInventory(root) {
+  const files = await contractInventory(root);
+  await writeFile(
+    path.join(root, "scripts/contracts.generated.json"),
+    `${JSON.stringify({ files }, null, 2).replaceAll(',\n    "', ',\n\n    "')}\n`,
+  );
+  return { version: contractVersion(files), files };
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const root = path.resolve(process.argv[2] ?? ".");
-  if (process.argv.includes("--generate")) {
-    const old = JSON.parse(
-      await readFile(path.join(root, "scripts/contracts.generated.json"), "utf8").catch(
-        () => '{"version":0}',
-      ),
-    );
-    // Bump only when the contract's meaning differs from the committed sources at HEAD.
-    const files = await contractInventory(root);
-    const head = await contractBaseline(root, "HEAD");
-    const version = !head
-      ? old.version + 1
-      : JSON.stringify(head.files) === JSON.stringify(files)
-        ? old.version
-        : Math.max(old.version, head.version + 1);
-    await writeFile(
-      path.join(root, "scripts/contracts.generated.json"),
-      `${JSON.stringify({ version, files }, null, 2)}\n`,
-    );
-  } else {
-    await checkContractDrift(root);
-    console.log("generated contract inventory verified");
-  }
+  const generate = process.argv.includes("--generate");
+  const { version } = generate
+    ? await generateContractInventory(root)
+    : await checkContractDrift(root);
+  console.log(`contract inventory ${version} ${generate ? "written" : "verified"}`);
 }

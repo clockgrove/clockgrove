@@ -61,7 +61,10 @@ export interface TurnFiberHost {
    * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
    * the attempt so the client's retry carries one.
    */
-  grants?(participant: ConversationParticipant): CapabilityGrants | undefined;
+  grants?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): CapabilityGrants | undefined | Promise<CapabilityGrants | undefined>;
   /** Submits an authorized world command through the ordinary world-command path. */
   submitCommand?(
     participant: ConversationParticipant,
@@ -142,8 +145,8 @@ export class TurnFibers {
   /**
    * Accepts a Caretaker message and runs its turn, streaming deltas to the first caller only. An
    * activation the perception inbox did not admit (a duplicate) joins this owner's acceptance or
-   * run of that message without accepting it again; one this owner is not handling falls to the
-   * fiber's key in PostgreSQL, which answers its stored receipt or resumes it.
+   * run only after PostgreSQL verifies the exact input and normalized envelope. One this owner
+   * is not handling falls to the fiber's key, which answers its stored receipt or resumes it.
    */
   talk(
     participant: ConversationParticipant,
@@ -154,7 +157,8 @@ export class TurnFibers {
     const key = activationKey({ kind: "direct_message", ...request });
     if (!admitted) {
       const joined = this.accepting.get(key) ?? this.running.get(key);
-      if (joined !== undefined) return joined;
+      if (joined !== undefined)
+        return this.store((store) => store.acceptTurn(participant, request)).then(() => joined);
     }
     const accepting = this.accept(participant, request, emit);
     this.accepting.set(key, accepting);
@@ -242,6 +246,8 @@ export class TurnFibers {
     accepted: TurnFiber,
     emit: (frame: TalkStreamFrame) => void,
   ): Promise<TurnOutcome> {
+    // Refresh admission before claiming so the attempt records its canonical revision.
+    await this.host.grants?.(participant, accepted);
     let fiber = await this.store((store) =>
       store.claimTurn(participant, accepted, this.host.holder, this.host.capabilityRevision()),
     );
@@ -332,7 +338,7 @@ export class TurnFibers {
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
   ): Promise<TurnCommandRecord> {
-    const grants = this.host.grants?.(participant);
+    const grants = await this.host.grants?.(participant, fiber);
     if (grants === undefined || this.host.submitCommand === undefined)
       throw new Error("capability context unavailable");
     const decision = grants.authorize(proposal);
@@ -345,7 +351,10 @@ export class TurnFibers {
         summary: `Refused before the world: ${decision.code}`,
       };
     // Read capabilities have no executor in this checkpoint; only a world command acts.
-    if (decision.definition.effect !== "world_command")
+    if (
+      decision.definition.remoteMcp !== undefined ||
+      decision.definition.effect !== "world_command"
+    )
       return {
         capability: proposal.capability,
         commandId: null,

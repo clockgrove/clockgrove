@@ -15,10 +15,17 @@ export const ACTIVATION_ROUTES = [
   "/v1/runtime/activations/wake",
   "/v1/runtime/activations/inspect",
   "/v1/runtime/activations/triage-report",
+  "/v1/runtime/activations/moderation-report",
 ] as const;
 export type ActivationRoute = (typeof ACTIVATION_ROUTES)[number];
 
 export interface ActivationOwners {
+  moderationReport?(
+    scope: BrowserScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ): Promise<unknown>;
   triageReport(
     scope: BrowserScope,
     context: TrustedExecutionContext,
@@ -127,6 +134,15 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   if (body.version !== 1) invalid("version");
   const scope = decodeBrowserScope(body.scope);
   const actorId = text(body.actorId, "actorId");
+  if (route === "/v1/runtime/activations/moderation-report")
+    return {
+      scope,
+      actorId,
+      run: (owners, context, participant) => {
+        if (owners.moderationReport === undefined) throw new Error("moderation report unavailable");
+        return owners.moderationReport(scope, context, participant, actorId);
+      },
+    };
   if (route === "/v1/runtime/activations/triage-report")
     return {
       scope,
@@ -168,6 +184,7 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     "priority",
     "enabled",
     "compiledRoutine",
+    "delivery",
   ]);
   const compiledRoutine = config.compiledRoutine;
   if (compiledRoutine !== "noop" && compiledRoutine !== "escalate") invalid("compiledRoutine");
@@ -176,6 +193,19 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     (typeof config.intervalMs !== "number" || config.intervalMs < 60_000)
   )
     invalid("intervalMs");
+  let delivery: ActivationConfiguration["delivery"];
+  if (config.delivery !== undefined) {
+    const d = object(config.delivery, "delivery");
+    keys(d, ["urgency", "quietHoursBehavior"]);
+    if (
+      (d.urgency !== "normal" && d.urgency !== "urgent") ||
+      (d.quietHoursBehavior !== "delay" &&
+        d.quietHoursBehavior !== "silent" &&
+        d.quietHoursBehavior !== "reject")
+    )
+      invalid("delivery");
+    delivery = { urgency: d.urgency, quietHoursBehavior: d.quietHoursBehavior };
+  }
   const configuration: ActivationConfiguration = {
     id: text(config.id, "id", 128),
     sessionId: text(config.sessionId, "sessionId"),
@@ -195,6 +225,7 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     priority: integer(config.priority, "priority", 100),
     enabled: boolean(config.enabled, "enabled"),
     compiledRoutine,
+    ...(delivery === undefined ? {} : { delivery }),
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");
   const policyValue = object(body.policy, "policy");

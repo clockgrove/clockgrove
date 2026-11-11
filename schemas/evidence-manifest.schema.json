@@ -142,8 +142,8 @@
           ],
           "properties": {
             "version": {
-              "type": "integer",
-              "minimum": 1
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
             },
             "files": {
               "type": "object",
@@ -804,6 +804,15 @@
                 "usage": {
                   "type": "null",
                   "description": "CPU and memory usage are explicitly unknown; elapsed timestamps remain actual."
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "description": "Which run of a retried deploy phase this is; absent on the first run."
+                },
+                "reason": {
+                  "enum": ["timeout", "budget"],
+                  "description": "Why a deploy phase has no result: `timeout`, stopped at its wall-clock limit (SIGINT, then SIGKILL after a grace), so unknown; `budget`, not started because its limit did not fit the deploy's OpenTofu time budget, so failed. Absent otherwise."
                 }
               },
               "additionalProperties": false

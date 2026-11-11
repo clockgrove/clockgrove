@@ -3,18 +3,8 @@ import type { ObjectId, SimTimeMs } from "@clockgrove/contracts";
 import { type EnvironmentPolicy, EnvironmentValidationError } from "../environment/environment.js";
 import type { WorldEntity } from "../world.js";
 
-/** Resource kinds a source can declare. */
+/** Material kinds retained for historical journal decoding. */
 export type EcologyResourceKind = "food" | "water";
-
-export interface EcologySource {
-  readonly objectId: ObjectId;
-  readonly kind: EcologyResourceKind;
-  /** Positive first appearance time; the source appears there and every period after it. */
-  readonly firstAtMs: bigint;
-  readonly periodMs: bigint;
-  /** Positive integer quantity added by each appearance. */
-  readonly quantity: number;
-}
 
 export interface EcologyPerishable {
   readonly objectId: ObjectId;
@@ -27,6 +17,8 @@ export interface EcologyStage {
   readonly name: string;
   /** Growing milliseconds at which the stage begins; the first stage's threshold is 0. */
   readonly thresholdMs: bigint;
+  /** Food produced once when this noninitial stage is reached, held by the plant. */
+  readonly yield?: Readonly<{ quantity: number }>;
 }
 
 export interface EcologyPlant {
@@ -36,10 +28,27 @@ export interface EcologyPlant {
   readonly stages: readonly EcologyStage[];
 }
 
+/** A bounded water holder with an explicit weather cause. */
+export interface EcologyWaterHolder {
+  readonly objectId: ObjectId;
+  readonly capacity: number;
+  /** Units/hour at full rain and no shelter. */
+  readonly catchment: number;
+  /** Units/hour removed independently of rain. */
+  readonly evaporationPerHour: number;
+}
+
+export interface EcologyWaterState {
+  readonly objectId: ObjectId;
+  readonly collectionRemainder: bigint;
+  readonly evaporationRemainder: bigint;
+  readonly integratedAt: SimTimeMs;
+}
+
 /** Versioned, optional world-behavior policy record; it requires an `environment` record. */
 export interface EcologyPolicy {
+  readonly waterHolders?: readonly EcologyWaterHolder[];
   readonly schemaVersion: 1;
-  readonly sources: readonly EcologySource[];
   readonly perishables: readonly EcologyPerishable[];
   readonly plants: readonly EcologyPlant[];
 }
@@ -61,11 +70,16 @@ export interface EcologyPlantState {
 
 /** Present on `WorldState` exactly when the policy has an `ecology`; entries are in policy order. */
 export interface EcologyState {
+  readonly waterHolders?: readonly EcologyWaterState[];
   readonly perishables: readonly EcologyPerishableState[];
   readonly plants: readonly EcologyPlantState[];
 }
 
 export type EcologyEventData =
+  | Readonly<{
+      type: "resource.weather-integrated";
+      payload: EcologyWaterState & Readonly<{ collected: number; evaporated: number }>;
+    }>
   | Readonly<{
       type: "resource.appeared";
       payload: Readonly<{ objectId: ObjectId; kind: EcologyResourceKind; quantity: number }>;
@@ -76,7 +90,12 @@ export type EcologyEventData =
     }>
   | Readonly<{
       type: "growth.stage-changed";
-      payload: Readonly<{ objectId: ObjectId; stageIndex: number; stageName: string }>;
+      payload: Readonly<{
+        objectId: ObjectId;
+        stageIndex: number;
+        stageName: string;
+        yield?: Readonly<{ quantity: number }>;
+      }>;
     }>
   | Readonly<{
       type: "growth.integrated";
@@ -114,6 +133,7 @@ function exactObject(
   value: unknown,
   keys: readonly string[],
   path: string,
+  optional: readonly string[] = [],
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return fail(path, "expected an object");
@@ -122,7 +142,7 @@ function exactObject(
     return fail(path, "expected a plain object");
   const descriptors = Object.getOwnPropertyDescriptors(value);
   for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== "string" || !keys.includes(key))
+    if (typeof key !== "string" || (!keys.includes(key) && !optional.includes(key)))
       return fail(`${path}.${String(key)}`, "unknown field");
     const descriptor = descriptors[key]!;
     if (!("value" in descriptor)) return fail(`${path}.${key}`, "accessors are not data");
@@ -184,33 +204,15 @@ export function validateEcologyPolicy(
   environment: EnvironmentPolicy | undefined,
   path = "policy.ecology",
 ): asserts value is EcologyPolicy {
-  const root = exactObject(value, ["schemaVersion", "sources", "perishables", "plants"], path);
+  const root = exactObject(value, ["schemaVersion", "perishables", "plants"], path, [
+    "waterHolders",
+  ]);
   if (root.schemaVersion !== ECOLOGY_POLICY_VERSION)
     fail(`${path}.schemaVersion`, "unsupported ecology schema version");
   if (environment === undefined) fail(path, "ecology requires an environment record");
   const bands = new Set(environment.phases.map((phase) => phase.lightBand));
-  const sourceIds = new Set<string>();
   const perishableIds = new Set<string>();
   const plantIds = new Set<string>();
-  const perishableKinds = new Map<string, string>();
-  const sources = list(root.sources, `${path}.sources`, 0, MAX_ECOLOGY_ENTRIES);
-  for (const [index, entry] of sources.entries()) {
-    const at = `${path}.sources[${index}]`;
-    const source = exactObject(
-      entry,
-      ["objectId", "kind", "firstAtMs", "periodMs", "quantity"],
-      at,
-    );
-    const id = name(source.objectId, `${at}.objectId`);
-    if (sourceIds.has(id)) fail(`${at}.objectId`, "source object ids must be unique");
-    sourceIds.add(id);
-    if (source.kind !== "food" && source.kind !== "water")
-      fail(`${at}.kind`, "expected food or water");
-    perishableKinds.set(id, source.kind);
-    positive(source.firstAtMs, `${at}.firstAtMs`);
-    positive(source.periodMs, `${at}.periodMs`);
-    safeInteger(source.quantity, `${at}.quantity`, 1, Number.MAX_SAFE_INTEGER);
-  }
   const perishables = list(root.perishables, `${path}.perishables`, 0, MAX_ECOLOGY_ENTRIES);
   for (const [index, entry] of perishables.entries()) {
     const at = `${path}.perishables[${index}]`;
@@ -220,9 +222,34 @@ export function validateEcologyPolicy(
       fail(`${at}.objectId`, "perishable holder object ids must be unique");
     perishableIds.add(id);
     positive(holder.shelfLifeMs, `${at}.shelfLifeMs`);
-    if (perishableKinds.get(id) === "water")
-      fail(`${at}.objectId`, "perishable holders hold food, never water");
   }
+  const waterIds = new Set<string>();
+  if (root.waterHolders !== undefined)
+    for (const [index, value] of list(
+      root.waterHolders,
+      `${path}.waterHolders`,
+      0,
+      MAX_ECOLOGY_ENTRIES,
+    ).entries()) {
+      const at = `${path}.waterHolders[${index}]`;
+      const holder = exactObject(
+        value,
+        ["objectId", "capacity", "catchment", "evaporationPerHour"],
+        at,
+      );
+      const id = name(holder.objectId, `${at}.objectId`);
+      if (waterIds.has(id) || perishableIds.has(id))
+        fail(`${at}.objectId`, "weather holders must be unique and separate from perishables");
+      waterIds.add(id);
+      safeInteger(holder.capacity, `${at}.capacity`, 1, Number.MAX_SAFE_INTEGER);
+      safeInteger(holder.catchment, `${at}.catchment`, 0, Number.MAX_SAFE_INTEGER);
+      safeInteger(
+        holder.evaporationPerHour,
+        `${at}.evaporationPerHour`,
+        0,
+        Number.MAX_SAFE_INTEGER,
+      );
+    }
   const plants = list(root.plants, `${path}.plants`, 0, MAX_ECOLOGY_ENTRIES);
   for (const [index, entry] of plants.entries()) {
     const at = `${path}.plants[${index}]`;
@@ -230,8 +257,8 @@ export function validateEcologyPolicy(
     const id = name(plant.objectId, `${at}.objectId`);
     if (plantIds.has(id)) fail(`${at}.objectId`, "plant object ids must be unique");
     plantIds.add(id);
-    if (sourceIds.has(id) || perishableIds.has(id))
-      fail(`${at}.objectId`, "a plant is never also a source or perishable holder");
+    if (perishableIds.has(id) || waterIds.has(id))
+      fail(`${at}.objectId`, "a plant is never also a perishable or weather holder");
     const growing = list(
       plant.growingLightBands,
       `${at}.growingLightBands`,
@@ -253,9 +280,27 @@ export function validateEcologyPolicy(
     const stages = list(plant.stages, `${at}.stages`, MIN_PLANT_STAGES, MAX_PLANT_STAGES);
     const stageNames = new Set<string>();
     let previous = -1n;
+    let totalYield = 0n;
     for (const [stageIndex, stageEntry] of stages.entries()) {
       const stageAt = `${at}.stages[${stageIndex}]`;
-      const stage = exactObject(stageEntry, ["name", "thresholdMs"], stageAt);
+      const stage = exactObject(stageEntry, ["name", "thresholdMs"], stageAt, ["yield"]);
+      if (stage.yield !== undefined) {
+        if (stageIndex === 0) fail(`${stageAt}.yield`, "the initial stage cannot yield");
+        const yieldPolicy = exactObject(stage.yield, ["quantity"], `${stageAt}.yield`);
+        totalYield += BigInt(
+          safeInteger(
+            yieldPolicy.quantity,
+            `${stageAt}.yield.quantity`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+          ),
+        );
+        if (totalYield > BigInt(Number.MAX_SAFE_INTEGER))
+          fail(
+            `${stageAt}.yield.quantity`,
+            "total plant yield exceeds the material quantity range",
+          );
+      }
       const label = name(stage.name, `${stageAt}.name`);
       if (stageNames.has(label)) fail(`${stageAt}.name`, "stage names must be unique");
       stageNames.add(label);
@@ -276,7 +321,29 @@ export function validateEcologyState(
   value: unknown,
   path = "state.ecology",
 ): asserts value is EcologyState {
-  const root = exactObject(value, ["perishables", "plants"], path);
+  const root = exactObject(value, ["perishables", "plants"], path, ["waterHolders"]);
+  if (root.waterHolders !== undefined)
+    for (const [index, value] of list(
+      root.waterHolders,
+      `${path}.waterHolders`,
+      0,
+      MAX_ECOLOGY_ENTRIES,
+    ).entries()) {
+      const at = `${path}.waterHolders[${index}]`;
+      const entry = exactObject(
+        value,
+        ["objectId", "collectionRemainder", "evaporationRemainder", "integratedAt"],
+        at,
+      );
+      name(entry.objectId, `${at}.objectId`);
+      for (const [key, limit] of [
+        ["collectionRemainder", 360_000_000_000_000n],
+        ["evaporationRemainder", 3_600_000n],
+        ["integratedAt", MAX_SIM_TIME + 1n],
+      ] as const)
+        if (typeof entry[key] !== "bigint" || entry[key] < 0n || entry[key] >= limit)
+          fail(`${at}.${key}`, "expected a nonnegative bigint within range");
+    }
   for (const [index, entry] of list(
     root.perishables,
     `${path}.perishables`,
@@ -411,15 +478,25 @@ export function ecologyDisagreement(
   const record = state.ecology;
   if (declared === undefined) return record === undefined ? undefined : "state.ecology";
   if (record === undefined) return "state.ecology";
+  if (
+    (declared.waterHolders === undefined) !== (record.waterHolders === undefined) ||
+    (declared.waterHolders?.length ?? 0) !== (record.waterHolders?.length ?? 0)
+  )
+    return "state.ecology.waterHolders";
+  for (const [index, holder] of (declared.waterHolders ?? []).entries()) {
+    const entry = record.waterHolders![index]!;
+    const at = `state.ecology.waterHolders[${index}]`;
+    const entity = state.entities.find((candidate) => candidate.objectId === holder.objectId);
+    if (entry.objectId !== holder.objectId || entity?.resource?.kind !== "water")
+      return `${at}.objectId`;
+    if (entity.resource.quantity > holder.capacity)
+      return `policy.ecology.waterHolders[${index}].capacity`;
+    if (entry.integratedAt !== state.simulationTime) return `${at}.integratedAt`;
+  }
   const find = (id: string): WorldEntity | undefined =>
     state.entities.find((entity) => entity.objectId === id);
   if (record.perishables.length !== declared.perishables.length) return "state.ecology.perishables";
   if (record.plants.length !== declared.plants.length) return "state.ecology.plants";
-  for (const [index, source] of declared.sources.entries()) {
-    const entity = find(source.objectId);
-    if (entity === undefined) return `policy.ecology.sources[${index}].objectId`;
-    if (entity.resource?.kind !== source.kind) return `policy.ecology.sources[${index}].kind`;
-  }
   for (const [index, holder] of declared.perishables.entries()) {
     const entry = record.perishables[index]!;
     const at = `state.ecology.perishables[${index}]`;
@@ -440,7 +517,18 @@ export function ecologyDisagreement(
     const entry = record.plants[index]!;
     const at = `state.ecology.plants[${index}]`;
     if (entry.objectId !== plant.objectId) return `${at}.objectId`;
-    if (find(plant.objectId) === undefined) return `${at}.objectId`;
+    const entity = find(plant.objectId);
+    if (entity === undefined) return `${at}.objectId`;
+    if (plant.stages.some((stage) => stage.yield !== undefined)) {
+      if (entity.resource?.kind !== "food") return `policy.ecology.plants[${index}].objectId`;
+      const remaining = plant.stages.reduce(
+        (sum, stage, stageIndex) =>
+          sum + (stageIndex > entry.stage ? BigInt(stage.yield?.quantity ?? 0) : 0n),
+        0n,
+      );
+      if (BigInt(entity.resource.quantity) + remaining > BigInt(Number.MAX_SAFE_INTEGER))
+        return `${at}.stage`;
+    }
     if (entry.integratedAt > state.simulationTime) return `${at}.integratedAt`;
     if (entry.stage !== plantStageIndex(plant, entry.growingMs)) return `${at}.stage`;
   }

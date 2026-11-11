@@ -12,6 +12,16 @@
 
 All Clockgrove IDs are opaque branded strings. Callers may compare or transport them but must not infer scope or provider placement from their bytes. Externally initiated IDs are UUIDv7 and are validated with `decodeExternallyInitiatedId`. IDs created within deterministic execution come from an injected `DeterministicIdSource` whose declared seed is the command ID, event index, and named random stream. The contracts package defines that seam and does not choose randomness, read a clock, or generate an ID itself.
 
+## Contract inventory version
+
+`scripts/contracts.generated.json` records one digest per `packages/contracts/src` file, taken from
+its parsed syntax so formatting and comments never count. `pnpm check` refuses an inventory that
+differs from the sources; `node scripts/contract-drift.mjs . --generate` rewrites it. The contract
+version is the `sha256:` digest of that inventory: it is derived, never hand-assigned, so any change
+to a contract's meaning is a new version and concurrent pull requests never race for a number. CI
+evidence manifests record it as `versions.contracts.version`. It is a build identity only; wire
+compatibility is still decided by the protocol and schema versions above.
+
 ## Actor addresses and scope
 
 Actor addresses use version 1 and the six canonical variants: `world`, `space`, `subject`, `process`, `session`, and `presence`. Their common scope is tenant, world, and timeline. Because IDs are deliberately opaque, decoding an address requires an `ActorTargetBinding` resolved by trusted application authority. The decoder compares all four relevant identities—the variant ID and tenant/world/timeline scope—and rejects any mismatch. A world actor's variant ID must also equal its world-scope ID. No provider routing identifier is accepted as scope evidence.
@@ -291,8 +301,10 @@ and consumers; Clockgrove must refuse an over-limit source rather than repair it
 
 The material and policy decoders reject unknown fields and malformed declarations and freeze
 their results. Omitting `material` preserves the existing version-1 style-profile shape exactly.
-The atlas build packs supplied channel images at each density, emitting deterministic BC3 DDS
-textures and lossless PNG fallbacks. Delivery metadata identifies content hashes and frame
-rectangles. Clients select renditions by device pixel ratio and a texture-byte budget, and
+The atlas build packs supplied channel images at each density, emitting deterministic KTX2
+textures (Basis Universal UASTC, format `ktx2-uastc`) that clients transcode to the compressed
+format their GPU samples, and lossless PNG fallbacks. Delivery metadata identifies content hashes
+and frame rectangles. Clients select renditions by device pixel ratio and the bytes they fetch and
+upload for the format they load, and
 renderers may consume only albedo while retaining the other channel references for capable
 adapters. No per-asset compressed inputs are accepted.

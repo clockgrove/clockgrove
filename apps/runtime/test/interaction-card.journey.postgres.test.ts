@@ -124,7 +124,8 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         return [response.status, await response.json()] as const;
       };
 
-      // Rain falls, Keeper is walked to the porch, and the next routine decision is recorded.
+      // Rain falls, Keeper is walked into the porch (which keeps off half the rain), and its next
+      // routine decision, due at the end of the day, is recorded.
       const born = world.birth.state.simulationTime;
       const advance = (key: string, targetTime: bigint) =>
         run(key, "world.advance", { schemaVersion: 1, targetTime, maxInputs: 64, maxEvents: 256 });
@@ -243,8 +244,9 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const why = decodeRecordedWhy(whyBody);
       const trace = why.traces.drafts.filter((draft) => draft.objectId === "fixture.keeper").at(-1);
       // Rain and wetness against the porch's protection outscore staying; nothing else is perceived.
+      // Keeper is already in the porch, so it reaches the wet threshold only at the scheduled decision.
       expect([trace?.simulationTime, trace?.selectedAction]).toEqual([
-        "8674560000",
+        "8726400000",
         { kind: "seek-shelter", targetObjectId: "fixture.porch" },
       ]);
       const chosen = trace?.candidates.find((c) => c.action.targetObjectId === "fixture.porch");
@@ -252,19 +254,19 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         chosen?.score,
         Object.fromEntries(chosen?.features.map(({ name, value }) => [name, value]) ?? []),
       ]).toEqual([
-        "70000000",
+        "60000000",
         {
           U: "10000",
           expectation: "0",
           health: "10000",
-          hunger: "3320",
+          hunger: "3800",
           perceived: "10000",
           protection: "5000",
-          rain: "10000",
-          thirst: "40",
+          rain: "9000",
+          thirst: "100",
           travelMs: "0",
-          uncomfortable: "10000",
-          wetness: "4000",
+          uncomfortable: "0",
+          wetness: "3000",
         },
       ]);
       expect(JSON.stringify(why)).not.toMatch(
@@ -277,7 +279,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         ),
       ).toBe(`${authorization.principalId} served,${authorization.principalId} served`);
 
-      // Influence proposes; the world accepts, commits and records the consequence, attributed.
+      // Influence without a finite donor is refused and records an attributed receipt.
       const before = await truth("SELECT count(*) FROM clockgrove.command_receipts");
       const { revision } = (await owner.reader.hydrate(authorization, scope)).document.state;
       const intent = {
@@ -289,15 +291,20 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const [offered, offeredBody] = await post("influence", intent);
       const receipt = decodeInfluenceReceipt(offeredBody);
       expect([offered, receipt.status, receipt.attribution]).toEqual([
-        200,
-        "committed",
+        409,
+        "rejected",
         { principalId: authorization.principalId, personaId: "persona-caretaker" },
       ]);
+      expect(receipt.status === "rejected" && receipt.reason).toBe(
+        "precondition-failed at payload.quantity",
+      );
       expect(
-        receipt.status === "committed" && receipt.consequences.map((event) => event.type),
-      ).toEqual(["resource.offered"]);
+        await truth(
+          `SELECT count(*) FROM clockgrove.events WHERE command_id = '${receipt.commandId}'`,
+        ),
+      ).toBe("0");
       // A retried intent replays its stored receipt; another proposal under its ID is a reuse.
-      expect(await post("influence", intent)).toEqual([200, offeredBody]);
+      expect(await post("influence", intent)).toEqual([409, offeredBody]);
       expect(await post("influence", { ...intent, resourceKind: "food" })).toEqual([
         409,
         { error: "command_id_reused" },
@@ -306,7 +313,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         await truth(
           `SELECT status || ' ' || (attribution->>'personaId') || ' ' || (attribution->>'effectiveActorId') FROM clockgrove.command_receipts WHERE command_id = '${receipt.commandId}'`,
         ),
-      ).toBe(`committed persona-caretaker ${authorization.principalId}`);
+      ).toBe(`rejected persona-caretaker ${authorization.principalId}`);
       // Without the command grant the intent is rejected, and the rejection is a recorded receipt.
       grants = [observe];
       const [rejected, rejectedBody] = await post("influence", { ...intent, intentId: "offer-2" });

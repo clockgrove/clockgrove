@@ -166,9 +166,16 @@ body {
   box-sizing: border-box;
 }
 
+.rw-canvas {
+  width: 100%;
+  /* #184: bound the scene to the shell viewport, leaving 260px for the HUD, status and heading. */
+  height: calc(100dvh - 260px);
+  min-height: 400px;
+  overflow: hidden;
+}
+
 .rw-canvas canvas {
-  /* Never CSS-scaled: the renderer maps pointers through the canvas bounds, re-read on any scroll. */
-  max-width: none;
+  max-width: 100%;
 }
 
 .rw-main [role="alert"] {
@@ -563,3 +570,14 @@ body {
   flex: 1;
   min-width: 0;
 }
+
+.rw-mcp {
+  background: var(--cg-v1-panel);
+  padding: var(--cg-v1-space-3);
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.rw-mcp label { display: block; margin-block: var(--cg-v1-space-2); }
+.rw-mcp input, .rw-mcp select { max-width: 100%; }
+.rw-mcp pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rw-mcp article, .rw-mcp article section { border-top: 1px solid currentColor; margin-block: var(--cg-v1-space-3); padding-block: var(--cg-v1-space-2); }

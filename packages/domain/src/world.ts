@@ -10,7 +10,6 @@ import type {
   WorldId,
 } from "@clockgrove/contracts";
 import { decodeAttributionEnvelope } from "@clockgrove/contracts";
-
 import { DomainValidationError } from "./actor-process.js";
 import {
   type ContainmentState,
@@ -81,6 +80,13 @@ import {
   type WellbeingPolicy,
   type WellbeingState,
 } from "./wellbeing/wellbeing.js";
+import {
+  type ProcessCommandEventData,
+  validateWorldProcesses,
+  validateWorldProcessState,
+  type WorldProcess,
+  type WorldProcessState,
+} from "./world-process.js";
 
 /** First physical-behavior capability; this is not the complete World Pack manifest. */
 export interface WorldBehaviorPack {
@@ -94,6 +100,7 @@ export interface WorldBehaviorPack {
 
 /** Need/exposure values and policy weights use integer basis points (0..10,000). */
 export interface WorldBehaviorPolicy {
+  readonly processes?: readonly WorldProcess[];
   readonly schemaVersion: 1;
   readonly version: string;
   readonly decisionIntervalMs: bigint;
@@ -148,6 +155,7 @@ export interface WorldNeeds {
 }
 
 export interface WorldState {
+  readonly processes?: readonly WorldProcessState[];
   readonly schemaVersion: 1;
   readonly tenantId: TenantId;
   readonly worldId: WorldId;
@@ -226,6 +234,7 @@ export type WorldEvent = WorldEventScope &
               payload: Readonly<{ objectId: ObjectId }> & WorldNeeds;
             }>
           | Readonly<{ type: "time.advanced"; payload: Readonly<Record<string, never>> }>
+          | ProcessCommandEventData
           | ContainmentEventData
           | MovementEventData
           | PortalEventData
@@ -274,6 +283,7 @@ const POLICY_SECTIONS: readonly string[] = [
   "wellbeing",
   "utility",
   "lifecycle",
+  "processes",
 ] satisfies readonly (keyof WorldBehaviorPolicy)[];
 
 export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
@@ -311,6 +321,7 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   ] as const) {
     requireBasisPoints(policy[key], `policy.${key}`);
   }
+  if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))
@@ -330,6 +341,7 @@ export function validateWorldState(state: WorldState): void {
   }
   requireTime(state.simulationTime, "state.simulationTime");
   requireBasisPoints(state.weather.rainIntensity, "state.weather.rainIntensity");
+  if (Object.hasOwn(state, "processes")) validateWorldProcessState(state.processes);
   if (Object.hasOwn(state, "environment")) validateEnvironmentState(state.environment);
   if (Object.hasOwn(state, "ecology")) validateEcologyState(state.ecology);
   if (Object.hasOwn(state, "wellbeing")) validateWellbeingState(state.wellbeing);
@@ -498,6 +510,18 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
     simulationTime: event.simulationTime,
   };
   switch (event.type) {
+    case "process.command-attempted": {
+      const index =
+        state.processes?.findIndex((entry) => entry.processId === event.payload.processId) ?? -1;
+      if (index < 0 || state.processes![index]!.nextAt !== event.simulationTime)
+        throw new DomainValidationError("event.processId", "process occurrence is not due");
+      return createWorldState({
+        ...advanced,
+        processes: state.processes!.map((entry, at) =>
+          at === index ? { ...entry, nextAt: event.payload.nextAt } : entry,
+        ),
+      });
+    }
     case "weather.changed":
       requireBasisPoints(event.payload.rainIntensity, "event.rainIntensity");
       return createWorldState({
@@ -668,6 +692,45 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         ),
       });
     }
+    case "resource.weather-integrated": {
+      const entity = requireEntity(state, event.payload.objectId);
+      const ecology = requireEcology(state);
+      const entry = ecology.waterHolders?.find(
+        (candidate) => candidate.objectId === entity.objectId,
+      );
+      const { collected, evaporated, integratedAt, collectionRemainder, evaporationRemainder } =
+        event.payload;
+      if (
+        entry === undefined ||
+        entity.resource?.kind !== "water" ||
+        integratedAt !== event.simulationTime ||
+        integratedAt <= entry.integratedAt ||
+        !Number.isSafeInteger(collected) ||
+        collected < 0 ||
+        !Number.isSafeInteger(evaporated) ||
+        evaporated < 0
+      )
+        throw new DomainValidationError("event", "invalid weather integration");
+      const quantity = BigInt(entity.resource.quantity) + BigInt(collected) - BigInt(evaporated);
+      if (quantity < 0n || quantity > BigInt(Number.MAX_SAFE_INTEGER))
+        throw new DomainValidationError("event", "invalid weather inventory");
+      return createWorldState({
+        ...advanced,
+        entities: state.entities.map((candidate) =>
+          candidate.objectId !== entity.objectId
+            ? candidate
+            : { ...candidate, resource: { ...entity.resource!, quantity: Number(quantity) } },
+        ),
+        ecology: {
+          ...ecology,
+          waterHolders: ecology.waterHolders!.map((candidate) =>
+            candidate.objectId !== entity.objectId
+              ? candidate
+              : { ...candidate, collectionRemainder, evaporationRemainder, integratedAt },
+          ),
+        },
+      });
+    }
     case "resource.appeared": {
       const entity = requireEntity(state, event.payload.objectId);
       if (!Number.isSafeInteger(event.payload.quantity) || event.payload.quantity <= 0)
@@ -736,8 +799,39 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       )
         throw new DomainValidationError("event.stageIndex", "must advance the plant stage");
       requireName(event.payload.stageName, "event.stageName");
+      let entities = state.entities;
+      if (event.payload.yield !== undefined) {
+        if (event.payload.stageIndex !== plant.stage + 1)
+          throw new DomainValidationError(
+            "event.stageIndex",
+            "yield must enter the next plant stage",
+          );
+        const quantity = event.payload.yield.quantity;
+        const entity = requireEntity(state, plant.objectId);
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || Object.is(quantity, -0))
+          throw new DomainValidationError(
+            "event.yield.quantity",
+            "expected positive material units",
+          );
+        if (entity.resource?.kind !== "food")
+          throw new DomainValidationError("event.objectId", "a yielding plant must hold food");
+        if (entity.resource.quantity > Number.MAX_SAFE_INTEGER - quantity)
+          throw new DomainValidationError(
+            "event.yield.quantity",
+            "exceeds the material quantity range",
+          );
+        entities = state.entities.map((candidate) =>
+          candidate !== entity
+            ? candidate
+            : {
+                ...entity,
+                resource: { ...entity.resource!, quantity: entity.resource!.quantity + quantity },
+              },
+        );
+      }
       return createWorldState({
         ...advanced,
+        entities,
         ecology: {
           ...ecology,
           plants: ecology.plants.map((entry) =>
@@ -929,9 +1023,8 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       requireBasisPoints(event.payload.health, "event.health");
       return createWorldState(advanced);
     case "location.changed": {
+      // Any object may stand in a shelter (a sheltered plant, a carried object), so any may leave it.
       const entity = requireEntity(state, event.payload.objectId);
-      if (entity.needs === undefined)
-        throw new DomainValidationError("event.objectId", "entity has no needs component");
       const locationId = event.payload.locationId;
       if (locationId !== null) requireShelter(state, entity, locationId);
       requireName(event.payload.planId, "event.planId");

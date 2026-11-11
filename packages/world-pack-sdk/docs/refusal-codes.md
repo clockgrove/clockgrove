@@ -25,3 +25,15 @@ example `manifest.actors[0].archetype` or `manifest.archetypes[0]#traits[["routi
 `MISSING_RANDOM_STREAM` is refused at `manifest.randomStreams` when the manifest declares no named stream.
 `UNSUPPORTED_RANDOM_ALGORITHM` is refused at `manifest.randomStreams[i].algorithm` or `.algorithmVersion`
 when a stream names an algorithm or version other than the one the kernel supports.
+
+Closed-world validation uses `INVALID_POLICY` at
+`manifest.policies[i]#policy.ecology.sources` for a legacy source field, even an empty list.
+A rule that offers unbacked inventory is `INVALID_RULE` at
+`manifest.rules[i]#rule.intents[j].commandType` (domain reason `rule.closed-world`).
+Ordinary runtime offers and positive-inventory object creation are kernel
+`precondition-failed` refusals with check `resource.closed-world@1`; see
+[containment](../../kernel/docs/containment.md).
+
+Seed commands that offer unbacked material or create an object with positive resource inventory
+are `INVALID_SEED_COMMAND` at `manifest.seedCommands[i].payload`. Initial inventory belongs in
+declared actor resource components.

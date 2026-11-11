@@ -1,6 +1,6 @@
 import type { AssetStyleProfile, MaterialChannel } from "@clockgrove/contracts";
 import { type AssetManifest, MAX_ASSET_FRAME_EDGE } from "@clockgrove/contracts/asset-manifest";
-import { encodeBc3Dds } from "./bc3.js";
+import { encodeKtx2Uastc } from "./ktx2.js";
 import { decodePng, encodePng } from "./png.js";
 import { sha256Hex } from "./validate.js";
 
@@ -33,7 +33,7 @@ export interface BuiltMaterialTexture {
   readonly height: number;
   readonly png: Uint8Array;
   readonly compressed: Uint8Array;
-  readonly format: "bc3-dds";
+  readonly format: "ktx2-uastc";
 }
 export interface BuiltAtlas {
   readonly materialTextures?: readonly BuiltMaterialTexture[];
@@ -272,18 +272,18 @@ export function buildAtlases(
   type TextureReference = {
     encoding?: "srgb" | "linear";
     image: { sha256: string; width: number; height: number; bytes: number };
-    compressed: { sha256: string; format: "bc3-dds"; bytes: number };
+    compressed: { sha256: string; format: "ktx2-uastc"; bytes: number };
     frames: Segment[];
     pages: {
       atlasId: string;
       image: { sha256: string; width: number; height: number; bytes: number };
-      compressed: { sha256: string; format: "bc3-dds"; bytes: number };
+      compressed: { sha256: string; format: "ktx2-uastc"; bytes: number };
     }[];
   };
   const deliveries = new Map<
     string,
     {
-      materialVersion: 1;
+      materialVersion: 2;
       renditions: {
         density: 1 | 2 | 4;
         channels: Partial<Record<MaterialChannel, TextureReference>>;
@@ -291,7 +291,7 @@ export function buildAtlases(
     }
   >();
   for (const entry of materialEntries)
-    deliveries.set(assetKey(entry.manifest), { materialVersion: 1, renditions: [] });
+    deliveries.set(assetKey(entry.manifest), { materialVersion: 2, renditions: [] });
   for (const density of [1, 2, 4] as const) {
     const roles = layout.filter((manifest) =>
       manifest.material?.renditions.some((r) => r.density === density),
@@ -355,9 +355,18 @@ export function buildAtlases(
         return [{ manifest, bytes }];
       });
       const pages = buildFlatAtlases(packed, aligned);
+      // The KTX2 transfer function and the encoder's error metric follow the declared encoding:
+      // linear when any packed asset declares this channel linear, otherwise sRGB, as the renderer
+      // treats an undeclared albedo.
+      const pageEncoding = packed.some(
+        (entry) =>
+          profile?.material?.roles[entry.manifest.semantic.role][channel]?.encoding === "linear",
+      )
+        ? "linear"
+        : "srgb";
       for (const page of pages) {
         const source = decodePng(page.png);
-        // BC3 requires complete 4×4 blocks; transparent padding leaves all frame rectangles intact.
+        // Block formats require complete 4×4 blocks; transparent padding leaves all frame rectangles intact.
         const width = Math.ceil(source.width / 4) * 4;
         const height = Math.ceil(source.height / 4) * 4;
         const rgba = new Uint8Array(width * height * 4);
@@ -375,8 +384,8 @@ export function buildAtlases(
           width,
           height,
           png,
-          compressed: encodeBc3Dds(image),
-          format: "bc3-dds",
+          compressed: encodeKtx2Uastc(image, pageEncoding),
+          format: "ktx2-uastc",
         });
       }
       for (const entry of packed) {
@@ -404,7 +413,7 @@ export function buildAtlases(
           },
           compressed: {
             sha256: sha256Hex(first.compressed),
-            format: "bc3-dds",
+            format: "ktx2-uastc",
             bytes: first.compressed.length,
           },
           frames: Array.from({ length: entry.manifest.frames.count }, (_, i) =>
@@ -424,7 +433,7 @@ export function buildAtlases(
               },
               compressed: {
                 sha256: sha256Hex(texture.compressed),
-                format: "bc3-dds",
+                format: "ktx2-uastc",
                 bytes: texture.compressed.length,
               },
             };
@@ -457,9 +466,9 @@ export function materialAtlasFiles(
     (atlas.materialTextures ?? []).flatMap((texture) => [
       { name: `${texture.atlasId}.png`, bytes: texture.png, contentType: "image/png" },
       {
-        name: `${texture.atlasId}.dds`,
+        name: `${texture.atlasId}.ktx2`,
         bytes: texture.compressed,
-        contentType: "image/vnd-ms.dds",
+        contentType: "image/ktx2",
       },
     ]),
   );

@@ -14,6 +14,7 @@ import {
 
 import { assertContractSteps } from "./contract-steps.mjs";
 import { withOwnedPostgresWireBridge } from "./native-transport.mjs";
+import { backfillWorldProcessDeadlines } from "./world-process-backfill.mjs";
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -27,7 +28,10 @@ const requiredTools = [
   "pg_restore",
 ];
 const supportedPostgresVersion = "18.6";
-const supportedPgvectorVersions = new Set(["0.8.7"]);
+// 0.8.7 is the version local and CI build (scripts/ci/toolchain.sh). Neon's PostgreSQL 18 ships
+// 0.8.6 (https://neon.com/docs/extensions/pg-extensions, 2026-11-04). 0.8.7 only fixes an IVFFlat
+// index-build overflow and the vector avg aggregate over no rows, and Clockgrove uses neither.
+const supportedPgvectorVersions = new Set(["0.8.6", "0.8.7"]);
 
 // PGDG's Debian/Ubuntu packages install the server tools here, off PATH, behind /usr/bin wrappers.
 const debianPostgresBindir = "/usr/lib/postgresql/18/bin";
@@ -76,13 +80,14 @@ export async function discoverPostgresTools() {
 /**
  * `deadlineMs` bounds the cluster's commands; long runs pass a wider bound than the default.
  * `maxConnections` replaces PostgreSQL's default of 100 (the load curves need more).
+ * `settings` adds server settings as `name=value` strings, such as preloaded libraries.
  */
 export async function withDisposableDatabase(
   operation,
-  { deadlineMs = 5 * 60_000, maxConnections } = {},
+  { deadlineMs = 5 * 60_000, maxConnections, settings = [] } = {},
 ) {
   return await withSubprocessDeadline(
-    () => createDisposableDatabase(operation, maxConnections),
+    () => createDisposableDatabase(operation, maxConnections, settings),
     deadlineMs,
   );
 }
@@ -104,7 +109,7 @@ export function databaseTransport(environment = process.env) {
   return environment.FACTORY_LOCAL === "1" ? "loopback" : "socket";
 }
 
-async function createDisposableDatabase(operation, maxConnections) {
+async function createDisposableDatabase(operation, maxConnections, settings) {
   const transport = databaseTransport();
   const tools = await discoverPostgresTools();
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "clockgrove-postgres-"));
@@ -156,6 +161,7 @@ async function createDisposableDatabase(operation, maxConnections) {
       "-p",
       String(port),
       ...(maxConnections === undefined ? [] : ["-c", `max_connections=${maxConnections}`]),
+      ...settings.flatMap((setting) => ["-c", setting]),
     ]
       .map(shellWord)
       .join(" ");
@@ -313,17 +319,27 @@ export async function applyMigrations(tools, environment, options = {}) {
         `SELECT checksum FROM clockgrove.schema_migrations WHERE migration_name = ${literal(name)}`,
       )
     ).trim();
-    if (existing === checksum) continue;
-    if (existing !== "") throw new Error(`migration checksum changed after application: ${name}`);
-    await psql(
-      tools,
-      environment,
-      `SET ROLE clockgrove_migrator;
+    if (existing !== "" && existing !== checksum)
+      throw new Error(`migration checksum changed after application: ${name}`);
+    if (existing === "")
+      await psql(
+        tools,
+        environment,
+        `SET ROLE clockgrove_migrator;
        ${sql}
        INSERT INTO clockgrove.schema_migrations (migration_name, checksum)
        VALUES (${literal(name)}, ${literal(checksum)});`,
-      ["--single-transaction"],
-    );
+        ["--single-transaction"],
+      );
+    if (
+      name === "0048_world_process_deadlines.sql" &&
+      checksum ===
+        createHash("sha256")
+          .update(await readFile(path.join(repositoryRoot, "db/migrations", name), "utf8"))
+          .digest("hex")
+    ) {
+      await backfillWorldProcessDeadlines(tools, environment, options.backfillOptions);
+    }
   }
 }
 
@@ -351,10 +367,17 @@ export async function psql(tools, environment, sql, extraArguments = []) {
 }
 
 export async function psqlQuery(tools, environment, sql, options = {}) {
+  const { viaStdin = false, ...execution } = options;
   return capture(
     tools.psql,
-    ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--tuples-only", "--no-align", "--command", sql],
-    { ...options, environment },
+    [
+      "--no-psqlrc",
+      "--set=ON_ERROR_STOP=1",
+      "--tuples-only",
+      "--no-align",
+      ...(viaStdin ? ["--file", "-"] : ["--command", sql]),
+    ],
+    { ...execution, environment, ...(viaStdin ? { input: sql } : {}) },
   );
 }
 
@@ -402,7 +425,7 @@ async function availablePort() {
 }
 
 // PostgreSQL's stored SCRAM-SHA-256 form (RFC 5802, RFC 7677); a hex password needs no SASLprep.
-function scramVerifier(password) {
+export function scramVerifier(password) {
   const iterations = 4096;
   const salt = randomBytes(16);
   const salted = pbkdf2Sync(password, salt, iterations, 32, "sha256");

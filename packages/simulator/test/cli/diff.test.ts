@@ -76,7 +76,7 @@ describe("simulate diff", () => {
         "document.runs[0].eventCounts.growth.integrated",
         "document.runs[0].eventCounts.movement.completed",
         "document.runs[0].eventCounts.movement.region-exited",
-        "document.runs[0].eventCounts.movement.started",
+        "document.runs[0].eventCounts.needs.changed",
       ],
     });
   });

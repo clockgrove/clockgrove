@@ -1,8 +1,8 @@
 # Clockgrove Wave 5: Durable Conversations, Actor Harness, Models, Capabilities, and MCP
 
 **Status:** Coding-agent implementation specification  
-**Version:** 1.9  
-**Date:** October 19, 2026
+**Version:** 1.10
+**Date:** November 09, 2026
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.10  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 5 of 13  
@@ -200,6 +200,8 @@ Do not instantiate an OpenClaw daemon or repository per actor. The structure is 
 
 A session is scoped by world, timeline, subject, participant set, channel surface, external-thread reference when present, privacy boundary, voice mode, and retention policy.
 
+Owner decision (issue 168, 2026-11-09): each channel thread has its own session and transcript. Channels address the same canonical actor and use the same participant-set session model; a session does not continue across channel bindings. The authenticated HTTP API stores browser, CLI and deterministic fake channel threads. A channel binding scopes its thread by tenant, world, timeline and participant; every thread addresses the existing canonical actor. Browser requests without explicit channel metadata retain their new-session behavior.
+
 Required states:
 
 ```text
@@ -213,6 +215,8 @@ Sessions retain independent ordered transcripts. A user can create, title, list,
 Messages are immutable user/actor/system artifacts with source, channel, content parts, media references, privacy, moderation disposition, and created world/wall time. Edits create revisions or supersession; they never rewrite evidence invisibly.
 
 Turns declare input message, actor policy/model version, grounded world revision, context manifest, run, stream state, cancellation, output message, proposed commands/effects, final disposition, and cost.
+
+Decision (Kirk, 2026-11-09, issue 162): moderation and prompt-injection judging run in shadow mode through the configured decision-model tier for inbound messages. The message carries its explicitly marked shadow judgement (`allow`, `flag` or `block`, plus the injection judgement), confidence and model/policy evidence. It does not replace the delivered message or alter the actor turn. Disabled judging, missing credentials and model failure preserve today's delivery and execution. A false `block` remains visible as evidence; any later enforcing mode must make it reversible through an attributed correction or supersession, never an invisible rewrite of the original judgement. Enforcement awaits owner review of the measurements. Tool-result screening waits for MCP execution and is outside issue 162. See the [moderation shadow contract](../protocols/decision-shadow.md#moderation-and-prompt-injection) and [report procedure](../runbooks/runtime.md#moderation-shadow-report).
 
 ### 6.3 Voice disclosure
 
@@ -358,8 +362,10 @@ descriptions cannot lower it. Review assigns `read`, `world-write`, `external-wr
 never become system or actor policy. One installation has many scoped bindings, resolved by
 most-specific deny, then grants, then the session approval overlay. Installation authority is a new,
 separate installation grant held by world owners by default, never actor/model authority. These
-are the required integration contract; the [MCP foundation](../protocols/mcp.md) does not yet add
-remote candidates to the running registry.
+are the integration contract. The [local MCP composition](../protocols/mcp.md#local-runtime-composition)
+loads reviewed remote pins into the same actor registry before new use and notifies capability
+revision changes. Hosted remote admission remains guarded off pending issue 3; execution remains
+RW-0508.
 
 ### 11.2 Grants and approvals
 
@@ -394,6 +400,43 @@ and requires reconnect, preserving fail-closed uncertainty without granting ordi
 access. It remains uncomposed; canonical installation and operator OAuth composition are pending.
 Canonical records, scoped grants, runtime revision invalidation and the operator browser journey
 remain required before the installation outcome can be accepted.
+Amended (2026-11-09, issue 164, part 3): an internal PostgreSQL governance service records
+installation snapshots, reviewed tool hashes, drift and terminal revocation through attributed
+Journal events under the separate owner-defaulted `runtime:mcp-install` grant. This is not
+production installation composition or callable actor access. Authenticated HTTP/OAuth,
+dynamic registry versions, scoped bindings, revision invalidation and the browser journey
+remain required.
+
+Amended (2026-11-10, issue 164, part 4): an internal installation coordinator checks canonical
+installation authority before remote discovery and rechecks it at Journal commit. Refresh uses
+the stored endpoint and records per-tool drift through the existing governance service. Actual
+HTTP fixtures plus PostgreSQL prove this boundary; no deployed route, credential composition,
+registry entry or actor invocation is added. Production egress/provider ownership, full OAuth,
+scoped bindings and runtime invalidation remain part 5; the operator screen and complete
+runtime/browser/canary proof remain part 6. Every owner decision above remains required.
+
+Amended (2026-11-10, issue 164, part 5): internal canonical binding changes now carry attributed
+Journal events, exact-pin policy validation, RLS and retention. An additive admission snapshot
+places reviewed remote versions into the existing registry with scoped denies and narrowing
+grants. An owned internal credential coordinator connects static tokens and OAuth through real
+PostgreSQL and HTTP discovery, refresh and revoke. No deployed operator endpoint, provider owner
+or actor capability is activated. Final part 6 retains production reference/egress composition,
+authenticated routes, actor revision-hook wiring, capabilities screen and complete runtime/browser/
+canary acceptance. The full OAuth decision and all outstanding acceptance remain binding.
+
+Owner amendment (2026-11-10, issue 164): hosted private-egress verification is owned by
+issue 3, on staging after issue 2's first successful deployment. Finish local composition,
+actor revision integration and the operator/browser/canary path now. Production composition
+stays guarded off until the hosted receipt exists. Local fixtures do not establish hosted
+private-egress protection or waive the original DNS-rebinding requirement.
+
+Amended (2026-11-10, issue 164, local final part): authenticated operator routes and the
+capabilities screen compose anonymous/static/OAuth discovery, exact-pin review, scoped bindings,
+refresh and revocation. A retained local owner supplies the isolated PostgreSQL provider and
+dedicated credential keyring. Actor admission reloads canonical policy before claim, model and
+proposal, and installation changes notify the revision hook. Remote execution remains RW-0508.
+Both local composition and actor admission guard hosted remote MCP off pending issue 3's
+receipt; the local PostgreSQL/runtime/browser proofs do not establish hosted qualification.
 
 ### 12.2 Execution
 
@@ -422,13 +465,15 @@ Expose a stateless authenticated MCP surface over application APIs for world/tim
 
 ## 13. Channel-neutral session and delivery contracts
 
-Wave 5 freezes the evergreen portal boundary while implementing browser and deterministic fake adapters only.
+Wave 5 freezes the evergreen portal boundary with browser as the production surface, a developer CLI over the authenticated HTTP API, and deterministic fake adapters. No real Slack, Discord, email, messaging or voice provider is in scope.
+
+The [channel protocol](../protocols/channels.md) distinguishes implemented surfaces from the remaining issue 168 delivery work. Normalized browser, CLI and fake ingress shares the authenticated HTTP boundary. Part 3 of issue 168 adds the internal durable governed-delivery boundary with per-actor opt-in, reserved delivery-unit budgets, recipient-timezone quiet hours, deterministic fake receipts, isolated branch preview receipts and read-only replay. Part 4 connects explicitly configured proactive actor wakes to this boundary using their canonical private reply artifacts. Automatic delayed dispatch and the complete browser/CLI/fake completion proof remain Part 5.
 
 Normalized inbound data includes provider/source identity assertions, resolved Clockgrove principal, world/timeline/actor, participant set, channel/thread, privacy policy, content parts/media refs, reply metadata, authority mode, and idempotency key.
 
 `DeliveryRequested` includes actor/session/recipient, channel binding, reason event/goal/promise/subscription, urgency, content artifact, privacy classification, consent/policy version, dedupe key, quiet-hour behavior, and budget reservation.
 
-Delivery policy may approve, delay, deduplicate, downgrade, or reject. Actors never call a provider directly. Replay records historical delivery but never sends again. Preview timelines use an isolated sink.
+Delivery policy may approve, delay, deduplicate, downgrade, or reject. Actors never call a provider directly. Replay records historical delivery but never sends again. Preview timelines use an isolated sink. Owner decisions (issue 168, 2026-11-09): proactive delivery consent is off until the member opts in per actor; quiet hours use the recipient's own timezone; the actor's proactive delivery capability is built with this boundary.
 
 Browser chat is the production surface in this wave. CLI and fake adapters prove the contract. Slack/Discord/email/messaging/voice providers remain later adapters, not alternate minds.
 
@@ -453,6 +498,8 @@ Replace the Wave 4 placeholder with:
 - cross-space continuation without losing the actor/session identity.
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
+
+Browser chat remains the production surface. The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) calls the same authenticated HTTP routes with its own channel threads and preserves the explicit Talk/Say distinction. Browser requests retain their existing shape and production role; each thread keeps its own private transcript.
 
 ---
 
@@ -514,7 +561,7 @@ Exit: read fixture is reliable; write fixture never duplicates and surfaces unce
 
 Implement stateless MCP endpoint, normalized inbound/delivery envelopes, semantic-action preservation across browser/CLI/fake channel adapters, identity/session resolution seams, consent/quiet-hour/dedupe policy, and isolated preview sink.
 
-Exit: the same actor/session can be addressed through browser and fake adapter without cloned identity or transcript leakage.
+Exit: browser, CLI and fake channel threads each have their own session and transcript, using the same canonical actor and participant-set session model, without cloned identity or transcript leakage (owner decision, issue 168, 2026-11-09).
 
 ### RW-0510 — Conversation, harness, and MCP qualification
 

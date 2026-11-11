@@ -316,6 +316,62 @@
       "when": 1795039200000,
       "tag": "0045_mcp_secret_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795125600000,
+      "tag": "0046_mcp_installations",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795212000000,
+      "tag": "0047_moderation_shadow",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795298400000,
+      "tag": "0048_world_process_deadlines",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795384800000,
+      "tag": "0049_channel_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795471200000,
+      "tag": "0050_mcp_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795557600000,
+      "tag": "0051_governed_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1795644000000,
+      "tag": "0052_activation_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795730400000,
+      "tag": "0053_actor_mcp_admission",
+      "breakpoints": true
     }
   ]
 }

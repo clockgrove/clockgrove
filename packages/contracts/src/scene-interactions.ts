@@ -1,5 +1,12 @@
 import { type BrowserScope, decodeBrowserScope } from "./browser-protocol.js";
 import {
+  type ChannelIngressMetadata,
+  CONVERSATION_CHANNELS,
+  type ConversationChannel,
+  decodeChannelId,
+  decodeChannelIngressMetadata,
+} from "./channels.js";
+import {
   decodeOpaqueId,
   type EventId,
   type ObjectId,
@@ -387,6 +394,9 @@ export interface SayRequest {
   readonly messageId: string;
   readonly actorId: ObjectId;
   readonly text: string;
+  readonly channel?: ConversationChannel;
+  readonly threadId?: string;
+  readonly ingress?: ChannelIngressMetadata;
 }
 
 /** Bounds a Say line, like a chat line. */
@@ -398,7 +408,7 @@ export function decodeSayRequest(value: unknown): SayRequest {
   exactKeys(
     v,
     ["version", "tenantId", "worldId", "timelineId", "spaceId", "messageId", "actorId", "text"],
-    [],
+    ["channel", "threadId", "ingress"],
     path,
   );
   if (v.version !== 1) throw new ContractDecodeError(`${path}.version`, "expected 1");
@@ -411,6 +421,13 @@ export function decodeSayRequest(value: unknown): SayRequest {
     messageId: boundedId(v.messageId, `${path}.messageId`),
     actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
     text,
+    ...(v.channel === undefined
+      ? {}
+      : { channel: literal(v.channel, CONVERSATION_CHANNELS, `${path}.channel`) }),
+    ...(v.threadId === undefined
+      ? {}
+      : { threadId: decodeChannelId(v.threadId, `${path}.threadId`) }),
+    ...(v.ingress === undefined ? {} : { ingress: decodeChannelIngressMetadata(v.ingress) }),
   });
 }
 

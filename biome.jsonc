@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.4/schema.json",
   "files": {
     "includes": [
       "package.json",
@@ -44,7 +44,10 @@
         // Rule parsers read untrusted Record<string, unknown> fields with brackets on purpose (108 sites).
         "useLiteralKeys": "off",
         // Test spies count calls with `(count += 1), value` in one-line callbacks.
-        "noCommaOperator": "off"
+        "noCommaOperator": "off",
+        // Simulation time, coordinates and sequences are bigint, and the sites this rule flags compare
+        // them; Math.min/Math.max throw a TypeError on bigint, so its suggested fix breaks the kernel.
+        "useMathMinMax": "off"
       },
       "suspicious": {
         // Tests mutate documents with `void (field = value)` callbacks.
@@ -60,6 +63,20 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["tests/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            // Browser journeys call Playwright's Locator.innerText(), a test-API method, to read the
+            // rendered (CSS-aware) text on purpose; the rule takes it for the DOM property.
+            "useDomNodeTextContent": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double",

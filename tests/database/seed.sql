@@ -264,3 +264,7 @@ UPDATE clockgrove.world_memberships
    SET grants = array_append(grants, 'runtime:world-command'),
        privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation"]}'
  WHERE tenant_id = 'tenant-a' AND principal_id = 'principal-a';
+
+-- Delivery attacks exercise the existing observer-authorized private conversation surface.
+UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe')
+ WHERE tenant_id='tenant-a' AND principal_id='principal-a';

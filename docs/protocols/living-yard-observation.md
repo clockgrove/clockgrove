@@ -131,7 +131,7 @@ categories form a closed list:
 - `growth`: `growth.stage-changed`;
 - `movement`: `movement.portal-crossed`, `movement.completed`;
 - `portal`: `portal.opened`, `portal.closed`;
-- `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.spoiled`.
+- `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.spoiled`, `resource.weather-integrated` (only nonzero collection or evaporation).
 
 `text` is generated on read from the event's public payload, naming each entity by its `presentation.label`
 in the space's living scene (an entity outside the scene by its object id); the payload itself is never exposed. When the payload lacks a field a sentence needs,
@@ -145,7 +145,7 @@ resource kind: `weather.transitioned` "It started raining." / "The rain stopped.
 reached its {stage} stage."; `movement.completed` "A arrived."; `movement.portal-crossed` "A went
 through {portal}."; `portal.opened|closed` "{portal} opened|closed."; `resource.offered` "K was offered
 at A."; `resource.consumed` "K at A was used."; `resource.transferred` "K moved from {from} to {to}.";
-`resource.spoiled` "Food at A spoiled."
+`resource.spoiled` "Food at A spoiled."; `resource.weather-integrated` "A collected N water from rain; M evaporated."
 
 Every other type, including `time.advanced`, `needs.changed`, `comfort.changed`, `needs.relieved`,
 `wellbeing.integrated`, `growth.integrated`, `location.changed`, `movement.started`,
@@ -306,6 +306,23 @@ receive 403 `authorization_refused` from `/v1/runtime/causal-chain` and `/v1/run
 with denial records under the existing inspector audit rules. Inspect-only callers receive the
 same refusal code for public scene, entity and Why reads and scene admission.
 
+The Why panel requests `includeResourceCauses: true` to receive optional
+`RecordedWhy.resourceCauses`, projected solely from already-readable `public_scene` events retained
+on that command. Requests without the flag retain their previous response shape, and older
+envelopes without the field remain valid. The flag accepts only `true` when present.
+Each entry records `eventId`, `simulationTime` (decimal text), `cause` (`rain`, `growth`,
+`transfer`), resource `kind`, positive integer `quantity` and receiving `objectId`. Transfers also
+name `fromObjectId`. A successful immediately preceding declared process attempt may add its
+public `processId` when its command identity matches the transfer's recorded immediate cause.
+No principal, authority decision, private context or new linked command is exposed.
+
+Rain entries record collected water, growth entries record the finite plant yield, and transfers
+record the quantity moved from the donor. Zero-delta weather integration and stages without yield
+produce no increase entry. The panel shows these retained physical causes even when there are no
+routine drafts. World feed and entity history omit zero-delta weather events, while material
+collection/evaporation remains addressable by event identity through Why. No current-state
+recalculation, new command or additional grant is introduced.
+
 `RecordedWhy` identifies the scope, original `commandId`, original `actionId` (or `null`) and
 `receiptStatus`. It exposes neither the complete receipt nor the authority decision. `traces.status`
 is `available`, `unavailable` (no retained record), or `redacted` (the inspector withheld evidence).
@@ -379,3 +396,10 @@ Each access writes one `inspector_accesses` row with `subject = 'client-view'`, 
 rate limit. The codes are those of the other inspector routes: 400 `invalid_inspection_request`,
 401, 403 `authorization_refused`, 409 `world_not_ready`, 429 `inspection_rate_limited`, 500
 `inspection_failed` and 503 `inspector_unavailable`.
+
+An empty public cause list describes the available public view, not an assertion about private
+or historic increases. Legacy appearance/offer events remain canonical journal history readable
+through the authorized operator causal inspector; new execution cannot emit them.
+
+Material transfers bind their feed history link to the receiving holder, whose quantity increased.
+The destination's ordinary selection authorization still applies when opening that history.

@@ -45,7 +45,8 @@ const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
 const TIERS = ["low", "medium", "high"];
 // The shell renders each wall-clock value, such as an action's recorded-at time, in a
 // `[data-wall-clock]` element; it differs on every run. The capture paints each one as a solid
-// box of fixed width, so a capture's hash depends only on the commit and the world.
+// box, so a capture's hash depends only on the commit and the world. The box is as wide as its
+// text in tabular numerals: a value of another length, not another time, changes the hash.
 const WALL_CLOCK_MASK =
   "[data-wall-clock] { color: transparent !important; background: #ff00ff !important; font-variant-numeric: tabular-nums !important; }";
 // scripts/capture-world.mjs asks a run to stop by creating this file. Vitest exits at once on a
@@ -302,6 +303,8 @@ const captureGoldenStates = async (backend) => {
           }))
         : undefined;
       const captures = [];
+      // Pages whose clock a state holds (Playwright's page.clock); only the capture advances it.
+      const held = new Set();
       const capture = async (state, page, check) => {
         throwIfStopped();
         // A check may name the region its state is about; the capture frames it, else the page top.
@@ -339,19 +342,20 @@ const captureGoldenStates = async (backend) => {
           ).toSatisfy(Number.isInteger);
         // Two animation frames let the canvas present the committed state before the capture. The
         // window scrolls the narrow layout and the scene column scrolls the desktop frame.
-        await page.evaluate(
-          (framed) =>
-            new Promise((resolve) => {
-              if (!framed)
-                for (const scroller of [
-                  document.scrollingElement,
-                  ...document.querySelectorAll(".rw-main"),
-                ])
-                  scroller.scrollTo(0, 0);
-              requestAnimationFrame(() => requestAnimationFrame(resolve));
-            }),
-          region !== undefined,
-        );
+        await page.evaluate((framed) => {
+          if (!framed)
+            for (const scroller of [
+              document.scrollingElement,
+              ...document.querySelectorAll(".rw-main"),
+            ])
+              scroller.scrollTo(0, 0);
+          globalThis.hallPresented = new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+        }, region !== undefined);
+        // A held page clock runs only those two frames (16 ms each), so no page timer runs late.
+        if (held.has(page)) await page.clock.runFor(50);
+        await page.evaluate(() => globalThis.hallPresented);
         // Nothing passes under the HUD: the scene column starts below it and either clips its own
         // scrolling content (the desktop frame) or scrolls the HUD away with it (the narrow page).
         // A framed region's top edge is the region itself, never the HUD or anything over it.
@@ -513,22 +517,38 @@ const captureGoldenStates = async (backend) => {
                   const frame = animation.frames[0];
                   const camera = adapter.camera;
                   const left = Math.round(
-                    (sprite.position.x - animation.anchor.x - camera.position.x) * camera.zoom +
+                    ((sprite.position.x - animation.anchor.x - camera.position.x) *
+                      camera.zoom *
+                      image.width) /
+                      (camera.right - camera.left) +
                       image.width / 2,
                   );
                   const top = Math.round(
-                    (-sprite.position.y - animation.anchor.y + camera.position.y) * camera.zoom +
+                    ((-sprite.position.y - animation.anchor.y + camera.position.y) *
+                      camera.zoom *
+                      image.height) /
+                      (camera.top - camera.bottom) +
                       image.height / 2,
                   );
                   let warmPixels = 0;
                   for (
                     let y = Math.max(0, top);
-                    y < Math.min(image.height, top + frame.height * camera.zoom);
+                    y <
+                    Math.min(
+                      image.height,
+                      top +
+                        (frame.height * camera.zoom * image.height) / (camera.top - camera.bottom),
+                    );
                     y++
                   )
                     for (
                       let x = Math.max(0, left);
-                      x < Math.min(image.width, left + frame.width * camera.zoom);
+                      x <
+                      Math.min(
+                        image.width,
+                        left +
+                          (frame.width * camera.zoom * image.width) / (camera.right - camera.left),
+                      );
                       x++
                     ) {
                       const offset = (y * image.width + x) * 4;
@@ -550,6 +570,8 @@ const captureGoldenStates = async (backend) => {
                   adapter.scenePass.renderTarget.height,
                 ],
                 canvasSize: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+                hostSize: [adapter.parent.clientWidth, adapter.parent.clientHeight],
+                dpr: devicePixelRatio,
                 litMaterials: [
                   ...new Set(
                     [
@@ -611,9 +633,21 @@ const captureGoldenStates = async (backend) => {
             if (backend === "webgpu") expect(pixels.adapter.architecture).toBe("swiftshader");
             else expect(pixels.adapter.renderer).toMatch(/SwiftShader/i);
             expect(pixels.meanLuminance).toBeGreaterThan(0);
-            expect(pixels.textureBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
-            expect(pixels.canvasSize).toEqual([640, 400]);
-            expect(pixels.renderSize).toEqual(tier === "low" ? [320, 200] : [640, 400]);
+            expect(pixels.textureBytes).toBeLessThanOrEqual(
+              { low: 16, medium: 64, high: 192 }[tier] * 1024 * 1024,
+            );
+            const outputScale = Math.min(
+              pixels.dpr,
+              Math.sqrt(
+                { low: 512000, medium: 1000000, high: 3000000 }[tier] /
+                  (pixels.hostSize[0] * pixels.hostSize[1]),
+              ),
+            );
+            const outputSize = pixels.hostSize.map((value) => Math.floor(value * outputScale));
+            expect(pixels.canvasSize).toEqual(outputSize);
+            expect(pixels.renderSize).toEqual(
+              outputSize.map((value) => Math.floor(value * (tier === "low" ? 0.5 : 1))),
+            );
             expect([pixels.atlasShared, pixels.reflectionUvs]).toEqual([true, true]);
             expect(pixels.reflectionBlending.length > 0).toBe(tier === "high");
             expect(pixels.reflectionBlending).toEqual(
@@ -709,15 +743,19 @@ const captureGoldenStates = async (backend) => {
               return [
                 adapter.tier,
                 labels.length,
-                size(adapter.scenePass.renderTarget),
-                size(adapter.labelPass.renderTarget),
+                size(adapter.scenePass.renderTarget).map(
+                  (value, i) => value === Math.floor(size(adapter.labelPass.renderTarget)[i] / 2),
+                ),
+                size(adapter.labelPass.renderTarget).map(
+                  (value, i) => value === [adapter.canvas.width, adapter.canvas.height][i],
+                ),
                 labels.some((label) => label.layers.test(adapter.camera.layers)),
                 labels.every((label) => !adapter.scenePass._layers.test(label.layers)),
                 labels.every((label) => adapter.labelPass._layers.test(label.layers)),
               ];
             }),
           )
-          .toEqual(["low", 2, [320, 200], [640, 400], true, true, true]);
+          .toEqual(["low", 2, [true, true], [true, true], true, true, true]);
       });
       await each("event-why-inspector", async (page) => {
         await selected(page)
@@ -752,13 +790,36 @@ const captureGoldenStates = async (backend) => {
           .getByText(/^Selected entity at canonical revision /u)
           .waitFor();
       });
+      // The live scene socket drops: the shell keeps the committed scene and says it is recovering.
+      // After a backoff of at least 500 ms (half of SCENE_RECONNECT.firstDelayMs) it opens a new
+      // socket, and that connection reports `connecting`, which drops the scene and the selection.
+      // The page clock is held from before the drop until the shot, so the backoff cannot end
+      // first, and the capture waits on the shell's scene status, not its text.
+      const sceneStatus = (page) =>
+        page.locator("#rw-observation-status").getAttribute("data-scene-status");
       await each("disconnected-recovering", async (page) => {
-        // Every new scene socket is refused, then the live one drops: the shell keeps the committed
-        // scene and says it is recovering.
-        await page.routeWebSocket(/\/v1\/projection/u, (socket) => socket.close());
+        // The installed clock runs from now, and pausing jumps it to a later instant; the jump runs
+        // only page timers set since the install, before any drop.
+        await page.clock.install();
+        await page.clock.pauseAt(Date.now() + 1000);
+        held.add(page);
         await page.evaluate(() => globalThis.hallSceneSocket.close());
-        await page.getByText("Observation: degraded. Recovering committed scene.").waitFor();
+        // The scene state reaches React through zero-delay timers (Query's notifications); they
+        // run without moving the held clock.
+        await expect
+          .poll(async () => {
+            await page.clock.runFor(0);
+            return sceneStatus(page);
+          })
+          .toBe("degraded");
       });
+      // Each shot showed the first recovery: even after every shot, each shell is still recovering
+      // and its latest scene socket is the dropped one, so no reconnect has started.
+      for (const page of pages)
+        expect([
+          await sceneStatus(page),
+          await page.evaluate(() => globalThis.hallSceneSocket.readyState),
+        ]).toEqual(["degraded", 3]);
       // A principal holds at most four scene sockets (SCENE_SOCKET_BOUNDS.perPrincipal), so each
       // canvas viewer hands in its measurements and closes before the text viewers open.
       const points = [];
@@ -896,6 +957,175 @@ it.each(BACKENDS)(
   240_000,
 );
 
+async function withRendererProof(backend, shell, run, publicDir) {
+  let server, browser;
+  try {
+    server = await createServer({
+      root: path.join(root, "apps/web"),
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      publicDir,
+      define: { __WORLD_SHELL__: JSON.stringify(shell) },
+      server: { host: "127.0.0.1", port: 0 },
+      plugins: [
+        {
+          name: "renderer-proof-backend",
+          transform(code, id) {
+            if (
+              backend === "webgl2" &&
+              id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts")
+            )
+              return {
+                code: code.replace(
+                  "new THREE.WebGPURenderer({",
+                  "new THREE.WebGPURenderer({ forceWebGL: true,",
+                ),
+                map: null,
+              };
+          },
+        },
+      ],
+    });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+    await run(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+}
+
+async function prepareRendererProof(page, origin, shell, name, body) {
+  await page.addInitScript((shell) => {
+    globalThis.__WORLD_SHELL__ = shell;
+    globalThis.proofFrame = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    globalThis.proofLoad = (module) => new Function(`return import("/src/${module}.ts")`)();
+    globalThis.proofAdapter = async (wire, content) => {
+      const { ThreeWorldSceneAdapter } = await proofLoad("renderer");
+      let adapter;
+      await new Promise((resolve, reject) => {
+        adapter = new ThreeWorldSceneAdapter(
+          document.querySelector("#scene"),
+          resolve,
+          (reason) => reject(new Error(reason)),
+          () => {},
+          content,
+        );
+      });
+      adapter.setReducedMotion(true);
+      adapter.loadSnapshot({
+        ...wire,
+        revision: BigInt(wire.revision),
+        simulationTime: BigInt(wire.simulationTime),
+      });
+      return adapter;
+    };
+  }, shell);
+  await page.route(`**/${name}`, (route) => route.fulfill({ contentType: "text/html", body }));
+  await page.goto(`${origin}/${name}`);
+}
+
+async function rendererFixture() {
+  return Promise.all(
+    ["shell.json", "snapshot.json"].map(async (name) =>
+      JSON.parse(await readFile(path.join(root, "worlds/fixture/renderer", name), "utf8")),
+    ),
+  );
+}
+
+/**
+ * Issue 163: device capability profiles. Each hides compressed formats from the page's WebGPU
+ * adapter and device and from WebGL2 before the renderer starts, as a GPU without them reports
+ * them. SwiftShader samples BC, ETC2 and ASTC, so each profile leaves the formats of the device
+ * class it stands for: a desktop GPU samples BC only, a recent phone ASTC and ETC2 without BC, an
+ * older phone ETC2 only. With none left the renderer loads PNG pages.
+ */
+const BC = {
+  gpu: ["texture-compression-bc", "texture-compression-bc-sliced-3d"],
+  webgl: [
+    "WEBGL_compressed_texture_s3tc",
+    "WEBGL_compressed_texture_s3tc_srgb",
+    "EXT_texture_compression_bptc",
+    "EXT_texture_compression_rgtc",
+  ],
+};
+const ASTC = {
+  gpu: ["texture-compression-astc", "texture-compression-astc-sliced-3d"],
+  webgl: ["WEBGL_compressed_texture_astc"],
+};
+const ETC = {
+  gpu: ["texture-compression-etc2"],
+  webgl: ["WEBGL_compressed_texture_etc", "WEBGL_compressed_texture_etc1"],
+};
+const DEVICE_PROFILES = [
+  // tolerance: the largest channel difference from the PNG page's drawing. ETC2's 4- and 5-bit
+  // base colours cannot hold every colour UASTC holds, so its transcode is the coarsest.
+  {
+    name: "desktop",
+    hidden: [ASTC, ETC],
+    format: "bc7",
+    threeFormat: "RGBA_BPTC_Format",
+    tolerance: 2,
+  },
+  {
+    name: "phone",
+    hidden: [BC],
+    format: "astc",
+    threeFormat: "RGBA_ASTC_4x4_Format",
+    tolerance: 2,
+  },
+  {
+    name: "etc2 phone",
+    hidden: [BC, ASTC],
+    format: "etc2",
+    threeFormat: "RGBA_ETC2_EAC_Format",
+    tolerance: 16,
+  },
+  {
+    name: "no compression",
+    hidden: [BC, ASTC, ETC],
+    format: "png",
+    threeFormat: "RGBAFormat",
+    tolerance: 0,
+  },
+  // A phone whose .ktx2 page is missing: that page falls back to its PNG and the scene still draws.
+  {
+    name: "phone, .ktx2 missing",
+    hidden: [BC],
+    format: "astc",
+    threeFormat: "RGBAFormat",
+    tolerance: 0,
+    missing: true,
+  },
+];
+function hideTextureFormats({ gpu, webgl }) {
+  if (globalThis.GPUSupportedFeatures) {
+    const has = GPUSupportedFeatures.prototype.has;
+    GPUSupportedFeatures.prototype.has = function (name) {
+      return !gpu.includes(name) && has.call(this, name);
+    };
+    const requestDevice = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = function (descriptor = {}) {
+      return requestDevice.call(this, {
+        ...descriptor,
+        requiredFeatures: [...(descriptor.requiredFeatures ?? [])].filter(
+          (name) => !gpu.includes(name),
+        ),
+      });
+    };
+  }
+  for (const context of [WebGLRenderingContext, WebGL2RenderingContext]) {
+    const getExtension = context.prototype.getExtension;
+    context.prototype.getExtension = function (name) {
+      return webgl.includes(name) ? null : getExtension.call(this, name);
+    };
+    const getSupportedExtensions = context.prototype.getSupportedExtensions;
+    context.prototype.getSupportedExtensions = function () {
+      return getSupportedExtensions.call(this)?.filter((name) => !webgl.includes(name)) ?? null;
+    };
+  }
+}
+
 it("draws generated material albedo at DPR 2 while retaining unsupported channels and reduced motion", async () => {
   if (isNativeWorldOwnerChild()) return;
   const { buildAtlases, encodePng, materialAtlasFiles, atlasIndex, validateSource, sha256Hex } =
@@ -939,7 +1169,11 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
           for (let y = density; y < 3 * density; y++)
             for (let x = density; x < 3 * density; x++)
               rgba.set(
-                channel === "albedo" ? [128, 96, 64, 255] : [128, 128, 255, 255],
+                channel === "normal"
+                  ? [128, 128, 255, 255]
+                  : y < 2 * density
+                    ? [128, 96, 64, 255]
+                    : [48, 160, 208, 255],
                 (y * width + frame * 4 * density + x) * 4,
               );
         const source =
@@ -1000,102 +1234,651 @@ it("draws generated material albedo at DPR 2 while retaining unsupported channel
   ];
   wire.weather.rainIntensity = 0;
   wire.effects = [];
-  const shell = JSON.parse(
+  const fixtureShell = JSON.parse(
     await readFile(path.join(root, "worlds/fixture/reference/shell.json"), "utf8"),
   );
-  let server, browser;
+  // Close enough to frame the 4×4 sprite at a third of the view.
+  const shell = {
+    ...fixtureShell,
+    scene: { ...fixtureShell.scene, camera: { minZoom: 0.75, maxZoom: 64 } },
+  };
   try {
-    server = await createServer({
-      root: path.join(root, "apps/web"),
-      configFile: path.join(root, "apps/web/vite.config.ts"),
-      publicDir: assets,
-      define: { __WORLD_SHELL__: JSON.stringify(shell) },
-      server: { host: "127.0.0.1", port: 0 },
-      plugins: [
-        {
-          name: "material-proof-webgl",
-          transform(code, id) {
-            if (id.split("?")[0] === path.join(root, "apps/web/src/renderer.ts"))
-              return {
-                code: code.replace(
-                  "new THREE.WebGPURenderer({",
-                  "new THREE.WebGPURenderer({ forceWebGL: true,",
-                ),
-                map: null,
+    for (const backend of ["webgpu", "webgl2"])
+      await withRendererProof(
+        backend,
+        shell,
+        async (browser, origin) => {
+          const captures = {};
+          for (const profile of DEVICE_PROFILES) {
+            const page = await browser.newPage({
+              viewport: { width: 960, height: 540 },
+              deviceScaleFactor: 2,
+              reducedMotion: "reduce",
+            });
+            const requested = [];
+            page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+            for (const hidden of profile.hidden)
+              await page.addInitScript(hideTextureFormats, hidden);
+            if (profile.missing)
+              await page.route("**/material-2x-albedo.ktx2", (route) =>
+                route.fulfill({ status: 404 }),
+              );
+            await prepareRendererProof(
+              page,
+              origin,
+              shell,
+              "material-proof",
+              "<div id='scene' style='width:320px;height:200px'></div>",
+            );
+            const result = await page.evaluate(
+              async ({ wire, threeFormat }) => {
+                const adapter = await proofAdapter(wire);
+                globalThis.materialAdapter = adapter;
+                await proofFrame();
+                const { THREE } = await proofLoad("renderer-content");
+                const animation = adapter.atlas.get("material-actor/idle");
+                if (!animation) throw new Error("Missing material animation");
+                const body = adapter.drawn.get(wire.entities[0].objectId).body;
+                const map = body.material.map;
+                const result = {
+                  backend: adapter.backend,
+                  density: animation.density,
+                  image: [map.image.width, map.image.height],
+                  frame: [body.userData.width, body.userData.height, body.userData.frame],
+                  albedoDrawn: map === animation.frames[0].texture,
+                  colourSpace: map.colorSpace,
+                  normalIgnored: !body.material.normalMap,
+                  channels: Object.keys(
+                    adapter.projection.presentationBindings[0].material.renditions[1].channels,
+                  ),
+                  materialTextureFormat: adapter.metrics.materialTextureFormat,
+                  materialTextureFallbacks: adapter.metrics.materialTextureFallbacks,
+                  compressed: map.isCompressedTexture === true,
+                  format: map.format === THREE[threeFormat],
+                  uploaded: map.isCompressedTexture ? map.mipmaps[0].data.byteLength : null,
+                  textureBytes: adapter.metrics.textureBytes,
+                  atlasTextureBytes: adapter.metrics.atlasTextureBytes,
+                  pages: adapter.atlasTextures.length,
+                  canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
+                  entityCount: adapter.metrics.entityCount,
+                };
+                // Frame the sprite to a third of the view so its texels can be compared.
+                const centre = new THREE.Box3().setFromObject(body).getCenter(new THREE.Vector3());
+                adapter.setCamera({
+                  x: centre.x,
+                  y: -centre.y,
+                  zoom: adapter.viewHeight / (3 * body.userData.height),
+                });
+                await proofFrame();
+                return result;
+              },
+              { wire, threeFormat: profile.threeFormat },
+            );
+            captures[profile.name] = await page.locator("#scene canvas").screenshot();
+            await page.evaluate(() => globalThis.materialAdapter.destroy());
+            await page.close();
+            const compressed = profile.format !== "png" && !profile.missing;
+            expect(result, `${backend} ${profile.name}`).toMatchObject({
+              backend,
+              density: 2,
+              image: [16, 8],
+              frame: [4, 4, 0],
+              albedoDrawn: true,
+              colourSpace: "",
+              normalIgnored: true,
+              channels: ["albedo", "normal"],
+              materialTextureFormat: profile.format,
+              materialTextureFallbacks: profile.missing ? 1 : 0,
+              compressed,
+              format: true,
+              // UASTC targets are 16 bytes per 4×4 block: the 16×8 page uploads 128 bytes.
+              uploaded: compressed ? 128 : null,
+              pages: 2,
+              canvas: [640, 400],
+              entityCount: 1,
+            });
+            // The flat 8×4 RGBA8 page plus the material page as this device uploads it.
+            expect(result.atlasTextureBytes).toBe(8 * 4 * 4 + (compressed ? 16 * 8 : 16 * 8 * 4));
+            expect(result.textureBytes).toBeLessThanOrEqual(16777216);
+            const material = requested.filter((url) => /^\/material-\d+x-/u.test(url));
+            expect(material).toEqual(
+              profile.missing
+                ? ["/material-2x-albedo.ktx2", "/material-2x-albedo.png"]
+                : [`/material-2x-albedo.${compressed ? "ktx2" : "png"}`],
+            );
+          }
+          // Each transcoded page draws what the PNG page draws, the right way up: the albedo's
+          // top and bottom rows differ, so a flipped page would not match.
+          const page = await browser.newPage();
+          await prepareRendererProof(page, origin, shell, "material-compare", "<div></div>");
+          const differences = await page.evaluate(
+            async (captures) => {
+              const pixels = async (base64) => {
+                const bitmap = await createImageBitmap(
+                  await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+                );
+                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+                const context = canvas.getContext("2d");
+                context.drawImage(bitmap, 0, 0);
+                return context.getImageData(0, 0, bitmap.width, bitmap.height).data;
               };
-          },
+              const reference = await pixels(captures["no compression"]);
+              const result = {};
+              for (const [name, capture] of Object.entries(captures)) {
+                const drawn = await pixels(capture);
+                let max = 0,
+                  lit = 0;
+                for (let i = 0; i < drawn.length; i++) {
+                  max = Math.max(max, Math.abs(drawn[i] - reference[i]));
+                  if (i % 4 === 2 && reference[i] > reference[i - 2] + 64) lit += 1;
+                }
+                result[name] = { max, lit, length: drawn.length === reference.length };
+              }
+              return result;
+            },
+            Object.fromEntries(Object.entries(captures).map(([k, v]) => [k, v.toString("base64")])),
+          );
+          await page.close();
+          for (const [name, difference] of Object.entries(differences)) {
+            expect(difference.length, `${backend} ${name}`).toBe(true);
+            // The blue-dominant albedo rows are drawn.
+            expect(difference.lit, `${backend} ${name}`).toBeGreaterThan(0);
+            expect(difference.max, `${backend} ${name}`).toBeLessThanOrEqual(
+              DEVICE_PROFILES.find((profile) => profile.name === name).tolerance,
+            );
+          }
         },
-      ],
-    });
-    await server.listen();
-    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
-    const page = await browser.newPage({
-      viewport: { width: 960, height: 540 },
-      deviceScaleFactor: 2,
-      reducedMotion: "reduce",
-    });
-    await page.addInitScript((shell) => {
-      globalThis.__WORLD_SHELL__ = shell;
-    }, shell);
-    const requested = [];
-    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
-    await page.route("**/material-proof", (route) =>
-      route.fulfill({ contentType: "text/html", body: "<div id='scene'></div>" }),
-    );
-    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/material-proof`);
-    const result = await page.evaluate(async (wire) => {
-      const { ThreeWorldSceneAdapter } = await new Function('return import("/src/renderer.ts")')();
-      let adapter;
-      await new Promise((resolve, reject) => {
-        adapter = new ThreeWorldSceneAdapter(document.querySelector("#scene"), resolve, (reason) =>
-          reject(new Error(reason)),
-        );
-      });
-      adapter.setReducedMotion(true);
-      adapter.loadSnapshot({
-        ...wire,
-        revision: BigInt(wire.revision),
-        simulationTime: BigInt(wire.simulationTime),
-      });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const animation = adapter.atlas.get("material-actor/idle");
-      if (!animation) throw new Error("Missing material animation");
-      const body = adapter.drawn.get(wire.entities[0].objectId).body;
-      const result = {
-        density: animation.density,
-        image: [body.material.map.image.width, body.material.map.image.height],
-        frame: [body.userData.width, body.userData.height, body.userData.frame],
-        albedoDrawn: body.material.map === animation.frames[0].texture,
-        colourSpace: body.material.map.colorSpace,
-        normalIgnored: !body.material.normalMap,
-        channels: Object.keys(
-          adapter.projection.presentationBindings[0].material.renditions[1].channels,
-        ),
-        textureBytes: adapter.metrics.textureBytes,
-        canvas: [adapter.renderer.domElement.width, adapter.renderer.domElement.height],
-        entityCount: adapter.metrics.entityCount,
-      };
-      adapter.destroy();
-      return result;
-    }, wire);
-    expect(result).toMatchObject({
-      density: 2,
-      image: [16, 8],
-      frame: [4, 4, 0],
-      albedoDrawn: true,
-      colourSpace: "",
-      normalIgnored: true,
-      channels: ["albedo", "normal"],
-      canvas: [640, 400],
-      entityCount: 1,
-    });
-    expect(result.textureBytes).toBeLessThanOrEqual(16777216);
-    expect(requested).toContain("/material-2x-albedo.png");
-    expect(requested.some((url) => /normal|\.dds$/u.test(url))).toBe(false);
+        assets,
+      );
   } finally {
-    await browser?.close();
-    await server?.close();
     const { rm } = await import("node:fs/promises");
     await rm(assets, { recursive: true, force: true });
   }
-}, 60_000);
+}, 120_000);
+
+it("presentation camera spans overview and half-metre close-up with picking on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const [shell, wire] = await rendererFixture();
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+        reducedMotion: "reduce",
+      });
+      const pageErrors = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await prepareRendererProof(
+        page,
+        origin,
+        shell,
+        "camera-proof",
+        '<div id="scene" style="width:640px;height:400px"></div>',
+      );
+      const result = await page.evaluate(
+        async ({ wire, shell }) => {
+          const { THREE } = await proofLoad("renderer-content");
+          const { readWorldShell, neutralShell } = await proofLoad("shell-input");
+          const legacyCamera = readWorldShell(neutralShell).scene.camera;
+          const invalid = [
+            ...[0, -1, NaN, Infinity, Number.MIN_VALUE, 2].map((min) => [min, 24]),
+            ...[0, -1, NaN, Infinity, 0.5].map((max) => [0.1, max]),
+          ].map(([minZoom, maxZoom]) => {
+            try {
+              readWorldShell({ ...shell, scene: { ...shell.scene, camera: { minZoom, maxZoom } } });
+              return false;
+            } catch {
+              return true;
+            }
+          });
+          let adapter, actualBackend, subject;
+          const content = {
+            version: 1,
+            create({ THREE, backend, place }) {
+              actualBackend = backend;
+              const root = new THREE.Group();
+              subject = new THREE.Mesh(
+                new THREE.BoxGeometry(0.1, 0.5, 0.1).translate(0, 0.25, 0),
+                new THREE.MeshStandardNodeMaterial(),
+              );
+              place(subject, { x: 0, y: 0 });
+              root.add(subject);
+              return { root, update() {} };
+            },
+          };
+          adapter = await proofAdapter(wire, content);
+          await proofFrame();
+          adapter.setCamera({ x: 0, y: 0, zoom: 0 });
+          const overview = adapter.camera.zoom;
+          adapter.setCamera({ x: 0, y: 0, zoom: 100 });
+          const closeup = adapter.camera.zoom;
+          adapter.setCamera({ x: 0, y: 0, zoom: 24 });
+          subject.updateMatrixWorld(true);
+          const bounds = new THREE.Box3().setFromObject(subject);
+          const bottom = new THREE.Vector3(0, bounds.min.y, 0).project(adapter.camera);
+          const top = new THREE.Vector3(0, bounds.max.y, 0).project(adapter.camera);
+          const height = (top.y - bottom.y) * 200;
+          const body = adapter.drawn.get("object-fixture");
+          const center = new THREE.Vector3(
+            body.body.position.x,
+            body.body.position.y + body.visual.height / 2,
+            0,
+          ).project(adapter.camera);
+          const intents = [];
+          adapter.onIntent((intent) => intents.push(intent));
+          const rect = adapter.canvas.getBoundingClientRect();
+          const pointer = {
+            x: rect.left + ((center.x + 1) * rect.width) / 2,
+            y: rect.top + ((1 - center.y) * rect.height) / 2,
+          };
+          globalThis.cameraProof = { adapter, intents, subject };
+          const rotation = adapter.camera.rotation.toArray().slice(0, 3);
+          return {
+            invalid,
+            overview,
+            closeup,
+            height,
+            pointer,
+            rotation,
+            actualBackend,
+            legacyCamera: legacyCamera ?? "omitted",
+          };
+        },
+        { wire, shell },
+      );
+      await page.mouse.move(result.pointer.x, result.pointer.y);
+      await page.mouse.wheel(0, 100);
+      await page.waitForFunction(() => globalThis.cameraProof.adapter.camera.zoom === 21.6);
+      const wheelZoom = await page.evaluate(() => {
+        const adapter = globalThis.cameraProof.adapter;
+        const value = adapter.camera.zoom;
+        adapter.setCamera({ x: 0, y: 0, zoom: 24 });
+        return value;
+      });
+      await page.mouse.click(result.pointer.x, result.pointer.y);
+      const intents = await page.evaluate(() => {
+        const { adapter, intents } = globalThis.cameraProof;
+        return [...intents];
+      });
+      delete result.pointer;
+      expect({ ...result, wheelZoom, intents }).toEqual({
+        invalid: [true, true, true, true, true, true, true, true, true, true, true],
+        overview: 0.1,
+        closeup: 96,
+        height: 150,
+        wheelZoom: 21.6,
+        intents: [{ type: "select", objectId: "object-fixture" }],
+        rotation: [0, 0, 0],
+        actualBackend: backend,
+        legacyCamera: "omitted",
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      const portrait = await page.evaluate(async () => {
+        const { adapter, subject } = cameraProof;
+        adapter.parent.style.cssText = "width:390px;height:844px";
+        await proofFrame();
+        adapter.setCamera({ x: 0, y: 0, zoom: 74 });
+        const { THREE } = await proofLoad("renderer-content");
+        const bounds = new THREE.Box3().setFromObject(subject);
+        const top = new THREE.Vector3(0, bounds.max.y, 0).project(adapter.camera);
+        const bottom = new THREE.Vector3(0, bounds.min.y, 0).project(adapter.camera);
+        const body = adapter.drawn.get("object-fixture");
+        const center = new THREE.Vector3(
+          body.body.position.x,
+          body.body.position.y + body.visual.height / 2,
+          0,
+        ).project(adapter.camera);
+        const rect = adapter.canvas.getBoundingClientRect();
+        return {
+          height: ((top.y - bottom.y) * rect.height) / 2,
+          x: rect.left + ((center.x + 1) * rect.width) / 2,
+          y: rect.top + ((1 - center.y) * rect.height) / 2,
+        };
+      });
+      expect(portrait.height).toBeCloseTo(281.8359375, 6);
+      await page.mouse.click(portrait.x, portrait.y);
+      expect(await page.evaluate(() => cameraProof.intents)).toEqual([
+        { type: "select", objectId: "object-fixture" },
+        { type: "select", objectId: "object-fixture" },
+      ]);
+      await page.evaluate(() => cameraProof.adapter.destroy());
+      expect(pageErrors).toEqual([]);
+    });
+  }
+}, 120_000);
+
+it("viewport DPR sizing stays bounded across tiers, resizes and phone profiles on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const [shell, wire] = await rendererFixture();
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      for (const profile of [
+        { width: 960, height: 540, dpr: 1 },
+        { width: 390, height: 844, dpr: 3 },
+      ]) {
+        const page = await browser.newPage({
+          viewport: profile,
+          deviceScaleFactor: profile.dpr,
+          reducedMotion: "reduce",
+        });
+        const errors = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await prepareRendererProof(
+          page,
+          origin,
+          shell,
+          "viewport-proof",
+          '<style>body{margin:0}#scene{width:100vw;height:100vh}</style><div id="scene"></div>',
+        );
+        await page.evaluate(async (wire) => {
+          const adapter = await proofAdapter(wire);
+          globalThis.viewportProof = adapter;
+        }, wire);
+        for (const tier of TIERS) {
+          const result = await page.evaluate(async (tier) => {
+            const a = globalThis.viewportProof;
+            a.setQuality(tier);
+            await proofFrame();
+            const canvas = a.canvas;
+            return {
+              backend: a.backend,
+              tier: a.tier,
+              output: [canvas.width, canvas.height],
+              css: [canvas.clientWidth, canvas.clientHeight],
+              scene: [a.scenePass.renderTarget.width, a.scenePass.renderTarget.height],
+              bytes: a.metrics.textureBytes,
+              camera: [a.camera.left, a.camera.right, a.camera.top, a.camera.bottom],
+            };
+          }, tier);
+          const caps = { low: 512000, medium: 1000000, high: 3000000 };
+          const scale = Math.min(
+            profile.dpr,
+            Math.sqrt(caps[tier] / (profile.width * profile.height)),
+          );
+          const expected = [Math.floor(profile.width * scale), Math.floor(profile.height * scale)];
+          expect(result).toMatchObject({
+            backend,
+            tier,
+            output: expected,
+            css: [profile.width, profile.height],
+            camera: [
+              -Math.max(320, (200 * profile.width) / profile.height),
+              Math.max(320, (200 * profile.width) / profile.height),
+              Math.max(200, (320 * profile.height) / profile.width),
+              -Math.max(200, (320 * profile.height) / profile.width),
+            ],
+          });
+          expect(result.scene).toEqual(
+            expected.map((value) => Math.floor(value * (tier === "low" ? 0.5 : 1))),
+          );
+          expect(result.bytes).toBeLessThanOrEqual(
+            { low: 16, medium: 64, high: 192 }[tier] * 1024 * 1024,
+          );
+          expect(result.bytes).toBeGreaterThan(0);
+        }
+        const contentBudget = await page.evaluate(async (wire) => {
+          viewportProof.destroy();
+          const a = await proofAdapter(wire, {
+            version: 1,
+            create({ THREE }) {
+              const texture = new THREE.DataTexture(new Uint8Array(8 * 1024 * 1024), 2048, 1024);
+              return { root: new THREE.Group(), textures: [texture], update() {} };
+            },
+          });
+          a.setQuality("low");
+          await proofFrame();
+          const result = {
+            status: a.metrics.contentStatus,
+            bytes: a.metrics.textureBytes,
+            pixels: a.canvas.width * a.canvas.height,
+          };
+          a.setQuality("high");
+          globalThis.viewportProof = a;
+          return result;
+        }, wire);
+        expect(contentBudget.status).toBe("ready");
+        expect(contentBudget.bytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+        expect(contentBudget.pixels).toBeLessThan(365000);
+        await page.setViewportSize({ width: 800, height: 400 });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [
+              viewportProof.camera.left,
+              viewportProof.camera.right,
+              viewportProof.camera.top,
+              viewportProof.camera.bottom,
+            ]),
+          )
+          .toEqual([-400, 400, 200, -200]);
+        await page.setViewportSize({ width: 320, height: 200 });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [viewportProof.canvas.width, viewportProof.canvas.height]),
+          )
+          .toEqual([320 * profile.dpr, 200 * profile.dpr]);
+        await page.evaluate(() => {
+          const host = document.querySelector("#scene");
+          host.style.height = "auto";
+          host.style.width = "240px";
+          host.style.padding = "20px";
+        });
+        await expect
+          .poll(() =>
+            page.evaluate(() => [
+              viewportProof.canvas.clientWidth,
+              viewportProof.canvas.clientHeight,
+            ]),
+          )
+          .toEqual([240, 200]);
+        await page.waitForTimeout(100);
+        expect(await page.evaluate(() => document.querySelector("#scene").clientHeight)).toBe(240);
+        for (const tier of TIERS) {
+          const tiny = await page.evaluate(async (tier) => {
+            const host = document.querySelector("#scene");
+            host.style.cssText = "width:1px;height:1px;padding:0";
+            viewportProof.setQuality(tier);
+            await proofFrame();
+            const a = viewportProof;
+            return {
+              output: [a.canvas.width, a.canvas.height],
+              scene: [a.scenePass.renderTarget.width, a.scenePass.renderTarget.height],
+              mips: a.bloom
+                ? [...a.bloom._renderTargetsHorizontal, ...a.bloom._renderTargetsVertical].map(
+                    (t) => [t.width, t.height],
+                  )
+                : [],
+            };
+          }, tier);
+          const side = tier === "low" ? Math.max(2, profile.dpr) : tier === "medium" ? 32 : 16;
+          expect(tiny.output).toEqual([side, side]);
+          expect(tiny.scene).toEqual([
+            Math.floor(side * (tier === "low" ? 0.5 : 1)),
+            Math.floor(side * (tier === "low" ? 0.5 : 1)),
+          ]);
+          expect(tiny.mips).toEqual(
+            tier === "low"
+              ? []
+              : [
+                  [16, 16],
+                  [8, 8],
+                  [4, 4],
+                  [2, 2],
+                  [1, 1],
+                  [16, 16],
+                  [8, 8],
+                  [4, 4],
+                  [2, 2],
+                  [1, 1],
+                ],
+          );
+        }
+        await page.evaluate(() => viewportProof.destroy());
+        expect(errors).toEqual([]);
+        await page.close();
+      }
+    });
+  }
+}, 120_000);
+
+it("continuous projected time of day lights and grades both renderer backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const { defaultSceneLighting, decodeSceneProjection } = await import(
+    "../../packages/contracts/src/index.ts"
+  );
+  const [shell, originalWire] = await rendererFixture();
+  const wire = {
+    ...originalWire,
+    effects: [
+      {
+        role: "lantern",
+        assetId: "fixture-lamp",
+        animationFamily: "static",
+        pose: originalWire.entities[0].pose,
+      },
+    ],
+  };
+  const times = [0, 21600000, 43200000, 64800000, 21599000, 21601000, 64799000, 64801000, 86400000];
+  const projections = times.map((time) => ({
+    ...wire,
+    simulationTime: String(time),
+    lighting: defaultSceneLighting(BigInt(time), { rainIntensity: 0 }, wire.effects ?? []),
+  }));
+  projections.forEach((projection) => decodeSceneProjection(projection));
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+        reducedMotion: "reduce",
+      });
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await prepareRendererProof(
+        page,
+        origin,
+        shell,
+        "continuous-proof",
+        '<div id="scene" style="width:640px;height:400px"></div>',
+      );
+      const result = await page.evaluate(
+        async ({ projections, wire }) => {
+          const { effectsText } = await proofLoad("world-scene-adapter");
+          const adapter = await proofAdapter(projections[0]);
+          const render = () => {
+            adapter.composer.render();
+            return adapter.renderer.domElement.toDataURL();
+          };
+          const rows = [];
+          for (const projection of projections) {
+            adapter.loadSnapshot({
+              ...projection,
+              revision: BigInt(projection.revision),
+              simulationTime: BigInt(projection.simulationTime),
+            });
+            await proofFrame();
+            const image = render();
+            rows.push({
+              image,
+              ambient: adapter.ambient.intensity,
+              colour: adapter.ambient.color.getHexString(),
+              background: adapter.scene.background.getHexString(),
+              fog: adapter.scene.fog.color.getHexString(),
+              grade: adapter.environmentGrade.value.getHexString(),
+              sun: adapter.sky[0].intensity,
+              moon: adapter.sky[1].intensity,
+              key: adapter.scene.userData.gradingKey,
+              lamps: adapter.lights.map((light) => light.intensity),
+              text: effectsText(adapter.projection).lights,
+            });
+          }
+          const original = render();
+          const graded = {
+            ...projections[8],
+            lighting: {
+              ...projections[8].lighting,
+              environment: { ...projections[8].lighting.environment, gradeColour: "#ff0000" },
+            },
+          };
+          adapter.loadSnapshot({
+            ...graded,
+            revision: BigInt(graded.revision),
+            simulationTime: BigInt(graded.simulationTime),
+          });
+          const gradeChangesPixels = original !== render();
+          adapter.loadSnapshot({
+            ...projections[8],
+            revision: BigInt(projections[8].revision),
+            simulationTime: BigInt(projections[8].simulationTime),
+          });
+          adapter.setQuality("high");
+          const highGrade = adapter.environmentGrade.value.getHexString();
+          adapter.loadSnapshot({
+            ...wire,
+            revision: BigInt(wire.revision),
+            simulationTime: 43200000n,
+          });
+          const legacy = [
+            adapter.ambient.intensity,
+            adapter.ambient.color.getHexString(),
+            adapter.environmentGrade.value.getHexString(),
+          ];
+          const api = adapter.backend;
+          adapter.destroy();
+          return { rows, highGrade, legacy, api, gradeChangesPixels };
+        },
+        { projections, wire },
+      );
+      expect(result.api).toBe(backend);
+      expect(result.rows.slice(0, 4).map(({ key }) => key)).toEqual([
+        "night",
+        "dawn",
+        "day",
+        "dusk",
+      ]);
+      expect(result.rows[0]).toMatchObject({
+        ambient: Math.PI * 0.4,
+        colour: "9caeca",
+        background: "192b20",
+        fog: "25334c",
+        grade: "d6dfff",
+        sun: 0,
+        moon: Math.PI * 0.25,
+      });
+      expect(result.rows[2]).toMatchObject({
+        ambient: Math.PI,
+        colour: "ffffff",
+        background: "3f6b3a",
+        fog: "43534b",
+        grade: "ffffff",
+        sun: Math.PI,
+        moon: 0,
+      });
+      expect(result.rows[0].lamps).toEqual([1500]);
+      expect(result.rows[2].lamps).toEqual([]);
+      expect(result.rows.slice(0, 4).map(({ text }) => text)).toEqual([
+        "lantern lit",
+        "lantern lit",
+        "off",
+        "lantern lit",
+      ]);
+      for (const index of [1, 3]) {
+        expect(result.rows[index].lamps[0]).toBeCloseTo(750, 8);
+        expect(result.rows[index].sun).toBeCloseTo(Math.PI / 2, 10);
+        expect(result.rows[index].grade).toBe("ffd6b0");
+      }
+      for (const [before, after] of [
+        [4, 5],
+        [6, 7],
+      ]) {
+        expect(Math.abs(result.rows[before].sun - result.rows[after].sun)).toBeLessThan(0.002);
+        expect(Math.abs(result.rows[before].ambient - result.rows[after].ambient)).toBeLessThan(
+          0.002,
+        );
+      }
+      expect(new Set(result.rows.slice(0, 3).map(({ image }) => image)).size).toBe(3);
+      expect(result.rows[8].image).toBe(result.rows[0].image);
+      expect(result.gradeChangesPixels).toBe(true);
+      expect(result.highGrade).toBe("d6dfff");
+      expect(result.legacy).toEqual([Math.PI, "ffffff", "ffffff"]);
+      expect(errors).toEqual([]);
+    });
+  }
+}, 120_000);

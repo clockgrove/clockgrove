@@ -6,11 +6,12 @@
 #
 # Usage: scripts/ci/toolchain.sh [--check] component...
 #        scripts/ci/toolchain.sh --pgvector-key
-#   components: postgresql pgvector opentofu opentofu-providers browser
+#   components: postgresql pgvector opentofu opentofu-providers browser-deps browser
 #   --check     verify only; exit 1 when any component is missing or different.
 #   --pgvector-key  print the cache key of a staged pgvector build (see PGVECTOR_STAGE).
-# Run browser from the repository root after `pnpm install --frozen-lockfile --ignore-scripts`:
-# the lockfile's Playwright selects the browser revision.
+# browser-deps installs the system packages the lockfile's Playwright Chromium needs, with sudo;
+# it needs no `pnpm install`. browser fetches that Chromium into the user's Playwright cache, with
+# no sudo: run it from the repository root after `pnpm install --frozen-lockfile --ignore-scripts`.
 # opentofu-providers fills a filesystem mirror of the providers that
 # infra/opentofu/.terraform.lock.hcl pins, at <prefix>/share/opentofu-providers beside the `tofu`
 # on PATH, so `infra:validate` installs them without network. Every zip must carry a lock-file hash.
@@ -238,16 +239,94 @@ install_opentofu_providers() {
   rm -rf "$directory"
 }
 
+PNPM_LOCK="$REPOSITORY/pnpm-lock.yaml"
+
+# The version of package $1 that the workspace root resolves in pnpm-lock.yaml (its last document).
+locked_version() {
+  awk -v entry="      $1:" '
+    /^[^ ]/ { importers = ($0 == "importers:"); root = 0; want = 0; next }
+    importers && /^  [^ ]/ { root = ($0 == "  .:"); want = 0; next }
+    root && $0 == entry { want = 1; next }
+    want && /^        [^ ]/ { if ($1 == "version:") { version = $2; want = 0 }; next }
+    { want = 0 }
+    END { if (version == "") exit 1; print version }' "$PNPM_LOCK"
+}
+
+# The integrity pnpm-lock.yaml records for the package $1 (name@version).
+locked_integrity() {
+  awk -v entry="  $1:" '
+    $0 == entry && getline > 0 && match($0, /\{integrity: sha512-[A-Za-z0-9+\/=]+\}/) {
+      integrity = substr($0, RSTART + 12, RLENGTH - 13)
+    }
+    END { if (integrity == "") exit 1; print integrity }' "$PNPM_LOCK"
+}
+
+# The directory whose node_modules holds the lockfile's Playwright, set by pinned_playwright: the
+# repository after `pnpm install`, else a private npm install of that exact version (setup runs on
+# a clean tree, before `pnpm install`) whose every package carries the lockfile's integrity.
+PLAYWRIGHT_ROOT=''
+PLAYWRIGHT_FETCHED=''
+trap 'if [[ -n "$PLAYWRIGHT_FETCHED" ]]; then rm -rf "$PLAYWRIGHT_FETCHED"; fi' EXIT
+
+pinned_playwright() {
+  local version directory fetched key integrity
+  [[ -z "$PLAYWRIGHT_ROOT" ]] || return 0
+  version="$(locked_version playwright)" && [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    note "browser: pnpm-lock.yaml pins no playwright version for the workspace root"
+    return 1
+  }
+  if [[ "$(node -p 'require(process.argv[1]).version' "$REPOSITORY/node_modules/playwright/package.json" 2>/dev/null)" == "$version" ]]; then
+    PLAYWRIGHT_ROOT="$REPOSITORY"
+    return 0
+  fi
+  directory="$(mktemp -d)"
+  PLAYWRIGHT_FETCHED="$directory"
+  printf '{"private":true,"dependencies":{"playwright":"%s"}}\n' "$version" >"$directory/package.json"
+  (cd "$directory" && npm install --ignore-scripts --no-audit --no-fund --no-update-notifier --loglevel=error \
+    --cache="$directory/.npm-cache" >&2) || return 1
+  # One "name@version integrity" line per package npm placed.
+  fetched="$(node -e '
+    for (const [where, entry] of Object.entries(require(process.argv[1]).packages))
+      console.log(`${where.slice(where.lastIndexOf("node_modules/") + 13)}@${entry.version} ${entry.integrity}`);
+  ' "$directory/node_modules/.package-lock.json")" || return 1
+  [[ $'\n'"$fetched" == *$'\n'"playwright@$version "* ]] || {
+    note "browser: npm did not fetch playwright@$version"
+    return 1
+  }
+  while read -r key integrity; do
+    [[ "$integrity" == "$(locked_integrity "$key")" ]] || {
+      note "browser: npm fetched $key without the integrity pnpm-lock.yaml records"
+      return 1
+    }
+  done <<<"$fetched"
+  PLAYWRIGHT_ROOT="$directory"
+}
+
+# The system packages are present when the pinned Chromium already launches for this user (its
+# native libraries load), or when Playwright's own apt simulation finds none of them missing.
+browser_deps_present() {
+  pinned_playwright || return 1
+  (cd "$PLAYWRIGHT_ROOT" && node "$SCRIPT_DIRECTORY/browser-toolchain.mjs" 2>/dev/null) && return 0
+  node "$PLAYWRIGHT_ROOT/node_modules/playwright/cli.js" install-deps --dry-run chromium >&2
+}
+
+# Playwright runs apt-get itself, through sudo when this user is not root.
+install_browser_deps() {
+  pinned_playwright
+  node "$PLAYWRIGHT_ROOT/node_modules/playwright/cli.js" install-deps chromium
+}
+
 browser_present() {
   node "$SCRIPT_DIRECTORY/browser-toolchain.mjs"
 }
 
+# The browser only: its system packages are browser-deps, so this needs no sudo.
 install_browser() {
-  pnpm exec playwright install --with-deps chromium
+  pnpm exec playwright install chromium
 }
 
 usage() {
-  sed -n '2,16p' "${BASH_SOURCE[0]}" >&2
+  sed -n '2,17p' "${BASH_SOURCE[0]}" >&2
   exit 2
 }
 
@@ -265,7 +344,7 @@ fi
 [[ $# -gt 0 ]] || usage
 for component in "$@"; do
   case "$component" in
-    postgresql | pgvector | opentofu | opentofu-providers | browser) ;;
+    postgresql | pgvector | opentofu | opentofu-providers | browser-deps | browser) ;;
     *) usage ;;
   esac
 done

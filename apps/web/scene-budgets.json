@@ -14,12 +14,12 @@
     "textureBytes": {
       "limit": 16777216,
       "measured": "browser",
-      "reason": "Decision: retain 16 MiB for everything the renderer allocates apart from the world's atlas pages (atlasTextureBytes). Account unique Texture identities across effects, reflections, generated RGBA8 labels and content textures, conservative full-resolution RGBA16F + depth/stencil renderer output, tier-scaled PassNode RGBA16F + depth/stencil (320x200 low; 640x400 medium/high), BloomNode RGBA16F bright target and two five-level chains with floored dimensions. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode and BloomNode.setSize. This bounds allocated storage, not driver residency. WebGPURenderer storage is keyed by Texture identity, not shared image Source (common/Textures.js and each backend texture utility)."
+      "reason": "Decision: retain 16 MiB for low-tier non-atlas allocations; medium/high viewport ceilings are in viewportPolicy. Count unique Texture identities across effects, reflections, labels and content, plus actual output-sized renderer RGBA16F/depth-stencil storage, tier-scaled scene, low-tier full-output label target and bloom chains. Reserve resource texture usage before choosing output size. Atlas pages remain separate. Source: three@0.187.0 Renderer._getFrameBufferTarget, PassNode, BloomNode.setSize and per-Texture backend storage; this accounts allocated storage rather than driver residency."
     },
     "atlasTextureBytes": {
       "limit": 33554432,
       "measured": "browser",
-      "reason": "Decision: 32 MiB of decoded RGBA8 atlas pages, two full 2048x2048 pages (the largest page the asset build packs). The renderer uploads one Texture per page the reviewed index lists and per selected material page, and counts each once; material renditions are chosen within what remains. About twice the issue 137 multi-page journey world (four pages, 17040000 B), which tests/ci/dev-world.journey.browser.test.mjs measures on both backends."
+      "reason": "Decision: 32 MiB of uploaded atlas page storage, two full 2048x2048 RGBA8 pages (the largest page the asset build packs). The renderer uploads one Texture per page the reviewed index lists and per selected material page, and counts each once at the bytes it actually uploaded: RGBA8 (4 B/px) for flat and PNG pages, 16 B per 4x4 block (1 B/px) for material pages transcoded from KTX2, so the same budget holds eight full compressed pages. Material renditions are chosen within what remains, at the cost of the format this device loads (issue 163). About twice the issue 137 multi-page journey world (four pages, 17040000 B), which tests/ci/dev-world.journey.browser.test.mjs measures on both backends."
     },
     "firstSceneRenderMs": {
       "limit": 2500,
@@ -127,5 +127,23 @@
       "patchApplicationMs": 0.20000004768371582,
       "reconnectMs": 956.7999999523163
     }
+  },
+  "viewportPolicy": {
+    "source": "Issue #184: renderer-local allocation decisions; software browser correctness is not phone GPU qualification.",
+    "tiers": {
+      "low": {
+        "maxOutputPixels": 512000,
+        "textureBytes": 16777216
+      },
+      "medium": {
+        "maxOutputPixels": 1000000,
+        "textureBytes": 67108864
+      },
+      "high": {
+        "maxOutputPixels": 3000000,
+        "textureBytes": 201326592
+      }
+    },
+    "reason": "Canvas requests viewport CSS dimensions times DPR, capped uniformly by tier output pixels. Caps leave allocation headroom for content and labels after conservative renderer output, scene, label and bloom targets. Low retains the existing 16 MiB phone floor; medium/high permit desktop targets. Atlas budget remains separate. Hardware frame time remains an outstanding qualification."
   }
 }

@@ -51,13 +51,56 @@ path. The reducer's committed projection is untouched.
 ## Material delivery
 
 A material-enabled atlas animation exposes every named channel and supplied density. Both 1× and
-2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and BC3
-DDS texture, dimensions, byte sizes and frame rectangles. Selection considers device pixel ratio
-and what remains of the atlas page texture budget. A smaller rendition preserves the same logical frame size,
-anchor and world footprint. The product renderer loads the selected albedo PNG with the same
-hash verification as flat sprites and honours its declared colour encoding; channels it cannot shade remain available through the shared
-adapter data and do not prevent drawing albedo. The existing text fallback and reduced-motion
-policy apply to material-enabled assets too.
+2× are present, with optional 4×. Each channel identifies a content-addressed PNG fallback and a
+KTX2 texture (Basis Universal UASTC, `ktx2-uastc`), dimensions, byte sizes and frame rectangles.
+The renderer loads one of the two per page, chosen per device when the first material animation
+loads:
+
+- It asks the initialized backend, WebGPU features or WebGL2 extensions, through Three's
+  `KTX2Loader.detectSupport`. When the device samples ASTC 4×4, BC7, ETC2 RGBA8 or BC3, in that
+  order of preference, it fetches the page's `.ktx2`, verifies its SHA-256 and transcodes it off
+  the main thread to that format. Desktop GPUs, which typically sample only BC formats, get BC7
+  (BC3 without BPTC); phones get ASTC, or ETC2 without it.
+- Only a device that samples none of them fetches the `.png` page and uploads RGBA8.
+  `metrics.materialTextureFormat` reports `astc`, `bc7`, `etc2`, `bc3` or `png`.
+- A compressed page that fails, whether its `.ktx2` is missing or fails its hash, the transcoder
+  does not load, the worker runs out of memory or the transcoded size is not the charged one,
+  falls back to that page's hash-verified PNG. The PNG is charged at RGBA8 against what remains
+  of the budgets; if it no longer fits, the animation draws its flat sprite. Other pages and flat
+  sprites are unaffected. Each fallback adds one to `metrics.materialTextureFallbacks` and
+  reports `asset_cache` `failed`; a page that failed is not retried. Only a failed PNG page fails
+  the scene's assets, as before.
+
+The renderer keeps one KTX2 loader, shared by material pages and world content
+(`loaders()`), so the transcoder and its workers load once per renderer; it is disposed when the
+renderer and every content loader holding it have released it. The Basis transcoder
+(`basis_transcoder.js` and `.wasm`) comes from the pinned `three` installation as built assets of
+this app, served from its own origin, and is fetched only when the first KTX2 texture parses
+(see [third-party notices](../../../THIRD_PARTY_NOTICES.md)). A transcoded page keeps its file's top-row-first orientation (`flipY` false),
+so the sprite's texture coordinates follow each texture's `flipY`.
+
+Selection considers device pixel ratio and what remains of the asset transfer and atlas page
+texture budgets, measured as this device loads the pages (`materialPageCost`): a compressed page
+costs its KTX2 bytes to fetch and 16 bytes per 4×4 block to upload, the size of every format UASTC
+transcodes to; a PNG page costs its PNG bytes and RGBA8. `atlasTextureBytes` counts the bytes each
+page actually uploaded, so a phone or desktop page costs a quarter of its PNG fallback. A smaller
+rendition preserves the same logical frame size, anchor and world footprint. The renderer honours
+the albedo's declared colour encoding on either path; channels it cannot shade remain available
+through the shared adapter data and do not prevent drawing albedo. The existing text fallback and
+reduced-motion policy apply to material-enabled assets too.
+
+`tests/visual/golden-states.journey.browser.test.mjs` proves the selection on both backends under
+SwiftShader, which samples BC, ETC2 and ASTC. Each device profile hides formats from the page's
+WebGPU adapter and device and from WebGL2 before the renderer starts: desktop (BC only) uploads
+BC7, phone (no BC) ASTC, an ETC2-only phone ETC2, and no compression PNG. Each compressed drawing
+matches the PNG drawing (BC7 and ASTC within 2 per channel, ETC2 within 16). A further case
+answers the `.ktx2` request with 404 on each backend: the page loads its PNG, the scene draws, and
+`materialTextureFallbacks` is 1.
+
+Real phones remain a maintainer step: on a recent Android phone (Chrome) and iPhone (Safari),
+open a world with material assets, confirm `metrics.materialTextureFormat` is `astc` (or `etc2`),
+the network panel shows `.ktx2` pages and no material `.png`, and the sprites draw the right way
+up.
 
 Projected `lighting` carries sun/moon directions and colours, placed light properties, weather
 intensity and a grading key. Renderer implementations consume supported parameters from this
@@ -70,7 +113,15 @@ committed data. Legacy projections without lighting retain their existing enviro
   sprites draw 1:1. Frame units become metres by unit name (metre, millimetre); an unknown unit counts
   as metres. On each scope's first snapshot the camera is centred on the projected entities. Panning
   (by drag) is bounded to 160 px beyond them, and never less than the view at the smallest zoom. Zoom
-  (by wheel) is clamped to 0.75–2. There is no rotation.
+  (by wheel) is clamped to `scene.camera.minZoom`–`maxZoom` from the browser shell presentation.
+  Omitted camera input retains 0.75–2. Limits must be finite, positive and include initial zoom 1;
+  the pan bounds include the view at the configured minimum zoom. There is no rotation.
+  For a deep-zoom composition, `{ "minZoom": 0.1, "maxZoom": 24 }` spans an overview and a
+  close-up: a 0.5 m vertical content mesh occupies 150 of the 400 logical view pixels at 24×
+  (0.5 × 12.5 × 24), exceeding issue #184’s one-third-height target at 640×400.
+  The fixture allows up to 96×: its 390×844 portrait view has logical height about 1385,
+  requiring about 74× for that same half-metre subject to occupy one third of the viewport. Zoom changes the
+  orthographic projection continuously; geometry stays at its native rendering resolution.
 - **Visual entity.** Each drawn entity has explicit geometry:
   - **Footprint** in millimetres, drawn as a ground shadow.
   - **Anchor**, the frame pixel that stands on the pose.
@@ -134,7 +185,23 @@ clock/weather patches change the light rig without changing world state or rerea
 content brings its own maps through the renderer extension; it does not extend atlas bindings or decide
 issue 66's material model.
 
-The live canvas is 640×400 at DPR 1. Quality selection is conservative: software renderers
+The live canvas follows its host CSS viewport and requests its device pixel ratio. A ResizeObserver
+updates backing storage after layout changes, and the frame loop detects DPR changes. Each tier
+caps output pixels by uniformly reducing the effective scale: low 512,000, medium 1,000,000,
+high 3,000,000 pixels (issue #184 policy). Width and height round down to whole pixels,
+with per-axis minima of 2/32/16 for low/medium/high so every scene and bloom mip target stays valid.
+The logical camera contains the original 640×400 view at every host aspect: width is
+`max(640, 400 × aspect)` and height is `max(400, 640 / aspect)`. This keeps the fixed
+isometric camera's proportions and original world framing. Picking, panning and rain use those same coordinates;
+resizing preserves zoom and camera position within the updated pan bounds.
+The shell reserves the viewport height minus 260 CSS pixels for the HUD, status and heading, with a 400-pixel minimum;
+external compositions own their host size. Auto-height hosts retain a stable initial 400-pixel height.
+Texture allocation ceilings are 16/64/192 MiB for low/medium/high, apart from the separate atlas budget.
+Resource textures reserve their measured bytes before render-target sizing, so adding content can
+reduce effective output scale. Content whose resources leave no room for even the smallest output
+is retired as a content-contract failure; the built-in scene and text path remain available.
+Host sizing uses the content box, excluding padding, including for auto-height compositions.
+These are bounded allocation decisions, not hardware performance claims. Quality selection is conservative: software renderers
 (SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
 or device memory below 4 GiB choose low. WebGPU software detection reads the device adapter
 architecture/description; WebGL2 uses its debug renderer identity. Otherwise memory below 8 GiB
@@ -143,14 +210,14 @@ allocation and shader work, rather than measured device-class performance promis
 
 | Tier | Scene target / lighting | Rain particle cap | Bloom | Wind | Puddle reflections |
 | --- | --- | ---: | --- | --- | --- |
-| low | 320×200, Lambert diffuse | 0 | off | off | off |
-| medium | 640×400, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
-| high | 640×400, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
+| low | half output size, Lambert diffuse | 0 | off | off | off |
+| medium | output size, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
+| high | output size, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
 
 All tiers retain projection-driven lights, emissive, lit geometry and fog. Low uses Lambert node
 materials to avoid Standard's GGX/Fresnel specular work, and a half-resolution TSL scene pass to
 shade 75% fewer scene fragments on software/limited devices. This is a local budget policy, not a
-change to the 640×400 output canvas, logical camera, picking coordinates or text path. Medium and
+change to the logical camera, picking coordinates or text path. Labels use the effective full output resolution. Medium and
 high retain full-resolution PBR and wet specular. Tier changes preserve common material state,
 dispose replaced materials and restore puddle roughness when returning to PBR. Bloom radius is 0.2 and threshold 0.8. These tuning values
 are renderer decisions for restrained glow, replacing the bake-off's over-strong bloom. Reflections
@@ -192,7 +259,7 @@ The context supplies these values:
 | `backend` | The selected `webgpu` or `webgl2` backend, after initialization. |
 | `signal` | Aborted on content failure or adapter destruction; use it to retire asynchronous work. |
 | `place(object, { x, y, elevation? })` | Set a content anchor in the projection frame's metres; elevation defaults to zero. |
-| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and a KTX2 loader detected against the initialized renderer/backend. Both paths are explicit URLs for matching pinned decoder files. |
+| `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and the renderer's shared KTX2 loader, detected against the initialized renderer/backend. `draco` is an explicit URL for matching pinned decoder files; KTX2 uses the transcoder built into the app, so `basis` is not read. |
 
 Import additional library types and values from `renderer-content.ts`, never another installed copy
 of Three. A world using this seam accepts coupling to Three **0.187.0** and the renderer contract of
@@ -257,7 +324,7 @@ for the pinned-checkout recipe and frame capture.
 | --- | --- | --- |
 | Initial JS (gzip, every built chunk: entry plus scene chunk) | 512 000 B | `tools/scene-budget.mjs` in `pnpm check` |
 | Reviewed asset bytes | 256 KiB | `tools/scene-budget.mjs` in `pnpm check` |
-| Texture memory, apart from atlas pages | 16 MiB | Chromium journeys |
+| Texture memory, apart from atlas pages | 16/64/192 MiB low/medium/high | Chromium journeys |
 | Atlas page texture memory | 32 MiB | Chromium journeys |
 | First scene render | 2 500 ms | Chromium journey |
 | Frame time, 95th percentile | 33.4 ms | Chromium journey |
@@ -317,3 +384,38 @@ causal-chain read under `runtime:world-inspect`. Observation alone shows an expl
 inspection denial. An authorized response displays the recorded command receipt
 identity and status; public Why remains available under `runtime:world-observe`.
 Closing or changing the panel cancels pending inspection work.
+
+The viewport browser proof in `tests/visual/golden-states.journey.browser.test.mjs` exercises
+960×540 DPR 1 and 390×844 DPR 3 profiles on both backends, each tier and live resize.
+It asserts backing/scene dimensions and accounted texture allocation. Phone emulation establishes
+correctness of the lower tier; recent-phone hardware cadence and GPU-complete timing still need
+maintainer qualification. Changed visual digests require the existing capture review workflow.
+
+### Continuous projected environment
+
+`SceneLighting.environment` optionally supplies `daylight` (0–1), ambient colour and intensity,
+background/fog colours and an RGB grade multiplier. The renderer consumes these values on every
+projection, including under reduced motion, and multiplies scene colour before compositing the
+low-tier full-resolution labels. Changing tier retains the current grade. Omission preserves the
+legacy 06:00–18:00 binary environment and white grade. Sun/moon directions and all intensities
+remain renderer-neutral projection data; `gradingKey` labels the phase rather than selecting a
+renderer-local preset.
+
+The shared `defaultSceneLighting` presentation policy uses canonical simulation milliseconds on a
+24-hour periodic cycle. Decision for #184: smoothstep over solar elevation ±15° gives two-hour
+dawn/dusk transitions centred on 06:00/18:00, with warm sunlight and grading at the horizon.
+Midnight/noon retain the existing ambient and directional intensity endpoints; lamps fade with
+inverse daylight. RGB colours are rounded to 8-bit channels, while intensities vary continuously.
+Lantern/window effect opacity follows daylight; puddles retain their rain policy. This adds only
+bounded scalar work per projection, no targets, textures or wall-clock animation. Worlds can
+project a different rig/environment without changing the renderer. The offline renderer fixture
+uses the same policy and offers a continuous time slider. Final golden approval and physical
+phone performance qualification remain separate from this backend correctness proof.
+
+Issue #184 part 4 must add explicit per-tier content-light and shadow limits and account for
+their frame-time and memory costs. Part 5 must measure the completed renderer on desktop and
+recent-phone hardware, including a working lower phone tier; allocation bounds and
+software-rendered frame cadence do not establish that hardware requirement. Part 5 must also
+re-capture the golden states at full viewport resolution and obtain review through the existing
+capture approval workflow before updating `tests/visual/approved-captures.json`. Periodic image
+equality proves determinism, not reviewed visual approval. These acceptance entries remain open.

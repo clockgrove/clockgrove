@@ -1372,7 +1372,7 @@ The reference world's `green-lake-yard@1` pack, committed in [clockgrove/raccoon
 
 The pack contains no Cloudflare, PostgreSQL, React or Three.js implementation imports. The web shell consumes its presentation inputs (§20.8) and the kernel consumes only its validated engine-facing manifest.
 
-Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.1.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
+Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.2.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
 
 Do not build a marketplace, dependency solver, public registry, arbitrary plugin host, or community trust/signing system until those become product requirements.
 
@@ -2915,7 +2915,7 @@ the text path and reduced-motion behaviour.
 The [material source and style-policy contracts](protocols/shared-contracts.md#lit-material-source-declarations)
 connect world-supplied sources to owning asset roles and frame metadata. Image acceptance checks
 coverage, ranges and temporal stability before aligned channel/rendition packing. Packed output
-includes deterministic BC3 DDS textures and PNG fallbacks. Scene delivery exposes every channel;
+includes deterministic KTX2 (Basis Universal UASTC) textures and PNG fallbacks. Scene delivery exposes every channel;
 the product adapter can draw albedo while ignoring unsupported maps. Projected light parameters,
 weather intensity and grading provide the renderer-neutral lighting seam without inspecting art.
 

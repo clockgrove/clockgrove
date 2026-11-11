@@ -1,0 +1,1 @@
+{"archetype":{"id":"fixture.household-water-kind","version":1},"capabilities":[],"id":"fixture.household-water","overrides":[],"placement":{"coordinates":[{"$bigint":"0"},{"$bigint":"0"}],"space":{"id":"fixture.zz-household-store","version":1}},"traits":[]}

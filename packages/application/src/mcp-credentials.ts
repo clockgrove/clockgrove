@@ -1,3 +1,5 @@
+import { safeMcpNetworkRefusal } from "./mcp-network.js";
+
 /**
  * Reads are linearizable. CAS is durable and atomic; it never clears a revocation fence and
  * refuses every fenced transition except `revoked`. An uncertain fence operation makes reads
@@ -257,8 +259,8 @@ export class McpCredentialVault {
       )
         throw new McpCredentialError();
       return await send(`Bearer ${secret.token}`);
-    } catch {
-      throw new McpCredentialError();
+    } catch (error) {
+      throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
     }
   }
   private async request(

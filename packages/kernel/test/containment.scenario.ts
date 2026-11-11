@@ -191,8 +191,30 @@ export function fixturePayload(
   };
 }
 
+/** Declared genesis inventory, before commands begin. */
+export function withFixtureInventory(
+  base: WorldKernelInput,
+  holders: readonly { objectId: string; kind: "food" | "water"; quantity: number }[],
+): WorldKernelInput {
+  const state = createWorldState({
+    ...base.partition.state,
+    entities: [
+      ...base.partition.state.entities,
+      ...holders.map(({ objectId, kind, quantity }) => {
+        const { spatial, ...object } = fixturePayload(base, objectId, { kind, quantity }).object;
+        return { ...object, ...spatial, lifecycle: { status: "active" as const } };
+      }),
+    ],
+  } as never);
+  return { ...base, partition: { ...base.partition, state } };
+}
+
 export async function containmentEvidence(steps = 48) {
-  let current = await containmentFixture();
+  let current = withFixtureInventory(await containmentFixture(), [
+    { objectId: "food-a", kind: "food", quantity: 10 },
+    { objectId: "food-b", kind: "food", quantity: 10 },
+    { objectId: "water", kind: "water", quantity: 2 },
+  ]);
   const entries: {
     label: string;
     input: Awaited<ReturnType<typeof containmentInputIdentity>> & {
@@ -308,7 +330,7 @@ export async function containmentEvidence(steps = 48) {
       containmentInput(current, type, { schemaVersion: 1, ...payload }, label),
       expected,
     );
-  for (const id of ["box-a", "box-b", "inventory", "food-a", "food-b", "water"])
+  for (const id of ["box-a", "box-b", "inventory"])
     await execute(
       `create:${id}`,
       containmentInput(
@@ -378,12 +400,12 @@ export async function containmentEvidence(steps = 48) {
     "offer",
     "resource.offer",
     { objectId: "food-a", kind: "food", quantity: 4 },
-    "success",
+    "precondition-failed",
   );
   await run(
     "resource-transfer",
     "resource.transfer",
-    { fromObjectId: "food-a", toObjectId: "food-b", kind: "food", quantity: 14 },
+    { fromObjectId: "food-a", toObjectId: "food-b", kind: "food", quantity: 10 },
     "success",
   );
   await run(
@@ -395,7 +417,7 @@ export async function containmentEvidence(steps = 48) {
   await run(
     "consume-all",
     "resource.consume",
-    { objectId: "food-b", kind: "food", quantity: 24 },
+    { objectId: "food-b", kind: "food", quantity: 20 },
     "success",
   );
   await run(

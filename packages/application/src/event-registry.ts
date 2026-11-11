@@ -28,6 +28,8 @@ export const JOURNAL_EVENT_REGISTRY = createEventTypeRegistry(
     RUNTIME_NO_OP_ACCEPTED,
     DECISION_SHADOW_RECORDED,
     "WakeTriageRecorded",
+    "McpInstallationChanged",
+    "ModerationShadowRecorded",
     CLOCK_POLICY_CHANGED,
     ...WORLD_KERNEL_EVENT_TYPES,
   ].map((type) => ({ type, schemaVersion: 2 })),

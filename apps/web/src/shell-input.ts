@@ -16,6 +16,8 @@ export interface WorldShellInput {
     readonly accent: number;
     readonly panel: number;
     readonly text: string;
+    /** Optional fixed-isometric zoom range; omitted inputs retain the legacy camera. */
+    readonly camera?: { readonly minZoom: number; readonly maxZoom: number };
   };
 }
 
@@ -60,7 +62,16 @@ export function readWorldShell(value: unknown): WorldShellInput {
     ![input.scene.accent, input.scene.panel].every(
       (color) => Number.isInteger(color) && color >= 0 && color <= 0xffffff,
     ) ||
-    typeof input.scene.text !== "string"
+    typeof input.scene.text !== "string" ||
+    (input.scene.camera !== undefined &&
+      (!input.scene.camera ||
+        !Number.isFinite(input.scene.camera.minZoom) ||
+        !Number.isFinite(input.scene.camera.maxZoom) ||
+        input.scene.camera.minZoom <= 0 ||
+        // The scene contract has a 640-pixel logical width; its overview bounds must remain finite.
+        !Number.isFinite(640 / input.scene.camera.minZoom) ||
+        input.scene.camera.minZoom > 1 ||
+        input.scene.camera.maxZoom < 1))
   )
     throw new Error("unsupported or invalid world shell input");
   return input;

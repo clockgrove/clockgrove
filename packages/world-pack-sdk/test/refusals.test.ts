@@ -12,6 +12,8 @@ import {
 const catalog = [
   { type: "world.move", version: 1 },
   { type: "world.say", version: 1 },
+  { type: "resource.offer", version: 1 },
+  { type: "object.create", version: 1 },
 ];
 
 const ports: WorldPackPorts = {
@@ -228,6 +230,33 @@ const actor = (context: Context): Json => doc(context, "actors/resident.json");
 const behaviorPolicy = (context: Context): Json => doc(context, "policies/behavior.json").policy;
 
 const cases: Case[] = [
+  [
+    "INVALID_POLICY",
+    "manifest.policies[1]#policy.ecology.sources",
+    (c) => {
+      behaviorPolicy(c).ecology = { schemaVersion: 1, sources: [], perishables: [], plants: [] };
+    },
+  ],
+  [
+    "INVALID_RULE",
+    "manifest.rules[0]#rule.intents[0].commandType",
+    (c) => {
+      doc(c, "rules/chime.json").intents[0].commandType = "resource.offer";
+    },
+  ],
+  [
+    "INVALID_SEED_COMMAND",
+    "manifest.seedCommands[0].payload",
+    ({ manifest }) => {
+      manifest.seedCommands[0] = {
+        key: "unit.unbacked",
+        type: "resource.offer",
+        version: 1,
+        payload: { objectId: "unit.a", kind: "water", quantity: 1 },
+      };
+    },
+  ],
+
   [
     "UNSUPPORTED_SCHEMA_VERSION",
     "manifest.schemaVersion",

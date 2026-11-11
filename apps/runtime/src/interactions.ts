@@ -2,6 +2,7 @@ import type { WorldCommandResult } from "@clockgrove/application";
 import {
   type CommandEnvelope,
   decodeOpaqueId,
+  type InboundEnvelope,
   type InfluenceReceipt,
   type InfluenceRequest,
   type InteractionAction,
@@ -154,14 +155,24 @@ export function scriptedSay(
   request: SayRequest,
   context: TrustedExecutionContext & { readonly personaId: WorldPersonaId },
   sentAt: string,
+  envelope?: InboundEnvelope,
 ): SayReceipt {
+  if (
+    envelope !== undefined &&
+    (envelope.action !== "say" ||
+      envelope.privacyPolicy !== "public_scene" ||
+      envelope.actorId !== request.actorId ||
+      envelope.resolvedPrincipal !== context.principalId)
+  )
+    throw new TypeError("Say requires a public normalized envelope");
   return {
     type: "public_say",
     speech: {
       type: "public_speech",
-      messageId: request.messageId,
-      scope: request.scope,
-      speakerId: request.actorId,
+      messageId: envelope?.idempotencyKey ?? request.messageId,
+      scope: envelope?.scope ?? request.scope,
+      speakerId:
+        envelope === undefined ? request.actorId : decodeOpaqueId(envelope.actorId, "ObjectId"),
       text: "Chitters aloud (scripted fixture line).",
       sentAt,
     },

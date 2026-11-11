@@ -8,6 +8,7 @@ import type {
 import {
   type BrowserScope,
   type CommandEnvelope,
+  type ConversationSession,
   type ConversationSessionParticipant,
   decodeOpaqueId,
   type LivingScene,
@@ -55,9 +56,10 @@ export function describeScene(scene: LivingScene, state: WorldState): ActorScene
   };
 }
 
+// Decision: 4 KiB accommodates percent-encoded installation/candidate/version pins (256 bytes each).
 const OUTPUT = z.object({
   reply: z.string().min(1).max(2000),
-  command: z.object({ capability: z.string().max(64), input: z.unknown() }).nullish(),
+  command: z.object({ capability: z.string().max(4096), input: z.unknown() }).nullish(),
 });
 
 /** The actor's standing instructions. Retrieved text is data: it never adds a capability or a grant. */
@@ -74,6 +76,7 @@ export function actorSystem(
     offer
       ? 'You may propose at most one world command, and only when the Caretaker asks for it: set command to {"capability":"world.command","input":{"type":"resource.offer","objectId":<an offerable object id from the scene>,"kind":<its resource kind>}}. Otherwise set command to null. Proposing does not do it: the world decides and the Caretaker is told the outcome.'
       : `You hold no capability to change the ${configuration.sceneLabel}; set command to null and say so if asked.`,
+    "Remote MCP capabilities are admission records only in this checkpoint; remote execution is unavailable. Never claim to have called a remote tool.",
     scene === undefined
       ? `You could not perceive the ${configuration.sceneLabel} this turn.`
       : `You perceive:\n${scene.digest}`,
@@ -83,7 +86,10 @@ export function actorSystem(
 export interface ActorModelDeps {
   readonly configuration?: ActorModelConfiguration;
   readonly gateway: ModelGateway;
-  readonly grants: (participant: ConversationSessionParticipant) => CapabilityGrants | undefined;
+  readonly grants: (
+    participant: ConversationSessionParticipant,
+    session: ConversationSession,
+  ) => CapabilityGrants | undefined | Promise<CapabilityGrants | undefined>;
   readonly perceive: (
     scope: BrowserScope,
     participant: ConversationSessionParticipant,
@@ -103,7 +109,7 @@ function usageOf(record: ModelCallRecord): ModelUsage {
 export function actorResponder(deps: ActorModelDeps): ConversationResponder {
   return async (session, caretakerMessages, input, prompt): Promise<ConversationResponse> => {
     const participant = session.participants[0];
-    const grants = participant === undefined ? undefined : deps.grants(participant);
+    const grants = participant === undefined ? undefined : await deps.grants(participant, session);
     if (participant === undefined || grants === undefined)
       throw new Error("capability context unavailable");
     const scene = await deps.perceive(session.scope, participant).catch(() => undefined);

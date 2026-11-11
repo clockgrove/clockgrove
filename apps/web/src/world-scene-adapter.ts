@@ -128,17 +128,21 @@ export function isNight(simulationTime: bigint): boolean {
 }
 /** The effects shown now, decided from the committed projection alone. */
 export function shownEffects(
-  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
 ): SceneEffect[] {
   const raining = projection.weather.rainIntensity > 0;
   const night = isNight(projection.simulationTime);
   return (projection.effects ?? []).filter((effect) =>
-    effect.role === "puddle" ? raining : night,
+    effect.role === "puddle"
+      ? raining
+      : projection.lighting?.environment === undefined
+        ? night
+        : projection.lighting.environment.daylight < 1,
   );
 }
 /** The text path's description of the same conditions the canvas draws. */
 export function effectsText(
-  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
 ): { puddles: string; lights: string } {
   const shown = shownEffects(projection);
   const puddles = shown.filter((effect) => effect.role === "puddle").length;
@@ -284,12 +288,35 @@ export const MATERIAL_DELIVERY_BUDGET = {
   textureBytes: 33_554_432,
 } as const;
 
-/** Highest useful density that fits both transfer and decoded texture budgets. */
+/**
+ * What one material page costs a client: the file it fetches and the texture it uploads. A client
+ * with a compressed format fetches the KTX2 file and uploads 16 bytes per 4×4 block, the size of
+ * every target UASTC transcodes to (ASTC 4×4, BC7, ETC2 RGBA8, BC3); otherwise it fetches the PNG
+ * and uploads RGBA8.
+ */
+export function materialPageCost(
+  page: {
+    readonly image: { readonly width: number; readonly height: number; readonly bytes: number };
+    readonly compressed: { readonly bytes: number };
+  },
+  compressed: boolean,
+): { readonly transferBytes: number; readonly textureBytes: number } {
+  const { width, height } = page.image;
+  return compressed
+    ? {
+        transferBytes: page.compressed.bytes,
+        textureBytes: Math.ceil(width / 4) * Math.ceil(height / 4) * 16,
+      }
+    : { transferBytes: page.image.bytes, textureBytes: width * height * 4 };
+}
+
+/** Highest useful density whose pages, as this client fetches and uploads them, fit both budgets. */
 export function selectMaterialRendition(
   material: SceneMaterialDelivery,
   devicePixelRatio: number,
   budget: { readonly transferBytes: number; readonly textureBytes: number },
   supported: readonly MaterialChannel[] = ["albedo"],
+  compressed = false,
 ): SceneMaterialDelivery["renditions"][number] | undefined {
   const target = Number.isFinite(devicePixelRatio) ? Math.max(1, devicePixelRatio) : 1;
   const useful =
@@ -298,20 +325,19 @@ export function selectMaterialRendition(
     1;
   return [...material.renditions].reverse().find((r) => {
     if (r.density > useful) return false;
-    const textures = new Map(
+    const pages = new Map(
       supported.flatMap((channel) => {
         const texture = r.channels[channel];
         return texture
-          ? (texture.pages ?? [{ image: texture.image }]).map(
-              (page) => [page.image.sha256, page.image] as const,
+          ? (texture.pages ?? [texture]).map(
+              (page) => [page.image.sha256, materialPageCost(page, compressed)] as const,
             )
           : [];
       }),
     );
     return (
-      [...textures.values()].reduce((n, image) => n + image.bytes, 0) <= budget.transferBytes &&
-      [...textures.values()].reduce((n, image) => n + image.width * image.height * 4, 0) <=
-        budget.textureBytes
+      [...pages.values()].reduce((n, cost) => n + cost.transferBytes, 0) <= budget.transferBytes &&
+      [...pages.values()].reduce((n, cost) => n + cost.textureBytes, 0) <= budget.textureBytes
     );
   });
 }

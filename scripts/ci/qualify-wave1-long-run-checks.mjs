@@ -8,7 +8,12 @@ export const AGGREGATE_RUN = "aggregate";
 export const EQUIVALENCE_ID = "small-step-vs-aggregate";
 /** Ordinary autonomous action events; a dead actor must emit none after its death. */
 export const ACTION_EVENT_TYPES = ["routine.selected", "movement.started"];
-export const RESOURCE_EVENT_TYPES = ["resource.appeared", "resource.consumed", "resource.spoiled"];
+export const RESOURCE_EVENT_TYPES = [
+  "resource.consumed",
+  "resource.spoiled",
+  "resource.transferred",
+  "resource.weather-integrated",
+];
 
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value) =>
@@ -43,6 +48,9 @@ const CHECKS = [
     run(bundle) {
       return perRun(bundle, (run) => {
         const problems = [];
+        for (const type of ["resource.appeared", "resource.offered"])
+          if ((run.eventCounts[type] ?? 0) > 0)
+            problems.push(`closed world contains unbacked ${type}`);
         const entities = new Map(
           run.finalState.entities.map((entity) => [entity.objectId, entity]),
         );
@@ -149,11 +157,15 @@ const CHECKS = [
       );
       if (!small || !aggregate) return [`runs ${SMALL_STEP_RUN} and ${AGGREGATE_RUN} are required`];
       // Stepping finely adds integration events only: at most a tenth more, or one final group per
-      // step (needs and wellbeing per actor, one per plant, and time.advanced). Since unchanged
+      // step (needs/wellbeing per actor, one per plant/water holder, and time.advanced). Since unchanged
       // decisions journal nothing, the final groups can be most of a short run's events.
       const { entities, wellbeing, ecology } = aggregate.finalState;
       const actors = entities.filter((entity) => entity.needs !== undefined).length;
-      const finalGroup = actors * (wellbeing ? 2 : 1) + (ecology?.plants.length ?? 0) + 1;
+      const finalGroup =
+        actors * (wellbeing ? 2 : 1) +
+        (ecology?.plants.length ?? 0) +
+        (ecology?.waterHolders?.length ?? 0) +
+        1;
       const allowance = Math.max(
         Math.ceil(aggregate.events.count / 10),
         small.commands.length * finalGroup,

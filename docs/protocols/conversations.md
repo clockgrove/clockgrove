@@ -9,6 +9,11 @@ The HTTP surface is described by [conversations.openapi.json](conversations.open
 journey `apps/runtime/test/conversations.journey.postgres.test.ts` checks that the runtime serves
 exactly its paths.
 
+The [developer CLI](../runbooks/runtime.md#developer-conversation-cli) uses these authenticated HTTP
+routes with explicit `talk` and `say` commands. It does not resolve identity locally or grant access.
+Its sessions use the `cli` channel; browser, CLI and deterministic fake threads keep independent
+transcripts under the [channel protocol](channels.md).
+
 ## Authority
 
 Every route is `POST`, version 1, with the browser scope (tenant, world, timeline and space) in the
@@ -30,7 +35,7 @@ exercises this.
 ## Sessions, messages and turns
 
 - A **session** has a participant set (`participants`: one entry per human participant, a principal
-  and their world persona), one addressed actor, one world timeline, the `browser` channel and the
+  and their world persona), one addressed actor, one world timeline, a `browser`, `cli` or `fake` channel and the
   `conversation` privacy class. A Caretaker Talk session has exactly one participant, and no route
   adds another; a later shared session adds entries without changing the shape. It records the partition
   and space where it was opened, and it can be read from any space of its timeline. Its state is
@@ -56,6 +61,12 @@ exercises this.
   itself is a `private_cognition` artifact and is never returned.
 - Every Talk attempt that reaches the model is one **run** with its steps and one terminal
   disposition, including retried and abandoned attempts. See [run and step evidence](runs.md).
+
+## Channel threads
+
+Create accepts optional `channel` (`browser`, `cli` or `fake`) and `threadId`. An explicit thread is scoped to the authenticated participant, tenant, world and timeline, and binds to one session. A retry addresses that session's canonical actor; it cannot switch actors or revive a deleted session. Without a thread ID, create retains the existing behavior of opening a new session. Session responses add optional `threadId`; existing response fields remain available.
+
+Talk accepts optional `ingress` metadata for a verified source assertion, same-session reply reference, empty media references and member authority mode. The server resolves the other normalized envelope fields from the authenticated participant and stored session. Nonempty media references are refused. See [channels](channels.md#inbound-envelope) for the exact boundary and retention.
 
 ## Talk and Say
 
@@ -97,3 +108,7 @@ Decided limits:
 Past these limits a request answers `409 conversation_full` or `409 conversation_limit_reached`.
 Delete hides a session and its messages from every route and refuses new messages. Its rows and
 ciphertext remain until Wave 9 RW-0902 crypto-shreds the data key (`db/retention.json`).
+
+## Governed outbound boundary
+
+The internal [delivery boundary](channels.md#governed-outbound-delivery) stores recipient-owned per-actor consent and budget reservations, evaluates quiet hours in the recipient timezone, and records deterministic fake or isolated preview sink receipts. It preserves private conversation privacy and channel-thread bindings. Part 4 of issue 168 connects explicitly configured proactive actor wakes to this boundary, using the reply artifact committed by the existing recoverable turn. It does not change the existing browser Talk response path. Automatic delayed dispatch and the complete cross-adapter completion proof remain Part 5.

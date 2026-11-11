@@ -2,9 +2,9 @@
 
 W0-008 defines configuration only. Start with the [documentation index](../clockgrove-documentation-index.md), [development reference](development.md), [Wave 0 environment and release contracts](../waves/clockgrove-wave-0-project-foundation-implementation-plan.md#16-environment-and-infrastructure-contract), and [architecture §22](../clockgrove-cloudflare-implementation-plan.md#22-infrastructure-architecture).
 
-Use Node 24.21.0, pnpm 12.9.1, OpenTofu **1.13.1** on PATH and the lockfile-pinned Wrangler **4.147.0**. All five canonical Wrangler configurations enable `nodejs_compat`, required by the runtime's `pg` 8.23.1 driver, and the infrastructure check enforces it. Hyperdrive owns one connection per operation with rollback/close cleanup; Better Auth uses Kysely's built-in `PostgresDialect` and a separate request-owned pg pool limited to one connection and destroyed in `finally`. Both adapters own asynchronous driver errors and retain failures through cleanup before returning a result. Local PostgreSQL 18.6/pgvector 0.8.7 verification retains the isolated abstract socket using pg's declared stream configuration and a real Node socket; ordinary Hyperdrive URLs keep default transport. Infrastructure is outside the workspace; it adds no runtime dependencies. `pnpm run infra:validate` type-checks the strict Zod schema, runs the infrastructure tests, installs pinned Cloudflare 5.27.0 and Neon 0.1.15 providers into a new temporary directory, runs backend-free OpenTofu formatting/validation, and bundles all five Wrangler configurations with `--dry-run`. Providers come from the mirror that `scripts/ci/toolchain.sh opentofu-providers` fills beside the `tofu` on PATH when it holds every locked version, offline; otherwise directly from the public OpenTofu registry and its public release/signature URLs. Either way `tofu init -lockfile=readonly` refuses any package whose hash the committed lock file lacks, so the mirror cannot substitute a provider. It uses no other mirror, provider cache, user CLI configuration or credentials, and removes its temporary storage. Validation after installation needs no cloud API access. No plan, refresh, apply or deployment is part of validation. `pnpm check` also checks all manifests and scans HEAD, every indexed and non-ignored working repository path for secret-shaped values; it has no fixture or binary-path exemptions.
+Use Node 24.21.0, pnpm 12.9.1, OpenTofu **1.13.1** on PATH and the lockfile-pinned Wrangler **4.156.2**. All five canonical Wrangler configurations enable `nodejs_compat`, required by the runtime's `pg` 8.23.1 driver, and the infrastructure check enforces it. Hyperdrive owns one connection per operation with rollback/close cleanup; Better Auth uses Kysely's built-in `PostgresDialect` and a separate request-owned pg pool limited to one connection and destroyed in `finally`. Both adapters own asynchronous driver errors and retain failures through cleanup before returning a result. Local PostgreSQL 18.6/pgvector 0.8.7 verification retains the isolated abstract socket using pg's declared stream configuration and a real Node socket; ordinary Hyperdrive URLs keep default transport. Infrastructure is outside the workspace; it adds no runtime dependencies. `pnpm run infra:validate` type-checks the strict Zod schema, runs the infrastructure tests, installs pinned Cloudflare 5.27.0 and Neon 0.1.15 providers into a new temporary directory, runs backend-free OpenTofu formatting/validation, and bundles all five Wrangler configurations with `--dry-run`. Providers come from the mirror that `scripts/ci/toolchain.sh opentofu-providers` fills beside the `tofu` on PATH when it holds every locked version, offline; otherwise directly from the public OpenTofu registry and its public release/signature URLs. Either way `tofu init -lockfile=readonly` refuses any package whose hash the committed lock file lacks, so the mirror cannot substitute a provider. It uses no other mirror, provider cache, user CLI configuration or credentials, and removes its temporary storage. Validation after installation needs no cloud API access. No plan, refresh, apply or deployment is part of validation. `pnpm check` also checks all manifests and scans HEAD, every indexed and non-ignored working repository path for secret-shaped values; it has no fixture or binary-path exemptions.
 
-The exact deployment authority is [`runtimeBindingManifest`](../../apps/runtime/src/cloudflare-entry.ts): three SQLite Durable Objects, seven Workflows, three queue producers/consumers and their distinct physical queue-name variables. Wrangler owns these, the `ARTIFACTS_BUCKET` and `ASSETS_BUCKET` R2 bindings, the `METRICS` Workers Analytics Engine dataset binding (created on first write; the Cloudflare OpenTofu provider has no dataset resource) and cron/Worker observability. OpenTofu owns three queues plus three dead-letter queues, three R2 buckets, Hyperdrive, authenticated AI Gateway with spend/rate limits, Turnstile, an operations service token, DNS/Worker route, public WAF/rate-limit policies and Neon project/branch/database/roles. R2 expiration applies only to `ephemeral/`; canonical artifacts and backups are never expired by this rule. PostgreSQL grants, schema, pgvector and reviewed migrations stay with the [database workstream](database.md#migration-ownership-and-roles). Database-local roles preserve the existing SQL names `clockgrove_migrator` and `clockgrove_runtime`, plus `clockgrove_support`, `clockgrove_backup`, `clockgrove_auth_verifier`, `clockgrove_management_reader` and `clockgrove_world_reader`; project/branch/database isolation separates environments. Neon role creation does not itself prove least privilege: apply the reviewed grants, revoke any provider-default elevated membership and verify runtime/support/backup isolation before activating Hyperdrive or exposing a Worker. Fresh isolates now compose real verification and durable readers without an initializer. Missing/invalid authentication configuration fails closed; composition does not establish enrollment or activation readiness.
+The exact deployment authority is [`runtimeBindingManifest`](../../apps/runtime/src/cloudflare-entry.ts): three SQLite Durable Objects, seven Workflows, three queue producers/consumers and their distinct physical queue-name variables. Wrangler owns these, the `ARTIFACTS_BUCKET` and `ASSETS_BUCKET` R2 bindings, the `METRICS` Workers Analytics Engine dataset binding (created on first write; the Cloudflare OpenTofu provider has no dataset resource) and cron/Worker observability. OpenTofu owns three queues plus three dead-letter queues, three R2 buckets, Hyperdrive, authenticated AI Gateway with spend/rate limits, Turnstile, an operations service token, DNS/Worker route, public WAF/rate-limit policies, the Neon project/branch/database and the Neon migration role, and generates the passwords of the other database roles. R2 expiration applies only to `ephemeral/`; canonical artifacts and backups are never expired by this rule. PostgreSQL grants, schema, pgvector and reviewed migrations stay with the [database workstream](database.md#migration-ownership-and-roles). Database-local roles preserve the existing SQL names `clockgrove_migrator` and `clockgrove_runtime`, plus `clockgrove_support`, `clockgrove_backup`, `clockgrove_auth_verifier`, `clockgrove_management_reader` and `clockgrove_world_reader`; project/branch/database isolation separates environments. Only `clockgrove_migrator` is a Neon API role: Neon makes every role created through its Console, CLI or API a member of `neon_superuser`, which reads and writes all data and which a non-superuser cannot revoke ([Neon roles](https://neon.com/docs/manage/roles)). The deploy's migration connection creates the other six, and the NOLOGIN `clockgrove_mcp_secrets`, with SQL, as [Database roles](#database-roles) describes, then verifies runtime/support/backup isolation before activating Hyperdrive or exposing a Worker. Fresh isolates now compose real verification and durable readers without an initializer. Missing/invalid authentication configuration fails closed; composition does not establish enrollment or activation readiness.
 
 | Environment | Infrastructure operation |
 | --- | --- |
@@ -53,7 +53,7 @@ The repository root lists these names, without values, in two examples generated
 
 Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets enter OpenTofu state even when marked sensitive. Development and staging keep state in a Cloudflare R2 bucket, described under [OpenTofu state](#opentofu-state); saved plans live only in a temporary directory that is removed after use. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
 
-`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does.
+`pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does (it reviews as the routing stage, so it also refuses a [retired Neon API role](#database-roles) still in state).
 
 - `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
 - `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
@@ -238,10 +238,11 @@ delete a resource to get past the refusal.
 #### Held lock
 
 OpenTofu writes `<environment>/terraform.tfstate.tflock` while it plans or applies and deletes it
-when done. A run cut off mid-apply, by the job timeout or a runner teardown, leaves it behind, and
-every later plan would fail with its output withheld. So the deploy and `infra:plan` read the lock
-first and refuse with its holder, operation, age and lock ID; a failed OpenTofu phase also names a
-lock it leaves. Nothing clears a lock automatically.
+when done. A run cut off mid-apply, by the job timeout, a runner teardown or the deploy's own kill
+after an OpenTofu call overran its limit (see [Deploy phases](#deploy-phases)), leaves it behind,
+and every later plan would fail with its output withheld. So the deploy and `infra:plan` read the
+lock first and refuse with its holder, operation, age and lock ID; a failed or timed-out OpenTofu
+phase also names a lock it leaves. Nothing clears a lock automatically.
 
 A lock is safe to clear only when no deploy is running in Actions and no owner's `infra:plan` or
 `test:cloud` against that environment is running. Then the owner clears it with
@@ -251,17 +252,135 @@ and OpenTofu's shutdown, but owner-run plans and cloud tests have no time limit.
 interrupted apply's effect is unknown: the next deploy plans against what state recorded, and
 anything the apply created without recording it is handled as under [Lost state](#lost-state).
 
+After a deploy that stopped at an OpenTofu time limit (`stopped: no result within <n> s` in the
+log; the phase is `unknown` with reason `timeout` in the evidence, and so is the deployment):
+
+1. If the log says OpenTofu was killed after the grace, the lock is held: the deploy names it.
+   This is the expected end when the Neon provider waits on a failed operation, since it ignores
+   OpenTofu's stop (see [Deploy phases](#deploy-phases)). Clear it as above once no other run is
+   active. `unlock` refuses until the lock is 60 minutes old, so that is the earliest the deploy
+   can run again. If the log says OpenTofu exited within the grace, it saved state and released
+   the lock; confirm with `pnpm infra:state lock staging`.
+2. Find what did not return. For a provision call, open the Neon project's operations (console or
+   `GET /projects/<id>/operations`): the Neon provider waits for the latest one to finish and never
+   stops when it ends `failed`, `cancelled` or `skipped`, so the next deploy would wait on it again.
+   Dispatch again only once a later operation has finished or Neon has resolved the failed one.
+3. Dispatch the deploy again. It plans against what state recorded; a timed-out call is never
+   retried within a deploy.
+
+A deploy that ran out of its OpenTofu budget (`not started: ... OpenTofu budget` in the log; the
+phase is `failed` with reason `budget`) started nothing more and holds no lock: find what made the
+earlier calls slow, then dispatch it again.
+
+### Database roles
+
+`clockgrove_migrator` is the only Neon API role (`neon_role.database["migrations"]`), and it owns the
+database. After the provision apply, the deploy waits until the Neon project has no operation in
+progress (at most 180 seconds, one 5xx answer retried; an operation of this deploy that ended
+failed, in error or cancelled stops it, named), then runs
+[`deployment-grants.sql`](../../scripts/database/deployment-grants.sql) as `clockgrove_migrator` in
+one transaction (phase "reviewed database-role grants"). The SQL:
+
+1. refuses, by name, a restricted role that already exists but is a member of any role (a Neon API
+   role is a member of `neon_superuser`) or that `clockgrove_migrator` does not administer;
+2. creates each missing role among `clockgrove_runtime`, `clockgrove_support`, `clockgrove_backup`,
+   `clockgrove_auth_verifier`, `clockgrove_management_reader`, `clockgrove_world_reader` and
+   `clockgrove_mcp_secrets`, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, NOREPLICATION and
+   NOBYPASSRLS. On PostgreSQL 16 and later the creating role administers the roles it creates, so
+   every later deploy can alter them;
+3. sets LOGIN, NOCREATEROLE, NOINHERIT and each login role's password from `database_credentials`
+   (OpenTofu's `random_password.database["<key>"]`, 48 letters and digits), and NOLOGIN with no
+   password for `clockgrove_mcp_secrets`. It also clears CREATEDB, REPLICATION or BYPASSRLS on a role
+   that has drifted to one; it names them only then, since clearing one needs the attribute itself.
+   Neon accepts plain-text passwords only, not SCRAM verifiers;
+4. refuses, by name, any restricted role left with a role membership or an elevated attribute, then
+   revokes `CREATE` on schema `public` and on the database from `PUBLIC`.
+
+The passwords reach `psql` only on standard input, as `\set password_<key>` lines that
+[`deployment-roles.mjs`](../../scripts/database/deployment-roles.mjs) prepends after refusing
+anything but 32 to 128 letters and digits. psql sends each as a bound parameter of
+`SELECT pg_temp.set_password($1, $2)`, a temporary function that runs the `ALTER ROLE` itself. So no
+statement text carries a password: not the arguments, the environment, logs or evidence, not
+`pg_stat_statements` (which stores top-level statement text, even of a rolled-back transaction), and
+not the server log, which records a failed statement's text (`log_min_error_statement`) but not its
+parameters. A refused password, such as one Neon's password policy rejects, raises only the role
+name and SQLSTATE. `pnpm run test:db` proves this with `pg_stat_statements` and `passwordcheck`
+preloaded and DDL and failed-statement logging on, and its negative control finds a password sent
+as plain `ALTER ROLE` text in both. Three server settings still expose any password set over SQL,
+as PostgreSQL documents for `ALTER ROLE`, and none is Neon's default:
+
+- `log_statement = all` logs every statement with its bind parameters;
+- `log_min_duration_statement = 0` (or any threshold the call exceeds) logs the statement with its
+  bind parameters, since `log_parameter_max_length` defaults to -1 (unlimited);
+- `pg_stat_statements.track = all` also records statements run inside functions, so it stores the
+  inner `ALTER ROLE … PASSWORD` text verbatim.
+
+A failed check prints as `reviewed database-role grants failed; clockgrove_support is a member of
+neon_superuser; other sensitive command output withheld`. Re-running the SQL with the same state
+changes nothing but resetting the same passwords.
+
+**Rotating a generated password.** `random_password` has no keepers, and `tofu apply -replace` plans a
+replacement, which plan review refuses. Rotation is a deliberate state step: with the state lock
+held and a backup taken (`pnpm infra:state backups <environment>`), remove
+`random_password.database["<key>"]` from state (`tofu state rm`), then deploy. The provision plan
+creates a new password and the role SQL sets it. Between the role SQL and the Wrangler secret
+publication, the running Worker's reader connections use the old password and fail. The runtime
+key cannot be rotated this way: Hyperdrive's origin carries its password, and the provision stage
+refuses a Hyperdrive change until the isolation checks have run. A lost state likewise generates new
+passwords, with the same effects.
+
+**Retired Neon API roles.** Before this design the provision stage created all seven roles through
+the Neon API. Their state addresses `neon_role.database["<key>"]` for the six restricted keys are now
+retired (`retiredResources` in
+[`deployment-authority.mjs`](../../scripts/ci/deployment-authority.mjs)): the configuration no
+longer declares them, so the next provision plan deletes each through the Neon API
+(`delete_because_each_key`), which is how Neon's control plane forgets an API role. Plan review
+accepts exactly that deletion, of only those addresses, only in the provision stage. Every other
+deletion, replacement or forget is refused, and `pnpm infra:plan`, which reviews as the routing
+stage, refuses a state that still holds a retired role.
+
+The deletion happens once because nothing puts a retired address back in state: the configuration
+cannot create one, and `pnpm infra:state restore` refuses a backup holding a retired role when the
+current state or any other backup holds that key's generated password, whether the state object is
+present or lost, since a deploy from it would delete the live SQL-created role. A migration that
+stopped part way (the generated password created but the deletion not applied: a failed or
+timed-out apply, exhausted retries, a cancelled runner) leaves both in state; the next deploy plans
+the remaining deletions and completes it.
+
+If Neon refuses a deletion (a retired role that owns objects), the provision apply fails with the
+provider's message: reassign or drop what it owns and deploy again. If a retired role is gone from
+Neon but still in state (deleted in the Console, say), every plan fails at refresh, since the Neon
+provider errors on a missing role. Recover by hand: take the state lock and a backup
+(`pnpm infra:state backups <environment>`), `tofu state rm 'neon_role.database["<key>"]'` for each
+such role in a workspace on the environment's R2 state, release the lock and deploy again.
+
+Only an environment with no Hyperdrive configuration in state can migrate this way. Hyperdrive's
+origin password now comes from the generated runtime password, so a provision plan over an existing
+Hyperdrive shows an update, which the provision stage refuses. Staging never reached the bindings
+stage (its first deploys stopped at the role grants), development has never deployed (its manifest
+still carries placeholder routing metadata), and production deployment is disabled, so none holds
+one. An environment that does needs a reviewed migration of its own.
+
 ### Deploy phases
 
 Before provisioning, the deploy requires `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`,
 `BETTER_AUTH_SECRET` and the two `INFRA_STATE_*` secrets, each declared in the environment's
-`*.secrets.json`, the reviewed routing metadata and the two readiness variables. It then refuses a
+`*.secrets.json`, the reviewed routing metadata and the two readiness variables. It checks
+`BETTER_AUTH_SECRET` (at least 32 characters, no surrounding whitespace) and that the Cloudflare
+account has a workers.dev subdomain: Wrangler publishes a Worker that defines Workflows only on an
+account with one, even with workers.dev routing off, and in CI refuses rather than register it.
+The owner registers it once at `https://dash.cloudflare.com/<account ID>/workers/onboarding`. The
+runtime host also needs an edge certificate: a Free zone's Universal SSL covers the apex and
+first-level names only, so a deeper host such as `staging.runtime.<zone>` needs Advanced
+Certificate Manager (Total TLS or an advanced certificate) or a first-level name. It then refuses a
 held state lock and state that lost a duplicable resource, as [OpenTofu state](#opentofu-state)
 describes. The catalog
 above remains canonical. `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `AUTH_DATABASE_URL`,
 `MANAGEMENT_DATABASE_URL` and `WORLD_AUTHORIZATION_DATABASE_URL` are generated after OpenTofu
-provisions the owned Neon project/branch/database/roles; they are never prerequisites for first
-provisioning. Their host, database, role and generated password come from sensitive owned outputs,
+provisions the owned Neon project/branch/database and migration role; they are never prerequisites
+for first provisioning. Their host, database and role come from the sensitive owned output
+`database_credentials`, with the migration role's Neon-generated password and the OpenTofu-generated
+(`random_password`) passwords of the others; they
 remain in memory and state, and go only to Hyperdrive, the controlled migration connection and the
 named runtime verification/reader secret bindings. Authentication uses verified TLS
 (`sslmode=verify-full`) direct PostgreSQL transport on the existing owned Neon database; no
@@ -278,6 +397,56 @@ captured in memory and never printed or placed in ordinary artifacts. Only phase
 digests enter deployment evidence. Interrupted apply or publication has an unknown effect and fails
 closed; it is never recorded as a successful activation.
 
+Each OpenTofu stage (provision, bindings, routing) plans into a saved plan, reviews it (declared
+resources only, no deletion but of a retired resource, the stage's own limits below) and applies
+exactly that plan; after a passed apply the state is backed up. The provision stage creates the Neon
+project, its database and the migration role, and generates the other roles' passwords. Neon runs one operation per project at a time and answers HTTP 423 (Locked) to
+another meanwhile, which its API docs call safe to retry. The Neon provider waits for the project's
+latest operation before each create, so provision applies with `-parallelism=1`: each Neon create
+then starts after the previous one finished, where parallel ones start together and all but one are
+refused. A provision apply that still fails is retried when OpenTofu exited on its own (so it saved
+state and released the lock) and every error it reported is at a Neon resource; the provider drops
+the HTTP status, so that is the signal rather than 423 itself. It runs at most four times, 15, 30
+and 60 seconds apart. Before each retry the deploy refuses a held lock and re-reads state for lost
+duplicable resources, as before the first plan, then plans, reviews and applies a new plan; a failed
+run's plan is deleted, never applied. A failed create of the Neon project itself is not retried:
+Neon may hold the project anyway, and if its name search has not caught up, a retry would make a
+second one that state then hides; the per-project lock cannot refuse that create. Any other failed
+apply, and any interrupted or timed-out one, stops the deploy at once.
+
+No OpenTofu call can hold the deploy until the job's 45-minute timeout kills it, since that kill
+skips the evidence upload and leaves the deploy unexplained. Each call has a wall-clock limit
+within a 30-minute budget from the deploy's start. An apply gets 10 minutes and starts only if all
+10 fit in what is left of the budget, so no apply starts only to be cut short. Any other call
+(init, plan, show, output) gets 5 minutes, cut to what is left, and starts only with at least one
+minute left. A call the budget refuses is not started: its phase is `failed` with reason `budget`,
+and the deploy stops there and fails.
+
+At its limit OpenTofu gets SIGINT. It asks its providers to stop, waits for their calls in flight
+to return, then saves state and releases the lock. A provider that ignores the stop keeps its call
+running, and OpenTofu waits with it. The Neon provider 0.1.15 is one: its framework's stop does
+nothing, and its wait for a project operation is a loop without a context. So in the case these
+limits exist for, a Neon operation that ended `failed`, `cancelled` or `skipped`, OpenTofu does not
+exit, its process group is killed 2 minutes later, and the state lock stays held. A call that only
+ran long, against a provider that honours the stop, exits within the 2 minutes and leaves no lock.
+Either way the phase is `unknown` with reason `timeout`, the deploy stops there and is `unknown`,
+and a timed-out provision apply is never retried: the provider may still be waiting on its
+operation, which is not the lock the retry is for. Evidence validation accepts reason `timeout`
+only on an `unknown` phase with error code `ETIMEDOUT`, and reason `budget` only on a `failed`
+phase with no exit code, signal or error code; either must be its deployment's last phase. The
+budget plus the grace leaves the job's setup steps and the evidence upload room inside 45 minutes,
+and the provision retries' worst case (four runs of state read, plan, review and apply, and 105
+seconds of backoff) normally takes minutes. [Held lock](#held-lock) covers what to do after a
+timeout.
+
+Every run is recorded with its own state read, plan, review and apply phases; a retry's carry an
+`attempt` number from 2. Evidence validation accepts `attempt` only on those four provision phases,
+up to four, each retry starting after the previous attempt's apply did not pass and running its
+four phases in order. A failed provision apply that a later attempt passed no longer decides the
+outcome, since that attempt planned against the state it left: the deploy can still pass, and fails
+or is `unknown` only by its other phases. When every attempt fails, the deploy reports the last
+attempt's provider diagnostics and is `unknown`.
+
 The resources in state must be ones the configuration declares. A Hyperdrive configuration in state
 permits binding preservation only; it never authorizes public activation. Existing DNS and Worker
 routing in state is preserved only when Cloudflare's current DNS record and Worker route, read by
@@ -286,12 +455,12 @@ the other fails closed. With completed bindings and incomplete publication, the 
 preserves owned bindings without mutation, then applies current role normalization, migrations and
 effective-role verification before binding updates and successful qualified Wrangler publication.
 Only then may the routing stage introduce DNS or Worker routing. All stages enforce declared
-resource bounds and refuse every deletion; previously active public resources must be no-op until
+resource bounds and refuse every deletion except a [retired resource's](#database-roles) once at provision, and every action
+other than create, read, update and no-op, so a plan cannot `forget` an owned resource; previously active public resources must be no-op until
 the newly qualified publication. Recovery never destroys resources merely to repeat a phase.
 
-Neon role names or URLs do not prove effective privileges. The controlled migration connection
-normalizes provider-default memberships and grants; catalog checks traverse inherited role
-memberships, forbid runtime/support/backup and verification/reader superuser, bypass, create-role/database authority and
+Neon role names or URLs do not prove effective privileges. Beyond the role SQL's own checks, catalog
+checks traverse inherited role memberships, forbid runtime/support/backup and verification/reader superuser, bypass, create-role/database authority and
 migration inheritance, require forced canonical/Management RLS, read-only support/backup permissions, exact verification/reader
 SELECT capabilities, denied cross-plane writes/journal execution/schema creation and migrator ownership. The real runtime connection independently verifies its current identity and absence
 of schema-create authority. Missing checks prevent binding activation/publication.

@@ -67,6 +67,8 @@ COMMIT;
 --                   0034; actor documents and context manifests, 0037; turn fibers, 0038)
 --   process         SELECT and INSERT, processes also UPDATE of their lease, only of the installed
 --                   tenant; a segment only under the current lease epoch (actor processes, 0038)
+--   participant_read SELECT only, scoped to conversation participants; writes only through
+--                   moderation-shadow reservation and completion functions (0047)
 --   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
 --                   through the wake-triage reservation and completion functions (0041)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
@@ -78,7 +80,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'participant', 'process', 'operator_read', 'none'
+      'key_rewrap', 'participant', 'participant_read', 'process', 'operator_read', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -103,6 +105,10 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'inspector_accesses', 'none'),
   ('clockgrove', 'runtime_operator_actions', 'none'),
   ('clockgrove', 'conversation_sessions', 'participant'),
+  ('clockgrove', 'channel_bindings', 'participant'),
+  ('clockgrove', 'delivery_consent', 'participant'),
+  ('clockgrove', 'deliveries', 'participant'),
+  ('clockgrove', 'delivery_sink_receipts', 'participant'),
   ('clockgrove', 'conversation_participants', 'participant'),
   ('clockgrove', 'conversation_messages', 'participant'),
   ('clockgrove', 'conversation_turns', 'participant'),
@@ -116,6 +122,9 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'actor_activation_policies', 'participant'),
   ('clockgrove', 'actor_activations', 'participant'),
   ('clockgrove', 'wake_triage', 'operator_read'),
+  ('clockgrove', 'mcp_installations', 'operator_read'),
+  ('clockgrove', 'mcp_bindings', 'operator_read'),
+  ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
   ('clockgrove_management', 'principals', 'none'),
@@ -267,14 +276,15 @@ BEGIN
       expected_rows := CASE WHEN table_name IN (
         'clockgrove.event_dispatches', 'clockgrove.artifact_references',
         'clockgrove.artifact_data_keys', 'clockgrove.snapshots',
-        'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
+        'clockgrove.delivery_consent', 'clockgrove.deliveries', 'clockgrove.delivery_sink_receipts',
+        'clockgrove.channel_bindings', 'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
         'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
-        'clockgrove.wake_triage'
+        'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2151,6 +2161,125 @@ BEGIN
 END;
 $$;
 
+-- A shadow annotation is private to the admitted message's participant. Even that participant
+-- has no direct write grant; the functions bind identities and complete the annotation only once.
+DO $$
+DECLARE
+  reservation jsonb;
+  stored jsonb;
+  visible bigint;
+  evidence constant jsonb := jsonb_build_object(
+    'schemaVersion',1,'pointId','moderation-shadow','sessionId','session-f','messageId','message-f',
+    'actorId','keeper','simulationTime','0','policyVersion','moderation-test@1',
+    'confidenceThreshold',6500,'inputSha256',repeat('a',64),'signature','moderation_'||repeat('b',32),
+    'detail',NULL,'mode','shadow','status','picked','disposition','block','injection',false,
+    'confidenceBp',9000,'modelAlias','moderation.test','model','scripted-moderation',
+    'latencyMs',12,'costMicrousd',NULL);
+  context text[];
+  statement text;
+  malformed jsonb;
+BEGIN
+  IF NOT has_table_privilege('clockgrove_runtime','clockgrove.moderation_shadow','SELECT')
+     OR has_table_privilege('clockgrove_runtime','clockgrove.moderation_shadow',
+          'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+     OR has_any_column_privilege('clockgrove_runtime','clockgrove.moderation_shadow','INSERT,UPDATE,REFERENCES') THEN
+    RAISE EXCEPTION 'moderation shadow runtime privileges are not exactly SELECT';
+  END IF;
+  PERFORM pg_temp.act_as('tenant-a','principal-a','{"version":1,"allowedCategories":["conversation"]}');
+  reservation := clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+  IF reservation IS DISTINCT FROM '{"existing":false,"record":null,"simulationTime":"0","partitionId":"partition-a","streamId":"stream-a"}'::jsonb
+     OR (SELECT count(*) FROM clockgrove.moderation_shadow) <> 1
+     OR (SELECT record FROM clockgrove.moderation_shadow) IS NOT NULL THEN
+    RAISE EXCEPTION 'participant could not reserve its own private annotation';
+  END IF;
+  FOREACH context SLICE 1 IN ARRAY ARRAY[
+    ARRAY['tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation","operator_evidence"]}'],
+    ARRAY['tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}'],
+    ARRAY['tenant-a','principal-a','{"version":1,"allowedCategories":["operator_evidence"]}']
+  ] LOOP
+    PERFORM pg_temp.act_as(context[1],context[2],context[3]);
+    PERFORM set_config('attack.seen','',true);
+    SELECT count(*) INTO visible FROM clockgrove.moderation_shadow WHERE pg_temp.leak(message_id);
+    IF visible <> 0
+       OR current_setting('attack.seen') <> '' THEN
+      RAISE EXCEPTION 'foreign or low-ceiling context read private moderation evidence';
+    END IF;
+    BEGIN
+      PERFORM clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+      RAISE EXCEPTION 'foreign context reserved private moderation' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+    BEGIN
+      PERFORM clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence);
+      RAISE EXCEPTION 'foreign context completed private moderation' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a','{"version":1,"allowedCategories":["conversation"]}');
+  IF (SELECT record FROM clockgrove.moderation_shadow) IS NOT NULL THEN
+    RAISE EXCEPTION 'foreign context changed the pending moderation annotation';
+  END IF;
+  FOREACH malformed IN ARRAY ARRAY[
+    'null'::jsonb,'{}'::jsonb,evidence||'{"actorId":"forged"}'::jsonb,
+    evidence||'{"messageId":"forged"}'::jsonb,evidence||'{"input":"private text"}'::jsonb,
+    evidence||'{"confidenceBp":10001}'::jsonb
+  ] LOOP
+    BEGIN
+      PERFORM clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',malformed);
+      RAISE EXCEPTION 'malformed moderation evidence was accepted' USING ERRCODE='XX999';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  stored := clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence);
+  IF stored IS DISTINCT FROM evidence
+     OR (SELECT record FROM clockgrove.moderation_shadow) IS DISTINCT FROM evidence THEN
+    RAISE EXCEPTION 'participant did not store exact private moderation evidence';
+  END IF;
+  FOREACH statement IN ARRAY ARRAY[
+    'INSERT INTO clockgrove.moderation_shadow SELECT * FROM clockgrove.moderation_shadow',
+    'UPDATE clockgrove.moderation_shadow SET record=''{}''',
+    'DELETE FROM clockgrove.moderation_shadow',
+    'TRUNCATE clockgrove.moderation_shadow'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'moderation shadow accepted direct write: %',statement USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  reservation := clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+  IF reservation IS DISTINCT FROM jsonb_build_object('existing',true,'record',evidence,
+      'simulationTime','0','partitionId','partition-a','streamId','stream-a')
+     OR clockgrove.finish_moderation_shadow('tenant-a','session-f','message-f',evidence||'{"costMicrousd":500}')
+          IS DISTINCT FROM evidence
+     OR (SELECT count(*) FROM clockgrove.moderation_shadow) <> 1 THEN
+    RAISE EXCEPTION 'moderation retry changed the immutable annotation';
+  END IF;
+END;
+$$;
+SAVEPOINT moderation_deleted_session;
+UPDATE clockgrove.conversation_sessions SET state='deleted' WHERE session_id='session-f';
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.moderation_shadow) <> 0 THEN
+    RAISE EXCEPTION 'deleted session exposed its private moderation annotation';
+  END IF;
+  BEGIN
+    PERFORM clockgrove.reserve_moderation_shadow('tenant-a','session-f','message-f');
+    RAISE EXCEPTION 'deleted session reserved moderation' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'moderation shadow refused' THEN RAISE; END IF;
+  END;
+END;
+$$;
+ROLLBACK TO SAVEPOINT moderation_deleted_session;
+RELEASE SAVEPOINT moderation_deleted_session;
+SELECT pg_temp.act_as('tenant-a','principal-a');
+
 INSERT INTO clockgrove.actor_processes (
   tenant_id, process_id, world_id, timeline_id, actor_id, objective, target
 ) VALUES ('tenant-a', 'process-a', 'world-a', 'timeline-a', 'keeper', 'fixture-tally', 4);
@@ -2329,3 +2458,204 @@ $$;
 ROLLBACK;
 
 SELECT 'database_authorization_ok';
+
+-- Channel bindings (0049): channel threads grant no access beyond their scoped session.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','channel-session','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','channel-session','world-a','timeline-a','partition-a','space-a','keeper','cognitive','cli');
+INSERT INTO clockgrove.channel_bindings
+  (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+  VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-session','cli','thread');
+SET CONSTRAINTS ALL DEFERRED;
+INSERT INTO clockgrove.conversation_participants (tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','channel-unbound','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','channel-unbound','world-a','timeline-a','partition-a','space-a','keeper','cognitive','cli');
+SET CONSTRAINTS ALL IMMEDIATE;
+DO $$
+DECLARE context record;
+BEGIN
+  IF (SELECT count(*) FROM clockgrove.channel_bindings) <> 1 THEN
+    RAISE EXCEPTION 'participant cannot read their channel binding';
+  END IF;
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-unbound','fake','wrong-channel');
+    RAISE EXCEPTION 'binding channel differs from canonical session' USING ERRCODE='XX999';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+  FOR context IN SELECT * FROM (VALUES
+    ('tenant-a','principal-a2','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}'),
+    ('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}')
+  ) AS contexts(tenant_id,principal_id,ceiling) LOOP
+    PERFORM pg_temp.act_as(context.tenant_id,context.principal_id,context.ceiling);
+    IF (SELECT count(*) FROM clockgrove.channel_bindings) <> 0 THEN
+      RAISE EXCEPTION 'channel binding escaped tenant, participant or privacy isolation';
+    END IF;
+    BEGIN
+      INSERT INTO clockgrove.channel_bindings
+        (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+        VALUES ('tenant-a','world-a','timeline-a','principal-a','channel-session','cli','stolen-thread');
+      RAISE EXCEPTION 'foreign principal rebound a thread' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-b','timeline-a','principal-a','channel-session','cli','other-world');
+    RAISE EXCEPTION 'binding changed the session world' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO clockgrove.channel_bindings
+      (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+      VALUES ('tenant-a','world-a','timeline-b','principal-a','channel-session','cli','other-timeline');
+    RAISE EXCEPTION 'binding changed the session timeline' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.channel_bindings SET channel='fake';
+    RAISE EXCEPTION 'binding changed channel' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM clockgrove.channel_bindings;
+    RAISE EXCEPTION 'binding deleted' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+DO $$
+BEGIN
+  PERFORM pg_temp.act_as('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation","operator_evidence"]}');
+  BEGIN
+    PERFORM clockgrove.actor_mcp_admission('tenant-a','world-a','timeline-a','keeper','channel-session');
+    RAISE EXCEPTION 'foreign actor MCP snapshot escaped scope' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM clockgrove.mcp_actor_revision_targets('tenant-a','world-a','timeline-a','space-a');
+    RAISE EXCEPTION 'foreign MCP actor notification targets escaped scope' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+ROLLBACK;
+
+-- Governed delivery (0051): recipients own consent; scope and session provenance survive
+-- hostile SQL, reservations are trigger-owned, and sink selection follows canonical timeline.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a','principal-a');
+INSERT INTO clockgrove.conversation_participants(tenant_id,session_id,principal_id,persona_id)
+  VALUES ('tenant-a','delivery-session','principal-a','persona-a');
+INSERT INTO clockgrove.conversation_sessions
+  (tenant_id,session_id,world_id,timeline_id,partition_id,space_id,actor_id,voice_mode,channel)
+  VALUES ('tenant-a','delivery-session','world-a','timeline-a','partition-a','space-a','keeper','cognitive','fake');
+INSERT INTO clockgrove.channel_bindings
+  (tenant_id,world_id,timeline_id,principal_id,session_id,channel,thread_id)
+  VALUES ('tenant-a','world-a','timeline-a','principal-a','delivery-session','fake','delivery-thread');
+INSERT INTO clockgrove.artifact_data_keys(tenant_id,world_id,privacy_class,key_version,kek_id,wrapped_key)
+  VALUES ('tenant-a','world-a','conversation',1,'kek-test',decode(repeat('c1',61),'hex'));
+INSERT INTO clockgrove.artifact_references
+  (tenant_id,world_id,timeline_id,partition_id,space_id,artifact_id,content_hash,media_type,
+    inline_content,byte_length,privacy_class,retention_class,encryption,data_key_version)
+  SELECT 'tenant-a','world-a','timeline-a','partition-a','space-a','delivery-content',
+    'sha256:'||encode(sha256(bytes),'hex'),'text/plain;charset=utf-8',bytes,octet_length(bytes),
+    'conversation','durable','aes-256-gcm-v1',1
+    FROM (VALUES (decode('01'||repeat('c2',40),'hex'))) AS sealed(bytes);
+INSERT INTO clockgrove.conversation_messages
+  (tenant_id,session_id,sequence,message_id,role,author_id,voice_mode,content_artifact_id)
+  VALUES ('tenant-a','delivery-session',1,'delivery-message','actor','keeper','cognitive','delivery-content');
+INSERT INTO clockgrove.delivery_consent
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,enabled,timezone,version,budget_limit)
+  VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a',true,'America/Los_Angeles',1,1);
+CREATE FUNCTION pg_temp.delivery_attack_request(k text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object('type','DeliveryRequested','version',1,'scope',
+    jsonb_build_object('tenantId','tenant-a','worldId','world-a','timelineId','timeline-a','spaceId','space-a'),
+    'actorId','keeper','sessionId','delivery-session','recipientPrincipalId','principal-a',
+    'channelBinding',jsonb_build_object('channel','fake','threadId','delivery-thread'),
+    'reason',jsonb_build_object('kind','event','id','event-a'),'urgency','normal',
+    'contentArtifactId','delivery-content','privacyClass','conversation','consentVersion',1,
+    'policyVersion','delivery-policy-v1','dedupeKey',k,'quietHoursBehavior','delay',
+    'budgetReservation',jsonb_build_object('id',k,'units',1))
+$$;
+INSERT INTO clockgrove.deliveries
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,session_id,dedupe_key,reservation_id,
+    reserved_units,content_artifact_id,request,receipt,status)
+  SELECT 'tenant-a','world-a','timeline-a','space-a','keeper','principal-a','delivery-session','one','one',
+    0,'delivery-content',r,jsonb_build_object('request',r,'status','reserved','reservedUnits',0,'sink',NULL),'reserved'
+    FROM (VALUES (pg_temp.delivery_attack_request('one'))) AS q(r);
+UPDATE clockgrove.deliveries SET status='approved',receipt=receipt||'{"status":"approved","sink":"fake"}';
+INSERT INTO clockgrove.delivery_sink_receipts
+  (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,dedupe_key,sink,content_artifact_id)
+  VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a','one','fake','delivery-content');
+DO $$ DECLARE context record; BEGIN
+  IF (SELECT reserved_units FROM clockgrove.delivery_consent)<>1
+    OR (SELECT count(*) FROM clockgrove.deliveries)<>1
+    OR (SELECT count(*) FROM clockgrove.delivery_sink_receipts)<>1 THEN
+    RAISE EXCEPTION 'delivery did not reserve before exactly one sink receipt'; END IF;
+  BEGIN
+    UPDATE clockgrove.delivery_consent SET reserved_units=0;
+    RAISE EXCEPTION 'runtime rewrote trigger-owned delivery spend' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.deliveries
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,session_id,dedupe_key,reservation_id,
+        reserved_units,content_artifact_id,request,receipt,status)
+      SELECT 'tenant-a','world-a','timeline-a','space-a','keeper','principal-a','delivery-session','two','two',
+        0,'delivery-content',r,jsonb_build_object('request',r,'status','reserved','reservedUnits',0,'sink',NULL),'reserved'
+        FROM (VALUES (pg_temp.delivery_attack_request('two'))) AS q(r);
+    UPDATE clockgrove.deliveries SET status='approved',receipt=receipt||'{"status":"approved","sink":"fake"}' WHERE dedupe_key='two';
+    RAISE EXCEPTION 'exhausted budget authorized another send' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  FOR context IN SELECT * FROM (VALUES
+    ('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-other','{"version":1,"allowedCategories":["conversation"]}'),
+    ('tenant-a','principal-a','{"version":1,"allowedCategories":["public_scene"]}')
+  ) AS contexts(tenant,principal,ceiling) LOOP
+    PERFORM pg_temp.act_as(context.tenant,context.principal,context.ceiling);
+    IF (SELECT count(*) FROM clockgrove.delivery_consent)<>0 OR (SELECT count(*) FROM clockgrove.deliveries)<>0
+      OR (SELECT count(*) FROM clockgrove.delivery_sink_receipts)<>0 THEN
+      RAISE EXCEPTION 'delivery escaped tenant, recipient or privacy ceiling'; END IF;
+    BEGIN
+      INSERT INTO clockgrove.delivery_consent
+        (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,enabled,timezone,version,budget_limit)
+        VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a',true,'UTC',1,1);
+      RAISE EXCEPTION 'foreign principal changed delivery consent' USING ERRCODE='XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  END LOOP;
+  PERFORM pg_temp.act_as('tenant-a','principal-a');
+  BEGIN
+    INSERT INTO clockgrove.delivery_consent
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,timezone,version,budget_limit)
+      VALUES ('tenant-a','world-b','timeline-a','space-a','keeper','principal-a','UTC',1,1);
+    RAISE EXCEPTION 'delivery consent crossed worlds' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.delivery_consent
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,timezone,version,budget_limit)
+      VALUES ('tenant-a','world-a','timeline-b','space-a','keeper','principal-a','UTC',1,1);
+    RAISE EXCEPTION 'delivery consent crossed timelines' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    INSERT INTO clockgrove.delivery_sink_receipts
+      (tenant_id,world_id,timeline_id,space_id,actor_id,principal_id,dedupe_key,sink,content_artifact_id)
+      VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','principal-a','one','preview','delivery-content');
+    RAISE EXCEPTION 'live timeline entered preview sink' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  BEGIN
+    UPDATE clockgrove.deliveries SET status='delayed';
+    RAISE EXCEPTION 'terminal delivery became pending' USING ERRCODE='XX999';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+END $$;
+SET CONSTRAINTS ALL IMMEDIATE;
+ROLLBACK;

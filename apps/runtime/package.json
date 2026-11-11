@@ -29,13 +29,13 @@
     "@clockgrove/simulator": "workspace:*",
     "@clockgrove/world-pack-sdk": "workspace:*",
     "agents": "0.33.0",
-    "better-auth": "1.7.7",
-    "kysely": "0.29.6",
+    "better-auth": "1.7.15",
+    "kysely": "0.29.8",
     "pg": "8.23.1"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
     "undici": "8.12.3",
-    "vitest": "5.0.3"
+    "vitest": "5.1.0"
   }
 }

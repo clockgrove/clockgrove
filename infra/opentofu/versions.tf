@@ -9,6 +9,10 @@ terraform {
       source  = "terraform-community-providers/neon"
       version = "= 0.1.15"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "= 3.9.1"
+    }
   }
 }
 provider "cloudflare" {}

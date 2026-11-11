@@ -387,13 +387,26 @@ export async function withNativeWorldOwner(
                 NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD:
                   process.env.NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD,
               }),
+          ...(process.env.NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS === undefined
+            ? {}
+            : {
+                NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS:
+                  process.env.NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS,
+              }),
+          ...(process.env.MODERATION_SHADOW_CONFIG === undefined
+            ? {}
+            : { MODERATION_SHADOW_CONFIG: process.env.MODERATION_SHADOW_CONFIG }),
+          ...(process.env.NATIVE_MODERATION_SHADOW_SCRIPT === undefined
+            ? {}
+            : { NATIVE_MODERATION_SHADOW_SCRIPT: process.env.NATIVE_MODERATION_SHADOW_SCRIPT }),
           ...(process.env.WAKE_TRIAGE_CONFIG === undefined
             ? {}
             : { WAKE_TRIAGE_CONFIG: process.env.WAKE_TRIAGE_CONFIG }),
           ...(process.env.NATIVE_WAKE_TRIAGE_SCRIPT === undefined
             ? {}
             : { NATIVE_WAKE_TRIAGE_SCRIPT: process.env.NATIVE_WAKE_TRIAGE_SCRIPT }),
-          ...(process.env.CLOCKGROVE_WAKE_TRIAGE_LIVE !== "1" ||
+          ...((process.env.CLOCKGROVE_WAKE_TRIAGE_LIVE !== "1" &&
+            process.env.CLOCKGROVE_MODERATION_SHADOW_LIVE !== "1") ||
           process.env.AI_GATEWAY_API_KEY === undefined
             ? {}
             : { AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY }),

@@ -32,6 +32,98 @@ export async function readPassingReceipt(directory, name, candidate, command) {
   );
   return receipt;
 }
+// The deploy retries only a failed provision apply (scripts/ci/deploy.mjs): at most `attempts` runs,
+// `backoffSeconds` apart. Each retry re-reads state, then plans, reviews and applies, in this order.
+export const provisionRetry = { attempts: 4, backoffSeconds: [15, 30, 60] };
+const provisionApply = "OpenTofu provision apply";
+const retriedPhases = [
+  "read owned persisted resource identities",
+  "OpenTofu provision plan",
+  "OpenTofu provision review",
+  provisionApply,
+];
+// A deployment's phases that still decide its outcome: all but a provision apply that a later
+// attempt passed. That attempt planned against the state the failed one left, so the failed one's
+// effect is no longer open.
+export function outstandingPhases(phases) {
+  const attempt = (phase) => phase.attempt ?? 1;
+  return phases.filter(
+    (phase) =>
+      phase.status === "passed" ||
+      phase.command[0] !== provisionApply ||
+      !phases.some(
+        (later) =>
+          later.status === "passed" &&
+          later.command[0] === provisionApply &&
+          attempt(later) > attempt(phase),
+      ),
+  );
+}
+// Retry evidence must be what the deploy produces: attempt n (2 up to the limit) starts only after
+// attempt n-1's provision apply did not pass, and runs the retried phases in order, nothing between.
+export function assertRetryEvidence(phases) {
+  let attempt = 1;
+  let due = [];
+  let lastApply;
+  for (const phase of phases) {
+    const name = phase.command[0];
+    const n = phase.attempt ?? 1;
+    if (!retriedPhases.includes(name)) {
+      assert(!phase.attempt, "deploy retry of a phase that is never retried");
+      assert.equal(due.length, 0, "deploy retry interrupted by another phase");
+      continue;
+    }
+    if (n === attempt + 1) {
+      assert(
+        lastApply?.attempt === attempt && lastApply.status !== "passed",
+        "deploy retry without a failed provision apply before it",
+      );
+      assert(n <= provisionRetry.attempts, "deploy retry beyond its attempt limit");
+      attempt = n;
+      due = [...retriedPhases];
+    }
+    assert.equal(n, attempt, "deploy retry attempt out of order");
+    if (n > 1) assert.equal(due.shift(), name, "deploy retry phases out of order");
+    if (name === provisionApply) lastApply = { attempt: n, status: phase.status };
+  }
+}
+// OpenTofu's time limits (scripts/ci/deploy.mjs) end a deploy at the phase they hit, retrying
+// nothing. A phase stopped at its limit (reason `timeout`) was interrupted with no result, so its
+// effect is unknown; one refused because its limit did not fit the deploy's budget (reason
+// `budget`) never started, so it failed with no effect and no observation.
+export function assertTimeoutEvidence(phases) {
+  phases.forEach((phase, index) => {
+    if (!phase.reason) return;
+    if (phase.reason === "timeout")
+      assert(
+        phase.status === "unknown" && phase.errorCode === "ETIMEDOUT",
+        "timed-out phase outcome mismatch",
+      );
+    else
+      assert(
+        phase.status === "failed" &&
+          phase.exitCode === null &&
+          !phase.signal &&
+          !phase.errorCode &&
+          phase.startedAt === phase.completedAt,
+        "refused phase outcome mismatch",
+      );
+    assert.equal(index, phases.length - 1, "deployment continued after a time-limited phase");
+  });
+}
+// One deployment's outcome against its phases.
+export function assertDeploymentOutcome(deployment) {
+  assertTimeoutEvidence(deployment.phases);
+  assertRetryEvidence(deployment.phases);
+  const outstanding = outstandingPhases(deployment.phases);
+  if (outstanding.some((phase) => phase.status === "unknown"))
+    assert.equal(deployment.status, "unknown", "deployment effect uncertainty mismatch");
+  if (deployment.status === "passed")
+    assert(
+      deployment.phases.length > 0 && outstanding.every((phase) => phase.status === "passed"),
+      "deployment outcome mismatch",
+    );
+}
 // Child observations only: wrapper failures have a separate nonzero CLI result.
 export function subprocessEvidence(result) {
   const exitCode = typeof result.status === "number" ? result.status : null;
@@ -90,6 +182,8 @@ export async function validateEvidence(manifest) {
       result.exitCode === 0 && !result.signal && !result.errorCode,
       "execution outcome mismatch",
     );
+    // A deploy phase refused for time never ran (assertTimeoutEvidence holds it to that).
+    if (deploymentPhases.includes(result) && result.reason === "budget") continue;
     if (result.exitCode === null || result.signal || result.errorCode)
       assert.equal(result.status, "unknown", "unobserved execution outcome mismatch");
     else if (result.exitCode !== 0)
@@ -104,14 +198,7 @@ export async function validateEvidence(manifest) {
       assertPassingReceiptFacts(result, manifest.candidate, result.command);
   }
   for (const deployment of manifest.deployments) {
-    if (deployment.phases.some((phase) => phase.status === "unknown"))
-      assert.equal(deployment.status, "unknown", "deployment effect uncertainty mismatch");
-    if (deployment.status === "passed")
-      assert(
-        deployment.phases.length > 0 &&
-          deployment.phases.every((phase) => phase.status === "passed"),
-        "deployment outcome mismatch",
-      );
+    assertDeploymentOutcome(deployment);
     assert.equal(deployment.commit, manifest.candidate.commit, "deployment candidate mismatch");
     assert.equal(
       deployment.buildDigest,
@@ -289,15 +376,18 @@ export async function collectEvidence(directory, execution, buildDirectory) {
   const runtimeShardLabels = runtimeShardCommands.map(([label]) => label);
   // Quality's shards observe test:runtime only as a complete set.
   const shardedRuntime = runtime !== null && runtimeShardLabels.every(observed);
-  const contracts = JSON.parse(
+  // Imported here, not at the top: bootstrap loads this module before dependencies are installed.
+  const { contractVersion } = await import("../contract-drift.mjs");
+  const inventory = JSON.parse(
     await readFile(path.join(root, "scripts/contracts.generated.json"), "utf8"),
   );
+  const contracts = { version: contractVersion(inventory.files), files: inventory.files };
   const manifest = {
     manifestVersion: 1,
     candidate,
     execution,
     versions: {
-      toolchain: { node: "24.21.0", pnpm: "12.9.1", opentofu: "1.13.1", wrangler: "4.147.0" },
+      toolchain: { node: "24.21.0", pnpm: "12.9.1", opentofu: "1.13.1", wrangler: "4.156.2" },
       lockfileDigest: digest(await readFile(path.join(root, "pnpm-lock.yaml"))),
       contracts,
       databaseMigrations: await fileInventory(path.join(root, "db/migrations")),

@@ -701,6 +701,29 @@ function run(registry: CatchUpRegistry, request: unknown): CatchUpResult {
   });
 }
 
+/** Caps lookahead by each system's threshold count, preserving its independent integration path. */
+export function boundedCatchUpTarget(
+  registry: CatchUpRegistry,
+  states: readonly CatchUpSystemState[],
+  target: SimTimeMs,
+  thresholdBudget: number,
+): SimTimeMs {
+  let through = target;
+  for (const live of parseSystems(registry, states)) {
+    if (live.at >= through) continue;
+    for (let count = 1; count <= thresholdBudget; count += 1) {
+      const next = thresholdFor(live);
+      if (next === null || next.time >= through) break;
+      if (count === thresholdBudget) {
+        through = next.time;
+        break;
+      }
+      integrate(live, next.time);
+    }
+  }
+  return through;
+}
+
 /**
  * Pure, deterministic catch-up. It reads only its arguments, never recurses into its own output
  * and never throws: malformed input and engine failures are returned as frozen refusals.

@@ -79,6 +79,29 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
             <dt>Receipt status</dt>
             <dd>{value.receiptStatus}</dd>
           </dl>
+          {value.resourceCauses !== undefined && (
+            <section aria-label="Recorded resource causes">
+              <h4>Recorded resource causes</h4>
+              {value.resourceCauses.length === 0 ? (
+                <p>No resource causes are available in this public view.</p>
+              ) : (
+                <ul>
+                  {value.resourceCauses.map((cause) => (
+                    <li key={cause.eventId}>
+                      {cause.quantity} {cause.kind} at {cause.objectId}:{" "}
+                      {cause.cause === "rain"
+                        ? "collected from rain"
+                        : cause.cause === "growth"
+                          ? "yielded by this plant"
+                          : `transferred from ${cause.fromObjectId}`}
+                      {cause.processId === undefined ? "" : ` by process ${cause.processId}`}
+                      {`; simulation time ${cause.simulationTime}; event ${cause.eventId}`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
           {value.traces.status === "unavailable" ? (
             <p>Decision evidence unavailable. This does not mean an empty decision.</p>
           ) : value.traces.status === "redacted" ? (

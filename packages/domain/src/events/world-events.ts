@@ -11,6 +11,7 @@ export interface VersionedDefinition {
  * reaches them through `upcastWorldEvent`.
  */
 const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["schemaVersion"]>> = {
+  "process.command-attempted": 1,
   "needs.changed": 1,
   /** Version 2: emitted only for a material decision; version 1 was emitted for every one. */
   "routine.selected": 2,
@@ -38,6 +39,7 @@ const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["sche
   "weather.transitioned": 1,
   "exposure.threshold-crossed": 1,
   "resource.appeared": 1,
+  "resource.weather-integrated": 1,
   "resource.spoiled": 1,
   "growth.stage-changed": 1,
   "growth.integrated": 1,

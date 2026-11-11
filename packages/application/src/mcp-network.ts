@@ -6,6 +6,31 @@ export class McpRefusal extends Error {
   }
 }
 
+/** Rebuild only policy refusals; messages, causes and arbitrary codes may contain credentials. */
+export function safeMcpNetworkRefusal(error: unknown): McpRefusal | undefined {
+  if (
+    error instanceof McpRefusal &&
+    [
+      "invalid_url",
+      "https_required",
+      "url_credentials_or_query_refused",
+      "credential_url_refused",
+      "private_target",
+      "private_or_unresolved_target",
+      "dns_changed",
+      "invalid_redirect",
+      "unsafe_redirect",
+      "redirect_limit",
+      "network_timeout",
+      "network_failed",
+      "response_too_large",
+      "invalid_utf8",
+    ].includes(error.code)
+  )
+    return new McpRefusal(error.code);
+  return undefined;
+}
+
 /**
  * The trusted adapter connects only to admittedAddresses, retaining HTTPS hostname verification.
  * It must honor manual redirects and the abort signal, without logging credentials or bodies.
@@ -161,6 +186,18 @@ export class SafeMcpHttpClient {
     const initialOrigin = url.origin;
     for (let hop = 0; hop <= MCP_HTTP_LIMITS.redirects; hop++) {
       if (signal.aborted) throw new McpRefusal("network_timeout");
+      const authorization = new Headers(init.headers).get("authorization");
+      if (authorization?.startsWith("Bearer ")) {
+        const token = authorization.slice(7);
+        let decoded = url.href;
+        try {
+          decoded = decodeURIComponent(decoded);
+        } catch {
+          /* Invalid escapes remain encoded. */
+        }
+        if (token && (url.href.includes(token) || decoded.includes(token)))
+          throw new McpRefusal("credential_url_refused");
+      }
       const addresses = await this.addresses(url);
       if (signal.aborted) throw new McpRefusal("network_timeout");
       const response = await this.network.request(

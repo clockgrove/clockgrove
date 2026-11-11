@@ -32,6 +32,7 @@ import {
   type EventId,
   type PrincipalId,
   type PublicCausalEntry,
+  type PublicResourceCause,
   type PublicScheduledAction,
   type QueueEnvelope,
   RECORDED_WHY_EVIDENCE,
@@ -80,10 +81,11 @@ export interface CausalChainInput {
 }
 
 /** Where a traversal starts: a command, one event, or one schedule row of the scope. */
-export type CausalEntryInput =
+export type CausalEntryInput = (
   | CausalChainInput
   | { readonly scope: RuntimeScope; readonly eventId: EventId }
-  | { readonly scope: RuntimeScope; readonly scheduleId: string; readonly idempotencyKey: string };
+  | { readonly scope: RuntimeScope; readonly scheduleId: string; readonly idempotencyKey: string }
+) & { readonly includeResourceCauses?: true };
 
 export type CausalEntryView = CausalCommandView | CausalEventView | CausalScheduleView;
 
@@ -278,7 +280,15 @@ export class PostgreSqlCausalInspector {
       entry = { kind: "command" };
     }
     const commandInput = { scope: input.scope, commandId: command.receipt.commandId };
-    return { ...(await publicRecordedWhy(commandInput, command, linked)), entry };
+    return {
+      ...(await publicRecordedWhy(
+        commandInput,
+        command,
+        linked,
+        input.includeResourceCauses === true,
+      )),
+      entry,
+    };
   }
 
   /** Records a refused access under the requested tenant, whether or not the principal is a member. */
@@ -373,11 +383,94 @@ function access(
       };
 }
 
+function publicResourceCauses(view: CausalCommandView): readonly PublicResourceCause[] {
+  const events = (view.events ?? []).flatMap((event) => {
+    if (
+      event.privacyClass !== "public_scene" ||
+      typeof event.payload !== "object" ||
+      event.payload === null ||
+      !("kernelEvent" in event.payload)
+    )
+      return [];
+    const kernel = decodeCanonicalNode(event.payload.kernelEvent);
+    if (
+      typeof kernel !== "object" ||
+      kernel === null ||
+      !("payload" in kernel) ||
+      typeof kernel.payload !== "object" ||
+      kernel.payload === null
+    )
+      return [];
+    return [{ event, kernel, payload: kernel.payload as Record<string, unknown> }];
+  });
+  return events.flatMap(({ event, kernel, payload }, index): PublicResourceCause[] => {
+    let cause: PublicResourceCause["cause"];
+    let kind: PublicResourceCause["kind"];
+    let quantity: unknown;
+    let objectId: unknown;
+    if (event.type === "resource.weather-integrated") {
+      cause = "rain";
+      kind = "water";
+      quantity = payload.collected;
+      objectId = payload.objectId;
+    } else if (event.type === "growth.stage-changed") {
+      cause = "growth";
+      kind = "food";
+      quantity =
+        typeof payload.yield === "object" && payload.yield !== null && "quantity" in payload.yield
+          ? payload.yield.quantity
+          : 0;
+      objectId = payload.objectId;
+    } else if (event.type === "resource.transferred") {
+      cause = "transfer";
+      kind = payload.kind as PublicResourceCause["kind"];
+      quantity = payload.quantity;
+      objectId = payload.toObjectId;
+    } else return [];
+    if (quantity === 0 || quantity === undefined) return [];
+    if (
+      !Number.isSafeInteger(quantity) ||
+      Number(quantity) < 1 ||
+      typeof objectId !== "string" ||
+      (kind !== "food" && kind !== "water")
+    )
+      throw new InspectionIntegrityError(view.receipt.commandId, "events");
+    const prior = events[index - 1];
+    const attribution = "attribution" in kernel ? kernel.attribution : undefined;
+    const process =
+      cause === "transfer" &&
+      prior?.event.type === "process.command-attempted" &&
+      prior.payload.refusal === null &&
+      typeof prior.payload.processId === "string" &&
+      typeof attribution === "object" &&
+      attribution !== null &&
+      "immediateCauseId" in attribution &&
+      attribution.immediateCauseId === prior.payload.commandId
+        ? prior.payload.processId
+        : undefined;
+    return [
+      {
+        eventId: event.eventId,
+        simulationTime: event.simulationTime.toString(),
+        cause,
+        kind,
+        quantity: Number(quantity),
+        objectId: decodeOpaqueId(objectId, "ObjectId"),
+        ...(cause === "transfer"
+          ? { fromObjectId: decodeOpaqueId(payload.fromObjectId, "ObjectId") }
+          : {}),
+        ...(process === undefined ? {} : { processId: process }),
+      },
+    ];
+  });
+}
+
 /** Closed public projection of an audited, retained command view, never of current world state. */
 export async function publicRecordedWhy(
   input: CausalChainInput,
   view: CausalCommandView,
   inspectLinked: (input: CausalChainInput) => Promise<CausalCommandView>,
+  includeResourceCauses = false,
 ): Promise<RecordedWhy> {
   let traces: RecordedWhy["traces"];
   try {
@@ -442,6 +535,7 @@ export async function publicRecordedWhy(
     actionId: view.receipt.actionId ?? null,
     receiptStatus: view.receipt.status,
     traces,
+    ...(includeResourceCauses ? { resourceCauses: publicResourceCauses(view) } : {}),
     schedules,
     links,
   };

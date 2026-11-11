@@ -238,8 +238,7 @@ it("completes every Wave 4 journey without the canvas", async () => {
       const before = await truth(receipts);
       await card.getByRole("button", { name: /^Offer 1 water/u }).press("Enter");
       const stages = card.getByRole("list", { name: "Influence stages" }).locator("li");
-      await stages.nth(3).waitFor();
-      const committed = await revision();
+      await stages.nth(1).waitFor();
       expect([
         await card.getByRole("list", { name: "Influence stages" }).locator("li").allTextContents(),
         await truth(receipts),
@@ -247,16 +246,11 @@ it("completes every Wave 4 journey without the canvas", async () => {
           "SELECT status || ' ' || (attribution->>'personaId') FROM clockgrove.command_receipts WHERE command_id LIKE 'influence:principal-runtime:%'",
         ),
       ]).toEqual([
-        [
-          "Proposed: offer submitted",
-          "Accepted by the world",
-          `Committed at revision ${committed}`,
-          "Consequence: resource.offered",
-        ],
+        ["Proposed: offer submitted", "Rejected: precondition-failed at payload.quantity"],
         String(Number(before) + 1),
-        "committed persona-runtime",
+        "rejected persona-runtime",
       ]);
-      // §17: the one committed receipt is one interaction_outcome:accepted point.
+      // The unbacked offer records one rejected interaction without creating resources.
       expect(
         await page.evaluate(() =>
           globalThis.hallMeasurements
@@ -264,7 +258,20 @@ it("completes every Wave 4 journey without the canvas", async () => {
             .filter(({ name }) => name === "interaction_outcome")
             .map(({ category, value }) => [category, value]),
         ),
-      ).toEqual([["accepted", 1]]);
+      ).toEqual([["refused", 1]]);
+
+      await commit(
+        "text-fill",
+        "resource.transfer",
+        {
+          schemaVersion: 1,
+          fromObjectId: "fixture.household-water",
+          toObjectId: "fixture.water-bowl",
+          kind: "water",
+          quantity: 1,
+        },
+        BigInt(await revision()),
+      );
 
       // Live changes: movement, weather and material events, at most one announcement per 3 s.
       await page.evaluate(() => {

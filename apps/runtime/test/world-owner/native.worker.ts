@@ -1,5 +1,6 @@
 import type {
   ConversationResponder,
+  ModerationShadowPolicy,
   ShadowDecider,
   WakeTriagePolicy,
 } from "@clockgrove/application";
@@ -34,11 +35,13 @@ import {
   type ScriptedDecisionStep,
 } from "@clockgrove/model-gateway";
 import {
+  PostgreSqlArtifactStore,
   type PostgreSqlClient,
   PostgreSqlWorldProvisioningStore,
   ProvisioningFaultInjectedError,
   type ProvisioningFaultPoint,
   sha256Hex,
+  WebCryptoKeyring,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
@@ -63,7 +66,9 @@ import worker, {
   reconcileWorldProvisioning,
   sweepPartitionSnapshots,
   type WorldProvisioningEntrypoint,
+  workersR2Bucket,
 } from "../../src/cloudflare-entry.js";
+import { scriptedConversationReply } from "../../src/conversations.js";
 import { gatewayShadowDecider } from "../../src/decision-shadow.js";
 import { withHyperdrivePostgreSqlClient } from "../../src/hyperdrive-postgres.js";
 import type { OwnerMailboxBounds } from "../../src/mailbox.js";
@@ -229,18 +234,28 @@ interface NativeEnvironment extends RuntimeEnvironment {
  */
 export class ActorAgentDO extends ProductionActorAgentDO {
   private readonly triageScript: string | undefined;
+  private readonly moderationScript: string | undefined;
+  private readonly moderationScriptedTurns: boolean;
   private readonly triageTurnCost: number | undefined;
   constructor(...args: ConstructorParameters<typeof ProductionActorAgentDO>) {
     super(...args);
     const cost = (
       args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD?: string }
     ).NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD;
+    this.moderationScriptedTurns =
+      (args[1] as RuntimeEnvironment & { NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS?: string })
+        .NATIVE_MODERATION_SHADOW_SCRIPTED_TURNS === "1";
     this.triageTurnCost = cost === undefined ? undefined : Number(cost);
+    this.moderationScript = (
+      args[1] as RuntimeEnvironment & { NATIVE_MODERATION_SHADOW_SCRIPT?: string }
+    ).NATIVE_MODERATION_SHADOW_SCRIPT;
     this.triageScript = (
       args[1] as RuntimeEnvironment & { NATIVE_WAKE_TRIAGE_SCRIPT?: string }
     ).NATIVE_WAKE_TRIAGE_SCRIPT;
   }
   protected override responder(): ConversationResponder {
+    if (this.moderationScriptedTurns)
+      return async (session, count, input) => scriptedConversationReply(session, count, input);
     const respond = super.responder();
     return async (...args) => {
       const response = await respond(...args);
@@ -287,6 +302,49 @@ export class ActorAgentDO extends ProductionActorAgentDO {
         }).pick(request);
       },
     };
+  }
+
+  protected override moderationDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    const source = this.moderationScript;
+    if (source === undefined) return super.moderationDecider(policy, fiber);
+    return {
+      pick: async (request) => {
+        const steps = JSON.parse(source) as ScriptedDecisionStep[];
+        const requests =
+          (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
+        const count = requests.length;
+        requests.push(request);
+        await this.objectState.storage.put("moderation-requests", requests);
+        const alias = decisionAlias({
+          alias: policy.modelAlias,
+          model: policy.model,
+          maxCostMicrousd: policy.maxCostMicrousd,
+        });
+        const decider = new ScriptedDecider({
+          [alias.route.id]:
+            steps[count] === undefined ? [] : [steps[count] as ScriptedDecisionStep],
+        });
+        const gateway = createModelGateway({
+          aliases: [],
+          adapters: {},
+          decisionAliases: [alias],
+          decisionAdapters: { "vercel-ai-gateway": decider },
+          budget: new InMemoryModelBudget(() => policy.maxCostMicrousd),
+          accounting: { record: () => undefined },
+        });
+        return gatewayShadowDecider(gateway, {
+          tenantId: fiber.scope.tenantId,
+          worldId: fiber.scope.worldId,
+          actorId: fiber.actorId,
+        }).pick(request);
+      },
+    };
+  }
+  async moderationRequestsTest(): Promise<unknown[]> {
+    return (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
   }
 
   private held: (() => void) | undefined;
@@ -351,12 +409,20 @@ export class ActorAgentDO extends ProductionActorAgentDO {
       });
       return;
     }
-    if (fault !== phase) return;
+    // `break:<phase>` faults like `<phase>` but holds until released before it aborts.
+    const breaking = fault === `break:${phase}`;
+    if (fault !== phase && !breaking) return;
     const fired = `test-turn-fault:${fiber.sessionId}:${fiber.messageId}:${phase}`;
     if ((await storage.get<boolean>(fired)) === true) return;
     await storage.put(fired, true);
     // Abort drops unflushed writes: flush the marker, so the restarted incarnation passes on.
     await (storage as unknown as { sync(): Promise<void> }).sync();
+    // Abort also drops response output still in flight, so a streamed token reaches the client
+    // only if the object outlives its delivery: the test releases once it has read the token.
+    if (breaking)
+      await new Promise<void>((resolve) => {
+        this.held = resolve;
+      });
     this.objectState.abort(`injected turn fault at ${phase}`);
   }
 }
@@ -477,6 +543,7 @@ export class SpaceDO extends ProductionSpaceDO {
   private control: AlarmTestControl = { wallTime: "", commandLimit: 4 };
   private deliveries = 0;
   private completed = 0;
+  private readonly alarmFlights = new Set<Promise<void>>();
   private failReconciliation = false;
   /** Whether an alarm batch advanced since the interruption was armed. */
   private advanced = false;
@@ -567,7 +634,12 @@ export class SpaceDO extends ProductionSpaceDO {
     this.control = { ...control, enabled: schedule };
     await this.state.storage.put("native-alarm-control", this.control);
     if (schedule) await this.reconcileAlarm(scope);
-    else await this.state.storage.deleteAlarm();
+    else {
+      await this.state.storage.deleteAlarm();
+      await Promise.allSettled([...this.alarmFlights]);
+      // A delivery already in flight may have reconciled its next alarm while being drained.
+      await this.state.storage.deleteAlarm();
+    }
     return this.alarmTestStatus();
   }
   async interruptAlarmTest(scope: RuntimeScope) {
@@ -628,8 +700,14 @@ export class SpaceDO extends ProductionSpaceDO {
   override async alarm(): Promise<void> {
     if (this.control.enabled === false) return;
     this.deliveries += 1;
-    await super.alarm();
-    this.completed += 1;
+    const flight = super.alarm();
+    this.alarmFlights.add(flight);
+    try {
+      await flight;
+      this.completed += 1;
+    } finally {
+      this.alarmFlights.delete(flight);
+    }
   }
 }
 
@@ -856,6 +934,12 @@ export default {
         string,
         string
       >;
+      if (op === "keys") {
+        const bucket = env.ARTIFACTS_BUCKET as unknown as {
+          list(): Promise<{ objects: { key: string }[] }>;
+        };
+        return Response.json((await bucket.list()).objects.map((object) => object.key));
+      }
       if (op === "corrupt") {
         const bytes = new TextEncoder().encode(text);
         const options = {
@@ -869,14 +953,25 @@ export default {
       const authorization = {
         tenantId: decodeOpaqueId(reader ?? at.tenantId, "TenantId"),
         principalId: decodeOpaqueId(`system:world:${at.worldId}`, "PrincipalId"),
-        privacyCeiling: { version: 1, allowedCategories: [decodePrivacyCategory("public_scene")] },
+        privacyCeiling: {
+          version: 1,
+          allowedCategories: [
+            decodePrivacyCategory(op === "put-evidence" ? "conversation" : "public_scene"),
+          ],
+        },
       } as const;
       try {
         const result = await withHyperdrivePostgreSqlClient(
           env.HYPERDRIVE?.connectionString ?? "",
           async (client) => {
-            const store = composeArtifactStore({ ...env, METRICS: recordedMetrics }, client);
-            if (op !== "put")
+            const store =
+              op === "put-evidence"
+                ? new PostgreSqlArtifactStore(client, {
+                    keyring: await WebCryptoKeyring.fromJson(env.ARTIFACT_KEYRING!),
+                    bucket: workersR2Bucket(env.ARTIFACTS_BUCKET!),
+                  })
+                : composeArtifactStore({ ...env, METRICS: recordedMetrics }, client);
+            if (op !== "put" && op !== "put-evidence")
               return new TextDecoder().decode((await store.get(authorization, at)).bytes);
             const bytes = new TextEncoder().encode(text);
             const input = {
@@ -1084,22 +1179,22 @@ export default {
       const body = (await request.json()) as Record<string, unknown>;
       const scope = decodeBrowserScope(body.scope);
       const actorId = String(body.actorId);
-      const actor = env.ACTOR_AGENT_DO.get(
-        env.ACTOR_AGENT_DO.idFromName(
-          await stableRuntimeRouteName("actor-agent", [
-            scope.tenantId,
-            scope.worldId,
-            scope.timelineId,
-            actorId,
-          ]),
-        ),
-      );
+      const name = await stableRuntimeRouteName("actor-agent", [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        actorId,
+      ]);
+      const actor = env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(name));
+      if (body.op === "route-name") return Response.json({ name });
       if (body.op === "fault")
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);
       if (body.op === "arming") return Response.json(await actor.armingTest());
       if (body.op === "alarms") return Response.json(await actor.activationAlarmsTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
+      if (body.op === "moderation-requests")
+        return Response.json(await actor.moderationRequestsTest());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")
         return Response.json(await actor.reconcileCapabilities(Number(body.revision)));

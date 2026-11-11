@@ -19,6 +19,10 @@
       {
         "name": "ACTOR_AGENT_DO",
         "class_name": "ActorAgentDO"
+      },
+      {
+        "name": "MCP_OPERATOR_DO",
+        "class_name": "McpOperatorDO"
       }
     ]
   },
@@ -26,6 +30,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["WorldDO", "SpaceDO", "ActorAgentDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["McpOperatorDO"]
     }
   ],
   "workflows": [

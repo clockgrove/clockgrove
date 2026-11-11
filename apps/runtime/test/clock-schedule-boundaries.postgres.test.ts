@@ -315,22 +315,23 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
       expect(await reader.pendingWork(provisioned.authorization, scope)).toEqual({
         revision: 0n,
         simulationTime: 8640000000n,
-        nextDueAt: 9976186047n,
+        // The declared household process precedes the reader-only actor rows.
+        nextDueAt: 8661600000n,
       });
       expect(await reader.dueSchedules(provisioned.authorization, scope, 10022400000n)).toEqual([
         {
-          scheduleId: "scheduleid_29ec1f6fba1bbd68",
-          idempotencyKey: "scheduleid_29ec1f6fba1bbd68:8640000000",
+          scheduleId: "scheduleid_1f3e10987d8c8d03",
+          idempotencyKey: "scheduleid_1f3e10987d8c8d03:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_b6b122fb75b2abff",
-          idempotencyKey: "scheduleid_b6b122fb75b2abff:8640000000",
+          scheduleId: "scheduleid_0452405732dc9a4c",
+          idempotencyKey: "scheduleid_0452405732dc9a4c:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_4945ef855203a0fe",
-          idempotencyKey: "scheduleid_4945ef855203a0fe:8640000000",
+          scheduleId: "scheduleid_045d8b97055a9ee5",
+          idempotencyKey: "scheduleid_045d8b97055a9ee5:8640000000",
           dueAt: 10022400000n,
         },
       ]);
@@ -351,9 +352,9 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
           priority: item.priority,
         })),
       ).toEqual([
-        { id: "scheduleid_29ec1f6fba1bbd68", dueAt: 9976186047n, priority: 2 },
-        { id: "scheduleid_b6b122fb75b2abff", dueAt: 9976186047n, priority: 10 },
-        { id: "scheduleid_4945ef855203a0fe", dueAt: 10022400000n, priority: 2 },
+        { id: "scheduleid_1f3e10987d8c8d03", dueAt: 9976186047n, priority: 2 },
+        { id: "scheduleid_0452405732dc9a4c", dueAt: 9976186047n, priority: 10 },
+        { id: "scheduleid_045d8b97055a9ee5", dueAt: 10022400000n, priority: 2 },
       ]);
     });
   });

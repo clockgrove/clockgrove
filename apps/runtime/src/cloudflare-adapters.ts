@@ -10,7 +10,6 @@ import {
   type ActorActivation,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
-  CAPABILITY_REGISTRY,
   type CapabilityGrants,
   type CatchUpWorkflowEnvelope,
   type ConversationParticipant,
@@ -23,6 +22,7 @@ import {
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
+  type ModerationShadowPolicy,
   ProvisioningCaseConflictError,
   type ProvisioningRefusal,
   ProvisioningStageError,
@@ -68,6 +68,7 @@ import {
 import {
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
+  PostgreSqlModerationShadow,
   PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
@@ -97,6 +98,7 @@ import {
   reconcileWorldProvisioning,
   runtimeLogger,
   withActivations,
+  withActorCapabilityClient,
   withActorProcesses,
   withCommandOwner,
   withLifecycleWorkflowClient,
@@ -122,6 +124,12 @@ import {
   type OwnerMailboxState,
   SPACE_MAILBOX_BOUNDS,
 } from "./mailbox.js";
+import { readActorMcpCapabilities, resolveActorCapabilities } from "./mcp-actor-capabilities.js";
+import {
+  moderationShadowDecider,
+  moderationShadowPolicy,
+  shadowActorMessage,
+} from "./moderation-shadow.js";
 import { PostgreSqlSceneStreamReader } from "./observation.js";
 import {
   OWNER_ACTIVATION_BUDGET,
@@ -1232,6 +1240,7 @@ export type ActivationArmingStep = "requested" | "started" | "settled";
 export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   protected readonly instanceId = `cloudflare:${crypto.randomUUID()}` as RuntimeInstanceId;
   private recovery: ActorAgentRecovery | undefined;
+  private capabilityReconciliation: Promise<unknown> = Promise.resolve();
   private inbox: PerceptionInbox | undefined;
   private readonly recoveredFor = new Set<string>();
   #fibers: TurnFibers | undefined;
@@ -1293,6 +1302,27 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       await shell.initialize(context);
       shell.validateRequestEpochs(epochs);
     });
+  }
+
+  async moderationShadowReport(
+    scope: RuntimeScope,
+    context: TrustedExecutionContext,
+    participant: ConversationParticipant,
+    actorId: string,
+  ) {
+    assertWorldCommandContext(context, scope);
+    if (!context.privacyCeiling.allowedCategories.includes("conversation"))
+      throw new AuthorizationRefusedError("moderation report refused");
+    await this.ready(scope, context, actorId);
+    return withWakeTriageClient(this.environment, (client) =>
+      new PostgreSqlModerationShadow(client).report(participant, scope as BrowserScope, actorId),
+    );
+  }
+  protected moderationDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    return moderationShadowDecider(this.environment, policy, fiber);
   }
 
   async wakeTriageReport(
@@ -1383,6 +1413,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         () => undefined,
         false,
       );
+      if (result.receipt !== undefined && admitted.delivery !== undefined)
+        await withActivations(this.environment, (store) =>
+          store.deliver(address, admitted.activationId),
+        );
       await withActivations(this.environment, (store) =>
         store.settle(
           address,
@@ -1686,14 +1720,22 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /**
-   * The capability revision hook (RW-0506 will announce grant changes here). The revision only
+   * The capability revision hook for canonical installation and binding changes. The revision only
    * moves forward; each later claim of a turn records the revision it ran under.
    */
-  async reconcileCapabilities(revision: number): Promise<ActorAgentRecovery> {
-    const recovery = await this.loadRecovery();
-    if (revision > recovery.capabilityRevision)
-      await this.saveRecovery({ ...recovery, capabilityRevision: revision });
-    return this.loadRecovery();
+  reconcileCapabilities(revision: number): Promise<ActorAgentRecovery> {
+    if (!Number.isSafeInteger(revision) || revision < 0)
+      return Promise.reject(new Error("capability revision unavailable"));
+    const reconciled = this.capabilityReconciliation
+      .catch(() => undefined)
+      .then(async () => {
+        const recovery = await this.loadRecovery();
+        if (revision > recovery.capabilityRevision)
+          await this.saveRecovery({ ...recovery, capabilityRevision: revision });
+        return this.loadRecovery();
+      });
+    this.capabilityReconciliation = reconciled;
+    return reconciled;
   }
 
   /** The owner's rebuildable state, for inspection. */
@@ -1840,11 +1882,31 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /** The actor's grants: the registry's, bounded by the grants of the participating member. */
-  private grants(participant: ConversationSessionParticipant): CapabilityGrants | undefined {
+  private async grants(
+    participant: ConversationSessionParticipant,
+    scope: BrowserScope,
+    actorId: string,
+    sessionId: string,
+  ): Promise<CapabilityGrants | undefined> {
     const context = this.#talkContext(participant);
-    return context === undefined
-      ? undefined
-      : CAPABILITY_REGISTRY.grantsFor(context.grants.map(String));
+    if (context === undefined) return undefined;
+    const admitted = await resolveActorCapabilities(
+      this.environment.PROVIDER_ENVIRONMENT,
+      context.grants.map(String),
+      () =>
+        withActorCapabilityClient(this.environment, (client) =>
+          readActorMcpCapabilities(client, worldAuthorization(context), {
+            tenantId: scope.tenantId,
+            worldId: scope.worldId,
+            timelineId: scope.timelineId,
+            actorId,
+            sessionId,
+            runtimeGrants: context.grants.map(String),
+          }),
+        ),
+    );
+    await this.reconcileCapabilities(admitted.revision);
+    return admitted.grants;
   }
 
   private perceive = async (scope: BrowserScope, participant: ConversationSessionParticipant) => {
@@ -1859,7 +1921,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       return actorResponder({
         configuration: actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
         gateway,
-        grants: (participant) => this.grants(participant),
+        grants: (participant, session) =>
+          this.grants(participant, session.scope, session.actorId, session.sessionId),
         perceive: this.perceive,
       });
     return async (session, caretakerMessages, input) => {
@@ -1967,12 +2030,14 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       actorId,
       stores: this.stores(),
       respond: this.responder(),
-      grants: (participant) => this.grants(participant),
+      grants: (participant, fiber) =>
+        this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId),
       submitCommand: (participant, fiber, proposal, offer) =>
         this.submitCommand(participant, fiber, proposal, offer),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       beforeModel: async (participant, fiber, input) => {
+        let autonomous = false;
         if (fiber.messageId.startsWith("activation:")) {
           const result = await withActivations(this.environment, (store) =>
             store.beforeModel(
@@ -1980,8 +2045,34 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
               fiber,
             ),
           );
+          autonomous = result !== undefined;
           if (result === "deferred" || result === "noop" || result === "completed")
             throw new ActivationGateBlockedError(result === "completed" ? "noop" : result);
+        }
+        if (!autonomous) {
+          try {
+            const policy = moderationShadowPolicy(this.environment.MODERATION_SHADOW_CONFIG);
+            if (policy !== undefined)
+              await withWakeTriageClient(this.environment, (client) =>
+                shadowActorMessage(
+                  client,
+                  participant,
+                  fiber,
+                  input,
+                  policy,
+                  this.moderationDecider(policy, fiber),
+                ),
+              );
+          } catch {
+            console.warn(
+              JSON.stringify({
+                event: "moderation-shadow-evidence-failed",
+                actorId: fiber.actorId,
+                sessionId: fiber.sessionId,
+                messageId: fiber.messageId,
+              }),
+            );
+          }
         }
         try {
           const policy = wakeTriagePolicy(this.environment.WAKE_TRIAGE_CONFIG);

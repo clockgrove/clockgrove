@@ -1,9 +1,12 @@
 # Remote MCP installation
 
-Issue 164 provides discovery and isolated credential foundations, including a PostgreSQL secret adapter. It does not yet
-install a server into a world, write canonical installation events, register actor capabilities,
-or expose operator HTTP routes. Those consumers must preserve the contract below before remote
-capabilities become usable. The existing [capability registry](capabilities.md) remains unchanged.
+Issue 164 provides local authenticated installation routes, a capabilities screen, isolated PostgreSQL
+credentials, canonical installation/review/binding governance and actor revision integration.
+The [local runtime composition](#local-runtime-composition) and
+[operator procedure](../runbooks/runtime.md#local-operator-lifecycle) describe the current path.
+Production remote MCP remains guarded off pending issue 3's hosted egress receipt after issue 2's
+staging deployment. Remote execution belongs to RW-0508. Earlier delivery-part sections below
+record the foundation boundaries; the final local integration supersedes their pending local work.
 
 ## Transport and untrusted discovery
 
@@ -44,7 +47,8 @@ server hints. Tool schemas use a bounded subset refusing remote references and e
 keywords; unsupported schemas fail discovery without returning a partial snapshot. Hashes are
 SHA-256 over deterministic JSON with sorted object keys; tool hashes include input and optional
 output schemas. Resources and prompts hash their candidate metadata. These hashes are discovery
-evidence; durable version pins and drift disabling require canonical integration.
+evidence; the internal governance service records pins and disables drift, while actor capability
+version integration remains pending.
 
 The existing `McpTransportPort` stays compatible. The foundation does not bypass it to expose
 remote tools to an actor; future adapters must implement that port behind installation authority.
@@ -117,39 +121,56 @@ verified hosted adapter leaves an actual rebinding hole, use an egress adapter t
 ## Acceptance boundary
 
 The foundation is a sequential delivery part, not acceptance of issue 164 as a whole.
-In particular, address admission is not hosted installation safety; a discovery snapshot is not
-a canonical installation or registry version; a schema hash is not drift detection; ciphertext
-owner binding is not installation authorization; and credential fencing is not actor grant
+In particular, address admission is not hosted installation safety; a discovery snapshot alone is
+not a canonical installation or registry version; ciphertext owner binding alone is not
+installation authorization; and credential fencing is not actor grant
 revocation. The PostgreSQL secret journey establishes secret persistence and isolation only; it does not establish the complete PostgreSQL/runtime/browser installation path. No operator installation procedure is available yet.
-All of those obligations remain in the canonical integration below before deployment.
+The internal governance service below supplies canonical installation records and reviews; all
+remaining composition obligations must be delivered before deployment.
 
 ## Remaining acceptance by delivery part
 
-The PostgreSQL provider is part 2, independently reviewable under the Factory
-`implement-split` sequential-delivery rule. Its passing proof does not complete any
-of the following installation acceptance entries. The remaining work stays in issue
+The PostgreSQL provider (part 2) and internal governance (part 3) are independently
+reviewable under the Factory `implement-split` sequential-delivery rule. Their passing
+proofs do not complete the following installation acceptance entries. The remaining work stays in issue
 164; these are prerequisites for remote actor access, not optional follow-ups.
 
 | Issue acceptance | Required integration and real-path proof |
 | --- | --- |
 | 2: Network safety at install | Authenticated installation endpoint and production outbound adapter; readable sanitized refusals and malicious-schema, redirect, SSRF and rebinding installation journeys. Hosted egress verification precedes exposure. |
-| 3: Discovery recorded | Attributed canonical installation records containing identity, protocol metadata and hashed tool/resource/prompt candidates; disabled tools registered in the one capability registry. |
-| 5: Pinning and drift | Durable protocol/schema pins compared on connection listing and operator refresh; PostgreSQL/runtime proof that changed versions disable and unchanged versions remain usable. |
+| 3: Discovery recorded | Internal attributed snapshots are persisted in part 3. Remaining: compose admitted discovery into installations and register disabled tools in the one capability registry. |
+| 5: Pinning and drift | Internal refresh drops changed-schema and protocol-drift reviews in part 3. Remaining: connection/operator refresh composition and PostgreSQL/runtime proof for callable registry versions. |
 | 6: Bindings and grants | Scoped bindings and grants narrowing inputs, destinations, call counts, effects, budget and expiry; most-specific deny and session approval resolution through the actor runtime. |
 | 7: Immediate revocation | Canonical installation, binding and capability disable/revoke operations notify the actor capability revision hook and fence new use without cognition. Credential fencing alone is insufficient. |
-| 8: Operator authority | Separate installation grant defaulted to world owners and authenticated install, enable, bind and revoke routes; actors cannot install, supply credentials or grant access. The secret-provider database role supplies no operator authority. |
-| 9: Canonical isolation | Installation, binding, grant and review Journal records with operator attribution, tenant/world/timeline isolation, RLS attack coverage and retention entries. Secret envelopes remain outside the Journal. |
+| 8: Operator authority | The separate owner-defaulted installation grant governs internal changes in part 3. Remaining: authenticated install, enable, bind and revoke routes; actors cannot install, supply credentials or grant access. The secret-provider database role supplies no operator authority. |
+| 9: Canonical isolation | Installation/review Journal records, scoped RLS and retention ship in part 3. Binding/grant events and full composed isolation proof remain. Secret envelopes remain outside the Journal. |
 | 10: Credential exclusion | Composed authenticated OAuth/static-token installation, refresh, failure and revoke journey through PostgreSQL, with canary exclusion checked in Journal, runtime evidence, logs, traces, prompts, errors, R2 keys and Durable Object names. Memory OAuth tests alone are insufficient. |
 | 11: Real-path experience | Deterministic fixture installation through PostgreSQL and actor grants/runtime, plus the operator capabilities-screen browser journey for connect, inspect, review, bind, refresh and revoke. |
 
-Canonical governance and authenticated credential composition precede registry and
-runtime integration; the operator screen and complete canary/browser proof finish
+Internal canonical governance is available in part 3. Authenticated credential composition
+precedes registry and runtime integration; the operator screen and complete canary/browser proof finish
 the Objective. No installation endpoint or callable remote actor capability is
 exposed by this part.
 
+The remaining delivery groups are ordered within issue 164:
+
+- Part 4 adds the internal authorized discovery-to-Journal coordinator described below.
+  It is proved against actual HTTP fixtures and PostgreSQL, without exposing a deployed route.
+- Part 5 supplies internal owned static/OAuth discovery, reviewed-version registry snapshots
+  and canonical scoped binding policy, as detailed below. Production provider/reference ownership,
+  verified hosted egress, authenticated routes and actor revision wiring remain final-part work.
+- Part 6 adds the operator capabilities screen and completes the composed
+  PostgreSQL, deterministic-server, actor-runtime and browser proofs (entry 11),
+  including the full credential-canary surfaces in entry 10. The final operator
+  runbook must describe those proven operations before Objective completion.
+
+These assignments preserve the full OAuth decision and every acceptance entry;
+they do not authorize production remote access or count pending proofs as passed.
+
 ## Canonical integration still required
 
-Installation, binding, grant and review changes must be attributed Journal events, backed by
+Installation and review changes are now attributed Journal events; binding and grant changes
+must follow that path. All are backed by
 PostgreSQL with tenant/world/timeline RLS and retention entries. Only the separate installation
 grant, held by world owners by default, may install, enable, bind or revoke. Actors and decision
 models cannot supply credentials, authorize operations or grant themselves access.
@@ -165,3 +186,202 @@ suite and a real operator browser journey for connect, inspect, review, bind, re
 Resources stay disabled until Wave 6 ingestion; provider prompts remain untrusted candidates.
 The [runtime runbook](../runbooks/runtime.md#remote-mcp-installation-readiness) records this
 readiness boundary rather than presenting future procedures as available commands.
+
+## Canonical installation governance
+
+Part 3 adds `PostgreSqlMcpInstallations` in
+`packages/persistence/src/postgres-mcp-installations.ts`, backed by migration 0046. It records an admitted discovery
+snapshot and its installation scope, installing operator, remote endpoint, server identity,
+protocol metadata and schema hashes. Credential-reference attachment remains part of trusted
+credential composition. This service is not an HTTP
+installation endpoint: trusted composition must first perform network admission and discovery
+through the transport port. It accepts no credential plaintext and makes no remote calls.
+
+The separate `runtime:mcp-install` grant governs installation changes; world owners hold it by
+default. An actor, a model and a principal holding only `runtime:world-operate` cannot authorize
+these changes. Authorization uses canonical membership and grants inside the database
+transaction, rather than accepting server assertions or a caller-supplied grant list.
+
+Discovery starts with every candidate disabled and classified `external-write`. An operator
+reviews an exact tool schema hash and assigns one of `read`, `world-write`, `external-write`,
+`destructive`, `network` or `cost`. Resources and prompts remain disabled untrusted records;
+none of their text becomes policy. Refresh compares the admitted snapshot with recorded pins.
+Changed or removed tools lose enablement; unchanged tool reviews survive. Current changed tools
+are recorded in the `drifted` list until exact-pin review clears them. A protocol change
+requires renewed review of tools. Revocation is terminal for the installation.
+
+Installation, refresh, review and revocation write attributed canonical Journal events in the
+same transaction as their state changes. The event payload stores deterministic `operationJson`
+text so arbitrary finite schema numbers survive the Journal's integer-only canonical payload
+encoding; the database parses that same operation into structured installation state. Scoped RLS
+protects the records, and their retention
+entries describe installation-lifetime state. Encrypted credential material remains exclusively
+in the isolated secret provider. The PostgreSQL governance journey proves this internal path,
+not authenticated OAuth composition or actor revocation.
+
+Part 3 alone does not grant actor access. Part 5 below adds reviewed-version admission snapshots,
+scoped binding policy and owned credential-backed discovery. Deployed actor revision notification
+and authenticated network/credential composition remain final integration work.
+The capabilities screen and complete PostgreSQL/runtime/browser canary journey finish the
+Objective. Until those are delivered there is no operator installation procedure to run.
+
+## Authorized discovery composition
+
+Part 4 adds the internal `McpInstallationService` in
+`packages/application/src/mcp-installation-service.ts`. Its trusted composition supplies the
+PostgreSQL governance adapter, network port and authenticated principal context; it adds no
+operator route, credential input or actor invocation.
+
+Install checks canonical `runtime:mcp-install` authority before DNS or HTTP, then uses
+`RemoteHttpMcpDiscovery` through `SafeMcpHttpClient` to obtain the snapshot. The caller supplies
+only an installation identifier and endpoint, never a discovery snapshot. The governance adapter
+checks authority again in the Journal transaction, so authority revoked during discovery cannot
+commit an installation. Remote claims do not authorize any operation.
+
+Refresh reads the endpoint and space from canonical storage, refuses inactive installations,
+and performs the same admitted discovery before committing drift. If discovery fails or the refresh commit is rejected, refresh
+commits a whole-installation disable that clears reviews before returning the refusal. This
+safety invalidation uses its own command ID so retrying an earlier successful refresh cannot
+collide with that refresh receipt and prevent disabling. This includes a valid changed-schema
+listing whose command ID replays an earlier successful refresh: rejected changed bytes must
+not leave the previous enabled reviews active. If that
+commit is uncertain, it returns `installation_change_failed`, never success; trusted callers must
+treat the installation as unavailable until canonical state is reconciled. A disabled installation
+is not refreshed or reactivated by this service; reconnect requires a new installation. Successful
+complete discovery still preserves unchanged tool reviews. Exact-pin review, disable and
+revoke use the existing Journal operations. A caller cannot use the coordinator's change surface
+to submit an install/refresh snapshot, even by bypassing TypeScript. Fixed refusal codes hide
+storage/transport exception text; network policy refusals remain readable codes. No transaction
+is held across remote requests.
+
+The PostgreSQL/HTTP journey proves this internal composition, including unauthorized requests
+without outbound work, refused server attempts without persisted installations, per-tool drift,
+and terminal installation revocation. It does not establish hosted egress, credential
+composition, registry callability, runtime invalidation or the operator browser experience.
+Those remain mandatory before production exposure and Objective completion.
+
+## Scoped binding policy and registry admission
+
+Part 5 adds `McpBinding`, `PostgreSqlMcpBindings` and migration 0050. An operator holding
+`runtime:mcp-install` changes policy through an attributed `McpBindingChanged` Journal event in
+the same transaction as its row. The database rechecks canonical membership, refuses actor
+identities, rejects direct writes, and serializes policy changes with installation review/refresh/
+revocation. Binding changes increment the installation revision. Rows and reads remain isolated
+to their full tenant/world/timeline and installation; each new table has a retention entry.
+
+A binding names an exact tool/protocol/schema pin, one tenant/world/timeline/actor/session scope,
+and an enabled allow or deny. Broad scope IDs must match the canonical installation scope;
+session IDs must name a live session there. Actor IDs are exact opaque identities, since the
+base has no independent actor table. Binding policy supports top-level input-field allowlists,
+exact destination allowlists, call limits, allowed effect classes, microdollar budgets and UTC
+expiry. Empty field/destination lists allow none. A zero-call grant grants no use. Counts and
+budgets are operator-provided nonnegative safe integers, not provider hints. Policy sizes reuse
+the existing bounded installation limits, with explicit engineering decisions in migration 0050.
+
+`resolveMcpCapabilityRegistry` builds a snapshot in the existing `CapabilityRegistry`, preserving
+its internal definitions and default grants. Remote names include installation ID, tool ID,
+protocol version and schema hash. Server descriptions never become registry instructions. Tools
+remain ungranted unless the installation is active, an exact current review enables the pin,
+the tool is not drifted, and matching scoped policy allows it. Resources and prompts never
+become registry definitions. Unsupported schema vocabulary fails closed rather than dropping a
+constraint. The supported typed subset handles properties, required fields, additional-property
+refusal, arrays, scalar types, enums/constants and numeric/string/array bounds.
+
+Any enabled matching deny blocks admission, including an ancestor deny and a deny for an older
+pin. Denies remain until explicitly disabled; grant expiry does not silently expire a deny.
+Otherwise the most-specific matching allow wins, with intersected constraints when multiple
+allows share that specificity. A trusted session approval can only narrow these grants.
+Destination and cost bounds require trusted execution metadata; missing values refuse use.
+Expiry is checked again when authorizing, not only at snapshot construction. Call/spend values
+are trusted inputs to admission, not durable reservations or a remote executor.
+
+Canonical state must be loaded before new use and invalidated through the actor revision hook.
+This part proves rebuilt admission from PostgreSQL (including drift of one of two HTTP-discovered
+tools); it does not wire that loader or hook into deployed actors. A retained admission snapshot
+cannot establish immediate revocation by itself. Runtime wiring, atomic execution reservations,
+approval persistence and the complete actor/browser proof remain final-part work.
+
+## Owned credential-backed discovery
+
+`McpCredentialInstallation` owns one new installation attempt and one isolated credential
+provider. It checks canonical installation authority before opening that provider, fixes the
+operator and complete scope before asynchronous work, and retains only an opaque reference.
+The provider stays open across OAuth begin/callback, token refresh and discovery. The
+`McpInstallationService` optional trusted authorization callback passes the bearer directly to
+discovery inside `McpCredentialVault.use`, preserving raw and decoded credential-echo refusal.
+No bearer is sent to OAuth metadata endpoints. A static token uses the same discovery path.
+
+Installation is committed only after credential connection and safe discovery. Failed or
+uncertain install closes the provider. OAuth refresh failure disables the installation through
+the Journal and closes the provider; discovery refresh failure does likewise. Revocation commits
+canonical revocation before contacting the remote OAuth revocation endpoint, so an uncertain
+remote response cannot restore canonical enablement. Authorized cleanup also accepts an externally
+disabled or already revoked installation, preserving owner/endpoint/space checks and skipping
+a redundant canonical revoke. A failed cleanup preflight still closes the owned provider without
+making an unauthorized remote request. Credential failures contain no remote text.
+Credential-backed discovery preserves only enumerated network-policy refusal codes, reconstructed
+as fixed errors without the original message or cause, so an operator can distinguish a private
+target, unsafe redirect or DNS change. Unknown refusal codes and credential/provider failures
+remain the generic credential-unavailable error. Explicit close terminates the provider; the PostgreSQL adapter's existing takeover fence
+requires reconnect rather than silently reopening an old reference.
+
+The handle is internal and session-owned. It is not a durable directory of installation-to-secret
+references or an authenticated HTTP route. Production must supply a dedicated provider owner,
+durable reference linkage, callback routing and cleanup/reconnect procedures before activation.
+The real PostgreSQL/HTTP journey proves static/OAuth connection, refresh, failure, echo refusal
+and revoke at this boundary. Whole-runtime canary exclusion (logs, traces, prompts, evidence,
+R2 keys and Durable Object names) and the operator browser journey remain pending.
+
+Hosted egress is still uncomposed. Cloudflare's [strict public fetch documentation](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public)
+and [request routing documentation](https://developers.cloudflare.com/workers/runtime-apis/request/)
+were checked on 2026-11-10: public routing is a platform boundary, while DNS preflight alone
+cannot pin an independently resolved connection. No global-fetch adapter or production network
+switch is introduced here. The final consumer must verify and prove the owner-decided hosted
+private-egress protection and document residual rebinding behavior before exposing endpoints.
+
+## Hosted evidence ownership
+
+Owner amendment (2026-11-10, issue 164): the hosted private-egress verification belongs to
+issue 3 and runs on staging after issue 2's first successful deployment. Local operator,
+credential and actor integration does not wait for that receipt. Production remote MCP
+composition remains disabled until that candidate-bound hosted receipt exists; local fixture
+results do not substitute for it. The required checks include private/metadata destinations,
+redirect admission and DNS rebinding with the platform's public-egress boundary. Any residual
+hole still requires pinned egress under the original decision.
+
+Bearer-bearing endpoint or redirect URLs are refused, including decoded URL matches, before
+outbound requests. This keeps credentials out of URL-derived evidence as well as response data;
+operators receive the fixed `credential_url_refused` code.
+
+## Local runtime composition
+
+`McpRuntimeOperator` retains isolated provider ownership across authenticated operator requests,
+including OAuth begin/callback, refresh and revoke. It performs canonical installation-authority
+checks before outbound work and Journal commits. Anonymous discovery uses the same safe HTTP
+policy. Static/OAuth bearer values are supplied only inside the vault callback. The browser sees
+sanitized fixed refusal codes, discovery data and canonical policy state, never a credential
+reference or provider exception text. Listing returns tool/resource/prompt candidates; review
+and binding changes use exact pins and the attributed Journal path.
+
+`composeMcpOperator` requires a separate direct secret database connection, a dedicated versioned
+keyring and trusted network/OAuth configuration. Local Workers forward authenticated operator
+requests over the internal `MCP_OPERATOR_DO` binding to `McpOperatorDO`. This Durable Object owns
+the retained sockets, so OAuth callbacks and refreshes may use them from later requests. One
+local owner preserves the configured installation capacity across all scoped installations;
+its fixed non-secret name contains no credential, endpoint or installation data. It writes no
+Durable Object storage; PostgreSQL remains canonical. The runtime retains its owner across requests;
+provider close disables credential installations. Lost owners cannot be transparently recreated
+from a pooled connection: refresh fails closed and reconnect uses a new installation identifier.
+These are local composition boundaries, not permission to expose a production network adapter.
+`RuntimeComposition.mcpConfiguration` wires local owner lifetime and actor revision notification;
+non-local composition is guarded off pending the hosted receipt owned by issue 3.
+
+`actor_mcp_admission` reads the canonical live participant and membership before returning a scoped
+registry snapshot without endpoint, owner or secret metadata. Installation and binding scope is
+tenant/world/timeline, so admission and revision notifications span spaces within that scope;
+the participant still needs live membership in the session's own space. Actor owners reload before claim,
+model context and proposal and reconcile the revision hook. Revocation therefore stops new
+admission without cognition, including after a missed notification. Remote tool execution and
+canonical call/spend reservations remain RW-0508. The
+[runtime runbook](../runbooks/runtime.md#local-operator-lifecycle) describes install, review, bind,
+refresh, reconnect and revoke.

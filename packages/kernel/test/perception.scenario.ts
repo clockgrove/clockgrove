@@ -20,6 +20,7 @@ import {
   containmentInput,
   containmentInputIdentity,
   fixturePayload,
+  withFixtureInventory,
 } from "./containment.scenario.js";
 import { assertEnvelope } from "./executor.scenario.js";
 import {
@@ -125,7 +126,11 @@ export async function anchorWorld(): Promise<WorldState> {
 
 /** Containment fixture: box-b holds food-a and sits inside box-a (created through the real executor). */
 export async function containmentWorld(): Promise<WorldState> {
-  let current: WorldKernelInput = await containmentFixture();
+  let current: WorldKernelInput = withFixtureInventory(await containmentFixture(), [
+    { objectId: "food-a", kind: "food", quantity: 10 },
+    { objectId: "food-b", kind: "food", quantity: 10 },
+    { objectId: "water", kind: "water", quantity: 2 },
+  ]);
   const step = (id: string, type: string, payload: unknown) => {
     const outcome = executeWorldKernel(containmentInput(current, type, payload, id), {
       mode: "test",
@@ -139,7 +144,7 @@ export async function containmentWorld(): Promise<WorldState> {
       simulationTime: state.simulationTime,
     };
   };
-  for (const id of ["box-a", "box-b", "inventory", "food-a", "food-b", "water"])
+  for (const id of ["box-a", "box-b", "inventory"])
     step(
       `perception:create:${id}`,
       "object.create",

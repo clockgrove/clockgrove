@@ -1,12 +1,211 @@
 import assertStrict from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash, createHmac, pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { testDisposableDatabaseLifecycle } from "../../tests/database/lifecycle.mjs";
-import { applyMigrations, applySqlFile, psql, psqlQuery, withDisposableDatabase } from "./lib.mjs";
+import { ownedSubprocess } from "../lib/subprocess.mjs";
+import {
+  deploymentRolesInput,
+  restrictedRoleKeys,
+  roleCheckFailures,
+} from "./deployment-roles.mjs";
+import { databaseIsolationQuery, runtimeRoleIsolationQuery } from "./isolation.mjs";
+import {
+  applyMigrations,
+  applySqlFile,
+  psql,
+  psqlQuery,
+  scramVerifier,
+  withDisposableDatabase,
+} from "./lib.mjs";
 import { restoredSchemaPolicy, withRestoredHistory } from "./restore.mjs";
 
 await testDisposableDatabaseLifecycle();
+
+// The hosted role SQL (deployment-grants.sql) as a deploy runs it on Neon: the migration role is a
+// CREATEROLE, CREATEDB member of neon_superuser but no superuser, and creates the restricted roles.
+// pg_stat_statements, a password policy and DDL plus failed-statement logging run alongside, and
+// no generated password may reach the statement statistics or the server log.
+await withDisposableDatabase(
+  async ({ tools, environment, temporaryRoot }) => {
+    const restricted = [
+      "clockgrove_runtime",
+      "clockgrove_support",
+      "clockgrove_backup",
+      "clockgrove_auth_verifier",
+      "clockgrove_management_reader",
+      "clockgrove_world_reader",
+      "clockgrove_mcp_secrets",
+    ];
+    await psql(
+      tools,
+      environment,
+      `DROP ROLE ${restricted.join(", ")};
+     CREATE ROLE neon_superuser NOLOGIN;
+     ALTER ROLE clockgrove_migrator LOGIN CREATEROLE CREATEDB;
+     ${environment.PGPASSWORD === undefined ? "" : `ALTER ROLE clockgrove_migrator PASSWORD '${scramVerifier(environment.PGPASSWORD)}';`}
+     GRANT neon_superuser TO clockgrove_migrator;
+     CREATE EXTENSION pg_stat_statements;`,
+    );
+    const used = [];
+    const generated = (letters = false) => {
+      // randomInt draws each letter uniformly; a byte modulo 26 would be biased.
+      const value = letters
+        ? String.fromCharCode(...Array.from({ length: 40 }, () => 97 + randomInt(26)))
+        : randomBytes(24).toString("hex");
+      used.push(value);
+      return value;
+    };
+    const passwords = Object.fromEntries(restrictedRoleKeys.map((key) => [key, generated()]));
+    const provision = async () => {
+      const result = await ownedSubprocess(
+        tools.psql,
+        ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--single-transaction", "--file=-"],
+        {
+          env: environment,
+          input: `SET ROLE clockgrove_migrator;\n${await deploymentRolesInput(passwords)}`,
+        },
+      );
+      return result.status === 0 ? "passed" : roleCheckFailures(result.stderr) || result.stderr;
+    };
+    // A same-named role the migration role did not create, as a Neon API role, is refused by name.
+    await psql(tools, environment, "CREATE ROLE clockgrove_backup LOGIN;");
+    assertStrict.equal(
+      await provision(),
+      "clockgrove_backup is not administered by clockgrove_migrator",
+    );
+    await psql(tools, environment, "DROP ROLE clockgrove_backup;");
+    assertStrict.equal(await provision(), "passed");
+    passwords.runtime = generated();
+    assertStrict.equal(await provision(), "passed", "a second run updates the roles in place");
+    // A re-run undoes attribute drift.
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup CREATEDB BYPASSRLS;");
+    assertStrict.equal(await provision(), "passed", "a re-run normalizes drifted attributes");
+    // Drift the migration role cannot clear (it holds no REPLICATION) is refused by name.
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup REPLICATION;");
+    assertStrict.equal(
+      await provision(),
+      "clockgrove_backup has REPLICATION, which clockgrove_migrator cannot clear",
+    );
+    await psql(tools, environment, "ALTER ROLE clockgrove_backup NOREPLICATION;");
+    // A password the server's policy refuses (passwordcheck wants a non-letter) fails by role name.
+    passwords.support = generated(true);
+    assertStrict.equal(await provision(), "clockgrove_support password not set (22023)");
+    passwords.support = generated();
+    assertStrict.equal(await provision(), "passed");
+    assertStrict.equal(
+      (
+        await psqlQuery(
+          tools,
+          environment,
+          `SELECT count(*) FILTER (WHERE rolcanlogin AND rolpassword LIKE 'SCRAM-SHA-256$%')
+                || '|' || count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pg_auth_members m
+                  WHERE m.roleid = a.oid AND m.admin_option
+                    AND m.member = 'clockgrove_migrator'::regrole))
+           FROM pg_authid a WHERE rolname IN (${restricted.map((name) => `'${name}'`).join(", ")})`,
+        )
+      ).trim(),
+      "6|7",
+    );
+    // Each login role's stored SCRAM verifier is the one for its generated password.
+    const verifiers = await psqlQuery(
+      tools,
+      environment,
+      `SELECT rolname, rolpassword FROM pg_authid WHERE rolcanlogin AND rolname = ANY (ARRAY[${restricted.map((name) => `'${name}'`).join(", ")}])`,
+    );
+    const keyOf = Object.fromEntries(
+      restrictedRoleKeys.map((key, index) => [restricted[index], key]),
+    );
+    for (const line of verifiers.trim().split("\n")) {
+      const [name, verifier] = line.split("|");
+      const [, rounds, salt, storedKey] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$([^:]+):/u.exec(verifier);
+      const salted = pbkdf2Sync(
+        passwords[keyOf[name]],
+        Buffer.from(salt, "base64"),
+        Number(rounds),
+        32,
+        "sha256",
+      );
+      const clientKey = createHmac("sha256", salted).update("Client Key").digest();
+      assertStrict.equal(createHash("sha256").update(clientKey).digest("base64"), storedKey, name);
+    }
+    // The deploy logs in as the migration role, a non-superuser, and runs every migration as it:
+    // none may need superuser rights. Neon lets neon_superuser members create the extensions it
+    // supports; upstream pgvector is not a trusted extension, so here the superuser creates it.
+    await psql(tools, environment, "CREATE EXTENSION vector;");
+    const migrator = { ...environment, PGUSER: "clockgrove_migrator" };
+    await applyMigrations(tools, migrator);
+    const isolation = await psqlQuery(tools, migrator, databaseIsolationQuery);
+    assertStrict.match(isolation.trim(), /^t(?:\|t)+$/u, "hosted-shape isolation");
+    // The deploy's own checks of the runtime connection and each reader connection, as those roles
+    // with their generated passwords.
+    const as = (role, key) => ({ ...environment, PGUSER: role, PGPASSWORD: passwords[key] });
+    assertStrict.equal(
+      (
+        await psqlQuery(tools, as("clockgrove_runtime", "runtime"), runtimeRoleIsolationQuery)
+      ).trim(),
+      "t",
+      "hosted-shape runtime isolation",
+    );
+    for (const [role, key] of [
+      ["clockgrove_auth_verifier", "authentication"],
+      ["clockgrove_management_reader", "management"],
+      ["clockgrove_world_reader", "worldAuthorization"],
+    ])
+      assertStrict.equal(
+        (
+          await psqlQuery(
+            tools,
+            as(role, key),
+            `SELECT current_user = '${role}' AND current_database() = 'clockgrove'`,
+          )
+        ).trim(),
+        "t",
+        `hosted-shape ${role} identity`,
+      );
+    // Membership in neon_superuser, which Neon gives its API roles, is refused by name.
+    await psql(tools, environment, "GRANT neon_superuser TO clockgrove_support;");
+    assertStrict.equal(await provision(), "clockgrove_support is a member of neon_superuser");
+    const statements = await psqlQuery(tools, environment, "SELECT query FROM pg_stat_statements");
+    const serverLog = await readFile(path.join(temporaryRoot, "postgres.log"), "utf8");
+    assertStrict.ok(
+      statements.includes("set_password"),
+      "pg_stat_statements recorded the role SQL",
+    );
+    assertStrict.ok(serverLog.includes("clockgrove_support password not set"), "refusal logged");
+    for (const password of used)
+      assertStrict.ok(
+        !statements.includes(password) && !serverLog.includes(password),
+        "a generated password reached pg_stat_statements or the server log",
+      );
+    // Negative control: a password in top-level statement text, as a plain ALTER ROLE sends it,
+    // is found in both, and a failed one in the log.
+    const [stored, refused] = [randomBytes(24).toString("hex"), randomBytes(24).toString("hex")];
+    await psql(tools, environment, `ALTER ROLE clockgrove_backup PASSWORD '${stored}';`);
+    await assertStrict.rejects(
+      psql(tools, environment, `ALTER ROLE clockgrove_absent PASSWORD '${refused}';`),
+    );
+    const controlStatements = await psqlQuery(
+      tools,
+      environment,
+      "SELECT query FROM pg_stat_statements",
+    );
+    const controlLog = await readFile(path.join(temporaryRoot, "postgres.log"), "utf8");
+    assertStrict.ok(
+      controlStatements.includes(stored),
+      "control: pg_stat_statements kept the text",
+    );
+    assertStrict.ok(controlLog.includes(stored) && controlLog.includes(refused), "control: logged");
+  },
+  {
+    settings: [
+      "shared_preload_libraries=pg_stat_statements,passwordcheck",
+      "log_statement=ddl",
+      "log_min_error_statement=error",
+    ],
+  },
+);
 
 const attackSuitePath = new URL("../../tests/database/authorization.sql", import.meta.url);
 // The crash windows of one journal transaction (Wave 2 plan §14), each injected server-side.
@@ -30,6 +229,7 @@ async function runAttackSuite(tools, environment) {
     tools,
     { ...environment, PGUSER: "clockgrove_runtime" },
     await readFile(attackSuitePath, "utf8"),
+    { viaStdin: true },
   );
 }
 
@@ -508,6 +708,7 @@ await new Promise((resolve, reject) => {
       "apps/runtime/test/causal-inspector.postgres.test.ts",
       "apps/runtime/test/prior-release-fixtures.postgres.test.ts",
       "apps/runtime/test/migration-safety.postgres.test.ts",
+      "apps/runtime/test/mcp-installations.postgres.test.ts",
       ...(writeReport
         ? ["--reporter=default", "--reporter=json", `--outputFile.json=${wave2Report}`]
         : []),

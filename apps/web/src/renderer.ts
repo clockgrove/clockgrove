@@ -8,9 +8,11 @@ import type {
 } from "@clockgrove/contracts";
 import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { pass, vec4 } from "three/tsl";
+import { pass, uniform, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
+  type AtlasTextureFormat,
+  atlasTextureLoader,
   type ContentFailure,
   contentDepth,
   contentLoaders,
@@ -29,6 +31,7 @@ import {
   INTERPOLATION_MS,
   isNight,
   MATERIAL_DELIVERY_BUDGET,
+  materialPageCost,
   movement,
   type PickCycle,
   pickOrder,
@@ -58,9 +61,11 @@ interface AtlasAnimation {
   readonly frames: readonly AtlasFrame[];
   readonly durationMs: number | null;
 }
+/** A PNG page is an image texture; a KTX2 page is a CompressedTexture of transcoded blocks. */
+type PageTexture = THREE.Texture<{ readonly width: number; readonly height: number }>;
 /** A reviewed animation whose frames each hold the page texture their rect indexes. */
 interface AtlasEntry extends Omit<AtlasAnimation, "frames"> {
-  readonly frames: readonly (AtlasFrame & { readonly texture: THREE.Texture<HTMLImageElement> })[];
+  readonly frames: readonly (AtlasFrame & { readonly texture: PageTexture })[];
 }
 interface AtlasPage {
   readonly image: HTMLImageElement;
@@ -94,6 +99,10 @@ export interface SceneMetrics {
   textureBytes: number;
   /** The atlas page textures: each listed page and each selected material page, once. */
   atlasTextureBytes: number;
+  /** How material pages upload: a compressed format this device samples, else PNG as RGBA8. */
+  materialTextureFormat: AtlasTextureFormat | "png" | undefined;
+  /** Material pages loaded from their PNG because the compressed page failed to load or transcode. */
+  materialTextureFallbacks: number;
   contentStatus: "none" | "loading" | "ready" | "failed";
   contentFailure: ContentFailure | undefined;
   contentFailures: number;
@@ -130,10 +139,13 @@ export type RendererMeasurement =
     };
 export type RendererReport = (point: RendererMeasurement) => void;
 export type QualityTier = "low" | "medium" | "high";
-/** Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
+/** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
+ * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
   low: {
     renderScale: 0.5,
+    maxOutputPixels: 512_000,
+    textureBytes: 16 * 1024 * 1024,
     rain: 0,
     bloomScale: 0,
     bloomStrength: 0,
@@ -142,6 +154,8 @@ export const SCENE_QUALITY = {
   },
   medium: {
     renderScale: 1,
+    maxOutputPixels: 1_000_000,
+    textureBytes: 64 * 1024 * 1024,
     rain: 64,
     bloomScale: 0.5,
     bloomStrength: 0.08,
@@ -150,6 +164,8 @@ export const SCENE_QUALITY = {
   },
   high: {
     renderScale: 1,
+    maxOutputPixels: 3_000_000,
+    textureBytes: 192 * 1024 * 1024,
     rain: 192,
     bloomScale: 1,
     bloomStrength: 0.12,
@@ -165,7 +181,10 @@ const ATLAS_INDEX = "atlases.json";
 const WIDTH = 640,
   HEIGHT = 400;
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
-const ZOOM = { min: 0.75, max: 2 } as const;
+const ZOOM = {
+  min: worldShell.scene.camera?.minZoom ?? 0.75,
+  max: worldShell.scene.camera?.maxZoom ?? 2,
+};
 const PAN_MARGIN_PX = 160; // Existing Wave 4 camera contract: twice the reviewed kit sprite.
 const DRAG_PX = 4,
   PICK_PX = { mouse: 12, touch: 24 }; // docs/scene.md interaction decisions.
@@ -230,6 +249,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     effectCount: 0,
     textureBytes: 0,
     atlasTextureBytes: 0,
+    materialTextureFormat: undefined,
+    materialTextureFallbacks: 0,
     contentStatus: "none",
     contentFailure: undefined,
     contentFailures: 0,
@@ -251,8 +272,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
   private canvas: HTMLCanvasElement | undefined;
+  private resizeObserver: ResizeObserver | undefined;
+  private viewWidth = WIDTH;
+  private viewHeight = HEIGHT;
+  private outputWidth = WIDTH;
+  private outputHeight = HEIGHT;
+  private devicePixelRatio = 0;
+  private resourceTextureBytes = 0;
   /** One texture per reviewed page, filled only once every listed page has loaded and verified. */
-  private atlasTextures: THREE.Texture<HTMLImageElement>[] = [];
+  private atlasTextures: PageTexture[] = [];
+  /** Created on the first material animation; undefined when no compressed format is sampled. */
+  private materialLoader?: Promise<Awaited<ReturnType<typeof atlasTextureLoader>>>;
   private composer: THREE.RenderPipeline | undefined;
   private scenePass: ReturnType<typeof pass> | undefined;
   private labelPass: LabelPass | undefined;
@@ -288,10 +318,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private motions = new Map<Native, Motion>();
   private focusMotion: Motion | undefined;
   private bounds = {
-    x: -WIDTH / 1.5,
-    y: -HEIGHT / 1.5,
-    width: WIDTH / 0.75,
-    height: HEIGHT / 0.75,
+    x: -WIDTH / (2 * ZOOM.min),
+    y: -HEIGHT / (2 * ZOOM.min),
+    width: WIDTH / ZOOM.min,
+    height: HEIGHT / ZOOM.min,
   };
   private rect: DOMRect | undefined;
   private destroyed = false;
@@ -303,10 +333,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private tier: QualityTier = "low";
   private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
   private night = false;
+  private readonly environmentGrade = uniform(new THREE.Color(0xffffff));
   private lights: THREE.PointLight[] = [];
   private sky: THREE.DirectionalLight[] = [];
-  private materialPageTextures = new Map<string, THREE.Texture<HTMLImageElement>>();
+  private materialPageTextures = new Map<string, PageTexture>();
   private materialTransferBytes = 0;
+  /** Compressed pages that failed once; their PNG serves every later use. */
+  private failedCompressedPages = new Set<string>();
   private transferHashes = new Set<string>();
   private ambient!: THREE.AmbientLight;
   private ground!: THREE.Mesh<THREE.PlaneGeometry, LitMaterial>;
@@ -433,6 +466,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.canvas = canvas;
       parent.appendChild(canvas);
       canvas.style.touchAction = "none";
+      canvas.style.display = "block";
+      canvas.style.width = "100%";
+      this.resizeObserver = new ResizeObserver(() => this.resizeViewport());
+      this.resizeObserver.observe(parent);
+      this.resizeViewport();
       canvas.addEventListener("webglcontextlost", this.lost);
       canvas.addEventListener("pointerdown", this.pointerdown);
       canvas.addEventListener("pointermove", this.pointermove);
@@ -656,6 +694,75 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.metrics.contentUpdateMs = performance.now() - started;
     }
   }
+  private resizeViewport(): void {
+    if (!this.renderer || !this.canvas || this.destroyed) return;
+    const style = getComputedStyle(this.parent);
+    const width = Math.max(
+      1,
+      this.parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) ||
+        WIDTH,
+    );
+    const height = Math.max(
+      1,
+      this.parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) ||
+        HEIGHT,
+    );
+    const quality = SCENE_QUALITY[this.tier];
+    // Three r187 targets: output 12 B/px, scene 12*scale², labels 8, bloom
+    // scale²*(8 + 16*(1 + 1/4 + ...)); use the infinite chain as an upper bound.
+    const bytesPerPixel = Math.ceil(
+      12 +
+        12 * quality.renderScale ** 2 +
+        (quality.renderScale < 1 ? 8 : 0) +
+        quality.bloomScale ** 2 * (8 + (16 * 4) / 3),
+    );
+    // BloomNode floors five mip levels: its base needs 16 pixels per axis.
+    const minSide = quality.bloomScale > 0 ? 16 / quality.bloomScale : 2;
+    const pixelBudget = Math.max(
+      minSide ** 2,
+      Math.min(
+        quality.maxOutputPixels,
+        Math.floor((quality.textureBytes - this.resourceTextureBytes) / bytesPerPixel),
+      ),
+    );
+    const dpr = globalThis.devicePixelRatio || 1;
+    const scale = Math.min(dpr, Math.sqrt(pixelBudget / (width * height)));
+    // Keep the low scene target and every bloom mip at least 1×1.
+    // Clamp area and each axis; 4096 is the renderer's existing target capability floor.
+    const outputWidth = Math.max(
+      minSide,
+      Math.min(4096, Math.floor(width * scale), Math.floor(pixelBudget / minSide)),
+    );
+    const outputHeight = Math.max(
+      minSide,
+      Math.min(4096, Math.floor(height * scale), Math.floor(pixelBudget / outputWidth)),
+    );
+    this.devicePixelRatio = dpr;
+    // Contain the original view at every host aspect without distorting isometric proportions.
+    const viewWidth = Math.max(WIDTH, (HEIGHT * width) / height);
+    const viewHeight = Math.max(HEIGHT, (WIDTH * height) / width);
+    if (viewWidth !== this.viewWidth || viewHeight !== this.viewHeight) {
+      this.viewWidth = viewWidth;
+      this.viewHeight = viewHeight;
+      this.camera.left = -viewWidth / 2;
+      this.camera.right = viewWidth / 2;
+      this.camera.top = viewHeight / 2;
+      this.camera.bottom = -viewHeight / 2;
+      this.frameCamera(
+        [...this.drawn.values()].map(({ visual }) => visual.placement),
+        false,
+      );
+    }
+    // Explicit CSS height keeps an auto-height host from growing with its backing buffer.
+    this.canvas.style.height = `${height}px`;
+    if (outputWidth === this.outputWidth && outputHeight === this.outputHeight) return;
+    this.outputWidth = outputWidth;
+    this.outputHeight = outputHeight;
+    this.renderer.setSize(outputWidth, outputHeight, false);
+    this.refreshBounds();
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
   private refreshBounds(): void {
     this.rect = this.canvas?.getBoundingClientRect();
   }
@@ -663,8 +770,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const rect = this.rect;
     return rect?.width && rect.height
       ? [
-          ((event.clientX - rect.left) * WIDTH) / rect.width,
-          ((event.clientY - rect.top) * HEIGHT) / rect.height,
+          ((event.clientX - rect.left) * this.viewWidth) / rect.width,
+          ((event.clientY - rect.top) * this.viewHeight) / rect.height,
         ]
       : [0, 0];
   }
@@ -679,9 +786,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     page: string,
     expected: string,
     init?: RequestInit,
+    extension: "png" | "ktx2" = "png",
   ): Promise<ArrayBuffer | undefined> {
     try {
-      const response = await fetch(`/${page}.png`, init);
+      const response = await fetch(`/${page}.${extension}`, init);
       if (!response.ok) return;
       const bytes = await response.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -739,49 +847,84 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (!animation.material) return legacy;
     this.updateTextureBytes();
     const material = decodeSceneMaterialDelivery(animation.material);
-    const rendition = selectMaterialRendition(material, globalThis.devicePixelRatio ?? 1, {
-      transferBytes: Math.max(
-        0,
-        MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
-      ),
-      textureBytes: Math.max(
-        0,
-        MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
-      ),
+    this.materialLoader ??= atlasTextureLoader(this.renderer).catch(() => {
+      // The loader module could not load: every page falls back to its PNG.
+      this.materialFallback();
+      return undefined;
     });
+    const loader = await this.materialLoader;
+    if (this.destroyed) throw new Error("renderer retired");
+    this.metrics.materialTextureFormat = loader?.format ?? "png";
+    const remaining = () => {
+      this.updateTextureBytes();
+      return {
+        transferBytes: Math.max(
+          0,
+          MATERIAL_DELIVERY_BUDGET.transferBytes - this.materialTransferBytes,
+        ),
+        textureBytes: Math.max(
+          0,
+          MATERIAL_DELIVERY_BUDGET.textureBytes - this.metrics.atlasTextureBytes,
+        ),
+      };
+    };
+    const rendition = selectMaterialRendition(
+      material,
+      globalThis.devicePixelRatio ?? 1,
+      remaining(),
+      ["albedo"],
+      loader !== undefined,
+    );
     if (!rendition) return legacy;
     const albedo = rendition.channels.albedo;
-    const pages = albedo.pages ?? [{ atlasId: albedo.frames[0]?.atlasId, image: albedo.image }];
-    const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+    const encoding = albedo.encoding ?? "srgb";
+    const pages = albedo.pages ?? [
+      { atlasId: albedo.frames[0]?.atlasId, image: albedo.image, compressed: albedo.compressed },
+    ];
+    const textures = new Map<string, PageTexture>();
     for (const page of pages) {
       if (!page.atlasId) throw new Error("material page identity missing");
-      const textureKey = `${page.image.sha256}/${albedo.encoding ?? "srgb"}`;
-      let texture = this.materialPageTextures.get(textureKey);
+      const compressedKey = `${page.compressed.sha256}/${encoding}`;
+      const pngKey = `${page.image.sha256}/${encoding}`;
+      let texture =
+        (loader && this.materialPageTextures.get(compressedKey)) ||
+        this.materialPageTextures.get(pngKey);
       if (!texture) {
-        const bytes = await this.fetchAtlas(page.atlasId, page.image.sha256);
-        if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
-        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-        const image = new Image();
-        try {
-          await new Promise<void>((resolve, reject) => {
-            image.onload = () => resolve();
-            image.onerror = reject;
-            image.src = url;
-          });
-        } finally {
-          URL.revokeObjectURL(url);
+        let key = pngKey;
+        if (loader && !this.failedCompressedPages.has(page.compressed.sha256)) {
+          // A missing or altered file, a transcoder that fails to load, a worker out of memory or
+          // an unexpected size costs this page its compression, not the scene its assets.
+          try {
+            texture = await this.compressedPage(loader.ktx2, { ...page, atlasId: page.atlasId });
+            key = compressedKey;
+          } catch (error) {
+            if (this.destroyed) throw error;
+            this.failedCompressedPages.add(page.compressed.sha256);
+            this.materialFallback();
+          }
         }
-        if (image.width !== page.image.width || image.height !== page.image.height)
-          throw new Error("material dimensions differ");
-        texture = new THREE.Texture(image);
-        texture.colorSpace =
-          albedo.encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+        if (!texture) {
+          if (loader) {
+            // The rendition was chosen at compressed cost; its PNG must still fit at RGBA8.
+            const cost = materialPageCost(page, false);
+            const left = remaining();
+            if (cost.transferBytes > left.transferBytes || cost.textureBytes > left.textureBytes)
+              return legacy;
+          }
+          texture = await this.pngPage(page.atlasId, page.image.sha256);
+          if (
+            texture.image.width !== page.image.width ||
+            texture.image.height !== page.image.height
+          )
+            throw new Error("material dimensions differ");
+        }
+        texture.colorSpace = encoding === "linear" ? THREE.NoColorSpace : THREE.SRGBColorSpace;
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
         texture.needsUpdate = true;
         this.atlasTextures.push(texture);
-        this.materialPageTextures.set(textureKey, texture);
+        this.materialPageTextures.set(key, texture);
       }
       textures.set(page.atlasId, texture);
     }
@@ -791,6 +934,60 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }));
     if (!frames.every((frame) => frame.texture)) throw new Error("material frame page missing");
     return { ...animation, density: rendition.density, frames: frames as AtlasEntry["frames"] };
+  }
+  private materialFallback(): void {
+    this.metrics.materialTextureFallbacks += 1;
+    this.report({ name: "asset_cache", category: "failed", value: 1 });
+  }
+  private async pngPage(atlasId: string, sha256: string): Promise<PageTexture> {
+    const bytes = await this.fetchAtlas(atlasId, sha256);
+    if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const image = new Image();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = reject;
+        image.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return new THREE.Texture(image);
+  }
+  /**
+   * A digest-verified KTX2 page, transcoded off the main thread to the device's format, whose
+   * dimensions and uploaded size are the ones its budget was charged for.
+   */
+  private async compressedPage(
+    ktx2: NonNullable<Awaited<ReturnType<typeof atlasTextureLoader>>>["ktx2"],
+    page: {
+      readonly atlasId: string;
+      readonly image: { readonly width: number; readonly height: number; readonly bytes: number };
+      readonly compressed: { readonly sha256: string; readonly bytes: number };
+    },
+  ): Promise<PageTexture> {
+    const bytes = await this.fetchAtlas(page.atlasId, page.compressed.sha256, undefined, "ktx2");
+    if (!bytes || this.destroyed) throw new Error("material albedo unavailable");
+    const texture = await new Promise<THREE.CompressedTexture>((resolve, reject) =>
+      ktx2.parse(bytes, (texture) => resolve(texture as THREE.CompressedTexture), reject),
+    );
+    if (
+      this.destroyed ||
+      texture.mipmaps?.length !== 1 ||
+      texture.image.width !== page.image.width ||
+      texture.image.height !== page.image.height ||
+      THREE.TextureUtils.getByteLength(
+        texture.image.width,
+        texture.image.height,
+        texture.format,
+        texture.type,
+      ) !== materialPageCost(page, true).textureBytes
+    ) {
+      texture.dispose();
+      throw new Error("material albedo unavailable");
+    }
+    return texture as unknown as PageTexture;
   }
 
   private async create(): Promise<void> {
@@ -821,7 +1018,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (pages.some((page) => !page) || new Set(keys).size !== keys.length)
         return this.failAssets();
       let bytes = 0;
-      const textures = new Map<string, THREE.Texture<HTMLImageElement>>();
+      const textures = new Map<string, PageTexture>();
       (pages as AtlasPage[]).forEach(({ image }, n) => {
         const texture = new THREE.Texture(image);
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -893,8 +1090,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const x = drawn.body.position.x,
         y = -drawn.body.position.y;
       if (
-        Math.abs(x - this.camera.position.x) > WIDTH / (2 * this.camera.zoom) ||
-        Math.abs(y + this.camera.position.y) > HEIGHT / (2 * this.camera.zoom)
+        Math.abs(x - this.camera.position.x) > this.viewWidth / (2 * this.camera.zoom) ||
+        Math.abs(y + this.camera.position.y) > this.viewHeight / (2 * this.camera.zoom)
       ) {
         if (this.reducedMotion) this.setCamera({ x, y, zoom: this.camera.zoom });
         else
@@ -932,11 +1129,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    this.resizeViewport();
     this.applyMaterialTier();
     this.disposePost();
     const quality = SCENE_QUALITY[tier];
     this.scenePass = pass(this.scene, this.camera, { stencilBuffer: true });
-    // Low tier shades one quarter of the fragments, then composites to the unchanged logical canvas.
+    // Low tier shades one quarter of the output fragments; logical camera coordinates stay fixed.
     this.scenePass.setResolutionScale(quality.renderScale);
     const color = this.scenePass.getTextureNode("output");
     if (quality.bloomScale > 0) {
@@ -944,6 +1142,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.bloom.setResolutionScale(quality.bloomScale);
     }
     let output = this.bloom ? color.add(this.bloom) : color;
+    output = vec4(output.rgb.mul(this.environmentGrade), output.a);
     if (quality.renderScale < 1) {
       // Labels skip the reduced scene pass and draw at full resolution, so their text stays legible.
       this.scenePass.setLayers(new THREE.Layers());
@@ -1032,8 +1231,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setCamera({ x, y, zoom }: { x: number; y: number; zoom: number }): void {
     if (!this.camera) return;
     zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, zoom));
-    const halfX = WIDTH / (2 * zoom),
-      halfY = HEIGHT / (2 * zoom);
+    const halfX = this.viewWidth / (2 * zoom),
+      halfY = this.viewHeight / (2 * zoom);
     x = Math.max(this.bounds.x + halfX, Math.min(this.bounds.x + this.bounds.width - halfX, x));
     y = Math.max(this.bounds.y + halfY, Math.min(this.bounds.y + this.bounds.height - halfY, y));
     this.camera.position.set(x, -y, 1000);
@@ -1042,7 +1241,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.camera.updateMatrixWorld();
     this.dirty = true;
   }
-  private frameCamera(placements: readonly ScenePlacement[]): void {
+  private frameCamera(placements: readonly ScenePlacement[], reset = true): void {
     const points = placements.map(iso),
       xs = points.map(([x]) => x),
       ys = points.map(([, y]) => y);
@@ -1051,14 +1250,24 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       : [0, 0, 0, 0];
     const cx = ((minX ?? 0) + (maxX ?? 0)) / 2,
       cy = ((minY ?? 0) + (maxY ?? 0)) / 2;
-    const width = Math.max((maxX ?? 0) - (minX ?? 0) + 2 * PAN_MARGIN_PX, WIDTH / ZOOM.min);
-    const height = Math.max((maxY ?? 0) - (minY ?? 0) + 2 * PAN_MARGIN_PX, HEIGHT / ZOOM.min);
+    const width = Math.max(
+      (maxX ?? 0) - (minX ?? 0) + 2 * PAN_MARGIN_PX,
+      this.viewWidth / ZOOM.min,
+    );
+    const height = Math.max(
+      (maxY ?? 0) - (minY ?? 0) + 2 * PAN_MARGIN_PX,
+      this.viewHeight / ZOOM.min,
+    );
     this.bounds = { x: cx - width / 2, y: cy - height / 2, width, height };
-    this.setCamera({ x: cx, y: cy, zoom: 1 });
+    this.setCamera(
+      reset
+        ? { x: cx, y: cy, zoom: 1 }
+        : { x: this.camera.position.x, y: -this.camera.position.y, zoom: this.camera.zoom },
+    );
   }
   private candidates(x: number, y: number, touch: boolean): ObjectId[] {
-    const wx = this.camera.position.x + (x - WIDTH / 2) / this.camera.zoom;
-    const wy = -this.camera.position.y + (y - HEIGHT / 2) / this.camera.zoom;
+    const wx = this.camera.position.x + (x - this.viewWidth / 2) / this.camera.zoom;
+    const wy = -this.camera.position.y + (y - this.viewHeight / 2) / this.camera.zoom;
     const radius = (touch ? PICK_PX.touch : PICK_PX.mouse) / this.camera.zoom;
     return this.order.filter((id) => {
       const drawn = this.drawn.get(id);
@@ -1146,12 +1355,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       mesh.material.needsUpdate = true;
     }
     const image = frame.texture.image;
-    for (let i = 0; i < uv.count; i++)
-      uv.setXY(
-        i,
-        (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width,
-        1 - (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height,
-      );
+    // A PNG page uploads flipped (row 0 at v = 1); a KTX2 page uploads top row first at v = 0.
+    const flip = frame.texture.flipY;
+    for (let i = 0; i < uv.count; i++) {
+      const v = (frame.y + frame.height - (base[i * 2 + 1] ?? 0) * frame.height) / image.height;
+      uv.setXY(i, (frame.x + (base[i * 2] ?? 0) * frame.width) / image.width, flip ? 1 - v : v);
+    }
     uv.needsUpdate = true;
     mesh.userData.frame = index;
     return true;
@@ -1267,7 +1476,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     mesh.geometry?.dispose();
     if (
       mesh.material?.map &&
-      !this.atlasTextures.includes(mesh.material.map as THREE.Texture<HTMLImageElement>) &&
+      !this.atlasTextures.includes(mesh.material.map as PageTexture) &&
       mesh.userData.ownsTexture !== false
     )
       mesh.material.map.dispose();
@@ -1276,12 +1485,16 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private drawEnvironment(projection: SceneProjection): void {
     this.night = isNight(projection.simulationTime);
     this.scene.userData.night = this.night;
-    this.ambient.intensity = Math.PI * (this.night ? 0.4 : 1);
-    this.ambient.color.set(this.night ? 0x9caeca : 0xffffff);
+    const environment = projection.lighting?.environment;
+    this.environmentGrade.value.set(environment?.gradeColour ?? 0xffffff);
+    this.ambient.intensity = environment?.ambientIntensity ?? Math.PI * (this.night ? 0.4 : 1);
+    this.ambient.color.set(environment?.ambientColour ?? (this.night ? 0x9caeca : 0xffffff));
     if (this.scene.background instanceof THREE.Color)
-      this.scene.background.set(this.night ? 0x192b20 : 0x3f6b3a);
+      this.scene.background.set(
+        environment?.backgroundColour ?? (this.night ? 0x192b20 : 0x3f6b3a),
+      );
     if (this.scene.fog instanceof THREE.Fog)
-      this.scene.fog.color.set(this.night ? 0x25334c : 0x43534b);
+      this.scene.fog.color.set(environment?.fogColour ?? (this.night ? 0x25334c : 0x43534b));
     if (this.ground.material instanceof THREE.MeshStandardNodeMaterial)
       this.ground.material.roughness = projection.weather.rainIntensity > 0 ? 0.45 : 1;
     this.rain.visible = projection.weather.rainIntensity > 0;
@@ -1380,14 +1593,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     const shown = new Set(shownEffects(projection));
     for (const item of this.effects) {
-      const visible = shown.has(
-        effects[item.index] as NonNullable<SceneProjection["effects"]>[number],
-      );
+      const daylight = projection.lighting?.environment?.daylight;
+      const alpha = item.role !== "puddle" && daylight !== undefined ? 1 - daylight : 1;
+      const visible =
+        item.role !== "puddle" && daylight !== undefined
+          ? alpha > 0
+          : shown.has(effects[item.index] as NonNullable<SceneProjection["effects"]>[number]);
       const was = item.sprite.visible && !this.effectFades.has(item.sprite);
       if (visible) {
         this.effectFades.delete(item.sprite);
         item.sprite.visible = true;
-        item.sprite.material.opacity = 1;
+        item.sprite.material.opacity = alpha;
       } else if (was && item.role === "puddle" && !this.reducedMotion)
         this.effectFades.set(item.sprite, {
           start: performance.now(),
@@ -1702,8 +1918,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     if (this.rain?.visible && SCENE_QUALITY[this.tier].rain > 0) {
       const array = this.rain.geometry.getAttribute("position").array as Float32Array;
-      const width = WIDTH / this.camera.zoom,
-        height = HEIGHT / this.camera.zoom;
+      const width = this.viewWidth / this.camera.zoom,
+        height = this.viewHeight / this.camera.zoom;
       for (let i = 0; i < array.length / 6; i++) {
         const x = this.camera.position.x + (((i * 73.17) % width) - width / 2);
         const y = this.camera.position.y + height / 2 - ((i * 41.71 + t * 0.2) % height);
@@ -1751,6 +1967,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
+    if (this.devicePixelRatio !== (globalThis.devicePixelRatio || 1)) this.resizeViewport();
     if (!this.initialized || (ATLASES && this.atlasTextures.length === 0) || !this.projection)
       return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
@@ -1872,19 +2089,29 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       else bytes += size;
     }
     this.metrics.atlasTextureBytes = atlasBytes;
+    const changed = this.resourceTextureBytes !== bytes;
+    this.resourceTextureBytes = bytes;
+    // Largest minimum target is medium's 32² pixels; 54 B/px bounds all tier targets.
+    if (this.content && bytes + 55_296 > SCENE_QUALITY[this.tier].textureBytes) {
+      this.failContent("content_contract");
+      return;
+    }
+    if (changed) this.resizeViewport();
     // Three r187 Renderer output conversion retains RGBA16F + depth/stencil storage.
     // Conservatively include it even when RenderPipeline handles output conversion itself.
-    bytes += WIDTH * HEIGHT * 12;
+    bytes += this.outputWidth * this.outputHeight * 12;
     const quality = SCENE_QUALITY[this.tier];
     bytes +=
-      Math.floor(WIDTH * quality.renderScale) * Math.floor(HEIGHT * quality.renderScale) * 12;
+      Math.floor(this.outputWidth * quality.renderScale) *
+      Math.floor(this.outputHeight * quality.renderScale) *
+      12;
     // A reduced tier's full-resolution label pass: one RGBA16F target without depth.
-    if (this.labelPass) bytes += WIDTH * HEIGHT * 8;
+    if (this.labelPass) bytes += this.outputWidth * this.outputHeight * 8;
     const scale = quality.bloomScale;
     if (scale > 0) {
       // BloomNode has a bright target and two five-level RGBA16F chains, starting at bloomScale.
-      let width = Math.floor(WIDTH * scale),
-        height = Math.floor(HEIGHT * scale);
+      let width = Math.floor(this.outputWidth * scale),
+        height = Math.floor(this.outputHeight * scale);
       bytes += width * height * 8;
       for (let level = 0; level < 5; level++) {
         bytes += width * height * 16;
@@ -1897,6 +2124,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.resizeObserver?.disconnect();
     this.restoreContentErrors?.();
     this.restoreContentErrors = undefined;
     this.contentAbort.abort();
@@ -1928,6 +2156,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
     for (const texture of this.atlasTextures) texture.dispose();
     this.atlasTextures = [];
+    void this.materialLoader?.then((loader) => loader?.release()).catch(() => {});
     this.canvas?.remove();
     // Three r187 dispose awaits init, which rejects again when both backends are unavailable.
     void this.renderer?.dispose().catch(() => {});

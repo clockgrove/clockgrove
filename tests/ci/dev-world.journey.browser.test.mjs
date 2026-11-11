@@ -373,7 +373,7 @@ it("captures an external world's full matrix and retains digest-specific approva
             presentation: {
               presentationVersion: 1,
               assetManifestVersion: 2,
-              pack: { id: "clockgrove.fixture-hall", version: "1.1.0" },
+              pack: { id: "clockgrove.fixture-hall", version: "1.2.0" },
               bindings: [
                 {
                   objectId: "fixture.keeper",

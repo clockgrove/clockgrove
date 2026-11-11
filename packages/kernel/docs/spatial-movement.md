@@ -190,7 +190,7 @@ A movement or portal command that moves the world time runs the time it passes a
 would, inside its own events. Up to each of the command's events it applies, through the same
 systems, group emitter and decision loop as `world.advance`: day/night phase changes, weather
 transitions (with every actor and plant integrated first), every actor's exposure, need, comfort
-and health crossings, spoilage, appearance and plant stage changes, lifecycle actions, routine
+and health crossings, spoilage, weather collection and plant stage changes, lifecycle actions, routine
 movers' crossings and arrivals, dwells, and other actors' due decisions, including those a
 crossing brings forward. Each lands at its exact time, before the command's own events at that
 time. Lifecycle draws from the `lifecycle` random stream in the same order as `world.advance`, and
@@ -212,6 +212,29 @@ Three things differ from `world.advance`:
   carries no cause; the `lifecycle.died` at the same time carries it (`lifespan` or `health`).
   The handler's later events are dropped, and nothing after that time is emitted.
 
+A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
+does. A location is a shelter's pose in the mover's space and frame; regions are not locations, so
+crossings do not change it. Two rules, applied to every active mover (a needs actor, a plant or any
+other object):
+
+- **Leaving.** When the movement it starts or replans leaves its starting point, a located mover
+  journals `location.changed` to null just before `movement.started` or `movement.replanned`. A
+  zero-length movement does not leave.
+- **Stopping.** Where it stops (`movement.completed` or `movement.interrupted`), it journals
+  `location.changed` to the active shelter standing there (the one it is in, else the first by
+  object id) or to null on open ground, unless that is where it already is.
+
+So a located mover that leaves and stops where it began (replanned back, or interrupted before it
+has moved) journals two changes: to null as it leaves, back to the shelter where it stops. A
+zero-length move by an unlocated mover standing at a shelter's pose enters that shelter; a located
+mover's zero-length move changes nothing. Whatever shelter protects is integrated under the old
+location first: a needs actor's needs and wellbeing (its exposure is then re-seeded under the new
+one) and a plant's growth (the world time then continues under the new protection). The change's
+`planId` is the movement id, and its events count toward the move's event bound. A command's
+movement observed only up to `observeUntil` is finished by a later `world.advance` (under a
+`utility` policy): it arrives as a decision's move does ([utility decisions](utility-decisions.md),
+"Plans and arrival"), and the plan its arrival events name is that movement id.
+
 The event authority of every moving command (`movement.event-authority.<command>@3`,
 `portal.event-authority.portal.use@3`) allows its own events and the events `world.advance` emits
 for the time it passes, other than `time.advanced`. The mover's movement events (those naming
@@ -224,7 +247,7 @@ time order and no repeated event (same type, time and payload). The one exceptio
 `resource.consumed`: two actors eating from one holder at one time each journal the same
 consumption. `movement.scope@4` refuses:
 
-- an appearance or spoilage at a time its ecology does not own (`events[i].simulationTime`);
+- spoilage at a time its ecology does not own (`events[i].simulationTime`);
 - no movement event of the mover, or a movement event of another object that is not a needs actor
   (the only objects routine movers move); dwells (`movement.region-remained`) may name any object
   (`events`);
@@ -251,14 +274,16 @@ The time a move passes is bounded by `movement.passed-time@2` (`precondition-fai
 The reference fixture's `boundary-walk` scenario moves the keeper across 6:00 while its dwell falls
 due and every actor's decision due at the start waits for the move's end (`movement.start`), dusk
 (`movement.start`), midnight as the rain begins (`movement.start`), dawn with spoilage and
-appearance (`movement.start`), the end of the rain (`movement.interrupt`), a herb stage change
+physical resource change (`movement.start`), the end of the rain (`movement.interrupt`), a herb stage change
 (`movement.replan`), dusk as rain begins again (`portal.use`), and the other two actors' decisions
 at midnight while the keeper's waits for the walk's end (`movement.start`), live and fast-forward,
 with equal final states. It also records a replan two days ahead refused at `payload.at`. Its
 `walk-crossings` scenario walks the keeper across its own uncomfortable crossing (and the next
 `world.advance` runs), across a conception with its `lifecycle` draw and another actor's decision,
 and across its lifespan death, which interrupts the walk. A control run without the walks ends
-with the same `lifecycle` stream position.
+with the same `lifecycle` stream position. Its `walk-out-of-den` scenario walks the companion out of
+the den to the water bowl, back in, and then in place, live and fast-forward: one location change
+as it leaves, one as it enters and none for the move in place.
 
 Perception and audiences are built ([Perception and audiences](perception.md), RW-0105b).
 

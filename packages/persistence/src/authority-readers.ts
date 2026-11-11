@@ -129,7 +129,17 @@ export class PostgreSqlWorldAuthorizationReader implements WorldAuthorizationPor
           membershipId: decodeOpaqueId(row.membership_id, "WorldMembershipId"),
           personaId: decodeOpaqueId(row.persona_id, "WorldPersonaId"),
           roles: ids(row.roles, "RoleId"),
-          grants: ids(row.grants, "GrantRef"),
+          grants: ids(
+            Array.isArray(row.roles) &&
+              row.roles.includes("owner") &&
+              !row.roles.includes("actor") &&
+              typeof row.principal_id === "string" &&
+              !row.principal_id.startsWith("system:") &&
+              Array.isArray(row.grants)
+              ? [...new Set([...row.grants, "runtime:mcp-install"])]
+              : row.grants,
+            "GrantRef",
+          ),
           privacyCeiling: decodePrivacyCeiling(row.privacy_ceiling),
         };
       },

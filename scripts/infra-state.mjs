@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { stateStoreFor } from "./ci/deployment-authority.mjs";
+import { restoresRetiredRoles, stateStoreFor } from "./ci/deployment-authority.mjs";
 import { root } from "./ci/evidence.mjs";
 import { assertRoutingMetadata } from "./ci/routing-metadata.mjs";
 import {
@@ -83,6 +83,16 @@ export async function restore(store, target, key, { replace = false } = {}, now 
   }
   try {
     const current = await store.read(keys.state);
+    // Over a present or a lost state alike, refuse a backup from before the SQL-created roles.
+    const others = await Promise.all(
+      (await store.list(keys.backups))
+        .filter((name) => name !== key && isBackupKey(target, name))
+        .map((name) => store.get(name)),
+    );
+    assert(
+      !restoresRetiredRoles([current?.body, ...others].filter(Boolean), backup),
+      `${key} predates the SQL-created database roles and holds their retired Neon API roles; a deploy from it would delete the live roles (see docs/runbooks/infrastructure.md, Database roles)`,
+    );
     if (!current) {
       await store.create(keys.state, backup);
       return `restored ${store.bucket}/${keys.state} from ${key}`;

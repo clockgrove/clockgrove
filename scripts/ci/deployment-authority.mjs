@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { cp, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { restrictedRoleKeys } from "../database/deployment-roles.mjs";
 import { root } from "./evidence.mjs";
 import { stateStore } from "./state-store.mjs";
 
@@ -104,7 +105,8 @@ export function resourceAddresses(config) {
       `cloudflare_r2_bucket.artifacts["${key}"]`,
       `cloudflare_r2_bucket_lifecycle.retention["${key}"]`,
     ]),
-    ...Object.keys(config.resources.database.roles).map((key) => `neon_role.database["${key}"]`),
+    'neon_role.database["migrations"]',
+    ...restrictedRoleKeys.map((key) => `random_password.database["${key}"]`),
     "neon_project.world[0]",
     "neon_database.world[0]",
     "cloudflare_hyperdrive_config.world[0]",
@@ -118,13 +120,64 @@ export function resourceAddresses(config) {
   ]);
 }
 
+// Resources an earlier configuration owned and this one no longer declares. The restricted
+// database roles were Neon API roles, which Neon makes members of neon_superuser; the migration role
+// now creates them with SQL. State may still hold them until one provision apply deletes them.
+export function retiredResources() {
+  return new Set(restrictedRoleKeys.map((key) => `neon_role.database["${key}"]`));
+}
+
+// Whether restoring `backup` (a raw OpenTofu state file) could bring back a retired Neon API role in
+// an environment whose roles are already created with SQL: the backup holds a retired instance
+// and one of `others` (the current state and the other backups) holds that key's generated
+// password, so the environment has been migrated. A provision plan from such a state would delete
+// the live role of that name.
+export function restoresRetiredRoles(others, backup) {
+  const instances = (state, type) =>
+    (JSON.parse(String(state)).resources ?? [])
+      .filter((resource) => resource.type === type && resource.name === "database")
+      .flatMap((resource) => resource.instances.map((instance) => instance.index_key));
+  const migrated = new Set(others.flatMap((state) => instances(state, "random_password")));
+  return instances(backup, "neon_role").some((key) => migrated.has(key));
+}
+
+// Every address state may hold: the owned resources and the retired ones not yet deleted.
+export function persistedAddresses(config) {
+  return new Set([...resourceAddresses(config), ...retiredResources()]);
+}
+
+// The one deletion a plan may carry: a retired resource deleted only because the configuration
+// dropped its key, in the provision stage. State holds a retired address only until that deletion
+// applies; the configuration cannot create one again, and `pnpm infra:state restore` refuses a
+// backup that would bring one back to a migrated environment. A partial migration (the generated
+// password created, the deletion not) completes on the next deploy. Any other deletion, including
+// a replacement, is refused.
+const retiredDeletion = (change, stage) =>
+  stage === "provision" &&
+  change.change.actions.length === 1 &&
+  change.change.actions[0] === "delete" &&
+  change.action_reason === "delete_because_each_key";
+
 export function verifyPlan(plan, config, stage, preservePublic) {
-  const allowed = resourceAddresses(config);
+  const allowed = persistedAddresses(config);
   const changes = plan.resource_changes ?? [];
   assert(changes.length <= allowed.size, "infrastructure resource bound exceeded");
   for (const change of changes) {
     assert(allowed.has(change.address), "undeclared infrastructure resource");
+    if (retiredResources().has(change.address)) {
+      assert(
+        retiredDeletion(change, stage),
+        `retired ${change.address} may only be deleted, in the provision stage`,
+      );
+      continue;
+    }
     assert(!change.change.actions.includes("delete"), "destructive infrastructure plan refused");
+    assert(
+      change.change.actions.every((action) =>
+        ["no-op", "create", "read", "update"].includes(action),
+      ),
+      "unreviewed infrastructure plan action refused",
+    );
     if (stage === "provision" && change.address === "cloudflare_hyperdrive_config.world[0]") {
       assert(
         change.change.actions.every((action) => action === "no-op"),
@@ -143,15 +196,72 @@ export function verifyPlan(plan, config, stage, preservePublic) {
   }
 }
 
+// Why a provider refused, safe for release logs: the HTTP status and the provider's own error
+// codes and messages. Nothing this process sent (headers, tokens, bodies) is echoed.
+async function refusal(response) {
+  let detail = "";
+  try {
+    const body = await response.json();
+    const errors = Array.isArray(body?.errors) ? body.errors : body?.message ? [body] : [];
+    detail = errors
+      .slice(0, 3)
+      .map((error) => `${error.code ?? "?"} ${String(error.message ?? "").slice(0, 160)}`)
+      .join("; ");
+  } catch {
+    // A body that is not JSON adds nothing beyond the status.
+  }
+  return `HTTP ${response.status}${detail ? `: ${detail}` : ""}`;
+}
+
+// The endpoint a refusal came from, without the account or zone ID or the query.
+const endpoint = (suffix) => suffix.replace(/^(?:accounts|zones)\/[^/]+\//u, "").split("?")[0];
+
 export async function cloudflareFact(token, suffix) {
   const response = await fetch(`https://api.cloudflare.com/client/v4/${suffix}`, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(30_000),
   });
-  assert(response.ok, "authenticated Cloudflare activation facts unavailable");
+  if (!response.ok)
+    assert.fail(
+      `authenticated Cloudflare activation facts unavailable (${endpoint(suffix)}, ${await refusal(response)})`,
+    );
   const body = await response.json();
   assert(body.success, "authenticated Cloudflare activation facts refused");
   return body.result;
+}
+
+// Whether Wrangler will need the account's workers.dev subdomain to publish this Worker: Wrangler 4
+// looks it up whenever a Worker that defines Workflows is published with workers.dev routing off,
+// and in CI refuses ("Workflows require your account to have a workers.dev subdomain") rather than
+// register one. A Workflow names another Worker's class only through `script_name`.
+export function workersDevSubdomainRequired(wrangler) {
+  return (
+    wrangler.workers_dev !== true &&
+    (wrangler.workflows ?? []).some(
+      (workflow) => !workflow.script_name || workflow.script_name === wrangler.name,
+    )
+  );
+}
+
+// Refuses, before anything changes, an account without a workers.dev subdomain, which Wrangler
+// would otherwise refuse only at Worker publication, after provisioning and migrations. The token's
+// Workers Scripts permission reads it (GET accounts/<id>/workers/subdomain).
+export async function assertWorkersDevSubdomain(config, token, request = fetch) {
+  const account = config.safeIds.cloudflareAccountId;
+  const response = await request(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/workers/subdomain`,
+    { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
+  );
+  let said;
+  if (response.ok) {
+    const body = await response.json().catch(() => null);
+    if (body?.success && typeof body.result?.subdomain === "string" && body.result.subdomain)
+      return body.result.subdomain;
+    said = "HTTP 200 without a subdomain";
+  } else said = await refusal(response);
+  assert.fail(
+    `Cloudflare account workers.dev subdomain unavailable (workers/subdomain, ${said}); Wrangler publishes a Worker that defines Workflows only on an account with one. Register it at https://dash.cloudflare.com/${account}/workers/onboarding, or grant the token Workers Scripts if the refusal is a permission`,
+  );
 }
 
 // Owned resources whose names the provider does not keep unique: with state that does not record
@@ -186,7 +296,10 @@ async function cloudflareList(token, suffix) {
       `https://api.cloudflare.com/client/v4/${suffix}${separator}page=${page}&per_page=50`,
       { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
     );
-    assert(response.ok, "authenticated Cloudflare resource listing unavailable");
+    if (!response.ok)
+      assert.fail(
+        `authenticated Cloudflare resource listing unavailable (${endpoint(suffix)}, ${await refusal(response)})`,
+      );
     const body = await response.json();
     assert(body.success && Array.isArray(body.result), "authenticated Cloudflare listing refused");
     items.push(...body.result);
@@ -207,7 +320,8 @@ export async function existingByName(resource, config, env) {
         signal: AbortSignal.timeout(30_000),
       },
     );
-    assert(response.ok, "authenticated Neon project listing unavailable");
+    if (!response.ok)
+      assert.fail(`authenticated Neon project listing unavailable (${await refusal(response)})`);
     const { projects } = await response.json();
     assert(Array.isArray(projects) && projects.length < 400, "Neon project listing incomplete");
     return projects.filter((project) => project.name === resource.name).map(({ id }) => id);
@@ -274,6 +388,79 @@ export async function verifyPriorActivation(config, token, inventory) {
     "authenticated DNS identity mismatch",
   );
   return true;
+}
+
+// The generated passwords of the roles the migration role creates with SQL, keyed by role key.
+export function restrictedRolePasswords(credentials, config) {
+  return Object.fromEntries(
+    restrictedRoleKeys.map((key) => {
+      const role = credentials?.roles?.[key];
+      assert(
+        role?.name === config.resources.database.roles[key] && role.password,
+        `missing generated ${key} role credential`,
+      );
+      return [key, role.password];
+    }),
+  );
+}
+
+// Neon applies a role change to the compute after its API request returns, and the provider waits
+// only before each request. The role SQL runs once the project has no operation in progress, so it
+// never meets a retired API role that is still being dropped. The wait is bounded (`maxSeconds`
+// in all, polling every `interval`); one 5xx answer is retried. An operation created since `since`
+// (the deploy's start) that ended failed, in error or cancelled stops the deploy, named.
+const operationNames = (operations) =>
+  operations
+    .map(({ action, status }) => `${String(action).replace(/[^a-z_]/gu, "")} (${status})`)
+    .join(", ");
+export async function awaitNeonOperations(projectId, token, options = {}) {
+  const {
+    since = 0,
+    maxSeconds = 180,
+    interval = 5,
+    sleep = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
+    request = fetch,
+    now = Date.now,
+  } = options;
+  const deadline = now() + maxSeconds * 1000;
+  let serverErrors = 0;
+  for (;;) {
+    const response = await request(
+      `https://console.neon.tech/api/v2/projects/${encodeURIComponent(projectId)}/operations?limit=50`,
+      {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    let pending = [];
+    if (response.status >= 500 && ++serverErrors === 1) {
+      pending = [{ action: "listing", status: `HTTP ${response.status}` }];
+    } else {
+      if (!response.ok)
+        assert.fail(
+          `authenticated Neon operation listing unavailable (${await refusal(response)})`,
+        );
+      const { operations } = await response.json();
+      assert(Array.isArray(operations), "Neon operation listing refused");
+      const ended = operations.filter(
+        ({ status, created_at }) =>
+          ["failed", "error", "cancelled"].includes(status) && Date.parse(created_at) >= since,
+      );
+      assert(
+        ended.length === 0,
+        `Neon operations of this deploy did not succeed: ${operationNames(ended)}`,
+      );
+      pending = operations.filter(({ status }) =>
+        ["scheduling", "running", "cancelling"].includes(status),
+      );
+      if (pending.length === 0) return;
+    }
+    assert(
+      now() + interval * 1000 <= deadline,
+      `Neon project operations still in progress after ${maxSeconds} s: ${operationNames(pending)}`,
+    );
+    await sleep(interval);
+  }
 }
 
 export function roleConnections(credentials, config) {

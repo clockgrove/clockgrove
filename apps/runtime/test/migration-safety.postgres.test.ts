@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,8 @@ import {
 } from "../../../scripts/database/backfill.mjs";
 import {
   applyMigrations,
+  applySqlFile,
+  repositoryRoot,
   withDisposableDatabase,
   // @ts-expect-error -- repository-local JavaScript helper has no declaration file.
 } from "../../../scripts/database/lib.mjs";
@@ -132,6 +134,77 @@ describe("migration backfills and contract steps", () => {
       ).rejects.toThrow(new BackfillVerificationError("9001_payload_digests", "wrong"));
       expect(await checkpointOf(sql, "wrong")).toEqual({ value: complete, verified: false });
     });
+  }, 120_000);
+
+  it("resumes and verifies existing process deadlines after nullable expansion", async () => {
+    const baseline = await mkdtemp(join(tmpdir(), "clockgrove-process-expand-"));
+    try {
+      const migrations = join(repositoryRoot, "db/migrations");
+      for (const name of await readdir(migrations))
+        if ((/^\d+.*\.sql$/.test(name) && name < "0048") || name === "contract-steps.json")
+          await copyFile(join(migrations, name), join(baseline, name));
+      await withDisposableDatabase(async (fixture: DatabaseFixture) => {
+        await applyMigrations(fixture.tools, fixture.environment, { migrationDirectory: baseline });
+        await applySqlFile(fixture.tools, fixture.environment, "db/fixtures/current-schema.sql");
+        const sql = truthOf(fixture);
+        await sql(`SET ROLE clockgrove_migrator;
+          INSERT INTO clockgrove.timeline_partitions
+            (tenant_id, world_id, timeline_id, partition_id, space_id)
+          SELECT 'tenant-fixture', 'world-fixture', 'timeline-fixture',
+            'process-' || lpad(n::text, 3, '0'), 'space-fixture' FROM generate_series(1, 101) n;
+          INSERT INTO clockgrove.partition_states
+            (tenant_id, world_id, timeline_id, partition_id, space_id, revision,
+             covered_head_sequence, simulation_time, document_version, document, document_hash, state_hash)
+          SELECT 'tenant-fixture', 'world-fixture', 'timeline-fixture',
+            'process-' || lpad(n::text, 3, '0'), 'space-fixture', 0, 0, 0, 2,
+            format(' ["record", [["state", ["record", [["processes", ["array", [
+              ["record", [["nextAt", ["bigint", "%s"]]]]]]]]]]]]', 1000 + n)::jsonb,
+            repeat('0', 64), repeat('0', 64) FROM generate_series(1, 101) n`);
+        await copyFile(
+          join(migrations, "0048_world_process_deadlines.sql"),
+          join(baseline, "0048_world_process_deadlines.sql"),
+        );
+        await expect(
+          applyMigrations(fixture.tools, fixture.environment, {
+            migrationDirectory: baseline,
+            backfillOptions: {
+              afterBatch: () => {
+                throw new Error("interrupted after expansion");
+              },
+            },
+          }),
+        ).rejects.toThrow("interrupted after expansion");
+        expect(await checkpointOf(sql, "partition-process-deadlines")).toEqual({
+          value: {
+            cursor: '["tenant-fixture", "timeline-fixture", "process-100"]',
+            rows: 100,
+            batches: 1,
+            complete: false,
+          },
+          verified: false,
+        });
+        expect(
+          await sql(`SELECT count(next_process_due_at) FROM clockgrove.partition_states`),
+        ).toBe("100");
+        await applyMigrations(fixture.tools, fixture.environment, { migrationDirectory: baseline });
+        expect(await checkpointOf(sql, "partition-process-deadlines")).toEqual({
+          value: {
+            cursor: '["tenant-fixture", "timeline-fixture", "process-101"]',
+            rows: 101,
+            batches: 2,
+            complete: true,
+          },
+          verified: true,
+        });
+        expect(
+          await sql(`SELECT count(*), min(next_process_due_at), max(next_process_due_at),
+          bool_and(next_process_due_at = 1000 + right(partition_id, 3)::integer)
+          FROM clockgrove.partition_states`),
+        ).toBe("101|1001|1101|t");
+      });
+    } finally {
+      await rm(baseline, { recursive: true, force: true });
+    }
   }, 120_000);
 
   it("refuses undeclared DELETE, TRUNCATE and DROP migrations in every form and applies declared ones", async () => {

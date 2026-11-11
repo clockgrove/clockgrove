@@ -903,14 +903,16 @@ const observeHall = async (backend) => {
           await route.continue();
         });
         const worldPoint = (objectId) => isoPoint(first, objectId);
-        const canvasPoint = (objectId) => {
+        const canvasPoint = async (objectId) => {
           const [{ x, y }, [cx, cy]] = [worldPoint(objectId), isoCentre(first)];
-          return { x: x - cx + 320, y: y - cy + 200 };
+          const { width, height } = await page.locator("canvas").boundingBox();
+          const scale = Math.min(width / 640, height / 400);
+          return { x: (x - cx) * scale + width / 2, y: (y - cy) * scale + height / 2 };
         };
         const pickedEntity = first.entities.find(
           (entity) => entity.objectId === "fixture.water-bowl",
         );
-        const pointerPosition = canvasPoint("fixture.water-bowl");
+        const pointerPosition = await canvasPoint("fixture.water-bowl");
         const water = worldPoint("fixture.water-bowl");
         // Only the selected entity gets a glowing sage ring at its feet and its name centred in a dark
         // pill (10 px side and 4 px top and bottom padding) whose bottom edge sits 6 px above its
@@ -1398,14 +1400,19 @@ const observeHall = async (backend) => {
             ).toBe("rgb(30, 33, 22)");
             await feed.getByRole("button", { name: "Collapse event feed", exact: true }).click();
             // The window, not an inner container, scrolls the canvas; picking survives the scroll.
-            const far = first.entities
-              .map((entity) => ({ objectId: entity.objectId, ...canvasPoint(entity.objectId) }))
-              .sort((a, b) => b.x - a.x)[0];
+            const far = (
+              await Promise.all(
+                first.entities.map(async (entity) => ({
+                  objectId: entity.objectId,
+                  ...(await canvasPoint(entity.objectId)),
+                })),
+              )
+            ).sort((a, b) => b.x - a.x)[0];
             const scrolled = await page.evaluate(
               ([x, y]) => {
                 const canvas = document.querySelector("canvas").getBoundingClientRect();
                 scrollTo(canvas.left + x - innerWidth / 2, canvas.top + y - innerHeight / 3);
-                return scrollX;
+                return scrollY;
               },
               [far.x, far.y],
             );
@@ -1498,10 +1505,11 @@ const observeHall = async (backend) => {
                 0n,
                 current.document.state.revision,
               ),
-              type: index % 2 === 0 ? "resource.offer" : "resource.consume",
+              type: "resource.transfer",
               payload: {
                 schemaVersion: 1,
-                objectId: "fixture.water-bowl",
+                fromObjectId: index % 2 === 0 ? "fixture.household-water" : "fixture.water-bowl",
+                toObjectId: index % 2 === 0 ? "fixture.water-bowl" : "fixture.household-water",
                 kind: "water",
                 quantity: 1,
               },
@@ -1541,7 +1549,7 @@ const observeHall = async (backend) => {
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         // Pointer and keyboard must expose identical ordered action rows through this panel.
         await scene.getByRole("button", { name: "fixture.cedar", exact: true }).click();
-        await page.locator("canvas").click({ position: pointerPosition });
+        await page.locator("canvas").click({ position: await canvasPoint("fixture.water-bowl") });
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         await scene.getByRole("button", { name: "fixture.cedar", exact: true }).click();
         await scene
@@ -1553,6 +1561,17 @@ const observeHall = async (backend) => {
         await page.keyboard.press("Tab");
         await page.keyboard.press("Enter");
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
+        await actionRows.first().getByRole("button").click();
+        const resourceWhy = page.getByRole("region", {
+          name: "Recorded resource causes",
+          exact: true,
+        });
+        await expect
+          .poll(() => resourceWhy.getByRole("listitem").allTextContents())
+          .toEqual([
+            `1 water at fixture.household-water: transferred from fixture.water-bowl; simulation time ${recorded[0].simulationTime}; event ${recorded[0].eventId}`,
+          ]);
+        await page.getByRole("button", { name: "Close Why", exact: true }).click();
         // Each action now has a Why button before the earlier-history control in tab order.
         await actionRows.last().getByRole("button").focus();
         await page.keyboard.press("Tab");
@@ -1891,14 +1910,15 @@ const observeHall = async (backend) => {
         // An event of a command with retained routine decisions opens the same command's Why from the feed.
         const openFeed = feed.getByRole("button", { name: "Open event feed", exact: true });
         if (await openFeed.isVisible()) await openFeed.click();
-        await feed.locator('[data-event-id="browser-why-original:event:28"]').click();
+        const whyEventId = await truth(
+          "SELECT event_id FROM clockgrove.events WHERE command_id='browser-why-original' AND event_type='routine.selected' ORDER BY partition_sequence DESC LIMIT 1",
+        );
+        await feed.locator(`[data-event-id="${whyEventId}"]`).click();
         const eventWhy = page.getByRole("region", { name: "Recorded Why", exact: true });
         await eventWhy
           .getByRole("heading", { name: "Recorded Why: browser-why-original", exact: true })
           .waitFor();
-        await eventWhy
-          .getByText("Started from event browser-why-original:event:28", { exact: true })
-          .waitFor();
+        await eventWhy.getByText(`Started from event ${whyEventId}`, { exact: true }).waitFor();
         await eventWhy.getByText("receipt: canonical", { exact: true }).waitFor();
         expect(
           await eventWhy.getByRole("heading", { name: /^Recorded decision 1 for / }).count(),
@@ -2392,6 +2412,7 @@ const observeHall = async (backend) => {
                 .sort(([, a], [, b]) => b.body.renderOrder - a.body.renderOrder)
                 .map(([objectId]) => objectId),
               camera: [camera.rotation.z, camera.zoom],
+              viewport: [adapter.canvas.clientWidth, adapter.canvas.clientHeight],
               bounds: [
                 bounds.x + bounds.width / 2,
                 bounds.y + bounds.height / 2,
@@ -2431,8 +2452,14 @@ const observeHall = async (backend) => {
           [0, 1],
           [
             ...isoCentre(golden),
-            Math.max(extent(points.map(({ x }) => x)) + 320, 640 / 0.75),
-            Math.max(extent(points.map(({ y }) => y)) + 320, 400 / 0.75),
+            Math.max(
+              extent(points.map(({ x }) => x)) + 320,
+              Math.max(640, (400 * state.viewport[0]) / state.viewport[1]) / 0.75,
+            ),
+            Math.max(
+              extent(points.map(({ y }) => y)) + 320,
+              Math.max(400, (640 * state.viewport[1]) / state.viewport[0]) / 0.75,
+            ),
           ],
           true,
           [timeOfDay < 21_600_000 || timeOfDay >= 64_800_000, true],
@@ -2524,7 +2551,7 @@ const observeHall = async (backend) => {
           });
         await mouse.locator("canvas").scrollIntoViewIfNeeded();
         const canvasBox = await mouse.locator("canvas").boundingBox();
-        const middle = [canvasBox.x + 320, canvasBox.y + 200];
+        const middle = [canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2];
         await mouse.mouse.move(...middle);
         for (const [delta, zoom] of [
           [-100, 2],
@@ -2564,7 +2591,11 @@ const observeHall = async (backend) => {
           .getByRole("listitem")
           .getByRole("button", { pressed: true });
         for (const objectId of [...tapped, tapped[0]]) {
-          await hall.touchscreen.tap(touchBox.x + den.x - cx + 320, touchBox.y + den.y - cy + 200);
+          const scale = Math.min(touchBox.width / 640, touchBox.height / 400);
+          await hall.touchscreen.tap(
+            touchBox.x + touchBox.width / 2 + (den.x - cx) * scale,
+            touchBox.y + touchBox.height / 2 + (den.y - cy) * scale,
+          );
           await expect.poll(() => pressed.textContent()).toBe(objectId);
         }
         // Reduced motion snaps a short committed move, and a cue draws once per dedupe key.
@@ -2955,8 +2986,8 @@ const observeHall = async (backend) => {
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           receiptsBefore,
         );
-        // With the world-command grant, the same kind of proposal commits through the ordinary
-        // Journal, and the member (also granted inspection) opens Why from the outcome line, which
+        // With the world-command grant, the closed world refuses an unbacked offer through the
+        // ordinary Journal. The member opens Why from the persisted refusal line, which
         // survives a reload.
         await truth(
           `UPDATE clockgrove.world_memberships SET grants=ARRAY['runtime:world-observe','runtime:world-command','runtime:world-inspect'] WHERE principal_id='principal-runtime'`,
@@ -2970,7 +3001,9 @@ const observeHall = async (backend) => {
           .getByLabel("Message Keeper…", { exact: true })
           .fill("fixture:offer fixture.water-bowl water");
         await talker.viewer.getByRole("button", { name: "Send", exact: true }).click();
-        await history.getByText("Keeper's proposal committed").waitFor({ timeout: 60_000 });
+        await history
+          .getByText("refused: World command refused: precondition_failed", { exact: false })
+          .waitFor({ timeout: 60_000 });
         expect(await truth("SELECT count(*) FROM clockgrove.command_receipts")).toBe(
           String(Number(receiptsBefore) + 1),
         );
@@ -2978,7 +3011,9 @@ const observeHall = async (backend) => {
         await talker.viewer.getByLabel("Local session credential").fill("hall-inspect");
         await talker.viewer.getByRole("button", { name: "Sign in", exact: true }).click();
         await openTalk();
-        await history.getByText("Keeper's proposal committed").waitFor({ timeout: 60_000 });
+        await history
+          .getByText("refused: World command refused: precondition_failed", { exact: false })
+          .waitFor({ timeout: 60_000 });
         await history.getByRole("button", { name: "Why?", exact: true }).last().click();
         await talker.viewer
           .getByRole("region", { name: "Recorded Why", exact: true })

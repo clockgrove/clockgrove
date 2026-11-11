@@ -22,7 +22,7 @@ import {
   runtimeShards,
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
-import { checkContractDrift } from "../../scripts/contract-drift.mjs";
+import { checkContractDrift, generateContractInventory } from "../../scripts/contract-drift.mjs";
 import { checkLicense, componentLicenses } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -39,7 +39,7 @@ async function inTemporary(prefix, operation) {
 }
 // Spawns scripts/contract-drift.mjs twice and reprints every contract source.
 it(
-  "contract checker ignores reformatting but rejects unregenerated drift and a regenerated contract without a version bump",
+  "contract checker ignores reformatting, rejects unregenerated drift and derives a new version",
   () =>
     inTemporary("clockgrove-contract-journey-", async (directory) => {
       await cp(
@@ -61,7 +61,7 @@ it(
           ts.createPrinter({ removeComments: true }).printFile(file),
         );
       }
-      expect(await checkContractDrift(directory, baseline)).toEqual(baseline);
+      expect(await checkContractDrift(directory)).toEqual(baseline);
       await writeFile(
         path.join(directory, "packages/contracts/src/drift.ts"),
         "export interface ChangedSchema { readonly newField: string }\n",
@@ -73,14 +73,54 @@ it(
         run("node", [path.join(root, "scripts/contract-drift.mjs"), directory, "--generate"])
           .status,
       ).toBe(0);
-      const generated = await checkContractDrift(directory, baseline);
-      await writeFile(
+      expect((await checkContractDrift(directory)).version).not.toBe(baseline.version);
+    }),
+  60_000,
+);
+// Two pull requests from one base change neighbouring contracts; Quality's candidate for each is its
+// merge onto the base it lands on, so this replays PR CI and both merge-queue orders.
+it(
+  "contract-changing pull requests from one base pass PR CI and the merge queue in either order",
+  () =>
+    inTemporary("clockgrove-contract-race-", async (directory) => {
+      const git = (...args) => {
+        const result = run(
+          "git",
+          ["-c", "user.name=ci", "-c", "user.email=ci@invalid", ...args],
+          directory,
+        );
+        expect(result.status, result.stderr).toBe(0);
+      };
+      const sources = path.join(directory, "packages/contracts/src");
+      await cp(path.join(root, "packages/contracts/src"), sources, { recursive: true });
+      await cp(
+        path.join(root, "scripts/contracts.generated.json"),
         path.join(directory, "scripts/contracts.generated.json"),
-        JSON.stringify({ ...generated, version: baseline.version }),
       );
-      await expect(checkContractDrift(directory, baseline)).rejects.toThrow(
-        "version bump required",
-      );
+      git("init", "-b", "main");
+      git("add", ".");
+      git("commit", "-m", "base");
+      const versions = new Set([(await checkContractDrift(directory)).version]);
+      for (const [branch, file] of [
+        ["a", "channels.ts"],
+        ["b", "cognition.ts"],
+      ]) {
+        git("switch", "-c", branch, "main");
+        await writeFile(path.join(sources, file), `export type Race${branch} = "${branch}";\n`, {
+          flag: "a",
+        });
+        await generateContractInventory(directory);
+        git("commit", "-am", branch);
+      }
+      for (const order of [["a"], ["b"], ["a", "b"], ["b", "a"]]) {
+        git("switch", "--detach", "main");
+        for (const branch of order) {
+          git("merge", "--no-ff", "-m", `queue ${branch}`, branch);
+          versions.add((await checkContractDrift(directory)).version);
+        }
+      }
+      // Base, a, b, and a+b reached in either order: every change is a new version.
+      expect(versions.size).toBe(4);
     }),
   60_000,
 );
@@ -125,6 +165,74 @@ it(
       await expect(
         validateEvidence({ ...manifest, knownRisks: ["ghp_" + "z".repeat(36)] }),
       ).rejects.toThrow("secret-shaped value detected");
+      // Deployment retry evidence is held to what the deploy produces (tests/infra covers each rule).
+      const publication = (status, attempt) => ({
+        ...observed,
+        command: ["Wrangler Worker publication"],
+        status,
+        exitCode: status === "passed" ? 0 : 1,
+        ...(attempt ? { attempt } : {}),
+      });
+      await expect(
+        validateEvidence({
+          ...manifest,
+          deployments: [
+            {
+              environment: "staging",
+              commit: manifest.candidate.commit,
+              buildDigest: `sha256:${"1".repeat(64)}`,
+              status: "passed",
+              phases: [publication("unknown"), publication("passed", 2)],
+            },
+          ],
+        }),
+      ).rejects.toThrow("deploy retry of a phase that is never retried");
+      // A phase stopped at its time limit is unknown and ends the deploy (tests/infra as above).
+      const timedOut = {
+        ...observed,
+        command: ["OpenTofu provision apply"],
+        status: "unknown",
+        exitCode: null,
+        signal: "SIGKILL",
+        errorCode: "ETIMEDOUT",
+        reason: "timeout",
+      };
+      const buildDigest = `sha256:${"1".repeat(64)}`;
+      const stopped = (phases) => ({
+        ...manifest,
+        candidate: { ...manifest.candidate, buildDigest },
+        artifacts: manifest.artifacts.map((artifact) => ({ ...artifact, buildDigest })),
+        deployments: [
+          {
+            environment: "staging",
+            commit: manifest.candidate.commit,
+            buildDigest,
+            status: "unknown",
+            phases,
+          },
+        ],
+      });
+      await expect(validateEvidence(stopped([timedOut]))).resolves.toBeDefined();
+      await expect(
+        validateEvidence(
+          stopped([timedOut, { ...publication("passed"), command: ["Hyperdrive identity"] }]),
+        ),
+      ).rejects.toThrow("deployment continued after a time-limited phase");
+      // A call refused for the deploy's time budget never ran: failed with no observation.
+      const refused = {
+        ...timedOut,
+        status: "failed",
+        signal: null,
+        errorCode: null,
+        reason: "budget",
+        completedAt: timedOut.startedAt,
+      };
+      await expect(
+        validateEvidence({
+          ...stopped([refused]),
+          deployments: [{ ...stopped([refused]).deployments[0], status: "failed" }],
+        }),
+      ).resolves.toBeDefined();
       await expect(recordCommand(directory, "node-version", ["node", "--version"])).rejects.toThrow(
         "refuse overwriting prior command evidence",
       );

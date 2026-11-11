@@ -59,7 +59,7 @@ export function assertBrowserSource(source, file) {
             local === path.join(web, "renderer-content.js")
           : path.resolve(file) === content
             ? target === "three/webgpu" || target === "three/tsl" ||
-              /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js)$/u.test(target) ||
+              /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js|libs\/basis\/basis_transcoder\.(?:js|wasm)\?url)$/u.test(target) ||
               local === path.join(web, "renderer.js")
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
@@ -78,7 +78,7 @@ export function assertBrowserSource(source, file) {
 // included), class body, export, signature or new scene file does. Each file is
 // digested by the contract-drift parse, so formatting and comments never count. After reviewing a
 // deliberate vocabulary change, set the digest to the value the failure reports.
-const SUCCESSOR_VOCABULARY_DIGEST = "582d3fbfd5d647962d2478c3c06e230d3982784afeedfbd695ea0ecdcd77a5aa";
+const SUCCESSOR_VOCABULARY_DIGEST = "b126a8c723a6dc645c47a2686c3dae2bbc53f68514d400a74b864546ca57adab";
 export function successorVocabularyDigest(sources) {
   const files = Object.keys(sources)
     .filter((name) => /^scene-[\w-]+\.ts$/u.test(name))
@@ -230,7 +230,8 @@ export function assertProjectionContracts(sources) {
     PublicDecisionEvidence: { status: '\"available\" | \"unavailable\" | \"redacted\"', drafts: "readonly PublicDecisionTrace[]" },
     PublicCausalLinks: { parents: "readonly CommandId[]", children: "readonly CommandId[]" },
     PublicScheduledAction: { scheduleId: "string", idempotencyKey: "string", kind: "string", dueAt: "string", status: '\"pending\" | \"done\"', scheduledBy: "CommandId", completedBy: "CommandId | null" },
-    RecordedWhy: { version: "1", privacyClass: '\"public_scene\"', evidence: "typeof RECORDED_WHY_EVIDENCE", entry: "PublicCausalEntry", commandId: "CommandId", actionId: "ActionId | null", receiptStatus: '\"pending\" | \"committed\" | \"rejected\" | \"failed\"', traces: "PublicDecisionEvidence", schedules: "readonly PublicScheduledAction[]", links: "PublicCausalLinks" },
+    PublicResourceCause: { eventId: "EventId", simulationTime: "string", cause: '\"rain\" | \"growth\" | \"transfer\"', kind: '\"food\" | \"water\"', quantity: "number", objectId: "ObjectId", "fromObjectId?": "ObjectId", "processId?": "string" },
+    RecordedWhy: { version: "1", privacyClass: '\"public_scene\"', evidence: "typeof RECORDED_WHY_EVIDENCE", entry: "PublicCausalEntry", commandId: "CommandId", actionId: "ActionId | null", receiptStatus: '\"pending\" | \"committed\" | \"rejected\" | \"failed\"', traces: "PublicDecisionEvidence", "resourceCauses?": "readonly PublicResourceCause[]", schedules: "readonly PublicScheduledAction[]", links: "PublicCausalLinks" },
     SceneEntity: { id: "string", label: "string", description: "string" },
     DiagnosticSceneProjection: {
       version: "1",
@@ -255,7 +256,7 @@ export function assertProjectionContracts(sources) {
   const aliases = {
     RecordedWhyEntry:
       "| { readonly commandId: CommandId } | { readonly eventId: EventId } | { readonly scheduleId: string; readonly idempotencyKey: string }",
-    RecordedWhyRequest: "BrowserScope & { readonly version: 1 } & RecordedWhyEntry",
+    RecordedWhyRequest: "BrowserScope & { readonly version: 1; readonly includeResourceCauses?: true } & RecordedWhyEntry",
     PublicCausalEntry:
       '| { readonly kind: "command" } | { readonly kind: "event"; readonly eventId: EventId } | { readonly kind: "scheduled-action"; readonly scheduleId: string; readonly idempotencyKey: string }',
   };

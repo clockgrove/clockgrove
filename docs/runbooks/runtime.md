@@ -128,7 +128,8 @@ inspector audit internals. See [living-yard observation](../protocols/living-yar
 `/v1/runtime/viewed-space` answers a `ChangeViewedSpace` with a follow disposition and never
 commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewed-spaces-and-follow-decisions).
 `/v1/runtime/influence` submits an interaction card's typed Influence intent as a server-built
-`resource.offer` world command under `runtime:world-command`. `/v1/runtime/conversations/*` and
+`resource.offer` world command under `runtime:world-command`. The closed-world kernel refuses
+that unbacked creation; callers must use a finite donor transfer to add inventory. `/v1/runtime/conversations/*` and
 `/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
 category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
 answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
@@ -339,6 +340,20 @@ Each activation starts at most four command attempts, with no new attempt starti
 events). [Runtime budgets and load curves](#runtime-budgets-and-load-curves) gives the sources and
 where each trips. New commands target
 durable schedule deadlines, so cap and delivery lateness do not introduce physical boundaries.
+
+The earliest non-null declared world-process cursor is also a durable deadline. PostgreSQL stores
+`next_process_due_at` as a derived column maintained from the canonical state document by a database
+trigger, so birth, committed advances and other state updates keep it current without a separate write.
+Expansion adds the nullable hint and trigger first. The migration runner then completes and verifies
+a bounded, checkpointed backfill before returning; deploy the deadline readers only after it succeeds.
+A failed or interrupted backfill must be resumed through the same migration runner before switching
+readers. Full-row inserts may include the hint; the trigger overwrites it from the document. Due-work,
+clock-owner and runtime-operation reads choose the earlier process or indexed actor-schedule deadline;
+actorless worlds can therefore wake, and a process can wake before the next actor decision. The
+ordinary autonomous clock authority admits the advance, while the native kernel attributes each
+process transfer or refusal to its declared principal. No process schedule row or new execution grant
+is added; process cursors remain canonical and the deadline is rebuildable metadata.
+
 Accepted continuations run first with their original target, attribution, random state and cursor;
 completion can exceed the cap even after a reduction to 1 ms. Every chunk still checks current
 policy authority and obeys activation and kernel budgets.
@@ -1220,8 +1235,8 @@ missed/duplicate/reordered Queue or webhook effects and hosted qualification rem
 ## Native local recovery qualification
 
 Existing `test:runtime` discovery runs `test/native.postgres.test.ts`; offline runtime tests
-exclude PostgreSQL journeys. Wrangler 4.147.0 bundles the production entry and adapters into
-lockfile-selected Miniflare 5.20261001.0-alpha / workerd 1.20261001.1 with `nodejs_compat`.
+exclude PostgreSQL journeys. Wrangler 4.156.2 bundles the production entry and adapters into
+lockfile-selected Miniflare 5.20261102.0-beta / workerd 1.20261102.1 with `nodejs_compat`.
 The host Vitest alias is never passed to Wrangler. The test-only inspection entry delegates
 ordinary no-op requests directly to the production Worker; inspection authenticates through the
 same default stored-session and least-privilege authority readers before initializing the three
@@ -1272,8 +1287,9 @@ published-head Quality/browser/artifact evidence are still required before integ
 `ActorAgentDO` answers Talk through the `stevie.pilot` model alias when `ANTHROPIC_API_KEY` or
 `AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives the
 member's authorized public scene, asks for a structured `{reply, command}`, and the turn's
-`proposal_validating` phase decides the command against the member-bounded grants and submits an
-accepted `resource.offer` to the world owner ([capabilities](../protocols/capabilities.md)). The
+`proposal_validating` phase decides the command against the member-bounded grants and submits a
+proposed `resource.offer` to the world owner, where the closed-world kernel refuses unbacked
+creation ([capabilities](../protocols/capabilities.md)). The
 owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
 abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
 [the Stevie pilot](https://github.com/clockgrove/raccoon-world/blob/main/docs/runbooks/stevie-pilot.md).
@@ -1499,27 +1515,231 @@ Reference calibration uses a confidence threshold of zero basis points, so any r
 can count as an answered pick. Missing confidence remains low-confidence. Reference accuracy counts
 answered picks, reports coverage separately, and is null when no case was answered.
 
-
 ## Remote MCP installation readiness
 
-Issue 164's [MCP foundation](../protocols/mcp.md) is an application-level transport and credential
-boundary with an isolated PostgreSQL secret adapter. It is not composed into the deployed Worker, and there is no installation endpoint or
-capabilities screen yet. Do not grant actor access by inserting remote names into internal grants.
+The [MCP installation protocol](../protocols/mcp.md) separates local acceptance from hosted
+activation. The owner assigned hosted private-egress verification to issue 3 after issue 2's
+first staging deployment. Production remote MCP access stays guarded off until that receipt
+exists. A local fixture network port is never a production loopback allowance.
 
-Before enabling the operator flow, integrate canonical Journal installation/review/binding events,
-forced scoped RLS and retention, the separate owner installation grant, trusted secret-provider composition,
-the actor capability revision hook and the operator browser journey. Verify Cloudflare egress
-behavior at that consumer; DNS preflight alone does not prove address pinning. A local fixture
-adapter must never become a production loopback switch.
+Local composition must retain one installation owner across requests and OAuth callbacks,
+with a dedicated secret-provider connection and separate versioned credential keyring.
+Never construct the PostgreSQL secret adapter per request or use a reconnecting pool for it.
+Provider-session takeover fences old references; reconnect credentials after owner loss.
+Provisioning prerequisites are in the [database runbook](database.md#mcp-secret-provider-prerequisite).
 
-The completed operator procedure must connect the installation owner's OAuth account or static
-token through the isolated credential provider, inspect identity/protocol and schema hashes,
-review and enable only selected tools, and bind them through scoped grants. Refresh must disable
-only drifted versions; revoke must invalidate grants immediately and keep uncertain credentials
-unusable. These procedures remain pending integration, rather than commands available today.
+Installation and binding changes require `runtime:mcp-install`, held by world owners by
+default. Actor identities and decision models cannot connect credentials, install servers,
+review tools or grant authority. Server descriptions, resources and prompts are untrusted data;
+prompts never become policy. Remote tool execution belongs to RW-0508.
 
-The secret adapter is deliberately session-owned: provider takeover fences all existing credentials
-in its installation scope, and operators must reconnect them. Never construct it per request or
-allow a connection pool to reconnect behind it. Provisioning prerequisites and the isolated role
-are documented in the [database runbook](database.md#mcp-secret-provider-prerequisite). The
-PostgreSQL secret proof does not establish that the operator/runtime flow is ready.
+## Moderation shadow report
+
+Moderation and prompt-injection judging is observational (issue 162). Bind
+`MODERATION_SHADOW_CONFIG` to a JSON policy with an operator-selected `modelAlias` and `model`;
+there is no production model hard-coded by this feature. Supply `AI_GATEWAY_API_KEY` separately
+through the existing credential binding. For example (replace the model placeholder):
+
+```json
+{
+  "policyVersion": "moderation-shadow@1",
+  "modelAlias": "operator.moderation",
+  "model": "<operator-selected-decision-model>",
+  "confidenceThreshold": 6500,
+  "maxCostMicrousd": 1000
+}
+```
+
+`modelAlias` and `model` are required. The other shown values are defaults: the threshold is
+65% in basis points and the per-call reservation ceiling is $0.001. These opt-in policy choices
+follow the existing wake-triage threshold and decision-gateway ceiling; they are not measured
+model prices. The gateway's existing input and timeout bounds also apply.
+Omit the policy to disable calls. Missing credentials,
+model failure, an abstention or a low-confidence result leaves message delivery and the actor turn
+on their existing path. Even a confident `block` is recorded as a shadow judgement and never
+blocks a message or changes a turn.
+
+For a local report through disposable PostgreSQL and the native actor runtime, run:
+
+```sh
+node scripts/moderation-shadow-report.mjs --output "$TMPDIR/moderation-shadow.json"
+```
+
+The output must not exist. The runner writes a new report with private permissions and removes
+its disposable world. By default it generates its fixture world and labelled conversations in
+code and uses the scripted decider. `measurement: "scripted"` identifies synthetic judgements and
+accounting, which prove the integration path rather than model quality. The reference conversations
+cover benign, borderline, abusive and injection cases without embedding a selected world's names
+or content. Expected labels are excluded from the model request. No provider credential is
+forwarded by default, even when the caller has one.
+
+To use an external compatible world, invoke the pinned platform checkout with its absolute pack
+path, following the [external-world procedure](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout):
+
+```sh
+node /path/to/pinned/clockgrove/scripts/moderation-shadow-report.mjs \
+  --pack "$PWD/worlds/sample" --output "$PWD/moderation-shadow.json"
+```
+
+The default compares two synthetic policies on the same six labelled messages (12 decision
+opportunities). The runner accepts one to three policies, bounding this calibration workload at
+18 decisions and ten minutes. These are operator-probe limits, not model limits. Actor replies
+remain scripted even with `--live`; only the inbound-message judge uses the real provider.
+
+For a maintainer's real-model measurement, set `MODERATION_SHADOW_CONFIG` to one policy, or
+`MODERATION_SHADOW_MODELS` to a JSON array of one to three policies, each with the required
+alias/model fields. Supply the existing gateway key through the environment and add `--live`.
+Only this opt-in forwards the key to the decision adapter. A live run without a key records
+`measurement: "model-unavailable"`; it does not invent model-quality evidence.
+
+For a persistent world, POST `/v1/runtime/activations/moderation-report` through its
+authenticated runtime connection with the existing activation-address shape:
+
+```json
+{
+  "version": 1,
+  "scope": {
+    "tenantId": "<tenant>",
+    "worldId": "<world>",
+    "timelineId": "<timeline>",
+    "spaceId": "<space>"
+  },
+  "actorId": "<actor>"
+}
+```
+
+Use the existing world-command operator grant and conversation privacy permission. The report
+additionally requires session participation and covers only that principal's messages to the
+addressed actor in the authorized scope; another participant's private evidence is not exposed.
+Historical messages and messages sent while the feature was off remain counted as skipped.
+The transcript's optional `message.moderationShadow` carries its judgement. Full cognitive records
+are session-scoped; the `ModerationShadowRecorded` journal event contains a SHA-256 commitment
+rather than private message content or classifications. Report miss examples use the public
+code-defined reference texts and message identifiers, not private transcript excerpts.
+
+Read each message's shadow moderation disposition and injection judgement, confidence, latency
+and measured cost. Read labelled accuracy separately from agreement between models; agreement
+is not evidence of correctness. `models` gives labelled accuracy and cohorts per policy/alias/model;
+`modelAgreement` compares pairs on matching message hashes. Accuracy includes answered
+low-confidence judgements. Cohorts and skipped/unjudged cases expose coverage. `cant_tell`
+abstentions are counted separately from low-confidence answers and failures. Null cost means
+unknown and remains counted beside known spend, never converted into a zero charge.
+
+Miss examples include a false `block` or injection flag on a benign message, and `allow` on a
+labelled abusive or injection message. Repeated miss signatures appear in the human-review list
+once seen at least twice, following the existing report convention. The judge sees only the
+message being judged, never another participant's private content or the actor's assembled
+context. Stored evidence and report reads preserve the conversation's privacy boundary.
+
+Record each candidate model's alias, policy version, workload/world revision, cohort coverage,
+labelled accuracy, model agreement, misses, abstentions, latency and known/unknown costs on
+issue 76. The owner reviews those measurements before any enforcing-mode decision. A future
+false block must be visible and reversible by an attributed correction or supersession;
+[Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns)
+records that decision. Tool-result screening remains deferred until MCP execution lands.
+## Developer conversation CLI
+
+Run `node scripts/runtime-chat.mjs --help` for the command reference. The CLI uses the existing authenticated HTTP API; it grants no membership, opens no listener and stores no credential. Set `CLOCKGROVE_SESSION_TOKEN` in the process environment from your existing signed-in session. Do not put the token in a command argument, a committed file or a transcript.
+
+Each invocation takes an explicit command and scope. For example, with your runtime URL and IDs:
+
+```sh
+node scripts/runtime-chat.mjs create --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --actor actor-id --title 'Rain plans'
+node scripts/runtime-chat.mjs talk --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --session session-id --message-id rain-1 --text 'Will the rain pass?'
+node scripts/runtime-chat.mjs read --url https://runtime.example.test \
+  --tenant tenant-id --world world-id --timeline timeline-id --space space-id \
+  --session session-id
+```
+
+`create`, `list` and `read` manage or inspect the existing sessions. `talk` is private Caretaker Talk to the session actor. `say` is explicitly public and takes `--actor`, `--message-id` and `--text`; it never adds a private transcript entry. Neither command substitutes for the other. Reuse the same message ID and text when retrying an interrupted Talk; the server answers the stored turn rather than appending a second message. To send a new message, choose a new ID.
+
+Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
+
+New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. It exposes no operator HTTP or CLI command yet; Part 4 connects explicitly configured proactive actor wakes internally, while automatic delayed-request scheduling and the final cross-adapter completion proof remain Part 5. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
+
+## MCP part 5 internal composition
+
+The [binding admission protocol](../protocols/mcp.md#scoped-binding-policy-and-registry-admission)
+now supplies canonical Journal policy changes and reviewed-version registry snapshots.
+`PostgreSqlMcpBindings.change` requires the installation grant; `enabled: false` revokes a
+binding without deleting its audit trail. `list` returns fully scoped records for trusted
+admission. Never hand an actor an operator's database authority to load this policy.
+
+The [owned credential coordinator](../protocols/mcp.md#owned-credential-backed-discovery)
+connects static credentials or OAuth begin/callback, installs after discovery, refreshes and
+revokes using a dedicated scoped provider. Its owner must retain the handle through the OAuth
+callback and explicitly close it. Do not construct a secret adapter per HTTP request. Failed
+refresh disables canonical installation state; revoke changes canonical state before remote
+credential revocation. Provider reconnection requires new references under the existing fence.
+
+These are internal composition APIs, not operator commands. No deployed installation routes,
+provider owner, capabilities screen or remote actor grant has been activated. The final part
+must deliver those operations, verified hosted egress, revision-hook invalidation and the full
+PostgreSQL/runtime/browser/canary journey before the operator install/review/revoke procedure
+can be described as available.
+
+## Local operator lifecycle
+
+The world screen's **Capabilities** control opens the governed remote installation screen.
+Use a principal with `runtime:mcp-install` and `operator_evidence` access. World owners receive
+the installation grant by default; ordinary operating grants do not imply it.
+
+1. Enter an HTTPS MCP endpoint and choose anonymous access, a static token, or OAuth.
+   OAuth uses a trusted registered public client; complete the issuer navigation and return to
+   the same authenticated world. Credentials are held by the isolated provider, never by the
+   Journal or browser persistence. The pending installation identifier alone may be retained
+   in session storage during OAuth navigation.
+2. Inspect server identity, protocol, tool/resource/prompt metadata and schema hashes. All
+   remote text is untrusted. Tools start disabled at `external-write`; resources and prompts
+   remain disabled. Select an effect class and review the exact tool pin before enabling it.
+3. Bind selected tools to an actor, narrowing allowed input fields, destinations, calls per
+   turn, effect class, microdollar budget and expiry. Empty field/destination lists allow none.
+   Existing bindings can be disabled; server or tool revocation also removes their admission.
+4. Refresh discovery after reconnecting. A changed tool is drifted and disabled until its new
+   hash is reviewed; unchanged reviewed tools retain admission. A failed credential refresh
+   disables the installation. Revocation is canonical before remote credential cleanup;
+   uncertain cleanup never restores enablement.
+5. Revoke an installation to remove all its remote admission. Actor admission reloads current
+   canonical state before a proposal even if a revision notification was missed. Remote
+   execution itself remains RW-0508; this screen does not make provider code executable.
+
+Trusted local composition uses `composeMcpOperator` with separate runtime and direct secret
+PostgreSQL URLs, a dedicated versioned credential keyring, the test-only network port, registered
+OAuth clients and an explicit provider capacity. The local Wrangler configuration binds
+`MCP_OPERATOR_DO` to `McpOperatorDO`; the internal Durable Object owns retained PostgreSQL
+sockets across Worker requests. Without that binding the composed MCP routes stay unavailable.
+`RuntimeComposition.mcpConfiguration` supplies canonical actor revision notifications and
+configuration for the retained operator.
+Both the composition factory and deployed Worker refuse hosted activation pending issue 3.
+Do not substitute `ARTIFACT_KEYRING`, runtime database privileges, transaction pooling or a
+per-request provider. Closing the owner disables its credential installations; after owner loss,
+refresh fails closed. Revoke the old installation and connect under a new identifier.
+
+
+## Proactive delivery configuration
+
+The existing authenticated activation configure route accepts optional
+`configuration.delivery: {"urgency":"normal","quietHoursBehavior":"delay"}`.
+It asks the compiled producer to request private delivery of that activation’s
+committed actor reply. Omitting the field preserves ordinary activation behavior.
+The source session must belong to the authenticated participant and canonical actor.
+Coalesced wakes share the admitted leader’s immutable delivery intent.
+
+Recipient-owned consent is configured through the internal
+`PostgreSqlGovernedDelivery.configureConsent` API; there is no public consent HTTP
+or CLI command in this part. It defaults off, per actor and world timeline, and
+contains recipient timezone, quiet hours and lifetime message-unit capacity.
+A wake never grants consent. The native
+`apps/runtime/test/proactive-delivery.journey.postgres.test.ts` journey demonstrates
+the configured producer through the real actor owner and PostgreSQL.
+
+Delivery is recorded before activation settlement. Retrying uses the historical
+receipt and stable activation key, without another reservation or sink write.
+A delayed receipt remains pending until explicit internal `resume`; automatic
+resumption and the complete browser/CLI/fake completion proof remain Part 5 of
+issue 168. No external messaging provider is configured.
+

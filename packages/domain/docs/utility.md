@@ -31,7 +31,8 @@ and knowledge-access policy at death is built by Wave 8 RW-0802 (Wave 8 §5.1, "
 
 `RoutineAction.kind` gains `seek-water` (a target is required) next to `stay`, `seek-food` (an optional
 food target) and `seek-shelter`. Two events at version 1 are reduced by `reduceWorldEvent`, one reducer each:
-`location.changed` (`{objectId, locationId | null, planId}`) sets the actor's location and `needs.relieved`
+`location.changed` (`{objectId, locationId | null, planId}`) sets the location of any object (an actor, a
+sheltered plant, any moved object) and `needs.relieved`
 (`{objectId, need, sourceObjectId, quantity, value, planId}`) sets the named need. The kernel owns the
 registry, scorer and movement systems that use them.
 

@@ -62,6 +62,16 @@ The document has these required fields:
 | `scene.atlases` | `true` to load every atlas page listed in the reviewed output's `atlases.json` index, which the asset build writes; `false` for neutral geometry without an atlas. |
 | `scene.accent`, `scene.panel` | Integer RGB colors used by renderer selection graphics. |
 | `scene.text` | Renderer label color. |
+| `scene.camera` | Optional renderer-neutral `{ minZoom, maxZoom }` for the fixed isometric camera. Both factors must be finite and positive (the 640-pixel logical width divided by `minZoom` must also stay finite), with `minZoom <= 1 <= maxZoom`. Omission preserves 0.75–2. Initial framing remains zoom 1; no rotation is exposed. |
+
+A deep-zoom world may set `scene.camera` to `{ "minZoom": 0.1, "maxZoom": 24 }`.
+At the current 12.5 logical pixels per metre and 400-pixel logical view height, a 0.5 m
+vertical mesh then fills 150 pixels (37.5% of the height); these example limits are a
+presentation choice for issue #184’s overview-to-close-up experience, not simulation data.
+The same input applies to the local shell and explicitly composed renderer content.
+Viewport raster density is renderer policy: the output requests host dimensions times DPR,
+with bounded effective scale per quality tier. Camera limits remain logical zoom factors
+independent of backing resolution; the logical camera contains its original 640×400 view while expanding width or height to match viewport aspect; see the [scene tier policy](../../apps/web/docs/scene.md).
 
 The shell does not interpret HTML in names or copy. Presentation data is trusted deployment
 configuration, rather than player-authored content. Static asset publication remains the
@@ -162,13 +172,15 @@ preserves the existing rendering path.
 The in-repository offline example runs from the pinned checkout:
 
 ```sh
-pnpm --filter @clockgrove/web exec vite ../../worlds/fixture/renderer \
+CLOCKGROVE_WORLD_SHELL="$PWD/worlds/fixture/renderer/shell.json" \
+  pnpm --filter @clockgrove/web exec vite ../../worlds/fixture/renderer \
   --config vite.config.ts
 ```
 
 Open the printed URL. The [fixture page](../../worlds/fixture/renderer/index.html) reads its committed
 [snapshot](../../worlds/fixture/renderer/snapshot.json), generates a looping skinned mesh and normal/depth
-mapped sprite in code, and offers time, weather, reduced-motion and quality controls. No binaries,
+mapped sprite in code, and offers time, weather, reduced-motion, quality and zoom controls. Its explicit shell
+input sets a 0.1–96 zoom range (portrait close-ups need about 74× for a 0.5 m subject) without changing the platform default. No binaries,
 credentials or canonical commands are involved. Its diagnostic capture helpers are fixture code,
 not additional product renderer API.
 
@@ -254,12 +266,12 @@ node ../clockgrove/apps/web/node_modules/vite/bin/vite.js --config vite.config.t
 ```
 
 For compressed assets, call `await context.loaders({ basis: "/decoders/basis/", draco:
-"/decoders/draco/" })` inside `create`. Serve `basis_transcoder.js` and `basis_transcoder.wasm`
-from the pinned installation's `apps/web/node_modules/three/examples/jsm/libs/basis/`, and the Draco
-WASM wrapper/decoder files from its `examples/jsm/libs/draco/gltf/`, at those world-owned URLs.
-Use the matching files from that exact installation. KTX2 support is detected against whichever
-backend Clockgrove selected; the GLTF loader is wired to KTX2, Draco and the same pinned Meshopt
-decoder. No external decoder CDN or second rendering library is needed. The composition root owns
+"/decoders/draco/" })` inside `create`. Serve the Draco WASM wrapper/decoder files from the pinned
+installation's `apps/web/node_modules/three/examples/jsm/libs/draco/gltf/` at the world-owned
+`draco` URL. KTX2 uses the renderer's shared loader, whose Basis transcoder is built into the app
+from the same pinned `three`, so the `basis` URL is not read and needs no files. KTX2 support is
+detected against whichever backend Clockgrove selected; the GLTF loader is wired to KTX2, Draco and
+the same pinned Meshopt decoder. No external decoder CDN or second rendering library is needed. The composition root owns
 publication and access to these static assets.
 
 A browser automation tool can wait for both the page's ready marker and `data-content="ready"`,
@@ -292,3 +304,21 @@ this for the explicitly selected pack. The fixture intentionally needs no runtim
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
 An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
 does not require an atlas texture when `scene.atlases` is `false`.
+
+### Continuous time-of-day projection
+
+Optional `SceneLighting.environment` carries finite `daylight` in [0,1], RGB hex
+`ambientColour`, nonnegative finite `ambientIntensity`, and RGB hex `backgroundColour`,
+`fogColour`, `gradeColour`. These are committed presentation data, independent of renderer APIs.
+Omitting the field preserves legacy consumers' binary environment. The renderer applies grade to
+scene pixels before the low-tier label composite; the optional environment also lets the text path
+report lamps through dawn/dusk consistently with their fading visible effects.
+
+`defaultSceneLighting(simulationTime, weather, effects)` is the shared pure presentation default
+for material worlds and offline compositions. It uses a canonical 86,400,000 ms period (the existing
+scene clock convention), normalized for negative times, smooth daylight transitions centred on
+06:00 and 18:00, warm horizon colours, and inverse-daylight lamp intensity. It never reads wall time.
+The two-hour transition and colour palette are visual policy decisions for #184, not simulation
+rules or hardware performance claims. Callers may supply their own validated lighting/environment.
+Content shares the scene's continuous ambient and directional lights through its attached root,
+without a per-world renderer branch. Its `update` frame retains the existing time/weather fields.

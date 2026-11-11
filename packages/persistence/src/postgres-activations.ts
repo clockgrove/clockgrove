@@ -8,6 +8,8 @@ import type {
   RuntimeAuthorizationContext,
   TurnFiber,
 } from "@clockgrove/application";
+import { CAPABILITY_REGISTRY } from "@clockgrove/application";
+import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -39,6 +41,9 @@ const activation = (r: Row): ActorActivation => ({
   status: r.status as ActorActivation["status"],
   outcome: String(r.outcome),
   principalId: String(r.principal_id),
+  ...(r.delivery_intent == null
+    ? {}
+    : { delivery: r.delivery_intent as NonNullable<ActorActivation["delivery"]> }),
 });
 
 /** Canonical bounded actor activation receipts; the policy row serializes causal admission. */
@@ -158,8 +163,8 @@ export class PostgreSqlActivations {
       const result = await this.client.query(
         `INSERT INTO clockgrove.actor_activations
         (tenant_id,world_id,timeline_id,actor_id,causal_root,activation_id,principal_id,configuration_id,
-         reason,evidence,session_id,message_id,input,status,outcome,space_id,leader,has_reservation)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+         reason,evidence,session_id,message_id,input,status,outcome,space_id,leader,has_reservation,delivery_intent)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb) RETURNING *`,
         [
           ...values(a),
           wake.causalRoot,
@@ -176,10 +181,17 @@ export class PostgreSqlActivations {
           a.scope.spaceId,
           joined === undefined,
           status === "pending",
+          (joined ? joined.delivery : config.delivery) === undefined
+            ? null
+            : JSON.stringify(joined ? joined.delivery : config.delivery),
         ],
       );
       return activation(result.rows[0] as Row);
     });
+  }
+
+  deliver(a: ActivationAddress, activationId: string) {
+    return new PostgreSqlGovernedDelivery(this.client).requestActivation(a, activationId);
   }
 
   beforeModel(a: ActivationAddress, fiber: TurnFiber): Promise<string | undefined> {
@@ -355,6 +367,13 @@ export function activationEventSubscribers(
 }
 
 function validateConfiguration(c: ActivationConfiguration, p: ActivationPolicy): void {
+  if (c.delivery !== undefined) {
+    try {
+      CAPABILITY_REGISTRY.get("delivery.request")!.parse(c.delivery);
+    } catch {
+      throw new Error("invalid activation configuration");
+    }
+  }
   const kinds = [
     "scheduled_intention",
     "subscription",

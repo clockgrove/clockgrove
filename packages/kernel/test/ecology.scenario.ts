@@ -50,19 +50,19 @@ export const ECOLOGY_MATERIAL_TYPES = [
   "weather.transitioned",
   "exposure.threshold-crossed",
   "resource.spoiled",
-  "resource.appeared",
+  "resource.transferred",
   "growth.stage-changed",
   "routine.selected",
 ] as const;
-/** Same-time rank: phase and weather, exposure, spoilage, appearance, stage change, decision. */
+/** Same-time rank: phase and weather, exposure, spoilage, stage change, transfer, decision. */
 export const ECOLOGY_RANK: Readonly<Record<string, number>> = {
   "environment.phase-changed": 0,
   "weather.transitioned": 1,
   "exposure.threshold-crossed": 2,
   "resource.spoiled": 3,
-  "resource.appeared": 4,
+  "resource.transferred": 6,
   "growth.stage-changed": 5,
-  "routine.selected": 6,
+  "routine.selected": 7,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -88,17 +88,12 @@ export interface PlantSpec {
   /** A number places the plant in a shelter with that rain protection. */
   readonly protection: number | null;
   readonly status?: Status;
+  readonly yieldQuantity?: number;
+  readonly initialWetness?: number;
 }
 
 export interface EcologySpec extends EnvironmentSpec {
   readonly holders: readonly HolderSpec[];
-  readonly sources: readonly (readonly [
-    objectId: string,
-    kind: ResourceKind,
-    firstAtMs: number,
-    periodMs: number,
-    quantity: number,
-  ])[];
   readonly perishables: readonly (readonly [objectId: string, shelfLifeMs: number])[];
   readonly plants: readonly PlantSpec[];
 }
@@ -121,14 +116,13 @@ export function baseSpec(overrides: Partial<EcologySpec> = {}): EcologySpec {
     dryingPerInterval: 1000,
     actors: [["forager", null]],
     holders: [],
-    sources: [],
     perishables: [],
     plants: [],
     ...overrides,
   };
 }
 
-/** One perishable food source and one water source over a dry, rain, dry series. */
+/** Finite food and water reserves over a dry, rain, dry series. */
 export const FOOD_SPEC: EcologySpec = baseSpec({
   dayLengthMs: 10000,
   phases: [["only", 0, "all"]],
@@ -141,10 +135,8 @@ export const FOOD_SPEC: EcologySpec = baseSpec({
   holders: [
     { objectId: "food-bowl", kind: "food", quantity: 0 },
     { objectId: "water-bowl", kind: "water", quantity: 0 },
-  ],
-  sources: [
-    ["food-bowl", "food", 1000, 4000, 10],
-    ["water-bowl", "water", 500, 3000, 6],
+    { objectId: "food-reserve", kind: "food", quantity: 20 },
+    { objectId: "water-reserve", kind: "water", quantity: 12 },
   ],
   perishables: [["food-bowl", 3000]],
 });
@@ -190,16 +182,14 @@ export const CEDAR_END = 24000n;
 export const MIXED_SPEC: EcologySpec = baseSpec({
   ...CEDAR_SPEC,
   actors: [["forager", null]],
-  holders: FOOD_SPEC.holders,
-  sources: [
-    ["food-bowl", "food", 1000, 4000, 10],
-    ["water-bowl", "water", 500, 3000, 6],
-  ],
+  holders: FOOD_SPEC.holders.map((holder) =>
+    holder.objectId === "food-bowl" ? { ...holder, quantity: 10 } : holder,
+  ),
   perishables: [["food-bowl", 3000]],
 });
 export const MIXED_END = 24000n;
 
-/** A perishable holder with food, an empty one, a plain holder, and a source that is a holder. */
+/** A perishable holder with food, an empty one, a plain holder, and a finite donor holder. */
 export const BATCH_SPEC: EcologySpec = baseSpec({
   holders: [
     { objectId: "full-bowl", kind: "food", quantity: 6 },
@@ -220,10 +210,6 @@ export const REFUSAL_SPEC: EcologySpec = baseSpec({
     { objectId: "food-bowl", kind: "food", quantity: 5 },
     { objectId: "water-bowl", kind: "water", quantity: 0 },
     { objectId: "keeper-bowl", kind: "food", quantity: 0 },
-  ],
-  sources: [
-    ["food-bowl", "food", 50000, 10000, 7],
-    ["water-bowl", "water", 60000, 10000, 3],
   ],
   perishables: [
     ["food-bowl", 6000],
@@ -254,11 +240,22 @@ export const REFUSAL_SPEC: EcologySpec = baseSpec({
 });
 export const REFUSAL_TIME = 5000n;
 
-/** One non-perishable source whose appearances the exception sweeps drive. */
+/** One yielding plant whose policy reads the exception sweeps drive. */
 export const EXCEPTION_SPEC: EcologySpec = baseSpec({
-  segments: [[100000, 0, "mild"]],
-  holders: [{ objectId: "bowl", kind: "food", quantity: 0 }],
-  sources: [["bowl", "food", 500, 1000, 3]],
+  segments: [[100000, 10000, "wet"]],
+  plants: [
+    {
+      objectId: "exception-plant",
+      bands: ["dark", "bright", "dim"],
+      stages: [
+        ["seed", 0],
+        ["fruit", 500],
+      ],
+      protection: null,
+      initialWetness: 10000,
+      yieldQuantity: 3,
+    },
+  ],
 });
 
 /** JSON-form scenario (the historical decoder input) for a spec. */
@@ -298,16 +295,10 @@ export function ecologySample(spec: EcologySpec): Loose {
       spaceId: "zone",
       ...(plant.protection === null ? {} : { locationId: `shelter-${plant.protection}` }),
       ...(plant.status === undefined ? {} : { lifecycle: { status: plant.status } }),
+      ...(plant.yieldQuantity === undefined ? {} : { resource: { kind: "food", quantity: 0 } }),
     });
   sample.pack.policy.ecology = {
     schemaVersion: 1,
-    sources: spec.sources.map(([objectId, kind, firstAtMs, periodMs, quantity]) => ({
-      objectId,
-      kind,
-      firstAtMs: String(firstAtMs),
-      periodMs: String(periodMs),
-      quantity,
-    })),
     perishables: spec.perishables.map(([objectId, shelfLifeMs]) => ({
       objectId,
       shelfLifeMs: String(shelfLifeMs),
@@ -315,9 +306,12 @@ export function ecologySample(spec: EcologySpec): Loose {
     plants: spec.plants.map((plant) => ({
       objectId: plant.objectId,
       growingLightBands: [...plant.bands],
-      stages: plant.stages.map(([name, thresholdMs]) => ({
+      stages: plant.stages.map(([name, thresholdMs], index) => ({
         name,
         thresholdMs: String(thresholdMs),
+        ...(index === plant.stages.length - 1 && plant.yieldQuantity !== undefined
+          ? { yield: { quantity: plant.yieldQuantity } }
+          : {}),
       })),
     })),
   };
@@ -334,7 +328,7 @@ export function ecologySample(spec: EcologySpec): Loose {
       objectId: plant.objectId,
       stage: 0,
       growingMs: "0",
-      wetness: 0,
+      wetness: plant.initialWetness ?? 0,
       wetnessRemainder: "0",
       integratedAt: "0",
     })),
@@ -466,8 +460,7 @@ export function recordedChange(
     const payload = event.payload as Loose;
     switch (event.type) {
       case "object.created":
-        if (payload.object.resource !== undefined)
-          change[payload.object.resource.kind as ResourceKind] += BigInt(payload.quantityAdded);
+        if (payload.quantityAdded !== 0) throw new Error("closed world created unbacked inventory");
         break;
       case "object.retired":
         if (payload.kind !== null)
@@ -475,7 +468,12 @@ export function recordedChange(
         break;
       case "resource.offered":
       case "resource.appeared":
-        change[payload.kind as ResourceKind] += BigInt(payload.quantity);
+        throw new Error("closed world emitted unbacked material");
+      case "growth.stage-changed":
+        change.food += BigInt(payload.yield?.quantity ?? 0);
+        break;
+      case "resource.weather-integrated":
+        change.water += BigInt(payload.collected) - BigInt(payload.evaporated);
         break;
       case "resource.consumed":
       case "resource.spoiled":
@@ -567,12 +565,12 @@ export function growthOracle(
 
 export interface ModelEvent {
   readonly time: bigint;
-  readonly type: "resource.spoiled" | "resource.appeared";
+  readonly type: "resource.spoiled";
   readonly objectId: string;
   readonly quantity: number;
 }
 
-/** Millisecond-by-millisecond holder contents: spoilage first, then appearances, by object id. */
+/** Millisecond-by-millisecond holder contents: spoilage only, by object id. */
 export class HolderModel {
   readonly quantity = new Map<string, number>();
   readonly arrival = new Map<string, bigint | null>();
@@ -618,24 +616,6 @@ export class HolderModel {
           this.arrival.set(id, null);
         }
       }
-      for (const id of ids) {
-        const source = this.spec.sources.find(([candidate]) => candidate === id);
-        const holder = this.spec.holders.find((candidate) => candidate.objectId === id)!;
-        if (source === undefined || (holder.status ?? "active") !== "active") continue;
-        const [, , first, period, quantity] = source;
-        if (
-          time >= BigInt(first) &&
-          (time - BigInt(first)) % BigInt(period) === 0n &&
-          this.quantity.get(id) === 0
-        ) {
-          events.push({ time, type: "resource.appeared", objectId: id, quantity });
-          this.quantity.set(id, quantity);
-          this.arrival.set(
-            id,
-            this.spec.perishables.some(([candidate]) => candidate === id) ? time : null,
-          );
-        }
-      }
     }
     return events;
   }
@@ -643,7 +623,7 @@ export class HolderModel {
 
 export function resourceEventsOf(events: readonly { type: string }[]): ModelEvent[] {
   return (events as readonly WorldSemanticEvent[])
-    .filter((event) => event.type === "resource.spoiled" || event.type === "resource.appeared")
+    .filter((event) => event.type === "resource.spoiled")
     .map((event) => ({
       time: event.simulationTime as bigint,
       type: event.type as ModelEvent["type"],
@@ -675,7 +655,7 @@ export interface FoodGolden {
   readonly reAdvance: Run;
 }
 
-/** Food appears, partly consumed, spoils, refills, empties; water appears and is consumed. */
+/** Finite reserves fill the bowls; food is partly consumed, spoils and is transferred once more. */
 export function foodDecayGolden(start: EnvironmentWorld): FoodGolden {
   let world = start;
   const spans: Span[] = [];
@@ -723,6 +703,25 @@ export function foodDecayGolden(start: EnvironmentWorld): FoodGolden {
     world = run.world;
     worlds[name] = world;
   };
+  const fill = (name: string, objectId: string, kind: ResourceKind, quantity: number) => {
+    const input = resourceCommand(
+      world,
+      "resource.transfer",
+      {
+        fromObjectId: `${kind}-reserve`,
+        toObjectId: objectId,
+        kind,
+        quantity,
+      },
+      `food:${name}`,
+    );
+    const run = applyCommand(world, input);
+    calls.push({ label: `food-transfer-${name}`, input, outcome: run.calls[0]!.outcome });
+    events.push(...run.events);
+    world = run.world;
+  };
+  fill("initial-food", "food-bowl", "food", 10);
+  fill("initial-water", "water-bowl", "water", 6);
   step("appear", 2000n);
   consume("food-partial", "food-bowl", "food", 4);
   consume("water-all", "water-bowl", "water", 6);
@@ -735,6 +734,8 @@ export function foodDecayGolden(start: EnvironmentWorld): FoodGolden {
   const offer = { input: offerInput, outcome: executeWorldKernel(offerInput, { mode: "test" }) };
   calls.push({ label: "food-offer-refused", input: offerInput, outcome: offer.outcome });
   step("spoil", 4500n);
+  fill("second-food", "food-bowl", "food", 10);
+  fill("second-water", "water-bowl", "water", 6);
   step("refill", 6000n);
   consume("food-zero", "food-bowl", "food", 10);
   step("rain", 7000n);
@@ -750,7 +751,7 @@ export function foodDecayGolden(start: EnvironmentWorld): FoodGolden {
 }
 
 export async function foodGoldenHashes(golden: FoodGolden) {
-  const advanceEvents = golden.spans.flatMap((span) => span.fast.events);
+  const advanceEvents = golden.events;
   return {
     name: "food-decay-and-conservation",
     ...(await ecologyHashes(advanceEvents, golden.final.state)),
@@ -842,16 +843,6 @@ export function generateEcologyCases(sequences = 3): GeneratedCase[] {
       kind: index % 2 === 0 ? ("food" as const) : ("water" as const),
       quantity: next(3) === 0 ? 0 : 1 + next(5),
     }));
-    const sources = holders.map(
-      (holder) =>
-        [
-          holder.objectId,
-          holder.kind,
-          300 + next(5) * 100,
-          400 + next(5) * 300,
-          1 + next(5),
-        ] as const,
-    );
     const perishables = holders
       .filter((holder) => holder.kind === "food")
       .map((holder) => [holder.objectId, 600 + next(4) * 500] as const);
@@ -865,7 +856,6 @@ export function generateEcologyCases(sequences = 3): GeneratedCase[] {
       dryingPerInterval: 200 + next(3) * 200,
       plants,
       holders,
-      sources,
       perishables,
     });
     const horizon = BigInt(2 * dayLengthMs);
@@ -885,8 +875,7 @@ export function generateEcologyCases(sequences = 3): GeneratedCase[] {
       horizon,
       operations,
       // The largest indivisible group plus slack, so every bounded call can make progress.
-      chainEvents:
-        3 * spec.actors.length + 2 * plantCount + perishables.length + sources.length + 2 + next(4),
+      chainEvents: 3 * spec.actors.length + 2 * plantCount + perishables.length + 2 + next(4),
       chainInputs: 1 + next(4),
     });
   }
@@ -1176,13 +1165,11 @@ export function ecologyRefusalInputs(base: WorldKernelInput): RefusalCase[] {
   return [
     policy("policy-null", () => null),
     policy("policy-wrong-type", () => "ecology"),
-    policy("policy-missing-field", drop("sources")),
+    policy("policy-missing-field", drop("perishables")),
     policy("policy-extra-field", set("extra", 1)),
+    policy("legacy-sources", set("sources", [])),
     policy("unknown-version", set("schemaVersion", 2)),
     { name: "policy-without-environment", input: withoutPolicyKey(base, "environment") },
-    policy("source-null", replace("sources", 0, null)),
-    policy("source-missing-field", at("sources", 0, "quantity", REMOVE)),
-    policy("source-extra-field", at("sources", 0, "extra", 1)),
     policy("perishable-null", replace("perishables", 0, null)),
     policy("perishable-missing-field", at("perishables", 0, "shelfLifeMs", REMOVE)),
     policy("perishable-extra-field", at("perishables", 0, "extra", 1)),
@@ -1192,33 +1179,10 @@ export function ecologyRefusalInputs(base: WorldKernelInput): RefusalCase[] {
     policy("stage-null", withStages([null as unknown as Loose, ...stages("0", "10")])),
     policy("stage-missing-field", stage(0, "name", REMOVE)),
     policy("stage-extra-field", stage(0, "extra", 1)),
-    policy("first-time-zero", at("sources", 0, "firstAtMs", 0n)),
-    policy("first-time-negative", at("sources", 0, "firstAtMs", -1n)),
-    policy("first-time-wrong-type", at("sources", 0, "firstAtMs", 1000)),
-    policy("first-time-out-of-range", at("sources", 0, "firstAtMs", TOO_LONG)),
-    policy("period-zero", at("sources", 0, "periodMs", 0n)),
-    policy("period-out-of-range", at("sources", 0, "periodMs", TOO_LONG)),
-    policy("quantity-zero", at("sources", 0, "quantity", 0)),
-    policy("quantity-negative", at("sources", 0, "quantity", -1)),
-    policy("quantity-wrong-type", at("sources", 0, "quantity", "7")),
-    policy("quantity-out-of-range", at("sources", 0, "quantity", Number.MAX_SAFE_INTEGER + 1)),
     policy("shelf-life-zero", at("perishables", 0, "shelfLifeMs", 0n)),
     policy("shelf-life-out-of-range", at("perishables", 0, "shelfLifeMs", TOO_LONG)),
     policy("threshold-negative", stage(1, "thresholdMs", -1n)),
     policy("threshold-out-of-range", stage(1, "thresholdMs", TOO_LONG)),
-    policy(
-      "sources-too-many",
-      set(
-        "sources",
-        many(65, (index) => ({
-          objectId: `s${index}`,
-          kind: "food",
-          firstAtMs: 1n,
-          periodMs: 1n,
-          quantity: 1,
-        })),
-      ),
-    ),
     policy(
       "perishables-too-many",
       set(
@@ -1255,10 +1219,8 @@ export function ecologyRefusalInputs(base: WorldKernelInput): RefusalCase[] {
     policy("first-stage-not-zero", stage(0, "thresholdMs", 5n)),
     policy("thresholds-not-increasing", stage(2, "thresholdMs", 1000n)),
     policy("duplicate-stage-name", stage(1, "name", "seed")),
-    policy("duplicate-source-id", at("sources", 1, "objectId", "food-bowl")),
     policy("duplicate-perishable-id", at("perishables", 1, "objectId", "food-bowl")),
     policy("duplicate-plant-id", at("plants", 1, "objectId", "cedar-a")),
-    policy("plant-also-source", at("plants", 0, "objectId", "food-bowl")),
     policy("plant-also-perishable", at("plants", 0, "objectId", "keeper-bowl")),
     policy("unknown-light-band", at("plants", 0, "growingLightBands", ["twilight"])),
     { name: "state-null", input: setStateEcology(base, null) },
@@ -1297,19 +1259,6 @@ export function ecologyRefusalInputs(base: WorldKernelInput): RefusalCase[] {
     }),
     state("perishable-id-differs", entry("perishables", 0, "objectId", "keeper-bowl")),
     state("plant-id-differs", entry("plants", 0, "objectId", "cedar-b")),
-    entities("source-object-missing", entityNamed("water-bowl")),
-    entities(
-      "source-kind-differs",
-      entityEdit("water-bowl", (entity) => {
-        entity.resource.kind = "food";
-      }),
-    ),
-    entities(
-      "source-without-resource",
-      entityEdit("water-bowl", (entity) => {
-        delete entity.resource;
-      }),
-    ),
     entities("perishable-object-missing", entityNamed("keeper-bowl")),
     entities(
       "perishable-not-food",
@@ -1476,15 +1425,15 @@ async function describeSynthetic(
   };
 }
 
-/** Wraps the first source so reads of `quantity` after `validReads` misbehave. */
-function flakySource(source: Loose, validReads: number, mode: "invalid" | "throw"): Loose {
+/** Policy reads fail at a chosen phase: stage names in the handler, yield quantity in the reducer. */
+function flakyYield(source: Loose, validReads: number, mode: "invalid" | "throw"): Loose {
   let reads = 0;
   return new Proxy(source, {
     get(target, property, receiver) {
-      if (property === "quantity") {
+      if (property === (mode === "throw" ? "name" : "quantity")) {
         reads += 1;
         if (reads > validReads) {
-          if (mode === "throw") throw new Error("hostile source read");
+          if (mode === "throw") throw new Error("hostile yield read");
           return -1;
         }
       }
@@ -1499,12 +1448,19 @@ export function flakyInput(
   mode: "invalid" | "throw",
 ): WorldKernelInput {
   return mutatePolicy(base, (ecology) => {
-    ecology.sources[0] = flakySource(ecology.sources[0], validReads, mode);
+    if (mode === "throw")
+      ecology.plants[0].stages[1] = flakyYield(ecology.plants[0].stages[1], validReads, mode);
+    else
+      ecology.plants[0].stages[1].yield = flakyYield(
+        ecology.plants[0].stages[1].yield,
+        validReads,
+        mode,
+      );
     return ecology;
   });
 }
 
-/** Runs the sweep: the first number of valid reads that makes the hostile source refuse. */
+/** Runs the sweep: the first number of valid reads that makes the hostile yield refuse. */
 export function exceptionSweep(base: WorldKernelInput, mode: "invalid" | "throw", code: string) {
   for (let validReads = 0; validReads < 400; validReads += 1) {
     const input = flakyInput(base, validReads, mode);
@@ -1512,7 +1468,7 @@ export function exceptionSweep(base: WorldKernelInput, mode: "invalid" | "throw"
     if (!outcome.ok && outcome.error.code === code) return { input, outcome };
     if (outcome.ok && validReads > 100) break;
   }
-  throw new Error(`no ${code} found by the hostile source sweep`);
+  throw new Error(`no ${code} found by the hostile yield sweep`);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1544,17 +1500,16 @@ async function buildTargetedCases(): Promise<TargetedCases> {
     return decisionTimesOf(run);
   };
 
-  // Skipped appearance: a source into a holder that still has food queues nothing.
+  // Finite inventory stays unchanged while waiting and never regenerates after consumption.
   const skipWorld = await ecologyWorld(
     baseSpec({
       holders: [{ objectId: "bowl", kind: "food", quantity: 5, arrivedAt: 0 }],
-      sources: [["bowl", "food", 1000, 1000, 3]],
       perishables: [["bowl", 100000]],
     }),
   );
-  const skip = track("skip-appearance", advance(skipWorld, "skip", 3500n));
+  const skip = track("finite-holder-wait", advance(skipWorld, "skip", 3500n));
   const emptied = track(
-    "skip-appearance-eat",
+    "finite-holder-eat",
     runResource(
       skip.world,
       "resource.consume",
@@ -1562,7 +1517,7 @@ async function buildTargetedCases(): Promise<TargetedCases> {
       "skip:eat",
     ),
   );
-  track("skip-appearance-later", advance(emptied.world, "skip:later", 4000n));
+  track("empty-stays-empty", advance(emptied.world, "skip:later", 4000n));
 
   // Consume to zero.
   const zeroWorld = await ecologyWorld(
@@ -1665,7 +1620,6 @@ async function buildTargetedCases(): Promise<TargetedCases> {
   const orderWorld = await ecologyWorld(
     baseSpec({
       holders: [{ objectId: "bowl", kind: "food", quantity: 5, arrivedAt: 0 }],
-      sources: [["bowl", "food", Number(due), 100000, 3]],
       perishables: [["bowl", Number(due)]],
     }),
   );

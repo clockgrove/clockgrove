@@ -92,6 +92,7 @@ export const incompatibilityNames: Readonly<Record<SceneCompatibilityCode, strin
   unsupported_projection_version: "projection",
   unsupported_asset_manifest_version: "asset-manifest",
   unsupported_client_version: "client",
+  unsupported_material_version: "material",
 };
 export function sceneStatusText(state: SceneStateProjection): string {
   if (state.status === "Authorization lost") return "unavailable. Authorization lost";

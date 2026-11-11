@@ -35,6 +35,7 @@ import {
   type MovementRecord,
   movementCompletionTime,
   type NamedRandomState,
+  nextProcessTime,
   PORTAL_COMMAND_TYPES,
   type PortalCommand,
   type PortalCommandType,
@@ -46,6 +47,7 @@ import {
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceWorldEvent,
   regionsContaining,
   sameCoordinates,
   scriptedCognitionDisagreement,
@@ -62,6 +64,7 @@ import {
   type WorldState,
   wellbeingDisagreement,
   worldEventVersion,
+  worldProcessDisagreement,
 } from "@clockgrove/domain";
 import { canonicalSerialize } from "./canonical.js";
 import { createDeterministicIdSource } from "./deterministic-id.js";
@@ -118,6 +121,7 @@ import type { SpatialIndexFactory } from "./spatial/index-port.js";
 import {
   crossingEvent,
   type MovementRuntime,
+  movementIdFor,
   movementPreconditionPath,
   runMovementHandler,
 } from "./spatial/movement.js";
@@ -130,11 +134,15 @@ import {
 import { createQuadtreeSpatialIndex } from "./spatial/quadtree.js";
 import {
   createGrowthSystem,
+  createWaterSystem,
   type EcologyHolderInit,
   type EcologyPlantInit,
   type EcologyRunOptions,
+  type EcologyWaterInit,
   growthSnapshotOf,
   growthSystemState,
+  waterSnapshotOf,
+  waterSystemState,
 } from "./systems/ecology/index.js";
 import {
   createEnvironmentRun,
@@ -249,6 +257,9 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "exposure.threshold-crossed",
   "resource.spoiled",
   "resource.appeared",
+  "resource.weather-integrated",
+  "process.command-attempted",
+  "resource.transferred",
   "growth.integrated",
   "growth.stage-changed",
   "needs.changed",
@@ -302,6 +313,8 @@ const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)
     "needs.relieved": ["needs"],
     "resource.spoiled": ["resource"],
     "resource.appeared": ["resource"],
+    "resource.weather-integrated": ["resource"],
+    "growth.stage-changed": ["resource"],
     "resource.consumed": ["resource"],
     "routine.selected": ["selectedAction"],
     "location.changed": ["locationId"],
@@ -315,10 +328,13 @@ const MOVING_ENTITY_FIELDS: Readonly<Record<string, readonly (keyof WorldEntity)
     "movement.completed": ["movement", "pose"],
   });
 /**
- * The only event a moving command may journal twice with the same time and payload
- * (`movement.events-ordered-and-unique@3`): two actors eating from one holder at one time.
+ * Two actors may consume together, and two declared processes may transfer identical payloads.
+ * Process transfer identity and adjacency are checked by `process.journaled-commands@1`.
  */
-const REPEATABLE_MOVING_TYPES: ReadonlySet<string> = new Set(["resource.consumed"]);
+const REPEATABLE_MOVING_TYPES: ReadonlySet<string> = new Set([
+  "resource.consumed",
+  "resource.transferred",
+]);
 /** The movement events that begin, change or end one mover's movement (not its crossings). */
 const MOVEMENT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
   "movement.started",
@@ -358,6 +374,32 @@ const SCHEDULED_MAX_EVENTS = 4096;
  * synchronous duration of that call only (set and restored by `withActivePolicy`).
  */
 let activePolicy: WorldBehaviorPolicy | undefined;
+
+interface ValidatedProcessVerdict {
+  readonly scope: string;
+  readonly revision: bigint;
+  readonly at: SimTimeMs;
+  readonly payload: string;
+  readonly refusal: Refusal | undefined;
+}
+function processWorldIdentity(state: WorldState): string {
+  return canonicalSerialize([state.tenantId, state.worldId, state.timelineId, state.partitionId]);
+}
+
+let activeProcessVerdicts: Map<CommandId, ValidatedProcessVerdict> | undefined;
+
+function withProcessVerdicts<T>(
+  verdicts: Map<CommandId, ValidatedProcessVerdict> | undefined,
+  run: () => T,
+): T {
+  const previous = activeProcessVerdicts;
+  activeProcessVerdicts = verdicts;
+  try {
+    return run();
+  } finally {
+    activeProcessVerdicts = previous;
+  }
+}
 
 function withActivePolicy<T>(policy: WorldBehaviorPolicy | undefined, run: () => T): T {
   const previous = activePolicy;
@@ -642,7 +684,13 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
       return invalid("continuation");
   }
   try {
-    validateDecisionQueue(state, createScheduleQueue(input.schedules), actors);
+    // A synchronous move holds its actor decision; transfers do not dispatch or alter that queue.
+    validateDecisionQueue(
+      state,
+      createScheduleQueue(input.schedules),
+      actors,
+      (command as { type: string }).type === "resource.transfer",
+    );
   } catch {
     return invalid("schedules");
   }
@@ -678,7 +726,8 @@ function validateWorldPayload(payload: unknown, { state }: { readonly state: Wor
   if (value.lazy !== undefined && value.lazy !== true) invalid("payload.lazy");
   const actors = livingActorsOf(state);
   // Every plant is integrated wherever the actors are, so the smallest budget covers them too.
-  const plantCount = state.ecology?.plants.length ?? 0;
+  const plantCount =
+    (state.ecology?.plants.length ?? 0) + (state.ecology?.waterHolders?.length ?? 0);
   // With wellbeing every integration is a needs event plus a wellbeing event.
   const perActor = state.wellbeing === undefined ? 1 : 2;
   if (
@@ -717,6 +766,7 @@ function runWorldCommand(context: WorldContext): HandlerOutput<WorldState, World
           maxEvents:
             (state.wellbeing === undefined ? 1 : 2) * livingActorsOf(state).length +
             (state.ecology?.plants.length ?? 0) +
+            (state.ecology?.waterHolders?.length ?? 0) +
             1,
         }
       : command.payload;
@@ -758,6 +808,185 @@ interface WorldRunSpec {
   readonly scheduled?: { readonly scheduleId: ScheduleId; readonly dueAt: SimTimeMs };
   /** A movement or portal command: its handler, run on the runtime the world time passes through. */
   readonly move?: (rt: MovementRuntime) => void;
+}
+
+function transferReferencePath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  for (const key of ["fromObjectId", "toObjectId"] as const) {
+    const entity = state.entities.find((entry) => entry.objectId === payload[key]);
+    if (entity === undefined || !active(entity)) return `payload.${key}`;
+  }
+  return undefined;
+}
+function transferAvailablePath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  const source = state.entities.find((entry) => entry.objectId === payload.fromObjectId)!;
+  if (source.resource?.kind !== payload.kind) return "payload.kind";
+  if (source.resource.quantity < payload.quantity) return "payload.quantity";
+  if (payload.fromObjectId === payload.toObjectId) return "payload.toObjectId";
+  const target = state.entities.find((entry) => entry.objectId === payload.toObjectId)!;
+  if (target.resource?.kind !== payload.kind) return "payload.kind";
+  if (target.resource.quantity > Number.MAX_SAFE_INTEGER - payload.quantity)
+    return "payload.quantity";
+  return undefined;
+}
+function transferBatchPath(
+  state: WorldState,
+  payload: ContainmentPayload<"resource.transfer">,
+): string | undefined {
+  return state.ecology?.perishables.some((entry) => entry.objectId === payload.toObjectId) ===
+    true &&
+    (state.entities.find((entry) => entry.objectId === payload.toObjectId)?.resource?.quantity ??
+      0) > 0
+    ? "payload.toObjectId"
+    : undefined;
+}
+function processTransferRefusal(
+  policy: WorldBehaviorPolicy,
+  before: WorldState,
+  transfer: Extract<WorldSemanticEvent, { type: "resource.transferred" }>,
+): Refusal | undefined {
+  const payload = { schemaVersion: 1 as const, ...transfer.payload };
+  if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
+  // The outer command already validates the pack archetypes; replay retains its physical state.
+  const input = {
+    pack: { pack: { policy, archetypes: before.entities.map((entity) => entity.archetypeId) } },
+  } as unknown as WorldKernelInput;
+  const command = { type: "resource.transfer", payload } as unknown as ContainmentCommand;
+  const subject = { state: before, input, command, payload, versions: {} } as WorldPrecondition;
+  for (const check of WORLD_KERNEL.kernel.definition.preconditions.ordered("resource.transfer")) {
+    const name = `${check.name}@${check.version}`;
+    try {
+      const path = check.check(subject);
+      if (path !== undefined) return refusal("precondition-failed", path, name);
+    } catch {
+      return refusal("check-error", "precondition", name);
+    }
+  }
+  try {
+    const after = reduceWorldEvent(before, transfer);
+    return checkWorldInvariants(before, after, [transfer], "resource.transfer", policy);
+  } catch {
+    return refusal("reducer-failed", "events[0]");
+  }
+}
+
+function processCommandId(state: WorldState, processId: string, at: SimTimeMs): CommandId {
+  return createDeterministicIdSource({
+    commandId: canonicalSerialize([
+      state.worldId,
+      state.timelineId,
+      state.partitionId,
+      processId,
+      at,
+    ]) as CommandId,
+    eventIndex: 0,
+    randomStream: "world-process",
+  }).next("CommandId");
+}
+function isProcessCommandEvent(events: readonly WorldEvent[], index: number): boolean {
+  const event = events[index];
+  if (event?.type === "process.command-attempted") return true;
+  const previous = events[index - 1];
+  return (
+    event?.type === "resource.transferred" &&
+    previous?.type === "process.command-attempted" &&
+    previous.payload.refusal === null &&
+    previous.simulationTime === event.simulationTime
+  );
+}
+function processJournalDisagreement(
+  policy: WorldBehaviorPolicy,
+  initial: WorldState,
+  state: WorldState,
+  events: readonly WorldSemanticEvent[],
+): string | undefined {
+  const mismatch = worldProcessDisagreement(policy, state);
+  if (mismatch !== undefined) return mismatch;
+  const firstAttempt = events.findIndex((event) => event.type === "process.command-attempted");
+  if (policy.processes === undefined)
+    return firstAttempt < 0 ? undefined : `events[${firstAttempt}].payload.processId`;
+  if (firstAttempt < 0)
+    return canonicalSerialize(initial.processes) === canonicalSerialize(state.processes)
+      ? undefined
+      : "state.processes";
+  const cursors = initial.processes?.map((entry) => ({ ...entry }));
+  const scope = processWorldIdentity(initial);
+  let before: WorldState | undefined = activeProcessVerdicts === undefined ? initial : undefined;
+  for (const [index, event] of events.entries()) {
+    if (event.type !== "process.command-attempted") {
+      if (before !== undefined) before = reduceWorldEvent(before, event);
+      continue;
+    }
+    const process = policy.processes?.find((entry) => entry.id === event.payload.processId);
+    const cursor = cursors?.find((entry) => entry.processId === event.payload.processId);
+    if (process === undefined || cursor?.nextAt !== event.simulationTime)
+      return `events[${index}].payload.processId`;
+    const commandId = processCommandId(initial, process.id, event.simulationTime);
+    if (
+      event.payload.commandId !== commandId ||
+      event.attribution.principalId !== process.principalId ||
+      event.attribution.effectiveActorId !== `process:${process.id}` ||
+      event.attribution.immediateCauseId !== commandId
+    )
+      return `events[${index}].attribution`;
+    const nextAt = nextProcessTime(process, event.simulationTime);
+    if (event.payload.nextAt !== nextAt) return `events[${index}].payload.nextAt`;
+    cursor.nextAt = nextAt;
+    const { schemaVersion: _payloadVersion, ...declaredPayload } = process.command.payload;
+    const transferEvent = {
+      ...event,
+      type: "resource.transferred" as const,
+      payload: {
+        ...declaredPayload,
+        fromObjectId: declaredPayload.fromObjectId as ObjectId,
+        toObjectId: declaredPayload.toObjectId as ObjectId,
+      },
+    };
+    const validated = activeProcessVerdicts?.get(commandId);
+    // Each native reducer increments revision once, so a matching verdict identifies this prefix.
+    // Standalone verification has no cache and independently replays every event.
+    let expectedRefusal: Refusal | undefined;
+    if (
+      validated !== undefined &&
+      validated.scope === scope &&
+      validated.revision === initial.revision + BigInt(index) &&
+      validated.at === event.simulationTime &&
+      validated.payload === canonicalSerialize(process.command.payload)
+    )
+      expectedRefusal = validated.refusal;
+    else {
+      before ??= events
+        .slice(0, index)
+        .reduce((prior, event) => reduceWorldEvent(prior, event), initial);
+      expectedRefusal = processTransferRefusal(
+        policy,
+        createWorldState({ ...before, simulationTime: event.simulationTime }),
+        transferEvent,
+      );
+    }
+    if (canonicalSerialize(event.payload.refusal) !== canonicalSerialize(expectedRefusal ?? null))
+      return `events[${index}].payload.refusal`;
+    if (event.payload.refusal === null) {
+      const transfer = events[index + 1];
+      const { schemaVersion: _version, ...payload } = process.command.payload;
+      if (
+        transfer?.type !== "resource.transferred" ||
+        transfer.simulationTime !== event.simulationTime ||
+        canonicalSerialize(transfer.payload) !== canonicalSerialize(payload) ||
+        canonicalSerialize(transfer.attribution) !== canonicalSerialize(event.attribution)
+      )
+        return `events[${index + 1}]`;
+    }
+    if (before !== undefined) before = reduceWorldEvent(before, event);
+  }
+  if (canonicalSerialize(cursors ?? null) !== canonicalSerialize(state.processes ?? null))
+    return "state.processes";
+  return undefined;
 }
 
 function runWorld(
@@ -826,6 +1055,75 @@ function runWorld(
         schedules = cancelSchedule(schedules, item.id);
         scheduleMutations.push(Object.freeze({ kind: "cancel", scheduleId: item.id }));
       }
+    }
+    return true;
+  }
+  const processesAt = (at: SimTimeMs) =>
+    (policy.processes ?? [])
+      .filter(
+        (process) =>
+          current().processes?.find((entry) => entry.processId === process.id)?.nextAt === at,
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  function fireProcesses(at: SimTimeMs): boolean {
+    const due = processesAt(at);
+    if (due.length === 0) return true;
+    // Reserve the whole instant, including a possible transfer per occurrence and settled weather.
+    const size = due.length * 2 + pendingWater(at).length;
+    if (context.eventCount() + size > payload.maxEvents) {
+      if (context.eventCount() === 0) invalid("payload.maxEvents");
+      return false;
+    }
+    integrateWaters(at);
+    const { continuation: _continuation, ...baseInput } = input;
+    for (const process of due) {
+      const trial = createWorldState({ ...current(), simulationTime: at });
+      const commandId = processCommandId(trial, process.id, at);
+      const processAttribution = {
+        principalId: process.principalId,
+        effectiveActorId: `process:${process.id}`,
+        causalRootActionId: attribution.causalRootActionId,
+        immediateCauseId: commandId,
+        authorityDecisionId: attribution.authorityDecisionId,
+      };
+      const { authorityDecisionId: _authority, ...intent } = processAttribution;
+      const nested = executeWorldKernel({
+        ...baseInput,
+        simulationTime: at,
+        partition: { ...input.partition, revision: trial.revision, state: trial },
+        schedules,
+        attribution: processAttribution,
+        input: {
+          kind: "command",
+          command: {
+            ...context.command,
+            commandId,
+            expected: { partitionRevision: trial.revision },
+            simulationTime: at,
+            attribution: intent,
+            type: process.command.type,
+            payload: process.command.payload,
+          },
+        },
+        ids: createDeterministicIdSource({ commandId, eventIndex: 0, randomStream: "process" }),
+      } as ContainmentKernelInput);
+      activeProcessVerdicts?.set(commandId, {
+        scope: processWorldIdentity(trial),
+        revision: trial.revision,
+        at,
+        payload: canonicalSerialize(process.command.payload),
+        refusal: nested.ok ? undefined : nested.error,
+      });
+      emit({
+        ...event("process.command-attempted", at, {
+          processId: process.id,
+          commandId,
+          nextAt: nextProcessTime(process, at),
+          refusal: nested.ok ? null : nested.error,
+        }),
+        attribution: processAttribution,
+      });
+      if (nested.ok) for (const inner of nested.result.events) emit(inner);
     }
     return true;
   }
@@ -913,7 +1211,8 @@ function runWorld(
    * same `integrateNeedsWith` through the injected integrator; there is no second wetness formula.
    */
   const ecologyPolicy = policy.ecology;
-  const plantTotal = ecologyPolicy?.plants.length ?? 0;
+  const waterTotal = ecologyPolicy?.waterHolders?.length ?? 0;
+  const plantTotal = (ecologyPolicy?.plants.length ?? 0) + waterTotal;
   const growthSystems = new Map<string, ContinuousSystem>();
   if (ecologyPolicy !== undefined && policy.environment !== undefined)
     for (const plant of ecologyPolicy.plants)
@@ -947,8 +1246,22 @@ function runWorld(
       }),
     );
   }
-  function integratePlants(through: SimTimeMs): void {
+  function integratePlants(through: SimTimeMs, includeWater = true): void {
+    if (includeWater) integrateWaters(through);
     for (const objectId of pendingPlants(through)) integratePlant(objectId, through);
+  }
+  function pendingWater(through: SimTimeMs): readonly string[] {
+    return (current().ecology?.waterHolders ?? [])
+      .filter((entry) => entry.integratedAt < through)
+      .map((entry) => entry.objectId)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  }
+  function integrateWater(objectId: string, through: SimTimeMs): void {
+    const next = waterAt(current(), objectId, through, policy);
+    if (next !== undefined) emit(event("resource.weather-integrated", through, next));
+  }
+  function integrateWaters(through: SimTimeMs): void {
+    for (const id of pendingWater(through)) integrateWater(id, through);
   }
   function currentActorOf(objectId: ObjectId): WorldEntity {
     const found = current().entities.find((entity) => entity.objectId === objectId);
@@ -994,20 +1307,25 @@ function runWorld(
       readonly quantity: number;
     };
     readonly relieve?: { readonly need: "hunger" | "thirst"; readonly value: number };
-    readonly location?: string;
+    readonly location?: string | null;
     readonly comfort?: Derived;
   }
   const arrivalEventCount = (plan: ArrivalPlan): number =>
     (plan.location === undefined ? 0 : 1) +
     (plan.consume === undefined ? 0 : 2) +
     (plan.comfort === undefined ? 0 : 1);
-  /** The arrival effects at a target for an actor whose needs are integrated in `state`. */
+  /**
+   * The arrival effects at a target for an actor whose needs are integrated in `state`. A move
+   * (`moved`: completed, or a walk stopped at the target) ends in the shelter standing at the
+   * target, if any; an actor that was already standing there enters only the shelter it sought.
+   */
   function arrivalPlan(
     state: WorldState,
     actor: WorldEntity,
     targetId: string | undefined,
     baseline: Derived["comfort"] | undefined,
     held: ReadonlyMap<string, number>,
+    moved: boolean,
   ): ArrivalPlan {
     const target = targetId === undefined ? undefined : objectsOf(state, targetId);
     const entry = state.wellbeing?.entries.find(
@@ -1025,11 +1343,18 @@ function runWorld(
       wellbeingPolicy === undefined
     )
       return {};
+    const was = actor.locationId ?? null;
+    const location = moved
+      ? shelterAt(state, actor, target.pose.coordinates, target.objectId)
+      : target.shelter !== undefined
+        ? target.objectId
+        : was;
+    const located = location === was ? {} : { location };
     const resource = target.resource;
     if (resource !== undefined && (resource.kind === "food" || resource.kind === "water")) {
       const available = held.get(target.objectId) ?? resource.quantity;
       const quantity = Math.min(utilityPolicy.biteQuantity, available);
-      if (quantity <= 0) return {};
+      if (quantity <= 0) return located;
       const food = resource.kind === "food";
       const current = food ? needs.hunger : entry.thirst;
       const drop =
@@ -1042,14 +1367,13 @@ function runWorld(
         wetness: needs.wetness,
       });
       return {
+        ...located,
         consume: { holder: target.objectId, kind: resource.kind, quantity },
         relieve: { need: food ? "hunger" : "thirst", value },
         ...(derived.comfort === (baseline ?? entry.comfort) ? {} : { comfort: derived }),
       };
     }
-    if (target.shelter !== undefined)
-      return actor.locationId === target.objectId ? {} : { location: target.objectId };
-    return {};
+    return located;
   }
   /** A copy of the state with one actor's needs and wellbeing integrated through `through`. */
   function viewAt(objectId: string, through: SimTimeMs): WorldState {
@@ -1090,8 +1414,49 @@ function runWorld(
       emit(event(type as never, crossing.time as SimTimeMs, payload as never));
     }
   }
-  /** The immediate-or-completed arrival effects, journaled from the live state. */
-  function emitArrival(objectId: string, planId: string, at: SimTimeMs): void {
+  /**
+   * The plan a movement `world.advance` completes belongs to: the decision plan that started or
+   * replanned it when its id is the one that decision's dispatch derives (`movementIdFor` of the
+   * actor's decision command at the movement's start), else the movement itself, which a moving
+   * command started and the world time finished.
+   */
+  function completedPlanId(objectId: string, movement: MovementRecord): string {
+    const start = movement.segment.startTime as SimTimeMs;
+    const item = decisionsOf(schedules).find((entry) => entry.payload.objectId === objectId);
+    if (item !== undefined) {
+      const decision = dispatchWorldDecision({
+        ...item,
+        dueAt: start,
+        idempotencyKey: `${item.id}:${start}`,
+      });
+      if (movementIdFor(decision.commandId) === movement.movementId)
+        return `plan:${objectId}@${start}`;
+    }
+    return movement.movementId;
+  }
+  /** The inventory arrivals and decisions observe after this time's water integration. */
+  function waterViewAt(state: WorldState, through: SimTimeMs): WorldState {
+    const pending = pendingWater(through);
+    if (pending.length === 0) return state;
+    const changes = new Map(pending.map((id) => [id, waterAt(current(), id, through, policy)!]));
+    return {
+      ...state,
+      entities: state.entities.map((entity) => {
+        const change = changes.get(entity.objectId);
+        return change === undefined || entity.resource === undefined
+          ? entity
+          : {
+              ...entity,
+              resource: {
+                ...entity.resource,
+                quantity: entity.resource.quantity + change.collected - change.evaporated,
+              },
+            };
+      }),
+    };
+  }
+  /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
+  function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
     if (actor === undefined) throw new RangeError("arriving actor disappeared");
     const plan = arrivalPlan(
@@ -1100,12 +1465,13 @@ function runWorld(
       actor.selectedAction?.targetObjectId,
       undefined,
       new Map(),
+      moved,
     );
     if (plan.location !== undefined)
       emit(
         event("location.changed", at, {
           objectId: objectId as ObjectId,
-          locationId: plan.location as ObjectId,
+          locationId: plan.location as ObjectId | null,
           planId,
         }),
       );
@@ -1155,8 +1521,9 @@ function runWorld(
         readonly record: MovementRecord;
       }
     | { readonly kind: "unlocate" }
+    | { readonly kind: "locate"; readonly locationId: string | null }
     | { readonly kind: "start"; readonly record: MovementRecord }
-    | { readonly kind: "arrive"; readonly events: number };
+    | { readonly kind: "arrive"; readonly events: number; readonly walked: boolean };
   interface DecisionPlan {
     readonly steps: readonly DecisionStep[];
     readonly links: readonly string[];
@@ -1186,11 +1553,11 @@ function runWorld(
     if (target === undefined) {
       if (prior !== undefined) {
         stopPrior();
-        steps.push({
-          kind: "interrupt",
-          movementId: prior.movementId,
-          position: positionAt(prior.segment, t),
-        });
+        const position = positionAt(prior.segment, t);
+        steps.push({ kind: "interrupt", movementId: prior.movementId, position });
+        // Where a stopped walk stands, the actor is in the shelter standing there, or on open ground.
+        const locationId = shelterAt(state, actor, position);
+        if (locationId !== (actor.locationId ?? null)) steps.push({ kind: "locate", locationId });
       }
       return { steps, links };
     }
@@ -1211,8 +1578,10 @@ function runWorld(
           position: positionAt(prior.segment, t),
         });
       }
-      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map());
-      steps.push({ kind: "arrive", events: arrivalEventCount(live) });
+      // A walk stopped at the target ends there as a completed one would.
+      const walked = prior !== undefined;
+      const live = arrivalPlan(state, actor, target.objectId, undefined, new Map(), walked);
+      steps.push({ kind: "arrive", events: arrivalEventCount(live), walked });
       links.push(planId);
       return { steps, links };
     }
@@ -1310,11 +1679,11 @@ function runWorld(
             movement: step.record,
           } as never),
         );
-      else if (step.kind === "unlocate")
+      else if (step.kind === "unlocate" || step.kind === "locate")
         emit(
           event("location.changed", t, {
             objectId: objectId as ObjectId,
-            locationId: null,
+            locationId: (step.kind === "locate" ? step.locationId : null) as ObjectId | null,
             planId,
           }),
         );
@@ -1325,7 +1694,7 @@ function runWorld(
             movement: step.record,
           } as never),
         );
-      else emitArrival(objectId, planId, t);
+      else emitArrival(objectId, planId, t, step.walked);
     }
   }
   /** Re-seeds the engine states of the given (journaled) actors and re-registers the movers. */
@@ -1344,8 +1713,10 @@ function runWorld(
       }),
       rainIntensity: state.weather.rainIntensity,
       nextWeatherBoundary: state.environment?.nextWeatherBoundary ?? (MAX_TIME as SimTimeMs),
-      // A decision or arrival may have consumed from a holder: its next appearance depends on that.
-      ...(ecologyPolicy === undefined ? {} : { holders: ecologyHolders(state, ecologyPolicy) }),
+      // A decision or arrival may change the next spoilage or collection threshold.
+      ...(ecologyPolicy === undefined
+        ? {}
+        : { holders: ecologyHolders(state, ecologyPolicy), waterHolders: ecologyWaters(state) }),
     });
     target.setMovers(
       state.entities
@@ -1504,7 +1875,7 @@ function runWorld(
       for (const { objectId, movement } of moverCrossings) {
         if (movementCompletionTime(movement.segment) !== at) continue;
         arrivalIds.push(objectId);
-        const view = viewAt(objectId, at);
+        const view = waterViewAt(viewAt(objectId, at), at);
         const actor = objectsOf(view, objectId) as WorldEntity;
         const plan = arrivalPlan(
           view,
@@ -1512,9 +1883,10 @@ function runWorld(
           actor.selectedAction?.targetObjectId,
           comforts.get(objectId),
           held,
+          true,
         );
         if (plan.consume !== undefined) {
-          const holder = objectsOf(before, plan.consume.holder);
+          const holder = objectsOf(view, plan.consume.holder);
           held.set(
             plan.consume.holder,
             (held.get(plan.consume.holder) ?? holder?.resource?.quantity ?? 0) -
@@ -1530,6 +1902,7 @@ function runWorld(
       }
     }
     const size =
+      processesAt(at).length * 2 +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -1540,13 +1913,16 @@ function runWorld(
       group.crossings.length +
       plantsToIntegrate.size +
       group.spoiled.length +
-      group.appeared.length +
       group.stages.length +
+      pendingWater(at).length +
       (plan === undefined ? 0 : sizeOfLifecycle(plan, at));
     if (context.eventCount() + size > payload.maxEvents) {
       if (context.eventCount() === 0) invalid("payload.maxEvents");
       return false;
     }
+    const waterBeforeWeather = group.weather
+      ? pendingWater(at).map((id) => waterAt(current(), id, at, policy)!)
+      : [];
     if (group.phase)
       emit(
         event("environment.phase-changed", at, {
@@ -1557,7 +1933,7 @@ function runWorld(
       );
     if (group.weather) {
       for (const actor of livingActorsOf(current())) integrateActor(actor, at);
-      integratePlants(at);
+      integratePlants(at, false);
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
@@ -1612,25 +1988,8 @@ function runWorld(
         }),
       );
     }
-    for (const objectId of group.appeared) {
-      const entity = current().entities.find((candidate) => candidate.objectId === objectId);
-      const source = ecologyPolicy?.sources.find((candidate) => candidate.objectId === objectId);
-      if (
-        entity?.resource === undefined ||
-        source === undefined ||
-        !active(entity) ||
-        entity.resource.quantity !== 0 ||
-        entity.resource.kind !== source.kind
-      )
-        throw new RangeError("appearance disagrees with the source holder");
-      emit(
-        event("resource.appeared", at, {
-          objectId: entity.objectId,
-          kind: source.kind,
-          quantity: source.quantity,
-        }),
-      );
-    }
+    for (const next of waterBeforeWeather) emit(event("resource.weather-integrated", at, next));
+    integrateWaters(at);
     for (const change of group.stages) {
       integratePlant(change.objectId, at);
       const entry = current().ecology?.plants.find(
@@ -1653,6 +2012,7 @@ function runWorld(
           objectId: entry.objectId,
           stageIndex: change.stageIndex,
           stageName: stage.name,
+          ...(stage.yield === undefined ? {} : { yield: stage.yield }),
         }),
       );
     }
@@ -1836,7 +2196,7 @@ function runWorld(
           movementId: movement.movementId,
         } as never),
       );
-      emitArrival(objectId, `plan:${objectId}@${movement.segment.startTime}`, at);
+      emitArrival(objectId, completedPlanId(objectId, movement), at, true);
     }
     arrivedActors = arrivalIds;
     return true;
@@ -1852,7 +2212,7 @@ function runWorld(
     weather: false,
     crossings: [],
     spoiled: [],
-    appeared: [],
+    water: [],
     stages: [],
     needs: [],
     comforts: [],
@@ -1897,8 +2257,24 @@ function runWorld(
         lifecyclePolicy === undefined
           ? undefined
           : nextLifecycleTime(lifecyclePolicy, current().lifecycle as never, cursor);
+      const processTime = current().processes?.reduce<SimTimeMs | undefined>(
+        (earliest, entry) =>
+          entry.nextAt !== null &&
+          entry.nextAt <= target &&
+          (earliest === undefined || entry.nextAt < earliest)
+            ? entry.nextAt
+            : earliest,
+        undefined,
+      );
+      const nextBarrier =
+        processTime !== undefined && (lifeTime === undefined || processTime < lifeTime)
+          ? processTime
+          : lifeTime;
       const barrier =
-        lifeTime !== undefined && lifeTime <= target ? (lifeTime as SimTimeMs) : undefined;
+        nextBarrier !== undefined && nextBarrier <= target ? (nextBarrier as SimTimeMs) : undefined;
+      // Processes run after the instant's physical causes and before its actor decisions.
+      const processQueue = () =>
+        dispatchable().filter((item) => processTime === undefined || item.dueAt < processTime);
       // A queued dwell is a barrier like a lifecycle time: the drain stops there to fire it.
       const dwellAt = schedules.find(isDwellItem)?.dueAt;
       const dwellBarrier = dwellAt !== undefined && dwellAt <= dwellsThrough ? dwellAt : undefined;
@@ -1907,7 +2283,11 @@ function runWorld(
           ? dwellBarrier
           : (barrier ?? target);
       armedDue = undefined;
-      let drain = engine.drain(dispatchable(), limit);
+      let drain = engine.drain(
+        processQueue(),
+        limit,
+        Math.max(1, payload.maxEvents - context.eventCount()),
+      );
       let pulled = true;
       while (pulled) {
         pulled = false;
@@ -1924,10 +2304,25 @@ function runWorld(
             }
           }
           if (again) {
-            drain = engine.drain(dispatchable(), limit);
+            drain = engine.drain(
+              processQueue(),
+              limit,
+              Math.max(1, payload.maxEvents - context.eventCount()),
+            );
             pulled = true;
             break;
           }
+          // Arrival re-seeds physiology; thresholds beyond it are speculative and may disappear.
+          if (
+            group.movers.some((objectId) => {
+              const movement = objectsOf(current(), objectId)?.movement;
+              return (
+                movement?.status === "active" &&
+                movementCompletionTime(movement.segment) === group.time
+              );
+            })
+          )
+            break;
         }
       }
       const groups =
@@ -1984,6 +2379,14 @@ function runWorld(
           ? undefined
           : schedules.find((candidate) => candidate.id === drain.dispatched?.scheduleId);
       if (item === undefined) {
+        if (processTime !== undefined && drain.time === processTime) {
+          if (!fireProcesses(processTime)) {
+            complete = false;
+            break;
+          }
+          engine = run = buildRun();
+          continue;
+        }
         // Stopped at a dwell barrier: fire what is due, then continue from it.
         if (dwellBarrier !== undefined && drain.time === dwellBarrier) {
           if (!fireDwells(drain.time)) {
@@ -1992,8 +2395,8 @@ function runWorld(
           }
           continue;
         }
-        // Stopped at a lifecycle barrier short of the target: continue from it.
-        if (barrier !== undefined && drain.time < target) continue;
+        // Stopped at a threshold or lifecycle barrier short of the target: continue from it.
+        if (drain.time < target) continue;
         break;
       }
       // A decision is decided on the due actor's integrated view first. It is material when it
@@ -2004,7 +2407,7 @@ function runWorld(
         (entity) => entity.objectId === item.payload.objectId,
       );
       if (dueActor === undefined) throw new RangeError("scheduled actor disappeared");
-      const view = viewAt(dueActor.objectId, item.dueAt);
+      const view = waterViewAt(viewAt(dueActor.objectId, item.dueAt), item.dueAt);
       const viewActor = objectsOf(view, dueActor.objectId) as WorldEntity;
       let unchanged: DecisionTrace | undefined;
       let decisionSize: number;
@@ -2036,6 +2439,7 @@ function runWorld(
         decisionSize =
           integrationEvents(dueActor, item.dueAt) +
           pendingPlants(item.dueAt).length +
+          pendingWater(item.dueAt).length +
           1 +
           stepEvents(trialPlan.steps);
       }
@@ -2144,6 +2548,39 @@ function runWorld(
       );
     };
     let ended = false;
+    /**
+     * Journals the mover's location at `at` as a decision's move does. Whatever shelter protects is
+     * integrated first under the shelter it was in (a needs actor's needs and wellbeing, a plant's
+     * growth) and continues under the new one: an actor's exposure is re-seeded, and a plant's
+     * growth is rebuilt with the run. `reserve` events must still fit after it.
+     */
+    const relocate = (
+      at: SimTimeMs,
+      locationId: string | null,
+      planId: string,
+      reserve: number,
+    ): void => {
+      const actor = objectsOf(current(), mover as string);
+      if (actor === undefined || !active(actor)) return;
+      if ((actor.locationId ?? null) === locationId) return;
+      const plant = pendingPlants(at).includes(actor.objectId);
+      const integration = integrationEvents(actor, at) + (plant ? 1 : 0);
+      if (context.eventCount() + integration + 1 + reserve > payload.maxEvents)
+        passedTime("events");
+      integrateActor(actor, at);
+      if (plant) integratePlant(actor.objectId, at);
+      emit(
+        event("location.changed", at, {
+          objectId: actor.objectId,
+          locationId: locationId as ObjectId | null,
+          planId,
+        }),
+      );
+      if (run === undefined) return;
+      if (current().ecology?.plants.some((entry) => entry.objectId === actor.objectId))
+        run = buildRun();
+      else if (actor.needs !== undefined) refreshRun(run, [actor.objectId]);
+    };
     spec.move({
       state: startState,
       command: { type: context.command.type, commandId: context.command.commandId },
@@ -2159,11 +2596,26 @@ function runWorld(
         if (!advanceTo(time as SimTimeMs, (time - 1n) as SimTimeMs)) passedTime("events");
         ended = moverDied();
         if (ended) return;
-        if (context.eventCount() >= payload.maxEvents) passedTime("events");
-        emit(event(type as WorldEvent["type"], time as SimTimeMs, data as never));
+        if (context.eventCount() + pendingWater(time as SimTimeMs).length >= payload.maxEvents)
+          passedTime("events");
+        integrateWaters(time as SimTimeMs);
+        const at = time as SimTimeMs;
+        // A move off the spot leaves the mover's location as it sets out.
+        if (type === "movement.started" || type === "movement.replanned") {
+          const movement = (data as { readonly movement: MovementRecord }).movement;
+          if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
+        }
+        emit(event(type as WorldEvent["type"], at, data as never));
+        // Where it stops, it is in the shelter standing there, or on open ground.
+        if (type === "movement.completed" || type === "movement.interrupted") {
+          const actor = objectsOf(current(), mover as string) as WorldEntity;
+          const movementId = (data as { readonly movementId: string }).movementId;
+          relocate(at, shelterAt(current(), actor, actor.pose.coordinates), movementId, 0);
+        }
       },
     });
     const through = current().simulationTime;
+    integrateWaters(through);
     if (through > start) {
       if (!fireDwells(through)) passedTime("events");
       // The mover's decision, and any already due at the start, is due at the final time, so the
@@ -2195,6 +2647,7 @@ function runWorld(
         complete = false;
         stage = "finalize";
       } else {
+        integrateWaters(payload.targetTime);
         // A lazy advance leaves needs, wellbeing and plants stored with their `integratedAt`.
         if (payload.lazy !== true) {
           for (const actor of livingActorsOf(current())) integrateActor(actor, payload.targetTime);
@@ -2272,6 +2725,19 @@ function registerWorldChecks(
       },
     }),
     preconditions.register({
+      name: "process.state-matches-policy",
+      version: 1,
+      check: ({ state, input }) => worldProcessDisagreement(input.pack.pack.policy, state),
+    }),
+    invariants.register({
+      name: "process.journaled-commands",
+      version: 1,
+      check: ({ initial, state, events }) =>
+        activePolicy === undefined
+          ? undefined
+          : processJournalDisagreement(activePolicy, initial, state, events),
+    }),
+    preconditions.register({
       name: ENVIRONMENT_CHECK,
       version: 1,
       check: ({ state, input }) => environmentDisagreement(input.pack.pack.policy, state),
@@ -2290,8 +2756,65 @@ function registerWorldChecks(
     invariants.register({
       name: ECOLOGY_CHECK,
       version: 1,
-      check: ({ state }) =>
-        activePolicy === undefined ? undefined : ecologyDisagreement(activePolicy, state),
+      check: ({ initial, state, events }) => {
+        if (activePolicy === undefined) return undefined;
+        const disagreement = ecologyDisagreement(activePolicy, state);
+        if (disagreement !== undefined) return disagreement;
+        const weatherIndex = events.findIndex(
+          (event) =>
+            event.type === "resource.weather-integrated" &&
+            !activePolicy!.ecology?.waterHolders?.some(
+              (holder) => holder.objectId === event.payload.objectId,
+            ),
+        );
+        if (weatherIndex >= 0) return `events[${weatherIndex}].payload.objectId`;
+        if ((activePolicy.ecology?.waterHolders?.length ?? 0) > 0) {
+          let weatherState = initial;
+          const boundaryWater = new Map<string, ReturnType<typeof waterAt>>();
+          for (const [index, event] of events.entries()) {
+            if (event.type === "weather.transitioned") {
+              for (const entry of weatherState.ecology?.waterHolders ?? [])
+                boundaryWater.set(
+                  entry.objectId,
+                  waterAt(weatherState, entry.objectId, event.simulationTime, activePolicy),
+                );
+            }
+            if (event.type === "resource.weather-integrated") {
+              const expected =
+                boundaryWater.get(event.payload.objectId) ??
+                waterAt(weatherState, event.payload.objectId, event.simulationTime, activePolicy);
+              boundaryWater.delete(event.payload.objectId);
+              if (canonicalSerialize(expected) !== canonicalSerialize(event.payload))
+                return `events[${index}].payload`;
+            }
+            weatherState = reduceWorldEvent(weatherState, event);
+          }
+        }
+        const stages = new Map(
+          initial.ecology?.plants.map((plant) => [plant.objectId, plant.stage]),
+        );
+        for (const [index, event] of events.entries()) {
+          if (event.type !== "growth.stage-changed") continue;
+          const plant = activePolicy.ecology?.plants.find(
+            (candidate) => candidate.objectId === event.payload.objectId,
+          );
+          const stage = plant?.stages[event.payload.stageIndex];
+          if (
+            !plant?.stages.some((candidate) => candidate.yield !== undefined) &&
+            event.payload.yield === undefined
+          )
+            continue;
+          if (
+            stage === undefined ||
+            event.payload.stageIndex !== (stages.get(event.payload.objectId) ?? -1) + 1 ||
+            stage.name !== event.payload.stageName ||
+            stage.yield?.quantity !== event.payload.yield?.quantity
+          )
+            return `events[${index}].payload.yield`;
+          stages.set(event.payload.objectId, event.payload.stageIndex);
+        }
+        return undefined;
+      },
     }),
     preconditions.register({
       name: WELLBEING_CHECK,
@@ -2614,21 +3137,50 @@ export function checkWorldInvariants(
   /** The payload of the command whose events are checked; omitted means an empty one. */
   payload: unknown = {},
 ): Refusal | undefined {
+  return checkRegisteredWorldInvariants(initial, final, events, commandType, policy, payload);
+}
+
+/**
+ * Checks a composite transition spanning multiple already-validated commands. Command-specific
+ * authority stays with each native execution; every command-independent invariant still applies.
+ */
+export function checkWorldTransitionInvariants(
+  initial: WorldState,
+  final: WorldState,
+  events: readonly WorldSemanticEvent[],
+  policy: WorldBehaviorPolicy,
+): Refusal | undefined {
+  return checkRegisteredWorldInvariants(initial, final, events, undefined, policy, {});
+}
+
+function checkRegisteredWorldInvariants(
+  initial: WorldState,
+  final: WorldState,
+  events: readonly WorldSemanticEvent[],
+  commandType: string | undefined,
+  policy: WorldBehaviorPolicy | undefined,
+  payload: unknown,
+): Refusal | undefined {
   if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
   const kernel = WORLD_KERNEL.kernel;
   const subject = Object.freeze({ payload, initial, state: final, events });
-  return withActivePolicy(policy, () => {
-    for (const invariant of kernel.definition.invariants.ordered(commandType)) {
-      const name = `${invariant.name}@${invariant.version}`;
-      try {
-        const offending = invariant.check(subject);
-        if (offending !== undefined) return refusal("invariant-violated", offending, name);
-      } catch {
-        return refusal("check-error", "invariant", name);
+  return withProcessVerdicts(undefined, () =>
+    withActivePolicy(policy, () => {
+      for (const invariant of kernel.definition.invariants.ordered(
+        commandType ?? "world.advance",
+      )) {
+        if (commandType === undefined && invariant.commands !== undefined) continue;
+        const name = `${invariant.name}@${invariant.version}`;
+        try {
+          const offending = invariant.check(subject);
+          if (offending !== undefined) return refusal("invariant-violated", offending, name);
+        } catch {
+          return refusal("check-error", "invariant", name);
+        }
       }
-    }
-    return undefined;
-  });
+      return undefined;
+    }),
+  );
 }
 
 /**
@@ -2644,7 +3196,14 @@ export function executeWorldKernel(
   try {
     if (!WORLD_KERNEL.ok) return Object.freeze({ ok: false, error: WORLD_KERNEL.error });
     const kernel = WORLD_KERNEL.kernel;
-    const outcome = withActivePolicy(policyOf(input), () => kernel.execute(input, options));
+    const policy = policyOf(input);
+    const verdicts =
+      (policy?.processes?.length ?? 0) > 0
+        ? new Map<CommandId, ValidatedProcessVerdict>()
+        : undefined;
+    const outcome = withProcessVerdicts(verdicts, () =>
+      withActivePolicy(policy, () => kernel.execute(input, options)),
+    );
     if (!outcome.ok) return outcome;
     const { extra, ...execution } = outcome.result;
     if (extra === undefined)
@@ -2718,6 +3277,7 @@ function validateDecisionQueue(
   state: WorldState,
   schedules: ScheduleQueue<WorldScheduledPayload>,
   actors: readonly WorldEntity[],
+  allowHeldDecisions = false,
 ): void {
   const decisions = decisionsOf(schedules);
   if (
@@ -2745,7 +3305,7 @@ function validateDecisionQueue(
       item.payloadVersion !== 1 ||
       item.payload.schemaVersion !== 1 ||
       item.catchUpClass !== "exact" ||
-      item.dueAt < state.simulationTime ||
+      (!allowHeldDecisions && item.dueAt < state.simulationTime) ||
       !actors.some((actor) => actor.objectId === item.payload.objectId)
     )
       throw new RangeError("unsupported or foreign scheduled input");
@@ -2902,13 +3462,13 @@ function integrateNeeds(
     policy,
   );
 }
-/** Every source and perishable holder's contents, arrival and lifecycle in `state`. */
+/** Every perishable holder's contents, arrival and lifecycle in `state`. */
 function ecologyHolders(state: WorldState, policy: EcologyPolicy): EcologyHolderInit[] {
   const record = state.ecology;
   if (record === undefined) throw new RangeError("ecology policy without a state record");
   const entities = new Map(state.entities.map((entity) => [entity.objectId as string, entity]));
   const arrivals = new Map(record.perishables.map((entry) => [entry.objectId, entry.arrivedAt]));
-  const ids = new Set([...policy.sources, ...policy.perishables].map((entry) => entry.objectId));
+  const ids = new Set(policy.perishables.map((entry) => entry.objectId));
   return [...ids].map((objectId) => {
     const entity = entities.get(objectId);
     if (entity === undefined) throw new RangeError("ecology object is missing from the state");
@@ -2929,11 +3489,68 @@ function ecologyRunOptions(state: WorldState, policy: EcologyPolicy): EcologyRun
     if (entity === undefined) throw new RangeError("ecology object is missing from the state");
     return { entry, protection: rainProtectionOf(state, entity), active: active(entity) };
   });
-  return { policy, holders: ecologyHolders(state, policy), plants };
+  return {
+    policy,
+    holders: ecologyHolders(state, policy),
+    plants,
+    ...(record.waterHolders === undefined ? {} : { waterHolders: ecologyWaters(state) }),
+  };
 }
+function ecologyWaters(state: WorldState): EcologyWaterInit[] {
+  return (state.ecology?.waterHolders ?? []).map((entry) => {
+    const entity = state.entities.find((candidate) => candidate.objectId === entry.objectId)!;
+    return {
+      entry,
+      quantity: entity.resource!.quantity,
+      protection: rainProtectionOf(state, entity),
+      active: active(entity),
+    };
+  });
+}
+function waterAt(
+  state: WorldState,
+  objectId: string,
+  through: SimTimeMs,
+  policy: WorldBehaviorPolicy,
+) {
+  const init = ecologyWaters(state).find((candidate) => candidate.entry.objectId === objectId);
+  const holder = policy.ecology?.waterHolders?.find((candidate) => candidate.objectId === objectId);
+  if (
+    init === undefined ||
+    holder === undefined ||
+    policy.environment === undefined ||
+    state.environment === undefined
+  )
+    throw new RangeError("water holder without policy/state");
+  if (init.entry.integratedAt >= through) return undefined;
+  const system = createWaterSystem(holder, policy.environment);
+  const next = waterSnapshotOf(
+    system.integrate(
+      waterSystemState({
+        ...init.entry,
+        quantity: init.quantity,
+        protection: init.protection,
+        active: init.active,
+        rain: state.weather.rainIntensity,
+        rainUntil: state.environment.nextWeatherBoundary,
+      }),
+      init.entry.integratedAt,
+      through,
+    ),
+  );
+  return {
+    objectId: init.entry.objectId,
+    collected: Number(next.collected ?? 0n),
+    evaporated: Number(next.evaporated ?? 0n),
+    collectionRemainder: next.collectionRemainder,
+    evaporationRemainder: next.evaporationRemainder,
+    integratedAt: through,
+  };
+}
+/** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
-  return location?.shelter?.rainProtection ?? 0;
+  return location !== undefined && active(location) ? (location.shelter?.rainProtection ?? 0) : 0;
 }
 /**
  * The world's single needs/wetness arithmetic, given the rain intensity and shelter protection in
@@ -3080,6 +3697,39 @@ export function worldResourceTotals(state: WorldState): Readonly<Record<string, 
 function active(entity: WorldEntity): boolean {
   return entity.lifecycle === undefined || entity.lifecycle.status === "active";
 }
+/**
+ * Where an actor that has stopped moving at `position` is: an active shelter standing there in its
+ * space and frame, other than itself (a moved shelter is never inside itself), else open ground
+ * (null). Where several shelters stand together, the actor keeps the one it is in, else takes
+ * `preferred` (the shelter it sought), else the first by object id.
+ */
+function shelterAt(
+  state: WorldState,
+  actor: WorldEntity,
+  position: readonly bigint[],
+  preferred?: string,
+): string | null {
+  const here = state.entities
+    .filter(
+      (entity) =>
+        entity.shelter !== undefined &&
+        entity.objectId !== actor.objectId &&
+        active(entity) &&
+        entity.spaceId === actor.spaceId &&
+        entity.pose.frameId === actor.pose.frameId &&
+        entity.pose.frameVersion === actor.pose.frameVersion &&
+        sameCoordinates(entity.pose.coordinates, position),
+    )
+    .map((entity) => entity.objectId as string);
+  for (const kept of [actor.locationId, preferred])
+    if (kept !== undefined && kept !== null && here.includes(kept)) return kept;
+  return here[0] ?? null;
+}
+/** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
+function leavesStart(movement: MovementRecord): boolean {
+  const [first, ...rest] = movement.segment.waypoints;
+  return rest.some((point) => !sameCoordinates(point, first!));
+}
 function entityPath(state: WorldState, entity: WorldEntity): string {
   return `state.entities[${state.entities.indexOf(entity)}]`;
 }
@@ -3131,6 +3781,35 @@ function runContainmentCommand(
     case "object.retire": {
       const p = payload as ContainmentPayload<"object.retire">;
       const entity = find(p.objectId);
+      // Whatever is in a retired shelter stands on open ground from now: each is integrated first
+      // under the protection still in force, then leaves it (`location.changed` to null).
+      const occupants = state.entities.filter(
+        (occupant) => occupant.locationId === entity.objectId && active(occupant),
+      );
+      if (occupants.length > 0) {
+        const at = state.simulationTime;
+        const continuous = worldContinuousAt(state, input.pack.pack.policy, at);
+        for (const occupant of occupants) {
+          const objectId = occupant.objectId;
+          const needs = continuous.needs.find((entry) => entry.objectId === objectId)?.needs;
+          if (
+            needs !== undefined &&
+            canonicalSerialize(needs) !== canonicalSerialize(occupant.needs)
+          )
+            emit({ type: "needs.changed", payload: { objectId, ...needs } });
+          const wellbeing = continuous.wellbeing.find((entry) => entry.objectId === objectId);
+          const entry = state.wellbeing?.entries.find((item) => item.objectId === objectId);
+          if (wellbeing !== undefined && entry !== undefined && entry.integratedAt !== at)
+            emit({ type: "wellbeing.integrated", payload: { ...wellbeing, integratedAt: at } });
+          const growth = continuous.plants.find((item) => item.objectId === objectId);
+          if (growth !== undefined)
+            emit({ type: "growth.integrated", payload: { ...growth, integratedAt: at } });
+          emit({
+            type: "location.changed",
+            payload: { objectId, locationId: null, planId: context.command.commandId },
+          });
+        }
+      }
       emit({
         type: "object.retired",
         payload: {
@@ -3246,8 +3925,7 @@ function badCrossingIndex(movement: NonNullable<WorldEntity["movement"]>): numbe
 
 /**
  * The path of the first resource event of a moving command's world time that its ecology does not
- * own, or undefined: food appears only at its source's appearance times, and spoils only when its
- * holder's shelf life ends.
+ * own, or undefined: food spoils only when its holder's shelf life ends.
  */
 function passedTimeDisagreement(
   initial: WorldState,
@@ -3260,22 +3938,32 @@ function passedTimeDisagreement(
       entry.arrivedAt,
     ]),
   );
+  const quantities = new Map(
+    initial.entities.map((entity) => [entity.objectId as string, entity.resource?.quantity ?? 0]),
+  );
   for (const [index, event] of events.entries()) {
     const time = event.simulationTime;
     const objectId = (event.payload as { objectId?: string }).objectId as string;
     let owned = true;
     if (event.type === "resource.appeared") {
-      const source = ecology?.sources.find((candidate) => candidate.objectId === objectId);
-      owned =
-        source !== undefined &&
-        time >= source.firstAtMs &&
-        (time - source.firstAtMs) % source.periodMs === 0n;
-      if (arrived.has(objectId)) arrived.set(objectId, time);
+      owned = false;
     } else if (event.type === "resource.spoiled") {
       const holder = ecology?.perishables.find((candidate) => candidate.objectId === objectId);
       const since = arrived.get(objectId);
       owned = holder !== undefined && since != null && since + holder.shelfLifeMs === time;
       arrived.set(objectId, null);
+      quantities.set(objectId, 0);
+    } else if (event.type === "resource.transferred") {
+      const { fromObjectId: from, toObjectId: to, quantity } = event.payload;
+      if (arrived.has(to)) arrived.set(to, arrived.get(from) ?? time);
+      quantities.set(from, (quantities.get(from) ?? 0) - quantity);
+      quantities.set(to, (quantities.get(to) ?? 0) + quantity);
+      if (quantities.get(from) === 0 && arrived.has(from)) arrived.set(from, null);
+    } else if (event.type === "resource.consumed") {
+      quantities.set(objectId, (quantities.get(objectId) ?? 0) - event.payload.quantity);
+      if (quantities.get(objectId) === 0 && arrived.has(objectId)) arrived.set(objectId, null);
+    } else if (event.type === "growth.stage-changed" && event.payload.yield !== undefined) {
+      quantities.set(objectId, (quantities.get(objectId) ?? 0) + event.payload.yield.quantity);
     }
     if (!owned) return `events[${index}].simulationTime`;
   }
@@ -3296,6 +3984,11 @@ function movingEventAuthority(
   const { events } = subject;
   const index = events.findIndex((event, at) => {
     if (!WORLD_TIME_TYPES.includes(event.type)) return true;
+    if (
+      (event.type === "resource.transferred" || event.type === "process.command-attempted") &&
+      !isProcessCommandEvent(events, at)
+    )
+      return true;
     if (!MOVEMENT_LIFECYCLE_TYPES.has(event.type)) return false;
     if ((event.payload as { readonly objectId?: string }).objectId !== mover) return false;
     if (OWN_MOVEMENT_TYPES[type].includes(event.type)) return false;
@@ -3436,6 +4129,13 @@ function registerMovementChecks(
             return `state.${key}`;
         const released = new Map<string, Set<string>>();
         for (const event of events) {
+          if (event.type === "resource.transferred") {
+            for (const id of [event.payload.fromObjectId, event.payload.toObjectId]) {
+              const set = released.get(id) ?? new Set<string>();
+              set.add("resource");
+              released.set(id, set);
+            }
+          }
           const objectId = objectOf(event);
           const fields = MOVING_ENTITY_FIELDS[event.type];
           if (objectId === undefined || fields === undefined) continue;
@@ -3538,15 +4238,22 @@ function registerContainmentChecks(
 ): RegistrationResult {
   const registerPre = (name: string, check: (context: WorldPrecondition) => string | undefined) =>
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
-  const authority = {
-    "object.create": "object.created",
-    "object.retire": "object.retired",
-    "containment.put": "containment.put",
-    "containment.remove": "containment.removed",
-    "containment.transfer": "containment.transferred",
-    "resource.offer": "resource.offered",
-    "resource.consume": "resource.consumed",
-    "resource.transfer": "resource.transferred",
+  const authority: Record<ContainmentCommandType, readonly string[]> = {
+    "object.create": ["object.created"],
+    // Retiring a shelter integrates and evicts whatever is in it first.
+    "object.retire": [
+      "needs.changed",
+      "wellbeing.integrated",
+      "growth.integrated",
+      "location.changed",
+      "object.retired",
+    ],
+    "containment.put": ["containment.put"],
+    "containment.remove": ["containment.removed"],
+    "containment.transfer": ["containment.transferred"],
+    "resource.offer": ["resource.offered"],
+    "resource.consume": ["resource.consumed"],
+    "resource.transfer": ["resource.transferred"],
   };
   const authorityChecks = [
     ...CONTAINMENT_COMMAND_TYPES,
@@ -3554,12 +4261,12 @@ function registerContainmentChecks(
   ].map((type) =>
     invariants.register({
       name: `resource.event-authority.${type}`,
-      version: 1,
+      version: type === "object.retire" ? 2 : 1,
       commands: [type],
       check: ({ events }) => {
         const allowed =
           type in authority
-            ? [authority[type as ContainmentCommandType]]
+            ? authority[type as ContainmentCommandType]
             : [
                 "weather.changed",
                 "needs.changed",
@@ -3568,7 +4275,7 @@ function registerContainmentChecks(
                 "environment.phase-changed",
                 "weather.transitioned",
                 "exposure.threshold-crossed",
-                "resource.appeared",
+                "resource.weather-integrated",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",
@@ -3594,15 +4301,49 @@ function registerContainmentChecks(
                 "lifecycle.died",
                 "lifecycle.successor-intended",
               ];
-        const index = events.findIndex((event) => !allowed.includes(event.type));
+        const index = events.findIndex(
+          (event, index) =>
+            !allowed.includes(event.type) &&
+            !(
+              type !== "world.weather.set" &&
+              !(type in authority) &&
+              isProcessCommandEvent(events, index)
+            ),
+        );
         return index < 0 ? undefined : `events[${index}].type`;
       },
     }),
   );
   const results = [
     ...authorityChecks,
+    invariants.register({
+      name: "resource.closed-world",
+      version: 1,
+      check: ({ events }) => {
+        const index = events.findIndex(
+          (event) =>
+            event.type === "resource.offered" ||
+            event.type === "resource.appeared" ||
+            (event.type === "object.created" &&
+              (event.payload.quantityAdded !== 0 ||
+                (event.payload.object.resource?.quantity ?? 0) !== 0)),
+        );
+        return index < 0 ? undefined : `events[${index}].type`;
+      },
+    }),
+    registerPre("resource.closed-world", ({ payload, command }) => {
+      if (command.type === "resource.offer") return "payload.quantity";
+      if (
+        command.type === "object.create" &&
+        ((payload as ContainmentPayload<"object.create">).object.resource?.quantity ?? 0) > 0
+      )
+        return "payload.object.resource.quantity";
+      return undefined;
+    }),
     registerPre("containment.fixture-and-references", ({ state, payload, input, command }) => {
       if (input.continuation !== undefined) return "continuation";
+      if (command.type === "resource.transfer")
+        return transferReferencePath(state, payload as ContainmentPayload<"resource.transfer">);
       const p = payload as Record<string, unknown>;
       if (command.type === "object.create") {
         const value = (payload as ContainmentPayload<"object.create">).object;
@@ -3684,6 +4425,8 @@ function registerContainmentChecks(
     }),
     registerPre("resource.available-and-bounded", ({ state, payload, command }) => {
       if (!command.type.startsWith("resource.")) return undefined;
+      if (command.type === "resource.transfer")
+        return transferAvailablePath(state, payload as ContainmentPayload<"resource.transfer">);
       const p = payload as ContainmentPayload<"resource.transfer"> &
         ContainmentPayload<"resource.offer">;
       const source = state.entities.find(
@@ -3697,16 +4440,11 @@ function registerContainmentChecks(
         source.resource.quantity > Number.MAX_SAFE_INTEGER - p.quantity
       )
         return "payload.quantity";
-      if (command.type === "resource.transfer") {
-        if (p.fromObjectId === p.toObjectId) return "payload.toObjectId";
-        const target = state.entities.find((entity) => entity.objectId === p.toObjectId)!;
-        if (target.resource?.kind !== p.kind) return "payload.kind";
-        if (target.resource.quantity > Number.MAX_SAFE_INTEGER - p.quantity)
-          return "payload.quantity";
-      }
       return undefined;
     }),
     registerPre("resource.perishable-single-batch", ({ state, payload, command }) => {
+      if (command.type === "resource.transfer")
+        return transferBatchPath(state, payload as ContainmentPayload<"resource.transfer">);
       if (command.type !== "resource.offer" && command.type !== "resource.transfer")
         return undefined;
       const p = payload as { objectId?: string; toObjectId?: string };
@@ -3812,32 +4550,116 @@ function registerContainmentChecks(
         const before = worldResourceTotals(initial),
           after = worldResourceTotals(state);
         const changes = Object.fromEntries(RESOURCE_KINDS.map((kind) => [kind, 0n]));
+        const holderChanges = new Map<ObjectId, Map<string, bigint>>();
+        const changeHolder = (objectId: ObjectId, kind: string, quantity: bigint) => {
+          const holder = holderChanges.get(objectId) ?? new Map<string, bigint>();
+          holder.set(kind, (holder.get(kind) ?? 0n) + quantity);
+          holderChanges.set(objectId, holder);
+        };
         for (const event of events) {
           switch (event.type) {
             case "object.created":
-              if (event.payload.object.resource !== undefined)
+              if (event.payload.object.resource !== undefined) {
                 changes[event.payload.object.resource.kind]! += BigInt(event.payload.quantityAdded);
+                changeHolder(
+                  event.payload.object.objectId,
+                  event.payload.object.resource.kind,
+                  BigInt(event.payload.quantityAdded),
+                );
+              }
               break;
             case "object.retired":
-              if (event.payload.kind !== null)
+              if (event.payload.kind !== null) {
                 changes[event.payload.kind]! -= BigInt(event.payload.quantityRemoved);
+                changeHolder(
+                  event.payload.objectId,
+                  event.payload.kind,
+                  -BigInt(event.payload.quantityRemoved),
+                );
+              }
               break;
             case "resource.offered":
               changes[event.payload.kind]! += BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
               break;
             case "resource.consumed":
               changes[event.payload.kind]! -= BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
               break;
             case "resource.appeared":
               changes[event.payload.kind]! += BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
+              break;
+            case "resource.weather-integrated": {
+              const delta = BigInt(event.payload.collected) - BigInt(event.payload.evaporated);
+              changes.water! += delta;
+              changeHolder(event.payload.objectId, "water", delta);
+              break;
+            }
+            case "growth.stage-changed":
+              if (event.payload.yield !== undefined) {
+                const quantity = BigInt(event.payload.yield.quantity);
+                changes.food! += quantity;
+                changeHolder(event.payload.objectId, "food", quantity);
+              }
+              break;
+            case "resource.transferred":
+              changeHolder(
+                event.payload.fromObjectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
+              changeHolder(
+                event.payload.toObjectId,
+                event.payload.kind,
+                BigInt(event.payload.quantity),
+              );
               break;
             case "resource.spoiled":
               changes[event.payload.kind]! -= BigInt(event.payload.quantity);
+              changeHolder(
+                event.payload.objectId,
+                event.payload.kind,
+                -BigInt(event.payload.quantity),
+              );
               break;
           }
         }
         for (const kind of RESOURCE_KINDS)
           if (after[kind]! - before[kind]! !== changes[kind]) return `state.resources.${kind}`;
+        const beforeHolders = new Map(initial.entities.map((entity) => [entity.objectId, entity]));
+        const afterHolders = new Map(state.entities.map((entity) => [entity.objectId, entity]));
+        const holderIds = new Set([
+          ...beforeHolders.keys(),
+          ...afterHolders.keys(),
+          ...holderChanges.keys(),
+        ]);
+        for (const objectId of [...holderIds].sort()) {
+          const beforeHolder = beforeHolders.get(objectId);
+          const afterHolder = afterHolders.get(objectId);
+          for (const kind of RESOURCE_KINDS) {
+            const beforeQuantity =
+              beforeHolder?.resource?.kind === kind ? BigInt(beforeHolder.resource.quantity) : 0n;
+            const afterQuantity =
+              afterHolder?.resource?.kind === kind ? BigInt(afterHolder.resource.quantity) : 0n;
+            if (afterQuantity - beforeQuantity !== (holderChanges.get(objectId)?.get(kind) ?? 0n))
+              return afterHolder === undefined
+                ? "state.entities"
+                : `${entityPath(state, afterHolder)}.resource.quantity`;
+          }
+        }
         return undefined;
       },
     }),

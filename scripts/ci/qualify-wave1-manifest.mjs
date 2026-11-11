@@ -82,8 +82,8 @@ async function goldens(root, decode) {
 
 /** The required Wave 1 long runs: both packs at 30 days and one year. */
 export const REQUIRED_LONG_RUNS = [
-  "clockgrove.fixture-hall@1.1.0:30",
-  "clockgrove.fixture-hall@1.1.0:365",
+  "clockgrove.fixture-hall@1.2.0:30",
+  "clockgrove.fixture-hall@1.2.0:365",
   "clockgrove.test-world@1.1.0:30",
   "clockgrove.test-world@1.1.0:365",
 ];

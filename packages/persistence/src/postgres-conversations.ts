@@ -14,6 +14,7 @@ import {
   type DocumentProposal,
   documentDecisions,
   estimateTokens,
+  normalizeInboundEnvelope,
   type OpenConversation,
   type RuntimeAuthorizationContext,
   recordedInputs,
@@ -35,6 +36,7 @@ import {
   decodeConversationMessage,
   decodeConversationSession,
   decodeConversationTurn,
+  decodeModerationShadowJudgement,
   decodeOpaqueId,
   type ObjectId,
   type PartitionId,
@@ -71,7 +73,9 @@ const timestamp = (column: string) =>
 // Read from `clockgrove.conversation_sessions` unaliased (a SELECT or an UPDATE's RETURNING); the
 // participant set comes with the row, ordered by principal.
 const SESSION_COLUMNS = `session_id, tenant_id, world_id, timeline_id, partition_id, space_id,
-  actor_id, voice_mode, state, title_artifact_id, message_count,
+  actor_id, channel, voice_mode, state, title_artifact_id, message_count,
+  (SELECT b.thread_id FROM clockgrove.channel_bindings b
+    WHERE b.tenant_id = conversation_sessions.tenant_id AND b.session_id = conversation_sessions.session_id) AS thread_id,
   ${timestamp("created_at")}, ${timestamp("updated_at")},
   (SELECT json_agg(json_build_object('principalId', participant.principal_id,
                                      'personaId', participant.persona_id)
@@ -80,7 +84,10 @@ const SESSION_COLUMNS = `session_id, tenant_id, world_id, timeline_id, partition
     WHERE participant.tenant_id = conversation_sessions.tenant_id
       AND participant.session_id = conversation_sessions.session_id) AS participants`;
 const MESSAGE_COLUMNS = `session_id, sequence, message_id, role, author_id, voice_mode,
-  content_artifact_id, ${timestamp("created_at")}`;
+  content_artifact_id, ${timestamp("created_at")},
+  (SELECT q.record FROM clockgrove.moderation_shadow q
+    WHERE q.tenant_id=conversation_messages.tenant_id AND q.session_id=conversation_messages.session_id
+      AND q.message_id=conversation_messages.message_id) AS moderation_shadow`;
 const TURN_COLUMNS = `session_id, turn, input_sequence, output_sequence, model, state,
   ${timestamp("created_at")}`;
 /** Same scope filter for every session read; RLS admits only sessions the caller participates in. */
@@ -118,10 +125,38 @@ export class PostgreSqlConversationStore implements ConversationStore {
     participant: ConversationParticipant,
     input: OpenConversation,
   ): Promise<ConversationSession> {
-    const sessionId = this.newSessionId();
+    let sessionId = this.newSessionId();
+    const channel = input.channel ?? "browser";
+    const threadId = input.threadId ?? sessionId;
+    let created = false;
     const { tenantId, worldId, timelineId, spaceId } = input.scope;
     await this.transaction(participant, async () => {
       try {
+        await this.client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          JSON.stringify([
+            "channel-thread",
+            tenantId,
+            worldId,
+            timelineId,
+            participant.principalId,
+            channel,
+            threadId,
+          ]),
+        ]);
+        const binding = await this.client.query(
+          `SELECT s.session_id, s.actor_id, s.state FROM clockgrove.channel_bindings b
+             JOIN clockgrove.conversation_sessions s USING (tenant_id, world_id, timeline_id, session_id)
+            WHERE b.tenant_id=$1 AND b.world_id=$2 AND b.timeline_id=$3 AND b.principal_id=$4
+              AND b.channel=$5 AND b.thread_id=$6`,
+          [tenantId, worldId, timelineId, participant.principalId, channel, threadId],
+        );
+        if (binding.rows[0] !== undefined) {
+          const bound = binding.rows[0] as Row;
+          if (bound.actor_id !== input.actorId || bound.state === "deleted")
+            throw new ConversationRefusedError("channel_thread_reused");
+          sessionId = String(bound.session_id);
+          return;
+        }
         // The participant set first: the session's policy admits only a participant's session.
         await this.client.query(
           `INSERT INTO clockgrove.conversation_participants (
@@ -132,23 +167,41 @@ export class PostgreSqlConversationStore implements ConversationStore {
         const inserted = await this.client.query(
           `INSERT INTO clockgrove.conversation_sessions (
              tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id,
-             voice_mode
-           ) SELECT tenant_id, $5, world_id, timeline_id, partition_id, space_id, $6, $7
+             voice_mode, channel
+           ) SELECT tenant_id, $5, world_id, timeline_id, partition_id, space_id, $6, $7, $8
                FROM clockgrove.timeline_partitions
               WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4
               LIMIT 1
            RETURNING session_id`,
-          [tenantId, worldId, timelineId, spaceId, sessionId, input.actorId, input.voiceMode],
+          [
+            tenantId,
+            worldId,
+            timelineId,
+            spaceId,
+            sessionId,
+            input.actorId,
+            input.voiceMode,
+            channel,
+          ],
         );
         if (inserted.rows.length !== 1)
           throw new ConversationRefusedError("conversation_not_found");
+        await this.client.query(
+          `INSERT INTO clockgrove.channel_bindings
+            (tenant_id, world_id, timeline_id, principal_id, session_id, channel, thread_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [tenantId, worldId, timelineId, participant.principalId, sessionId, channel, threadId],
+        );
+        created = true;
       } catch (error) {
+        if ((error as { code?: unknown }).code === "23505")
+          throw new ConversationRefusedError("channel_thread_reused");
         if ((error as { code?: unknown }).code === "CG021")
           throw new ConversationRefusedError("conversation_limit_reached");
         throw error;
       }
     });
-    if (input.title !== undefined)
+    if (created && input.title !== undefined)
       return this.title(participant, input.scope, sessionId, input.title);
     return this.session(participant, (await this.stored(participant, input.scope, sessionId)).row);
   }
@@ -284,18 +337,51 @@ export class PostgreSqlConversationStore implements ConversationStore {
   ): Promise<TurnAcceptance> {
     const { scope, sessionId, messageId } = request;
     const stored = await this.stored(participant, scope, sessionId);
-    const receipt = await this.retried(participant, stored, request.messageId, request.text);
-    if (receipt !== undefined) return { receipt };
-    // The input artifact is keyed by message ID, so a duplicate delivery rewrites the same content
-    // and other text under that ID is a reuse, whether or not its turn was accepted.
     const inputArtifact = `${sessionId}:message:${messageId}`;
+    const inboundArtifact = `${sessionId}:inbound:${messageId}`;
+    const session = this.sessionOf(stored.row, "");
+    const envelope = normalizeInboundEnvelope(
+      participant,
+      {
+        scope: session.scope,
+        actorId: session.actorId,
+        participants: session.participants,
+        channel: session.channel,
+        threadId: session.threadId ?? session.sessionId,
+        action: "talk",
+        privacyPolicy: "conversation",
+        contentParts: [{ type: "text", artifactId: inputArtifact }],
+        idempotencyKey: messageId,
+      },
+      request.ingress,
+    );
+    if (envelope.replyMetadata !== null) {
+      const reply = await this.transaction(participant, () =>
+        this.client.query(
+          `SELECT 1 FROM clockgrove.conversation_messages WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3`,
+          [scope.tenantId, sessionId, envelope.replyMetadata?.messageId],
+        ),
+      );
+      if (reply.rows.length !== 1) throw new ConversationRefusedError("reply_not_found");
+    }
+    const receipt = await this.retried(participant, stored, messageId, request.text);
     const existing = await this.fiberOf(participant, scope, sessionId, messageId);
-    if (existing === undefined) {
+    if (receipt === undefined && existing === undefined) {
       if (stored.row.state !== "active")
         throw new ConversationRefusedError("conversation_not_active");
       if (Number(stored.row.message_count) + 2 > 1000)
         throw new ConversationRefusedError("conversation_full");
     }
+    // Compare the complete normalized metadata before returning even an already committed receipt.
+    await this.put(
+      participant,
+      stored,
+      inboundArtifact,
+      JSON.stringify(envelope),
+      "message_id_reused",
+      JSON_MEDIA_TYPE,
+    );
+    if (receipt !== undefined) return { receipt };
     await this.put(participant, stored, inputArtifact, request.text, "message_id_reused");
     if (existing !== undefined) return { fiber: existing };
     try {
@@ -303,8 +389,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
         this.client.query(
           `INSERT INTO clockgrove.conversation_turn_fibers (
              tenant_id, session_id, message_id, world_id, timeline_id, actor_id, principal_id,
-             persona_id, input_artifact_id
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             persona_id, input_artifact_id, inbound_artifact_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT (tenant_id, session_id, message_id) DO NOTHING
            RETURNING ${FIBER_COLUMNS}`,
           [
@@ -317,6 +403,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
             participant.principalId,
             participant.personaId,
             inputArtifact,
+            inboundArtifact,
           ],
         ),
       );
@@ -1231,7 +1318,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
       },
       actorId: row.actor_id,
       participants: row.participants,
-      channel: "browser",
+      channel: row.channel,
+      threadId: row.thread_id ?? row.session_id,
       privacyClass: "conversation",
       voiceMode,
       disclosure: VOICE_DISCLOSURES[voiceMode],
@@ -1257,6 +1345,28 @@ export class PostgreSqlConversationStore implements ConversationStore {
       voiceMode: row.voice_mode,
       text: await this.text(participant, stored, String(row.content_artifact_id)),
       createdAt: row.created_at,
+      ...(row.moderation_shadow == null
+        ? {}
+        : {
+            moderationShadow: (() => {
+              const record = row.moderation_shadow as Record<string, unknown>;
+              return decodeModerationShadowJudgement(
+                Object.fromEntries(
+                  [
+                    "mode",
+                    "status",
+                    "disposition",
+                    "injection",
+                    "confidenceBp",
+                    "modelAlias",
+                    "model",
+                    "latencyMs",
+                    "costMicrousd",
+                  ].map((key) => [key, record[key]]),
+                ),
+              );
+            })(),
+          }),
     });
   }
 

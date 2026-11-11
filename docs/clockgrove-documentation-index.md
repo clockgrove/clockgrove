@@ -35,6 +35,24 @@ An Objective for this repository follows the Clockgrove product/runtime hierarch
 
 ---
 
+## Closed-world resource decision
+
+Kirk's recorded decision of 2026-11-09 (issue 187) requires a closed world for **all resources**,
+food and water alike: water in a bowl must come from rain or someone filling it. Resource increases
+must have journaled platform causes: weather collection, plant yield, character commands or
+explicitly declared world processes. Off-screen people are allowed only as declared processes
+acting through ordinary validated commands. Genesis quantities are declared initial inventory.
+The ecology contract has no scheduled sources: legacy declarations are refused at pack validation,
+and unbacked runtime offers or positive-inventory object creation cannot mint material. Finite
+plant-stage yield, rain collection/evaporation and actor/process transfers carry journaled causes;
+durable runtime wakes include process deadlines, including actorless worlds.
+The [kernel ecology contract](../packages/kernel/docs/ecology.md) and
+[world-pack authoring contract](../packages/world-pack-sdk/docs/collections.md#closed-world-authoring)
+describe the implemented restriction. Fixture physical outputs use reviewed scenario goldens;
+published-head CI and full wave qualification remain separate acceptance evidence.
+
+---
+
 ## 3. Recommended reading order
 
 For product/runtime work:
@@ -80,7 +98,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 2 | `clockgrove-wave-2-journal-replay-implementation-plan.md` | 1.7 | PostgreSQL journal, world lifecycle, replay and attribution persistence |
 | 3 | `clockgrove-wave-3-actor-fabric-implementation-plan.md` | 1.11 | Cloudflare actor fabric, runtime coordinator, perpetual scheduling and provisioning |
 | 4 | `clockgrove-wave-4-visual-projection-web-client-implementation-plan.md` | 1.9 | Demo-quality, world-agnostic React/Three.js projection, readiness/navigation and full-3D adapter compatibility |
-| 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.9 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
+| 5 | `clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md` | 1.10 | Durable conversations, Caretaker semantics, models, tools, MCP and long-running process contract |
 | 6 | `clockgrove-wave-6-context-memory-learning-implementation-plan.md` | 1.7 | Memory, relationships, governed cognitive documents, bounded compiled-policy learning, field guides and provenance |
 | 7 | `clockgrove-wave-7-rules-timelines-authoring-implementation-plan.md` | 1.8 | Rules, preview timelines, bounded counterfactual Why, previewed pack upgrades and reusable exports |
 | 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona, delivered in clockgrove/raccoon-world against the platform |
