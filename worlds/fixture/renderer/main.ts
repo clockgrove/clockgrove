@@ -1,4 +1,4 @@
-import { decodeSceneProjection } from "../../../packages/contracts/src/index.js";
+import { decodeSceneProjection, defaultSceneLighting } from "../../../packages/contracts/src/index.js";
 import { ThreeWorldSceneAdapter, type QualityTier } from "../../../apps/web/src/renderer.js";
 import { worldShell } from "../../../apps/web/src/shell.js";
 import { diagnostics, fixtureContent } from "./content.js";
@@ -15,6 +15,7 @@ const content = params.get("content") === "none" ? undefined : fixtureContent({
   workMs: Math.min(50, Math.max(0, Number(params.get("workMs") ?? 0))),
 });
 const adapter = new ThreeWorldSceneAdapter(parent, () => {
+  snapshot = { ...snapshot, lighting: defaultSceneLighting(snapshot.simulationTime, snapshot.weather, snapshot.effects ?? []) };
   adapter.loadSnapshot(snapshot);
   status.textContent = "Scene ready";
   document.body.dataset.ready = "true";
@@ -27,7 +28,10 @@ const adapter = new ThreeWorldSceneAdapter(parent, () => {
 }, content);
 
 const setEnvironment = (timeMs: bigint | number, rainIntensity: number) => {
-  snapshot = { ...snapshot, simulationTime: BigInt(timeMs), weather: { rainIntensity } };
+  const simulationTime = typeof timeMs === "bigint" ? timeMs : BigInt(Math.round(timeMs));
+  snapshot = { ...snapshot, simulationTime, weather: { rainIntensity },
+    lighting: defaultSceneLighting(simulationTime, { rainIntensity }, snapshot.effects ?? []),
+  };
   adapter.loadSnapshot(snapshot);
 };
 const setReducedMotion = (value: boolean) => adapter.setReducedMotion(value);
@@ -68,6 +72,9 @@ const api = {
 
 document.querySelector<HTMLSelectElement>("#clock")!.onchange = (event) => {
   setEnvironment(Number((event.target as HTMLSelectElement).value), snapshot.weather.rainIntensity);
+};
+document.querySelector<HTMLInputElement>("#time")!.oninput = (event) => {
+  setEnvironment(Number((event.target as HTMLInputElement).value), snapshot.weather.rainIntensity);
 };
 document.querySelector<HTMLInputElement>("#rain")!.onchange = (event) => {
   setEnvironment(snapshot.simulationTime, (event.target as HTMLInputElement).checked ? 9000 : 0);

@@ -356,10 +356,92 @@ export interface SceneLighting {
   }[];
   readonly weatherIntensity: number;
   readonly gradingKey: string;
+  readonly environment?: {
+    readonly daylight: number;
+    readonly ambientColour: string;
+    readonly ambientIntensity: number;
+    readonly backgroundColour: string;
+    readonly fogColour: string;
+    readonly gradeColour: string;
+  };
+}
+/** Default presentation policy for #184: a canonical 24-hour cycle with two-hour
+ * dawn/dusk transitions centred on 06:00/18:00. No wall-clock time enters the rig. */
+export function defaultSceneLighting(
+  simulationTime: bigint,
+  weather: { readonly rainIntensity: number },
+  effects: readonly SceneEffect[],
+): SceneLighting {
+  const day = 86_400_000n;
+  const phase = Number(((simulationTime % day) + day) % day) / Number(day);
+  const angle = phase * Math.PI * 2 - Math.PI / 2;
+  const direction: [number, number, number] = [Math.cos(angle), 0, -Math.sin(angle)];
+  const horizon = Math.sin(Math.PI / 12);
+  const t = Math.max(0, Math.min(1, (Math.sin(angle) + horizon) / (2 * horizon)));
+  const daylight = t * t * (3 - 2 * t);
+  const twilight = 4 * daylight * (1 - daylight);
+  const mix = (from: string, to: string, amount: number): string => {
+    const channels = [1, 3, 5].map((offset) => {
+      const a = Number.parseInt(from.slice(offset, offset + 2), 16);
+      const b = Number.parseInt(to.slice(offset, offset + 2), 16);
+      return Math.round(a + (b - a) * amount)
+        .toString(16)
+        .padStart(2, "0");
+    });
+    return `#${channels.join("")}`;
+  };
+  return {
+    directional: [
+      {
+        kind: "sun",
+        direction,
+        colour: mix("#fff1d6", "#ff9966", twilight),
+        intensity: Math.PI * daylight,
+      },
+      {
+        kind: "moon",
+        direction: direction.map((v) => -v) as [number, number, number],
+        colour: "#cbdcff",
+        intensity: Math.PI * 0.25 * (1 - daylight),
+      },
+    ],
+    placed: effects.flatMap((effect) =>
+      effect.role === "puddle"
+        ? []
+        : [
+            {
+              kind: effect.role,
+              pose: effect.pose,
+              colour: "#ffb966",
+              intensity: 1500 * (1 - daylight),
+              rangeMetres: 14.4,
+            },
+          ],
+    ),
+    weatherIntensity: weather.rainIntensity / 10_000,
+    gradingKey:
+      daylight === 0
+        ? "night"
+        : daylight === 1
+          ? weather.rainIntensity > 0
+            ? "overcast"
+            : "day"
+          : phase < 0.5
+            ? "dawn"
+            : "dusk",
+    environment: {
+      daylight,
+      ambientColour: mix("#9caeca", "#ffffff", daylight),
+      ambientIntensity: Math.PI * (0.4 + 0.6 * daylight),
+      backgroundColour: mix("#192b20", "#3f6b3a", daylight),
+      fogColour: mix("#25334c", "#43534b", daylight),
+      gradeColour: mix(mix("#d6dfff", "#ffffff", daylight), "#ffd6b0", twilight),
+    },
+  };
 }
 export function decodeSceneLighting(value: unknown, path = "lighting"): SceneLighting {
   const v = record(value, path);
-  exactKeys(v, ["directional", "placed", "weatherIntensity", "gradingKey"], [], path);
+  exactKeys(v, ["directional", "placed", "weatherIntensity", "gradingKey"], ["environment"], path);
   const number = (value: unknown, p: string, min = 0, max = Number.MAX_VALUE): number => {
     if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max)
       throw new ContractDecodeError(p, "expected finite number within range");
@@ -370,7 +452,41 @@ export function decodeSceneLighting(value: unknown, path = "lighting"): SceneLig
     if (!/^#[0-9a-f]{6}$/u.test(c)) throw new ContractDecodeError(p, "expected RGB hex colour");
     return c;
   };
+  const environment =
+    v.environment === undefined ? undefined : record(v.environment, `${path}.environment`);
+  if (environment)
+    exactKeys(
+      environment,
+      [
+        "daylight",
+        "ambientColour",
+        "ambientIntensity",
+        "backgroundColour",
+        "fogColour",
+        "gradeColour",
+      ],
+      [],
+      `${path}.environment`,
+    );
   return {
+    ...(environment === undefined
+      ? {}
+      : {
+          environment: {
+            daylight: number(environment.daylight, `${path}.environment.daylight`, 0, 1),
+            ambientColour: colour(environment.ambientColour, `${path}.environment.ambientColour`),
+            ambientIntensity: number(
+              environment.ambientIntensity,
+              `${path}.environment.ambientIntensity`,
+            ),
+            backgroundColour: colour(
+              environment.backgroundColour,
+              `${path}.environment.backgroundColour`,
+            ),
+            fogColour: colour(environment.fogColour, `${path}.environment.fogColour`),
+            gradeColour: colour(environment.gradeColour, `${path}.environment.gradeColour`),
+          },
+        }),
     directional: array(v.directional, `${path}.directional`, (value, p) => {
       const l = record(value, p);
       exactKeys(l, ["kind", "direction", "colour", "intensity"], [], p);

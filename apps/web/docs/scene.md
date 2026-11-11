@@ -390,3 +390,32 @@ The viewport browser proof in `tests/visual/golden-states.journey.browser.test.m
 It asserts backing/scene dimensions and accounted texture allocation. Phone emulation establishes
 correctness of the lower tier; recent-phone hardware cadence and GPU-complete timing still need
 maintainer qualification. Changed visual digests require the existing capture review workflow.
+
+### Continuous projected environment
+
+`SceneLighting.environment` optionally supplies `daylight` (0–1), ambient colour and intensity,
+background/fog colours and an RGB grade multiplier. The renderer consumes these values on every
+projection, including under reduced motion, and multiplies scene colour before compositing the
+low-tier full-resolution labels. Changing tier retains the current grade. Omission preserves the
+legacy 06:00–18:00 binary environment and white grade. Sun/moon directions and all intensities
+remain renderer-neutral projection data; `gradingKey` labels the phase rather than selecting a
+renderer-local preset.
+
+The shared `defaultSceneLighting` presentation policy uses canonical simulation milliseconds on a
+24-hour periodic cycle. Decision for #184: smoothstep over solar elevation ±15° gives two-hour
+dawn/dusk transitions centred on 06:00/18:00, with warm sunlight and grading at the horizon.
+Midnight/noon retain the existing ambient and directional intensity endpoints; lamps fade with
+inverse daylight. RGB colours are rounded to 8-bit channels, while intensities vary continuously.
+Lantern/window effect opacity follows daylight; puddles retain their rain policy. This adds only
+bounded scalar work per projection, no targets, textures or wall-clock animation. Worlds can
+project a different rig/environment without changing the renderer. The offline renderer fixture
+uses the same policy and offers a continuous time slider. Final golden approval and physical
+phone performance qualification remain separate from this backend correctness proof.
+
+Issue #184 part 4 must add explicit per-tier content-light and shadow limits and account for
+their frame-time and memory costs. Part 5 must measure the completed renderer on desktop and
+recent-phone hardware, including a working lower phone tier; allocation bounds and
+software-rendered frame cadence do not establish that hardware requirement. Part 5 must also
+re-capture the golden states at full viewport resolution and obtain review through the existing
+capture approval workflow before updating `tests/visual/approved-captures.json`. Periodic image
+equality proves determinism, not reviewed visual approval. These acceptance entries remain open.

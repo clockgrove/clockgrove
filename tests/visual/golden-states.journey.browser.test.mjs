@@ -1718,3 +1718,167 @@ it("viewport DPR sizing stays bounded across tiers, resizes and phone profiles o
     });
   }
 }, 120_000);
+
+it("continuous projected time of day lights and grades both renderer backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const { defaultSceneLighting, decodeSceneProjection } = await import(
+    "../../packages/contracts/src/index.ts"
+  );
+  const [shell, originalWire] = await rendererFixture();
+  const wire = {
+    ...originalWire,
+    effects: [
+      {
+        role: "lantern",
+        assetId: "fixture-lamp",
+        animationFamily: "static",
+        pose: originalWire.entities[0].pose,
+      },
+    ],
+  };
+  const times = [0, 21600000, 43200000, 64800000, 21599000, 21601000, 64799000, 64801000, 86400000];
+  const projections = times.map((time) => ({
+    ...wire,
+    simulationTime: String(time),
+    lighting: defaultSceneLighting(BigInt(time), { rainIntensity: 0 }, wire.effects ?? []),
+  }));
+  projections.forEach((projection) => decodeSceneProjection(projection));
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+        reducedMotion: "reduce",
+      });
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await prepareRendererProof(
+        page,
+        origin,
+        shell,
+        "continuous-proof",
+        '<div id="scene" style="width:640px;height:400px"></div>',
+      );
+      const result = await page.evaluate(
+        async ({ projections, wire }) => {
+          const { effectsText } = await proofLoad("world-scene-adapter");
+          const adapter = await proofAdapter(projections[0]);
+          const render = () => {
+            adapter.composer.render();
+            return adapter.renderer.domElement.toDataURL();
+          };
+          const rows = [];
+          for (const projection of projections) {
+            adapter.loadSnapshot({
+              ...projection,
+              revision: BigInt(projection.revision),
+              simulationTime: BigInt(projection.simulationTime),
+            });
+            await proofFrame();
+            const image = render();
+            rows.push({
+              image,
+              ambient: adapter.ambient.intensity,
+              colour: adapter.ambient.color.getHexString(),
+              background: adapter.scene.background.getHexString(),
+              fog: adapter.scene.fog.color.getHexString(),
+              grade: adapter.environmentGrade.value.getHexString(),
+              sun: adapter.sky[0].intensity,
+              moon: adapter.sky[1].intensity,
+              key: adapter.scene.userData.gradingKey,
+              lamps: adapter.lights.map((light) => light.intensity),
+              text: effectsText(adapter.projection).lights,
+            });
+          }
+          const original = render();
+          const graded = {
+            ...projections[8],
+            lighting: {
+              ...projections[8].lighting,
+              environment: { ...projections[8].lighting.environment, gradeColour: "#ff0000" },
+            },
+          };
+          adapter.loadSnapshot({
+            ...graded,
+            revision: BigInt(graded.revision),
+            simulationTime: BigInt(graded.simulationTime),
+          });
+          const gradeChangesPixels = original !== render();
+          adapter.loadSnapshot({
+            ...projections[8],
+            revision: BigInt(projections[8].revision),
+            simulationTime: BigInt(projections[8].simulationTime),
+          });
+          adapter.setQuality("high");
+          const highGrade = adapter.environmentGrade.value.getHexString();
+          adapter.loadSnapshot({
+            ...wire,
+            revision: BigInt(wire.revision),
+            simulationTime: 43200000n,
+          });
+          const legacy = [
+            adapter.ambient.intensity,
+            adapter.ambient.color.getHexString(),
+            adapter.environmentGrade.value.getHexString(),
+          ];
+          const api = adapter.backend;
+          adapter.destroy();
+          return { rows, highGrade, legacy, api, gradeChangesPixels };
+        },
+        { projections, wire },
+      );
+      expect(result.api).toBe(backend);
+      expect(result.rows.slice(0, 4).map(({ key }) => key)).toEqual([
+        "night",
+        "dawn",
+        "day",
+        "dusk",
+      ]);
+      expect(result.rows[0]).toMatchObject({
+        ambient: Math.PI * 0.4,
+        colour: "9caeca",
+        background: "192b20",
+        fog: "25334c",
+        grade: "d6dfff",
+        sun: 0,
+        moon: Math.PI * 0.25,
+      });
+      expect(result.rows[2]).toMatchObject({
+        ambient: Math.PI,
+        colour: "ffffff",
+        background: "3f6b3a",
+        fog: "43534b",
+        grade: "ffffff",
+        sun: Math.PI,
+        moon: 0,
+      });
+      expect(result.rows[0].lamps).toEqual([1500]);
+      expect(result.rows[2].lamps).toEqual([]);
+      expect(result.rows.slice(0, 4).map(({ text }) => text)).toEqual([
+        "lantern lit",
+        "lantern lit",
+        "off",
+        "lantern lit",
+      ]);
+      for (const index of [1, 3]) {
+        expect(result.rows[index].lamps[0]).toBeCloseTo(750, 8);
+        expect(result.rows[index].sun).toBeCloseTo(Math.PI / 2, 10);
+        expect(result.rows[index].grade).toBe("ffd6b0");
+      }
+      for (const [before, after] of [
+        [4, 5],
+        [6, 7],
+      ]) {
+        expect(Math.abs(result.rows[before].sun - result.rows[after].sun)).toBeLessThan(0.002);
+        expect(Math.abs(result.rows[before].ambient - result.rows[after].ambient)).toBeLessThan(
+          0.002,
+        );
+      }
+      expect(new Set(result.rows.slice(0, 3).map(({ image }) => image)).size).toBe(3);
+      expect(result.rows[8].image).toBe(result.rows[0].image);
+      expect(result.gradeChangesPixels).toBe(true);
+      expect(result.highGrade).toBe("d6dfff");
+      expect(result.legacy).toEqual([Math.PI, "ffffff", "ffffff"]);
+      expect(errors).toEqual([]);
+    });
+  }
+}, 120_000);

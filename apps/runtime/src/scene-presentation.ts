@@ -1,6 +1,7 @@
 import {
   decodePackPresentation,
   decodeSceneMaterialDelivery,
+  defaultSceneLighting,
   type LivingPose,
   type LivingSpatialFrame,
   type ObjectId,
@@ -186,46 +187,8 @@ export function sceneEffects(
   return effects;
 }
 
-/** Default renderer-neutral light rig: day/night boundaries retain the scene's existing 06–18 rule.
- * Intensities use the product renderer's existing 1500 candela and 180px/12.5px-per-metre range.
- */
-export function sceneLighting(
-  simulationTime: bigint,
-  weather: { readonly rainIntensity: number },
-  effects: readonly SceneEffect[],
-): SceneLighting {
-  const day = 86_400_000n;
-  const phase = Number(((simulationTime % day) + day) % day) / Number(day);
-  const angle = phase * Math.PI * 2 - Math.PI / 2;
-  const direction: [number, number, number] = [Math.cos(angle), 0, -Math.sin(angle)];
-  const night = phase < 0.25 || phase >= 0.75;
-  return {
-    directional: [
-      { kind: "sun", direction, colour: "#fff1d6", intensity: night ? 0 : Math.PI },
-      {
-        kind: "moon",
-        direction: direction.map((v) => -v) as [number, number, number],
-        colour: "#cbdcff",
-        intensity: night ? Math.PI * 0.25 : 0,
-      },
-    ],
-    placed: effects.flatMap((effect) =>
-      effect.role === "puddle"
-        ? []
-        : [
-            {
-              kind: effect.role,
-              pose: effect.pose,
-              colour: "#ffb966",
-              intensity: night ? 1500 : 0,
-              rangeMetres: 14.4,
-            },
-          ],
-    ),
-    weatherIntensity: weather.rainIntensity / 10_000,
-    gradingKey: night ? "night" : weather.rainIntensity > 0 ? "overcast" : "day",
-  };
-}
+/** Compatibility export: the default presentation rig is shared with offline compositions. */
+export const sceneLighting = defaultSceneLighting;
 
 /** Material worlds opt into explicit lighting; legacy flat worlds retain their wire shape. */
 export function materialSceneLighting(

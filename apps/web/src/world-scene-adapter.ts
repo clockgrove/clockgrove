@@ -128,17 +128,21 @@ export function isNight(simulationTime: bigint): boolean {
 }
 /** The effects shown now, decided from the committed projection alone. */
 export function shownEffects(
-  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
 ): SceneEffect[] {
   const raining = projection.weather.rainIntensity > 0;
   const night = isNight(projection.simulationTime);
   return (projection.effects ?? []).filter((effect) =>
-    effect.role === "puddle" ? raining : night,
+    effect.role === "puddle"
+      ? raining
+      : projection.lighting?.environment === undefined
+        ? night
+        : projection.lighting.environment.daylight < 1,
   );
 }
 /** The text path's description of the same conditions the canvas draws. */
 export function effectsText(
-  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime">,
+  projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
 ): { puddles: string; lights: string } {
   const shown = shownEffects(projection);
   const puddles = shown.filter((effect) => effect.role === "puddle").length;
