@@ -6,6 +6,16 @@ Tests include portable local/emulated bindings and a genuine pinned Workers jour
 the production default Worker/authentication composition and native Durable Object adapters over
 an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging qualification.
 
+## Connecting a first-party MCP client
+
+There is currently no first-party MCP endpoint to configure in a client. Issue 167
+part 1 adds only an internal, bounded read adapter over the authenticated runtime APIs;
+it does not accept external connections or issue credentials. The
+[first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
+tracks the remaining stateless transport, OAuth and member-token setup, principal
+limits, command attribution and real-client proof. Remote MCP installation described
+elsewhere in this runbook connects Clockgrove to another server and is a separate path.
+
 ## Placement and authority
 
 ### Authenticated world commands

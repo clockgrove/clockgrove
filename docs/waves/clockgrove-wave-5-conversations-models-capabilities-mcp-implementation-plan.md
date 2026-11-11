@@ -461,6 +461,13 @@ Initial fixtures:
 
 Expose a stateless authenticated MCP surface over application APIs for world/timeline list, authorized search/inspection, command submission, run receipt, and changeset placeholders. It does not host actor memory or session state inside the MCP connection.
 
+Issue 167 part 1 supplies an internal bounded read adapter over the authenticated runtime
+HTTP use cases, without exposing a client endpoint. The
+[first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
+records the remaining transport, both owner-decided credential modes, principal limits,
+attributed commands/operator tools, changeset refusals and real MCP-client proof. These
+remain Objective acceptance obligations; the internal adapter alone does not complete RW-0509.
+
 ---
 
 ## 13. Channel-neutral session and delivery contracts

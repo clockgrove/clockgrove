@@ -1,4 +1,37 @@
-# Remote MCP installation
+# First-party world MCP and remote installation
+
+## First-party server readiness
+
+Issue 167 part 1 provides an internal read-tool adapter in
+`apps/runtime/src/world-mcp-reads.ts`. It calls the existing runtime HTTP use cases
+in process: world directory/status, entity inspection, command receipts, run receipts
+and run search. Each invocation supplies its own bearer credential. The application
+authenticates and authorizes every dispatched read using its existing observe or
+inspect grant, privacy ceiling and inspector audit rules; the adapter neither resolves
+authority nor reads SQL. See [run receipts](runs.md) for inspector authorization.
+
+Arguments are strict versioned application envelopes and are limited to 64 KiB of
+UTF-8 JSON, an engineering bound chosen for metadata reads. Successful responses retain
+their application representation; failures return only fixed adapter codes and status.
+There is no retained credential, actor memory, conversation or connection session.
+
+`WORLD_MCP_READ_TOOLS` is the internal read-adapter allowlist, not an external MCP
+tool registration. The native PostgreSQL proof exercises that adapter through runtime
+HTTP; it does not prove an MCP handler or client connection. Part 1 leaves the full
+Objective acceptance open.
+
+This is an internal foundation, not a connectable MCP endpoint. Later parts of issue
+167 provide the current Agents stateless handler and real MCP-client proof, OAuth
+authorization and web-issued member API tokens with immediate revocation, principal
+rate/cost admission and MCP-surface database attack coverage, full world/timeline
+discovery, attributed ordinary command and operator tools, and explicit Wave 7
+changeset refusals. Both authentication modes and existing operator grants remain
+required. Talk stays on the channel-neutral session path. No client connection procedure
+is available until that transport and credential composition ships; that delivery must
+document the endpoint, authentication setup and a working client connection procedure
+in the runtime runbook.
+
+## Remote MCP installation
 
 Issue 164 provides local authenticated installation routes, a capabilities screen, isolated PostgreSQL
 credentials, canonical installation/review/binding governance and actor revision integration.
