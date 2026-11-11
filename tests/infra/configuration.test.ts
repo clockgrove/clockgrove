@@ -16,6 +16,7 @@ import {
   tofuLimits,
 } from "../../scripts/ci/deploy.mjs";
 import {
+  assertWorkersDevSubdomain,
   awaitNeonOperations,
   duplicableResources,
   persistedAddresses,
@@ -26,6 +27,7 @@ import {
   stateBackend,
   unrecordedDuplicates,
   verifyPlan,
+  workersDevSubdomainRequired,
 } from "../../scripts/ci/deployment-authority.mjs";
 import {
   assertDeploymentOutcome,
@@ -143,6 +145,48 @@ describe("hosted deploy inputs", () => {
         found.map((item) => ({ ...item, ids: [] })),
       ),
     ).toEqual([]);
+  });
+  it("refuses, before provisioning, an account whose missing workers.dev subdomain would stop Worker publication", async () => {
+    const config = await readJson(root, "infra/environments/staging.json");
+    const wrangler = await readJson(root, "infra/wrangler/staging.json");
+    // Every hosted Worker defines its Workflows with workers.dev off, so Wrangler needs the subdomain.
+    expect(workersDevSubdomainRequired(wrangler)).toBe(true);
+    expect(workersDevSubdomainRequired({ ...wrangler, workers_dev: true })).toBe(false);
+    expect(
+      workersDevSubdomainRequired({
+        ...wrangler,
+        workflows: wrangler.workflows.map((workflow: object) => ({
+          ...workflow,
+          script_name: "another-worker",
+        })),
+      }),
+    ).toBe(false);
+    const answer = (status: number, body: object) => {
+      const requests: string[] = [];
+      const request = async (url: string) => {
+        requests.push(url);
+        return new Response(JSON.stringify(body), { status });
+      };
+      return { request, requests };
+    };
+    const registered = answer(200, { success: true, result: { subdomain: "clockgrove" } });
+    await expect(assertWorkersDevSubdomain(config, "token", registered.request)).resolves.toBe(
+      "clockgrove",
+    );
+    expect(registered.requests).toEqual([
+      `https://api.cloudflare.com/client/v4/accounts/${config.safeIds.cloudflareAccountId}/workers/subdomain`,
+    ]);
+    const missing = answer(404, {
+      success: false,
+      errors: [{ code: 10007, message: "This account has no subdomain" }],
+    });
+    await expect(assertWorkersDevSubdomain(config, "token", missing.request)).rejects.toThrow(
+      `workers.dev subdomain unavailable (workers/subdomain, HTTP 404: 10007 This account has no subdomain); Wrangler publishes a Worker that defines Workflows only on an account with one. Register it at https://dash.cloudflare.com/${config.safeIds.cloudflareAccountId}/workers/onboarding`,
+    );
+    const refused = answer(403, { success: false, errors: [{ code: 10000, message: "Auth" }] });
+    await expect(assertWorkersDevSubdomain(config, "token", refused.request)).rejects.toThrow(
+      /HTTP 403: 10000 Auth\); .* or grant the token Workers Scripts/u,
+    );
   });
 });
 

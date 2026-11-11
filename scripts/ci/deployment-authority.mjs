@@ -230,6 +230,40 @@ export async function cloudflareFact(token, suffix) {
   return body.result;
 }
 
+// Whether Wrangler will need the account's workers.dev subdomain to publish this Worker: Wrangler 4
+// looks it up whenever a Worker that defines Workflows is published with workers.dev routing off,
+// and in CI refuses ("Workflows require your account to have a workers.dev subdomain") rather than
+// register one. A Workflow names another Worker's class only through `script_name`.
+export function workersDevSubdomainRequired(wrangler) {
+  return (
+    wrangler.workers_dev !== true &&
+    (wrangler.workflows ?? []).some(
+      (workflow) => !workflow.script_name || workflow.script_name === wrangler.name,
+    )
+  );
+}
+
+// Refuses, before anything changes, an account without a workers.dev subdomain, which Wrangler
+// would otherwise refuse only at Worker publication, after provisioning and migrations. The token's
+// Workers Scripts permission reads it (GET accounts/<id>/workers/subdomain).
+export async function assertWorkersDevSubdomain(config, token, request = fetch) {
+  const account = config.safeIds.cloudflareAccountId;
+  const response = await request(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/workers/subdomain`,
+    { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
+  );
+  let said;
+  if (response.ok) {
+    const body = await response.json().catch(() => null);
+    if (body?.success && typeof body.result?.subdomain === "string" && body.result.subdomain)
+      return body.result.subdomain;
+    said = "HTTP 200 without a subdomain";
+  } else said = await refusal(response);
+  assert.fail(
+    `Cloudflare account workers.dev subdomain unavailable (workers/subdomain, ${said}); Wrangler publishes a Worker that defines Workflows only on an account with one. Register it at https://dash.cloudflare.com/${account}/workers/onboarding, or grant the token Workers Scripts if the refusal is a permission`,
+  );
+}
+
 // Owned resources whose names the provider does not keep unique: with state that does not record
 // them, a create makes a second copy instead of failing. Every other owned resource fails to create
 // on its existing name.

@@ -300,7 +300,14 @@ one. An environment that does needs a reviewed migration of its own.
 
 Before provisioning, the deploy requires `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`,
 `BETTER_AUTH_SECRET` and the two `INFRA_STATE_*` secrets, each declared in the environment's
-`*.secrets.json`, the reviewed routing metadata and the two readiness variables. It then refuses a
+`*.secrets.json`, the reviewed routing metadata and the two readiness variables. It checks
+`BETTER_AUTH_SECRET` (at least 32 characters, no surrounding whitespace) and that the Cloudflare
+account has a workers.dev subdomain: Wrangler publishes a Worker that defines Workflows only on an
+account with one, even with workers.dev routing off, and in CI refuses rather than register it.
+The owner registers it once at `https://dash.cloudflare.com/<account ID>/workers/onboarding`. The
+runtime host also needs an edge certificate: a Free zone's Universal SSL covers the apex and
+first-level names only, so a deeper host such as `staging.runtime.<zone>` needs Advanced
+Certificate Manager (Total TLS or an advanced certificate) or a first-level name. It then refuses a
 held state lock and state that lost a duplicable resource, as [OpenTofu state](#opentofu-state)
 describes. The catalog
 above remains canonical. `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `AUTH_DATABASE_URL`,
