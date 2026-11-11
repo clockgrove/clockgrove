@@ -82,6 +82,8 @@ names what the first deploy checks, so a skipped step fails by name instead of h
    name and a plan (Free is enough). Until then the Access service-token API refuses every call,
    and the deploy stops at `authenticated Cloudflare resource listing unavailable
    (access/service_tokens, …)`.
+3a. **workers.dev subdomain.** Register the account's `*.workers.dev` subdomain once (Workers & Pages, "Your subdomain"; free). Wrangler refuses to publish a Worker that defines Workflows without one, even though the deploy keeps workers.dev off and serves only on the environment's own host. The deploy checks this before it changes anything.
+3b. **Runtime host.** Use a first-level name in the zone, such as `staging.example.org`. Cloudflare's free Universal SSL covers only the apex and first-level names, so a deeper host gets no edge certificate unless the zone has Advanced Certificate Manager.
 4. **Cloudflare API token** (`CLOUDFLARE_API_TOKEN`), with exactly these permissions:
 
    | Scope | Permission | For |
