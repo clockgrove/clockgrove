@@ -43,7 +43,7 @@
     }
   },
   "domains": {
-    "runtime": "staging.runtime.clockgrove.dev",
+    "runtime": "staging.clockgrove.dev",
     "dnsTarget": "runtime.clockgrove.dev"
   },
   "cloudflareZonePlan": "free",
@@ -68,7 +68,7 @@
     "background": "background-standard"
   },
   "authentication": {
-    "origin": "https://staging.runtime.clockgrove.dev",
+    "origin": "https://staging.clockgrove.dev",
     "providerEnvironment": "staging",
     "transport": "direct-postgresql"
   }
