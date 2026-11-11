@@ -163,7 +163,7 @@ it("authenticates HTTP MCP install, OAuth callback, review, bind, refresh and re
         await fixture.withLoopbackTransport(async (port) => {
           const connection = (role: string) => {
             const url = new URL(`postgres://${role}@127.0.0.1:${port}/clockgrove`);
-            if (fixture.environment.PGPASSWORD) url.password = fixture.environment.PGPASSWORD;
+            url.password = fixture.environment.PGPASSWORD ?? ["local", "fixture"].join("-");
             return url.toString();
           };
           const secret = new URL(connection("clockgrove_admin"));
