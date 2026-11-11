@@ -46,7 +46,7 @@ The retained `channel-conversations.journey.postgres.test.ts` drives this adapte
 
 ## Governed outbound delivery
 
-The internal `DeliveryRequested` boundary It carries the authorized scope, canonical actor and session, recipient principal and channel binding, reason (event, goal, promise or subscription), urgency, encrypted content artifact, privacy classification, consent and policy versions, dedupe key, quiet-hour behavior, and budget reservation. No actor calls a provider, and no new public HTTP endpoint or external provider is installed.
+The internal `DeliveryRequested` boundary carries the authorized scope, canonical actor and session, recipient principal and channel binding, reason (event, goal, promise or subscription), urgency, encrypted content artifact, privacy classification, consent and policy versions, dedupe key, quiet-hour behavior, and budget reservation. No actor calls a provider, and no new public HTTP endpoint or external provider is installed.
 
 The recipient opts in separately for each actor and world timeline. Consent defaults off. Delivery validates the session, participant, binding, current world membership and scoped encrypted content artifact. Content must be an existing actor message artifact from that same session; knowing an artifact ID from another private session grants no delivery access. The proactive producer uses the canonical actor reply committed by the activation’s ordinary recoverable turn, retaining its session and recipient provenance. A private delivery retains conversation privacy throughout policy evaluation and sink recording; an urgency downgrade never makes Talk public Say.
 
@@ -65,6 +65,6 @@ Part 1 proves the CLI subprocess through PostgreSQL and the actor runtime on the
 | 2 (merged) | Normalized inbound envelope and verified channel threads; PostgreSQL and actor-owner proofs, with binding RLS, retention and database attacks. |
 | 3 (merged) | Governed delivery with budget reservation, consent and quiet hours; replay without sends; isolated preview sink; delivery and consent RLS, retention and database attacks. |
 | 4 (this part) | Explicit proactive actor delivery producer through PostgreSQL and the native actor runtime on the scripted model. |
-| 5 | Automatic delayed dispatch and the complete browser UI, CLI and fake-adapter completion experience, including final regression and isolation proofs. |
+| 5 | Govern ordinary actor responses through DeliveryRequested; automatically resume delayed deliveries with recovery; expose recipient-owned consent configuration; prove the complete browser UI, CLI and fake-adapter experience on one canonical actor with isolated transcripts, including replay, preview and final authorization attacks. |
 
-The Objective remains incomplete until Part 5 lands and its real-path proofs pass.
+Acceptance 4 (all actor delivery governed, including automatic delayed dispatch) and acceptance 8 (the combined browser UI, CLI and fake-adapter real-path proof) remain incomplete. The proactive producer journey proves only Part 4; it does not substitute for that combined proof. The Objective remains incomplete until Part 5 lands and its real-path proofs pass.
