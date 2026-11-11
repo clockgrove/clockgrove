@@ -8,13 +8,31 @@ an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging 
 
 ## Connecting a first-party MCP client
 
-There is currently no first-party MCP endpoint to configure in a client. Issue 167
-part 1 adds only an internal, bounded read adapter over the authenticated runtime APIs;
-it does not accept external connections or issue credentials. The
+There is currently no deployed first-party MCP endpoint to configure in a client.
+Issue 167 parts 1 and 2 supply an internal read adapter and stateless transport over
+the authenticated runtime APIs. The transport declares `world_directory`,
+`world_status`, `entity_inspect`, `command_receipt`, `run_receipt` and `run_search`;
+it does not issue credentials or add a public runtime route. Each protocol request
+supplies a bearer credential and authenticates through the ordinary directory use case;
+tool reads apply their existing application authorization. Request bodies are bounded
+at 128 KiB and tool arguments at 64 KiB. Responses are finite JSON under the current
+SDK stateless protocol; legacy protocol requests are rejected.
+
+The native proof uses a real MCP SDK client with an in-process Streamable HTTP fetch
+bridge, the fixture runtime and PostgreSQL. Run it from the repository root with:
+
+```bash
+pnpm exec vitest run --config apps/runtime/vitest.runtime.config.ts apps/runtime/test/world-mcp-server.postgres.test.ts
+```
+
+This is an internal integration proof, not a client connection setup procedure. The
 [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
-tracks the remaining stateless transport, OAuth and member-token setup, principal
-limits, command attribution and real-client proof. Remote MCP installation described
-elsewhere in this runbook connects Clockgrove to another server and is a separate path.
+tracks the remaining OAuth and web-issued/revocable member-token setup, principal-wide
+rate/cost limits, authenticated public composition and attack proof, full discovery,
+command/operator attribution and changeset placeholders. Both credential modes remain
+required; a working client connection procedure accompanies that delivery. Talk remains
+on the channel-neutral session path. Remote MCP installation described elsewhere in
+this runbook connects Clockgrove to another server and is a separate path.
 
 ## Placement and authority
 
