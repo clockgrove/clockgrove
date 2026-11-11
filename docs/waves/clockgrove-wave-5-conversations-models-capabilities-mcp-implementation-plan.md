@@ -362,8 +362,10 @@ descriptions cannot lower it. Review assigns `read`, `world-write`, `external-wr
 never become system or actor policy. One installation has many scoped bindings, resolved by
 most-specific deny, then grants, then the session approval overlay. Installation authority is a new,
 separate installation grant held by world owners by default, never actor/model authority. These
-are the required integration contract; the [MCP foundation](../protocols/mcp.md) does not yet add
-remote candidates to the running registry.
+are the integration contract. The [local MCP composition](../protocols/mcp.md#local-runtime-composition)
+loads reviewed remote pins into the same actor registry before new use and notifies capability
+revision changes. Hosted remote admission remains guarded off pending issue 3; execution remains
+RW-0508.
 
 ### 11.2 Grants and approvals
 
@@ -421,6 +423,20 @@ PostgreSQL and HTTP discovery, refresh and revoke. No deployed operator endpoint
 or actor capability is activated. Final part 6 retains production reference/egress composition,
 authenticated routes, actor revision-hook wiring, capabilities screen and complete runtime/browser/
 canary acceptance. The full OAuth decision and all outstanding acceptance remain binding.
+
+Owner amendment (2026-11-10, issue 164): hosted private-egress verification is owned by
+issue 3, on staging after issue 2's first successful deployment. Finish local composition,
+actor revision integration and the operator/browser/canary path now. Production composition
+stays guarded off until the hosted receipt exists. Local fixtures do not establish hosted
+private-egress protection or waive the original DNS-rebinding requirement.
+
+Amended (2026-11-10, issue 164, local final part): authenticated operator routes and the
+capabilities screen compose anonymous/static/OAuth discovery, exact-pin review, scoped bindings,
+refresh and revocation. A retained local owner supplies the isolated PostgreSQL provider and
+dedicated credential keyring. Actor admission reloads canonical policy before claim, model and
+proposal, and installation changes notify the revision hook. Remote execution remains RW-0508.
+Both local composition and actor admission guard hosted remote MCP off pending issue 3's
+receipt; the local PostgreSQL/runtime/browser proofs do not establish hosted qualification.
 
 ### 12.2 Execution
 

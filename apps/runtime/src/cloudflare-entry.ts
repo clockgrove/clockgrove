@@ -54,6 +54,7 @@ import {
   PostgreSqlWorldProvisioningStore,
   type R2BucketLike,
   WebCryptoKeyring,
+  withClientTransaction,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { ActivationOwners } from "./activation-routes.js";
@@ -80,13 +81,17 @@ import {
 import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflare-metrics.js";
 import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
-import { withHyperdrivePostgreSqlClient } from "./hyperdrive-postgres.js";
+import {
+  HyperdrivePostgreSqlClient,
+  withHyperdrivePostgreSqlClient,
+} from "./hyperdrive-postgres.js";
 import {
   PostgreSqlCausalInspector,
   PostgreSqlRuntimeOperator,
   PostgreSqlRuntimeStateInspector,
   type RuntimeStatePorts,
 } from "./inspector.js";
+import { composeMcpOperator } from "./mcp-composition.js";
 import {
   PostgreSqlEntitySelectionReader,
   PostgreSqlLivingSceneReader,
@@ -513,6 +518,13 @@ export function withLifecycleWorkflowClient<T>(
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
 }
 
+export function withActorCapabilityClient<T>(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  operation: (client: PostgreSqlClient) => Promise<T>,
+): Promise<T> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation);
+}
+
 export function withWakeTriageClient<T>(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   operation: (client: PostgreSqlClient) => Promise<T>,
@@ -746,6 +758,12 @@ export const runtimeBindingManifest = {
 } as const;
 
 export interface RuntimeComposition {
+  /** Trusted local composition; hosted activation remains guarded pending issue 3. */
+  readonly mcp?: import("./mcp.js").McpRuntimePort | undefined;
+  readonly mcpConfiguration?: Omit<
+    import("./mcp-composition.js").McpCompositionConfiguration,
+    "environment" | "runtimeDatabaseUrl" | "changed" | "withClient" | "openSecretClient"
+  >;
   readonly journal: Journal;
   readonly authentication: RuntimeAuthenticationDependencies;
   readonly canonical: CanonicalRuntimeStateSource;
@@ -801,8 +819,9 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
     },
   };
   const connectionString = env.HYPERDRIVE?.connectionString;
+  const mcp = composeGuardedMcpOperator(env, injected);
   if (injected.journal !== undefined && injected.canonical !== undefined)
-    return injected as RuntimeComposition;
+    return { ...injected, mcp } as RuntimeComposition;
   if (connectionString === undefined && composition !== undefined)
     throw new Error("Hyperdrive binding required for PostgreSQL composition");
   // Each call owns one connection; exact retries are answered from stored outcomes.
@@ -818,6 +837,7 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   };
   return {
     ...injected,
+    mcp,
     journal: injected.journal ?? postgreSqlJournal,
     canonical: injected.canonical ?? {
       loadReadyRuntimeState: (context, scope) =>
@@ -826,6 +846,62 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
         ),
     },
   };
+}
+
+const mcpOperators = new WeakMap<RuntimeEnvironment, import("./mcp.js").McpRuntimePort>();
+
+function composeGuardedMcpOperator(
+  env: RuntimeEnvironment,
+  supplied: Pick<RuntimeComposition, "mcp" | "mcpConfiguration">,
+): import("./mcp.js").McpRuntimePort | undefined {
+  if (env.PROVIDER_ENVIRONMENT !== "local") return undefined;
+  if (supplied.mcp !== undefined) return supplied.mcp;
+  if (supplied.mcpConfiguration === undefined) return undefined;
+  let operator = mcpOperators.get(env);
+  if (operator !== undefined) return operator;
+  operator = composeMcpOperator({
+    ...supplied.mcpConfiguration,
+    environment: env.PROVIDER_ENVIRONMENT,
+    runtimeDatabaseUrl: env.HYPERDRIVE?.connectionString ?? "",
+    withClient: (operation) =>
+      withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", operation),
+    openSecretClient: () =>
+      new HyperdrivePostgreSqlClient(supplied.mcpConfiguration?.secretDatabaseUrl ?? ""),
+    changed: async (authorization, scope) => {
+      const targets = await withHyperdrivePostgreSqlClient(
+        env.HYPERDRIVE?.connectionString ?? "",
+        (client) =>
+          withClientTransaction(client, { authorization }, async () => {
+            const result = await client.query(
+              "SELECT clockgrove.mcp_actor_revision_targets($1,$2,$3,$4) AS targets",
+              [authorization.tenantId, scope.worldId, scope.timelineId, scope.spaceId],
+            );
+            return (result.rows[0] as { targets: { revision: string; actorIds: string[] } })
+              .targets;
+          }),
+      );
+      const revision = Number(targets.revision);
+      if (!Number.isSafeInteger(revision) || revision < 0)
+        throw new Error("MCP revision unavailable");
+      for (const actorId of targets.actorIds) {
+        const route = await runtimeRouteName(
+          "actor-agent",
+          {
+            tenantId: authorization.tenantId,
+            worldId: decodeOpaqueId(scope.worldId, "WorldId"),
+            timelineId: decodeOpaqueId(scope.timelineId, "TimelineId"),
+            spaceId: decodeOpaqueId(scope.spaceId, "SpaceId"),
+          },
+          decodeOpaqueId(actorId, "SubjectId"),
+        );
+        await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).reconcileCapabilities(
+          revision,
+        );
+      }
+    },
+  });
+  mcpOperators.set(env, operator);
+  return operator;
 }
 
 /** Scalar bindings only; generated credentials use distinct least-privilege roles. */
@@ -993,6 +1069,7 @@ export default {
     return new RuntimeWorker(
       new TrustedRuntimeRequestAuthenticator(dependencies.authentication),
       {
+        mcp: env.PROVIDER_ENVIRONMENT === "local" ? dependencies.mcp : undefined,
         sceneConnection: async (scope, context, interest) => {
           const canonical = await dependencies.canonical.loadReadyRuntimeState(context, scope);
           const assertion = await signSceneJoin(env.BETTER_AUTH_SECRET ?? "", {

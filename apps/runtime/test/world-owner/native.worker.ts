@@ -35,11 +35,13 @@ import {
   type ScriptedDecisionStep,
 } from "@clockgrove/model-gateway";
 import {
+  PostgreSqlArtifactStore,
   type PostgreSqlClient,
   PostgreSqlWorldProvisioningStore,
   ProvisioningFaultInjectedError,
   type ProvisioningFaultPoint,
   sha256Hex,
+  WebCryptoKeyring,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import {
@@ -64,6 +66,7 @@ import worker, {
   reconcileWorldProvisioning,
   sweepPartitionSnapshots,
   type WorldProvisioningEntrypoint,
+  workersR2Bucket,
 } from "../../src/cloudflare-entry.js";
 import { scriptedConversationReply } from "../../src/conversations.js";
 import { gatewayShadowDecider } from "../../src/decision-shadow.js";
@@ -931,6 +934,12 @@ export default {
         string,
         string
       >;
+      if (op === "keys") {
+        const bucket = env.ARTIFACTS_BUCKET as unknown as {
+          list(): Promise<{ objects: { key: string }[] }>;
+        };
+        return Response.json((await bucket.list()).objects.map((object) => object.key));
+      }
       if (op === "corrupt") {
         const bytes = new TextEncoder().encode(text);
         const options = {
@@ -944,14 +953,25 @@ export default {
       const authorization = {
         tenantId: decodeOpaqueId(reader ?? at.tenantId, "TenantId"),
         principalId: decodeOpaqueId(`system:world:${at.worldId}`, "PrincipalId"),
-        privacyCeiling: { version: 1, allowedCategories: [decodePrivacyCategory("public_scene")] },
+        privacyCeiling: {
+          version: 1,
+          allowedCategories: [
+            decodePrivacyCategory(op === "put-evidence" ? "conversation" : "public_scene"),
+          ],
+        },
       } as const;
       try {
         const result = await withHyperdrivePostgreSqlClient(
           env.HYPERDRIVE?.connectionString ?? "",
           async (client) => {
-            const store = composeArtifactStore({ ...env, METRICS: recordedMetrics }, client);
-            if (op !== "put")
+            const store =
+              op === "put-evidence"
+                ? new PostgreSqlArtifactStore(client, {
+                    keyring: await WebCryptoKeyring.fromJson(env.ARTIFACT_KEYRING!),
+                    bucket: workersR2Bucket(env.ARTIFACTS_BUCKET!),
+                  })
+                : composeArtifactStore({ ...env, METRICS: recordedMetrics }, client);
+            if (op !== "put" && op !== "put-evidence")
               return new TextDecoder().decode((await store.get(authorization, at)).bytes);
             const bytes = new TextEncoder().encode(text);
             const input = {
@@ -1159,16 +1179,14 @@ export default {
       const body = (await request.json()) as Record<string, unknown>;
       const scope = decodeBrowserScope(body.scope);
       const actorId = String(body.actorId);
-      const actor = env.ACTOR_AGENT_DO.get(
-        env.ACTOR_AGENT_DO.idFromName(
-          await stableRuntimeRouteName("actor-agent", [
-            scope.tenantId,
-            scope.worldId,
-            scope.timelineId,
-            actorId,
-          ]),
-        ),
-      );
+      const name = await stableRuntimeRouteName("actor-agent", [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        actorId,
+      ]);
+      const actor = env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(name));
+      if (body.op === "route-name") return Response.json({ name });
       if (body.op === "fault")
         return Response.json((await actor.injectTurnFault(body.phase as string | null)) ?? null);
       if (body.op === "release") return Response.json((await actor.releaseTurn()) ?? null);

@@ -61,7 +61,10 @@ export interface TurnFiberHost {
    * grants. Undefined when the owner holds no trusted context (a recovered turn), which abandons
    * the attempt so the client's retry carries one.
    */
-  grants?(participant: ConversationParticipant): CapabilityGrants | undefined;
+  grants?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): CapabilityGrants | undefined | Promise<CapabilityGrants | undefined>;
   /** Submits an authorized world command through the ordinary world-command path. */
   submitCommand?(
     participant: ConversationParticipant,
@@ -243,6 +246,8 @@ export class TurnFibers {
     accepted: TurnFiber,
     emit: (frame: TalkStreamFrame) => void,
   ): Promise<TurnOutcome> {
+    // Refresh admission before claiming so the attempt records its canonical revision.
+    await this.host.grants?.(participant, accepted);
     let fiber = await this.store((store) =>
       store.claimTurn(participant, accepted, this.host.holder, this.host.capabilityRevision()),
     );
@@ -333,7 +338,7 @@ export class TurnFibers {
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
   ): Promise<TurnCommandRecord> {
-    const grants = this.host.grants?.(participant);
+    const grants = await this.host.grants?.(participant, fiber);
     if (grants === undefined || this.host.submitCommand === undefined)
       throw new Error("capability context unavailable");
     const decision = grants.authorize(proposal);
@@ -346,7 +351,10 @@ export class TurnFibers {
         summary: `Refused before the world: ${decision.code}`,
       };
     // Read capabilities have no executor in this checkpoint; only a world command acts.
-    if (decision.definition.effect !== "world_command")
+    if (
+      decision.definition.remoteMcp !== undefined ||
+      decision.definition.effect !== "world_command"
+    )
       return {
         capability: proposal.capability,
         commandId: null,

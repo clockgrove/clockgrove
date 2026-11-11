@@ -1517,42 +1517,21 @@ answered picks, reports coverage separately, and is null when no case was answer
 
 ## Remote MCP installation readiness
 
-Issue 164's [MCP foundation](../protocols/mcp.md) is an application-level transport and credential
-boundary with an isolated PostgreSQL secret adapter. It is not composed into the deployed Worker, and there is no installation endpoint or
-capabilities screen yet. Do not grant actor access by inserting remote names into internal grants.
+The [MCP installation protocol](../protocols/mcp.md) separates local acceptance from hosted
+activation. The owner assigned hosted private-egress verification to issue 3 after issue 2's
+first staging deployment. Production remote MCP access stays guarded off until that receipt
+exists. A local fixture network port is never a production loopback allowance.
 
-Before enabling the operator flow, compose the internal canonical installation/review service with
-binding events, trusted secret-provider ownership and lifetime,
-the actor capability revision hook and the operator browser journey. Verify Cloudflare egress
-behavior at that consumer; DNS preflight alone does not prove address pinning. A local fixture
-adapter must never become a production loopback switch.
+Local composition must retain one installation owner across requests and OAuth callbacks,
+with a dedicated secret-provider connection and separate versioned credential keyring.
+Never construct the PostgreSQL secret adapter per request or use a reconnecting pool for it.
+Provider-session takeover fences old references; reconnect credentials after owner loss.
+Provisioning prerequisites are in the [database runbook](database.md#mcp-secret-provider-prerequisite).
 
-The completed operator procedure must connect the installation owner's OAuth account or static
-token through the isolated credential provider, inspect identity/protocol and schema hashes,
-review and enable only selected tools, and bind them through scoped grants. Refresh must disable
-only drifted versions; revoke must invalidate grants immediately and keep uncertain credentials
-unusable. These procedures remain pending integration, rather than commands available today.
-
-The secret adapter is deliberately session-owned: provider takeover fences all existing credentials
-in its installation scope, and operators must reconnect them. Never construct it per request or
-allow a connection pool to reconnect behind it. Provisioning prerequisites and the isolated role
-are documented in the [database runbook](database.md#mcp-secret-provider-prerequisite). The
-PostgreSQL secret proof does not establish that the operator/runtime flow is ready.
-
-Part 3 supplies internal canonical installation governance under `runtime:mcp-install`, held
-by world owners by default. The PostgreSQL service records discovery, exact-schema review,
-refresh drift and terminal revocation with atomic attributed Journal events and scoped RLS.
-It does not perform the network request, connect an OAuth account, revoke a credential or
-notify actors. Those steps must be composed before exposing an installation endpoint.
-There is still no capabilities-screen procedure available to operators. Do not treat a
-reviewed database candidate as a callable actor grant.
-Part 4's internal `McpInstallationService` now composes canonical installation authority with
-admitted HTTP discovery and Journal writes. It checks authority before network work and again
-at commit, and refresh reads the stored URL. Its PostgreSQL/HTTP proof uses a test-owned
-network port, not deployed egress. It accepts no credential and exposes no runtime route.
-Production provider ownership, full OAuth/static-token composition, registry bindings and actor
-revision invalidation still precede the operator capabilities-screen procedure. See the
-[composition boundary](../protocols/mcp.md#authorized-discovery-composition).
+Installation and binding changes require `runtime:mcp-install`, held by world owners by
+default. Actor identities and decision models cannot connect credentials, install servers,
+review tools or grant authority. Server descriptions, resources and prompts are untrusted data;
+prompts never become policy. Remote tool execution belongs to RW-0508.
 
 ## Moderation shadow report
 
@@ -1703,6 +1682,40 @@ must deliver those operations, verified hosted egress, revision-hook invalidatio
 PostgreSQL/runtime/browser/canary journey before the operator install/review/revoke procedure
 can be described as available.
 
+## Local operator lifecycle
+
+The world screen's **Capabilities** control opens the governed remote installation screen.
+Use a principal with `runtime:mcp-install` and `operator_evidence` access. World owners receive
+the installation grant by default; ordinary operating grants do not imply it.
+
+1. Enter an HTTPS MCP endpoint and choose anonymous access, a static token, or OAuth.
+   OAuth uses a trusted registered public client; complete the issuer navigation and return to
+   the same authenticated world. Credentials are held by the isolated provider, never by the
+   Journal or browser persistence. The pending installation identifier alone may be retained
+   in session storage during OAuth navigation.
+2. Inspect server identity, protocol, tool/resource/prompt metadata and schema hashes. All
+   remote text is untrusted. Tools start disabled at `external-write`; resources and prompts
+   remain disabled. Select an effect class and review the exact tool pin before enabling it.
+3. Bind selected tools to an actor, narrowing allowed input fields, destinations, calls per
+   turn, effect class, microdollar budget and expiry. Empty field/destination lists allow none.
+   Existing bindings can be disabled; server or tool revocation also removes their admission.
+4. Refresh discovery after reconnecting. A changed tool is drifted and disabled until its new
+   hash is reviewed; unchanged reviewed tools retain admission. A failed credential refresh
+   disables the installation. Revocation is canonical before remote credential cleanup;
+   uncertain cleanup never restores enablement.
+5. Revoke an installation to remove all its remote admission. Actor admission reloads current
+   canonical state before a proposal even if a revision notification was missed. Remote
+   execution itself remains RW-0508; this screen does not make provider code executable.
+
+Trusted local composition uses `composeMcpOperator` with separate runtime and direct secret
+PostgreSQL URLs, a dedicated versioned credential keyring, the test-only network port, registered
+OAuth clients and an explicit provider capacity. `RuntimeComposition.mcpConfiguration` retains
+the operator per runtime environment and supplies canonical actor revision notifications.
+Both the composition factory and deployed Worker refuse hosted activation pending issue 3.
+Do not substitute `ARTIFACT_KEYRING`, runtime database privileges, transaction pooling or a
+per-request provider. Closing the owner disables its credential installations; after owner loss,
+refresh fails closed. Revoke the old installation and connect under a new identifier.
+
 
 ## Proactive delivery configuration
 
@@ -1726,3 +1739,4 @@ receipt and stable activation key, without another reservation or sink write.
 A delayed receipt remains pending until explicit internal `resume`; automatic
 resumption and the complete browser/CLI/fake completion proof remain Part 5 of
 issue 168. No external messaging provider is configured.
+

@@ -2534,6 +2534,21 @@ BEGIN
   END;
 END;
 $$;
+DO $$
+BEGIN
+  PERFORM pg_temp.act_as('tenant-b','principal-b','{"version":1,"allowedCategories":["conversation","operator_evidence"]}');
+  BEGIN
+    PERFORM clockgrove.actor_mcp_admission('tenant-a','world-a','timeline-a','keeper','channel-session');
+    RAISE EXCEPTION 'foreign actor MCP snapshot escaped scope' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM clockgrove.mcp_actor_revision_targets('tenant-a','world-a','timeline-a','space-a');
+    RAISE EXCEPTION 'foreign MCP actor notification targets escaped scope' USING ERRCODE='XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
 ROLLBACK;
 
 -- Governed delivery (0051): recipients own consent; scope and session provenance survive
