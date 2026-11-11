@@ -1,5 +1,6 @@
 export * from "./actor-process.js";
 export * from "./archetypes/index.js";
+export * from "./boundary-exchange.js";
 export * from "./commands/containment-commands.js";
 export * from "./commands/movement-commands.js";
 export * from "./commands/portal-commands.js";

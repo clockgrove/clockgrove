@@ -11,6 +11,9 @@ export interface VersionedDefinition {
  * reaches them through `upcastWorldEvent`.
  */
 const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["schemaVersion"]>> = {
+  "boundary.departed": 1,
+  "boundary.returned": 1,
+  "resource.boundary-exchanged": 1,
   "process.command-attempted": 1,
   "needs.changed": 1,
   /** Version 2: emitted only for a material decision; version 1 was emitted for every one. */

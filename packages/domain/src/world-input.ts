@@ -1,4 +1,5 @@
 import { ContractDecodeError, decodeOpaqueId, type SimTimeMs } from "@clockgrove/contracts";
+import { validateBoundaryExchangeState, validateBoundaryExchanges } from "./boundary-exchange.js";
 import { CONTAINMENT_PAYLOAD_SCHEMAS } from "./commands/containment-commands.js";
 import { containmentSchema, lifecycleSchema, resourceSchema } from "./components/catalog/index.js";
 import type { EcologyPolicy, EcologyState } from "./ecology/ecology.js";
@@ -62,10 +63,23 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "shelterWeight",
     ],
     "policy",
-    ["environment", "ecology", "wellbeing", "utility", "lifecycle", "processes"],
+    [
+      "environment",
+      "ecology",
+      "wellbeing",
+      "utility",
+      "lifecycle",
+      "processes",
+      "boundaryExchanges",
+    ],
   );
   version(rawPolicy, "policy");
+  if (rawPolicy.boundaryExchanges !== undefined)
+    validateBoundaryExchanges(rawPolicy.boundaryExchanges);
   const policy: WorldBehaviorPolicy = {
+    ...(rawPolicy.boundaryExchanges === undefined
+      ? {}
+      : { boundaryExchanges: rawPolicy.boundaryExchanges }),
     schemaVersion: 1,
     version: text(rawPolicy.version, "policy.version"),
     ...(rawPolicy.processes === undefined
@@ -142,11 +156,21 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "entities",
     ],
     "initialState",
-    ["environment", "ecology", "wellbeing", "scriptedCognition", "lifecycle", "processes"],
+    [
+      "environment",
+      "ecology",
+      "wellbeing",
+      "scriptedCognition",
+      "lifecycle",
+      "processes",
+      "boundaryExchanges",
+    ],
   );
   version(raw, "initialState");
   const weather = object(raw.weather, ["rainIntensity"], "initialState.weather");
+  if (raw.boundaryExchanges !== undefined) validateBoundaryExchangeState(raw.boundaryExchanges);
   const initialState: WorldState = {
+    ...(raw.boundaryExchanges === undefined ? {} : { boundaryExchanges: raw.boundaryExchanges }),
     schemaVersion: 1,
     ...(raw.processes === undefined
       ? {}

@@ -25,6 +25,17 @@ export const fixtureObjectSchema = z
   })
   .readonly();
 export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({
+  "boundary.exchange": z
+    .strictObject({
+      schemaVersion: version,
+      boundaryId: objectId,
+      actorId: objectId,
+      objectId,
+      kind: z.enum(["food", "water"]),
+      direction: z.enum(["import", "export"]),
+      quantity: positive,
+    })
+    .readonly(),
   "object.create": z
     .strictObject({ schemaVersion: version, object: fixtureObjectSchema })
     .readonly(),
