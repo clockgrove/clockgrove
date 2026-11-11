@@ -6,6 +6,28 @@ export interface EffectAddress {
   readonly timelineId: string;
   readonly effectId: string;
 }
+export interface EffectIntentMetadata extends EffectAddress {
+  readonly spaceId: string;
+  readonly idempotencyKey: string;
+  readonly actorId: string;
+  readonly principalId: string;
+  readonly runId: string | null;
+  readonly callId: string;
+  readonly capabilityId: string;
+  readonly grantId: string;
+  readonly policyVersion: string;
+  readonly argumentsHash: string;
+  readonly argumentsArtifactId: string | null;
+  readonly reservedMicrousd: number;
+}
+export type EffectReservation = EffectIntentMetadata &
+  (
+    | { readonly disposition: "pending"; readonly dispatchId: string; readonly eventId: string }
+    | {
+        readonly disposition: "blocked" | "simulated" | "refused";
+        readonly outcomeCode: string;
+      }
+  );
 export type EffectTerminalDisposition = "succeeded" | "failed" | "uncertain";
 export interface EffectCompletion {
   readonly disposition: EffectTerminalDisposition;
@@ -76,6 +98,100 @@ export class PostgreSqlEffects {
       // SQL constraint errors can contain values; no driver text crosses this boundary.
       throw new Error("Effect persistence unavailable");
     }
+  }
+
+  /** Persists prior admission atomically; this is not a grant check or a budget reservation. */
+  async reserve(request: EffectReservation): Promise<RecordedEffect> {
+    request = { ...request };
+    const address = addressValues(request);
+    const metadata = [
+      request.spaceId,
+      request.idempotencyKey,
+      request.actorId,
+      request.principalId,
+      request.runId,
+      request.callId,
+      request.capabilityId,
+      request.grantId,
+      request.policyVersion,
+      request.argumentsHash,
+      request.argumentsArtifactId,
+      request.reservedMicrousd,
+    ];
+    if (
+      !metadata
+        .slice(0, 9)
+        .every((value, index) => (index === 4 && value === null) || identity(value as string)) ||
+      !/^[a-f0-9]{64}$/.test(request.argumentsHash) ||
+      (request.argumentsArtifactId !== null && !identity(request.argumentsArtifactId)) ||
+      !Number.isSafeInteger(request.reservedMicrousd) ||
+      request.reservedMicrousd < 0 ||
+      (request.disposition === "pending"
+        ? !identity(request.dispatchId) || !identity(request.eventId)
+        : !["blocked", "simulated", "refused"].includes(request.disposition) ||
+          !/^[a-z_]{1,64}$/.test(request.outcomeCode))
+    )
+      throw new Error("Invalid effect reservation");
+    const pending = request.disposition === "pending";
+    const reason = request.disposition === "pending" ? null : request.outcomeCode;
+    const values = [...address, ...metadata];
+    return this.transaction(async () => {
+      const inserted = await this.client.query(
+        `INSERT INTO clockgrove.effect_intents
+        (tenant_id,world_id,timeline_id,effect_id,space_id,idempotency_key,actor_id,principal_id,
+        run_id,call_id,capability_id,grant_id,policy_version,arguments_hash,arguments_artifact_id,
+        reserved_microusd,disposition,outcome_code,ended_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+          CASE WHEN $17='pending' THEN NULL ELSE statement_timestamp() END)
+        ON CONFLICT DO NOTHING RETURNING effect_id`,
+        [...values, request.disposition, reason],
+      );
+      // INSERT's unique-index arbitration serializes concurrent retries, including absent rows.
+      const matches = await this.client.query(
+        `SELECT 1 FROM clockgrove.effect_intents WHERE ${predicate}
+        AND ROW(space_id,idempotency_key,actor_id,principal_id,run_id,call_id,capability_id,
+          grant_id,policy_version,arguments_hash,arguments_artifact_id,reserved_microusd)
+        IS NOT DISTINCT FROM ROW($5::text,$6::text,$7::text,$8::text,$9::text,$10::text,
+          $11::text,$12::text,$13::text,$14::text,$15::text,$16::bigint)
+        AND (($17::boolean AND disposition IN ('pending','started','succeeded','failed','uncertain'))
+          OR (NOT $17::boolean AND disposition=$18 AND outcome_code=$19)) FOR UPDATE`,
+        [...values, pending, request.disposition, reason],
+      );
+      if (matches.rows.length !== 1) throw new Error("Effect reservation conflicts");
+      if (request.disposition === "pending") {
+        const dispatchValues = [...address, request.dispatchId, request.eventId, request.spaceId];
+        if (inserted.rows.length === 1)
+          await this.client.query(
+            `INSERT INTO clockgrove.event_dispatches
+          (tenant_id,world_id,timeline_id,partition_id,space_id,dispatch_id,event_id,channel,status,privacy_class,payload)
+          SELECT tenant_id,world_id,timeline_id,partition_id,space_id,$5,event_id,
+          'external-effects','pending','conversation',jsonb_build_object('effectId',$4::text)
+          FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3
+          AND event_id=$6 AND space_id=$7 AND privacy_class='conversation'
+          ON CONFLICT DO NOTHING`,
+            dispatchValues,
+          );
+        const dispatch = await this.client.query(
+          `SELECT 1 FROM clockgrove.event_dispatches d JOIN clockgrove.events e
+          ON e.tenant_id=d.tenant_id AND e.event_id=d.event_id
+          WHERE d.tenant_id=$1 AND d.world_id=$2 AND d.timeline_id=$3 AND d.dispatch_id=$5
+          AND d.event_id=$6 AND d.space_id=$7 AND d.channel='external-effects'
+          AND d.privacy_class='conversation' AND d.payload=jsonb_build_object('effectId',$4::text)
+          AND e.world_id=$2 AND e.timeline_id=$3 AND e.space_id=$7
+          AND e.partition_id=d.partition_id AND e.privacy_class='conversation'`,
+          dispatchValues,
+        );
+        if (dispatch.rows.length !== 1) throw new Error("Effect dispatch conflicts");
+      } else {
+        const dispatch = await this.client.query(
+          `SELECT 1 FROM clockgrove.event_dispatches WHERE tenant_id=$1 AND world_id=$2
+          AND timeline_id=$3 AND channel='external-effects' AND payload=jsonb_build_object('effectId',$4::text)`,
+          address,
+        );
+        if (dispatch.rows.length !== 0) throw new Error("Effect disposition conflicts");
+      }
+      return (await this.recorded(address)) as RecordedEffect;
+    });
   }
 
   async read(address: EffectAddress): Promise<RecordedEffect | null> {

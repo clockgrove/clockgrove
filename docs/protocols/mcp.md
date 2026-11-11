@@ -464,8 +464,10 @@ None of those execution guarantees is established by the schema foundation alone
 
 `PostgreSqlEffects` in `packages/persistence/src/postgres-effects.ts` provides the internal
 attempt lifecycle on an existing intent. Its client must already possess trusted ledger-write
-authority. It is not composed into the actor runtime, does not create intents or reserve budgets,
-and grants no SQL permissions. The ordinary runtime role still cannot write the ledger.
+authority. These lifecycle methods operate on existing intents; the part 3 `reserve` method
+described below creates already-admitted intents atomically with their outbox rows. The adapter
+is not composed into the actor runtime, does not enforce turn budgets and grants no SQL
+permissions. The ordinary runtime role still cannot write the ledger.
 Future Queue composition must complete installation, binding, member-grant, argument, network
 and budget admission before invoking this adapter.
 
@@ -527,3 +529,29 @@ research. Those remain later parts of issue 165. A transport proof alone establi
 neither tenant/grant admission nor a crash-safe call: future Queue composition must claim
 the durable attempt before invocation and record explicit uncertainty after interrupted
 transport, with no automatic resend.
+
+### Internal intent and outbox persistence (delivery part 3)
+
+`PostgreSqlEffects` can atomically persist already-admitted effect metadata and its
+`external-effects` outbox row. This remains an internal privileged storage boundary;
+ordinary runtime SQL permissions are unchanged. It does not resolve grants, enforce turn
+budgets, expose a capability or invoke the MCP transport. Trusted admission must still
+perform the preceding execution-order checks before using it.
+
+An executable intent requires an existing conversation event in the exact tenant, world,
+timeline and space. The adapter derives the dispatch partition from that event, and writes
+only the effect identifier into the conversation-class payload. The existing outbox permits
+one external-effects dispatch per event, so each admitted call needs its own canonical event.
+Intent and dispatch either both commit or neither does. The preview dispatch gate remains
+unchanged. Blocked, simulated and refused intents record their reason without an outbox row.
+
+An identical retry returns the recorded effect, including a completed attempt. A changed
+argument hash, identity, attribution, reservation or dispatch reference fails closed, preserving
+the first record. An existing intent with a missing or inconsistent dispatch is not repaired:
+that could enqueue historical work again. Callers must reconcile such inconsistencies rather
+than retry execution. Argument content remains in encrypted scoped artifacts; credential
+values and remote error bodies have no place in the reservation metadata or queue payload.
+
+This persistence API does not establish atomic policy/budget admission or Queue execution.
+The real consumer, kill switches, durable actor waits, tool loop and integrated research
+experience remain subsequent delivery parts of issue 165.
