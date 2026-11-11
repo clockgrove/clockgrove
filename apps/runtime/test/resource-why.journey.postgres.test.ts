@@ -1,5 +1,10 @@
 import { executeWorldCommand } from "@clockgrove/application";
-import { decodeEntitySelection, decodeRecordedWhy, decodeWorldStatus } from "@clockgrove/contracts";
+import {
+  decodeEntitySelection,
+  decodeOpaqueId,
+  decodeRecordedWhy,
+  decodeWorldStatus,
+} from "@clockgrove/contracts";
 import { PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
 import type { Json } from "../../../packages/simulator/test/fixtures/lamp-hall.js";
@@ -206,6 +211,140 @@ it("shows retained rain, plant and finite process transfer causes through public
           .filter((event) => event.type === "resource.weather-integrated")
           .map((event) => event.simulationTime),
       ).toEqual(["100002", "100001"]);
+      expect(await truth(canonical)).toBe(before);
+    });
+  });
+}, 120_000);
+
+it("retains outside meal origin, crossing actor and time through PostgreSQL and public Why after consumption", async () => {
+  await withDisposableDatabase(async (fixture: DatabaseFixture) => {
+    await applyMigrations(fixture.tools, fixture.environment);
+    const source = await buildSectionHallSource({
+      edit: ({ docs }) => {
+        delete (docs["policies/behavior.json"] as Json).policy.lifecycle;
+        for (const id of ["parent", "child"]) delete (docs[`actors/${id}.json`] as Json).lifecycle;
+        (docs["policies/behavior.json"] as Json).policy.boundaryExchanges = [
+          {
+            id: "neighbour-bins",
+            name: "Neighbour bins",
+            kind: "food",
+            supply: 1,
+            absorb: 0,
+            actorIds: ["sec.parent"],
+          },
+        ];
+        (docs["archetypes/keeper.json"] as Json).components["clockgrove.resource"] = {
+          type: "clockgrove.resource",
+          version: 1,
+          state: { kind: "food", quantity: 0 },
+        };
+      },
+    });
+    const packed = await packWorld(source);
+    if (packed.behavior === null) throw new Error("behavior required");
+    const world = { ...packed, behavior: packed.behavior };
+    const provisioned = await provisionTestWorld(fixture, world, "principal-outside-why");
+    const auth = livingHallAuthentication(provisioned);
+    await withClient(fixture.environment, async (client) => {
+      const worker = new RuntimeWorker(auth.authenticator, {
+        getSpace: () => {
+          throw new Error("read cannot command");
+        },
+        inspector: new PostgreSqlCausalInspector(client),
+        observation: {
+          observe: async () => Promise.reject(new Error("unexpected scene read")),
+          status: (scope, context) => new PostgreSqlWorldStatusReader(client).read(scope, context),
+          select: (input, context) =>
+            new PostgreSqlEntitySelectionReader(client).select(input, context, 100n),
+        },
+      });
+      const read = async (endpoint: string, fields = {}) => {
+        const response = await worker.fetch(
+          new Request(`http://local.test/v1/runtime/${endpoint}`, {
+            method: "POST",
+            headers: { authorization: "Bearer hall-inspect", "content-type": "application/json" },
+            body: JSON.stringify({
+              version: 1,
+              ...auth.scope,
+              ...(endpoint === "why" ? { includeResourceCauses: true } : {}),
+              ...fields,
+            }),
+          }),
+        );
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      const execute = (command: ReturnType<typeof advanceCommand>) =>
+        executeWorldCommand(commandRequest(provisioned, command), {
+          journal: new PostgreSqlWorldCommandJournal(client),
+          behavior: provisioned.behavior,
+        });
+      const imported = await execute({
+        ...advanceCommand(world, "outside-meal", 100000n, world.birth.state.revision),
+        type: "boundary.exchange",
+        attribution: {
+          effectiveActorId: "sec.parent",
+          causalRootActionId: decodeOpaqueId("action-outside-meal", "ActionId"),
+        },
+        payload: {
+          schemaVersion: 1,
+          boundaryId: "neighbour-bins",
+          actorId: "sec.parent",
+          objectId: "sec.parent",
+          kind: "food",
+          direction: "import",
+          quantity: 1,
+        },
+      });
+      if (imported.value.status !== "committed") throw new Error("boundary import refused");
+      expect(
+        (
+          await execute({
+            ...advanceCommand(world, "eat-outside-meal", 100000n, BigInt(imported.value.revision)),
+            type: "resource.consume",
+            payload: { schemaVersion: 1, objectId: "sec.parent", kind: "food", quantity: 1 },
+          })
+        ).outcome,
+      ).toBe("committed");
+      const truth = truthOf(fixture);
+      const canonical =
+        "SELECT jsonb_build_object('states',(SELECT jsonb_agg(to_jsonb(s)) FROM clockgrove.partition_states s),'events',(SELECT jsonb_agg(to_jsonb(e) ORDER BY partition_sequence) FROM clockgrove.events e),'receipts',(SELECT jsonb_agg(to_jsonb(r) ORDER BY command_id) FROM clockgrove.command_receipts r))::text";
+      const before = await truth(canonical);
+      const eventId = await truth(
+        "SELECT event_id FROM clockgrove.events WHERE command_id='outside-meal' AND event_type='resource.boundary-exchanged'",
+      );
+      const expected = [
+        {
+          eventId,
+          simulationTime: "100000",
+          cause: "boundary-exchange",
+          kind: "food",
+          quantity: 1,
+          objectId: "sec.parent",
+          boundaryId: "neighbour-bins",
+          boundaryName: "Neighbour bins",
+          actorId: "sec.parent",
+          direction: "import",
+        },
+      ];
+      expect(
+        decodeRecordedWhy(await read("why", { commandId: "outside-meal" })).resourceCauses,
+      ).toEqual(expected);
+      expect(decodeRecordedWhy(await read("why", { eventId })).resourceCauses).toEqual(expected);
+      const holder = decodeEntitySelection(await read("entity", { objectId: "sec.parent" }));
+      expect(
+        holder.history.actions
+          .filter((entry) => entry.type === "resource.boundary-exchanged")
+          .map((entry) => [entry.eventId, entry.commandId, entry.simulationTime]),
+      ).toEqual([[eventId, "outside-meal", "100000"]]);
+      const status = decodeWorldStatus(await read("world-status"));
+      expect(
+        status.feed
+          .filter((event) => event.text.includes("outside the world"))
+          .map((event) => event.text),
+      ).toEqual([
+        "sec.parent imported 1 food from outside the world at Neighbour bins into sec.parent.",
+      ]);
       expect(await truth(canonical)).toBe(before);
     });
   });

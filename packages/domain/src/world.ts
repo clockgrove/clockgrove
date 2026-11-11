@@ -12,6 +12,13 @@ import type {
 import { decodeAttributionEnvelope } from "@clockgrove/contracts";
 import { DomainValidationError } from "./actor-process.js";
 import {
+  type BoundaryExchange,
+  type BoundaryExchangeEventData,
+  type BoundaryExchangeState,
+  validateBoundaryExchangeState,
+  validateBoundaryExchanges,
+} from "./boundary-exchange.js";
+import {
   type ContainmentState,
   containmentSchema,
   type LifecycleState as LifecycleComponentState,
@@ -101,6 +108,7 @@ export interface WorldBehaviorPack {
 /** Need/exposure values and policy weights use integer basis points (0..10,000). */
 export interface WorldBehaviorPolicy {
   readonly processes?: readonly WorldProcess[];
+  readonly boundaryExchanges?: readonly BoundaryExchange[];
   readonly schemaVersion: 1;
   readonly version: string;
   readonly decisionIntervalMs: bigint;
@@ -156,6 +164,7 @@ export interface WorldNeeds {
 
 export interface WorldState {
   readonly processes?: readonly WorldProcessState[];
+  readonly boundaryExchanges?: readonly BoundaryExchangeState[];
   readonly schemaVersion: 1;
   readonly tenantId: TenantId;
   readonly worldId: WorldId;
@@ -234,6 +243,7 @@ export type WorldEvent = WorldEventScope &
               payload: Readonly<{ objectId: ObjectId }> & WorldNeeds;
             }>
           | Readonly<{ type: "time.advanced"; payload: Readonly<Record<string, never>> }>
+          | BoundaryExchangeEventData
           | ProcessCommandEventData
           | ContainmentEventData
           | MovementEventData
@@ -284,6 +294,7 @@ const POLICY_SECTIONS: readonly string[] = [
   "utility",
   "lifecycle",
   "processes",
+  "boundaryExchanges",
 ] satisfies readonly (keyof WorldBehaviorPolicy)[];
 
 export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
@@ -321,6 +332,8 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   ] as const) {
     requireBasisPoints(policy[key], `policy.${key}`);
   }
+  if (Object.hasOwn(policy, "boundaryExchanges"))
+    validateBoundaryExchanges(policy.boundaryExchanges);
   if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
@@ -341,6 +354,8 @@ export function validateWorldState(state: WorldState): void {
   }
   requireTime(state.simulationTime, "state.simulationTime");
   requireBasisPoints(state.weather.rainIntensity, "state.weather.rainIntensity");
+  if (Object.hasOwn(state, "boundaryExchanges"))
+    validateBoundaryExchangeState(state.boundaryExchanges);
   if (Object.hasOwn(state, "processes")) validateWorldProcessState(state.processes);
   if (Object.hasOwn(state, "environment")) validateEnvironmentState(state.environment);
   if (Object.hasOwn(state, "ecology")) validateEcologyState(state.ecology);
@@ -510,6 +525,52 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
     simulationTime: event.simulationTime,
   };
   switch (event.type) {
+    case "boundary.departed":
+    case "boundary.returned":
+      requireEntity(state, event.payload.actorId);
+      return createWorldState(advanced);
+    case "resource.boundary-exchanged": {
+      const payload = event.payload;
+      const entry = state.boundaryExchanges?.find(
+        (value) => value.boundaryId === payload.boundaryId,
+      );
+      const holder = requireEntity(state, payload.objectId);
+      if (
+        entry === undefined ||
+        holder.resource?.kind !== payload.kind ||
+        !Number.isSafeInteger(payload.quantity) ||
+        payload.quantity <= 0 ||
+        (payload.direction !== "import" && payload.direction !== "export") ||
+        event.attribution.effectiveActorId !== payload.actorId
+      )
+        throw new DomainValidationError("event.boundaryId", "invalid boundary exchange");
+      const key = payload.direction === "import" ? "supplyRemaining" : "absorbRemaining";
+      if (entry[key] < payload.quantity)
+        throw new DomainValidationError("event.quantity", "exhausted boundary exchange");
+      const entities = state.entities.map((entity) =>
+        entity.objectId === payload.objectId
+          ? {
+              ...entity,
+              resource: {
+                ...holder.resource!,
+                quantity:
+                  holder.resource!.quantity +
+                  (payload.direction === "import" ? payload.quantity : -payload.quantity),
+              },
+            }
+          : entity,
+      );
+      return createWorldState({
+        ...advanced,
+        boundaryExchanges: state.boundaryExchanges!.map((value) =>
+          value === entry ? { ...value, [key]: value[key] - payload.quantity } : value,
+        ),
+        entities,
+        ...withEcology(
+          settleArrivals(state.ecology, state.entities, entities, event.simulationTime),
+        ),
+      });
+    }
     case "process.command-attempted": {
       const index =
         state.processes?.findIndex((entry) => entry.processId === event.payload.processId) ?? -1;

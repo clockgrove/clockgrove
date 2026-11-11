@@ -9,6 +9,8 @@ import {
   type SimTimeMs,
 } from "@clockgrove/contracts";
 import {
+  type BoundaryExchangePayload,
+  boundaryExchangeDisagreement,
   CONTAINMENT_COMMAND_TYPES,
   CONTAINMENT_PAYLOAD_SCHEMAS,
   type ContainmentCommand,
@@ -3836,6 +3838,20 @@ function runContainmentCommand(
     case "resource.consume":
       emit({ type: "resource.consumed", payload: withoutVersion(payload) });
       break;
+    case "boundary.exchange": {
+      const p = payload as BoundaryExchangePayload;
+      const source = input.pack.pack.policy.boundaryExchanges!.find(
+        (entry) => entry.id === p.boundaryId,
+      )!;
+      const crossing = { boundaryId: p.boundaryId, actorId: p.actorId };
+      emit({ type: "boundary.departed", payload: crossing });
+      emit({
+        type: "resource.boundary-exchanged",
+        payload: { ...(withoutVersion(payload) as object), boundaryName: source.name },
+      });
+      emit({ type: "boundary.returned", payload: crossing });
+      break;
+    }
     case "resource.transfer":
       emit({ type: "resource.transferred", payload: withoutVersion(payload) });
       break;
@@ -4232,6 +4248,151 @@ function withoutVersion(payload: ContainmentPayload): unknown {
   return rest;
 }
 
+function boundaryExchangeRefusal(
+  state: WorldState,
+  policy: WorldBehaviorPolicy,
+  payload: BoundaryExchangePayload,
+  effectiveActorId: string | undefined,
+): string | undefined {
+  if (!CONTAINMENT_PAYLOAD_SCHEMAS["boundary.exchange"].safeParse(payload).success)
+    return "payload";
+  const source = policy.boundaryExchanges?.find((entry) => entry.id === payload.boundaryId);
+  if (source === undefined) return "payload.boundaryId";
+  const actor = state.entities.find((entry) => entry.objectId === payload.actorId);
+  if (
+    actor === undefined ||
+    actor.needs === undefined ||
+    !active(actor) ||
+    actor.containment?.containerId !== undefined ||
+    !source.actorIds.includes(payload.actorId) ||
+    actor.movement?.status === "active"
+  )
+    return "payload.actorId";
+  if (effectiveActorId !== payload.actorId) return "attribution.effectiveActorId";
+  const holder = state.entities.find((entry) => entry.objectId === payload.objectId);
+  if (holder === undefined || !active(holder) || holder.spaceId !== actor.spaceId)
+    return "payload.objectId";
+  let ancestor: WorldEntity | undefined = holder;
+  const seen = new Set<string>();
+  while (
+    ancestor !== undefined &&
+    ancestor.objectId !== actor.objectId &&
+    !seen.has(ancestor.objectId)
+  ) {
+    if (!active(ancestor)) return "payload.objectId";
+    seen.add(ancestor.objectId);
+    ancestor = state.entities.find(
+      (entry) => entry.objectId === ancestor!.containment?.containerId,
+    );
+  }
+  if (ancestor?.objectId !== actor.objectId) return "payload.objectId";
+  if (source.kind !== payload.kind || holder.resource?.kind !== payload.kind) return "payload.kind";
+  const cursor = state.boundaryExchanges?.find((entry) => entry.boundaryId === source.id);
+  const remaining =
+    payload.direction === "import" ? cursor?.supplyRemaining : cursor?.absorbRemaining;
+  if (remaining === undefined || remaining < payload.quantity) return "payload.quantity";
+  if (payload.direction === "export" && holder.resource.quantity < payload.quantity)
+    return "payload.quantity";
+  if (payload.direction === "import") {
+    if (!Number.isSafeInteger(holder.resource.quantity + payload.quantity))
+      return "payload.quantity";
+    if (
+      holder.resource.quantity > 0 &&
+      state.ecology?.perishables.some((entry) => entry.objectId === holder.objectId)
+    )
+      return "payload.objectId";
+  }
+  return undefined;
+}
+
+function boundaryJournalDisagreement(
+  initial: WorldState,
+  final: WorldState,
+  events: readonly WorldSemanticEvent[],
+  commandPayload: unknown,
+): string | undefined {
+  const crossing = (event: WorldSemanticEvent) =>
+    event.type === "boundary.departed" ||
+    event.type === "boundary.returned" ||
+    event.type === "resource.boundary-exchanged";
+  if (
+    initial.boundaryExchanges === undefined &&
+    final.boundaryExchanges === undefined &&
+    !events.some(crossing)
+  )
+    return undefined;
+  if (activePolicy === undefined) {
+    if (events.some(crossing)) return "events";
+    return canonicalSerialize(initial.boundaryExchanges ?? null) ===
+      canonicalSerialize(final.boundaryExchanges ?? null)
+      ? undefined
+      : "state.boundaryExchanges";
+  }
+  const mismatch = boundaryExchangeDisagreement(activePolicy, final);
+  if (mismatch !== undefined) return mismatch;
+  if (
+    (commandPayload as { boundaryId?: string } | null)?.boundaryId !== undefined &&
+    events.length !== 3
+  )
+    return "events";
+  let state = initial;
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index]!;
+    if (event.type === "boundary.departed") {
+      if (event.simulationTime !== state.simulationTime) return `events[${index}].simulationTime`;
+      const exchange = events[index + 1];
+      const returned = events[index + 2];
+      if (
+        exchange?.type !== "resource.boundary-exchanged" ||
+        returned?.type !== "boundary.returned"
+      )
+        return `events[${index}].type`;
+      const payload = { schemaVersion: 1 as const, ...exchange.payload };
+      const source = activePolicy.boundaryExchanges?.find(
+        (entry) => entry.id === payload.boundaryId,
+      );
+      if (source === undefined || source.name !== payload.boundaryName)
+        return `events[${index + 1}].payload.boundaryId`;
+      const { boundaryName: _boundaryName, ...ordinaryPayload } = payload;
+      const problem = boundaryExchangeRefusal(
+        state,
+        activePolicy,
+        ordinaryPayload,
+        exchange.attribution.effectiveActorId,
+      );
+      if (problem !== undefined) return `events[${index + 1}].${problem}`;
+      for (const companion of [event, returned]) {
+        if (
+          canonicalSerialize(companion.payload) !==
+            canonicalSerialize({ actorId: payload.actorId, boundaryId: payload.boundaryId }) ||
+          companion.simulationTime !== exchange.simulationTime ||
+          canonicalSerialize(companion.attribution) !== canonicalSerialize(exchange.attribution)
+        )
+          return `events[${index}].payload`;
+      }
+      const { boundaryName: _name, ...ordinary } = payload;
+      if (
+        (commandPayload as { boundaryId?: string } | null)?.boundaryId !== undefined &&
+        canonicalSerialize(commandPayload) !== canonicalSerialize(ordinary)
+      )
+        return `events[${index + 1}].payload`;
+    } else if (event.type === "resource.boundary-exchanged") {
+      if (events[index - 1]?.type !== "boundary.departed") return `events[${index}].type`;
+    } else if (event.type === "boundary.returned") {
+      if (events[index - 1]?.type !== "resource.boundary-exchanged") return `events[${index}].type`;
+    }
+    try {
+      state = reduceWorldEvent(state, event);
+    } catch {
+      return `events[${index}].payload`;
+    }
+  }
+  return canonicalSerialize(state.boundaryExchanges ?? null) ===
+    canonicalSerialize(final.boundaryExchanges ?? null)
+    ? undefined
+    : "state.boundaryExchanges";
+}
+
 function registerContainmentChecks(
   preconditions: CheckRegistry<WorldPrecondition>,
   invariants: CheckRegistry<WorldInvariantSubject>,
@@ -4239,6 +4400,7 @@ function registerContainmentChecks(
   const registerPre = (name: string, check: (context: WorldPrecondition) => string | undefined) =>
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
   const authority: Record<ContainmentCommandType, readonly string[]> = {
+    "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
     "object.create": ["object.created"],
     // Retiring a shelter integrates and evicts whatever is in it first.
     "object.retire": [
@@ -4316,6 +4478,27 @@ function registerContainmentChecks(
   );
   const results = [
     ...authorityChecks,
+    preconditions.register({
+      name: "boundary.state-matches-policy",
+      version: 1,
+      check: ({ state, input }) => boundaryExchangeDisagreement(input.pack.pack.policy, state),
+    }),
+    registerPre("boundary.exchange", ({ state, payload, input, command }) =>
+      command.type === "boundary.exchange"
+        ? boundaryExchangeRefusal(
+            state,
+            input.pack.pack.policy,
+            payload as BoundaryExchangePayload,
+            input.attribution.effectiveActorId,
+          )
+        : undefined,
+    ),
+    invariants.register({
+      name: "boundary.journaled-exchange",
+      version: 1,
+      check: ({ initial, state, events, payload }) =>
+        boundaryJournalDisagreement(initial, state, events, payload),
+    }),
     invariants.register({
       name: "resource.closed-world",
       version: 1,
@@ -4615,6 +4798,13 @@ function registerContainmentChecks(
                 changeHolder(event.payload.objectId, "food", quantity);
               }
               break;
+            case "resource.boundary-exchanged": {
+              const delta =
+                BigInt(event.payload.quantity) * (event.payload.direction === "import" ? 1n : -1n);
+              changes[event.payload.kind]! += delta;
+              changeHolder(event.payload.objectId, event.payload.kind, delta);
+              break;
+            }
             case "resource.transferred":
               changeHolder(
                 event.payload.fromObjectId,

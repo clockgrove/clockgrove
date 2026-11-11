@@ -5,6 +5,7 @@ import {
 } from "@clockgrove/contracts";
 import {
   type ArchetypeDefinition,
+  boundaryExchangeDisagreement,
   compareUtf16,
   createDefinitionRegistry,
   createInitialComponentRegistry,
@@ -16,6 +17,7 @@ import {
   EnvironmentValidationError,
   ecologyDisagreement,
   environmentDisagreement,
+  initialBoundaryExchanges,
   initialWorldProcesses,
   lifecycleDisagreement,
   type NamedRandomState,
@@ -386,6 +388,8 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
   if (policy === null) return state;
   const epoch = state.simulationTime;
   const extras: Record<string, unknown> = {};
+  if (policy.boundaryExchanges !== undefined)
+    extras.boundaryExchanges = initialBoundaryExchanges(policy.boundaryExchanges);
   if (policy.processes !== undefined)
     extras.processes = initialWorldProcesses(policy.processes, epoch);
   const actors = state.entities.filter((entity) => entity.needs !== undefined);
@@ -502,6 +506,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
     environmentDisagreement(policy, next) ??
     ecologyDisagreement(policy, next) ??
     worldProcessDisagreement(policy, next) ??
+    boundaryExchangeDisagreement(policy, next) ??
     wellbeingDisagreement(policy, next) ??
     lifecycleDisagreement(policy, next);
   if (disagreement !== undefined)

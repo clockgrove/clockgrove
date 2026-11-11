@@ -426,6 +426,18 @@ function publicResourceCauses(view: CausalCommandView): readonly PublicResourceC
       kind = payload.kind as PublicResourceCause["kind"];
       quantity = payload.quantity;
       objectId = payload.toObjectId;
+    } else if (event.type === "resource.boundary-exchanged") {
+      cause = "boundary-exchange";
+      kind = payload.kind as PublicResourceCause["kind"];
+      quantity = payload.quantity;
+      objectId = payload.objectId;
+      if (
+        typeof payload.boundaryId !== "string" ||
+        typeof payload.boundaryName !== "string" ||
+        typeof payload.actorId !== "string" ||
+        (payload.direction !== "import" && payload.direction !== "export")
+      )
+        throw new InspectionIntegrityError(view.receipt.commandId, "events");
     } else return [];
     if (quantity === 0 || quantity === undefined) return [];
     if (
@@ -460,6 +472,14 @@ function publicResourceCauses(view: CausalCommandView): readonly PublicResourceC
           ? { fromObjectId: decodeOpaqueId(payload.fromObjectId, "ObjectId") }
           : {}),
         ...(process === undefined ? {} : { processId: process }),
+        ...(cause === "boundary-exchange"
+          ? {
+              boundaryId: payload.boundaryId as string,
+              boundaryName: payload.boundaryName as string,
+              actorId: decodeOpaqueId(payload.actorId, "ObjectId"),
+              direction: payload.direction as "import" | "export",
+            }
+          : {}),
       },
     ];
   });

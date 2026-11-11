@@ -45,7 +45,10 @@ acting through ordinary validated commands. Genesis quantities are declared init
 The ecology contract has no scheduled sources: legacy declarations are refused at pack validation,
 and unbacked runtime offers or positive-inventory object creation cannot mint material. Finite
 plant-stage yield, rain collection/evaporation and actor/process transfers carry journaled causes;
-durable runtime wakes include process deadlines, including actorless worlds.
+durable runtime wakes include process deadlines, including actorless worlds. Issue 188 adds
+optional finite boundary declarations: an attributed actor can make an atomic ordinary command
+trip to a named off-map source or sink, with journaled departure, import/export and return.
+Boundary quotas never refill silently; undeclared worlds retain their existing physical behavior.
 The [kernel ecology contract](../packages/kernel/docs/ecology.md) and
 [world-pack authoring contract](../packages/world-pack-sdk/docs/collections.md#closed-world-authoring)
 describe the implemented restriction. Fixture physical outputs use reviewed scenario goldens;

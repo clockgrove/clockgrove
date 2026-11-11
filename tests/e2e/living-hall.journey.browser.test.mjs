@@ -1572,6 +1572,34 @@ const observeHall = async (backend) => {
             `1 water at fixture.household-water: transferred from fixture.water-bowl; simulation time ${recorded[0].simulationTime}; event ${recorded[0].eventId}`,
           ]);
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
+        // UI-only stand-in: PostgreSQL/HTTP outside-meal proof lives in resource-why.journey.postgres.test.ts.
+        await page.route("**/v1/runtime/why", async (route) => {
+          const response = await route.fetch();
+          const value = await response.json();
+          value.resourceCauses = [
+            {
+              eventId: "ui-boundary-event",
+              simulationTime: "100002",
+              cause: "boundary-exchange",
+              kind: "food",
+              quantity: 1,
+              objectId: "fixture.keeper",
+              boundaryId: "neighbour-bins",
+              boundaryName: "Neighbour bins",
+              actorId: "fixture.keeper",
+              direction: "import",
+            },
+          ];
+          await route.fulfill({ response, json: value });
+        });
+        await actionRows.first().getByRole("button").click();
+        await expect
+          .poll(() => resourceWhy.getByRole("listitem").allTextContents())
+          .toEqual([
+            "1 food at fixture.keeper: imported from outside the world at Neighbour bins (neighbour-bins) by fixture.keeper; simulation time 100002; event ui-boundary-event",
+          ]);
+        await page.getByRole("button", { name: "Close Why", exact: true }).click();
+        await page.unroute("**/v1/runtime/why");
         // Each action now has a Why button before the earlier-history control in tab order.
         await actionRows.last().getByRole("button").focus();
         await page.keyboard.press("Tab");

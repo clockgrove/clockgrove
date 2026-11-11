@@ -93,7 +93,9 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
                         ? "collected from rain"
                         : cause.cause === "growth"
                           ? "yielded by this plant"
-                          : `transferred from ${cause.fromObjectId}`}
+                          : cause.cause === "boundary-exchange"
+                            ? `${cause.direction === "import" ? "imported from outside the world at" : "exported outside the world to"} ${cause.boundaryName} (${cause.boundaryId}) by ${cause.actorId}`
+                            : `transferred from ${cause.fromObjectId}`}
                       {cause.processId === undefined ? "" : ` by process ${cause.processId}`}
                       {`; simulation time ${cause.simulationTime}; event ${cause.eventId}`}
                     </li>

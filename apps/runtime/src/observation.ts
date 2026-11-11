@@ -127,6 +127,7 @@ const MATERIAL_EVENTS: ReadonlyMap<string, readonly [WorldFeedCategory, string]>
   ["resource.offered", ["resource", "A resource was offered."]],
   ["resource.consumed", ["resource", "A resource was consumed."]],
   ["resource.transferred", ["resource", "A resource changed hands."]],
+  ["resource.boundary-exchanged", ["resource", "A resource crossed the world boundary."]],
   ["resource.spoiled", ["resource", "Food spoiled."]],
   ["resource.weather-integrated", ["resource", "Weather changed a water holder."]],
 ]);
@@ -245,6 +246,13 @@ function feedSentence(
           Kind === undefined
           ? undefined
           : `${Kind} moved from ${named("fromObjectId")} to ${named("toObjectId")}.`;
+      case "resource.boundary-exchanged":
+        return who === undefined ||
+          named("actorId") === undefined ||
+          str("boundaryName") === undefined ||
+          Kind === undefined
+          ? undefined
+          : `${named("actorId")} ${str("direction") === "import" ? "imported" : "exported"} ${String(field("quantity"))} ${kind} ${str("direction") === "import" ? "from" : "to"} outside the world at ${str("boundaryName")} ${str("direction") === "import" ? "into" : "from"} ${who}.`;
       case "resource.spoiled":
         return who === undefined ? undefined : `Food at ${who} spoiled.`;
       default:
@@ -465,6 +473,7 @@ const SCENE_BACKFILL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "resource.offered",
   "resource.consumed",
   "resource.transferred",
+  "resource.boundary-exchanged",
   "resource.spoiled",
   "resource.weather-integrated",
 ]);
@@ -735,6 +744,7 @@ export class PostgreSqlEntitySelectionReader {
         return [];
       const touches =
         ("objectId" in payload && payload.objectId === input.objectId) ||
+        ("actorId" in payload && payload.actorId === input.objectId) ||
         ("fromObjectId" in payload && payload.fromObjectId === input.objectId) ||
         ("toObjectId" in payload && payload.toObjectId === input.objectId) ||
         ("containerId" in payload && payload.containerId === input.objectId) ||

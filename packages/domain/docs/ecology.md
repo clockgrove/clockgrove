@@ -85,7 +85,8 @@ canonical state rather than adding process commands to the actor schedule queue.
 
 Genesis quantities are declared initial inventory. Every later increase in a food or water holder
 requires a journaled rain collection, finite plant-stage yield, or ordinary transfer debiting an
-existing holder. Actors and processes use the same transfer validation; no declared principal
+existing holder, or an explicitly declared finite boundary exchange. Actors and processes use the
+same transfer validation; no declared principal
 can bypass finite availability, destination bounds or perishable batch checks. Spoilage,
 evaporation, consumption and explicit discard remain journaled removals.
 
@@ -93,6 +94,30 @@ The ecology policy has no `sources` field. A legacy source declaration is refuse
 validation, including an empty list; it is not silently ignored. Runtime `resource.offer` and
 `object.create` with a positive resource quantity cannot create material. Rule declarations cannot
 introduce those unbacked causes either. Create an empty holder and transfer existing inventory,
-or declare weather collection or plant yield. The journal's transfer source, growth plant/stage
-and weather holder identify the physical cause; command attribution identifies the actor or
+or declare weather collection, plant yield or finite boundary exchanges. The journal's transfer
+source, growth plant/stage, weather holder and boundary source identify the physical cause; command attribution identifies the actor or
 declared process. Historical event reduction does not grant new execution authority.
+
+## Declared boundary exchanges
+
+Optional `policy.boundaryExchanges` names off-map sources and sinks. Each entry is
+`{id, name, kind, supply, absorb, actorIds}`: `kind` is food or water; `supply` and `absorb`
+are explicit nonnegative safe-integer lifetime quotas. Neither is unlimited, and exporting does
+not replenish supply. The list and each nonempty unique actor list have the existing ecology
+bound of 64; ids and names share the 512-character command text bound. Worlds that declare
+none remain tight closed worlds.
+
+Matching optional `state.boundaryExchanges` entries preserve declaration order and hold
+`{boundaryId, supplyRemaining, absorbRemaining}`. Genesis initializes them from declared quotas;
+replay debits the appropriate balance with each `resource.boundary-exchanged@1` event. Omitted
+sections retain existing encodings; an explicit empty declaration has an explicit empty state.
+
+`boundary.exchange` is an ordinary actor command for an atomic trip: it journals
+`boundary.departed`, `resource.boundary-exchanged`, then `boundary.returned` at the same simulation
+instant. It models leaving, acquiring or disposing of material, and returning to the starting
+location; it does not model an elapsed travel duration or a persistent off-map actor. The exchange
+records source id and name, crossing actor, carried holder, kind, direction and quantity. Imports
+credit that existing holder and debit supply; exports debit the holder and absorption quota.
+The actor must be eligible, active, and the command's effective actor; the holder must be its own
+resource or carried through containment. Ordinary headroom and perishable-batch rules still apply.
+No arrival, timer or boundary declaration silently creates inventory.

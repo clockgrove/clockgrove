@@ -311,9 +311,14 @@ The Why panel requests `includeResourceCauses: true` to receive optional
 on that command. Requests without the flag retain their previous response shape, and older
 envelopes without the field remain valid. The flag accepts only `true` when present.
 Each entry records `eventId`, `simulationTime` (decimal text), `cause` (`rain`, `growth`,
-`transfer`), resource `kind`, positive integer `quantity` and receiving `objectId`. Transfers also
+`transfer`, `boundary-exchange`), resource `kind`, positive integer `quantity` and resource-holder `objectId`. Transfers also
 name `fromObjectId`. A successful immediately preceding declared process attempt may add its
 public `processId` when its command identity matches the transfer's recorded immediate cause.
+Boundary entries additionally carry `boundaryId`, `boundaryName`, `actorId` and `direction`
+(`import` or `export`), so Why names the outside source, crossing actor and recorded instant.
+These fields are required only for boundary entries; historic envelopes remain valid. A meal's
+outside origin is available through the retained boundary import event in its holder's history.
+Why retains command/event scope; it does not infer lineage across later consuming commands.
 No principal, authority decision, private context or new linked command is exposed.
 
 Rain entries record collected water, growth entries record the finite plant yield, and transfers

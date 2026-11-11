@@ -40,7 +40,13 @@ export interface BirthSeedRef {
   readonly sha256: string;
 }
 
-export type BirthSectionName = "environment" | "ecology" | "wellbeing" | "lifecycle" | "processes";
+export type BirthSectionName =
+  | "environment"
+  | "ecology"
+  | "wellbeing"
+  | "lifecycle"
+  | "processes"
+  | "boundaryExchanges";
 export type BirthElementKind = "frame" | "region" | "anchor-graph" | "entity";
 
 export interface BirthSectionRow {
@@ -119,6 +125,7 @@ const STATE_KEYS: ReadonlySet<string> = new Set([
   "environment",
   "ecology",
   "processes",
+  "boundaryExchanges",
   "wellbeing",
   "lifecycle",
   "scriptedCognition",
@@ -134,6 +141,7 @@ const SECTIONS: readonly BirthSectionName[] = [
   "wellbeing",
   "lifecycle",
   "processes",
+  "boundaryExchanges",
 ];
 
 function refuse(code: string, path: string, message: string): never {
