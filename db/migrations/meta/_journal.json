@@ -358,6 +358,13 @@
       "when": 1795557600000,
       "tag": "0051_governed_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1795644000000,
+      "tag": "0052_activation_delivery",
+      "breakpoints": true
     }
   ]
 }

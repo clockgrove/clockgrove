@@ -10,6 +10,11 @@ export type ActivationReason =
   | { readonly kind: "tool_completed"; readonly effectId: string }
   | { readonly kind: "operator"; readonly commandId: string };
 
+export interface ActivationDeliveryIntent {
+  readonly urgency: "normal" | "urgent";
+  readonly quietHoursBehavior: "delay" | "silent" | "reject";
+}
+
 export interface ActivationConfiguration {
   readonly id: string;
   readonly sessionId: string;
@@ -21,6 +26,7 @@ export interface ActivationConfiguration {
   readonly priority: number;
   readonly enabled: boolean;
   readonly compiledRoutine: "noop" | "escalate";
+  readonly delivery?: ActivationDeliveryIntent;
 }
 
 export interface ActivationPolicy {
@@ -41,6 +47,7 @@ export interface ActorActivation {
   readonly status: "pending" | "completed" | "noop" | "deferred";
   readonly outcome: string;
   readonly principalId: string;
+  readonly delivery?: ActivationDeliveryIntent;
 }
 
 export interface ActivationInspection {

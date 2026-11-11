@@ -1680,7 +1680,7 @@ node scripts/runtime-chat.mjs read --url https://runtime.example.test \
 
 Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
 
-New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. It exposes no operator HTTP or CLI command yet; the proactive actor producer and delayed-request scheduling remain Part 4. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
+New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. It exposes no operator HTTP or CLI command yet; Part 4 connects explicitly configured proactive actor wakes internally, while automatic delayed-request scheduling and the final cross-adapter completion proof remain Part 5. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
 
 ## MCP part 5 internal composition
 
@@ -1702,3 +1702,27 @@ provider owner, capabilities screen or remote actor grant has been activated. Th
 must deliver those operations, verified hosted egress, revision-hook invalidation and the full
 PostgreSQL/runtime/browser/canary journey before the operator install/review/revoke procedure
 can be described as available.
+
+
+## Proactive delivery configuration
+
+The existing authenticated activation configure route accepts optional
+`configuration.delivery: {"urgency":"normal","quietHoursBehavior":"delay"}`.
+It asks the compiled producer to request private delivery of that activation’s
+committed actor reply. Omitting the field preserves ordinary activation behavior.
+The source session must belong to the authenticated participant and canonical actor.
+Coalesced wakes share the admitted leader’s immutable delivery intent.
+
+Recipient-owned consent is configured through the internal
+`PostgreSqlGovernedDelivery.configureConsent` API; there is no public consent HTTP
+or CLI command in this part. It defaults off, per actor and world timeline, and
+contains recipient timezone, quiet hours and lifetime message-unit capacity.
+A wake never grants consent. The native
+`apps/runtime/test/proactive-delivery.journey.postgres.test.ts` journey demonstrates
+the configured producer through the real actor owner and PostgreSQL.
+
+Delivery is recorded before activation settlement. Retrying uses the historical
+receipt and stable activation key, without another reservation or sink write.
+A delayed receipt remains pending until explicit internal `resume`; automatic
+resumption and the complete browser/CLI/fake completion proof remain Part 5 of
+issue 168. No external messaging provider is configured.

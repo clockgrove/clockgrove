@@ -184,6 +184,7 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     "priority",
     "enabled",
     "compiledRoutine",
+    "delivery",
   ]);
   const compiledRoutine = config.compiledRoutine;
   if (compiledRoutine !== "noop" && compiledRoutine !== "escalate") invalid("compiledRoutine");
@@ -192,6 +193,19 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     (typeof config.intervalMs !== "number" || config.intervalMs < 60_000)
   )
     invalid("intervalMs");
+  let delivery: ActivationConfiguration["delivery"];
+  if (config.delivery !== undefined) {
+    const d = object(config.delivery, "delivery");
+    keys(d, ["urgency", "quietHoursBehavior"]);
+    if (
+      (d.urgency !== "normal" && d.urgency !== "urgent") ||
+      (d.quietHoursBehavior !== "delay" &&
+        d.quietHoursBehavior !== "silent" &&
+        d.quietHoursBehavior !== "reject")
+    )
+      invalid("delivery");
+    delivery = { urgency: d.urgency, quietHoursBehavior: d.quietHoursBehavior };
+  }
   const configuration: ActivationConfiguration = {
     id: text(config.id, "id", 128),
     sessionId: text(config.sessionId, "sessionId"),
@@ -211,6 +225,7 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     priority: integer(config.priority, "priority", 100),
     enabled: boolean(config.enabled, "enabled"),
     compiledRoutine,
+    ...(delivery === undefined ? {} : { delivery }),
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");
   const policyValue = object(body.policy, "policy");
