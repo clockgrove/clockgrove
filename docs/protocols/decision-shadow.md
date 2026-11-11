@@ -96,7 +96,12 @@ cognition. Message text is untrusted evidence to classify, never an instruction 
 Tool-result screening waits for MCP execution and is outside this point.
 
 The judgement combines a moderation disposition (`allow`, `flag` or `block`) and a prompt-injection
-classification. `cant_tell` is an explicit abstention, counted separately from a disposition below
+classification. `allow` is a benign message. `flag` delivers the message and marks it for review:
+rude, insulting or borderline content that is not a threat, and any prompt-injection attempt
+without abusive or threatening content. `block` is reserved for threats, harassment, or content that
+must not reach the actor, including an injection attempt that also carries abusive or threatening
+content. Actors already treat inbound messages as untrusted data, so an injection attempt alone is
+flagged rather than blocked. `cant_tell` is an explicit abstention, counted separately from a disposition below
 the configured confidence threshold or one with absent confidence. Every result is marked as
 shadow evidence. A `block` does not hide the message, cancel its turn, remove context or lock the
 session. Turning the point off, removing its credential or making the model unavailable preserves
@@ -113,8 +118,9 @@ Retries and replay consume stored evidence rather than asking the model again. S
 no physical projection delta and grants the model no world authority.
 
 Reports give labelled accuracy and cohorts per policy/alias/model, separately from pairwise agreement between models. The six-case reference set is
-written in code and independent of a world: two benign messages, one borderline message, one
-abusive message and two injection attempts. An input hash matches a record to its reference
+written in code and independent of a world: two benign messages (`allow_clean`), one non-threatening
+insult (`flag_clean`), one threat (`block_clean`) and two injection attempts without abuse
+(`flag_injection`). An input hash matches a record to its reference
 label, without retaining private message text in the report.
 Expected labels are report-side evidence and never enter the judge's request. Each observation
 retains its disposition, injection judgement, confidence, latency and nullable measured cost.
@@ -125,8 +131,11 @@ on matching message hashes and is null without comparable answers.
 Abstentions, low-confidence answers, failures and skipped/unjudged messages remain counted apart,
 with coverage and cohorts so a report cannot silently exclude difficult cases.
 
-Miss examples include a `block` or injection flag on a labelled benign message and an `allow` on a
-labelled abusive or injection message. Repeated miss signatures (at least two occurrences, the
+A miss crosses the block line or the injection marker against the reference label. A false positive
+blocks a message the reference delivers (benign, insult or injection without abuse) or marks an
+injection on a message without one. A false negative leaves a labelled threat unblocked or misses a
+labelled injection attempt. Flagging a benign message, or a disposition that differs only between
+`allow` and `flag`, is inaccurate but not a miss. Repeated miss signatures (at least two occurrences, the
 existing shadow-report convention) are listed for human review rather than disappearing in an
 aggregate rate. The [runtime report procedure](../runbooks/runtime.md#moderation-shadow-report)
 describes configuration and measurement. Scripted-decider results prove the path and report
