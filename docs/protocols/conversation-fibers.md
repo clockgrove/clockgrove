@@ -116,7 +116,7 @@ whose accepted message started the turn.
 one `receipt` or `refused` frame. Deltas are presentation only. They are never stored, and a client
 must not treat them as the reply. An owner that fails mid-turn ends the stream without a final
 frame, or answers `503 turn_interrupted`. The turn is durable, so the client resends the same
-message ID, or reads its status.
+message ID, or reads its status. Completion clears only that message’s pending tab state, so an older recovered request cannot discard a newer saved message in the same session.
 
 `/v1/runtime/turns/status` (`sessionId`, `messageId`) answers the durable `TurnStatus`: `phase`,
 `attempt` and `outcomeCode`. A reconnecting browser reads the status, then the transcript, instead

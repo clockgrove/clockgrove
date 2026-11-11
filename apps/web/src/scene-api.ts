@@ -123,9 +123,11 @@ function rememberPendingTurn(sessionId: string, turn: PendingTurn): void {
     // Storage is a convenience for reconnecting; the durable turn does not depend on it.
   }
 }
-function forgetPendingTurn(sessionId: string): void {
+function forgetPendingTurn(sessionId: string, messageId: string): void {
   try {
-    sessionStorage.removeItem(pendingKey(sessionId));
+    // A completed request can settle after this tab has already saved its next message.
+    if (readPendingTurn(sessionId)?.messageId === messageId)
+      sessionStorage.removeItem(pendingKey(sessionId));
   } catch {
     // See rememberPendingTurn.
   }
@@ -737,11 +739,11 @@ export class SceneSession {
       return "refused" in result ? result : { reloaded: true };
     }
     if (status.phase === "completed") {
-      forgetPendingTurn(sessionId);
+      forgetPendingTurn(sessionId, pending.messageId);
       return { reloaded: true };
     }
     if (TERMINAL_TURN_PHASES.includes(status.phase)) {
-      forgetPendingTurn(sessionId);
+      forgetPendingTurn(sessionId, pending.messageId);
       return {
         refused: `Reply ${status.phase}${status.outcomeCode ? `: ${status.outcomeCode}` : ""}`,
       };
@@ -776,7 +778,7 @@ export class SceneSession {
       });
       hooks.onProvisional?.("");
       if (outcome.kind !== "interrupted") {
-        forgetPendingTurn(turn.sessionId);
+        forgetPendingTurn(turn.sessionId, turn.messageId);
         measure("interaction_outcome", outcomeOf(outcome.status, outcome.kind === "receipt"));
         if (outcome.kind === "refused") return { refused: outcome.error };
         return resumed ? { reloaded: true } : outcome.receipt;
@@ -786,11 +788,11 @@ export class SceneSession {
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
         if (status.phase === "completed") {
-          forgetPendingTurn(turn.sessionId);
+          forgetPendingTurn(turn.sessionId, turn.messageId);
           return { reloaded: true };
         }
         if (TERMINAL_TURN_PHASES.includes(status.phase)) {
-          forgetPendingTurn(turn.sessionId);
+          forgetPendingTurn(turn.sessionId, turn.messageId);
           return { refused: status.outcomeCode ?? status.phase };
         }
       }
