@@ -28,7 +28,10 @@ const requiredTools = [
   "pg_restore",
 ];
 const supportedPostgresVersion = "18.6";
-const supportedPgvectorVersions = new Set(["0.8.7"]);
+// 0.8.7 is the version local and CI build (scripts/ci/toolchain.sh). Neon's PostgreSQL 18 ships
+// 0.8.6 (https://neon.com/docs/extensions/pg-extensions, 2026-11-04). 0.8.7 only fixes an IVFFlat
+// index-build overflow and the vector avg aggregate over no rows, and Clockgrove uses neither.
+const supportedPgvectorVersions = new Set(["0.8.6", "0.8.7"]);
 
 // PGDG's Debian/Ubuntu packages install the server tools here, off PATH, behind /usr/bin wrappers.
 const debianPostgresBindir = "/usr/lib/postgresql/18/bin";

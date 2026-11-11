@@ -14,7 +14,9 @@ import {
 export async function testDisposableDatabaseLifecycle() {
   for (const source of ["available pgvector extension", "installed pgvector extension"]) {
     assertSupportedPgvectorVersion("0.8.7", source);
-    for (const version of ["0.8.1", "0.8.6", "0.8.8", ""]) {
+    // Hosted Neon PostgreSQL 18 ships 0.8.6 (see lib.mjs).
+    assertSupportedPgvectorVersion("0.8.6", source);
+    for (const version of ["0.8.1", "0.8.5", "0.8.8", ""]) {
       assertStrict.throws(() => assertSupportedPgvectorVersion(version, source), /0\.8\.7/u);
     }
   }

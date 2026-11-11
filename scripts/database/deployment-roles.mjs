@@ -28,8 +28,9 @@ export async function deploymentRolesInput(passwords) {
   return `${lines.join("\n")}\n${sql}`;
 }
 
-// Why the role SQL failed, for release logs. The checks' own messages come first, reduced to
-// role-name characters. Without one, PostgreSQL's or psql's own first error lines are kept: their
+// Why the role SQL or the migrations failed, for release logs. The checks' own messages come first,
+// reduced to role-name characters. Without one, PostgreSQL's, psql's or the script's own first
+// error lines are kept: their
 // text names roles, objects and SQLSTATE causes, never a password (passwords reach the server only
 // as bound parameters), and any token long enough to be one is redacted anyway.
 export function roleCheckFailures(stderr) {
@@ -38,12 +39,16 @@ export function roleCheckFailures(stderr) {
     .map(([, said]) => said.replace(/[^A-Za-z0-9_, ()]/gu, "").slice(0, 200))
     .join("; ");
   if (named) return named;
-  return [...text.matchAll(/(?:ERROR|FATAL): +([^\n]*)|psql(?::[^:\n]*:\d+)?: error: ([^\n]*)/gu)]
+  return [
+    ...text.matchAll(
+      /(?:ERROR|FATAL): +([^\n]*)|psql(?::[^:\n]*:\d+)?: error: ([^\n]*)|(?:^|\n)Error: ([^\n]*)/gu,
+    ),
+  ]
     .slice(0, 2)
-    .map(([, server, client]) =>
-      (server ?? client)
+    .map(([, server, client, script]) =>
+      (server ?? client ?? script)
         .replace(/[A-Za-z0-9_+/=.-]{24,}/gu, "<redacted>")
-        .replace(/[^A-Za-z0-9_ ,.:()"'<>=-]/gu, "")
+        .replace(/[^A-Za-z0-9_ ,.:;()"'<>=-]/gu, "")
         .slice(0, 200),
     )
     .join("; ");

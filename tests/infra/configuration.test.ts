@@ -334,6 +334,12 @@ describe("restricted database roles", () => {
     expect(roleCheckFailures("psql:<stdin>:7: error: \\bind: missing parameter\n")).toContain(
       "bind",
     );
+    // The migration script's own thrown errors are named too.
+    expect(
+      roleCheckFailures(
+        "node:internal/process 12\nError: available pgvector extension must be exactly one of 0.8.6, 0.8.7; found 0.8.5\n    at assertSupportedPgvectorVersion (lib.mjs:458:11)\n",
+      ),
+    ).toBe("available pgvector extension must be exactly one of 0.8.6, 0.8.7; found 0.8.5");
   });
 
   it("waits a bounded time for Neon's operations, retries one 5xx, and names what failed or never finished", async () => {
