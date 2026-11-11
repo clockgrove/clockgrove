@@ -15,14 +15,21 @@ UTF-8 JSON, an engineering bound chosen for metadata reads. Successful responses
 their application representation; failures return only fixed adapter codes and status.
 There is no retained credential, actor memory, conversation or connection session.
 
+`WORLD_MCP_READ_TOOLS` is the internal read-adapter allowlist, not an external MCP
+tool registration. The native PostgreSQL proof exercises that adapter through runtime
+HTTP; it does not prove an MCP handler or client connection. Part 1 leaves the full
+Objective acceptance open.
+
 This is an internal foundation, not a connectable MCP endpoint. Later parts of issue
 167 provide the current Agents stateless handler and real MCP-client proof, OAuth
 authorization and web-issued member API tokens with immediate revocation, principal
-rate/cost admission, full world/timeline discovery, attributed ordinary command and
-operator tools, and explicit Wave 7 changeset refusals. Both authentication modes and
-existing operator grants remain required. Talk stays on the channel-neutral session
-path. No client connection procedure is available until that transport and credential
-composition ships.
+rate/cost admission and MCP-surface database attack coverage, full world/timeline
+discovery, attributed ordinary command and operator tools, and explicit Wave 7
+changeset refusals. Both authentication modes and existing operator grants remain
+required. Talk stays on the channel-neutral session path. No client connection procedure
+is available until that transport and credential composition ships; that delivery must
+document the endpoint, authentication setup and a working client connection procedure
+in the runtime runbook.
 
 ## Remote MCP installation
 
