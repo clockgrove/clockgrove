@@ -12,6 +12,7 @@ import {
 const FILE = "apps/runtime/test/world-mcp-reads.postgres.test.ts";
 const MEMBER = "local-reader-session";
 const OUTSIDER = "outsider-session-token";
+const privateCanary = ["private", "read", "canary"].join("-");
 
 it.skipIf(isNativeWorldOwnerChild())(
   "owns the first-party read adapter PostgreSQL and native runtime proof",
@@ -111,7 +112,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             ...scope,
             sessionId: session,
             messageId: "mcp-read-fixture",
-            text: "private-read-canary",
+            text: privateCanary,
           })
         ).body,
       );
@@ -135,7 +136,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           item.prompt?.text,
         ]),
       ).toEqual([[runId, "principal-runtime", "persona-runtime", "completed", runId, null]]);
-      expect(JSON.stringify(run)).not.toContain("private-read-canary");
+      expect(JSON.stringify(run)).not.toContain(privateCanary);
       expect(await read("run_receipt", { ...scope, runId }, OUTSIDER)).toEqual(refused);
       expect(await read("command_receipt", { ...command, worldId: "other-world" })).toEqual(
         refused,
@@ -170,7 +171,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         await readWorldMcpTool(
           {
             fetch: async () => {
-              throw new Error("private-read-canary");
+              throw new Error(privateCanary);
             },
           },
           { name: "world_directory", arguments: { version: 1 } },
@@ -187,7 +188,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             fetch: async () =>
               Response.json(
                 {
-                  secret: "private-read-canary",
+                  secret: privateCanary,
                 },
                 { status: 429 },
               ),
