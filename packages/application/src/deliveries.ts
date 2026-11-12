@@ -90,6 +90,9 @@ export function evaluateDeliveryPolicy(
     effectiveUrgency: DeliveryDecision["effectiveUrgency"] = request.urgency,
   ): DeliveryDecision => ({ status, reason, effectiveUrgency });
   if (request.policyVersion !== "delivery-policy-v1") return decision("rejected", "policy_changed");
+  // A solicited reply spends the committed Talk turn's one-response allowance.
+  // Persistence verifies that provenance before this policy can approve it.
+  if (request.reason.kind === "response") return decision("approved", "allowed");
   if (!consent?.enabled) return decision("rejected", "consent_required");
   if (request.consentVersion !== consent.version) return decision("rejected", "consent_changed");
   const quiet = consent.quietHours;

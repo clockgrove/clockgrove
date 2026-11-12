@@ -1,9 +1,12 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
+import { FakeConversationAdapter } from "../../apps/runtime/src/channel-adapters.ts";
 import { PostgreSqlCausalInspector } from "../../apps/runtime/src/inspector.ts";
 import {
   PostgreSqlEntitySelectionReader,
@@ -3001,6 +3004,133 @@ const observeHall = async (backend) => {
         });
         expect(await history.getByText("hello before acceptance", { exact: true }).count()).toBe(1);
         expect(await history.getByRole("listitem").count()).toBe(4);
+        // The production browser, developer subprocess and fake HTTP adapter share one actor.
+        const cli = async (operation, fields) => {
+          const { stdout } = await promisify(execFile)(
+            process.execPath,
+            [
+              path.join(root, "scripts/runtime-chat.mjs"),
+              operation,
+              "--url",
+              await native.origin(),
+              ...Object.entries({
+                tenant: auth.scope.tenantId,
+                world: auth.scope.worldId,
+                timeline: auth.scope.timelineId,
+                space: auth.scope.spaceId,
+                ...fields,
+              }).flatMap(([name, value]) => [`--${name}`, value]),
+            ],
+            {
+              env: { ...process.env, CLOCKGROVE_SESSION_TOKEN: "hall-inspect" },
+              // CLI allows two minutes per request, plus 30 seconds for process cleanup.
+              timeout: 150_000,
+            },
+          );
+          return JSON.parse(stdout);
+        };
+        const post = (route, fields, credential = "hall-inspect") =>
+          native.request(route, { version: 1, ...auth.scope, ...fields }, credential);
+        const fake = new FakeConversationAdapter(async (route, fields) => {
+          const result = await post(route, fields);
+          expect(result.status).toBe(200);
+          return result.body;
+        }, auth.scope);
+        const cliSession = await cli("create", {
+          actor: "fixture.keeper",
+          thread: "cross-adapter",
+        });
+        const fakeSession = await fake.create("fixture.keeper", "cross-adapter");
+        const browserTranscript = (
+          await post("/v1/runtime/conversations/read", { sessionId: pendingSession })
+        ).body;
+        expect(
+          [browserTranscript.session, cliSession, fakeSession].map(({ actorId, channel }) => [
+            actorId,
+            channel,
+          ]),
+        ).toEqual([
+          ["fixture.keeper", "browser"],
+          ["fixture.keeper", "cli"],
+          ["fixture.keeper", "fake"],
+        ]);
+        expect(new Set([pendingSession, cliSession.sessionId, fakeSession.sessionId]).size).toBe(3);
+        const cliTurn = {
+          session: cliSession.sessionId,
+          "message-id": "cli-private",
+          text: "private CLI note",
+        };
+        const cliReceipt = await cli("talk", cliTurn);
+        expect(await cli("talk", cliTurn)).toEqual(cliReceipt);
+        const fakeReceipt = await fake.talk(
+          fakeSession.sessionId,
+          "fake-private",
+          "private fake note",
+        );
+        expect(await fake.talk(fakeSession.sessionId, "fake-private", "private fake note")).toEqual(
+          fakeReceipt,
+        );
+        for (const receipt of [cliReceipt, fakeReceipt])
+          expect([receipt.type, receipt.reply.authorId, receipt.turn.turn]).toEqual([
+            "private_caretaker_talk",
+            "fixture.keeper",
+            1,
+          ]);
+        const said = await cli("say", {
+          actor: "fixture.keeper",
+          "message-id": "cli-public",
+          text: "public CLI note",
+        });
+        const fakeSaid = await fake.say(
+          "fixture.keeper",
+          "cross-adapter",
+          "fake-public",
+          "public fake note",
+        );
+        for (const receipt of [said, fakeSaid])
+          expect([receipt.type, receipt.speech.speakerId, receipt.speech.text]).toEqual([
+            "public_say",
+            "fixture.keeper",
+            "Chitters aloud (scripted fixture line).",
+          ]);
+        const reply = "Scripted fixture reply: you have said 1 thing to me in this conversation.";
+        const cliTranscript = await cli("read", { session: cliSession.sessionId });
+        const fakeTranscript = (
+          await post("/v1/runtime/conversations/read", { sessionId: fakeSession.sessionId })
+        ).body;
+        expect(
+          [cliTranscript, fakeTranscript].map(({ messages, turns }) => [
+            messages.map(({ text }) => text),
+            turns.map(({ turn }) => turn),
+          ]),
+        ).toEqual([
+          [["private CLI note", reply], [1]],
+          [["private fake note", reply], [1]],
+        ]);
+        expect(
+          (await post("/v1/runtime/conversations/read", { sessionId: pendingSession })).body,
+        ).toEqual(browserTranscript);
+        await truth(
+          `UPDATE clockgrove.world_memberships SET privacy_ceiling='{"version":1,"allowedCategories":["public_scene","conversation"]}' WHERE principal_id='principal-outsider'`,
+        );
+        for (const sessionId of [pendingSession, cliSession.sessionId, fakeSession.sessionId]) {
+          expect(
+            (await post("/v1/runtime/conversations/read", { sessionId }, "outsider-session-token"))
+              .status,
+          ).toBe(404);
+          expect(
+            (
+              await post(
+                "/v1/runtime/talk",
+                { sessionId, messageId: "foreign", text: "foreign member" },
+                "outsider-session-token",
+              )
+            ).status,
+          ).toBe(404);
+        }
+        await truth(
+          `UPDATE clockgrove.world_memberships SET privacy_ceiling='{"version":1,"allowedCategories":["public_scene"]}' WHERE principal_id='principal-outsider'`,
+        );
         // issue 19: this member holds no world-command grant, so Keeper's proposal is refused
         // before the world with a visible reason, and no command receipt is added.
         const receiptsBefore = await truth("SELECT count(*) FROM clockgrove.command_receipts");

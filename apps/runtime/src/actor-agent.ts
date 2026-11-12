@@ -277,11 +277,6 @@ export class TurnFibers {
               prompt,
             });
             const response = await this.host.respond(session, caretakerMessages, input, prompt);
-            const words = response.text.split(/(?<= )/u);
-            for (const [index, text] of words.entries()) {
-              emit({ type: "delta", text });
-              if (index === 0) await this.host.checkpointed(current, "model_running:streaming");
-            }
             next = await this.store((store) => store.answerTurn(participant, current, response));
             break;
           }
@@ -301,9 +296,23 @@ export class TurnFibers {
             next = await this.store((store) => store.recordCommand(participant, current, record));
             break;
           }
-          case "committing":
+          case "committing": {
             next = await this.store((store) => store.commitTurn(participant, current));
+            if (next !== undefined) {
+              // Text leaves the actor only after the reply and its governed reservation commit.
+              fiber = next;
+              const committed = next;
+              const receipt = await this.store((store) =>
+                store.turnReceipt(participant, committed),
+              );
+              const words = receipt.reply.text.split(/(?<= )/u);
+              for (const [index, text] of words.entries()) {
+                emit({ type: "delta", text });
+                if (index === 0) await this.host.checkpointed(next, "model_running:streaming");
+              }
+            }
             break;
+          }
           case "finalizing":
             next = await this.store((store) => store.endTurn(participant, current, "completed"));
             break;

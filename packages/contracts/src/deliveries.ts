@@ -12,7 +12,7 @@ export interface DeliveryRequested {
   readonly recipientPrincipalId: PrincipalId;
   readonly channelBinding: { readonly channel: ConversationChannel; readonly threadId: string };
   readonly reason: {
-    readonly kind: "event" | "goal" | "promise" | "subscription";
+    readonly kind: "event" | "goal" | "promise" | "subscription" | "response";
     readonly id: string;
   };
   readonly urgency: "normal" | "urgent";

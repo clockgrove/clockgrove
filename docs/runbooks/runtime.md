@@ -1693,7 +1693,7 @@ node scripts/runtime-chat.mjs read --url https://runtime.example.test \
 
 Successful output is JSON on stdout. Failures exit nonzero and print a safe error to stderr. Each invocation has a two-minute deadline, including response reading, to bound operator waits; after an interrupted Talk, retry with the same message ID. Destination URLs must use HTTPS, except HTTP on loopback for local development. Redirects are refused. The server resolves the bearer identity and enforces the same membership, persona, grants and privacy ceiling as browser chat; an invalid credential or inaccessible session remains refused.
 
-New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. Part 4 connects explicitly configured proactive actor wakes internally. Part 5 adds the recipient-owned consent HTTP surface and delayed proactive delivery recovery described below; there is no CLI consent command. Ordinary response governance and the final cross-adapter completion proof remain Part 6. See [channels](../protocols/channels.md#governed-outbound-delivery) for the implemented boundary and the remaining issue 168 work.
+New CLI sessions use the `cli` channel. Pass `--thread` to `create` to reuse a stable CLI thread; omitting it opens a new session. Read and Talk still use the returned session ID, so existing session IDs continue to work. The internal governed-delivery store now records consent, budget reservations, quiet-hour decisions and fake/preview receipts. Part 4 connects explicitly configured proactive actor wakes internally. Part 5 adds the recipient-owned consent HTTP surface and delayed proactive delivery recovery described below; there is no CLI consent command. Ordinary replies also pass through the governed boundary, using the explicit Talk turn as response authority without enabling proactive consent. The living-hall browser journey invokes the CLI and fake HTTP adapter against the same fixture actor and compares their separate transcripts. See [channels](../protocols/channels.md#governed-outbound-delivery).
 
 ## MCP part 5 internal composition
 
@@ -1780,7 +1780,7 @@ callback persists a successor before work and reads pending deliveries from
 PostgreSQL, so owner interruption does not lose the request. Dispatch rechecks
 current consent, membership and recipient-local quiet hours. Repeated callbacks
 reuse the original reservation and sink receipt. Ordinary response governance and
-the complete browser/CLI/fake completion proof remain Part 6 of issue 168. No
+the combined browser/CLI/fake proof are described in the [channel protocol](../protocols/channels.md). No
 external messaging provider is configured.
 
 For example, POST this JSON with the member's existing authenticated HTTP client

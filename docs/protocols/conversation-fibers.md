@@ -50,7 +50,7 @@ Its phase is its checkpoint. The phases do this:
 - `context_pending`, then `context_ready`: fixes the session revision the turn reads. Each claim
   assembles its attempt's context ([context assembly](context-assembly.md)) with its run, since
   the run's prompt and manifest are that context.
-- `model_running`: streams and stores the answer as a protected artifact. A document proposal
+- `model_running`: computes and stores the answer as a protected artifact. A document proposal
   (issue 17) is stored beside it as a `private_cognition` artifact (`proposal_artifact_id`), so a
   recovered attempt commits the same proposal. This checkpoint is the `proposal_validating` move.
 - `proposal_validating`: a document proposal is validated where it commits. A command proposal
@@ -112,11 +112,11 @@ whose accepted message started the turn.
 ## Streaming, status and cancel
 
 `/v1/runtime/talk` answers when the turn commits: the same receipt as before. Sent with
-`Accept: application/x-ndjson`, it streams `TalkStreamFrame` lines instead: `delta` tokens, then
+`Accept: application/x-ndjson`, it streams `TalkStreamFrame` lines instead: `delta` tokens after the reply and its governed delivery commit, then
 one `receipt` or `refused` frame. Deltas are presentation only. They are never stored, and a client
 must not treat them as the reply. An owner that fails mid-turn ends the stream without a final
 frame, or answers `503 turn_interrupted`. The turn is durable, so the client resends the same
-message ID, or reads its status.
+message ID, or reads its status. Completion clears only that message’s pending tab state, so an older recovered request cannot discard a newer saved message in the same session.
 
 `/v1/runtime/turns/status` (`sessionId`, `messageId`) answers the durable `TurnStatus`: `phase`,
 `attempt` and `outcomeCode`. A reconnecting browser reads the status, then the transcript, instead
