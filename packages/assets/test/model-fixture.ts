@@ -28,6 +28,7 @@ export async function createRiggedModelFixture(
     meshopt?: boolean;
     lod?: boolean;
     generated?: boolean;
+    unusedSampler?: boolean;
   } = {},
 ) {
   const document = new Document();
@@ -118,11 +119,25 @@ export async function createRiggedModelFixture(
     .setTargetNode(joint)
     .setTargetPath("rotation")
     .setSampler(sampler);
-  document
+  const animation = document
     .createAnimation("idle")
     .setExtras({ loop: true, generated: options.generated ?? false })
     .addSampler(sampler)
     .addChannel(channel);
+  if (options.unusedSampler)
+    animation.addSampler(
+      document
+        .createAnimationSampler()
+        .setInput(
+          document
+            .createAccessor()
+            .setType("SCALAR")
+            .setArray(new Float32Array([0, 2.5, 5]))
+            .setBuffer(buffer),
+        )
+        .setOutput(rotations)
+        .setInterpolation("LINEAR"),
+    );
   if (options.meshopt) {
     await MeshoptEncoder.ready;
     document

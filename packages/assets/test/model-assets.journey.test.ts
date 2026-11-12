@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,17 @@ it("validates generated rigged GLB facts, world tier budgets and stable refusals
       stdout: '{"status":"ok","command":"validate"}\n',
       stderr: "",
     });
+    const unused = await createRiggedModelFixture({ unusedSampler: true });
+    writeFileSync(join(world, manifest.output.path), unused.bytes);
+    manifest.output.sha256 = unused.manifest.output.sha256;
+    save();
+    expect(run()).toEqual({
+      status: 0,
+      stdout: '{"status":"ok","command":"validate"}\n',
+      stderr: "",
+    });
+    writeFileSync(join(world, manifest.output.path), bytes);
+    manifest.output.sha256 = createHash("sha256").update(bytes).digest("hex");
     Object.assign(manifest.review, {
       status: "approved",
       reviewer: "fixture-human",
@@ -100,11 +112,41 @@ it("validates generated rigged GLB facts, world tier budgets and stable refusals
       rewriteModelJson(bytes, (json) => {
         json.meshes[0].primitives[0].attributes.POSITION = 999;
       }),
+      ...[
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].channels[0].target.path = "bad";
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].channels[0].target.node = 999;
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].channels[0].sampler = 999;
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].samplers[0].interpolation = "bad";
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].samplers[0].input = 999;
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].samplers[0].output = json.animations[0].samplers[0].input;
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].samplers[0].interpolation = "CUBICSPLINE";
+        },
+        (json: Parameters<Parameters<typeof rewriteModelJson>[1]>[0]) => {
+          json.animations[0].channels.push(json.animations[0].channels[0]);
+        },
+      ].map((change) => rewriteModelJson(bytes, change)),
       Uint8Array.from(bytes, (value, index) => (index === 4 ? 1 : value)),
       Uint8Array.from(bytes, (value, index) => (index === 12 ? 1 : value)),
     ]) {
       writeFileSync(join(world, manifest.output.path), malformed);
-      expect(run().stderr).toContain("MODEL_GLB_INVALID");
+      manifest.output.sha256 = createHash("sha256").update(malformed).digest("hex");
+      save();
+      const refusal = run();
+      expect(refusal.status).toBe(1);
+      expect(refusal.stderr).toContain("MODEL_GLB_INVALID");
     }
     writeFileSync(join(world, manifest.output.path), Buffer.from("not glTF"));
     expect(run().stderr).toContain("MODEL_GLB_INVALID");

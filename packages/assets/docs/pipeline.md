@@ -341,10 +341,13 @@ The inspected metrics have explicit meanings:
   transforms, in glTF metres. They are calculated from decoded vertex data, not
   copied from accessor bounds, and do not represent the envelope of animations.
   A one-micrometre comparison tolerance accounts for float32 transform rounding.
-- Clips are matched by name. `durationMs` is the greatest sampler keyframe time
+- Clips are matched by name. `durationMs` is the greatest keyframe time among samplers referenced by channels with target nodes
   in milliseconds, matching the renderer's clip duration; the comparison allows
   one microsecond of float32 rounding. `loop` and optional `generated` are stored
   in each glTF animation's `extras`, since glTF has no native playback-loop flag.
+  Unused samplers and channels without a target node do not affect playback duration.
+  Malformed channel targets, sampler references, interpolation, sample times and
+  output shapes are refused with `MODEL_GLB_INVALID`.
   Names must be nonempty and unique. Any generated clip requires generated-asset
   provenance rather than bypassing the output-grant gate through authored metadata.
 - Optional `output.rig` is the shared-rig identity `{template, sha256}` from
