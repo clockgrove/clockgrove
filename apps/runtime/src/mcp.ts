@@ -173,7 +173,6 @@ export class McpRuntimeOperator implements McpRuntimePort {
         owner.authorization.tenantId === scope.tenantId &&
         owner.scope.worldId === scope.worldId &&
         owner.scope.timelineId === scope.timelineId &&
-        owner.scope.spaceId === scope.spaceId &&
         owner.installationId === scope.installationId
       ) {
         const handle = this.handles.get(key);
@@ -182,10 +181,10 @@ export class McpRuntimeOperator implements McpRuntimePort {
       }
     }
     // Anonymous installations have no secret-provider session to recover.
-    const suffix = JSON.stringify([scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId]);
+    const suffix = JSON.stringify([scope.tenantId, scope.worldId, scope.timelineId]);
     for (const key of this.anonymous) {
       const identity = JSON.parse(key) as string[];
-      if (JSON.stringify(identity.slice(0, 4)) === suffix && identity[5] === scope.installationId)
+      if (JSON.stringify(identity.slice(0, 3)) === suffix && identity[5] === scope.installationId)
         return new RemoteHttpMcpReadAdapter(
           new SafeMcpHttpClient(this.configuration.network),
         ).execute(request);

@@ -45,7 +45,9 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
     const q = rpc.params?.arguments?.q ?? "";
     if (rpc.method === "tools/call") {
       calls.push(q);
-      expect(req.headers.authorization).toBe(`Bearer ${canary}`);
+      expect(req.headers.authorization).toBe(
+        q === "anonymous-other-space" ? undefined : `Bearer ${canary}`,
+      );
       if (q === "redirect") {
         res.writeHead(307, { location: "https://other.example/mcp" });
         res.end();
@@ -215,41 +217,63 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       );
       const capability = mcpCapabilityName("fixture", "lookup", "2025-11-25", hash);
       await operator.execute(
-        "review",
+        "connect",
         {
-          installationId: "fixture",
-          commandId: "research-review",
-          candidateId: "lookup",
-          schemaHash: hash,
-          protocolVersion: "2025-11-25",
-          effectClass: "read",
-          enabled: true,
+          installationId: "anonymous",
+          url: "https://fixture.example/mcp",
+          commandId: "anonymous-install",
         },
         trusted,
       );
-      await operator.execute(
-        "bind",
-        {
-          installationId: "fixture",
-          commandId: "research-bind",
-          binding: {
-            bindingId: "research-binding",
-            installationId: "fixture",
+      for (const installationId of ["fixture", "anonymous"]) {
+        await operator.execute(
+          "review",
+          {
+            installationId,
+            commandId: `research-review-${installationId}`,
             candidateId: "lookup",
             schemaHash: hash,
             protocolVersion: "2025-11-25",
-            scopeType: "actor",
-            scopeId: "actor",
-            effect: "allow",
+            effectClass: "read",
             enabled: true,
-            constraints: { callsPerTurn: 3, effectClasses: ["read"], budgetMicrousd: 250000 },
           },
-        },
-        trusted,
-      );
-      await sql(
-        `UPDATE clockgrove.world_memberships SET grants=array_append(grants,'${capability}') WHERE tenant_id='tenant-a'`,
-      );
+          trusted,
+        );
+        await operator.execute(
+          "bind",
+          {
+            installationId,
+            commandId: `research-bind-${installationId}`,
+            binding: {
+              bindingId: installationId === "fixture" ? "research-binding" : "anonymous-binding",
+              installationId,
+              candidateId: "lookup",
+              schemaHash: hash,
+              protocolVersion: "2025-11-25",
+              scopeType: "actor",
+              scopeId: "actor",
+              effect: "allow",
+              enabled: true,
+              constraints: { callsPerTurn: 3, effectClasses: ["read"], budgetMicrousd: 250000 },
+            },
+          },
+          trusted,
+        );
+        await sql(
+          `UPDATE clockgrove.world_memberships SET grants=array_append(grants,'${mcpCapabilityName(installationId, "lookup", "2025-11-25", hash)}') WHERE tenant_id='tenant-a'`,
+        );
+      }
+      const otherScope = { ...scope, spaceId: decodeOpaqueId("space-other", "SpaceId") };
+      await sql(`
+        INSERT INTO clockgrove.timeline_partitions (tenant_id,world_id,timeline_id,partition_id,space_id)
+          VALUES ('tenant-a','world-a','timeline-a','partition-other','space-other');
+        INSERT INTO clockgrove.streams (tenant_id,world_id,timeline_id,partition_id,space_id,stream_id)
+          VALUES ('tenant-a','world-a','timeline-a','partition-other','space-other','stream-other');
+        INSERT INTO clockgrove.world_memberships
+          (tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
+          SELECT tenant_id,world_id,timeline_id,'space-other',principal_id,'membership-other',persona_id,roles,grants,privacy_ceiling,committed_at
+          FROM clockgrove.world_memberships WHERE tenant_id='tenant-a' AND space_id='space-a';
+      `);
       const queued: QueueEnvelope<unknown>[] = [];
       let wakes = 0;
       const research = composeResearch({
@@ -259,7 +283,15 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
         artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
         adapter: {
           execute: (request, intent) =>
-            operator.executeRead({ ...intent, installationId: "fixture" }, request),
+            withAdmin(async (client) => {
+              const result = await client.query(
+                "SELECT installation_id FROM clockgrove.mcp_read_admissions WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4 AND admitted",
+                [intent.tenantId, intent.worldId, intent.timelineId, intent.effectId],
+              );
+              const installationId = (result.rows[0] as { installation_id: string })
+                .installation_id;
+              return operator.executeRead({ ...intent, installationId }, request);
+            }),
         },
         publish: async (message) => {
           queued.push(message);
@@ -269,7 +301,7 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
         },
       });
       let serial = 0;
-      async function prepare(q: string, proposedCapability = capability) {
+      async function prepare(q: string, proposedCapability = capability, sessionScope = scope) {
         serial++;
         return withAdmin(async (client) => {
           const store = new PostgreSqlConversationStore(
@@ -278,12 +310,12 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
             () => `research-session-${serial}`,
           );
           const session = await store.open(participant, {
-            scope,
+            scope: sessionScope,
             actorId: decodeOpaqueId("actor", "ObjectId"),
             voiceMode: "cognitive",
           });
           const accepted = await store.acceptTurn(participant, {
-            scope,
+            scope: sessionScope,
             sessionId: session.sessionId,
             messageId: `question-${serial}`,
             text: "research",
@@ -370,6 +402,26 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       await research.consumer.consume(queue, (v) => v);
       expect(calls).toEqual(["injection"]);
       expect(wakes).toBe(2);
+      for (const installationId of ["fixture", "anonymous"]) {
+        const q = `${installationId}-other-space`;
+        const item = await prepare(
+          q,
+          mcpCapabilityName(installationId, "lookup", "2025-11-25", hash),
+          otherScope,
+        );
+        expect(
+          await research.executeTool(participant, item.fiber, item.proposal, item.call),
+        ).toBeUndefined();
+        await research.consumer.consume(queued.shift()!, (v) => v);
+        expect(
+          await research.executeTool(participant, item.fiber, item.proposal, item.call),
+        ).toMatchObject({
+          status: "succeeded",
+          code: "ok",
+          grantId: installationId === "fixture" ? "research-binding" : "anonymous-binding",
+        });
+        expect(calls.filter((call) => call === q)).toEqual([q]);
+      }
       expect(
         await research.executeTool(
           participant,
@@ -378,6 +430,26 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
           first.call,
         ),
       ).toMatchObject({ status: "refused", code: "arguments_changed" });
+      await sql(
+        "UPDATE clockgrove.world_memberships SET revoked_at=statement_timestamp() WHERE tenant_id='tenant-a' AND space_id='space-a'",
+      );
+      const ownerRevokedDns = resolutions;
+      await expect(
+        operator.executeRead(
+          { ...otherScope, installationId: "fixture" },
+          {
+            admittedReadOnly: true,
+            endpoint: "https://fixture.example/mcp",
+            toolName: "lookup",
+            arguments: { q: "owner-revoked" },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "credential_unavailable" });
+      expect(resolutions).toBe(ownerRevokedDns);
+      expect(calls).not.toContain("owner-revoked");
+      await sql(
+        "UPDATE clockgrove.world_memberships SET revoked_at=NULL WHERE tenant_id='tenant-a' AND space_id='space-a'",
+      );
       expect(await sql("SELECT count(*) FROM clockgrove.mcp_read_retry_refusals")).toBe("1");
       for (const q of ["oversized", "malformed", "redirect", "echo"]) {
         const item = await prepare(q);
