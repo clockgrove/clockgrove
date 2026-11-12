@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -186,6 +186,29 @@ export function tofuBounds(args, elapsedMs, limits = tofuLimits) {
     killGraceMs: limits.graceSeconds * 1000,
   };
 }
+// Decision (#211): grants, migrations and publications reuse the non-apply cap, start floor
+// and grace from #210, drawing from the same deploy budget rather than starting a new one.
+export function deploymentBounds(executable, args, elapsedMs, limits = tofuLimits) {
+  const bounds = tofuBounds(executable === "tofu" ? args : [], elapsedMs, limits);
+  if (executable !== "tofu" && bounds.refused)
+    return { refused: bounds.refused.replace("OpenTofu budget", "deploy budget") };
+  return bounds;
+}
+export function boundedDeploymentPhase(
+  result,
+  candidate,
+  name,
+  executable,
+  args,
+  elapsedMs,
+  options = {},
+  limits = tofuLimits,
+) {
+  return recordDeploymentPhase(result, candidate, name, executable, args, {
+    ...options,
+    ...deploymentBounds(executable, args, elapsedMs, limits),
+  });
+}
 // A bounded call stops gracefully: SIGINT to tofu's process group (as a terminal's Ctrl-C does;
 // provider plugins ignore it, tofu asks them to stop), SIGKILL after the grace.
 const stoppable = (executable, args, options) =>
@@ -206,9 +229,9 @@ export async function recordDeploymentPhase(
     explain,
     retryable,
     attempt,
-    timeoutMs,
+    timeoutMs = tofuLimits.callSeconds * 1000,
     refused,
-    run = timeoutMs ? stoppable : spawnSync,
+    run = stoppable,
     ...spawnOptions
   } = options;
   const startedAt = new Date().toISOString();
@@ -259,7 +282,7 @@ export async function recordDeploymentPhase(
     const stopped = timedOut
       ? `stopped: no result within ${Math.round(timeoutMs / 1000)} s; interrupted with SIGINT${
           command.signal === "SIGKILL"
-            ? ", then killed after the grace; the state lock may be held"
+            ? `, then killed after the grace${name.startsWith("OpenTofu") ? "; the state lock may be held" : ""}`
             : ", exited within the grace"
         }`
       : "failed";
@@ -406,15 +429,22 @@ async function runDeployment() {
   const started = Date.now();
   const phase = (name, executable, args, options = {}) => {
     const tofu = executable === "tofu";
-    return recordDeploymentPhase(result, manifest.candidate, name, executable, args, {
-      cwd: work,
-      env: {
-        ...env,
-        ...(tofu ? hostedTofuEnv(env, providerIpc, work) : {}),
+    return boundedDeploymentPhase(
+      result,
+      manifest.candidate,
+      name,
+      executable,
+      args,
+      Date.now() - started,
+      {
+        cwd: work,
+        env: {
+          ...env,
+          ...(tofu ? hostedTofuEnv(env, providerIpc, work) : {}),
+        },
+        ...options,
       },
-      ...(tofu ? tofuBounds(args, Date.now() - started) : {}),
-      ...options,
-    });
+    );
   };
   try {
     assert.equal(required("OWNER_SETUP_READY"), "true", "owner setup issue 1 remains pending");

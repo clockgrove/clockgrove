@@ -273,9 +273,41 @@ log; the phase is `unknown` with reason `timeout` in the evidence, and so is the
 3. Dispatch the deploy again. It plans against what state recorded; a timed-out call is never
    retried within a deploy.
 
-A deploy that ran out of its OpenTofu budget (`not started: ... OpenTofu budget` in the log; the
-phase is `failed` with reason `budget`) started nothing more and holds no lock: find what made the
-earlier calls slow, then dispatch it again.
+A deploy that ran out of its shared phase budget (`not started: ... budget` in the log; the
+phase is `failed` with reason `budget`) started nothing more: find what made the earlier calls
+slow, then dispatch it again. A refused call itself creates no state lock.
+
+#### Database and publication timeouts
+
+For any of the following phases, `stopped: no result within <n> s` means the phase and deployment
+are `unknown`, with phase reason `timeout`. The deploy stops without retrying or running later
+phases. Stopping the local process group does not prove that a remote operation was rolled back
+or cancelled. Before dispatching another deploy, check the exact environment and candidate:
+
+- **`reviewed database-role grants` (psql):** inspect the migration connection's sessions and
+  locks in PostgreSQL (`pg_stat_activity` and `pg_locks`) and confirm the interrupted session has
+  ended. Check the role catalog, memberships and grants against the reviewed
+  `deployment-grants.sql`. The command uses one transaction, but a lost response can follow a
+  commit; do not infer rollback from the timeout. The next deploy reapplies role normalization
+  and verifies isolation before publication.
+- **`database migrations`:** check for a surviving migration session, active query and held
+  locks, then inspect the migration ledger and schema on the owned database to establish which
+  migrations committed. Compare them with the candidate's migration files. Resolve any
+  incomplete operation before rerunning; do not delete canonical history or assume the entire
+  migration command rolled back.
+- **`Wrangler secret publication`:** inspect the environment's named Worker and its versions and
+  deployments in Cloudflare to determine whether the secret update created or activated a
+  version. Check required secret binding names without printing values. Secret publication may
+  have changed remote state even though Worker publication never ran; resolve that state before
+  dispatching again.
+- **`Wrangler Worker publication`:** inspect Cloudflare's Worker versions and deployments to
+  establish whether the candidate version was uploaded and whether it became active. Compare
+  the version's candidate/build identity and configuration with the qualified artifact; an
+  uploaded version alone is not proof of activation. Routing has not run after this timeout.
+  Reconcile the remote version and current routing before dispatching again.
+
+Neither publication timeout counts as published or authorizes routing or successful activation.
+Retain the unknown evidence; a later inspection does not turn this run into a passed deploy.
 
 ### Database roles
 
@@ -396,13 +428,22 @@ Neon may hold the project anyway, and if its name search has not caught up, a re
 second one that state then hides; the per-project lock cannot refuse that create. Any other failed
 apply, and any interrupted or timed-out one, stops the deploy at once.
 
-No OpenTofu call can hold the deploy until the job's 45-minute timeout kills it, since that kill
-skips the evidence upload and leaves the deploy unexplained. Each call has a wall-clock limit
-within a 30-minute budget from the deploy's start. An apply gets 10 minutes and starts only if all
-10 fit in what is left of the budget, so no apply starts only to be cut short. Any other call
-(init, plan, show, output) gets 5 minutes, cut to what is left, and starts only with at least one
-minute left. A call the budget refuses is not started: its phase is `failed` with reason `budget`,
-and the deploy stops there and fails.
+OpenTofu calls, psql role grants, database migrations and both Wrangler publications have
+wall-clock limits within the same 30-minute budget from the deploy's start, so a hung subprocess
+cannot wait for the job's 45-minute kill and lose its timeout evidence. An OpenTofu apply gets
+10 minutes and starts only if all 10 fit in what is left of the budget, so no apply starts only
+to be cut short. Other OpenTofu calls (init, plan, show, output), psql, migrations, Wrangler secret
+publication and Wrangler Worker publication each get 5 minutes, cut to what is left, and start
+only with at least one minute left. Decision for issue 211: reuse issue 210's existing call cap,
+start floor and termination grace for these four phases rather than introduce a separate budget.
+A call the budget refuses is not started: its phase is `failed` with reason `budget`, and the
+deploy stops there and fails.
+
+All these subprocesses use the same owned subprocess helper: at the limit, SIGINT goes to the
+process group, followed by SIGKILL after a 2-minute grace if it has not exited. A timeout remains
+`unknown` with reason `timeout` even if the process exits successfully during the grace; no
+publication is treated as passed on that basis. These four phases are never automatically retried.
+See [Database and publication timeouts](#database-and-publication-timeouts) for remote checks.
 
 At its limit OpenTofu gets SIGINT. It asks its providers to stop, waits for their calls in flight
 to return, then saves state and releases the lock. A provider that ignores the stop keeps its call
