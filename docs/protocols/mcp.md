@@ -782,3 +782,48 @@ effect and result. See [turn recovery](conversation-fibers.md#governed-research-
 A real-model run against the fixture remains a maintainer action when a key is available.
 CI and the default local proofs use deterministic scripted models; they never call a real provider.
 The tool-result shadow judge remains the owner's separate follow-up to issue 162.
+
+## Internal approval ledger (issue 166, part 1)
+
+The first delivery part adds canonical approval persistence as a prerequisite for
+protected writes. It does not activate MCP writes, expose an approval endpoint or
+change the actor's existing read-only research path. The actor wait, person/operator
+controls, dispatch integration, uncertainty resolution and browser journey remain
+subsequent parts of issue 166.
+
+The privileged persistence boundary stores exact scoped approval identities and
+argument/effect hashes. Argument content belongs in encrypted conversation artifacts,
+never approval metadata. Trusted application composition must normalize arguments,
+compute the binding and authenticate the designated person before recording a decision;
+a model proposal, tool result or claimed principal identifier cannot establish that
+authority. Runtime SQL receives no approval mutation privilege.
+
+Approval consumption must share the future dispatch admission transaction: spending
+an approval separately from creating the intent/outbox cannot prove approval before
+dispatch. That composition must also reload current grants, revocations, kill switches
+and budgets, and preserve the live-timeline preview gate. A stored approval alone is
+not a capability grant or permission to invoke the transport. Existing effect attempts
+remain single-use and terminal uncertainty is never reset by approval persistence.
+
+`PostgreSqlEffectApprovals` uses one `effect_approvals` row per scoped approval ID.
+Its immutable binding includes the proposed effect ID, space, requesting and designated
+approver principals, argument/effect hashes, optional encrypted argument-artifact
+reference, configured lifetime and exact database expiry. Repeating a request preserves
+its original expiry; changed bindings conflict. The default lifetime is 600 seconds,
+from the owner's ten-minute decision. Expiry is checked with the database wall clock
+after locking the row, including when another transaction delayed the caller.
+
+Only the designated principal may decide or revoke through this privileged adapter.
+Approval and denial are immutable decisions; revocation or consumption retains their
+original attribution. Pending or approved requests may be revoked. Consumption requires
+an approved, unexpired, exact binding on a live timeline and succeeds once; the
+`consumeInTransaction` method allows later composition with intent/outbox creation.
+Denied, expired, revoked and consumed rows cannot become approved again. Operator-only
+RLS and runtime read-only privileges follow the existing effect-ledger inspection policy;
+member-facing projections are not provided by this foundation.
+
+`apps/runtime/test/effect-approvals.postgres.test.ts` exercises real PostgreSQL, independent
+connections, request/decision deduplication, binding conflicts, rollback, reconnect,
+expiry during a lock wait, preview refusal and encrypted artifact scope. It also runs
+`tests/database/effect-approvals.sql` for scope/privacy and runtime mutation attacks.
+These are storage proofs; they do not establish actor execution or a browser journey.
