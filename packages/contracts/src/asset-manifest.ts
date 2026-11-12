@@ -367,8 +367,11 @@ export interface AssetDeployRefusal {
  * Why a decoded manifest may not deploy; empty when it may. Deployment needs an approved review by
  * a human login (a GitHub `[bot]` account is not one) and a permitted license.
  */
-export function assetDeployRefusals(manifest: AssetManifest): readonly AssetDeployRefusal[] {
-  const asset = `${manifest.assetId}/${manifest.animationFamily}`;
+export function assetDeployRefusals(
+  manifest: Pick<AssetManifest, "assetId" | "source" | "license" | "provenance" | "review"> &
+    ({ readonly animationFamily: AssetAnimationFamily } | { readonly kind: "model" }),
+): readonly AssetDeployRefusal[] {
+  const asset = `${manifest.assetId}/${"animationFamily" in manifest ? manifest.animationFamily : "model"}`;
   const refusals: AssetDeployRefusal[] = [];
   if (manifest.review.status !== "approved")
     refusals.push({

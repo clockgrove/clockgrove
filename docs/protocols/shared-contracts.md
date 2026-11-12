@@ -206,6 +206,37 @@ at most once. Its `effects` bind the scene roles `path`, `rain`, `puddle`, `lant
 ([presentation-bindings](../../packages/simulator/docs/conformance.md#checks)), and the asset pipeline
 ([pipeline](../../packages/assets/docs/pipeline.md)) builds, renders and uploads through it.
 
+### 3D model assets
+
+`ModelAssetManifest` (`packages/contracts/src/model-asset.ts`) adds `kind: "model"` at
+asset-manifest version 2. `decodeAnyAssetManifest` dispatches this kind and otherwise uses the
+unchanged strip decoder; `AssetManifest` and `decodeAssetManifest` remain the strip APIs.
+Models share `assetId`, `source`, `license`, `provenance`, `review`, `semantic` and
+`accessibilityLabel` with strips, and use the same `assetDeployRefusals` licence and human-review
+gate. They have no frame grid, atlas, pixel bounds or palette. The gate identifies them as
+`<assetId>/model`.
+
+Their `output` preserves the Assetforge hand-off field names: `path`, `mediaType`
+(`model/gltf-binary`), `extension` (`glb`), `sha256`, `triangles`, `textureMaxPx`, `materials`,
+`bones`, `lods`, `clips`, `bounds` and optional `rig`. `output.path` equals `source.path`: a safe
+world-relative `.glb` path without empty, `.` or `..` segments. Each clip has a unique `name`,
+a finite non-negative `durationMs`, a boolean `loop`, and optional boolean `generated`.
+`bounds` contains three-coordinate finite `min` and `max` vectors in metres, glTF's native
+length unit; each minimum must be at most its maximum. A rig, when present, has `template`
+and lowercase `sha256`. Props need not declare a rig. All hashes are lowercase SHA-256.
+Loop and generation flags are application metadata, since glTF has no intrinsic loop flag.
+Any clip with `generated: true` requires `source.kind: "generated"` and the same generated-asset
+provenance and output-grant checks as a generated model.
+
+`ModelTargetProfile`, decoded by `decodeModelTargetProfile`, is world-owned presentation data
+in `reference/model-target.json`. Its shape is `{ version: 1, limits, tiers? }`. `limits`
+contains non-negative integer upper bounds named `triangles`, `textureMaxPx`, `materials`,
+`bones` and `lods`; `tiers`, if supplied, is a non-empty map from tier names to complete sets of
+the same bounds. Validation applies the default limits and each supplied tier independently.
+There are no platform budget defaults, world-specific rig names or character rules. A world's
+encode pipeline may supply PNG, JPEG or KTX2 textures and plain or meshopt-compressed geometry;
+these encoding choices do not change the metric field names or impose a hand-off conversion.
+
 ### World asset style profile
 
 `AssetStyleProfile` is standalone presentation data, decoded by `decodeAssetStyleProfile`.

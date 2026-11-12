@@ -1,10 +1,13 @@
-import type { AssetManifest } from "@clockgrove/contracts";
+import type { AssetManifest, ModelAssetManifest } from "@clockgrove/contracts";
 
 const cell = (s: string): string => s.replaceAll("|", "\\|");
 
-export function licenseReport(manifests: readonly AssetManifest[]): string {
+export function licenseReport(manifests: readonly (AssetManifest | ModelAssetManifest)[]): string {
   const sorted = [...manifests].sort((a, b) =>
-    `${a.assetId}/${a.animationFamily}` < `${b.assetId}/${b.animationFamily}` ? -1 : 1,
+    `${a.assetId}/${"output" in a ? "model" : a.animationFamily}` <
+    `${b.assetId}/${"output" in b ? "model" : b.animationFamily}`
+      ? -1
+      : 1,
   );
   const counts = new Map<string, number>();
   for (const m of sorted) counts.set(m.license, (counts.get(m.license) ?? 0) + 1);
@@ -21,14 +24,14 @@ export function licenseReport(manifests: readonly AssetManifest[]): string {
       (m) =>
         `| ${[
           m.assetId,
-          m.animationFamily,
+          "output" in m ? "model" : m.animationFamily,
           m.license,
           m.source.creator,
           m.source.tool ?? "-",
           m.source.kind,
           m.review.status,
           m.review.reviewer ?? "-",
-          m.contentHash.slice(0, 12),
+          ("output" in m ? m.output.sha256 : m.contentHash).slice(0, 12),
         ]
           .map(cell)
           .join(" | ")} |`,
@@ -42,7 +45,8 @@ export function licenseReport(manifests: readonly AssetManifest[]): string {
           "## Provider credits",
           "",
           ...credits.map(
-            (m) => `${m.assetId}/${m.animationFamily}: ${m.provenance.outputGrant?.attribution}`,
+            (m) =>
+              `${m.assetId}/${"output" in m ? "model" : m.animationFamily}: ${m.provenance.outputGrant?.attribution}`,
           ),
         ]),
     "",
