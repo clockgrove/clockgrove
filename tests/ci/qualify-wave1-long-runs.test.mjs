@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { decodeCanonicalBytes } from "../../packages/simulator/src/canonical-decode.ts";
 import { checkLongRunBundle } from "../../scripts/ci/qualify-wave1-long-run-checks.mjs";
-import { qualifyLongRuns, WAVE1_LONG_RUN_BUDGETS } from "../../scripts/ci/qualify-wave1-long-runs.mjs";
+import {
+  qualifyLongRuns,
+  WAVE1_LONG_RUN_BUDGETS,
+} from "../../scripts/ci/qualify-wave1-long-runs.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const HOUR = 3_600_000n;
