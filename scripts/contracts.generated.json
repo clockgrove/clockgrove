@@ -2,7 +2,7 @@
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
 
-    "asset-manifest.ts": "3a5242db98d525eb97e40d3edad03a2a70ab10161758e58c85638795cce02e18",
+    "asset-manifest.ts": "24751aa03f5be16a8d2b6036160001e1b26691f4dd8d8c4e714b3d45328e4a57",
 
     "asset-style-profile.ts": "a46acfbe662b7c21474f42e452a24f36681000746339e39c3afc4a903dc6f61e",
 
@@ -22,11 +22,13 @@
 
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
 
-    "index.ts": "de95152b5c1fd6c9abb4a470bae8b4a3197683c4fed835932da5d1ed3b072d39",
+    "index.ts": "a40dc548155bc6cb5baf62f30c100287bad0568b6f19d3f1ae9ebe8967ebbc05",
 
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
 
     "material.ts": "2840d7a6d9b4f5b09fd55d6ca7f06f6a06fdbf78260e9cc825b69dd3dab3cab6",
+
+    "model-asset.ts": "a43124a69d6238067e331a90888f899ddd6d7ff92bb29a8100c8851fa000ae2f",
 
     "privacy.ts": "eee0e6d1cc4846816e590b3d4a59c46e35909831e303249b54c326e7b9bd9c28",
 
