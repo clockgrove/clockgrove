@@ -414,6 +414,13 @@
       "when": 1796076000001,
       "tag": "0059_solicited_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1796162400000,
+      "tag": "0060_turn_research",
+      "breakpoints": true
     }
   ]
 }

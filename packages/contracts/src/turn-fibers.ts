@@ -16,6 +16,8 @@ export const TURN_PHASES = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "tool_waiting",
+  "tool_completed",
   "committing",
   "finalizing",
   "completed",
@@ -39,6 +41,8 @@ export const CANCELLABLE_TURN_PHASES: readonly TurnPhase[] = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "tool_waiting",
+  "tool_completed",
 ];
 
 /**
@@ -66,6 +70,12 @@ export interface TurnRequest {
  */
 export type TalkStreamFrame =
   | { readonly type: "delta"; readonly text: string }
+  | {
+      readonly type: "tool";
+      readonly callId: string;
+      readonly capability: string;
+      readonly status: "using" | "completed" | "failed";
+    }
   | { readonly type: "receipt"; readonly receipt: TalkReceipt }
   | { readonly type: "refused"; readonly status: number; readonly error: string };
 
@@ -107,10 +117,19 @@ export function decodeTurnStatus(value: unknown, path = "turnStatus"): TurnStatu
 
 export function decodeTalkStreamFrame(value: unknown, path = "talkStream"): TalkStreamFrame {
   const v = record(value, path);
-  const type = literal(v.type, ["delta", "receipt", "refused"], `${path}.type`);
+  const type = literal(v.type, ["delta", "tool", "receipt", "refused"], `${path}.type`);
   if (type === "delta") {
     exactKeys(v, ["type", "text"], [], path);
     return Object.freeze({ type, text: string(v.text, `${path}.text`) });
+  }
+  if (type === "tool") {
+    exactKeys(v, ["type", "callId", "capability", "status"], [], path);
+    return Object.freeze({
+      type,
+      callId: id(v.callId, `${path}.callId`),
+      capability: string(v.capability, `${path}.capability`),
+      status: literal(v.status, ["using", "completed", "failed"], `${path}.status`),
+    });
   }
   if (type === "receipt") {
     exactKeys(v, ["type", "receipt"], [], path);

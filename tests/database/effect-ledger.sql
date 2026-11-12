@@ -105,6 +105,19 @@ DO $$ DECLARE q text; BEGIN
   'TRUNCATE clockgrove.effect_intents CASCADE','TRUNCATE clockgrove.effect_attempts'] LOOP
   BEGIN EXECUTE q; RAISE EXCEPTION 'runtime mutated ledger'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
  END LOOP;
+ -- The research reservation definer confers no ledger access or foreign-session authority.
+ FOREACH q IN ARRAY ARRAY[
+  'SELECT clockgrove.reserve_turn_model_step(''tenant-j-a'',''foreign-session'',''message'',1,4,250000,50000)',
+  'SELECT clockgrove.reserve_turn_model_step(''tenant-j-b'',''foreign-session'',''message'',1,4,250000,50000)'] LOOP
+  BEGIN EXECUTE q; RAISE EXCEPTION 'unscoped model reservation admitted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ END LOOP;
+ PERFORM set_config('app.privacy_ceiling','{"version":1,"allowedCategories":["conversation"]}',true);
+ BEGIN
+  PERFORM clockgrove.reserve_turn_model_step('tenant-j-a','foreign-session','message',1,4,250000,50000);
+  RAISE EXCEPTION 'nonparticipant model reservation admitted';
+ EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ PERFORM set_config('app.privacy_ceiling','{"version":1,"allowedCategories":["operator_evidence"]}',true);
  PERFORM set_config('app.principal_id','principal-j-b',true);
  IF (SELECT count(*) FROM clockgrove.effect_intents)<>0 OR (SELECT count(*) FROM clockgrove.effect_attempts)<>0 THEN RAISE EXCEPTION 'principal leaked ledger'; END IF;
  PERFORM set_config('app.principal_id','principal-j-a',true);

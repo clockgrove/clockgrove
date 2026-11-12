@@ -311,6 +311,23 @@ export class PostgreSqlMcpReadAdmission {
     )
       throw new Error("Invalid MCP read policy");
     const result = await this.transaction(async () => {
+      // Match model reservation lock order: one canonical turn owns the shared cost envelope.
+      const fiberBudget = await this.client.query(
+        `SELECT research_reserved_microusd,research_max_cost_microusd FROM clockgrove.conversation_turn_fibers
+          WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$4 AND message_id=$5 FOR UPDATE`,
+        [...scope(i), request.sessionId, request.turnId],
+      );
+      const modelReserved = Number(
+        (fiberBudget.rows[0] as { research_reserved_microusd: string } | undefined)
+          ?.research_reserved_microusd ?? 0,
+      );
+      const pinnedCost = (
+        fiberBudget.rows[0] as { research_max_cost_microusd: string | null } | undefined
+      )?.research_max_cost_microusd;
+      const sharedCeiling = Math.min(
+        request.policy.maxCostMicrousd,
+        pinnedCost == null ? request.policy.maxCostMicrousd : Number(pinnedCost),
+      );
       // Same lock as installation/binding changes; turn budget row serializes concurrent calls.
       await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
         `${scope(i).join("/")}/mcp`,
@@ -399,7 +416,7 @@ export class PostgreSqlMcpReadAdmission {
         resolved &&
         "request" in resolved &&
         (budget.calls >= request.policy.maxCalls ||
-          i.reservedMicrousd > request.policy.maxCostMicrousd - Number(budget.cost) ||
+          i.reservedMicrousd > sharedCeiling - Number(budget.cost) - modelReserved ||
           callTimeMs > request.policy.maxTimeMs - Number(budget.time) ||
           MCP_READ_LIMITS.outputBytes > request.policy.maxOutputBytes - Number(budget.output))
       )

@@ -51,6 +51,8 @@ export type ConversationResponder = (
  */
 export interface ConversationResponse {
   readonly text: string;
+  /** System failure/bound marker; never derived from model or tool text. */
+  readonly outcomeCode?: string;
   readonly proposal?: DocumentProposal;
   readonly command?: CapabilityCall;
   /** The model call's measured usage; absent for the free fixture. */
@@ -85,6 +87,37 @@ export interface TurnCommandRecord {
   readonly code: string | null;
   readonly summary: string;
 }
+
+export interface TurnToolCall {
+  readonly callId: string;
+  readonly effectId: string;
+  readonly capability: string;
+  readonly status: "waiting" | "succeeded" | "failed" | "uncertain" | "refused" | "simulated";
+  readonly code: string | null;
+  /** Sanitized, untrusted evidence only; stored in an encrypted artifact. */
+  readonly text: string;
+  readonly resultArtifactId: string | null;
+  readonly grantId: string | null;
+  readonly queueLatencyMs?: number | null;
+  readonly costMicrousd?: number | null;
+}
+export interface TurnResearchState {
+  readonly modelSteps: number;
+  readonly reservedModelMicrousd: number;
+  readonly knownCostMicrousd: number;
+  readonly unknownCostCount: number;
+  readonly calls: readonly TurnToolCall[];
+}
+export interface TurnModelStepLimits {
+  readonly maxModelSteps: number;
+  readonly maxCostMicrousd: number;
+  readonly reserveMicrousd: number;
+}
+export type TurnModelStepReservation =
+  | "reserved"
+  | "model_steps_exhausted"
+  | "cost_budget_exhausted"
+  | "fenced";
 
 /**
  * Canonical private conversations. Every call is scoped to the participant: a session of another
@@ -171,6 +204,35 @@ export interface ConversationStore {
     participant: ConversationParticipant,
     fiber: TurnFiber,
     record: TurnCommandRecord,
+  ): Promise<TurnFiber | undefined>;
+  stopResearch?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    code: string,
+    text: string,
+  ): Promise<TurnFiber | undefined>;
+  researchState?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnResearchState>;
+  reserveModelStep?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    limits: TurnModelStepLimits,
+  ): Promise<TurnModelStepReservation>;
+  waitForTool?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: Pick<TurnToolCall, "callId" | "effectId" | "capability">,
+  ): Promise<TurnFiber | undefined>;
+  completeTool?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    result: TurnToolCall & { readonly status: Exclude<TurnToolCall["status"], "waiting"> },
+  ): Promise<TurnFiber | undefined>;
+  resumeAfterTool?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
   ): Promise<TurnFiber | undefined>;
   /** Commits the message, the reply and the turn with `finalizing`, in one transaction. */
   commitTurn(

@@ -67,6 +67,14 @@ export interface RunStepView {
   readonly outcomeCode: string | null;
   readonly model: string | null;
   readonly tool: string | null;
+  readonly toolEvidence?: {
+    readonly callId: string;
+    readonly effectId: string;
+    readonly grantId: string | null;
+    readonly resultArtifactId: string | null;
+    readonly status: string;
+    readonly queueLatencyMs: number | null;
+  };
   /** What the step led to: a world command (follow it with the causal chain) or a message. */
   readonly commandId: string | null;
   readonly outputMessageId: string | null;
