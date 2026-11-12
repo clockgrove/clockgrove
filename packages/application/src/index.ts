@@ -47,6 +47,7 @@ export * from "./wake-triage.js";
 export * from "./world-birth.js";
 export * from "./world-command.js";
 export * from "./world-continuation.js";
+export * from "./world-mcp-admission.js";
 export * from "./world-provisioning.js";
 export * from "./world-provisioning-errors.js";
 export * from "./world-provisioning-journal.js";
