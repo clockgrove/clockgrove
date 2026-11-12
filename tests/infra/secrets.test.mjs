@@ -118,6 +118,19 @@ describe("error-code catalogs", () => {
     );
   });
 
+  it("still refuses a catalog value under a credential name or with fewer than three words", () => {
+    for (const source of [
+      catalog(
+        entry("INVALID_API_KEY", "Invalid API key."),
+        entry("STRIPE_API_KEY", "Live key for production"),
+      ),
+      catalog(entry("INVALID_API_KEY", "Invalid key")),
+    ])
+      expect(() => assertNoSecretValues(source, "worker/cloudflare-entry.js")).toThrow(
+        /secret-shaped value detected/u,
+      );
+  });
+
   it("still refuses a sentence-shaped key outside a catalog", () => {
     const source = `const settings = {\n${entry("INVALID_API_KEY", "Invalid API key.")}\n  retries: 3,\n};\n`;
     expect(() => assertNoSecretValues(source, "settings.ts")).toThrow(
