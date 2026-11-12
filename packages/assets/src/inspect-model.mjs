@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { Extension, getBounds, Logger, NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
-import validator from "gltf-validator";
 import { MeshoptDecoder } from "meshoptimizer";
 
 // LOD references are inspected from the original JSON below, independently of geometry decoding.
@@ -26,49 +25,40 @@ try {
     view.getUint32(8, true) !== bytes.length
   )
     throw new Error("expected a glTF 2.0 binary with an exact file length");
-  if (view.getUint32(16, true) !== 0x4e4f534a) throw new Error("first GLB chunk must be JSON");
-  const json = JSON.parse(new TextDecoder().decode(bytes.slice(20, 20 + view.getUint32(12, true))));
+  // GLB 2.0 chunks are four-byte aligned; JSON comes first, followed by optional BIN.
+  let offset = 12;
+  const chunks = [];
+  while (offset < bytes.length) {
+    if (offset + 8 > bytes.length) throw new Error("truncated GLB chunk header");
+    const length = view.getUint32(offset, true);
+    const type = view.getUint32(offset + 4, true);
+    if (length % 4 || offset + 8 + length > bytes.length)
+      throw new Error("invalid GLB chunk length");
+    chunks.push({ type, start: offset + 8, length });
+    offset += 8 + length;
+  }
+  if (chunks[0]?.type !== 0x4e4f534a) throw new Error("first GLB chunk must be JSON");
+  if (chunks.slice(1).some((chunk) => chunk.type === 0x4e4f534a))
+    throw new Error("GLB must contain only one JSON chunk");
+  const binaryChunks = chunks.filter((chunk) => chunk.type === 0x004e4942);
+  if (binaryChunks.length > 1 || (binaryChunks.length && chunks[1] !== binaryChunks[0]))
+    throw new Error("GLB BIN chunk must occur once after JSON");
+  const first = chunks[0];
+  const json = JSON.parse(
+    new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.slice(first.start, first.start + first.length),
+    ),
+  );
+  if (json.asset?.version !== "2.0") throw new Error("expected glTF asset version 2.0");
   for (const resource of [...(json.buffers ?? []), ...(json.images ?? [])])
     if (resource.uri !== undefined && !resource.uri.startsWith("data:"))
       throw new Error("GLB resources must be embedded buffer views or data URIs");
-  const report = await validator.validateBytes(bytes, {
-    maxIssues: 0,
-    externalResourceFunction: async () => {
-      throw new Error("external resources are not permitted");
-    },
-  });
-  const errors = report.issues.messages.filter((message) => message.severity === 0);
-  if (report.issues.numErrors)
-    throw new Error(
-      errors
-        .slice(0, 16)
-        .map((message) => `${message.code}: ${message.message}`)
-        .join("; "),
-    );
   await MeshoptDecoder.ready;
   const io = new NodeIO()
     .registerExtensions([...ALL_EXTENSIONS, ModelLod])
     .registerDependencies({ "meshopt.decoder": MeshoptDecoder })
     .setLogger(new Logger(Logger.Verbosity.SILENT));
   const document = await io.readBinary(bytes);
-  // The Khronos validator does not decode meshopt; validate the decoded buffers too.
-  if (json.extensionsUsed?.includes("EXT_meshopt_compression")) {
-    const extension = document
-      .getRoot()
-      .listExtensionsUsed()
-      .find((extension) => extension.extensionName === "EXT_meshopt_compression");
-    extension?.dispose();
-    const decodedBytes = await io.writeBinary(document);
-    const decodedReport = await validator.validateBytes(decodedBytes, { maxIssues: 0 });
-    if (decodedReport.issues.numErrors)
-      throw new Error(
-        decodedReport.issues.messages
-          .filter((message) => message.severity === 0)
-          .slice(0, 16)
-          .map((message) => `${message.code}: ${message.message}`)
-          .join("; "),
-      );
-  }
   const root = document.getRoot();
   const scene = root.getDefaultScene() ?? root.listScenes()[0];
   if (!scene) throw new Error("a model requires a scene");

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { runAssetsCli } from "../src/cli.js";
 import { repositoryRoot } from "../src/repository.js";
-import { createRiggedModelFixture } from "./model-fixture.js";
+import { createRiggedModelFixture, rewriteModelJson } from "./model-fixture.js";
 
 it("validates generated rigged GLB facts, world tier budgets and stable refusals through CLI", async () => {
   const world = mkdtempSync(join(tmpdir(), "model-assets-"));
@@ -93,6 +93,19 @@ it("validates generated rigged GLB facts, world tier budgets and stable refusals
     profile.tiers.low.triangles = 0;
     writeFileSync(join(world, "reference/model-target.json"), JSON.stringify(profile));
     expect(run().stderr).toContain("MODEL_BUDGET_EXCEEDED: low.triangles: 1 exceeds 0");
+    for (const malformed of [
+      rewriteModelJson(bytes, (json) => {
+        json.asset.version = "1.0";
+      }),
+      rewriteModelJson(bytes, (json) => {
+        json.meshes[0].primitives[0].attributes.POSITION = 999;
+      }),
+      Uint8Array.from(bytes, (value, index) => (index === 4 ? 1 : value)),
+      Uint8Array.from(bytes, (value, index) => (index === 12 ? 1 : value)),
+    ]) {
+      writeFileSync(join(world, manifest.output.path), malformed);
+      expect(run().stderr).toContain("MODEL_GLB_INVALID");
+    }
     writeFileSync(join(world, manifest.output.path), Buffer.from("not glTF"));
     expect(run().stderr).toContain("MODEL_GLB_INVALID");
   } finally {

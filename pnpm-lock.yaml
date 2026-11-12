@@ -335,9 +335,6 @@ importers:
       '@gltf-transform/extensions':
         specifier: 4.5.1
         version: 4.5.1
-      gltf-validator:
-        specifier: 2.0.0-dev.3.10
-        version: 2.0.0-dev.3.10
       meshoptimizer:
         specifier: 1.3.0
         version: 1.3.0

@@ -322,9 +322,10 @@ five metrics are required in each limit record, and zero is allowed (for example
 zero bones for an unrigged prop or zero texture pixels for an untextured model).
 
 `clockgrove-assets validate <manifest> --world <world>` validates the exact GLB
-bytes against the pinned Khronos glTF validator and reads them with glTF Transform.
+header, version and chunk structure, then reads them with the pinned stable glTF
+Transform reader and checks the decoded model facts.
 Meshopt geometry is decoded with the pinned Meshoptimizer decoder. PNG and JPEG
-handoff textures and KTX2 shipped textures are accepted by the same validator;
+handoff textures and KTX2 shipped textures are accepted by the same inspection path;
 no target-side compression is required before handoff.
 
 The inspected metrics have explicit meanings:
