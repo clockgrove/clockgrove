@@ -591,3 +591,53 @@ Canonical admission and kill switches, publication and deployed Queue/DLQ compos
 turn waits, the model loop, citations and the browser research journey remain parts
 5–6. The existing Queue retry/dead-letter wrapper is unchanged; its source-row
 dead-letter diagnostic currently covers world reactions only.
+
+
+### Internal canonical read admission (delivery part 5)
+
+`PostgreSqlMcpReadAdmission` supplies a privileged persistence boundary before the
+internal Queue consumer. It is not an actor-callable tool and adds no runtime SQL
+privilege. Admission reloads the canonical installation and exact reviewed read pin,
+resolves matching binding policy through the capability registry, and normalizes the
+arguments through that pin's schema. A member turn additionally needs the exact
+version-specific MCP capability name in its current world membership grants. The
+binding alone cannot supply that member grant. Proactive admission uses the canonical
+installation owner's current installation authority. No model or tool result can
+select authority, change policy or alter the catalog.
+
+Capacity belongs to the canonical turn, across retries and run segments. A serialized
+transaction records call, time, output and conservative cost reservations together
+with the intent and its conversation outbox. Identical retries consume no additional
+capacity; conflicting identities fail closed. A separate immutable retry-refusal receipt
+records the presented identity hash and `arguments_changed` or `retry_conflict`,
+without storing the presented arguments. The refusal commits before the caller receives
+the fixed error; it neither replaces the original effect nor adds dispatch or capacity.
+Identical conflicting retries reuse that receipt. Reservations are retained, including
+when actual cost is unknown. Actual cost still comes from the attempt ledger and
+remains NULL when unknown; reserved money is not a price observation. The owner's
+defaults are three tool calls, four model steps and a separately configured 250000
+microusd tool-turn envelope (2026-11-09). The internal reservation uses the full transport maxima: 45 seconds for initialize,
+notification and call (three 15-second HTTP deadlines) and 64 KiB of result text per
+call. The default turn therefore reserves at most 135 seconds and 192 KiB. Smaller
+remaining capacity refuses a new call rather than weakening the adapter limit.
+Model-step execution and inclusion of model spend in the integrated envelope remain
+final-part work.
+
+Global, world and installation kill switches are checked during reservation and
+fresh pre-execution admission. The latter reloads persisted identity and current
+canonical grants, pins and bindings. A committed revocation or disabled switch
+refuses the next admission without actor cognition. It does not pretend to cancel
+an already-sent call: the one-attempt ledger must retain its result or explicit
+uncertainty. Switch administration requires a privileged operator connection;
+there is no actor capability or HTTP switch endpoint.
+
+This foundation does not activate a Queue handler. Trusted final composition still
+must apply network admission before reservation, load and verify encrypted argument
+artifacts, enforce the reserved time/output bounds, obtain credentials only through
+the retained installation provider inside the adapter, and save encrypted results.
+Canonical installation rows do not yet contain a credential-reference directory;
+this admission API never accepts a credential supplied by a queue message or model.
+It does not establish authenticated remote execution by itself. Local Queue
+publication/DLQ integration, durable actor tool waits and the bounded model loop,
+run evidence/citations, malicious fixture and scripted browser research proofs remain
+the final delivery part. Hosted remote activation retains issue 3's egress gate.

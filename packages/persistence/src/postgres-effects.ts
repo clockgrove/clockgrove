@@ -88,6 +88,39 @@ function completionValues(completion: EffectCompletion): unknown[] {
   ];
 }
 
+function reservationValues(request: EffectReservation) {
+  const address = addressValues(request);
+  const metadata = [
+    request.spaceId,
+    request.idempotencyKey,
+    request.actorId,
+    request.principalId,
+    request.runId,
+    request.callId,
+    request.capabilityId,
+    request.grantId,
+    request.policyVersion,
+    request.argumentsHash,
+    request.argumentsArtifactId,
+    request.reservedMicrousd,
+  ];
+  if (
+    !metadata
+      .slice(0, 9)
+      .every((value, index) => (index === 4 && value === null) || identity(value as string)) ||
+    !/^[a-f0-9]{64}$/.test(request.argumentsHash) ||
+    (request.argumentsArtifactId !== null && !identity(request.argumentsArtifactId)) ||
+    !Number.isSafeInteger(request.reservedMicrousd) ||
+    request.reservedMicrousd < 0 ||
+    (request.disposition === "pending"
+      ? !identity(request.dispatchId) || !identity(request.eventId)
+      : !["blocked", "simulated", "refused"].includes(request.disposition) ||
+        !/^[a-z_]{1,64}$/.test(request.outcomeCode))
+  )
+    throw new Error("Invalid effect reservation");
+  return { address, metadata };
+}
+
 /** Internal storage only: requires a privileged, already-authorized client, never a runtime grant. */
 export class PostgreSqlEffects {
   constructor(private readonly client: PostgreSqlClient) {}
@@ -104,39 +137,18 @@ export class PostgreSqlEffects {
   /** Persists prior admission atomically; this is not a grant check or a budget reservation. */
   async reserve(request: EffectReservation): Promise<RecordedEffect> {
     request = { ...request };
-    const address = addressValues(request);
-    const metadata = [
-      request.spaceId,
-      request.idempotencyKey,
-      request.actorId,
-      request.principalId,
-      request.runId,
-      request.callId,
-      request.capabilityId,
-      request.grantId,
-      request.policyVersion,
-      request.argumentsHash,
-      request.argumentsArtifactId,
-      request.reservedMicrousd,
-    ];
-    if (
-      !metadata
-        .slice(0, 9)
-        .every((value, index) => (index === 4 && value === null) || identity(value as string)) ||
-      !/^[a-f0-9]{64}$/.test(request.argumentsHash) ||
-      (request.argumentsArtifactId !== null && !identity(request.argumentsArtifactId)) ||
-      !Number.isSafeInteger(request.reservedMicrousd) ||
-      request.reservedMicrousd < 0 ||
-      (request.disposition === "pending"
-        ? !identity(request.dispatchId) || !identity(request.eventId)
-        : !["blocked", "simulated", "refused"].includes(request.disposition) ||
-          !/^[a-z_]{1,64}$/.test(request.outcomeCode))
-    )
-      throw new Error("Invalid effect reservation");
+    reservationValues(request);
+    return this.transaction(() => this.reserveInTransaction(request));
+  }
+
+  /** Trusted admission composes reservation and ledger in its already-open transaction. */
+  async reserveInTransaction(request: EffectReservation): Promise<RecordedEffect> {
+    request = { ...request };
+    const { address, metadata } = reservationValues(request);
     const pending = request.disposition === "pending";
     const reason = request.disposition === "pending" ? null : request.outcomeCode;
     const values = [...address, ...metadata];
-    return this.transaction(async () => {
+    {
       const inserted = await this.client.query(
         `INSERT INTO clockgrove.effect_intents
         (tenant_id,world_id,timeline_id,effect_id,space_id,idempotency_key,actor_id,principal_id,
@@ -192,7 +204,7 @@ export class PostgreSqlEffects {
         if (dispatch.rows.length !== 0) throw new Error("Effect disposition conflicts");
       }
       return (await this.recorded(address)) as RecordedEffect;
-    });
+    }
   }
 
   /** Queue identity is a reference, never authority or an adapter request. */
@@ -254,6 +266,11 @@ export class PostgreSqlEffects {
   async read(address: EffectAddress): Promise<RecordedEffect | null> {
     const values = addressValues(address);
     return this.transaction(() => this.recorded(values));
+  }
+
+  /** Internal caller already owns the client transaction. */
+  async readInTransaction(address: EffectAddress): Promise<RecordedEffect | null> {
+    return this.recorded(addressValues(address));
   }
 
   private async recorded(values: readonly string[]): Promise<RecordedEffect | null> {

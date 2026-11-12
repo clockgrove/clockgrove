@@ -29,6 +29,7 @@ export * from "./postgres-journal-range.js";
 export * from "./postgres-lifecycle-workflows.js";
 export * from "./postgres-mcp-bindings.js";
 export * from "./postgres-mcp-installations.js";
+export * from "./postgres-mcp-read-admission.js";
 export * from "./postgres-mcp-secrets.js";
 export * from "./postgres-moderation-shadow.js";
 export * from "./postgres-object-history.js";
