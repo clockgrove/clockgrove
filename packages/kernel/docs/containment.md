@@ -14,7 +14,7 @@ Registered reducers alone derive physical state; each event advances the revisio
 
 | Command | Complete payload beyond schemaVersion | Semantic event and complete payload |
 | --- | --- | --- |
-| `object.create` | `object: {objectId, archetypeId, spatial: {spaceId, pose}, containment?, resource?}` | `object.created {object, quantityAdded}`; quantityAdded is zero, object has explicit active Lifecycle |
+| `object.create` | `object: {objectId, archetypeId, spatial: {spaceId, pose}, containment?, resource?, shelter?}` | `object.created {object, quantityAdded}`; quantityAdded is zero, object has explicit active Lifecycle |
 | `object.retire` | `objectId, disposition: "discard"` | `object.retired {objectId, disposition, kind, quantityRemoved}`; kind is null for nonresource fixtures |
 | `containment.put` | `objectId, containerId` | `containment.put {objectId, containerId}` |
 | `containment.remove` | `objectId, containerId` | `containment.removed {objectId, containerId}` |
@@ -27,7 +27,9 @@ Object IDs/archetype identifiers are nonempty strings of at most 512 UTF-16 unit
 outer whitespace. Pose is the catalog's versioned two/three-dimensional bigint fixed-point
 pose in a declared frame. Fixture creation permits only absent or zero-quantity resources and requires a pinned archetype already in the pack,
 a distinct identity, a supported space/frame binding, and fewer than 128 existing entities.
-It cannot create Needs, Shelter, selected actions, schedules or `locationId`; fixture retirement
+It may create Shelter (`{rainProtection}` in basis points). Creation locates active objects already
+standing at that shelter’s pose, integrating needs, wellbeing and growth under their previous
+protection first. It cannot create Needs, selected actions, schedules or explicit `locationId`; fixture retirement
 refuses Needs actors. This avoids adding later lifecycle/scheduling systems. Containment and
 Resource shapes/bounds/redaction are defined in the domain catalog; Lifecycle becomes active
 at creation. Optional absent components stay absent. Capacity counts immediate objects,
@@ -35,8 +37,9 @@ including nested containers as one child; descendants keep their own space and c
 No operation changes physical space. Retiring a shelter evicts whatever active object is in it
 (`locationId` names it): each is first integrated through the retirement time under the protection
 still in force (`needs.changed`, `wellbeing.integrated`, `growth.integrated` as they change), then
-journals `location.changed` to null with the retiring command's id as `planId`, all before
-`object.retired`. A retired shelter protects nothing. No other operation changes `locationId`. A put requires an uncontained object;
+journals `location.changed` to another matching standing shelter or null, with the retiring command's id as `planId`, all before
+`object.retired`. A retired shelter protects nothing. Creation also reconciles locations at the new shelter;
+containment operations themselves do not change `locationId`. A put requires an uncontained object;
 remove and transfer require the exact current parent. Destination must be an active container
 in the same physical space with spare capacity and cannot be self or a descendant. Persona
 inventory is an ordinary container kind. Remove detaches only the immediate parent.
@@ -84,7 +87,7 @@ Globally registered post-state checks run for every command, including `world.ad
 | `object.lifecycle@1` | `state.entities[i]` for changing a terminal object; `.lifecycle.status` for terminal containers with active contents; `.resource.quantity` for retirement without disposition |
 | `resource.closed-world@1` | `events[i].type` for offered, appeared or positive-inventory created events in new execution |
 | `resource.quantity-conservation@1` | `state.entities[i].resource.quantity` for invalid kind/quantity; `state.resources.food` or `state.resources.water` for unrecorded total change |
-| `resource.event-authority.<command-type>@1` (`object.retire@2`) | `events[i].type` for an event outside that command's authorized set (for `object.retire`: `object.retired`, and a shelter's evictions with their integrations) |
+| `resource.event-authority.<command-type>@1` (`object.retire@2`, `object.create@2`) | `events[i].type` for an event outside that command's authorized set (for `object.retire` and `object.create`: their object event, and location reconciliation with integrations) |
 
 Existing world validity/revision/time/needs invariants remain registered. Violations return
 `invariant-violated` with `check` and `path`; thrown checks return `check-error` per the shared

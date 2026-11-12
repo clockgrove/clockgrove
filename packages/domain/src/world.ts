@@ -62,6 +62,7 @@ import type { MovementRecord } from "./spatial/movement.js";
 import { reducePortalEvent, validatePortals } from "./spatial/portal.js";
 import {
   reduceMovementEvent,
+  sameCoordinates,
   validateEntityMovement,
   validateSpatialCollections,
 } from "./spatial/reduce.js";
@@ -1402,6 +1403,24 @@ function requireEntity(state: WorldState, objectId: ObjectId): WorldEntity {
   if (entity === undefined)
     throw new DomainValidationError("objectId", "does not reference a declared entity");
   return entity;
+}
+
+/** Whether a shelter is standing at an object's position, rather than protecting itself. */
+export function shelterMatches(
+  entity: WorldEntity,
+  shelter: WorldEntity,
+  position: readonly bigint[] = entity.pose.coordinates,
+): boolean {
+  return (
+    shelter.shelter !== undefined &&
+    shelter.objectId !== entity.objectId &&
+    (shelter.lifecycle === undefined || shelter.lifecycle.status === "active") &&
+    shelter.movement?.status !== "active" &&
+    shelter.spaceId === entity.spaceId &&
+    shelter.pose.frameId === entity.pose.frameId &&
+    shelter.pose.frameVersion === entity.pose.frameVersion &&
+    sameCoordinates(shelter.pose.coordinates, position)
+  );
 }
 
 function requireShelter(state: WorldState, entity: WorldEntity, objectId: ObjectId): void {

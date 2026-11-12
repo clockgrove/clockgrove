@@ -1,0 +1,368 @@
+import { replayWorldEvents, type WorldEvent } from "@clockgrove/domain";
+import { expect, it } from "vitest";
+import { food, needs, RAIN, shelter, utilityWorld, WITH } from "./decisions.scenario.js";
+import { CEDAR_SPEC, ecologyWorld } from "./ecology.scenario.js";
+import {
+  advanceInput,
+  applyCommand,
+  commandInput,
+  type EnvironmentWorld,
+  runChain,
+} from "./environment.scenario.js";
+import { COINCIDE_SPEC, lifeChain, lifeLive, lifeWorld } from "./lifecycle.scenario.js";
+import { movementInput } from "./spatial.scenario.js";
+import { runLiveSteps } from "./wellbeing.scenario.js";
+
+const actor = "t-weather";
+const changes = (events: readonly WorldEvent[]) =>
+  events
+    .filter((event) => event.type === "location.changed")
+    .map((event) => [event.simulationTime, event.payload.objectId, event.payload.locationId]);
+const execute = (world: EnvironmentWorld, type: string, payload: object, id: string) =>
+  applyCommand(
+    world,
+    movementInput(advanceInput(world, id, world.state.simulationTime), type, payload, id) as never,
+  );
+const move = (world: EnvironmentWorld, objectId: string, x: bigint, id: string) =>
+  execute(
+    world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId,
+      destination: {
+        kind: "pose",
+        pose: {
+          ...world.state.entities.find((entity) => entity.objectId === objectId)!.pose,
+          coordinates: [x, 0n],
+        },
+      },
+      unitsPerSecond: 1000n,
+    },
+    id,
+  );
+const rainy = (located: boolean) =>
+  utilityWorld(
+    WITH({
+      ...RAIN,
+      intervalMs: 10000,
+      hunger: 0,
+      initial: [needs(0, 1000, 0)],
+      items: [shelter("den", [0, 0])],
+      located: [located ? "den" : null],
+    }),
+  );
+
+it("integrates occupants under old protection when a shelter leaves and locates them when it returns, with live/aggregate/replay parity", async () => {
+  const world = await rainy(true);
+  const lazy = applyCommand(
+    world,
+    commandInput(world, "world.advance", "lazy", {
+      targetTime: 1500n,
+      maxInputs: 1024,
+      maxEvents: 4096,
+      lazy: true,
+    }),
+  ).world;
+  const eager = runLiveSteps(world, "eager", 1500n, [700, 300]).world;
+  const runs = [lazy, eager].map((settled) => move(settled, "den", 500n, "leave"));
+  for (const run of runs) {
+    expect(changes(run.events)).toEqual([[1500n, actor, null]]);
+    expect(run.events.findIndex((event) => event.type === "location.changed")).toBeLessThan(
+      run.events.findIndex((event) => event.type === "movement.started"),
+    );
+  }
+  expect(runs[0]!.events.map((event) => event.type)).toContain("needs.changed");
+  expect(runs[0]!.world.state.entities).toEqual(runs[1]!.world.state.entities);
+  expect(runs[0]!.world.state.wellbeing).toEqual(runs[1]!.world.state.wellbeing);
+  const fast = runChain(runs[0]!.world, "fast", 2500n);
+  const live = runLiveSteps(runs[1]!.world, "live", 2500n, [700, 300]);
+  expect(live.world.state.entities).toEqual(fast.world.state.entities);
+  expect(live.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  const returned = move(fast.world, "den", 0n, "return");
+  expect(changes(returned.events)).toEqual([[3000n, actor, "den"]]);
+  expect(
+    returned.world.state.entities.find((entity) => entity.objectId === actor)!.needs!.wetness,
+  ).toBe(1075);
+  expect(runs[0]!.events.map((event) => event.type)).toEqual([
+    "needs.changed",
+    "wellbeing.integrated",
+    "location.changed",
+    "movement.started",
+    "movement.completed",
+  ]);
+  expect(
+    replayWorldEvents(lazy.state, [...runs[0]!.events, ...fast.events, ...returned.events]),
+  ).toEqual(returned.world.state);
+});
+
+it("creates a shelter at an occupant's pose after integrating its previous exposure", async () => {
+  const base = await rainy(false);
+  const den = base.state.entities.find((entity) => entity.objectId === "den")!;
+  const world = {
+    ...base,
+    state: { ...base.state, entities: base.state.entities.filter((entity) => entity !== den) },
+  };
+  const settled = applyCommand(
+    world,
+    commandInput(world, "world.advance", "lazy-create", {
+      targetTime: 1500n,
+      maxInputs: 1024,
+      maxEvents: 4096,
+      lazy: true,
+    }),
+  ).world;
+  const created = execute(
+    settled,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "new-den",
+        archetypeId: den.archetypeId,
+        spatial: { spaceId: den.spaceId, pose: den.pose },
+        shelter: { rainProtection: 10000 },
+      },
+    },
+    "create",
+  );
+  expect(changes(created.events)).toEqual([[1500n, actor, "new-den"]]);
+  expect(created.events.map((event) => event.type)).toContain("needs.changed");
+  expect(
+    created.world.state.entities.find((entity) => entity.objectId === actor)!.needs!.wetness,
+  ).toBe(1225);
+  expect(created.events.map((event) => event.type)).toEqual([
+    "object.created",
+    "needs.changed",
+    "wellbeing.integrated",
+    "location.changed",
+  ]);
+  const after = runChain(created.world, "create-after", 2500n);
+  expect(
+    after.world.state.entities.find((entity) => entity.objectId === actor)!.needs!.wetness,
+  ).toBe(1125);
+  expect(replayWorldEvents(settled.state, created.events)).toEqual(created.world.state);
+  const crate = execute(
+    created.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "walking-crate",
+        archetypeId: den.archetypeId,
+        spatial: { spaceId: den.spaceId, pose: den.pose },
+      },
+    },
+    "create-crate",
+  );
+  const walking = execute(
+    crate.world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "walking-crate",
+      unitsPerSecond: 1000n,
+      observeUntil: 1500n,
+      destination: { kind: "pose", pose: { ...den.pose, coordinates: [2000n, 0n] } },
+    },
+    "walk-before-create",
+  );
+  const second = execute(
+    walking.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "second-den",
+        archetypeId: den.archetypeId,
+        spatial: { spaceId: den.spaceId, pose: den.pose },
+        shelter: { rainProtection: 10000 },
+      },
+    },
+    "create-behind-walker",
+  );
+  expect(
+    second.world.state.entities.find((entity) => entity.objectId === "walking-crate")!.locationId,
+  ).toBeUndefined();
+});
+
+it("moves a shelter that is itself a sheltered plant without losing its old growth integration or protecting itself", async () => {
+  const base = await ecologyWorld(CEDAR_SPEC);
+  const cedar = base.state.entities.find((entity) => entity.objectId === "sheltered-cedar")!;
+  const crate = {
+    ...cedar,
+    objectId: "crate" as typeof cedar.objectId,
+    locationId: cedar.objectId,
+  };
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: [
+        crate,
+        ...base.state.entities.map((entity) =>
+          entity === cedar ? { ...entity, shelter: { rainProtection: 10000 } } : entity,
+        ),
+      ],
+    },
+  };
+  const settled = applyCommand(
+    world,
+    commandInput(world, "world.advance", "plant-before", {
+      targetTime: 3500n,
+      maxInputs: 1024,
+      maxEvents: 4096,
+      lazy: true,
+    }),
+  ).world;
+  const moved = move(settled, "sheltered-cedar", 2000n, "plant-move");
+  expect(changes(moved.events).filter(([, id]) => id === "sheltered-cedar")).toEqual([
+    [3500n, "sheltered-cedar", null],
+  ]);
+  const growthIndex = moved.events.findIndex(
+    (event) => event.type === "growth.integrated" && event.payload.objectId === "sheltered-cedar",
+  );
+  expect(growthIndex).toBeGreaterThanOrEqual(0);
+  expect(growthIndex).toBeLessThan(
+    moved.events.findIndex((event) => event.type === "location.changed"),
+  );
+  const fast = runChain(moved.world, "plant-fast", 9000n);
+  const live = runLiveSteps(moved.world, "plant-live", 9000n, [700, 300]);
+  expect(live.world.state.ecology).toEqual(fast.world.state.ecology);
+  expect(changes(moved.events)).toContainEqual([3500n, "crate", "shelter-10000"]);
+  expect(
+    fast.world.state.ecology!.plants.find((entry) => entry.objectId === "sheltered-cedar"),
+  ).toMatchObject({ growingMs: 2300n, wetness: 3250, integratedAt: 9000n });
+  expect(replayWorldEvents(settled.state, [...moved.events, ...fast.events])).toEqual(
+    fast.world.state,
+  );
+});
+
+it("rebuilds exposure when a routine shelter moves after its occupant decided", async () => {
+  const base = await utilityWorld(
+    WITH({
+      ...RAIN,
+      actors: [
+        ["a-occupant", null],
+        ["z-shelter", null],
+      ],
+      initial: [needs(0, 2999, 0), needs(9000, 0, 0)],
+      starts: [
+        [0, 0],
+        [0, 0],
+      ],
+      hungerPerInterval: 0,
+      items: [food("bin", [2000, 0])],
+    }),
+  );
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      spatialRegions: [
+        {
+          regionId: "arrival-edge",
+          version: 1,
+          frameId: base.state.entities[0]!.pose.frameId,
+          frameVersion: 1,
+          shape: { kind: "rectangle", min: [1500n, -100n], max: [2000n, 100n] },
+        },
+      ] as never,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "z-shelter"
+          ? { ...entity, shelter: { rainProtection: 10000 } }
+          : entity.objectId === "a-occupant"
+            ? { ...entity, locationId: "z-shelter" as typeof entity.objectId }
+            : entity,
+      ),
+    },
+  };
+  const fast = runChain(world, "routine-fast", 500n);
+  const live = runLiveSteps(world, "routine-live", 500n, [300, 200]);
+  expect(live.world.state.entities).toEqual(fast.world.state.entities);
+  expect(live.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  const bounded = runChain(world, "routine-bounded", 500n, 1, 8);
+  expect(bounded.world.state.entities).toEqual(fast.world.state.entities);
+  expect(bounded.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  expect(
+    fast.world.state.entities.find((entity) => entity.objectId === "a-occupant")!.needs!.wetness,
+  ).toBe(3749);
+  expect(changes(fast.events)).toContainEqual([0n, "a-occupant", null]);
+  const arrived = runChain(world, "arrival-fast", 1500n);
+  const stepped = runLiveSteps(world, "arrival-live", 1500n, [300, 200]);
+  expect(stepped.world.state.entities).toEqual(arrived.world.state.entities);
+  expect(stepped.world.state.wellbeing).toEqual(arrived.world.state.wellbeing);
+  expect(
+    arrived.events
+      .filter((event) => event.type === "movement.completed")
+      .map((event) => [event.simulationTime, event.payload.objectId]),
+  ).toContainEqual([1000n, "z-shelter"]);
+  expect(
+    fast.events
+      .filter((event) => event.type === "exposure.threshold-crossed")
+      .map((event) => [event.simulationTime, event.payload.objectId]),
+  ).toContainEqual([1n, "a-occupant"]);
+});
+
+it("does not locate occupants in a shelter stopped by death, including bounded lifecycle advances", async () => {
+  const base = await lifeWorld(COINCIDE_SPEC);
+  const resident = base.state.entities.find((entity) => entity.objectId === "a-resident")!;
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: [
+        ...base.state.entities.map((entity) =>
+          entity === resident ? { ...entity, shelter: { rainProtection: 10000 } } : entity,
+        ),
+        {
+          objectId: "occupant" as typeof resident.objectId,
+          archetypeId: resident.archetypeId,
+          spaceId: resident.spaceId,
+          pose: { ...resident.pose, coordinates: [1n, 0n] as never },
+        },
+      ],
+    },
+  };
+  const started = execute(
+    world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: resident.objectId,
+      destination: { kind: "pose", pose: { ...resident.pose, coordinates: [500n, 0n] } },
+      unitsPerSecond: 1000n,
+      observeUntil: 0n,
+    },
+    "terminal-start",
+  );
+  const moving = { ...started.world, random: base.random };
+  const fast = lifeChain(moving, "terminal-fast", 2n);
+  const live = lifeLive(moving, "terminal-live", 2n, 1n);
+  for (const maxEvents of [6, 7, 9]) {
+    const bounded = lifeChain(moving, `terminal-bounded-${maxEvents}`, 2n, 1024, maxEvents);
+    if (maxEvents === 6) expect(bounded.calls.length).toBeGreaterThan(1);
+    expect(bounded.world.state.entities).toEqual(fast.world.state.entities);
+    expect(bounded.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+    expect(
+      bounded.calls.every(
+        (call) => call.outcome.ok && call.outcome.result.events.length <= maxEvents,
+      ),
+    ).toBe(true);
+  }
+  expect(live.world.state.entities).toEqual(fast.world.state.entities);
+  expect(live.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  expect(changes(fast.events)).toEqual([]);
+  expect(
+    fast.world.state.entities.find((entity) => entity.objectId === "occupant")!.locationId,
+  ).toBeUndefined();
+  expect(
+    fast.events
+      .filter((event) => ["movement.interrupted", "lifecycle.died"].includes(event.type))
+      .map((event) => [event.type, event.simulationTime]),
+  ).toEqual([
+    ["movement.interrupted", 1n],
+    ["lifecycle.died", 1n],
+  ]);
+  expect(replayWorldEvents(moving.state, fast.events)).toEqual(fast.world.state);
+});

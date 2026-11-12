@@ -210,11 +210,21 @@ Three things differ from `world.advance`:
 - When the mover dies, its movement is interrupted at that time (its pending crossings, then
   `movement.interrupted`, then `lifecycle.died`) and the move ends there. `movement.interrupted`
   carries no cause; the `lifecycle.died` at the same time carries it (`lifespan` or `health`).
+  This terminal interruption does not reconcile shelter arrivals: a shelter about to die cannot
+  protect occupants at its stopping pose.
   The handler's later events are dropped, and nothing after that time is emitted.
 
 A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
 does. A location is a shelter's pose in the mover's space and frame; regions are not locations, so
-crossings do not change it. Two rules, applied to every active mover (a needs actor, a plant or any
+crossings do not change it. An active movement is not a standing shelter: its persisted starting pose does not protect
+objects left behind. Shelter creation, departure, stopping and retirement apply the same
+space, frame, pose, active-component and self-exclusion rule to affected occupants. On departure
+they stay at their own poses and select another shelter there or open ground; on arrival or
+creation objects already at the shelter’s pose enter it, preserving an existing matching shelter.
+Every affected occupant is integrated under its old protection before its location changes,
+including a shelter that is itself a needs actor or a plant.
+
+Two rules, applied to every active mover (a needs actor, a plant or any
 other object):
 
 - **Leaving.** When the movement it starts or replans leaves its starting point, a located mover

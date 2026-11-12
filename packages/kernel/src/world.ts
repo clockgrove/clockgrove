@@ -53,6 +53,7 @@ import {
   regionsContaining,
   sameCoordinates,
   scriptedCognitionDisagreement,
+  shelterMatches,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -1020,16 +1021,124 @@ function runWorld(
   /** The `lifecycle` stream state after each emitted lifecycle group (rolled back to the final time). */
   let lifecycleRandom: NamedRandomState = input.randomState;
   const randomLog: { time: bigint; random: NamedRandomState }[] = [];
+  let shelterChanged = false;
+  function shelterChanges(changing: WorldEvent, before = current()) {
+    if (
+      ![
+        "movement.started",
+        "movement.replanned",
+        "movement.completed",
+        "movement.interrupted",
+      ].includes(changing.type)
+    )
+      return undefined;
+    const data = changing.payload as unknown as {
+      objectId: ObjectId;
+      movementId?: string;
+      movement?: MovementRecord;
+    };
+    const shelter = objectsOf(before, data.objectId);
+    if (shelter?.shelter === undefined) return undefined;
+    const departing = data.movement !== undefined && leavesStart(data.movement);
+    if (data.movement !== undefined && !departing) return undefined;
+    const after = departing
+      ? {
+          ...before,
+          entities: before.entities.filter((entity) => entity.objectId !== shelter.objectId),
+        }
+      : {
+          ...before,
+          // Budget planning runs before pending crossings are journaled; only the stopped pose
+          // matters here. The emitted movement event still goes through the validating reducer.
+          entities: before.entities.map((entity) =>
+            entity.objectId !== shelter.objectId
+              ? entity
+              : {
+                  ...entity,
+                  pose: {
+                    ...entity.pose,
+                    coordinates: positionAt(
+                      entity.movement!.segment,
+                      changing.simulationTime,
+                    ) as WorldEntity["pose"]["coordinates"],
+                  },
+                  movement: {
+                    ...entity.movement!,
+                    status: "completed" as const,
+                    endedAt: changing.simulationTime,
+                  },
+                },
+          ),
+        };
+    const changes = before.entities
+      .filter(
+        (entity) =>
+          active(entity) &&
+          entity.movement?.status !== "active" &&
+          entity.objectId !== shelter.objectId &&
+          (entity.locationId === shelter.objectId ||
+            (!departing && shelterMatches(entity, objectsOf(after, shelter.objectId)!))),
+      )
+      .map((entity) => ({ entity, locationId: shelterAt(after, entity, entity.pose.coordinates) }))
+      .filter(({ entity, locationId }) => (entity.locationId ?? null) !== locationId);
+    return { after, departing, changes, planId: data.movement?.movementId ?? data.movementId! };
+  }
+  function shelterEventCount(changing: WorldEvent, before = current()): number {
+    const plan = shelterChanges(changing, before);
+    return (
+      plan?.changes.reduce(
+        (total, { entity }) =>
+          total +
+          1 +
+          integrationEvents(entity, changing.simulationTime) +
+          (pendingPlants(changing.simulationTime).includes(entity.objectId) ? 1 : 0),
+        0,
+      ) ?? 0
+    );
+  }
+  function shelterTransition(
+    changing: WorldEvent,
+  ): { objectId: ObjectId; locationId: ObjectId | null; planId: string }[] {
+    const plan = shelterChanges(changing);
+    if (plan === undefined) return [];
+    const { changes, departing, planId } = plan;
+    for (const { entity } of changes) {
+      integrateActor(entity, changing.simulationTime);
+      if (pendingPlants(changing.simulationTime).includes(entity.objectId))
+        integratePlant(entity.objectId, changing.simulationTime);
+    }
+    if (changes.length > 0) shelterChanged = true;
+    if (departing) {
+      for (const { entity, locationId } of changes)
+        emit(
+          event("location.changed", changing.simulationTime, {
+            objectId: entity.objectId,
+            locationId: locationId as ObjectId | null,
+            planId,
+          }),
+        );
+      return [];
+    }
+    return changes.map(({ entity, locationId }) => ({
+      objectId: entity.objectId,
+      locationId: locationId as ObjectId | null,
+      planId,
+    }));
+  }
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent): void {
+  function emit(event: WorldEvent, reconcileShelter = true): void {
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
     )
       throw new RangeError("event adoption budget or deterministic index exhausted");
+    const affected = reconcileShelter ? shelterTransition(event) : [];
     context.emit(event);
+    for (const change of affected) {
+      emit({ ...event, type: "location.changed", payload: change } as WorldEvent);
+    }
     // Entries, exits, remains, deaths and retirements keep the keyed dwell schedules current.
     for (const change of dwellChanges(schedules, current(), event)) {
       scheduleMutations.push(change as WorldScheduleMutation);
@@ -1348,7 +1457,7 @@ function runWorld(
     const was = actor.locationId ?? null;
     const location = moved
       ? shelterAt(state, actor, target.pose.coordinates, target.objectId)
-      : target.shelter !== undefined
+      : shelterMatches(actor, target)
         ? target.objectId
         : was;
     const located = location === was ? {} : { location };
@@ -1813,6 +1922,7 @@ function runWorld(
       if (lifecyclePolicy !== undefined && lifecyclePolicy.successorRule !== null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
       if (movement !== undefined && movement.status === "active")
+        // Terminal interruptions do not reconcile shelter arrivals before the following death.
         total += pendingCrossings(movement, at).length + 1;
     }
     return total;
@@ -1874,6 +1984,7 @@ function runWorld(
         moverCrossings.push({ objectId, movement, crossings });
         movementSize += crossings.length;
       }
+      let arrivalState = before;
       for (const { objectId, movement } of moverCrossings) {
         if (movementCompletionTime(movement.segment) !== at) continue;
         arrivalIds.push(objectId);
@@ -1895,6 +2006,45 @@ function runWorld(
               plan.consume.quantity,
           );
         }
+        if (
+          plan.location === undefined &&
+          shelterAt(arrivalState, actor, positionAt(movement.segment, at)) !==
+            (actor.locationId ?? null)
+        )
+          movementSize += 1;
+        const completion = event("movement.completed", at, {
+          objectId: objectId as ObjectId,
+          movementId: movement.movementId,
+        });
+        movementSize += shelterEventCount(completion, arrivalState);
+        const shelterPlan = shelterChanges(completion, arrivalState);
+        const stopped = {
+          ...objectsOf(arrivalState, objectId)!,
+          pose: {
+            ...actor.pose,
+            coordinates: positionAt(movement.segment, at) as WorldEntity["pose"]["coordinates"],
+          },
+          movement: { ...movement, status: "completed" as const, endedAt: at },
+        };
+        const projected = {
+          ...arrivalState,
+          entities: arrivalState.entities.map((entity) =>
+            entity.objectId === objectId ? stopped : entity,
+          ),
+        };
+        const locations = new Map(
+          shelterPlan?.changes.map(({ entity, locationId }) => [entity.objectId, locationId]),
+        );
+        locations.set(stopped.objectId, shelterAt(projected, stopped, stopped.pose.coordinates));
+        arrivalState = {
+          ...projected,
+          entities: projected.entities.map((entity) => {
+            if (!locations.has(entity.objectId)) return entity;
+            const { locationId: _old, ...rest } = entity;
+            const locationId = locations.get(entity.objectId);
+            return locationId == null ? rest : { ...rest, locationId: locationId as ObjectId };
+          }),
+        };
         movementSize +=
           (integratedHere.has(objectId)
             ? 0
@@ -2094,6 +2244,7 @@ function runWorld(
                 movementId: movement.movementId,
                 position: positionAt(movement.segment, at),
               } as never),
+              false,
             );
           }
           const entry = current().wellbeing?.entries.find(
@@ -2250,7 +2401,8 @@ function runWorld(
    * `dwellsThrough`. Returns false, with `complete` false, when the budget stops it first.
    */
   function advanceTo(target: SimTimeMs, dwellsThrough: SimTimeMs): boolean {
-    if (run === undefined) run = buildRun();
+    if (run === undefined || shelterChanged) run = buildRun();
+    shelterChanged = false;
     let engine = run;
     while (true) {
       // One engine call over the real queue; decisions a threshold brings forward are single
@@ -2343,7 +2495,7 @@ function runWorld(
           fits = false;
           break;
         }
-        if (lifecycleChanged) {
+        if (lifecycleChanged || shelterChanged) {
           rebuildAt = group.time;
           break;
         }
@@ -2363,6 +2515,7 @@ function runWorld(
         if (moverDied()) break;
         // A death or birth changed the set of living actors: rebuild the engine run from the state.
         engine = run = buildRun();
+        shelterChanged = false;
         continue;
       }
       if (restartAt !== undefined) {
@@ -2444,6 +2597,23 @@ function runWorld(
           pendingWater(item.dueAt).length +
           1 +
           stepEvents(trialPlan.steps);
+        for (const step of trialPlan.steps) {
+          if (step.kind === "start" || step.kind === "replan")
+            decisionSize += shelterEventCount(
+              event(step.kind === "start" ? "movement.started" : "movement.replanned", item.dueAt, {
+                objectId: dueActor.objectId,
+                movement: step.record,
+              } as never),
+            );
+          else if (step.kind === "interrupt")
+            decisionSize += shelterEventCount(
+              event("movement.interrupted", item.dueAt, {
+                objectId: dueActor.objectId,
+                movementId: step.movementId,
+                position: step.position,
+              } as never),
+            );
+        }
       }
       if (dispatched === payload.maxInputs) {
         complete = false;
@@ -2503,7 +2673,10 @@ function runWorld(
           ...scoring.trace,
           outcomeLinks: Object.freeze([...plan.links]),
         });
-        refreshRun(engine, [actor.objectId]);
+        if (shelterChanged) {
+          engine = run = buildRun();
+          shelterChanged = false;
+        } else refreshRun(engine, [actor.objectId]);
       }
       pushDraft(Object.freeze({ kind: "routine", decision }), item.dueAt);
       // A policy-declared ambiguity is recorded beside the trace, never executed: the decision
@@ -2607,7 +2780,10 @@ function runWorld(
           const movement = (data as { readonly movement: MovementRecord }).movement;
           if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
         }
-        emit(event(type as WorldEvent["type"], at, data as never));
+        const changing = event(type as WorldEvent["type"], at, data as never);
+        if (context.eventCount() + 1 + shelterEventCount(changing) > payload.maxEvents)
+          passedTime("events");
+        emit(changing);
         // Where it stops, it is in the shelter standing there, or on open ground.
         if (type === "movement.completed" || type === "movement.interrupted") {
           const actor = objectsOf(current(), mover as string) as WorldEntity;
@@ -3552,7 +3728,9 @@ function waterAt(
 /** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
-  return location !== undefined && active(location) ? (location.shelter?.rainProtection ?? 0) : 0;
+  return location !== undefined && shelterMatches(actor, location)
+    ? (location.shelter?.rainProtection ?? 0)
+    : 0;
 }
 /**
  * The world's single needs/wetness arithmetic, given the rain intensity and shelter protection in
@@ -3712,16 +3890,7 @@ function shelterAt(
   preferred?: string,
 ): string | null {
   const here = state.entities
-    .filter(
-      (entity) =>
-        entity.shelter !== undefined &&
-        entity.objectId !== actor.objectId &&
-        active(entity) &&
-        entity.spaceId === actor.spaceId &&
-        entity.pose.frameId === actor.pose.frameId &&
-        entity.pose.frameVersion === actor.pose.frameVersion &&
-        sameCoordinates(entity.pose.coordinates, position),
-    )
+    .filter((entity) => shelterMatches(actor, entity, position))
     .map((entity) => entity.objectId as string);
   for (const kept of [actor.locationId, preferred])
     if (kept !== undefined && kept !== null && here.includes(kept)) return kept;
@@ -3759,6 +3928,42 @@ function runContainmentCommand(
       ...data,
     } as WorldEvent);
   };
+  const reconcile = (after: WorldState, shelterId: string, created = false): void => {
+    const shelter = after.entities.find((entity) => entity.objectId === shelterId);
+    const changes = (created ? after.entities : state.entities)
+      .filter(
+        (entity) =>
+          active(entity) &&
+          entity.movement?.status !== "active" &&
+          (entity.objectId === shelterId ||
+            entity.locationId === shelterId ||
+            (shelter !== undefined && shelterMatches(entity, shelter))),
+      )
+      .map((occupant) => ({
+        occupant,
+        locationId: shelterAt(after, occupant, occupant.pose.coordinates),
+      }))
+      .filter(({ occupant, locationId }) => (occupant.locationId ?? null) !== locationId);
+    const at = state.simulationTime;
+    const continuous = worldContinuousAt(state, input.pack.pack.policy, at);
+    for (const { occupant, locationId } of changes) {
+      const objectId = occupant.objectId;
+      const needs = continuous.needs.find((entry) => entry.objectId === objectId)?.needs;
+      if (needs !== undefined && canonicalSerialize(needs) !== canonicalSerialize(occupant.needs))
+        emit({ type: "needs.changed", payload: { objectId, ...needs } });
+      const wellbeing = continuous.wellbeing.find((entry) => entry.objectId === objectId);
+      const entry = state.wellbeing?.entries.find((item) => item.objectId === objectId);
+      if (wellbeing !== undefined && entry !== undefined && entry.integratedAt !== at)
+        emit({ type: "wellbeing.integrated", payload: { ...wellbeing, integratedAt: at } });
+      const growth = continuous.plants.find((item) => item.objectId === objectId);
+      if (growth !== undefined)
+        emit({ type: "growth.integrated", payload: { ...growth, integratedAt: at } });
+      emit({
+        type: "location.changed",
+        payload: { objectId, locationId, planId: context.command.commandId },
+      });
+    }
+  };
   switch (type) {
     case "object.create": {
       const value = (payload as ContainmentPayload<"object.create">).object;
@@ -3778,40 +3983,19 @@ function runContainmentCommand(
         type: "object.created",
         payload: { object, quantityAdded: object.resource?.quantity ?? 0 },
       });
+      reconcile(context.workingState(), object.objectId, true);
       break;
     }
     case "object.retire": {
       const p = payload as ContainmentPayload<"object.retire">;
       const entity = find(p.objectId);
-      // Whatever is in a retired shelter stands on open ground from now: each is integrated first
-      // under the protection still in force, then leaves it (`location.changed` to null).
-      const occupants = state.entities.filter(
-        (occupant) => occupant.locationId === entity.objectId && active(occupant),
+      reconcile(
+        {
+          ...state,
+          entities: state.entities.filter((candidate) => candidate.objectId !== entity.objectId),
+        },
+        entity.objectId,
       );
-      if (occupants.length > 0) {
-        const at = state.simulationTime;
-        const continuous = worldContinuousAt(state, input.pack.pack.policy, at);
-        for (const occupant of occupants) {
-          const objectId = occupant.objectId;
-          const needs = continuous.needs.find((entry) => entry.objectId === objectId)?.needs;
-          if (
-            needs !== undefined &&
-            canonicalSerialize(needs) !== canonicalSerialize(occupant.needs)
-          )
-            emit({ type: "needs.changed", payload: { objectId, ...needs } });
-          const wellbeing = continuous.wellbeing.find((entry) => entry.objectId === objectId);
-          const entry = state.wellbeing?.entries.find((item) => item.objectId === objectId);
-          if (wellbeing !== undefined && entry !== undefined && entry.integratedAt !== at)
-            emit({ type: "wellbeing.integrated", payload: { ...wellbeing, integratedAt: at } });
-          const growth = continuous.plants.find((item) => item.objectId === objectId);
-          if (growth !== undefined)
-            emit({ type: "growth.integrated", payload: { ...growth, integratedAt: at } });
-          emit({
-            type: "location.changed",
-            payload: { objectId, locationId: null, planId: context.command.commandId },
-          });
-        }
-      }
       emit({
         type: "object.retired",
         payload: {
@@ -4401,7 +4585,13 @@ function registerContainmentChecks(
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
   const authority: Record<ContainmentCommandType, readonly string[]> = {
     "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
-    "object.create": ["object.created"],
+    "object.create": [
+      "object.created",
+      "needs.changed",
+      "wellbeing.integrated",
+      "growth.integrated",
+      "location.changed",
+    ],
     // Retiring a shelter integrates and evicts whatever is in it first.
     "object.retire": [
       "needs.changed",
@@ -4423,7 +4613,7 @@ function registerContainmentChecks(
   ].map((type) =>
     invariants.register({
       name: `resource.event-authority.${type}`,
-      version: type === "object.retire" ? 2 : 1,
+      version: type === "object.retire" || type === "object.create" ? 2 : 1,
       commands: [type],
       check: ({ events }) => {
         const allowed =
