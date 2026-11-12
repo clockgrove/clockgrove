@@ -827,3 +827,38 @@ connections, request/decision deduplication, binding conflicts, rollback, reconn
 expiry during a lock wait, preview refusal and encrypted artifact scope. It also runs
 `tests/database/effect-approvals.sql` for scope/privacy and runtime mutation attacks.
 These are storage proofs; they do not establish actor execution or a browser journey.
+
+
+## Atomic approved-effect reservation (issue 166, part 2)
+
+The internal `PostgreSqlApprovedEffects` composition joins exact approval consumption
+and the existing effect intent/outbox reservation in one PostgreSQL transaction. A
+failed reservation rolls back both. This remains privileged persistence: it supplies
+no human authentication, grants, current-policy admission, model tool or transport
+activation. MCP research remains read-only. Actor waits and person/operator controls
+are still pending.
+
+A versioned effect hash binds all intent metadata and dispatch/event identity. The
+argument digest is recomputed from the supplied normalized arguments with the existing
+canonical JSON hashing rules; approval scope, principal, artifact and expiry must also
+match. The normalized arguments must come from trusted schema/grant admission, not a
+model's assertion that its input is approved. Argument content is not stored by this
+composition. `approvedEffectIdempotencyKey` hashes the versioned approval address;
+the new port requires that value as the immutable ledger key, durably associating
+recovery with the original approval. Existing read and generic effect keys are unchanged.
+
+Reservation serializes on the scoped effect identity before spending approval. An
+identical retry using the consumed approval returns the existing ledger outcome and
+validates the original outbox identity. It cannot consume another approval for an
+existing effect, reset a terminal outcome or create another dispatch. This is recovery
+of a reservation, not retry of an uncertain remote write. The caller-owned transaction
+entry point lets later admission reserve budgets and recheck current authority in the
+same transaction. Its caller must propagate every error and roll back the entire
+transaction; the convenience `reserve` method owns that rollback. A future explicitly
+approved safe retry needs fresh approval, effect and call identities; it cannot reset
+the old uncertain record. That integration must use a consistent lock order, recheck authority
+before transport, and preserve the existing preview/replay fences.
+
+The real PostgreSQL proof is `apps/runtime/test/approved-effects.postgres.test.ts`.
+It establishes atomic storage reservation and recovery, not actor execution, a remote
+write or a browser approval journey.
