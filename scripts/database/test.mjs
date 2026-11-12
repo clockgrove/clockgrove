@@ -37,6 +37,7 @@ await withDisposableDatabase(
       "clockgrove_management_reader",
       "clockgrove_world_reader",
       "clockgrove_mcp_secrets",
+      "clockgrove_mcp_auth_writer",
     ];
     await psql(
       tools,
@@ -106,7 +107,7 @@ await withDisposableDatabase(
            FROM pg_authid a WHERE rolname IN (${restricted.map((name) => `'${name}'`).join(", ")})`,
         )
       ).trim(),
-      "6|7",
+      "6|8",
     );
     // Each login role's stored SCRAM verifier is the one for its generated password.
     const verifiers = await psqlQuery(

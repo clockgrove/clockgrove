@@ -1904,3 +1904,29 @@ A lost attempt is reconciled after 60 seconds: three existing 15-second HTTP dea
 `tool_uncertain`. Never clear the effect to retry it. Queue retry and sweep recovery resume
 canonical work; physical DLQ inspection remains an operator action. The browser's 180-second
 presentation wait preserves its pending message on expiry, so reopening can read or resume it.
+
+
+## Internal first-party MCP credentials
+
+Issue 167 part 5 supplies the internal `composeWorldMcpAuthentication` factory in
+`apps/runtime/src/better-auth-adapter.ts`. It supports both owner-required modes:
+OAuth authorization code with PKCE and member API tokens. It does not mount a
+public MCP or auth route. Final endpoint composition, the web token controls and
+a working external-client connection procedure remain part 6.
+
+Keep the current `AUTH_DATABASE_URL` verification-only connection unchanged.
+Provisioning creates `clockgrove_mcp_auth_writer` as `NOLOGIN` with no password;
+this part does not activate it. The new factory requires explicit, separate
+authentication-writer configuration;
+that writer must never be the runtime, migrator, Management or World-reader
+connection. Configure the exact MCP resource URL and the existing identity-link
+resolver. OAuth scope/consent and token possession cannot create world grants.
+The adapter disables session refresh and cannot write existing users or sessions.
+OAuth access lasts one hour; member tokens last thirty days. Part 6 must add
+public issuance capacity limits and credential retirement/administration before
+activation. Never put credentials in URLs, command arguments, logs or committed
+configuration.
+
+See the [MCP credential contract](../protocols/mcp.md#internal-member-credential-composition-issue-167-part-5)
+for the internal boundary and remaining integration obligations. There is no
+external connection command to run until that composition is delivered.
