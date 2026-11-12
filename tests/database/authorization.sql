@@ -128,6 +128,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'mcp_read_retry_refusals', 'none'),
   ('clockgrove', 'mcp_read_switches', 'none'),
   ('clockgrove', 'mcp_read_turn_budgets', 'none'),
+  ('clockgrove', 'world_mcp_budgets', 'none'),
   ('clockgrove', 'effect_intents', 'operator_read'),
   ('clockgrove', 'effect_attempts', 'operator_read'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
