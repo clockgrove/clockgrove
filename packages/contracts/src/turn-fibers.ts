@@ -16,6 +16,7 @@ export const TURN_PHASES = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "approval_waiting",
   "tool_waiting",
   "tool_completed",
   "committing",
@@ -41,6 +42,7 @@ export const CANCELLABLE_TURN_PHASES: readonly TurnPhase[] = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "approval_waiting",
   "tool_waiting",
   "tool_completed",
 ];
@@ -108,7 +110,7 @@ export function decodeTurnRequest(value: unknown, path = "turn"): TurnRequest {
 export function decodeTurnStatus(value: unknown, path = "turnStatus"): TurnStatus {
   const v = record(value, path);
   exactKeys(v, ["sessionId", "messageId", "phase", "attempt", "outcomeCode"], ["toolCallId"], path);
-  if (v.toolCallId !== undefined && v.phase !== "tool_waiting")
+  if (v.toolCallId !== undefined && !["tool_waiting", "approval_waiting"].includes(String(v.phase)))
     throw new ContractDecodeError(`${path}.toolCallId`, "expected a waiting turn");
   return Object.freeze({
     sessionId: id(v.sessionId, `${path}.sessionId`),

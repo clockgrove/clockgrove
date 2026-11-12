@@ -456,6 +456,13 @@
       "when": 1796162400005,
       "tag": "0065_effect_resolutions",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1796162400006,
+      "tag": "0066_approval_waiting",
+      "breakpoints": true
     }
   ]
 }

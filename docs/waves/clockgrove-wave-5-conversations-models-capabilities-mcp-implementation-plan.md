@@ -264,6 +264,13 @@ The owner defaults (2026-11-09) are three tool calls, four model steps and a con
 $0.25 tool-turn ceiling including cognition. Exceeding a bound records a visible service
 outcome. Completed tool results are untrusted evidence; they cannot grant authority.
 
+Issue 166 part 5 adds the durable `approval_waiting` checkpoint through an optional
+trusted actor host hook. Recovery retains the original call and encrypted proposal,
+consults approval state before execution, and records denied/expired/revoked calls
+as refusals without another decision model. Existing read hosts remain compatible.
+Public approval routing and automatic wake/expiry scheduling remain part 6; see
+[approval checkpoints](../protocols/conversation-fibers.md#approval-wait-checkpoints-issue-166-part-5).
+
 ### 7.2 Recovery
 
 On activation/restart:
@@ -407,6 +414,13 @@ wall-clock expiry is ten minutes. Uncertain-write operator resolution may mark d
 mark failed or request a retry; retry requires a fresh approval and declared safe
 idempotency. The ledger foundation does not implement those resolution actions.
 
+Part 5 adds an internal human control boundary with trusted authentication, fresh
+scoped authority, exact encrypted preview verification and attributed ledger decisions.
+It also adds the optional durable actor wait hook. These are reusable boundaries, not
+public route or write activation; part 6 connects protected-class policy, proactive
+operator routing and safe freshly approved retry. See the
+[current controls](../protocols/mcp.md#human-control-and-durable-wait-boundary-issue-166-part-5).
+
 ### 11.3 Guide and counterfactual consumers
 
 Field-guide read/share in Wave 6 consumes these governed document, capability, context and channel boundaries. Its destination audience, permitted source disclosure and exact version must be validated independently of an actor's source read access. Guide text remains untrusted contextual testimony, not a new instruction hierarchy. Actual guide synthesis/sharing behavior and qualification belong to Wave 6; counterfactual preview execution belongs to Wave 7. See the [accepted topic ADR](../adr/clockgrove-adr-field-guides-and-counterfactual-why.md).
@@ -503,6 +517,11 @@ creates no dispatch and permits no retry. Authenticated human controls, actor wa
 safe freshly approved retry and the browser/write-fixture journey remain later parts.
 See the [current resolution boundary](../protocols/mcp.md#internal-uncertainty-resolution-issue-166-part-4).
 
+Part 5 adds internal human-authenticated uncertainty inspection/resolution controls
+over that ledger. The operator must retain current scoped authority; resolution keeps
+the original attempt uncertain and never sends or schedules a retry. The final part
+still owns public controls, transport, safe retry and phase-injected end-to-end proof.
+
 Initial fixtures:
 
 - one deterministic read-only remote MCP server;
@@ -582,6 +601,11 @@ Issue 165 adds disposable tool-progress frames and “Using tool” presentation
 call/grant/effect/result evidence. Tool waits and provider/budget failures are durable service
 states. The scripted browser journey is the default proof; a recorded real-model fixture run
 is a maintainer step when a key is available, never a default CI call.
+
+Issue 166 part 5 exposes an additive durable approval-wait status in the turn contract,
+but adds no approval browser control. The final part supplies the conversation argument
+preview, approve/deny controls, operator approvals/uncertainty view and scripted browser
+journey. The internal control boundary alone is not browser acceptance evidence.
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
 

@@ -227,7 +227,7 @@ export class PostgreSqlRunRecorder {
     tenantId: string,
     sessionId: string,
     runId: string,
-    kind: "tool_proposal" | "tool_execution",
+    kind: "tool_proposal" | "tool_execution" | "approval",
     call: TurnToolCall,
   ): Promise<void> {
     await this.client.query(
@@ -246,9 +246,11 @@ export class PostgreSqlRunRecorder {
         call.code,
         call.capability,
         call.resultArtifactId,
-        kind === "tool_proposal"
-          ? "Tool proposal checkpointed"
-          : "Tool result recorded as untrusted evidence",
+        kind === "approval"
+          ? "Awaiting human approval"
+          : kind === "tool_proposal"
+            ? "Tool proposal checkpointed"
+            : "Tool result recorded as untrusted evidence",
         JSON.stringify({
           callId: call.callId,
           effectId: call.effectId,

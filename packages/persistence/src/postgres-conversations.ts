@@ -808,12 +808,49 @@ export class PostgreSqlConversationStore implements ConversationStore {
     );
   }
 
+  async waitForApproval(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined> {
+    if (fiber.phase !== "tool_waiting") return undefined;
+    const state = await this.researchState(participant, fiber);
+    const call = state.calls.at(-1);
+    if (call?.status !== "waiting") throw new Error("Approval checkpoint unavailable");
+    const protectedCall = { ...call, approvalRequired: true };
+    return this.researchCheckpoint(
+      participant,
+      fiber,
+      "approval_waiting",
+      [...state.calls.slice(0, -1), protectedCall],
+      protectedCall,
+    );
+  }
+
+  async resumeAfterApproval(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined> {
+    if (fiber.phase !== "approval_waiting") return undefined;
+    return this.fenced(() =>
+      this.transaction(participant, async () => {
+        const moved = await this.client.query(
+          `UPDATE clockgrove.conversation_turn_fibers SET phase='tool_waiting'
+        WHERE ${FIBER_KEY} AND lease_epoch=$4 AND phase='approval_waiting' RETURNING ${FIBER_COLUMNS}`,
+          [...fiberKey(fiber), fiber.leaseEpoch],
+        );
+        return moved.rows[0] === undefined ? undefined : fiberOf(moved.rows[0] as Row, fiber.scope);
+      }),
+    );
+  }
+
   async completeTool(
     participant: ConversationParticipant,
     fiber: TurnFiber,
     result: TurnToolCall & { readonly status: Exclude<TurnToolCall["status"], "waiting"> },
   ): Promise<TurnFiber | undefined> {
-    if (fiber.phase !== "tool_waiting") return undefined;
+    if (fiber.phase !== "tool_waiting" && fiber.phase !== "approval_waiting") return undefined;
+    if (fiber.phase === "approval_waiting" && result.status !== "refused")
+      throw new Error("Approval required before tool execution");
     const state = await this.researchState(participant, fiber);
     const waiting = state.calls.at(-1);
     if (
@@ -862,7 +899,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
   private async researchCheckpoint(
     participant: ConversationParticipant,
     fiber: TurnFiber,
-    phase: "tool_waiting" | "tool_completed",
+    phase: "tool_waiting" | "approval_waiting" | "tool_completed",
     calls: readonly TurnToolCall[],
     entry: TurnToolCall,
   ): Promise<TurnFiber | undefined> {
@@ -899,7 +936,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
             fiber.scope.tenantId,
             fiber.sessionId,
             fiber.runId,
-            phase === "tool_waiting" ? "tool_proposal" : "tool_execution",
+            phase === "approval_waiting"
+              ? "approval"
+              : phase === "tool_waiting"
+                ? "tool_proposal"
+                : "tool_execution",
             entry,
           );
         return fiberOf(moved.rows[0] as Row, fiber.scope);
@@ -989,7 +1030,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       request.messageId,
     );
     if (fiber === undefined) throw new ConversationRefusedError("turn_not_found");
-    if (fiber.phase === "tool_waiting") {
+    if (fiber.phase === "tool_waiting" || fiber.phase === "approval_waiting") {
       const current = (await this.researchState(participant, fiber)).calls.at(-1);
       if (current?.status === "waiting")
         return Object.freeze({ ...statusOf(fiber), toolCallId: current.callId });

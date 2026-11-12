@@ -929,3 +929,27 @@ it must keep the original uncertain attempt and its resolution intact.
 through real PostgreSQL and runs `tests/database/effect-resolutions.sql` for scope,
 privacy, immutability and runtime mutation attacks. The database authorization inventory
 also includes the table. These proofs do not establish an actor or browser journey.
+
+## Human control and durable wait boundary (issue 166, part 5)
+
+The actor can checkpoint an existing research call in `approval_waiting` through an
+optional trusted host hook. The checkpoint preserves the encrypted proposal and stable
+call/effect identity. Recovery consults approval state before execution, without asking
+another model to authorize the call. Denied, expired and revoked decisions become
+recorded tool refusals. A missing approval dependency during a wait fails closed.
+Ordinary read hosts that do not install the hook retain their existing behavior.
+
+`apps/runtime/src/effect-controls.ts` provides an internal human control boundary over
+the approval and uncertainty ledgers. Its authentication callback is supplied by trusted
+server composition; request fields, model output and tool results cannot select the
+human principal. Every operation reloads canonical scoped authority. Exact argument
+previews come from encrypted conversation artifacts and must match the immutable
+argument hash. Operator resolution records `done` or `failed`, retaining the original
+uncertain outcome and attribution. It schedules no retry and never contacts a provider.
+
+This part supplies reusable runtime boundaries, not their public activation. The local
+research composition still executes reads only. Part 6 must connect protected-class
+policy and per-call approval creation, operator/proactive routing, authenticated HTTP
+and conversation/operator UI, safe idempotency with fresh approval for retries, and the
+phase-injected write fixture and browser journey. The owner decisions in §11.2 remain
+binding; these internal ports do not waive them or establish hosted egress safety.
