@@ -1,4 +1,5 @@
 import {
+  type AdmittedMcpRead,
   type McpBinding,
   McpCredentialInstallation,
   type McpCredentialScope,
@@ -11,7 +12,10 @@ import {
   type McpOAuthClient,
   McpOAuthHttpNetwork,
   type McpOwnedCredentialProvider,
+  type McpReadEvidence,
+  McpReadFailure,
   McpRefusal,
+  RemoteHttpMcpReadAdapter,
   type RuntimeAuthorizationContext,
   SafeMcpHttpClient,
 } from "@clockgrove/application";
@@ -151,6 +155,42 @@ export class McpRuntimeOperator implements McpRuntimePort {
     this.owned.clear();
     this.anonymous.clear();
     if (unavailable) throw new Error("MCP shutdown unavailable");
+  }
+
+  async executeRead(
+    scope: {
+      tenantId: string;
+      worldId: string;
+      timelineId: string;
+      spaceId: string;
+      installationId: string;
+    },
+    request: AdmittedMcpRead,
+  ): Promise<McpReadEvidence> {
+    if (this.closed) throw new McpReadFailure("credential_unavailable", "not_sent");
+    for (const [key, owner] of this.owned) {
+      if (
+        owner.authorization.tenantId === scope.tenantId &&
+        owner.scope.worldId === scope.worldId &&
+        owner.scope.timelineId === scope.timelineId &&
+        owner.scope.spaceId === scope.spaceId &&
+        owner.installationId === scope.installationId
+      ) {
+        const handle = this.handles.get(key);
+        if (!handle) throw new McpReadFailure("credential_unavailable", "not_sent");
+        return handle.executeRead(request);
+      }
+    }
+    // Anonymous installations have no secret-provider session to recover.
+    const suffix = JSON.stringify([scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId]);
+    for (const key of this.anonymous) {
+      const identity = JSON.parse(key) as string[];
+      if (JSON.stringify(identity.slice(0, 4)) === suffix && identity[5] === scope.installationId)
+        return new RemoteHttpMcpReadAdapter(
+          new SafeMcpHttpClient(this.configuration.network),
+        ).execute(request);
+    }
+    throw new McpReadFailure("credential_unavailable", "not_sent");
   }
 
   execute(
