@@ -835,11 +835,11 @@ export class SceneSession {
             : status.phase,
         );
         if (status.phase === "completed") {
-          forgetPendingTurn(turn.sessionId);
+          forgetPendingTurn(turn.sessionId, turn.messageId);
           return { reloaded: true };
         }
         if (TERMINAL_TURN_PHASES.includes(status.phase)) {
-          forgetPendingTurn(turn.sessionId);
+          forgetPendingTurn(turn.sessionId, turn.messageId);
           return { refused: status.outcomeCode ?? status.phase };
         }
       } else if (status.refused !== "runtime unavailable") return status;

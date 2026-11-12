@@ -783,7 +783,7 @@ access. The admission transaction persists capacity, intent and outbox atomicall
 Migration 0058 adds immutable `mcp_read_retry_refusals` with the same forced RLS
 and privileged-only access. It retains one metadata-only receipt per distinct conflicting
 retry identity, linked to the original effect, without changing its admission or capacity.
-Migration 0059 adds encrypted research-history references and durable model accounting to the
+Migration 0060 adds encrypted research-history references and durable model accounting to the
 existing participant-isolated turn fiber, plus bounded tool evidence on existing run steps.
 Their retention remains that of their conversation/run owners. Local runtime composition
 connects the Queue consumer and actor continuation; hosted activation retains its separate gate.
