@@ -114,3 +114,11 @@ ciphertext remain until Wave 9 RW-0902 crypto-shreds the data key (`db/retention
 The internal [delivery boundary](channels.md#governed-outbound-delivery) governs both solicited replies and proactive notifications. A direct Talk authorizes its own private response; it never opts the member into proactive delivery. Ordinary reply delivery is committed with the turn and uses its canonical actor, participant, channel binding and encrypted reply artifact. Exact retries reuse the durable request and receipt.
 
 Proactive delivery retains recipient-owned per-actor consent, lifetime reservations and quiet hours in the recipient timezone. Actor activation alarms automatically resume delayed requests, rechecking current authority and consent. Live timelines use the deterministic fake sink; non-live timelines use only the isolated preview sink. Replay reads historical receipts without another send. The combined browser/CLI/fake journey proves separate channel-thread transcripts on the same fixture actor.
+## Research service dispositions
+
+Issue 165 adds optional `serviceOutcome` metadata to an actor reply, sourced from its canonical
+turn fiber. Values are `model_unavailable`, `model_steps_exhausted`, `cost_budget_exhausted` and
+`tool_calls_exhausted`. The receipt and reloaded transcript carry the same value. The browser
+renders these replies as “Runtime status”, without an actor portrait or voice attribution;
+degradation is not authored actor behavior. The failed run retains the reason and its output
+message link, while the conversation turn completes so the next message can proceed.

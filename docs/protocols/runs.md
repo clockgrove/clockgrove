@@ -31,7 +31,7 @@ follows, or an `outputMessageId` in the session. It records usage (`inputTokens`
 and `costMicrousd` where known. `null` means unknown, not zero. It also has its protected `input`
 and `output`.
 
-A Talk attempt records three to five steps (a resumed attempt's model step succeeds with the
+A Talk attempt without research records three to five steps (a resumed attempt's model step succeeds with the
 answer its turn already checkpointed):
 
 1. `context_retrieval`, written with the run and its context manifest
@@ -146,3 +146,28 @@ Decided limits:
 
 A Talk past the run limit answers `409 conversation_full`. Runs and steps are retired with their
 session's conversation data, as `db/retention.json` says.
+
+## Research evidence (issue 165)
+
+A local research run can contain multiple `model_attempt` steps around `tool_proposal` and
+`tool_execution`. Tool steps carry optional `toolEvidence`: the stable `callId`, `effectId`,
+`grantId`, terminal result artifact reference, status and measured Queue latency in milliseconds
+(or null when unknown). These fields are metadata, not tool content. The existing inspector
+privacy and participant checks continue to govern protected input/output payloads.
+
+A final reply cites recorded calls as `[tool:<callId>]`. The browser's “Why? Tool evidence”
+button enters `/v1/runtime/runs/inspect` by session and canonical input message; it displays the run,
+input message, tool steps and call/grant/effect/result links without displaying raw protected
+payload text. An inspector still needs its ordinary `runtime:world-inspect` grant and
+`operator_evidence` ceiling. The bounded browser decoder accepts the protocol limits of
+100 runs and 32 steps per run. Metadata-only access never becomes artifact-read authority.
+
+Research model reservations and unknown-cost counters survive attempts. A lost owner cannot
+reset the turn's call, model-step or spend envelope. Refused calls and visible model/tool/budget
+failures remain evidence; a returned read is evidence rather than a canonical world fact.
+
+A fixed research service failure ends its run as `failed` while retaining the committed output
+message and releasing the conversation turn. Turn-entry inspection derives its committed
+position from run/step metadata, so an operator without conversation access can still follow
+it. Empty, non-printable or oversized model capability names are rejected before a tool wait;
+they cannot strand the turn on an unrecordable proposal.

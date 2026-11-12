@@ -764,8 +764,8 @@ Migration `0011_preview_effect_policy.sql` adds trigger `event_dispatches_previe
 timeline's kind is `live`, with `CG012` (`JournalPreviewEffectRefusedError`), so the whole command
 writes nothing. A timeline the inserting role cannot see counts as not live. This is the Wave 2
 enforcement of the preview gate. Wave 5 adds the canonical effect ledger in migration
-`0056_effect_ledger.sql`; it does not replace or relax this dispatch gate. Runtime execution and
-simulate mode are not yet built. `pnpm run db:verify` checks the trigger;
+`0056_effect_ledger.sql`; it does not replace or relax this dispatch gate. Local read research records a blocked intent on a non-live timeline without adding a dispatch;
+it does not enable remote execution in previews. `pnpm run db:verify` checks the trigger;
 `apps/runtime/test/journal-isolation.postgres.test.ts` covers branch refusal and live commit.
 
 ## Effect ledger foundation
@@ -783,7 +783,10 @@ access. The admission transaction persists capacity, intent and outbox atomicall
 Migration 0058 adds immutable `mcp_read_retry_refusals` with the same forced RLS
 and privileged-only access. It retains one metadata-only receipt per distinct conflicting
 retry identity, linked to the original effect, without changing its admission or capacity.
-Deployed Queue composition and actor continuation remain final-part work.
+Migration 0059 adds encrypted research-history references and durable model accounting to the
+existing participant-isolated turn fiber, plus bounded tool evidence on existing run steps.
+Their retention remains that of their conversation/run owners. Local runtime composition
+connects the Queue consumer and actor continuation; hosted activation retains its separate gate.
 
 Retain intent identity, idempotency and attempt dispositions for world lifetime, as recorded
 in `db/retention.json`. Deleting those rows could allow a replay to lose the evidence that a

@@ -16,8 +16,10 @@ function that accepts one exact input shape and refuses everything else.
 | `world.command` | `world_command` | `runtime:world-command`  | `type`, `objectId`, `kind`           |
 | `delivery.request` | `external-write` | Authorized proactive activation only; current `runtime:world-command` and delivery authority | `urgency`, `quietHoursBehavior` |
 
-The read capabilities are registered and grantable. Nothing executes them in this checkpoint: a
-model proposal for one is refused as `not_executable`.
+The read capabilities are registered and grantable. With local research composition, `inspect`
+and `why` execute through the same bounded tool loop and external-effects ledger/Queue path as
+remote reads. A runtime without research composition retains its existing `not_executable`
+refusal. A registered capability alone never activates an adapter.
 
 ## Grants, budgets and revocation
 
@@ -25,7 +27,7 @@ model proposal for one is refused as `not_executable`.
 runtime grant the member holds. An actor therefore never holds more than the member it talks with. `delivery.request` is excluded from default grants; only the authorized proactive producer constructs its one-call grant, and recipient-owned consent and budget still govern the request.
 Decisions:
 
-- Each grant allows one call per turn. Stevie proposes at most one command a turn.
+- Internal grants allow one call per capability per turn. World-command turns retain their one-command path; a configured research turn may take up to three read calls and four model steps.
 - `world.command` names the command types it allows. Only `resource.offer` is granted.
 - `grants.revoke(name)` returns grants without that capability; its proposals are refused `revoked`.
 
@@ -105,8 +107,10 @@ session participant before claim, model context and capability proposal. The rea
 canonical membership, persona, actor and session; operator mutation authority and table RLS are
 unchanged. Installation/binding changes announce their canonical revision through
 `reconcileCapabilities`; a missed notification cannot preserve a stale grant at new use.
-The registry preserves internal definitions. Remote admission remains non-executable until
-RW-0508, and no server prompt or description enters actor instructions.
+The registry preserves internal definitions. Local research composition executes reviewed read admission through RW-0508's governed
+Queue path. No server prompt or description enters actor instructions. The model receives
+only held capability names and bounded input schemas as untrusted catalog data; those records
+cannot add grants or choose execution authority.
 
 Hosted MCP composition and remote admission remain disabled pending issue 3's hosted egress
 receipt after issue 2's staging deployment. The local factory/network path is not evidence for
