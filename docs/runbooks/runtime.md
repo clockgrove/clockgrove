@@ -6,10 +6,10 @@ Tests include portable local/emulated bindings and a genuine pinned Workers jour
 the production default Worker/authentication composition and native Durable Object adapters over
 an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging qualification.
 
-## Connecting a first-party MCP client
+## First-party MCP client readiness
 
 There is currently no deployed first-party MCP endpoint to configure in a client.
-Issue 167 parts 1–3 supply an internal read adapter and stateless transport over
+Issue 167 parts 1–4 supply an internal read adapter and stateless transport over
 the authenticated runtime APIs. The transport declares `world_directory`,
 `world_status`, `entity_inspect`, `command_receipt`, `run_receipt` and `run_search`;
 it does not issue credentials or add a public runtime route. Each protocol request
@@ -26,17 +26,30 @@ their scoped audit and limits. `runtime_action` accepts `repair-publication` or
 accept only the strict versioned scope and always refuse with
 `changesets_unavailable_until_wave_7`, without dispatching a mutation.
 
+The internal admitted entry point (`apps/runtime/src/world-mcp-admission.ts`) adds
+fresh principal authentication and a durable PostgreSQL reservation before transport
+dispatch. Its engineering policy permits 60 exchanges and 240 work units per principal
+per fixed UTC minute: one unit plus one per started 4 KiB of request body. All credentials,
+worlds and connections for that principal share counters. Refused or failed exchanges
+keep their reservation, and storage failure refuses execution. The count and initial unit
+reserve before reading the body; body units reserve before parsing/dispatch, with maximum
+body cost charged on oversized or invalid reads. Each phase uses its current database
+minute, so a body crossing a window boundary charges the later window. This bounds request and
+input work; it does not measure currency or reserve model spend. No current tool invokes
+a model. Future public composition must select this admitted entry point and add monetary
+admission for any billable operation; the original internal handler remains compatible.
+
 The native proof uses a real MCP SDK client with an in-process Streamable HTTP fetch
 bridge, the fixture runtime and PostgreSQL. Run it from the repository root with:
 
 ```bash
-pnpm exec vitest run --config apps/runtime/vitest.runtime.config.ts apps/runtime/test/world-mcp-server.postgres.test.ts apps/runtime/test/world-mcp-operations.postgres.test.ts
+pnpm exec vitest run --config apps/runtime/vitest.runtime.config.ts apps/runtime/test/world-mcp-server.postgres.test.ts apps/runtime/test/world-mcp-operations.postgres.test.ts apps/runtime/test/world-mcp-admission.postgres.test.ts
 ```
 
 This is an internal integration proof, not a client connection setup procedure. The
 [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
 tracks the remaining OAuth and web-issued/revocable member-token setup, principal-wide
-rate/cost limits, authenticated public composition and attack proof, full discovery,
+monetary-cost limits for billable operations, authenticated public composition and attack proof, full discovery,
 attributed ordinary command submission and final discovery/authorization coverage. Both credential modes remain
 required; a working client connection procedure accompanies that delivery. Talk remains
 on the channel-neutral session path. Remote MCP installation described elsewhere in

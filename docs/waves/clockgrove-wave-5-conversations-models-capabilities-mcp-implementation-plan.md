@@ -480,7 +480,7 @@ Initial fixtures:
 
 Expose a stateless authenticated MCP surface over application APIs for world/timeline list, authorized search/inspection, command submission, run receipt, and changeset placeholders. It does not host actor memory or session state inside the MCP connection.
 
-Issue 167 parts 1–3 supply an internal bounded read adapter and the current
+Issue 167 parts 1–4 supply an internal bounded read adapter and the current
 Agents stateless MCP handler over authenticated runtime HTTP use cases, with no
 composed public endpoint. Six read tools cover world directory/status, entity
 inspection, command/run receipts and run search. Every request authenticates through
@@ -491,13 +491,23 @@ A real MCP SDK client exercises the handler through an in-process fetch bridge t
 the native fixture runtime and PostgreSQL. This does not prove deployed authentication.
 The [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
 records the remaining OAuth and web-issued/revocable member-token modes, principal-wide
-rate/cost admission, authenticated endpoint composition and database attack proof,
+monetary-cost admission for billable operations, authenticated endpoint composition and database attack proof,
 full discovery and attributed commands. Internal `runtime_state` and `runtime_action`
 tools use the ordinary inspector/operator APIs and their distinct grants, scoped audit
 and limits. Declared `changeset_prepare` and `changeset_apply` placeholders accept
 only a strict versioned scope and refuse with `changesets_unavailable_until_wave_7`
 without dispatching a mutation. These tools remain internal until authenticated
 endpoint composition is complete.
+Part 4 adds an internal admitted entry point with atomic PostgreSQL counters keyed by
+freshly authenticated principal across credentials, worlds and connections. Engineering
+policy admits at most 60 exchanges and 240 input work units per fixed UTC minute
+(one unit plus one per started 4 KiB). Refusals and downstream failures retain their
+reservation; storage failures refuse execution. Count/initial work reserve before body
+reading and body work before parsing/dispatch. Each phase charges its database minute;
+oversized or invalid reads charge maximum body work. One mutable counter row per principal
+stores no connection state or content. These work units bound request/input processing,
+not monetary model spend; future billable operations need separate monetary admission.
+The endpoint remains uncomposed until both required credential modes are ready.
 Commands must preserve member persona, MCP client channel and causal root through the
 ordinary validator and Journal. Talk stays on the channel-neutral session path.
 These remain Objective acceptance obligations; the internal transport alone does

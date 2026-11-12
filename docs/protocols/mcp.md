@@ -2,7 +2,7 @@
 
 ## First-party server readiness
 
-Issue 167 parts 1–3 provide an internal read-tool adapter in
+Issue 167 parts 1–4 provide an internal read-tool adapter in
 `apps/runtime/src/world-mcp-reads.ts` and a stateless MCP transport in
 `apps/runtime/src/world-mcp-server.ts`. The transport uses the current Agents
 `createMcpHandler` from `agents/mcp/server`, with a fresh server for each request.
@@ -41,15 +41,44 @@ Successful tool responses retain their application representation; failures retu
 fixed public errors without application or provider exception details.
 
 The real MCP SDK client proofs in
-`apps/runtime/test/world-mcp-server.postgres.test.ts` and
-`apps/runtime/test/world-mcp-operations.postgres.test.ts` bridge Streamable HTTP fetches
+`apps/runtime/test/world-mcp-server.postgres.test.ts`,
+`apps/runtime/test/world-mcp-operations.postgres.test.ts` and
+`apps/runtime/test/world-mcp-admission.postgres.test.ts` bridge Streamable HTTP fetches
 to this internal handler and exercise the native runtime with real PostgreSQL and
 the fixture world. They prove the internal transport, not a deployed endpoint, OAuth
 flow or member API-token issuer.
 
+Part 4 adds an internal admitted entry point in
+`apps/runtime/src/world-mcp-admission.ts`, backed by the application admission use case
+and an atomic PostgreSQL reservation. It authenticates and maps the credential afresh
+before reserving against the canonical principal; different credentials, worlds and
+connections share the same budget. The original internal transport remains a primitive
+for existing proofs. A public composition must use the admitted entry point.
+
+Engineering admission policy: each principal may reserve 60 exchanges and 240 work
+units per fixed UTC minute, using database time. An exchange reserves one unit plus
+one unit per started 4 KiB of raw body bytes, within the existing 128 KiB body bound.
+The exchange limit and raw body cap bound reading; the work budget additionally
+bounds admitted parsing/dispatch input. These conservative limits bound request work; work
+units are not currency or a measurement of model spend. Initialization, catalog and
+refused tool exchanges consume budget too. Reservations are atomic and never refunded
+when parsing, authorization or downstream execution fails. The count and initial unit
+reserve before body reading, so slow streams consume rate capacity; body units reserve
+before parsing/dispatch. Each phase charges its database minute, including body work
+that crosses a minute boundary. Oversized, invalidly encoded or failed body reads charge
+the maximum 32 body units before refusing. Admission storage errors
+fail closed with fixed public errors. A single mutable counter row per existing
+principal persists across handler recreation; it stores no credentials, tool arguments,
+conversation or connection session. Counter lifetime follows its principal.
+
+No current internal MCP tool invokes a model. Future billable commands need their own
+worst-case monetary-cost reservation before they can execute; these work units do
+not establish that later acceptance. Both credential modes and public endpoint
+composition also remain required.
+
 This is an internal foundation, not a connectable deployed MCP endpoint. Later parts
 of issue 167 provide OAuth through the auth adapter and web-issued member API tokens
-with immediate revocation, principal-wide rate/cost admission, authenticated endpoint
+with immediate revocation, monetary-cost admission for billable operations, authenticated endpoint
 composition and MCP-surface database attack coverage, full world/timeline discovery
 and attributed ordinary commands. Operator tools and Wave 7 refusals
 are available only on the internal transport described above.
@@ -58,6 +87,16 @@ preserve the member's world persona, MCP client channel and causal root through 
 ordinary validator and Journal. Talk stays on the channel-neutral session path. The
 endpoint, authentication setup and working client connection procedure must ship in
 the runtime runbook with that composition; none is available yet.
+
+The remaining acceptance work is assigned to the following delivery parts; part 4
+establishes rate and input-work admission only.
+
+| Issue 167 acceptance entry | Required remaining delivery |
+| --- | --- |
+| 2 — Same authority and isolation | Part 6: tenant/world/timeline isolation and private-data authorization attacks through the MCP surface. Direct budget-table SQL privilege refusals do not establish this coverage. |
+| 3 — Ordinary commands | Part 6: command submission through the ordinary validator and Journal, proving member-persona initiator, authenticated MCP client channel and preserved causal root. |
+| 7 — Principal limits | Part 6: monetary-cost admission before billable commands can dispatch. Part 4's request count and input-byte work reservations do not reserve execution or monetary cost. |
+| 10 — Connection documentation | Part 5: both OAuth through the auth adapter and web-issued/revocable member API tokens, composed with the authenticated endpoint. Part 6: a working external-client connection procedure and final real-client acceptance proof. |
 
 ## Remote MCP installation
 

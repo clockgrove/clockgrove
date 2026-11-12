@@ -89,9 +89,11 @@ const operationSchemas: Record<WorldMcpOperationTool, JsonSchemaType> = {
 function refusal(status: number, message: string): Response {
   return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message } }, { status });
 }
-async function boundedBody(request: Request): Promise<string> {
+export async function boundedWorldMcpBody(
+  request: Request,
+): Promise<{ readonly text: string; readonly byteLength: number }> {
   const reader = request.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return { text: "", byteLength: 0 };
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -114,7 +116,7 @@ async function boundedBody(request: Request): Promise<string> {
     bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes), byteLength: size };
 }
 /** Internal transport only: public credential and principal-budget composition must precede routing. */
 export async function handleWorldMcpRequest(
@@ -131,7 +133,7 @@ export async function handleWorldMcpRequest(
   if (request.method !== "POST") return refusal(405, "method_refused");
   let body: string;
   try {
-    body = await boundedBody(request);
+    body = (await boundedWorldMcpBody(request)).text;
   } catch {
     return refusal(413, "invalid_request_body");
   }
