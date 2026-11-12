@@ -897,3 +897,35 @@ their RLS and retention; no runtime SQL mutation privilege is added.
 The focused PostgreSQL proof is
 `apps/runtime/test/mcp-write-admission.postgres.test.ts`; it proves the internal
 admission prerequisite, not actor execution, remote fixture effects or browser controls.
+
+
+## Internal uncertainty resolution (issue 166, part 4)
+
+`PostgreSqlEffectResolutions` records an operator's finding after checking the provider:
+`done` or `failed`. It is a privileged persistence port, not an authenticated operator
+API or model tool. Trusted composition must authenticate the operator and check current
+scoped authority before calling it. The ordinary runtime SQL role can only inspect
+records through the existing operator RLS policy. Human controls and actor/browser
+integration remain subsequent parts; external writes remain disabled.
+
+A resolution binds the complete tenant/world/timeline/effect address, canonical space,
+exact uncertain attempt and resolving principal. Only a settled uncertain intent and
+its terminal uncertain attempt qualify. Reconcile an already terminal attempt into its
+intent before resolution. The database supplies the timestamp. Metadata contains no
+provider response, plaintext arguments, free text or credentials.
+
+There is at most one immutable resolution per effect, retained for world lifetime with
+its intent and attempt. Identical concurrent or restarted requests return the same
+record; a changed finding, resolver or attempt conflicts. Foreign scopes cannot select
+the record. A resolution leaves the original attempt and intent uncertain, preserves
+unknown costs and creates no effect, attempt or outbox entry. It is a finding about an
+external result, not evidence that execution can safely run again.
+
+No retry is provided by this port. Later retry composition must verify declared safe
+idempotency and require a fresh exact approval with new effect and call identities;
+it must keep the original uncertain attempt and its resolution intact.
+
+`apps/runtime/test/effect-resolutions.postgres.test.ts` proves this storage boundary
+through real PostgreSQL and runs `tests/database/effect-resolutions.sql` for scope,
+privacy, immutability and runtime mutation attacks. The database authorization inventory
+also includes the table. These proofs do not establish an actor or browser journey.

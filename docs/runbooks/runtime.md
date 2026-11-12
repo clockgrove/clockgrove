@@ -1906,6 +1906,35 @@ canonical work; physical DLQ inspection remains an operator action. The browser'
 presentation wait preserves its pending message on expiry, so reopening can read or resume it.
 
 
+### Recording an uncertain-write finding
+
+Issue 166 part 4 provides the internal
+[resolution ledger](../protocols/mcp.md#internal-uncertainty-resolution-issue-166-part-4).
+There is no member/operator HTTP or browser control yet. This procedure requires an
+already authorized privileged persistence connection; ordinary runtime SQL cannot write
+the ledger, and a model proposal or supplied principal identifier grants no authority.
+
+1. Locate the intent and attempt by the complete tenant/world/timeline/effect address.
+   Confirm the attempt is terminal `uncertain`. If its intent has not settled, use
+   `PostgreSqlEffects.reconcile(address)` first; this reads the recorded result and
+   never invokes transport. Do not resolve a still-started attempt by guessing.
+2. Check the provider through the operator's authorized channel. Determine whether the
+   external write completed (`done`) or failed (`failed`). If that cannot be established,
+   leave it unresolved. Keep credentials and provider content out of resolution metadata.
+3. After authenticating the operator and checking their current scoped authority, trusted
+   composition calls `PostgreSqlEffectResolutions.resolve({ ...address, attemptId,
+   resolvedBy, disposition })`, where `disposition` is `done` or `failed`. Supply the
+   exact attempt and the stable operator principal, not the actor/model identity. Read
+   the returned canonical record to confirm attribution and database timestamp.
+4. Keep the original intent and attempt unchanged. Repeating the identical finding returns
+   its existing record; a conflicting finding refuses. Resolution creates no new dispatch
+   and does not reset unknown cost or release reserved capacity.
+
+This boundary offers no retry. Do not reset an uncertain attempt, replace its identity
+manually or redeliver it to force execution. Future safe retry controls require declared
+idempotency plus a fresh exact human approval and separately recorded call/effect.
+
+
 ## First-party world MCP connection
 
 The first-party `/mcp` endpoint uses the member's existing world authority. It is

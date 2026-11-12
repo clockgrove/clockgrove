@@ -449,6 +449,13 @@
       "when": 1796162400004,
       "tag": "0064_effect_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1796162400005,
+      "tag": "0065_effect_resolutions",
+      "breakpoints": true
     }
   ]
 }
