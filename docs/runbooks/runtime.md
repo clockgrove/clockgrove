@@ -6,7 +6,7 @@ Tests include portable local/emulated bindings and a genuine pinned Workers jour
 the production default Worker/authentication composition and native Durable Object adapters over
 an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging qualification.
 
-## Connecting a first-party MCP client
+## First-party MCP client readiness
 
 There is currently no deployed first-party MCP endpoint to configure in a client.
 Issue 167 parts 1–4 supply an internal read adapter and stateless transport over

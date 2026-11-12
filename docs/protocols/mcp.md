@@ -88,6 +88,16 @@ ordinary validator and Journal. Talk stays on the channel-neutral session path. 
 endpoint, authentication setup and working client connection procedure must ship in
 the runtime runbook with that composition; none is available yet.
 
+The remaining acceptance work is assigned to the following delivery parts; part 4
+establishes rate and input-work admission only.
+
+| Issue 167 acceptance entry | Required remaining delivery |
+| --- | --- |
+| 2 — Same authority and isolation | Part 6: tenant/world/timeline isolation and private-data authorization attacks through the MCP surface. Direct budget-table SQL privilege refusals do not establish this coverage. |
+| 3 — Ordinary commands | Part 6: command submission through the ordinary validator and Journal, proving member-persona initiator, authenticated MCP client channel and preserved causal root. |
+| 7 — Principal limits | Part 6: monetary-cost admission before billable commands can dispatch. Part 4's request count and input-byte work reservations do not reserve execution or monetary cost. |
+| 10 — Connection documentation | Part 5: both OAuth through the auth adapter and web-issued/revocable member API tokens, composed with the authenticated endpoint. Part 6: a working external-client connection procedure and final real-client acceptance proof. |
+
 ## Remote MCP installation
 
 Issue 164 provides local authenticated installation routes, a capabilities screen, isolated PostgreSQL
