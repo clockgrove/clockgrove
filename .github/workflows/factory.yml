@@ -76,7 +76,7 @@ jobs:
       wake_at: "${{ steps.f.outputs.wake_at }}"
       wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/factory@v0.9.6
+      - uses: clockgrove/factory@v0.9.9
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   queue-watch:
@@ -96,7 +96,7 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.9.6
+      - uses: clockgrove/factory@v0.9.9
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
@@ -142,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.6
+      - uses: clockgrove/factory@v0.9.9
         id: f
         with:
           mode: work
@@ -154,6 +154,7 @@ jobs:
           codex_api_key: ${{ secrets.CODEX_API_KEY }} # Codex; reaches the harness step only
           copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }} # Copilot; a token with only the Copilot Requests permission (required)
           ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: red-check triage reruns flaky CI jobs instead of a fix pass, and the drift advisory flags a drifting worker on its progress comment; empty turns both off
+          worker_secret_values: ${{ secrets.FACTORY_WORKER_SECRET_VALUES }} # optional, with FACTORY_WORKER_SECRETS in the env block: SOURCE=value lines for the worker's shell only; a dedicated key with a gateway-side budget (docs/PLAN.md, Worker secrets)
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }} # Claude federation (with id-token: write above)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # credential: plan only; your own repository only
       - uses: actions/upload-artifact@v7
@@ -175,7 +176,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.6
+      - uses: clockgrove/factory@v0.9.9
         id: f
         with:
           mode: review
