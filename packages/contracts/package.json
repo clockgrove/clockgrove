@@ -20,6 +20,10 @@
     "./asset-style-profile": {
       "types": "./src/asset-style-profile.ts",
       "import": "./src/asset-style-profile.ts"
+    },
+    "./model-asset": {
+      "types": "./src/model-asset.ts",
+      "import": "./src/model-asset.ts"
     }
   },
   "scripts": {
