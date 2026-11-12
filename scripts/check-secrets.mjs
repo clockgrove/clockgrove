@@ -20,6 +20,63 @@ const patterns = [
   /^[\t ]*(?:export[\t ]+)?(?:[A-Z_]*(?:API_KEY|API_TOKEN|CLIENT_SECRET|SECRET_KEY|PRIVATE_KEY|PASSWORD|AUTH_SECRET|DATABASE_URL|OTLP_TOKEN)|api[_-]?key|api[_-]?token|client[_-]?secret|password|secret)[\t ]*=[\t ]*(?!\$|var\.|local\.|neon_role\.|process\.)[^\s"'#;]{1,}/mu,
 ];
 
+function dependencyObservation(source, location, match, rule) {
+  if (rule !== 7 || !/(?:^|\/)package\.json(?:\s|$)/u.test(location)) return false;
+  try {
+    JSON.parse(source);
+  } catch {
+    return false;
+  }
+  const tokens = [...source.matchAll(/"(?:\\.|[^"\\])*"|[{}[\]:,]|[^\s{}[\]:,]+/gu)];
+  const dependencyGroups = new Set([
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]);
+  let cursor = 0;
+  let observed = false;
+  let duplicate = false;
+  function value(parents) {
+    const token = tokens[cursor++];
+    if (token[0] === "{") {
+      const keys = new Set();
+      while (tokens[cursor][0] !== "}") {
+        const keyToken = tokens[cursor++];
+        const key = JSON.parse(keyToken[0]);
+        if (keys.has(key)) duplicate = true;
+        keys.add(key);
+        cursor++; // colon
+        const scalar = tokens[cursor];
+        if (
+          parents.length === 1 &&
+          dependencyGroups.has(parents[0]) &&
+          /^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/u.test(key) &&
+          scalar[0].startsWith('"') &&
+          /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(JSON.parse(scalar[0])) &&
+          match.index >= keyToken.index &&
+          match.index < keyToken.index + keyToken[0].length &&
+          match.index + match[0].length === scalar.index + scalar[0].length
+        )
+          observed = true;
+        value([...parents, key]);
+        if (tokens[cursor][0] === ",") cursor++;
+      }
+      cursor++;
+    } else if (token[0] === "[") {
+      while (tokens[cursor][0] !== "]") {
+        value([...parents, null]);
+        if (tokens[cursor][0] === ",") cursor++;
+      }
+      cursor++;
+    }
+  }
+  // Root dependency properties are metadata, not credential assignments. Match
+  // exact property spans so identical text in another JSON context still refuses.
+  value([]);
+  return observed && !duplicate;
+}
+
 function syntaxObservation(source, location, match, rule) {
   if (!/\.[cm]?[jt]sx?(?:\s|$)/u.test(location)) return false;
   // The install recorder imports this module before dependencies exist.
@@ -165,7 +222,11 @@ export function assertNoSecretValues(source, location = "configuration") {
         : patterns[rule].source;
     const pattern = new RegExp(sourcePattern, `${patterns[rule].flags}g`);
     for (const match of source.matchAll(pattern)) {
-      if (!syntaxObservation(source, location, match, rule)) fail();
+      if (
+        !dependencyObservation(source, location, match, rule) &&
+        !syntaxObservation(source, location, match, rule)
+      )
+        fail();
     }
   }
 }

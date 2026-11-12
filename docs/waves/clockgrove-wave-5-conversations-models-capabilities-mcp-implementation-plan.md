@@ -510,8 +510,14 @@ not monetary model spend; future billable operations need separate monetary admi
 The endpoint remains uncomposed until both required credential modes are ready.
 Commands must preserve member persona, MCP client channel and causal root through the
 ordinary validator and Journal. Talk stays on the channel-neutral session path.
-These remain Objective acceptance obligations; the internal transport alone does
-not complete RW-0509.
+Part 5 adds internal Better Auth OAuth-provider and API-key credential mechanisms,
+with a separate auth writer and fresh storage verification. OAuth uses PKCE,
+member consent, a fixed MCP scope and the configured resource audience. Neither
+credential mode grants world authority or activates public routing. See the
+[credential boundary](../protocols/mcp.md#internal-member-credential-composition-issue-167-part-5).
+Part 6 retains endpoint/web integration, attributed commands, complete attacks and
+the working client connection proof. These remain Objective acceptance obligations;
+the internal transport and credential mechanisms alone do not complete RW-0509.
 
 ---
 

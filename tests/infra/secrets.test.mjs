@@ -9,6 +9,58 @@ import { checkGitTreeSecrets, checkRepositorySecrets } from "../../scripts/check
 const credential = "ghp_" + "a".repeat(36);
 
 describe("repository secret-value guard", () => {
+  it("classifies pinned scoped dependency versions without hiding credential bindings", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "clockgrove-dependency-regression-"));
+    const packageName = ["@better-auth", "api-key"].join("/");
+    const credentialField = ["pass", "word"].join("");
+    const manifest = path.join(root, "package.json");
+    try {
+      execFileSync("git", ["init", "--quiet", root]);
+      const groups = [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ];
+      const pinned = Object.fromEntries(
+        groups.map((group) => [group, { [packageName]: "1.7.15" }]),
+      );
+      const valid = JSON.stringify(pinned, null, 2);
+      await writeFile(manifest, valid);
+      await checkRepositorySecrets(root);
+      execFileSync("git", ["add", "--", "package.json"], { cwd: root });
+      await checkRepositorySecrets(root);
+      const tree = execFileSync("git", ["write-tree"], { cwd: root }).toString().trim();
+      expect(() => checkGitTreeSecrets(root, tree)).not.toThrow();
+      const refused = [
+        JSON.stringify({ dependencies: { [packageName]: "private-material" } }),
+        JSON.stringify({ dependencies: { [packageName]: "1.7.15-extra" } }),
+        JSON.stringify({ dependencies: { [packageName]: "^1.7.15" } }),
+        JSON.stringify({ dependencies: { [packageName]: credential } }),
+        JSON.stringify({ dependencies: { [credentialField]: "1.7.15" } }),
+        JSON.stringify({ ...pinned, [credentialField]: "private-material" }),
+        JSON.stringify({ other: { [packageName]: "1.7.15" } }),
+        JSON.stringify({ nested: { dependencies: { [packageName]: "1.7.15" } } }),
+        JSON.stringify({ dependencies: [{ [packageName]: "1.7.15" }] }),
+        valid.slice(0, -1),
+        `{"dependencies":${JSON.stringify(pinned.dependencies)},"dependencies":{}}`,
+      ];
+      for (const source of refused) {
+        await writeFile(manifest, source);
+        await expect(checkRepositorySecrets(root)).rejects.toThrow(
+          "package.json: secret-shaped value detected",
+        );
+      }
+      await writeFile(manifest, valid);
+      await writeFile(path.join(root, "other.json"), valid);
+      await expect(checkRepositorySecrets(root)).rejects.toThrow(
+        "other.json: secret-shaped value detected",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("finds a credential in the committed tree, the index and untracked files", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "clockgrove-secret-regression-"));
     try {

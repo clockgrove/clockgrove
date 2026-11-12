@@ -249,6 +249,7 @@ async function bootstrapRolesAndDatabase(tools, environment, password) {
     "clockgrove_auth_verifier",
     "clockgrove_management_reader",
     "clockgrove_world_reader",
+    "clockgrove_mcp_auth_writer",
   ];
   // Only a SCRAM verifier enters SQL, so no statement, error or log carries the password.
   const passwords = [];
@@ -262,6 +263,8 @@ async function bootstrapRolesAndDatabase(tools, environment, password) {
        NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
      CREATE ROLE clockgrove_mcp_secrets
        NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+     CREATE ROLE clockgrove_mcp_auth_writer
+       LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
      CREATE ROLE clockgrove_runtime
        LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
      CREATE ROLE clockgrove_support LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;

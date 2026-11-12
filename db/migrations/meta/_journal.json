@@ -428,6 +428,13 @@
       "when": 1796162400001,
       "tag": "0061_world_mcp_admission",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1796162400002,
+      "tag": "0062_world_mcp_auth",
+      "breakpoints": true
     }
   ]
 }

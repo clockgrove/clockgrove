@@ -73,12 +73,12 @@ conversation or connection session. Counter lifetime follows its principal.
 
 No current internal MCP tool invokes a model. Future billable commands need their own
 worst-case monetary-cost reservation before they can execute; these work units do
-not establish that later acceptance. Both credential modes and public endpoint
-composition also remain required.
+not establish that later acceptance. Both credential modes must be wired to public endpoint composition in part 6;
+part 5 supplies their internal mechanisms below.
 
 This is an internal foundation, not a connectable deployed MCP endpoint. Later parts
-of issue 167 provide OAuth through the auth adapter and web-issued member API tokens
-with immediate revocation, monetary-cost admission for billable operations, authenticated endpoint
+of issue 167 complete OAuth/web-issued member-token integration on top of the internal
+credential mechanisms below, monetary-cost admission for billable operations, authenticated endpoint
 composition and MCP-surface database attack coverage, full world/timeline discovery
 and attributed ordinary commands. Operator tools and Wave 7 refusals
 are available only on the internal transport described above.
@@ -96,7 +96,83 @@ establishes rate and input-work admission only.
 | 2 — Same authority and isolation | Part 6: tenant/world/timeline isolation and private-data authorization attacks through the MCP surface. Direct budget-table SQL privilege refusals do not establish this coverage. |
 | 3 — Ordinary commands | Part 6: command submission through the ordinary validator and Journal, proving member-persona initiator, authenticated MCP client channel and preserved causal root. |
 | 7 — Principal limits | Part 6: monetary-cost admission before billable commands can dispatch. Part 4's request count and input-byte work reservations do not reserve execution or monetary cost. |
-| 10 — Connection documentation | Part 5: both OAuth through the auth adapter and web-issued/revocable member API tokens, composed with the authenticated endpoint. Part 6: a working external-client connection procedure and final real-client acceptance proof. |
+| 10 — Connection documentation | Part 5 supplies internal OAuth and revocable member-token mechanisms. Part 6: public endpoint composition, web issuance/consent UI, durable credential capacity/retirement policy, a working external-client connection procedure and final real-client acceptance proof. |
+
+## Internal member credential composition (issue 167, part 5)
+
+The authentication mechanisms are separate from the MCP connection. The internal
+`composeWorldMcpAuthentication` factory in `apps/runtime/src/better-auth-adapter.ts`
+uses Better Auth's matching OAuth-provider and API-key plugins. It supplies a
+project-owned authentication port and a bounded, allowlisted auth request handler;
+it does not register a public route, create a member, link an identity, or grant
+world access. The existing session verifier remains read-only and unchanged.
+
+OAuth registers public clients only (`token_endpoint_auth_method: none`) and uses
+the authorization-code flow with PKCE, explicit member consent,
+`clockgrove:mcp` scope and the configured MCP resource audience. Access tokens are
+opaque and verified against current provider storage on every request. API tokens
+belong to the signed-in member, expire after thirty days, store only a key hash
+and likewise require fresh storage verification. OAuth access lasts one hour;
+these are engineering lifetime decisions that bound exposure without retaining
+an MCP session. Auth bodies and queries are bounded at 16 KiB of UTF-8, credential strings at
+16,384 UTF-16 code units, and
+member-key names/identifiers at 128 characters (engineering metadata bounds).
+Registration accepts no remote key-discovery fields.
+Both modes resolve an existing environment/subject identity link; the ordinary
+principal mapping and world grants still decide authority. A credential never
+provides its own principal, persona or world grant.
+
+A dedicated authentication writer owns provider protocol records through explicit
+configuration. It has no canonical world or Management write authority. Do not
+supply the existing `AUTH_DATABASE_URL` verifier credential to this factory or
+replace the default runtime authentication composition with it implicitly.
+The dedicated role is provisioned as `NOLOGIN`, with no deployed password in this
+part. Credential records are separate from world history: member keys cascade
+with their auth user and can be deleted through the owner route; expired/revoked
+OAuth records remain until their client or auth user is deleted. Expiry prevents
+use but does not physically retire those rows. Deleting the authorizing web
+session deletes its OAuth access/refresh rows, so session cleanup cannot turn
+a session-bound credential into an independent credential. Member API keys are
+independent of web session lifetime and still require a live identity link.
+Part 6 must bound public credential
+issuance and supply its retirement/administration procedure before activation.
+
+Part 6 must connect this port to ordinary application dispatch and principal
+admission, expose the endpoint and member token controls, and prove the complete
+client flow and isolation attacks. These mechanisms alone are not a connectable
+Clockgrove MCP endpoint.
+
+Before public activation, part 6 must satisfy these remaining acceptance gates:
+
+- **Acceptance 2:** authenticated MCP attacks through ordinary application dispatch
+  prove tenant, world and timeline isolation and refusal of private-data access.
+- **Acceptance 3:** command submission derives the member persona and MCP client
+  channel from trusted credential authority, preserves the causal root, and passes
+  the ordinary validator and Journal with that full attribution envelope.
+- **Acceptance 7:** verified credentials enter principal admission, and billable
+  operations reserve worst-case monetary cost before dispatch.
+- **Acceptance 8:** both issued OAuth and member-token credentials drive a real MCP
+  client through authenticated dispatch, runtime execution and PostgreSQL receipts;
+  revocation refuses the next request.
+- **Acceptance 10:** the runtime runbook provides usable external-client connection
+  and authentication instructions for the integrated endpoint.
+
+### Credential record retention
+
+These provider tables are mutable and deletable, so they are documented here;
+the database retention registry covers append-only world history. Expiry is an
+authentication refusal, distinct from physical row deletion.
+
+| Table | Current retention |
+| --- | --- |
+| `clockgrove_auth.oauthClient` | Issue 167 registered OAuth clients: mutable member-owned client registrations persist until provider/operator client deletion or auth-user cascade. The internal adapter adds no automatic client retirement; public activation must bound registration growth. |
+| `clockgrove_auth.oauthResource` | Issue 167 configured protected resources: one provider-seeded row per exact configured resource URL. Persists until explicit operator deletion; restarting inserts only missing resources. |
+| `clockgrove_auth.oauthClientResource` | Issue 167 resource allowlist: one unique client/resource pair, deleted by either parent cascade. Grows with retained registered clients. |
+| `clockgrove_auth.oauthRefreshToken` | Issue 167 provider schema compatibility: refresh grant and offline_access are disabled, so the mounted adapter creates no refresh rows. Future refresh activation needs its own lifecycle policy. |
+| `clockgrove_auth.oauthAccessToken` | Issue 167 OAuth credentials: hashed opaque tokens expire after one hour and support immediate revocation. Expired/revoked rows remain until client/user/session deletion cascades; issuance grows this row set. A credential lifecycle/capacity policy remains required before public activation. |
+| `clockgrove_auth.oauthConsent` | Issue 167 OAuth consent: persists until provider/operator deletion or client/user cascade; authorization may update existing consent. No conversation or connection state is retained. |
+| `clockgrove_auth.oauthClientAssertion` | Issue 167 provider schema compatibility: expiresAt records replay defense if a supported assertion method is used. The internal adapter exposes no assertion registration UI; expired rows require provider/operator cleanup, not MCP connection state. |
+| `clockgrove_auth.apikey` | Issue 167 member credentials: mutable user-owned hashed keys expire after thirty days; explicit member deletion and auth-user cascade physically remove keys. Expiry refuses use immediately; physical expiry cleanup is provider-owned and not an MCP admission guarantee. |
 
 ## Remote MCP installation
 

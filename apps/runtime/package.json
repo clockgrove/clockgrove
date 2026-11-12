@@ -20,6 +20,8 @@
     "test:long-run": "vitest run --config vitest.long-run.config.ts"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.15",
+    "@better-auth/oauth-provider": "1.7.15",
     "@clockgrove/application": "workspace:*",
     "@clockgrove/contracts": "workspace:*",
     "@clockgrove/domain": "workspace:*",

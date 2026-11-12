@@ -17,7 +17,7 @@ BEGIN
   END IF;
   -- An existing restricted role must be one this role created: no role membership, administered
   -- by this role. A Neon API role fails here, by name, before anything changes.
-  FOREACH restricted IN ARRAY ARRAY['clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets'] LOOP
+  FOREACH restricted IN ARRAY ARRAY['clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets', 'clockgrove_mcp_auth_writer'] LOOP
     CONTINUE WHEN NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = restricted);
     SELECT string_agg(parent.rolname, ', ' ORDER BY parent.rolname) INTO parents
       FROM pg_auth_members membership
@@ -41,7 +41,7 @@ END;
 $preconditions$;
 
 SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', restricted)
-  FROM unnest(ARRAY['clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets']) AS restricted
+  FROM unnest(ARRAY['clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets', 'clockgrove_mcp_auth_writer']) AS restricted
  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = restricted)
 \gexec
 
@@ -94,6 +94,8 @@ SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_auth_verifier' :password_a
 SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_management_reader' :password_management \g
 SELECT pg_temp.set_password($1, $2) \bind 'clockgrove_world_reader' :password_worldAuthorization \g
 SELECT pg_temp.set_password('clockgrove_mcp_secrets', NULL);
+-- Internal credential adapter is not activated by deployment in this part.
+SELECT pg_temp.set_password('clockgrove_mcp_auth_writer', NULL);
 
 -- Every restricted role ends with no role membership and no elevated or unexpected attribute.
 DO $postconditions$
@@ -102,14 +104,14 @@ DECLARE
 BEGIN
   FOR restricted IN
     SELECT role.rolname,
-           role.rolcanlogin <> (role.rolname <> 'clockgrove_mcp_secrets') OR role.rolsuper
+           role.rolcanlogin <> (role.rolname NOT IN ('clockgrove_mcp_secrets', 'clockgrove_mcp_auth_writer')) OR role.rolsuper
              OR role.rolcreatedb OR role.rolcreaterole OR role.rolinherit OR role.rolreplication
              OR role.rolbypassrls AS elevated,
            (SELECT string_agg(parent.rolname, ', ' ORDER BY parent.rolname)
               FROM pg_auth_members membership JOIN pg_roles parent ON parent.oid = membership.roleid
              WHERE membership.member = role.oid) AS parents
       FROM pg_roles role
-     WHERE role.rolname IN ('clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets')
+     WHERE role.rolname IN ('clockgrove_runtime', 'clockgrove_support', 'clockgrove_backup', 'clockgrove_auth_verifier', 'clockgrove_management_reader', 'clockgrove_world_reader', 'clockgrove_mcp_secrets', 'clockgrove_mcp_auth_writer')
   LOOP
     IF restricted.parents IS NOT NULL THEN
       RAISE EXCEPTION 'clockgrove role check: % is a member of %', restricted.rolname, restricted.parents;
