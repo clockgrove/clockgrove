@@ -82,6 +82,32 @@ export interface McpAdmissionReservation extends McpReadReservation {
   readonly admissionKind?: "write";
 }
 
+function approvalIdentity(approval: EffectApprovalBinding): EffectApprovalBinding {
+  return {
+    tenantId: approval.tenantId,
+    worldId: approval.worldId,
+    timelineId: approval.timelineId,
+    approvalId: approval.approvalId,
+    spaceId: approval.spaceId,
+    effectId: approval.effectId,
+    principalId: approval.principalId,
+    approverPrincipalId: approval.approverPrincipalId,
+    argumentsHash: approval.argumentsHash,
+    effectHash: approval.effectHash,
+    argumentsArtifactId: approval.argumentsArtifactId,
+    expiresAt: approval.expiresAt,
+    expirySeconds: approval.expirySeconds ?? 600,
+  };
+}
+
+function admissionIdentity<T extends { readonly approval?: EffectApprovalBinding }>(
+  identity: T,
+): T {
+  return identity.approval
+    ? { ...identity, approval: approvalIdentity(identity.approval) }
+    : identity;
+}
+
 /** Internal privileged client only. No SQL privilege or remote adapter is installed here. */
 export class PostgreSqlMcpAdmission {
   constructor(
@@ -410,7 +436,7 @@ export class PostgreSqlMcpAdmission {
       throw new Error("Invalid MCP read arguments");
     }
     // A refusal may deliberately record a mismatched claimed hash; bind retries to what was presented.
-    const identity = { ...metadata, presentedArgumentsHash };
+    const identity = admissionIdentity({ ...metadata, presentedArgumentsHash });
     const i = request.intent;
     const turnKey = mcpReadArgumentsHash({ sessionId: request.sessionId, turnId: request.turnId });
     if (
@@ -448,7 +474,11 @@ export class PostgreSqlMcpAdmission {
       );
       if (prior.rows.length) {
         const equal = await this.client.query("SELECT $1::jsonb=$2::jsonb AS equal", [
-          JSON.stringify((prior.rows[0] as { identity: unknown }).identity),
+          JSON.stringify(
+            admissionIdentity(
+              (prior.rows[0] as { identity: Omit<McpAdmissionReservation, "arguments"> }).identity,
+            ),
+          ),
           JSON.stringify(identity),
         ]);
         if (!(equal.rows[0] as { equal: boolean }).equal) {

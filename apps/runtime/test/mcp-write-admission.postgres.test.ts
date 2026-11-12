@@ -122,7 +122,20 @@ it("admits exact approved writes once under current canonical authority and shar
       const raced = await Promise.all(ports.map((port) => port.reserve(exact)));
       expect(raced[0]).toEqual(raced[1]);
       expect(raced[0]?.disposition).toBe("pending");
-      expect((await approvals.read(exact.approval))?.state).toBe("consumed");
+      const consumedApproval = await approvals.read(exact.approval);
+      expect(consumedApproval?.state).toBe("consumed");
+      const consumedRetry = { ...exact, approval: consumedApproval! };
+      expect(await ports[1]!.reserve(consumedRetry)).toEqual(raced[0]);
+      const { expirySeconds: _expirySeconds, ...defaultExpiryApproval } = consumedApproval!;
+      expect(await ports[1]!.reserve({ ...exact, approval: defaultExpiryApproval })).toEqual(
+        raced[0],
+      );
+      await expect(
+        ports[1]!.reserve({
+          ...consumedRetry,
+          approval: { ...consumedApproval!, expiresAt: "2099-01-01 00:00:00+00" },
+        }),
+      ).rejects.toThrow();
       expect(await ports[0]!.admit(exact.intent, exact.arguments)).toEqual({
         endpoint: "https://fixture.example/mcp",
         toolName: "lookup",
@@ -144,6 +157,40 @@ it("admits exact approved writes once under current canonical authority and shar
           await sql(
             `SELECT count(*) FROM clockgrove.event_dispatches WHERE channel='external-effects'`,
           )
+        ).trim(),
+      ).toBe("1");
+      for (const [index, foreignScope] of [
+        { tenantId: "tenant-b" },
+        { worldId: "world-b" },
+        { timelineId: "timeline-b" },
+      ].entries()) {
+        await expect(
+          ports[1]!.reserve({
+            ...consumedRetry,
+            approval: { ...consumedApproval!, ...foreignScope },
+          }),
+        ).rejects.toThrow("MCP read admission unavailable");
+        const substituted = await create(14 + index);
+        expect(
+          (
+            await ports[0]!.reserve({
+              ...substituted,
+              approval: { ...substituted.approval, ...foreignScope },
+            })
+          ).outcomeCode,
+        ).toBe("approval_binding_changed");
+        expect((await approvals.read(substituted.approval))?.state).toBe("approved");
+      }
+      expect(
+        (
+          await sql(`SELECT calls||','||reserved_microusd FROM clockgrove.mcp_read_turn_budgets
+          WHERE timeline_id='timeline-a'`)
+        ).trim(),
+      ).toBe("1,80000");
+      expect(
+        (
+          await sql(`SELECT count(*) FROM clockgrove.event_dispatches
+          WHERE channel='external-effects'`)
         ).trim(),
       ).toBe("1");
       await read.setSwitch({ scope: "global" }, true);
@@ -223,7 +270,15 @@ it("admits exact approved writes once under current canonical authority and shar
       expect(await ports[0]!.admit(exact.intent, exact.arguments)).toBeNull();
       const restarted = connect(fixture.environment, "clockgrove", "clockgrove_admin");
       try {
-        expect(await new PostgreSqlMcpWriteAdmission(restarted).reserve(exact)).toEqual(uncertain);
+        const reconnectedApprovals = new PostgreSqlEffectApprovals(restarted);
+        const reconnectedApproval = await reconnectedApprovals.read(exact.approval);
+        expect(reconnectedApproval?.state).toBe("consumed");
+        expect(
+          await new PostgreSqlMcpWriteAdmission(restarted).reserve({
+            ...exact,
+            approval: reconnectedApproval!,
+          }),
+        ).toEqual(uncertain);
       } finally {
         await restarted.close();
       }
