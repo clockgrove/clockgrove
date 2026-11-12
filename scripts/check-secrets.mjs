@@ -143,23 +143,32 @@ function syntaxObservation(source, location, match, rule) {
     }
     // Diagnostic catalogs use code identifiers and descriptions of those codes,
     // rather than scalar credential bindings. Random literal values still refuse.
-    if (
+    const catalog =
       ts.isStringLiteralLike(value) &&
-      /(?:^INVALID_|_ALREADY_)/u.test(name) &&
-      /_PASSWORD$/u.test(name) &&
       ts.isObjectLiteralExpression(containing.parent) &&
       containing.parent.properties.every(
         (entry) =>
           ts.isPropertyAssignment(entry) &&
           /^[A-Z][A-Z_]+$/u.test(entry.name.getText(file)) &&
           ts.isStringLiteralLike(entry.initializer),
-      )
-    ) {
+      );
+    if (catalog && /(?:^INVALID_|_ALREADY_)/u.test(name) && /_PASSWORD$/u.test(name)) {
       const description =
         name === "USER_ALREADY_HAS_PASSWORD"
           ? "User already has a password. Provide that to delete the account."
           : name[0] + name.slice(1).toLowerCase().replaceAll("_", " ");
       return value.text === description;
+    }
+    // An error code for a key or token (INVALID_API_KEY, FAILED_TO_UPDATE_API_KEY) whose message is
+    // an English sentence: a capital, then at least three words of letters only, no digits or
+    // symbols a token carries. A token-shaped value under the same code still refuses.
+    if (
+      catalog &&
+      /^(?:INVALID|FAILED_TO|MISSING|EXPIRED)_/u.test(name) &&
+      /(?:API_KEY|API_TOKEN)$/u.test(name) &&
+      /^[A-Z][a-z]*(?: [A-Za-z]+){2,}\.?$/u.test(value.text)
+    ) {
+      return true;
     }
   }
   // A documentation example spelling the field's own public placeholder is not a
