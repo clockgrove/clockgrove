@@ -14,6 +14,7 @@ const calls: {
   method: string;
   authorization: string | undefined;
   params: unknown;
+  idempotencyKey: string | undefined;
 }[] = [];
 const canary = "fixture-canary-credential";
 const server = createServer(async (req, res) => {
@@ -25,6 +26,7 @@ const server = createServer(async (req, res) => {
     path,
     method: rpc.method,
     authorization: req.headers.authorization,
+    idempotencyKey: req.headers["idempotency-key"] as string | undefined,
     params: rpc.params,
   });
   if (["/call-307", "/call-308"].includes(path) && rpc.method === "tools/call") {
@@ -212,7 +214,11 @@ it("refuses unsupported, malformed and oversized results before exposing them, w
 
 it("sends a write once and treats every unusable post-send reply as uncertain", async () => {
   const transport = new RemoteHttpMcpWriteAdapter(new SafeMcpHttpClient(network()));
-  const write = (path: string) => ({ ...request(path), admittedReadOnly: false as const });
+  const write = (path: string) => ({
+    ...request(path),
+    admittedReadOnly: false as const,
+    idempotencyKey: "a".repeat(64),
+  });
   calls.length = 0;
   await expect(transport.execute(write("/private"))).rejects.toMatchObject({
     disposition: "not_sent",
@@ -233,6 +239,16 @@ it("sends a write once and treats every unusable post-send reply as uncertain", 
     sanitized: false,
     costMicrousd: null,
   });
+  expect(
+    calls
+      .filter((call) => call.method === "tools/call")
+      .every((call) => call.idempotencyKey === "a".repeat(64)),
+  ).toBe(true);
+  expect(
+    calls
+      .filter((call) => call.method !== "tools/call")
+      .every((call) => call.idempotencyKey === undefined),
+  ).toBe(true);
   expect(calls.filter(({ method }) => method === "tools/call")).toHaveLength(1);
 });
 

@@ -95,6 +95,7 @@ import {
 import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflare-metrics.js";
 import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
+import { handleEffectEndpoint, isEffectRoute } from "./effect-endpoint.js";
 import {
   HyperdrivePostgreSqlClient,
   withHyperdrivePostgreSqlClient,
@@ -984,6 +985,13 @@ function composeGuardedResearch(
   if (supplied.research) return supplied.research;
   const configuration = supplied.researchConfiguration;
   if (!configuration) return undefined;
+  const execute = async (request: AdmittedMcpExecution, intent: EffectIntentMetadata) => {
+    const owners = env.MCP_OPERATOR_DO;
+    if (!owners) throw new McpReadFailure("credential_unavailable", "not_sent");
+    const result = await owners.get(owners.idFromName("local-mcp-operator")).read(intent, request);
+    if (!result.ok) throw new McpReadFailure(result.code, result.disposition);
+    return result.value;
+  };
   return composeResearch({
     ...configuration,
     environment: "local",
@@ -996,17 +1004,7 @@ function composeGuardedResearch(
       );
       await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).toolCompleted(target);
     },
-    adapter: {
-      execute: async (request, intent) => {
-        const owners = env.MCP_OPERATOR_DO;
-        if (!owners) throw new McpReadFailure("credential_unavailable", "not_sent");
-        const result = await owners
-          .get(owners.idFromName("local-mcp-operator"))
-          .read(intent, request);
-        if (!result.ok) throw new McpReadFailure(result.code, result.disposition);
-        return result.value;
-      },
-    },
+    adapter: { execute, executeWrite: execute },
     internalRead: composeResearchInternalRead(env, supplied.authentication),
   });
 }
@@ -1076,7 +1074,12 @@ class McpOperatorDO extends DurableObject<RuntimeEnvironment> {
           ? await new PostgreSqlMcpReadAdmission(client).admit(intent, request.arguments)
           : await new PostgreSqlMcpWriteAdmission(client)
               .admit(intent, request.arguments)
-              .then((value) => (value ? { ...value, admittedReadOnly: false as const } : null));
+              .then(async (value) => {
+                const call =
+                  value ??
+                  (await new PostgreSqlMcpReadAdmission(client).admit(intent, request.arguments));
+                return call ? { ...call, admittedReadOnly: false as const } : null;
+              });
         if (!admitted) return null;
         const result = await client.query(
           `SELECT installation_id FROM clockgrove.mcp_read_admissions
@@ -1326,6 +1329,25 @@ export interface MessageBatch {
 export default {
   async fetch(request: Request, env: RuntimeEnvironment): Promise<Response> {
     const dependencies = composeRuntime(env);
+    if (isEffectRoute(new URL(request.url).pathname)) {
+      const configuration = dependencies.researchConfiguration;
+      const research = dependencies.research;
+      if (env.PROVIDER_ENVIRONMENT !== "local" || !configuration || !research)
+        return Response.json({ error: "effect_controls_unavailable" }, { status: 503 });
+      return handleEffectEndpoint(request, {
+        authentication: dependencies.authentication,
+        research,
+        configuration,
+        wake: async (target) => {
+          const route = await runtimeRouteName(
+            "actor-agent",
+            target.scope,
+            decodeOpaqueId(target.actorId, "SubjectId"),
+          );
+          await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).toolCompleted(target);
+        },
+      });
+    }
     const connection = env.HYPERDRIVE?.connectionString ?? "";
     const conversations = composeConversations(env);
     const runs = composeRunInspector(env);

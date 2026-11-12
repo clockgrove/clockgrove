@@ -15,6 +15,7 @@ import type { SceneSession } from "../scene-api.js";
 import { useSelectionQuery } from "../scene-queries.js";
 import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
+import { EffectApprovals } from "./effect-approvals.js";
 
 const RAIL_ACTIONS = [
   ["talk", "Talk"],
@@ -304,6 +305,7 @@ export function ConversationPanel({
           ))}
         </div>
       )}
+      {selectedId && <EffectApprovals key={selectedId} session={session} sessionId={selectedId} />}
       <p className="rw-disclosure">
         {name} is model-backed. This conversation is private to you and never spoken aloud in the
         world.

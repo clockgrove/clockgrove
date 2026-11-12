@@ -35,6 +35,8 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
     await native.sql(
       "UPDATE clockgrove.world_memberships SET grants=grants||ARRAY['runtime:world-inspect'] WHERE principal_id='principal-runtime'",
     );
+    const nativeOrigin = await native.origin();
+    let browserOrigin = "";
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
@@ -43,7 +45,18 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
         port: 0,
         proxy: {
           "/v1/projection": { target: await native.origin(), ws: true },
-          "/v1/runtime": await native.origin(),
+          "/v1/runtime": {
+            target: nativeOrigin,
+            changeOrigin: true,
+            configure(proxy) {
+              // The fixture proxies between two loopback ports; preserve same-origin semantics
+              // for the browser's own origin while retaining foreign origins for rejection.
+              proxy.on("proxyReq", (forwarded, incoming) => {
+                if (incoming.headers.origin === browserOrigin)
+                  forwarded.setHeader("origin", nativeOrigin);
+              });
+            },
+          },
         },
       },
     });
@@ -51,6 +64,7 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
     let releaseList = () => {};
     try {
       await server.listen();
+      browserOrigin = `http://127.0.0.1:${server.httpServer.address().port}`;
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
       const route = `/worlds/${Object.values(native.scope).map(encodeURIComponent).join("/")}`;
@@ -133,6 +147,86 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
           response.text(),
         ),
       ).toBe(calls);
+      // Switch the reviewed fixture to its protected effect class; the tool schema stays pinned.
+      await native.sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"external-write"') WHERE installation_id='fixture';
+        UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["external-write"]') WHERE binding_id='binding';
+        UPDATE clockgrove.world_memberships SET grants=grants||ARRAY['runtime:world-operate'] WHERE principal_id='principal-runtime';`);
+      await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      await page
+        .getByLabel("Message Keeper…", { exact: true })
+        .fill(`fixture:research 1 ${CAPABILITY} {"q":"approved-write"}`);
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      const approvals = page.getByRole("complementary", { name: "Call approvals", exact: true });
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      expect(await approvals.textContent()).toContain(`Proposed call: ${CAPABILITY}`);
+      expect(await approvals.getByLabel("Exact call arguments").textContent()).toBe(
+        '{\n  "q": "approved-write"\n}',
+      );
+      expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
+        calls,
+      );
+      await page.reload();
+      await page.getByLabel("Local session credential").fill("local-reader-session");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("button", { name: ACTOR, exact: true }).press("Enter");
+      await page.getByRole("button", { name: "Talk", exact: true }).click();
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      const approvalResponse = page.waitForResponse((response) =>
+        response.url().endsWith("/effects/decide"),
+      );
+      await approvals.getByRole("button", { name: "Approve exact call", exact: true }).click();
+      expect((await approvalResponse).status()).toBe(200);
+      await expect
+        .poll(
+          () =>
+            native.sql(
+              "SELECT phase||':'||coalesce(outcome_code,'') FROM clockgrove.conversation_turn_fibers ORDER BY updated_at DESC LIMIT 1",
+            ),
+          { timeout: 30000 },
+        )
+        .toBe("completed:");
+
+      await history
+        .getByText(/Fixture research succeeded: The fixture archive code is ORCHID-42\./u)
+        .waitFor({ timeout: 60000 });
+      expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
+        String(Number(calls) + 1),
+      );
+      await page
+        .getByLabel("Message Keeper…", { exact: true })
+        .fill(`fixture:research 1 ${CAPABILITY} {"q":"changed-write"}`);
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      await approvals.getByRole("button", { name: "Deny call", exact: true }).click();
+      await history
+        .getByText(/Fixture research refused: Tool refused: approval_denied/u)
+        .waitFor({ timeout: 60000 });
+      expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
+        String(Number(calls) + 1),
+      );
+      await page
+        .getByLabel("Message Keeper…", { exact: true })
+        .fill(`fixture:research 1 ${CAPABILITY} {"q":"down"}`);
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      await approvals.getByRole("button", { name: "Approve exact call", exact: true }).click();
+      await history
+        .getByText(/Fixture research uncertain: tool_uncertain/u)
+        .waitFor({ timeout: 60000 });
+      await page.getByText("Operator approvals", { exact: true }).click();
+      const operator = page.getByRole("complementary", { name: "Operator approvals", exact: true });
+      await operator.getByText(/Uncertain write:/u).waitFor();
+      await operator
+        .getByRole("button", { name: "Mark done after checking provider", exact: true })
+        .click();
+      await expect
+        .poll(() =>
+          native.sql("SELECT resolved_by||':'||disposition FROM clockgrove.effect_resolutions"),
+        )
+        .toBe("principal-runtime:done");
+      expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
+        String(Number(calls) + 2),
+      );
     } finally {
       releaseList();
       await browser?.close();

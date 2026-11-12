@@ -947,9 +947,56 @@ previews come from encrypted conversation artifacts and must match the immutable
 argument hash. Operator resolution records `done` or `failed`, retaining the original
 uncertain outcome and attribution. It schedules no retry and never contacts a provider.
 
-This part supplies reusable runtime boundaries, not their public activation. The local
-research composition still executes reads only. Part 6 must connect protected-class
-policy and per-call approval creation, operator/proactive routing, authenticated HTTP
-and conversation/operator UI, safe idempotency with fresh approval for retries, and the
-phase-injected write fixture and browser journey. The owner decisions in §11.2 remain
-binding; these internal ports do not waive them or establish hosted egress safety.
+The final local integration now connects these reusable boundaries to protected-class
+policy and exact per-call approval creation, operator/proactive routing, authenticated HTTP,
+conversation/operator UI, and safe idempotency with fresh approval for retries. Native
+phase-injected write-fixture and scripted browser journeys exercise this composition.
+The owner decisions in §11.2 remain binding; local evidence does not establish hosted
+egress safety. The current behavior is described below.
+
+
+## Governed writes and human controls (issue 166, final integration)
+
+Local research now creates an exact-call approval before reserving a protected external
+effect. `external-write`, `destructive` and `cost` always require approval; `network`
+follows the binding's approval policy, and `read` remains approval-free. Human approval
+never creates a missing capability grant. The session person approves within their own
+grants; proactive or operator-routed proposals go to the world operator. Approvals bind
+normalized argument and effect hashes, scope, principal and database wall-clock expiry
+(default ten minutes, owner decision 2026-11-09). There are no standing approvals.
+
+The actor checkpoints `approval_waiting` with the original proposal and call identity.
+Recovery reloads canonical approval state without asking a model to authorize it. Changed
+arguments require a different approval. Denied, expired and revoked calls become recorded
+refusals. Current membership, schema pin, binding, kill switch, budget and live timeline
+are checked again at reservation and dispatch. Approval consumption and the effect/outbox
+reservation commit atomically. Browser state and repeated clicks cannot authorize another
+attempt.
+
+The authenticated local `/v1/runtime/effects/` POST surface provides `approvals`, `approval`,
+`decide`, `revoke`, `uncertain`, `resolve` and `retry`. Requests carry the complete scope and a command
+identity; human identity comes only from the verified bearer session. The designated
+approver can inspect the exact encrypted argument preview and decide approved or denied.
+Operator uncertainty controls require current `runtime:world-operate` and conversation
+privacy. Cross-origin browser calls are refused. No route is installed as a model tool.
+
+`RemoteHttpMcpWriteAdapter` shares the confined credential and bounded HTTP lifecycle with
+reads. It sends one `tools/call`, with no automatic retry. A failure before transmission
+is failed; a missing, malformed, rejected or unpersisted reply after possible transmission
+is uncertain. The canonical attempt is claimed before adapter invocation. Queue redelivery,
+preview and replay reconcile recorded outcomes and never resend that attempt. Credential
+canaries are screened before evidence becomes an encrypted result or model context.
+
+An operator checks the provider before recording an immutable `done` or `failed` finding.
+The original uncertain attempt, unknown cost and reservation remain intact. Safe retry is
+a separate call with fresh approval and current-policy admission. A capability's trusted
+binding declares `none` (default), `application` (same normalized arguments are safe) or
+`provider` (the provider honors a stable `Idempotency-Key` on `tools/call`). This header is
+an explicit provider integration contract, not an MCP protocol guarantee. A declaration
+of `none` never permits retrying an uncertain write. Models and tool results cannot set
+these declarations or decide approval/resolution.
+
+The conversation exposes pending approval with its authorized argument preview; the
+operator view exposes routed approvals and unresolved uncertainty. The actor's recorded
+reply cites its tool call, including an explicit uncertain outcome. The local integration
+does not activate hosted egress or change the hosted enrollment boundary.

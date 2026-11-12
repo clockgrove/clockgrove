@@ -1675,7 +1675,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       .then(async (outcome) => {
         if (outcome.refused === "conversation_busy") {
           const status = await this.stores()((store) => store.turnStatus(participant, request));
-          if (status.phase === "tool_waiting") {
+          if (status.phase === "tool_waiting" || status.phase === "approval_waiting") {
             // No terminal frame: callers retain the message ID and resume its durable wait.
             await writer.close();
             return;
@@ -1767,7 +1767,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           (candidate) =>
             candidate.sessionId === target.sessionId &&
             candidate.messageId === target.messageId &&
-            candidate.phase === "tool_waiting",
+            (candidate.phase === "tool_waiting" || candidate.phase === "approval_waiting"),
         );
         if (fiber === undefined) return;
         await this.fibers(scope, target.actorId).activate(participant, fiber);

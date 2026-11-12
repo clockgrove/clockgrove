@@ -1,5 +1,6 @@
 import {
   type AdmittedMcpRead,
+  type AdmittedMcpWrite,
   type ArtifactStore,
   allowDecision,
   CAPABILITY_REGISTRY,
@@ -10,8 +11,10 @@ import {
   type McpCapabilityBinding,
   type McpNetworkPort,
   type McpReadEvidence,
+  McpReadFailure,
   type McpRegistryInstallation,
   mcpReadArgumentsHash,
+  type RuntimeAuthorizationContext,
   resolveMcpCapabilityRegistry,
   SafeMcpHttpClient,
   type StoredCommandProposal,
@@ -31,16 +34,22 @@ import {
 } from "@clockgrove/contracts";
 import { simulationTimeMs } from "@clockgrove/kernel";
 import {
+  approvedEffectHash,
+  approvedEffectIdempotencyKey,
   type EffectIntentMetadata,
   MCP_READ_TURN_DEFAULTS,
   type PostgreSqlClient,
+  PostgreSqlConversationStore,
   PostgreSqlDispatchStore,
+  PostgreSqlEffectApprovals,
   PostgreSqlEffects,
   PostgreSqlJournal,
   PostgreSqlMcpReadAdmission,
+  PostgreSqlMcpWriteAdmission,
   type RecordedEffect,
   withClientTransaction,
 } from "@clockgrove/persistence";
+import type { ApprovalCallBinding } from "./effect-controls.js";
 import { externalEffectsConsumer } from "./external-effects.js";
 
 export interface ResearchResumeTarget {
@@ -65,6 +74,10 @@ export interface ResearchConfiguration {
   readonly network: McpNetworkPort;
   readonly adapter: {
     execute(request: AdmittedMcpRead, intent: EffectIntentMetadata): Promise<McpReadEvidence>;
+    executeWrite?(
+      request: AdmittedMcpWrite,
+      intent: EffectIntentMetadata,
+    ): Promise<McpReadEvidence>;
   };
   readonly publish: (message: QueueEnvelope<unknown>) => Promise<void>;
   readonly wake: (target: ResearchResumeTarget) => Promise<void>;
@@ -75,6 +88,7 @@ export interface ResearchConfiguration {
   ) => Promise<McpReadEvidence>;
   readonly policy?: ResearchPolicy;
   readonly toolCallReserveMicrousd?: number;
+  readonly approvalExpirySeconds?: number;
 }
 
 interface Context extends ResearchResumeTarget {
@@ -119,6 +133,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
   async function context(
     client: PostgreSqlClient,
     target: ResearchResumeTarget,
+    includeTerminal = false,
   ): Promise<Context | null> {
     const result = await client.query(
       `SELECT s.partition_id AS "partitionId",st.stream_id AS "streamId",m.membership_id AS "membershipId",
@@ -138,7 +153,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
         WHERE f.tenant_id=$1 AND f.world_id=$2 AND f.timeline_id=$3 AND s.space_id=$4
           AND f.session_id=$5 AND f.message_id=$6 AND f.actor_id=$7 AND s.actor_id=$7
           AND f.principal_id=$8 AND f.persona_id=$9 AND s.state='active'
-          AND f.phase NOT IN ('completed','failed','cancelled','rejected','abandoned')`,
+          AND ($10::boolean OR f.phase NOT IN ('completed','failed','cancelled','rejected','abandoned'))`,
       [
         target.scope.tenantId,
         target.scope.worldId,
@@ -149,6 +164,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
         target.actorId,
         target.principalId,
         target.personaId,
+        includeTerminal,
       ],
     );
     const row = result.rows[0] as Omit<Context, keyof ResearchResumeTarget> | undefined;
@@ -299,13 +315,20 @@ export function composeResearch(configuration: ResearchConfiguration) {
       estimatedCostMicrousd: toolReserve,
       spentMicrousd: 0,
     });
-    return { definition, installation, binding: selected[0], decision };
+    return {
+      definition,
+      installation,
+      binding: selected[0],
+      decision,
+      available: resolved.grants.available().includes(proposal.capability),
+    };
   }
   async function event(
     client: PostgreSqlClient,
     c: Context,
     intent: EffectIntentMetadata,
     proposal: StoredCommandProposal,
+    idempotency: "none" | "application" | "provider" = "none",
   ) {
     const commandId = decodeOpaqueId(`trusted:research:${intent.effectId}`, "CommandId");
     const prior = await client.query(
@@ -320,6 +343,14 @@ export function composeResearch(configuration: ResearchConfiguration) {
           callId: intent.callId,
           capabilityId: intent.capabilityId,
           argumentsHash: intent.argumentsHash,
+          ...(intent.idempotencyKey !== intent.effectId
+            ? {
+                sessionId: c.sessionId,
+                messageId: c.messageId,
+                approvalIntent: intent,
+                idempotency,
+              }
+            : {}),
         }),
       ],
     );
@@ -344,6 +375,9 @@ export function composeResearch(configuration: ResearchConfiguration) {
       callId: intent.callId,
       capabilityId: intent.capabilityId,
       argumentsHash: intent.argumentsHash,
+      ...(intent.idempotencyKey !== intent.effectId
+        ? { sessionId: c.sessionId, messageId: c.messageId, approvalIntent: intent, idempotency }
+        : {}),
     };
     const raw = {
       schemaVersion: 2,
@@ -589,6 +623,375 @@ export function composeResearch(configuration: ResearchConfiguration) {
       costMicrousd: result.costMicrousd,
     };
   }
+  function approvalAddress(scope: BrowserScope, effectId: string) {
+    return { ...scope, approvalId: `${effectId}:approval` };
+  }
+  function protectedCall(resolved: Awaited<ReturnType<typeof resolve>>) {
+    const effect = resolved.definition?.effect;
+    return (
+      effect === "external-write" ||
+      effect === "destructive" ||
+      effect === "cost" ||
+      (effect === "network" && resolved.binding?.constraints.approvalRequired !== false)
+    );
+  }
+  function intentFor(
+    c: Context,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    call: TurnToolCall,
+    resolved: Awaited<ReturnType<typeof resolve>>,
+    input: unknown,
+  ): EffectIntentMetadata {
+    return {
+      ...fiber.scope,
+      effectId: call.effectId,
+      idempotencyKey: protectedCall(resolved)
+        ? approvedEffectIdempotencyKey(approvalAddress(fiber.scope, call.effectId))
+        : call.effectId,
+      actorId: fiber.actorId,
+      principalId: c.principalId,
+      runId: fiber.runId,
+      callId: call.callId,
+      capabilityId: proposal.capability,
+      grantId:
+        resolved.binding?.bindingId ?? resolved.definition?.requiredRuntimeGrant ?? "not_granted",
+      policyVersion: "research-v1",
+      argumentsHash: mcpReadArgumentsHash(input),
+      argumentsArtifactId: `${call.effectId}:arguments`,
+      reservedMicrousd: internal(proposal.capability) ? 0 : toolReserve,
+    };
+  }
+  async function sealedCall(client: PostgreSqlClient, scope: BrowserScope, effectId: string) {
+    const found = await client.query(
+      `SELECT payload FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND event_id=$5`,
+      [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        scope.spaceId,
+        `trusted:research:${effectId}:event`,
+      ],
+    );
+    return (
+      found.rows[0] as
+        | {
+            payload: {
+              approvalIntent?: EffectIntentMetadata;
+              idempotency?: "none" | "application" | "provider";
+            };
+          }
+        | undefined
+    )?.payload;
+  }
+  async function approvalState(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    call: TurnToolCall,
+  ): Promise<"not_required" | "waiting" | "approved" | "denied" | "expired" | "revoked"> {
+    return configuration.withClient(async (client) => {
+      const c = await context(client, {
+        scope: fiber.scope,
+        actorId: fiber.actorId,
+        sessionId: fiber.sessionId,
+        messageId: fiber.messageId,
+        principalId: participant.principalId,
+        personaId: participant.personaId,
+      });
+      if (!c) return "revoked";
+      const resolved = await resolve(client, c, proposal);
+      const address = approvalAddress(fiber.scope, call.effectId);
+      const approvals = new PostgreSqlEffectApprovals(client);
+      const prior = await approvals.read(address);
+      // Consumption already reserved this exact effect. Reconcile its recorded outcome even
+      // after policy changes; dispatch still rechecks current authority before any network I/O.
+      if (prior?.state === "consumed") return "approved";
+      if (!protectedCall(resolved) && !prior) return "not_required";
+      const activation = await client.query(
+        `SELECT 1 FROM clockgrove.actor_activations WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$4 AND message_id=$5`,
+        [c.scope.tenantId, c.scope.worldId, c.scope.timelineId, c.sessionId, c.messageId],
+      );
+      if (
+        !resolved.decision.accepted ||
+        (!activation.rows.length && !c.grants.includes(proposal.capability)) ||
+        (await killed(client, c))
+      )
+        return prior ? "revoked" : "not_required";
+      let intent = intentFor(c, fiber, proposal, call, resolved, resolved.decision.input);
+      const sealed = await sealedCall(client, fiber.scope, call.effectId);
+      if (prior && sealed?.approvalIntent)
+        intent = { ...intent, runId: sealed.approvalIntent.runId };
+      if (prior && sealed?.idempotency !== (resolved.binding?.constraints.idempotency ?? "none"))
+        return "revoked";
+      const eventId = `trusted:research:${intent.effectId}:event`;
+      const effectHash = approvedEffectHash({
+        ...intent,
+        disposition: "pending",
+        dispatchId: `${intent.effectId}:dispatch`,
+        eventId,
+      });
+      if (
+        prior &&
+        (prior.argumentsHash !== intent.argumentsHash || prior.effectHash !== effectHash)
+      )
+        return "revoked";
+      let approval = prior;
+      if (!approval) {
+        await put(client, c, intent.argumentsArtifactId!, resolved.decision.input);
+        await event(
+          client,
+          c,
+          intent,
+          proposal,
+          resolved.binding?.constraints.idempotency ?? "none",
+        );
+        let approver = c.principalId;
+        if (activation.rows.length || !c.grants.includes(proposal.capability)) {
+          // Deterministic routing to one currently authorized operator avoids duplicate approvals.
+          const operators = await client.query(
+            `SELECT principal_id FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation' ORDER BY principal_id LIMIT 1`,
+            [c.scope.tenantId, c.scope.worldId, c.scope.timelineId, c.scope.spaceId],
+          );
+          const operator = (operators.rows[0] as { principal_id: string } | undefined)
+            ?.principal_id;
+          if (!operator) return "revoked";
+          approver = operator;
+        }
+        approval = await approvals.request({
+          ...address,
+          spaceId: c.scope.spaceId,
+          effectId: intent.effectId,
+          principalId: c.principalId,
+          approverPrincipalId: approver,
+          expirySeconds: configuration.approvalExpirySeconds ?? 600,
+          argumentsHash: intent.argumentsHash,
+          effectHash,
+          argumentsArtifactId: intent.argumentsArtifactId,
+        });
+      }
+      return approval.state === "pending"
+        ? "waiting"
+        : approval.state === "consumed"
+          ? "approved"
+          : approval.state;
+    });
+  }
+  async function approvalContext(
+    client: PostgreSqlClient,
+    scope: BrowserScope,
+    effectId: string,
+    includeTerminal = false,
+  ) {
+    const found = await client.query(
+      `SELECT f.session_id AS "sessionId",f.message_id AS "messageId",f.actor_id AS "actorId",f.principal_id AS "principalId",f.persona_id AS "personaId"
+      FROM clockgrove.events e JOIN clockgrove.conversation_turn_fibers f ON f.tenant_id=e.tenant_id AND f.world_id=e.world_id AND f.timeline_id=e.timeline_id
+      AND f.session_id=e.payload->>'sessionId' AND f.message_id=e.payload->>'messageId'
+      WHERE e.tenant_id=$1 AND e.world_id=$2 AND e.timeline_id=$3 AND e.space_id=$4 AND e.event_id=$5`,
+      [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        scope.spaceId,
+        `trusted:research:${effectId}:event`,
+      ],
+    );
+    const row = found.rows[0] as Omit<ResearchResumeTarget, "scope"> | undefined;
+    return row ? context(client, { ...row, scope }, includeTerminal) : null;
+  }
+  async function approvalTarget(
+    scope: BrowserScope,
+    approvalId: string,
+  ): Promise<ResearchResumeTarget | null> {
+    return configuration.withClient(async (client) => {
+      const approval = await new PostgreSqlEffectApprovals(client).read({ ...scope, approvalId });
+      return approval?.spaceId === scope.spaceId
+        ? approvalContext(client, scope, approval.effectId)
+        : null;
+    });
+  }
+  async function admitApproval(
+    client: PostgreSqlClient,
+    auth: RuntimeAuthorizationContext,
+    approval: ApprovalCallBinding,
+  ) {
+    const scope: BrowserScope = {
+      tenantId: decodeOpaqueId(approval.tenantId, "TenantId"),
+      worldId: decodeOpaqueId(approval.worldId, "WorldId"),
+      timelineId: decodeOpaqueId(approval.timelineId, "TimelineId"),
+      spaceId: decodeOpaqueId(approval.spaceId, "SpaceId"),
+    };
+    const c = await approvalContext(client, scope, approval.effectId, true);
+    if (
+      !c ||
+      approval.principalId !== c.principalId ||
+      approval.approverPrincipalId !== auth.principalId
+    )
+      return null;
+    const rows = await client.query(
+      `SELECT 1 FROM clockgrove.actor_activations WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$4 AND message_id=$5`,
+      [scope.tenantId, scope.worldId, scope.timelineId, c.sessionId, c.messageId],
+    );
+    const recorded = await client.query(
+      `SELECT payload FROM clockgrove.events WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND event_id=$4`,
+      [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        `trusted:research:${approval.effectId}:event`,
+      ],
+    );
+    const payload = (
+      recorded.rows[0] as { payload: { capabilityId: string; argumentsHash: string } } | undefined
+    )?.payload;
+    if (!payload || payload.argumentsHash !== approval.argumentsHash) return null;
+    const resolved = await resolve(client, c, {
+      capability: payload.capabilityId,
+      input: {},
+      issuedAt: new Date().toISOString(),
+    });
+    if (
+      !protectedCall(resolved) ||
+      !resolved.binding ||
+      !resolved.available ||
+      (await killed(client, c))
+    )
+      return null;
+    if (rows.rows.length || auth.principalId !== c.principalId) return { operator: true as const };
+    if (!c.grants.includes(payload.capabilityId)) return null;
+    return { sessionId: c.sessionId };
+  }
+  async function retry(scope: BrowserScope, effectId: string, auth: RuntimeAuthorizationContext) {
+    if (
+      auth.tenantId !== scope.tenantId ||
+      !auth.privacyCeiling.allowedCategories.includes("conversation")
+    )
+      throw new Error("Effect retry unavailable");
+    return configuration.withClient(async (client) => {
+      const membership = await client.query(
+        `SELECT persona_id AS "personaId",privacy_ceiling AS "privacyCeiling" FROM clockgrove.world_memberships
+        WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND principal_id=$5 AND revoked_at IS NULL
+        AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation'`,
+        [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId, auth.principalId],
+      );
+      const member = membership.rows[0] as
+        | { personaId: string; privacyCeiling: ConversationParticipant["privacyCeiling"] }
+        | undefined;
+      if (!member) throw new Error("Effect retry unavailable");
+      const found = await client.query(
+        `SELECT ${metadataColumns} FROM clockgrove.effect_intents WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND effect_id=$5 AND disposition='uncertain'`,
+        [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId, effectId],
+      );
+      const original = found.rows[0] as EffectIntentMetadata | undefined;
+      if (!original?.argumentsArtifactId) throw new Error("Effect retry unavailable");
+      const participant: ConversationParticipant = {
+        ...auth,
+        personaId: decodeOpaqueId(member.personaId, "WorldPersonaId"),
+        privacyCeiling: member.privacyCeiling,
+      };
+      const sessionId = `effect-retry:${crypto.randomUUID()}`;
+      const messageId = `effect-retry:${crypto.randomUUID()}`;
+      const location = await client.query(
+        `SELECT p.partition_id AS "partitionId",s.stream_id AS "streamId",m.membership_id AS "membershipId",m.grants,m.roles
+        FROM clockgrove.world_memberships m JOIN clockgrove.timeline_partitions p USING(tenant_id,world_id,timeline_id,space_id)
+        JOIN clockgrove.streams s USING(tenant_id,world_id,timeline_id,partition_id,space_id)
+        WHERE m.tenant_id=$1 AND m.world_id=$2 AND m.timeline_id=$3 AND m.space_id=$4 AND m.principal_id=$5 ORDER BY s.stream_id LIMIT 1`,
+        [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId, auth.principalId],
+      );
+      const row = location.rows[0] as
+        | Pick<Context, "partitionId" | "streamId" | "membershipId" | "grants" | "roles">
+        | undefined;
+      if (!row) throw new Error("Effect retry unavailable");
+      const c: Context = {
+        ...row,
+        scope,
+        sessionId,
+        messageId,
+        actorId: original.actorId,
+        principalId: auth.principalId,
+        personaId: member.personaId,
+        privacyCeiling: member.privacyCeiling,
+        simulationTime: "0",
+      };
+      const input = await get(client, c, original.argumentsArtifactId);
+      const proposal: StoredCommandProposal = {
+        capability: original.capabilityId,
+        input,
+        issuedAt: new Date().toISOString(),
+      };
+      const resolved = await resolve(client, c, proposal);
+      const originalCall = await sealedCall(client, scope, effectId);
+      const declaration = resolved.binding?.constraints.idempotency ?? "none";
+      const admission = await client.query(
+        `SELECT identity->>'idempotency' AS idempotency FROM clockgrove.mcp_read_admissions
+         WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4 AND admitted`,
+        [scope.tenantId, scope.worldId, scope.timelineId, effectId],
+      );
+      const originalDeclaration =
+        originalCall?.idempotency ??
+        (admission.rows[0] as { idempotency: string } | undefined)?.idempotency;
+      if (
+        !resolved.decision.accepted ||
+        !c.grants.includes(original.capabilityId) ||
+        !["application", "provider"].includes(declaration) ||
+        declaration !== originalDeclaration ||
+        mcpReadArgumentsHash(input) !== original.argumentsHash ||
+        (await killed(client, c))
+      )
+        throw new Error("Effect retry unavailable");
+      const store = new PostgreSqlConversationStore(
+        client,
+        configuration.artifacts(client),
+        () => sessionId,
+      );
+      const session = await store.open(participant, {
+        scope,
+        actorId: decodeOpaqueId(original.actorId, "ObjectId"),
+        voiceMode: "cognitive",
+      });
+      const accepted = await store.acceptTurn(participant, {
+        scope,
+        sessionId: session.sessionId,
+        messageId,
+        text: `Operator retry of uncertain effect ${effectId}`,
+      });
+      let fiber = (await store.claimTurn(participant, accepted.fiber!, "effect-retry", 0))!;
+      fiber = (await store.assembleTurn(participant, fiber))!;
+      fiber = (await store.advanceTurn(participant, fiber, "model_running"))!;
+      fiber = (await store.answerTurn(participant, fiber, {
+        text: "Operator requested a fresh approval for the exact uncertain write.",
+        command: { capability: original.capabilityId, input },
+      }))!;
+      const rootKey =
+        /^retry:([a-f0-9]{64}):/.exec(effectId)?.[1] ??
+        mcpReadArgumentsHash({
+          tenantId: scope.tenantId,
+          worldId: scope.worldId,
+          timelineId: scope.timelineId,
+          effectId,
+        });
+      const id = `retry:${rootKey}:${crypto.randomUUID()}`;
+      fiber = (await store.waitForTool(participant, fiber, {
+        callId: id,
+        effectId: id,
+        capability: original.capabilityId,
+      }))!;
+      const call = (await store.researchState(participant, fiber)).calls.at(-1)!;
+      // This call creates only the approval. Dispatch remains behind the ordinary durable wait.
+      await approvalState(
+        participant,
+        fiber,
+        (await store.commandProposal(participant, fiber))!,
+        call,
+      );
+      await store.waitForApproval(participant, fiber);
+      return {
+        approvalId: approvalAddress(scope, id).approvalId,
+        sessionId: session.sessionId,
+        messageId,
+      };
+    });
+  }
   async function executeTool(
     participant: ConversationParticipant,
     fiber: TurnFiber,
@@ -627,26 +1030,18 @@ export function composeResearch(configuration: ResearchConfiguration) {
             hash = mcpReadArgumentsHash({ invalidArguments: true });
             reason = "invalid_input";
           }
-          intent = {
-            ...fiber.scope,
-            effectId: call.effectId,
-            idempotencyKey: call.effectId,
-            actorId: fiber.actorId,
-            principalId: participant.principalId,
-            runId: fiber.runId,
-            callId: call.callId,
-            capabilityId: proposal.capability,
-            grantId:
-              resolved.binding?.bindingId ??
-              resolved.definition?.requiredRuntimeGrant ??
-              "not_granted",
-            policyVersion: "research-v1",
-            argumentsHash: hash,
-            argumentsArtifactId: `${call.effectId}:arguments`,
-            reservedMicrousd: internal(proposal.capability) ? 0 : toolReserve,
-          };
+          intent = intentFor(c, fiber, proposal, call, resolved, input);
+          const sealed = await sealedCall(client, fiber.scope, call.effectId);
+          if (sealed?.approvalIntent) intent = { ...intent, runId: sealed.approvalIntent.runId };
+          if (reason === "invalid_input") intent = { ...intent, argumentsHash: hash };
           await put(client, c, intent.argumentsArtifactId!, input);
-          const eventId = await event(client, c, intent, proposal);
+          const eventId = await event(
+            client,
+            c,
+            intent,
+            proposal,
+            resolved.binding?.constraints.idempotency ?? "none",
+          );
           if (reason)
             await new PostgreSqlEffects(client).reserve({
               ...intent,
@@ -655,11 +1050,36 @@ export function composeResearch(configuration: ResearchConfiguration) {
             });
           else if (internal(proposal.capability)) {
             await reserveInternal(client, c, intent, eventId);
+          } else if (protectedCall(resolved)) {
+            const approval = await new PostgreSqlEffectApprovals(client).read(
+              approvalAddress(fiber.scope, call.effectId),
+            );
+            if (!approval || !["approved", "consumed"].includes(approval.state)) return undefined;
+            await new PostgreSqlMcpWriteAdmission(client, (admitted) =>
+              new SafeMcpHttpClient(configuration.network).validate(admitted.endpoint),
+            ).reserve({
+              intent,
+              approval,
+              idempotency: resolved.binding?.constraints.idempotency ?? "none",
+              turnId: fiber.messageId,
+              sessionId: fiber.sessionId,
+              installationId: resolved.definition?.remoteMcp?.installationId ?? "unavailable",
+              arguments: input,
+              dispatchId: `${call.effectId}:dispatch`,
+              eventId,
+              policy: {
+                ...MCP_READ_TURN_DEFAULTS,
+                maxCalls: policy.maxCalls,
+                maxModelSteps: policy.maxModelSteps,
+                maxCostMicrousd: policy.maxCostMicrousd,
+              },
+            });
           } else
             await new PostgreSqlMcpReadAdmission(client, (admitted) =>
               new SafeMcpHttpClient(configuration.network).validate(admitted.endpoint),
             ).reserve({
               intent,
+              idempotency: resolved.binding?.constraints.idempotency ?? "none",
               turnId: fiber.messageId,
               sessionId: fiber.sessionId,
               installationId: resolved.definition?.remoteMcp?.installationId ?? "unavailable",
@@ -867,11 +1287,27 @@ export function composeResearch(configuration: ResearchConfiguration) {
               }
             : null;
         }
-        return new PostgreSqlMcpReadAdmission(client).admit(intent, args);
+        const write = await new PostgreSqlMcpWriteAdmission(client).admit(intent, args);
+        if (write) return { ...write, admittedReadOnly: false as const };
+        const read = await new PostgreSqlMcpReadAdmission(client).admit(intent, args);
+        if (!read) return null;
+        const resolved = await resolve(client, c, {
+          capability: intent.capabilityId,
+          input: args,
+          issuedAt: new Date().toISOString(),
+        });
+        return resolved.definition?.effect === "network"
+          ? { ...read, admittedReadOnly: false as const }
+          : read;
       }),
     adapter: {
       execute: async (request, intent) => {
-        if (!internal(intent.capabilityId)) return configuration.adapter.execute(request, intent);
+        if (!internal(intent.capabilityId)) {
+          if (request.admittedReadOnly) return configuration.adapter.execute(request, intent);
+          if (!configuration.adapter.executeWrite)
+            throw new McpReadFailure("write_unavailable", "not_sent");
+          return configuration.adapter.executeWrite(request, intent);
+        }
         return configuration.withClient(async (client) => {
           const c = await target(client, intent);
           if (!c || !configuration.internalRead) throw new Error("Internal tool unavailable");
@@ -897,6 +1333,23 @@ export function composeResearch(configuration: ResearchConfiguration) {
   });
   async function sweep() {
     return configuration.withClient(async (client) => {
+      const waiting =
+        await client.query(`SELECT f.session_id AS "sessionId",f.message_id AS "messageId",f.actor_id AS "actorId",f.principal_id AS "principalId",f.persona_id AS "personaId",
+        f.tenant_id AS "tenantId",f.world_id AS "worldId",f.timeline_id AS "timelineId",s.space_id AS "spaceId"
+        FROM clockgrove.conversation_turn_fibers f JOIN clockgrove.conversation_sessions s USING(tenant_id,session_id)
+        WHERE f.phase='approval_waiting' ORDER BY f.updated_at LIMIT 1000`);
+      for (const value of waiting.rows) {
+        const row = value as Omit<ResearchResumeTarget, "scope"> & BrowserScope;
+        await configuration.wake({
+          ...row,
+          scope: {
+            tenantId: row.tenantId,
+            worldId: row.worldId,
+            timelineId: row.timelineId,
+            spaceId: row.spaceId,
+          },
+        });
+      }
       const due = await client.query(
         `SELECT ${metadataColumns} FROM clockgrove.effect_intents i WHERE disposition IN ('pending','started') OR EXISTS (
           SELECT 1 FROM clockgrove.agent_runs r JOIN clockgrove.conversation_turn_fibers f ON f.tenant_id=r.tenant_id
@@ -948,5 +1401,16 @@ export function composeResearch(configuration: ResearchConfiguration) {
       if (c) await configuration.wake(c);
     });
   }
-  return { policy, executeTool, waitForToolStart, consumer, sweep, deadLetter };
+  return {
+    policy,
+    executeTool,
+    approvalState,
+    approvalTarget,
+    admitApproval,
+    retry,
+    waitForToolStart,
+    consumer,
+    sweep,
+    deadLetter,
+  };
 }

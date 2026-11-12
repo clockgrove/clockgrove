@@ -20,6 +20,8 @@ export interface AdmittedMcpRead {
 }
 export interface AdmittedMcpWrite extends Omit<AdmittedMcpRead, "admittedReadOnly"> {
   readonly admittedReadOnly: false;
+  /** Stable canonical provider key, retained by separately approved retries. */
+  readonly idempotencyKey?: string;
 }
 export type AdmittedMcpExecution = AdmittedMcpRead | AdmittedMcpWrite;
 
@@ -180,10 +182,14 @@ class RemoteHttpMcpAdapter {
     let endpoint: string;
     let toolName: string;
     let credential: AdmittedMcpRead["credential"];
+    let idempotencyKey: string | undefined;
     let argumentsValue: Record<string, unknown>;
     try {
       endpoint = request.endpoint;
       toolName = request.toolName;
+      idempotencyKey = request.admittedReadOnly ? undefined : request.idempotencyKey;
+      if (idempotencyKey !== undefined && !/^[a-f0-9]{64}$/u.test(idempotencyKey))
+        throw new Error();
       credential = request.credential
         ? { scope: { ...request.credential.scope }, reference: request.credential.reference }
         : undefined;
@@ -235,7 +241,12 @@ class RemoteHttpMcpAdapter {
             endpoint,
             {
               method: "POST",
-              headers: headers(),
+              headers: new Headers({
+                ...Object.fromEntries(headers()),
+                ...(method === "tools/call" && idempotencyKey
+                  ? { "Idempotency-Key": idempotencyKey }
+                  : {}),
+              }),
               body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
             },
             method === "tools/call" ? "refuse" : "follow",
