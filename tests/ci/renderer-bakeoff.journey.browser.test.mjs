@@ -5,7 +5,7 @@
 // freezes the picture while the off state animates, compared on a page clock this test steps itself.
 // Timing is recorded, never asserted; GPU numbers come from the maintainer step in the spike README.
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -745,3 +745,120 @@ it.each(["webgpu", "webgl2"])(
   },
   180_000,
 );
+
+// Issue 281: generate, validate and render the same rigged GLB; no binary fixture is retained.
+// Reuse the 180 s software shader-compilation bound of the product-content journey above.
+it("loads a validated rigged GLB and renders its idle clip through world content", async () => {
+  const { createRiggedModelFixture } = await import("../../packages/assets/test/model-fixture.ts");
+  const { runAssetsCli } = await import("../../packages/assets/src/cli.ts");
+  const { bytes, manifest, profile } = await createRiggedModelFixture();
+  const root = path.resolve(".");
+  const world = await mkdtemp(path.join(os.tmpdir(), "clockgrove-glb-world-"));
+  let server;
+  let browser;
+  try {
+    const modelPath = path.join(world, manifest.output.path);
+    const manifestPath = path.join(world, "assets/manifests/model-fixture/model.json");
+    await Promise.all([
+      mkdir(path.dirname(modelPath), { recursive: true }),
+      mkdir(path.dirname(manifestPath), { recursive: true }),
+      mkdir(path.join(world, "reference"), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(modelPath, bytes),
+      writeFile(manifestPath, JSON.stringify(manifest)),
+      writeFile(path.join(world, "reference/model-target.json"), JSON.stringify(profile)),
+    ]);
+    const validation = runAssetsCli(["validate", manifestPath, "--world", world]);
+    expect([validation.status, validation.stderr]).toEqual([0, ""]);
+    const pinned = `${path.relative(world, root).split(path.sep).join("/")}/`;
+    await Promise.all(
+      ["index.html", "main.ts", "snapshot.json"].map(async (file) => {
+        const source = await readFile(path.join(root, "worlds/fixture/renderer", file), "utf8");
+        await writeFile(path.join(world, file), source.replaceAll("../../../", pinned));
+      }),
+    );
+    await writeFile(
+      path.join(world, "content.ts"),
+      `
+export const diagnostics: any = { setAnchor() {}, setModelAnchor() {} };
+export function fixtureContent() {
+  return { version: 1, async create(context: any) {
+    const { THREE } = context;
+    const { gltf } = await context.loaders({ basis: "/decoders/", draco: "/decoders/" });
+    const loaded = await gltf.loadAsync(${JSON.stringify(`/${manifest.output.path}`)});
+    const root = new THREE.Group();
+    root.add(loaded.scene);
+    context.place(root, { x: -2, y: -2 });
+    let model: any;
+    loaded.scene.traverse((object: any) => { if (object.isSkinnedMesh) model = object; });
+    const clip = loaded.animations.find((animation: any) => animation.name === "idle");
+    const mixer = new THREE.AnimationMixer(loaded.scene);
+    let poseMs: number | undefined;
+    mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity).play();
+    Object.assign(diagnostics, { model, clip, root,
+      pose(ms: number) { poseMs = ms; mixer.setTime(ms / 1000); },
+    });
+    return { root, update(frame: any) { mixer.setTime((poseMs ?? frame.timeMs) / 1000); },
+      dispose() { mixer.stopAllAction(); mixer.uncacheRoot(loaded.scene); } };
+  } };
+}
+`,
+    );
+    server = await createServer({
+      root: world,
+      define: { __WORLD_SHELL__: JSON.stringify(neutralShell) },
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      server: { host: "127.0.0.1", port: 0, fs: { allow: [root, world] } },
+    });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, args: SWIFTSHADER });
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/`);
+    await page.waitForFunction(
+      () =>
+        globalThis.fixtureRenderer?.adapter.metrics.contentStatus === "ready" &&
+        globalThis.fixtureRenderer?.adapter.metrics.firstRenderMs !== undefined,
+    );
+    const rendered = await page.evaluate(async () => {
+      const f = globalThis.fixtureRenderer;
+      f.setReducedMotion(true);
+      f.setEnvironment(43_200_000, 0);
+      const d = f.diagnostics;
+      const capture = async () => {
+        await new Promise(requestAnimationFrame);
+        return f.capture();
+      };
+      d.pose(0);
+      const idle = await capture();
+      d.model.visible = false;
+      const absent = await capture();
+      d.model.visible = true;
+      d.pose(500);
+      const moving = await capture();
+      d.pose(1000);
+      const looped = await capture();
+      return {
+        skinned: d.model.isSkinnedMesh,
+        bones: d.model.skeleton.bones.length,
+        clip: [d.clip.name, d.clip.duration],
+        idle,
+        absent,
+        moving,
+        looped,
+        status: f.adapter.metrics.contentStatus,
+      };
+    });
+    expect(rendered.skinned).toBe(true);
+    expect(rendered.bones).toBe(manifest.output.bones);
+    expect(rendered.clip).toEqual(["idle", manifest.output.clips[0].durationMs / 1000]);
+    expect(rendered.status).toBe("ready");
+    expect(rendered.idle).not.toBe(rendered.absent);
+    expect(rendered.moving).not.toBe(rendered.idle);
+    expect(rendered.looped).toBe(rendered.idle);
+  } finally {
+    await browser?.close();
+    await server?.close();
+    await rm(world, { recursive: true, force: true });
+  }
+}, 180_000);
