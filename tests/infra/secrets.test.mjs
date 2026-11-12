@@ -3,7 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkGitTreeSecrets, checkRepositorySecrets } from "../../scripts/check-secrets.mjs";
+import {
+  assertNoSecretValues,
+  checkGitTreeSecrets,
+  checkRepositorySecrets,
+} from "../../scripts/check-secrets.mjs";
 
 // Construct test values rather than committing secret-shaped bytes or exempting fixtures.
 const credential = "ghp_" + "a".repeat(36);
@@ -84,5 +88,40 @@ describe("repository secret-value guard", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("error-code catalogs", () => {
+  // better-auth's API-key plugin bundles a catalog like this one into the worker (issue 167). Entries are
+  // built here, so this file never holds the scanned shape itself.
+  const entry = (name, text) => `  ${name}: ${JSON.stringify(text)},`;
+  const catalog = (...entries) =>
+    `export const API_KEY_ERROR_CODES = {\n${entries.join("\n")}\n};\n`;
+
+  it("accepts an API-key error code whose message is an English sentence", () => {
+    const source = catalog(
+      entry("INVALID_API_KEY", "Invalid API key."),
+      entry("FAILED_TO_UPDATE_API_KEY", "Failed to update API key"),
+      entry("INVALID_USER_ID_FROM_API_KEY", "The user id from the API key is invalid."),
+    );
+    expect(() => assertNoSecretValues(source, "worker/cloudflare-entry.js")).not.toThrow();
+  });
+
+  it("still refuses a token-shaped value under the same code", () => {
+    const token = ["kQ9Zx", "P2mW7", "vR4tY", "6a8f3"].join("");
+    const source = catalog(
+      entry("INVALID_API_KEY", "Invalid API key."),
+      entry("MISSING_API_KEY", token),
+    );
+    expect(() => assertNoSecretValues(source, "worker/cloudflare-entry.js")).toThrow(
+      /secret-shaped value detected/u,
+    );
+  });
+
+  it("still refuses a sentence-shaped key outside a catalog", () => {
+    const source = `const settings = {\n${entry("INVALID_API_KEY", "Invalid API key.")}\n  retries: 3,\n};\n`;
+    expect(() => assertNoSecretValues(source, "settings.ts")).toThrow(
+      /secret-shaped value detected/u,
+    );
   });
 });
