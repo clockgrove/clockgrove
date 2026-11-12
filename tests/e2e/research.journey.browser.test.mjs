@@ -48,6 +48,7 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       },
     });
     let browser;
+    let releaseList = () => {};
     try {
       await server.listen();
       browser = await chromium.launch({ headless: true });
@@ -68,6 +69,19 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
           "SELECT count(*) FROM clockgrove.effect_attempts WHERE disposition='started'",
         ),
       ).toBe("1");
+      let listArrived;
+      const listReady = new Promise((resolve) => {
+        listArrived = resolve;
+      });
+      const heldList = new Promise((resolve) => {
+        releaseList = resolve;
+      });
+      await page.route("**/v1/runtime/conversations/list", async (request) => {
+        const response = await request.fetch();
+        listArrived();
+        await heldList;
+        await request.fulfill({ response });
+      });
       await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/release`);
       const history = page.getByRole("list", { name: "Conversation history" });
       await history
@@ -79,6 +93,15 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       await evidence
         .getByText("Tool result recorded as untrusted evidence", { exact: true })
         .waitFor();
+      await listReady;
+      const listResponse = page.waitForResponse((response) =>
+        response.url().endsWith("/v1/runtime/conversations/list"),
+      );
+      releaseList();
+      await listResponse;
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
       expect(await evidence.locator("dt").allTextContents()).toEqual([
         "Call",
         "Effect",
@@ -111,6 +134,7 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
         ),
       ).toBe(calls);
     } finally {
+      releaseList();
       await browser?.close();
       await server.close();
     }

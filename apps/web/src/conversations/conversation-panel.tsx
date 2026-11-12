@@ -112,9 +112,11 @@ export function ConversationPanel({
   };
 
   const choose = useCallback((id: string | undefined) => {
+    if (chosen.current !== id) {
+      ++evidenceRequest.current;
+      setToolEvidence(undefined);
+    }
     chosen.current = id;
-    ++evidenceRequest.current;
-    setToolEvidence(undefined);
     setSelectedId(id);
   }, []);
 
