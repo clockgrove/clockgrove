@@ -182,7 +182,9 @@ It is not a generation call: no streaming, no structured output, no fallback cha
 - **Aliases.** A decision alias (`decisionAlias({alias, model})`) maps a name to a route and bounds: 8 KiB of
   input, a 5 s timeout and a 1000 microusd ceiling by default. The model is configuration, never code (the free
   tier reached only some models; the paid tier reaches all four measured in factory#2504). Suggested default
-  `pplx-decider-v1.2`, alternate `gpt-6-luna-decisions`.
+  `pplx-decider-v1.2`, alternate `gpt-6-luna-decisions`. `google/gemini-decision-1` is also a measured candidate.
+  It accepts images, costs about 5 to 10 times `pplx-decider-v1.2` per call, and the decisions endpoint exposes no
+  effort setting for it.
 - **Order of checks.** Input byte bound, cancellation, circuit breaker, then the budget reservation. A timeout
   settles the whole reservation and records a null cost.
 - **Cost of a failed call.** The adapter's `ProviderFailure.billing` says what a failure may have billed. A call
@@ -213,7 +215,7 @@ from labelled fixture-reference accuracy, and count unknown costs beside known s
 Wake triage (issue 111) uses this same `decide` port and a configured decision alias; it does not
 route through generation. Runtime composition reads the optional `WAKE_TRIAGE_CONFIG` JSON binding.
 Its default alias is `wake.triage`, backed by `perplexity/pplx-decider-v1.2`; operators can measure
-`openai/gpt-6-luna-decisions` or `baseten/mammoth-1` by changing the configured model. These are the
+`openai/gpt-6-luna-decisions`, `baseten/mammoth-1` or `google/gemini-decision-1` by changing the configured model. These are the
 owner's candidate models, not a model selection made by the actor. The runtime durably reserves
 the per-call ceiling against a shared world/day budget before asking the gateway, in addition to
 this gateway's own bounds. The full ceiling stays reserved even when actual cost is lower or

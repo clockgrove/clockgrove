@@ -1380,8 +1380,8 @@ cost, unknown cost and interrupted calls; the default admits at most 100 reserve
 in a day. All actors in the world and timeline share the durable budget. Day boundaries follow
 the pack's declared environment day length, with an 86,400,000 ms fallback when absent.
 These are conservative operator policy choices,
-not measured model prices. Change the configured model to `openai/gpt-6-luna-decisions` or
-`baseten/mammoth-1` to measure the owner's other candidates through the same alias. Bind
+not measured model prices. Change the configured model to `openai/gpt-6-luna-decisions`,
+`baseten/mammoth-1` or `google/gemini-decision-1` to measure the owner's other candidates through the same alias. Bind
 `AI_GATEWAY_API_KEY` for the live decision adapter; credentials never belong in the JSON policy.
 
 Triage runs after the existing activation policy and compiled checks. Its `suppress`,
