@@ -18,6 +18,11 @@ export interface AdmittedMcpRead {
   readonly arguments: Readonly<Record<string, CapabilityValue>>;
   readonly credential?: { readonly scope: McpCredentialScope; readonly reference: string };
 }
+export interface AdmittedMcpWrite extends Omit<AdmittedMcpRead, "admittedReadOnly"> {
+  readonly admittedReadOnly: false;
+}
+export type AdmittedMcpExecution = AdmittedMcpRead | AdmittedMcpWrite;
+
 export interface McpReadEvidence {
   readonly trust: "untrusted_evidence";
   readonly status: "ok" | "tool_error";
@@ -164,14 +169,14 @@ export function sanitizeMcpReadEvidence(value: unknown): McpReadEvidence {
 }
 
 /** Internal transport only. Trusted admission, reservation, ledger and replay gates precede this adapter. */
-export class RemoteHttpMcpReadAdapter {
+class RemoteHttpMcpAdapter {
   constructor(
     private readonly http: SafeMcpHttpClient,
     private readonly vault?: Pick<McpCredentialVault, "use">,
     private readonly outputBytes: number = MCP_READ_LIMITS.outputBytes,
   ) {}
 
-  async execute(request: AdmittedMcpRead): Promise<McpReadEvidence> {
+  async execute(request: AdmittedMcpExecution): Promise<McpReadEvidence> {
     let endpoint: string;
     let toolName: string;
     let credential: AdmittedMcpRead["credential"];
@@ -184,7 +189,7 @@ export class RemoteHttpMcpReadAdapter {
         : undefined;
       // Engineering tool-name bound, matching the ledger's reference-field scale.
       if (
-        request.admittedReadOnly !== true ||
+        typeof request.admittedReadOnly !== "boolean" ||
         typeof toolName !== "string" ||
         !toolName ||
         toolName.length > 1024 ||
@@ -235,7 +240,7 @@ export class RemoteHttpMcpReadAdapter {
             },
             method === "tools/call" ? "refuse" : "follow",
           );
-          if (method === "tools/call") stage = "result_refused";
+          if (method === "tools/call" && request.admittedReadOnly) stage = "result_refused";
           lastStage = stage;
           if (response.status !== 200) throw new McpRefusal("http_failed");
           const returned = response.headers.get("Mcp-Session-Id");
@@ -312,5 +317,22 @@ export class RemoteHttpMcpReadAdapter {
     }
     if (result instanceof McpReadFailure) throw result;
     return result;
+  }
+}
+
+export class RemoteHttpMcpReadAdapter extends RemoteHttpMcpAdapter {
+  override execute(request: AdmittedMcpRead): Promise<McpReadEvidence> {
+    if (request.admittedReadOnly !== true)
+      return Promise.reject(new McpReadFailure("invalid_arguments", "not_sent"));
+    return super.execute(request);
+  }
+}
+
+/** One call only: a response that cannot be durably interpreted leaves a write uncertain. */
+export class RemoteHttpMcpWriteAdapter extends RemoteHttpMcpAdapter {
+  override execute(request: AdmittedMcpWrite): Promise<McpReadEvidence> {
+    if (request.admittedReadOnly !== false)
+      return Promise.reject(new McpReadFailure("invalid_arguments", "not_sent"));
+    return super.execute(request);
   }
 }

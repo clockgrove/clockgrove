@@ -1,5 +1,7 @@
 import {
+  type AdmittedMcpExecution,
   type AdmittedMcpRead,
+  type AdmittedMcpWrite,
   type McpBinding,
   McpCredentialInstallation,
   type McpCredentialScope,
@@ -16,6 +18,7 @@ import {
   McpReadFailure,
   McpRefusal,
   RemoteHttpMcpReadAdapter,
+  RemoteHttpMcpWriteAdapter,
   type RuntimeAuthorizationContext,
   SafeMcpHttpClient,
 } from "@clockgrove/application";
@@ -157,7 +160,7 @@ export class McpRuntimeOperator implements McpRuntimePort {
     if (unavailable) throw new Error("MCP shutdown unavailable");
   }
 
-  async executeRead(
+  private async executeCall(
     scope: {
       tenantId: string;
       worldId: string;
@@ -165,7 +168,7 @@ export class McpRuntimeOperator implements McpRuntimePort {
       spaceId: string;
       installationId: string;
     },
-    request: AdmittedMcpRead,
+    request: AdmittedMcpExecution,
   ): Promise<McpReadEvidence> {
     if (this.closed) throw new McpReadFailure("credential_unavailable", "not_sent");
     for (const [key, owner] of this.owned) {
@@ -177,7 +180,9 @@ export class McpRuntimeOperator implements McpRuntimePort {
       ) {
         const handle = this.handles.get(key);
         if (!handle) throw new McpReadFailure("credential_unavailable", "not_sent");
-        return handle.executeRead(request);
+        return request.admittedReadOnly
+          ? handle.executeRead(request)
+          : handle.executeWrite(request);
       }
     }
     // Anonymous installations have no secret-provider session to recover.
@@ -185,11 +190,40 @@ export class McpRuntimeOperator implements McpRuntimePort {
     for (const key of this.anonymous) {
       const identity = JSON.parse(key) as string[];
       if (JSON.stringify(identity.slice(0, 3)) === suffix && identity[5] === scope.installationId)
-        return new RemoteHttpMcpReadAdapter(
-          new SafeMcpHttpClient(this.configuration.network),
-        ).execute(request);
+        return request.admittedReadOnly
+          ? new RemoteHttpMcpReadAdapter(new SafeMcpHttpClient(this.configuration.network)).execute(
+              request,
+            )
+          : new RemoteHttpMcpWriteAdapter(
+              new SafeMcpHttpClient(this.configuration.network),
+            ).execute(request);
     }
     throw new McpReadFailure("credential_unavailable", "not_sent");
+  }
+
+  executeRead(
+    scope: {
+      tenantId: string;
+      worldId: string;
+      timelineId: string;
+      spaceId: string;
+      installationId: string;
+    },
+    request: AdmittedMcpRead,
+  ): Promise<McpReadEvidence> {
+    return this.executeCall(scope, request);
+  }
+  executeWrite(
+    scope: {
+      tenantId: string;
+      worldId: string;
+      timelineId: string;
+      spaceId: string;
+      installationId: string;
+    },
+    request: AdmittedMcpWrite,
+  ): Promise<McpReadEvidence> {
+    return this.executeCall(scope, request);
   }
 
   execute(

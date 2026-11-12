@@ -2,7 +2,11 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { McpCredentialVault, type McpSealedCredential } from "../src/mcp-credentials.js";
-import { type AdmittedMcpRead, RemoteHttpMcpReadAdapter } from "../src/mcp-execution.js";
+import {
+  type AdmittedMcpRead,
+  RemoteHttpMcpReadAdapter,
+  RemoteHttpMcpWriteAdapter,
+} from "../src/mcp-execution.js";
 import { type McpNetworkPort, SafeMcpHttpClient } from "../src/mcp-network.js";
 
 const calls: {
@@ -206,6 +210,32 @@ it("refuses unsupported, malformed and oversized results before exposing them, w
   ).rejects.toMatchObject({ code: "output_limit", disposition: "result_refused" });
 });
 
+it("sends a write once and treats every unusable post-send reply as uncertain", async () => {
+  const transport = new RemoteHttpMcpWriteAdapter(new SafeMcpHttpClient(network()));
+  const write = (path: string) => ({ ...request(path), admittedReadOnly: false as const });
+  calls.length = 0;
+  await expect(transport.execute(write("/private"))).rejects.toMatchObject({
+    disposition: "not_sent",
+  });
+  expect(calls.filter(({ method }) => method === "tools/call")).toHaveLength(0);
+  for (const path of ["/down", "/malformed", "/call-307", "/call-oversized"]) {
+    calls.length = 0;
+    await expect(transport.execute(write(path))).rejects.toMatchObject({
+      disposition: "uncertain",
+    });
+    expect(calls.filter(({ method }) => method === "tools/call")).toHaveLength(1);
+  }
+  calls.length = 0;
+  expect(await transport.execute(write("/mcp"))).toEqual({
+    trust: "untrusted_evidence",
+    status: "ok",
+    content: [{ type: "text", text: "The fixture answer is 42." }],
+    sanitized: false,
+    costMicrousd: null,
+  });
+  expect(calls.filter(({ method }) => method === "tools/call")).toHaveLength(1);
+});
+
 it("retains redirect, SSRF and DNS-rebinding protections on the execution transport", async () => {
   await expect(adapter().execute(request("/redirect"))).rejects.toMatchObject({
     code: "unsafe_redirect",
@@ -285,6 +315,17 @@ it("resolves credentials inside the vault callback and excludes decoded echoes, 
     `Bearer ${canary}`,
   ]);
   expect(JSON.stringify(evidence)).not.toContain(canary);
+  const writeTransport = new RemoteHttpMcpWriteAdapter(new SafeMcpHttpClient(network()), vault);
+  await expect(
+    writeTransport.execute({ ...secured("/echo"), admittedReadOnly: false }),
+  ).rejects.toMatchObject({
+    code: "credential_echo_refused",
+    disposition: "uncertain",
+  });
+  expect(
+    JSON.stringify(await writeTransport.execute({ ...secured("/mcp"), admittedReadOnly: false })),
+  ).not.toContain(canary);
+
   for (const [path, code] of [
     ["/echo", "credential_echo_refused"],
     ["/echo-key", "credential_echo_refused"],
