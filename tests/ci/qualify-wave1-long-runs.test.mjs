@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { decodeCanonicalBytes } from "../../packages/simulator/src/canonical-decode.ts";
 import { checkLongRunBundle } from "../../scripts/ci/qualify-wave1-long-run-checks.mjs";
-import { qualifyLongRuns } from "../../scripts/ci/qualify-wave1-long-runs.mjs";
+import {
+  qualifyLongRuns,
+  WAVE1_LONG_RUN_BUDGETS,
+} from "../../scripts/ci/qualify-wave1-long-runs.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const HOUR = 3_600_000n;
@@ -39,10 +42,18 @@ beforeAll(async () => {
     await shortRun("fixture", 100_000n, 1, 600_000n),
   ];
   const tiny = { durationMs: 1, peakMemoryBytes: 1 };
+  // Wall time on a shared runner is not deterministic: fixture-hall's 72-hour cut sometimes passed its
+  // declared 12.8 s Node budget under load (issue 275). Its budgets are made generous here, so only
+  // test-world's cut-down workerd budget decides a verdict. test-world's Node run keeps its declared budget.
+  const roomy = { durationMs: 600_000, peakMemoryBytes: 8 * 2 ** 30 };
   result = await qualifyLongRuns({
     directory: path.join(directory, "evidence"),
     plan,
-    budgets: { "clockgrove.test-world long-run-30-days workers": tiny },
+    budgets: {
+      "clockgrove.fixture-hall long-run-30-days node": roomy,
+      "clockgrove.fixture-hall long-run-30-days workers": roomy,
+      "clockgrove.test-world long-run-30-days workers": tiny,
+    },
     concurrency: 4,
     log: () => {},
   });
@@ -65,8 +76,9 @@ it("short horizons pass every observable check with identical Node and workerd b
     expect(run.checks.filter((check) => check.status === "failed")).toEqual([]);
     expect(run.runtimes.node.bundle.digest).toBe(run.runtimes.workers.bundle.digest);
   }
-  // The cut documents keep their names, so the declared 30-day budgets apply, except test-world's
-  // workerd budget, cut to 1 ms and 1 byte: exceeding it alone fails that run and the result.
+  // The cut documents keep their names, so the declared 30-day budgets apply (test-world's Node run),
+  // except fixture-hall's (made generous above) and test-world's workerd budget, cut to 1 ms and
+  // 1 byte: exceeding it alone fails that run and the result.
   const verdicts = result.runs.map(({ status, runtimes }) => {
     return [status, runtimes.node.budget.status, runtimes.workers.budget.status];
   });
@@ -74,8 +86,8 @@ it("short horizons pass every observable check with identical Node and workerd b
     ["passed", "within", "within"],
     ["failed", "within", "exceeded"],
   ]);
-  expect([result.runs[0].runtimes.node.budget.durationMs, result.status]).toEqual([
-    12_800,
+  expect([result.runs[1].runtimes.node.budget.durationMs, result.status]).toEqual([
+    WAVE1_LONG_RUN_BUDGETS["clockgrove.test-world long-run-30-days node"].durationMs,
     "failed",
   ]);
 }, 30_000);
