@@ -261,6 +261,12 @@ await withDisposableDatabase(async ({ tools, environment }) => {
   );
   const effectsResult = await psqlQuery(tools, environment, effects, { viaStdin: true });
   assertStrict.ok(effectsResult.includes("effect_ledger_ok"), "effect ledger checks failed");
+  const approvals = await readFile(
+    new URL("../../tests/database/effect-approvals.sql", import.meta.url),
+    "utf8",
+  );
+  const approvalsResult = await psqlQuery(tools, environment, approvals, { viaStdin: true });
+  assertStrict.ok(approvalsResult.includes("effect_approvals_ok"), "effect approval checks failed");
   await testJournal(tools, environment);
   await testAttributedJournal(tools, environment);
   await testJournalImmutability(tools, environment);
