@@ -496,6 +496,13 @@ and counted; model and tool reservations share the configured tool-turn envelope
 `inspect` and `why` are executable through the same read loop. Tool-result shadow screening
 is a separate follow-up (owner decision, 2026-11-09). Approval-gated writes remain issue 166.
 
+Issue 166 part 4 adds an internal immutable resolution ledger for a settled uncertain
+attempt. A privileged operator composition can record `done` or `failed` after checking
+the provider; the original uncertain attempt and costs remain unchanged. A resolution
+creates no dispatch and permits no retry. Authenticated human controls, actor waits,
+safe freshly approved retry and the browser/write-fixture journey remain later parts.
+See the [current resolution boundary](../protocols/mcp.md#internal-uncertainty-resolution-issue-166-part-4).
+
 Initial fixtures:
 
 - one deterministic read-only remote MCP server;
