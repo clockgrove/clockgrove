@@ -48,14 +48,14 @@ export async function completeAuthoritySnapshot(tools, environment) {
       .split("\n");
     assert(tables.length && tables[0], "authority schema missing");
     for (const table of tables) {
-      assert(/^[a-z_]+$/u.test(table), "unexpected authority table");
+      const quotedTable = `"${table.replaceAll('"', '""')}"`;
       rows.push([
         `${schema}.${table}`,
         (
           await psqlQuery(
             tools,
             environment,
-            `SELECT COALESCE(jsonb_agg(row_data ORDER BY row_data::text), '[]'::jsonb) FROM (SELECT to_jsonb(t) AS row_data FROM ${schema}."${table}" AS t) AS rows`,
+            `SELECT COALESCE(jsonb_agg(row_data ORDER BY row_data::text), '[]'::jsonb) FROM (SELECT to_jsonb(t) AS row_data FROM ${schema}.${quotedTable} AS t) AS rows`,
           )
         ).trim(),
       ]);
