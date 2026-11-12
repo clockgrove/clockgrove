@@ -1816,9 +1816,30 @@ refused. A wake cannot choose another recipient or bypass that policy.
 Issue 165 part 4 adds an internal typed consumer for already-admitted effect intents;
 it is not activated by the deployed queue factory. See the
 [MCP execution boundary](../protocols/mcp.md#internal-queue-execution-boundary-delivery-part-4).
-There is no operator kill-switch command yet. Global, world and installation switches
-and governed local activation remain part 5; actor tool-call evidence and citations
-remain part 6.
+Part 5 adds privileged internal global, world and installation kill-switch storage
+and fresh canonical admission. There is no public operator command or activated
+Queue composition yet; local activation and actor tool-call evidence/citations remain
+part 6. See the [canonical admission boundary](../protocols/mcp.md#internal-canonical-read-admission-delivery-part-5).
+
+For an emergency stop of the internal execution boundary, an operator with the
+privileged admission connection calls `PostgreSqlMcpReadAdmission.setSwitch(target, true)`.
+The target is `{scope: "global"}`, `{scope: "world", tenantId, worldId}`, or
+`{scope: "installation", tenantId, worldId, timelineId, installationId}`. A global
+fence covers every tenant; a world fence covers all its timelines. These rows have
+no ordinary runtime privilege. For example, the equivalent privileged global SQL is:
+
+```sql
+INSERT INTO clockgrove.mcp_read_switches(scope,disabled) VALUES ('global',true)
+ON CONFLICT(scope,tenant_id,world_id,timeline_id,installation_id)
+DO UPDATE SET disabled=excluded.disabled;
+```
+
+Commit the change before checking the next admission. Both new reservation and the
+fresh pre-execution check observe the fence; a refused new intent records
+`kill_switch`. Calls already sent require the existing result/uncertainty reconciliation
+below. Re-enable only deliberately, using `setSwitch(target, false)`; never erase
+intents, attempts or capacity to clear a fence. This internal procedure does not
+activate remote calls or establish hosted egress safety.
 
 For an internal fixture execution, read `effect_intents` and `effect_attempts` using
 the complete tenant/world/timeline/effect identity under authorized database access.

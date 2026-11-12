@@ -393,6 +393,13 @@
       "when": 1795903200000,
       "tag": "0056_effect_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795989600000,
+      "tag": "0057_mcp_read_admission",
+      "breakpoints": true
     }
   ]
 }

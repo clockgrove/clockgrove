@@ -776,8 +776,11 @@ reads do not authorize execution. The first issue 165 delivery part installs sto
 its attack proof only. Part 3 adds internal atomic persistence of already-admitted intents
 and external-effects outbox rows; it adds no runtime write privilege. Part 4 adds an internal
 Queue execution boundary over privileged storage, without activating the runtime consumer.
-The governed writer, deployed Queue composition and actor continuation remain subsequent
-delivery parts.
+Part 5 adds privileged canonical read admission and durable per-turn capacity in
+`mcp_read_turn_budgets` and immutable `mcp_read_admissions`, with emergency fences in
+`mcp_read_switches` (migration 0057). All three have forced RLS and no ordinary runtime
+access. The admission transaction persists capacity, intent and outbox atomically.
+Deployed Queue composition and actor continuation remain final-part work.
 
 Retain intent identity, idempotency and attempt dispositions for world lifetime, as recorded
 in `db/retention.json`. Deleting those rows could allow a replay to lose the evidence that a

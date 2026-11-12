@@ -22,6 +22,7 @@ export * from "./journal-reader.js";
 export * from "./journal-verification.js";
 export * from "./lifecycle-workflows.js";
 export * from "./logging.js";
+export * from "./mcp-arguments.js";
 export * from "./mcp-bindings.js";
 export * from "./mcp-capability-registry.js";
 export * from "./mcp-credential-installation.js";
