@@ -608,7 +608,11 @@ select authority, change policy or alter the catalog.
 Capacity belongs to the canonical turn, across retries and run segments. A serialized
 transaction records call, time, output and conservative cost reservations together
 with the intent and its conversation outbox. Identical retries consume no additional
-capacity; conflicting identities fail closed. Reservations are retained, including
+capacity; conflicting identities fail closed. A separate immutable retry-refusal receipt
+records the presented identity hash and `arguments_changed` or `retry_conflict`,
+without storing the presented arguments. The refusal commits before the caller receives
+the fixed error; it neither replaces the original effect nor adds dispatch or capacity.
+Identical conflicting retries reuse that receipt. Reservations are retained, including
 when actual cost is unknown. Actual cost still comes from the attempt ledger and
 remains NULL when unknown; reserved money is not a price observation. The owner's
 defaults are three tool calls, four model steps and a separately configured 250000

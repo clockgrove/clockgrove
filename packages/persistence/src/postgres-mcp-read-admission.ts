@@ -310,7 +310,7 @@ export class PostgreSqlMcpReadAdmission {
       i.reservedMicrousd <= 0
     )
       throw new Error("Invalid MCP read policy");
-    return this.transaction(async () => {
+    const result = await this.transaction(async () => {
       // Same lock as installation/binding changes; turn budget row serializes concurrent calls.
       await this.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
         `${scope(i).join("/")}/mcp`,
@@ -325,8 +325,25 @@ export class PostgreSqlMcpReadAdmission {
           JSON.stringify((prior.rows[0] as { identity: unknown }).identity),
           JSON.stringify(identity),
         ]);
-        if (!(equal.rows[0] as { equal: boolean }).equal)
-          throw new Error("MCP read retry conflicts");
+        if (!(equal.rows[0] as { equal: boolean }).equal) {
+          const original = (prior.rows[0] as { identity: { presentedArgumentsHash: string } })
+            .identity;
+          await this.client.query(
+            `INSERT INTO clockgrove.mcp_read_retry_refusals
+              (tenant_id,world_id,timeline_id,effect_id,retry_hash,presented_arguments_hash,outcome_code)
+              VALUES($1,$2,$3,$4,encode(sha256(convert_to($5::jsonb::text,'UTF8')),'hex'),$6,$7) ON CONFLICT DO NOTHING`,
+            [
+              ...scope(i),
+              i.effectId,
+              JSON.stringify(identity),
+              presentedArgumentsHash,
+              original.presentedArgumentsHash === presentedArgumentsHash
+                ? "retry_conflict"
+                : "arguments_changed",
+            ],
+          );
+          return null;
+        }
         return new PostgreSqlEffects(this.client).readInTransaction(i) as Promise<RecordedEffect>;
       }
       if (!(await this.context(identity))) throw new Error("MCP read context unavailable");
@@ -421,6 +438,9 @@ export class PostgreSqlMcpReadAdmission {
         );
       return effect;
     });
+    // Throw after commit so a conflicting retry cannot erase its refusal receipt.
+    if (result === null) throw new Error("MCP read admission unavailable");
+    return result;
   }
 
   /** Fresh check immediately before the adapter. Arguments must come from the encrypted artifact. */

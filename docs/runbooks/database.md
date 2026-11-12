@@ -780,6 +780,9 @@ Part 5 adds privileged canonical read admission and durable per-turn capacity in
 `mcp_read_turn_budgets` and immutable `mcp_read_admissions`, with emergency fences in
 `mcp_read_switches` (migration 0057). All three have forced RLS and no ordinary runtime
 access. The admission transaction persists capacity, intent and outbox atomically.
+Migration 0058 adds immutable `mcp_read_retry_refusals` with the same forced RLS
+and privileged-only access. It retains one metadata-only receipt per distinct conflicting
+retry identity, linked to the original effect, without changing its admission or capacity.
 Deployed Queue composition and actor continuation remain final-part work.
 
 Retain intent identity, idempotency and attempt dispositions for world lifetime, as recorded

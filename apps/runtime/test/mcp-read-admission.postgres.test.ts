@@ -98,8 +98,45 @@ it("reserves canonical read admission once, bounds concurrent turns and rechecks
         await port.admit({ ...request(1).intent, principalId: "principal-b" }, { q: "weather" }),
       ).toBeNull();
       expect(await port.admit(request(1).intent, { q: "changed" })).toBeNull();
-      await expect(port.reserve({ ...request(1), arguments: { q: "changed" } })).rejects.toThrow(
+      const original =
+        await sql(`SELECT row_to_json(a)::text FROM clockgrove.mcp_read_admissions a WHERE effect_id='read-1';
+        SELECT row_to_json(i)::text FROM clockgrove.effect_intents i WHERE effect_id='read-1';
+        SELECT row_to_json(b)::text FROM clockgrove.mcp_read_turn_budgets b;
+        SELECT count(*) FROM clockgrove.event_dispatches`);
+      for (let retry = 0; retry < 2; retry++) {
+        await expect(port.reserve({ ...request(1), arguments: { q: "changed" } })).rejects.toThrow(
+          "MCP read admission unavailable",
+        );
+      }
+      expect(
+        await sql(`SELECT row_to_json(a)::text FROM clockgrove.mcp_read_admissions a WHERE effect_id='read-1';
+        SELECT row_to_json(i)::text FROM clockgrove.effect_intents i WHERE effect_id='read-1';
+        SELECT row_to_json(b)::text FROM clockgrove.mcp_read_turn_budgets b;
+        SELECT count(*) FROM clockgrove.event_dispatches`),
+      ).toBe(original);
+      expect(
+        (
+          await sql(`SELECT count(*)||','||min(outcome_code)||','||bool_and(presented_arguments_hash=encode(sha256(convert_to('{"q":"changed"}','UTF8')),'hex'))
+        FROM clockgrove.mcp_read_retry_refusals WHERE effect_id='read-1'`)
+        ).trim(),
+      ).toBe("1,arguments_changed,true");
+      await expect(port.reserve({ ...request(1), eventId: "different" })).rejects.toThrow(
         "MCP read admission unavailable",
+      );
+      expect(
+        (
+          await sql(
+            `SELECT count(*) FROM clockgrove.mcp_read_retry_refusals WHERE effect_id='read-1' AND outcome_code='retry_conflict'`,
+          )
+        ).trim(),
+      ).toBe("1");
+      expect(
+        (
+          await sql(`SELECT string_agg(column_name,',' ORDER BY ordinal_position) FROM information_schema.columns
+        WHERE table_schema='clockgrove' AND table_name='mcp_read_retry_refusals'`)
+        ).trim(),
+      ).toBe(
+        "tenant_id,world_id,timeline_id,effect_id,retry_hash,presented_arguments_hash,outcome_code",
       );
       await expect(
         port.reserve({
@@ -191,7 +228,12 @@ it("reserves canonical read admission once, bounds concurrent turns and rechecks
         await expect(
           new PostgreSqlMcpReadAdmission(runtime).setSwitch({ scope: "global" }, false),
         ).rejects.toThrow("MCP read admission unavailable");
-        for (const table of ["mcp_read_switches", "mcp_read_turn_budgets", "mcp_read_admissions"]) {
+        for (const table of [
+          "mcp_read_switches",
+          "mcp_read_turn_budgets",
+          "mcp_read_admissions",
+          "mcp_read_retry_refusals",
+        ]) {
           expect(
             (
               await runtime.query(

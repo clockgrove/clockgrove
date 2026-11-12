@@ -1843,6 +1843,9 @@ activate remote calls or establish hosted egress safety.
 
 For an internal fixture execution, read `effect_intents` and `effect_attempts` using
 the complete tenant/world/timeline/effect identity under authorized database access.
+For a conflicting admission retry, also read `mcp_read_retry_refusals` with that
+same scoped effect identity. Its reason and presented identity hash explain the refusal;
+repeated identical conflicts share one receipt and leave the original effect unchanged.
 The intent links actor, principal, run, call, grant, policy version and argument hash;
 the attempt links disposition and encrypted result reference. Content belongs in
 scoped encrypted artifacts, never queue bodies or error text. A terminal attempt can
