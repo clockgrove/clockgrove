@@ -142,6 +142,21 @@ admission, expose the endpoint and member token controls, and prove the complete
 client flow and isolation attacks. These mechanisms alone are not a connectable
 Clockgrove MCP endpoint.
 
+Before public activation, part 6 must satisfy these remaining acceptance gates:
+
+- **Acceptance 2:** authenticated MCP attacks through ordinary application dispatch
+  prove tenant, world and timeline isolation and refusal of private-data access.
+- **Acceptance 3:** command submission derives the member persona and MCP client
+  channel from trusted credential authority, preserves the causal root, and passes
+  the ordinary validator and Journal with that full attribution envelope.
+- **Acceptance 7:** verified credentials enter principal admission, and billable
+  operations reserve worst-case monetary cost before dispatch.
+- **Acceptance 8:** both issued OAuth and member-token credentials drive a real MCP
+  client through authenticated dispatch, runtime execution and PostgreSQL receipts;
+  revocation refuses the next request.
+- **Acceptance 10:** the runtime runbook provides usable external-client connection
+  and authentication instructions for the integrated endpoint.
+
 ### Credential record retention
 
 These provider tables are mutable and deletable, so they are documented here;
