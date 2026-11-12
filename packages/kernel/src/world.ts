@@ -1022,9 +1022,7 @@ function runWorld(
   let lifecycleRandom: NamedRandomState = input.randomState;
   const randomLog: { time: bigint; random: NamedRandomState }[] = [];
   let shelterChanged = false;
-  function shelterTransition(
-    changing: WorldEvent,
-  ): { objectId: ObjectId; locationId: ObjectId | null; planId: string }[] {
+  function shelterChanges(changing: WorldEvent) {
     if (
       ![
         "movement.started",
@@ -1033,16 +1031,16 @@ function runWorld(
         "movement.interrupted",
       ].includes(changing.type)
     )
-      return [];
+      return undefined;
     const data = changing.payload as unknown as {
       objectId: ObjectId;
       movementId?: string;
       movement?: MovementRecord;
     };
     const shelter = objectsOf(current(), data.objectId);
-    if (shelter?.shelter === undefined) return [];
+    if (shelter?.shelter === undefined) return undefined;
     const departing = data.movement !== undefined && leavesStart(data.movement);
-    if (data.movement !== undefined && !departing) return [];
+    if (data.movement !== undefined && !departing) return undefined;
     const after = departing
       ? {
           ...current(),
@@ -1060,13 +1058,33 @@ function runWorld(
       )
       .map((entity) => ({ entity, locationId: shelterAt(after, entity, entity.pose.coordinates) }))
       .filter(({ entity, locationId }) => (entity.locationId ?? null) !== locationId);
+    return { departing, changes, planId: data.movement?.movementId ?? data.movementId! };
+  }
+  function shelterEventCount(changing: WorldEvent): number {
+    const plan = shelterChanges(changing);
+    return (
+      plan?.changes.reduce(
+        (total, { entity }) =>
+          total +
+          1 +
+          integrationEvents(entity, changing.simulationTime) +
+          (pendingPlants(changing.simulationTime).includes(entity.objectId) ? 1 : 0),
+        0,
+      ) ?? 0
+    );
+  }
+  function shelterTransition(
+    changing: WorldEvent,
+  ): { objectId: ObjectId; locationId: ObjectId | null; planId: string }[] {
+    const plan = shelterChanges(changing);
+    if (plan === undefined) return [];
+    const { changes, departing, planId } = plan;
     for (const { entity } of changes) {
       integrateActor(entity, changing.simulationTime);
       if (pendingPlants(changing.simulationTime).includes(entity.objectId))
         integratePlant(entity.objectId, changing.simulationTime);
     }
     if (changes.length > 0) shelterChanged = true;
-    const planId = data.movement?.movementId ?? data.movementId!;
     if (departing) {
       for (const { entity, locationId } of changes)
         emit(
@@ -1963,6 +1981,12 @@ function runWorld(
               plan.consume.quantity,
           );
         }
+        movementSize += shelterEventCount(
+          event("movement.completed", at, {
+            objectId: objectId as ObjectId,
+            movementId: movement.movementId,
+          }),
+        );
         movementSize +=
           (integratedHere.has(objectId)
             ? 0
@@ -2514,6 +2538,23 @@ function runWorld(
           pendingWater(item.dueAt).length +
           1 +
           stepEvents(trialPlan.steps);
+        for (const step of trialPlan.steps) {
+          if (step.kind === "start" || step.kind === "replan")
+            decisionSize += shelterEventCount(
+              event(step.kind === "start" ? "movement.started" : "movement.replanned", item.dueAt, {
+                objectId: dueActor.objectId,
+                movement: step.record,
+              } as never),
+            );
+          else if (step.kind === "interrupt")
+            decisionSize += shelterEventCount(
+              event("movement.interrupted", item.dueAt, {
+                objectId: dueActor.objectId,
+                movementId: step.movementId,
+                position: step.position,
+              } as never),
+            );
+        }
       }
       if (dispatched === payload.maxInputs) {
         complete = false;
@@ -2680,7 +2721,10 @@ function runWorld(
           const movement = (data as { readonly movement: MovementRecord }).movement;
           if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
         }
-        emit(event(type as WorldEvent["type"], at, data as never));
+        const changing = event(type as WorldEvent["type"], at, data as never);
+        if (context.eventCount() + 1 + shelterEventCount(changing) > payload.maxEvents)
+          passedTime("events");
+        emit(changing);
         // Where it stops, it is in the shelter standing there, or on open ground.
         if (type === "movement.completed" || type === "movement.interrupted") {
           const actor = objectsOf(current(), mover as string) as WorldEntity;

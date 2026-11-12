@@ -1,6 +1,6 @@
 import { replayWorldEvents, type WorldEvent } from "@clockgrove/domain";
 import { expect, it } from "vitest";
-import { needs, RAIN, shelter, utilityWorld, WITH } from "./decisions.scenario.js";
+import { food, needs, RAIN, shelter, utilityWorld, WITH } from "./decisions.scenario.js";
 import { CEDAR_SPEC, ecologyWorld } from "./ecology.scenario.js";
 import {
   advanceInput,
@@ -91,9 +91,8 @@ it("integrates occupants under old protection when a shelter leaves and locates 
     "movement.completed",
   ]);
   expect(
-    replayWorldEvents(lazy.state, [...runs[0]!.events, ...fast.events, ...returned.events])
-      .entities,
-  ).toEqual(returned.world.state.entities);
+    replayWorldEvents(lazy.state, [...runs[0]!.events, ...fast.events, ...returned.events]),
+  ).toEqual(returned.world.state);
 });
 
 it("creates a shelter at an occupant's pose after integrating its previous exposure", async () => {
@@ -141,9 +140,49 @@ it("creates a shelter at an occupant's pose after integrating its previous expos
   expect(
     after.world.state.entities.find((entity) => entity.objectId === actor)!.needs!.wetness,
   ).toBe(1125);
-  expect(replayWorldEvents(settled.state, created.events).entities).toEqual(
-    created.world.state.entities,
+  expect(replayWorldEvents(settled.state, created.events)).toEqual(created.world.state);
+  const crate = execute(
+    created.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "walking-crate",
+        archetypeId: den.archetypeId,
+        spatial: { spaceId: den.spaceId, pose: den.pose },
+      },
+    },
+    "create-crate",
   );
+  const walking = execute(
+    crate.world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "walking-crate",
+      unitsPerSecond: 1000n,
+      observeUntil: 1500n,
+      destination: { kind: "pose", pose: { ...den.pose, coordinates: [2000n, 0n] } },
+    },
+    "walk-before-create",
+  );
+  const second = execute(
+    walking.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "second-den",
+        archetypeId: den.archetypeId,
+        spatial: { spaceId: den.spaceId, pose: den.pose },
+        shelter: { rainProtection: 10000 },
+      },
+    },
+    "create-behind-walker",
+  );
+  expect(
+    second.world.state.entities.find((entity) => entity.objectId === "walking-crate")!.locationId,
+  ).toBeUndefined();
 });
 
 it("moves a shelter that is itself a sheltered plant without losing its old growth integration or protecting itself", async () => {
@@ -193,7 +232,55 @@ it("moves a shelter that is itself a sheltered plant without losing its old grow
   expect(
     fast.world.state.ecology!.plants.find((entry) => entry.objectId === "sheltered-cedar"),
   ).toMatchObject({ growingMs: 2300n, wetness: 3250, integratedAt: 9000n });
-  expect(replayWorldEvents(settled.state, [...moved.events, ...fast.events]).ecology).toEqual(
-    fast.world.state.ecology,
+  expect(replayWorldEvents(settled.state, [...moved.events, ...fast.events])).toEqual(
+    fast.world.state,
   );
+});
+
+it("rebuilds exposure when a routine shelter moves after its occupant decided", async () => {
+  const base = await utilityWorld(
+    WITH({
+      ...RAIN,
+      actors: [
+        ["a-occupant", null],
+        ["z-shelter", null],
+      ],
+      initial: [needs(0, 2999, 0), needs(9000, 0, 0)],
+      starts: [
+        [0, 0],
+        [0, 0],
+      ],
+      hungerPerInterval: 0,
+      items: [food("bin", [2000, 0])],
+    }),
+  );
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "z-shelter"
+          ? { ...entity, shelter: { rainProtection: 10000 } }
+          : entity.objectId === "a-occupant"
+            ? { ...entity, locationId: "z-shelter" as typeof entity.objectId }
+            : entity,
+      ),
+    },
+  };
+  const fast = runChain(world, "routine-fast", 500n);
+  const live = runLiveSteps(world, "routine-live", 500n, [300, 200]);
+  expect(live.world.state.entities).toEqual(fast.world.state.entities);
+  expect(live.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  const bounded = runChain(world, "routine-bounded", 500n, 1, 8);
+  expect(bounded.world.state.entities).toEqual(fast.world.state.entities);
+  expect(bounded.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  expect(
+    fast.world.state.entities.find((entity) => entity.objectId === "a-occupant")!.needs!.wetness,
+  ).toBe(3749);
+  expect(changes(fast.events)).toContainEqual([0n, "a-occupant", null]);
+  expect(
+    fast.events
+      .filter((event) => event.type === "exposure.threshold-crossed")
+      .map((event) => [event.simulationTime, event.payload.objectId]),
+  ).toContainEqual([1n, "a-occupant"]);
 });
