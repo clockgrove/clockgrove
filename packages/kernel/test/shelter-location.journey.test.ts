@@ -9,6 +9,7 @@ import {
   type EnvironmentWorld,
   runChain,
 } from "./environment.scenario.js";
+import { COINCIDE_SPEC, lifeChain, lifeLive, lifeWorld } from "./lifecycle.scenario.js";
 import { movementInput } from "./spatial.scenario.js";
 import { runLiveSteps } from "./wellbeing.scenario.js";
 
@@ -301,4 +302,67 @@ it("rebuilds exposure when a routine shelter moves after its occupant decided", 
       .filter((event) => event.type === "exposure.threshold-crossed")
       .map((event) => [event.simulationTime, event.payload.objectId]),
   ).toContainEqual([1n, "a-occupant"]);
+});
+
+it("does not locate occupants in a shelter stopped by death, including bounded lifecycle advances", async () => {
+  const base = await lifeWorld(COINCIDE_SPEC);
+  const resident = base.state.entities.find((entity) => entity.objectId === "a-resident")!;
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: [
+        ...base.state.entities.map((entity) =>
+          entity === resident ? { ...entity, shelter: { rainProtection: 10000 } } : entity,
+        ),
+        {
+          objectId: "occupant" as typeof resident.objectId,
+          archetypeId: resident.archetypeId,
+          spaceId: resident.spaceId,
+          pose: { ...resident.pose, coordinates: [1n, 0n] as never },
+        },
+      ],
+    },
+  };
+  const started = execute(
+    world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: resident.objectId,
+      destination: { kind: "pose", pose: { ...resident.pose, coordinates: [500n, 0n] } },
+      unitsPerSecond: 1000n,
+      observeUntil: 0n,
+    },
+    "terminal-start",
+  );
+  const moving = { ...started.world, random: base.random };
+  const fast = lifeChain(moving, "terminal-fast", 2n);
+  const live = lifeLive(moving, "terminal-live", 2n, 1n);
+  for (const maxEvents of [6, 7, 9]) {
+    const bounded = lifeChain(moving, `terminal-bounded-${maxEvents}`, 2n, 1024, maxEvents);
+    if (maxEvents === 6) expect(bounded.calls.length).toBeGreaterThan(1);
+    expect(bounded.world.state.entities).toEqual(fast.world.state.entities);
+    expect(bounded.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+    expect(
+      bounded.calls.every(
+        (call) => call.outcome.ok && call.outcome.result.events.length <= maxEvents,
+      ),
+    ).toBe(true);
+  }
+  expect(live.world.state.entities).toEqual(fast.world.state.entities);
+  expect(live.world.state.wellbeing).toEqual(fast.world.state.wellbeing);
+  expect(changes(fast.events)).toEqual([]);
+  expect(
+    fast.world.state.entities.find((entity) => entity.objectId === "occupant")!.locationId,
+  ).toBeUndefined();
+  expect(
+    fast.events
+      .filter((event) => ["movement.interrupted", "lifecycle.died"].includes(event.type))
+      .map((event) => [event.type, event.simulationTime]),
+  ).toEqual([
+    ["movement.interrupted", 1n],
+    ["lifecycle.died", 1n],
+  ]);
+  expect(replayWorldEvents(moving.state, fast.events)).toEqual(fast.world.state);
 });

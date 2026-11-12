@@ -1128,13 +1128,13 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent): void {
+  function emit(event: WorldEvent, reconcileShelter = true): void {
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
     )
       throw new RangeError("event adoption budget or deterministic index exhausted");
-    const affected = shelterTransition(event);
+    const affected = reconcileShelter ? shelterTransition(event) : [];
     context.emit(event);
     for (const change of affected) {
       emit({ ...event, type: "location.changed", payload: change } as WorldEvent);
@@ -1922,6 +1922,7 @@ function runWorld(
       if (lifecyclePolicy !== undefined && lifecyclePolicy.successorRule !== null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
       if (movement !== undefined && movement.status === "active")
+        // Terminal interruptions do not reconcile shelter arrivals before the following death.
         total += pendingCrossings(movement, at).length + 1;
     }
     return total;
@@ -2243,6 +2244,7 @@ function runWorld(
                 movementId: movement.movementId,
                 position: positionAt(movement.segment, at),
               } as never),
+              false,
             );
           }
           const entry = current().wellbeing?.entries.find(

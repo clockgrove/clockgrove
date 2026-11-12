@@ -210,6 +210,8 @@ Three things differ from `world.advance`:
 - When the mover dies, its movement is interrupted at that time (its pending crossings, then
   `movement.interrupted`, then `lifecycle.died`) and the move ends there. `movement.interrupted`
   carries no cause; the `lifecycle.died` at the same time carries it (`lifespan` or `health`).
+  This terminal interruption does not reconcile shelter arrivals: a shelter about to die cannot
+  protect occupants at its stopping pose.
   The handler's later events are dropped, and nothing after that time is emitted.
 
 A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
