@@ -16,6 +16,8 @@ export const TURN_PHASES = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "tool_waiting",
+  "tool_completed",
   "committing",
   "finalizing",
   "completed",
@@ -39,6 +41,8 @@ export const CANCELLABLE_TURN_PHASES: readonly TurnPhase[] = [
   "context_ready",
   "model_running",
   "proposal_validating",
+  "tool_waiting",
+  "tool_completed",
 ];
 
 /**
@@ -51,6 +55,8 @@ export interface TurnStatus {
   readonly phase: TurnPhase;
   readonly attempt: number;
   readonly outcomeCode: string | null;
+  /** The current waiting call's scoped metadata identity, never its arguments or result text. */
+  readonly toolCallId?: string;
 }
 
 /** `/v1/runtime/turns/status` and `/v1/runtime/turns/cancel`: one turn, by its message ID. */
@@ -66,6 +72,12 @@ export interface TurnRequest {
  */
 export type TalkStreamFrame =
   | { readonly type: "delta"; readonly text: string }
+  | {
+      readonly type: "tool";
+      readonly callId: string;
+      readonly capability: string;
+      readonly status: "queued" | "using" | "completed" | "failed";
+    }
   | { readonly type: "receipt"; readonly receipt: TalkReceipt }
   | { readonly type: "refused"; readonly status: number; readonly error: string };
 
@@ -95,22 +107,34 @@ export function decodeTurnRequest(value: unknown, path = "turn"): TurnRequest {
 
 export function decodeTurnStatus(value: unknown, path = "turnStatus"): TurnStatus {
   const v = record(value, path);
-  exactKeys(v, ["sessionId", "messageId", "phase", "attempt", "outcomeCode"], [], path);
+  exactKeys(v, ["sessionId", "messageId", "phase", "attempt", "outcomeCode"], ["toolCallId"], path);
+  if (v.toolCallId !== undefined && v.phase !== "tool_waiting")
+    throw new ContractDecodeError(`${path}.toolCallId`, "expected a waiting turn");
   return Object.freeze({
     sessionId: id(v.sessionId, `${path}.sessionId`),
     messageId: id(v.messageId, `${path}.messageId`),
     phase: literal(v.phase, TURN_PHASES, `${path}.phase`),
     attempt: nonNegativeInteger(v.attempt, `${path}.attempt`),
     outcomeCode: v.outcomeCode === null ? null : string(v.outcomeCode, `${path}.outcomeCode`),
+    ...(v.toolCallId === undefined ? {} : { toolCallId: id(v.toolCallId, `${path}.toolCallId`) }),
   });
 }
 
 export function decodeTalkStreamFrame(value: unknown, path = "talkStream"): TalkStreamFrame {
   const v = record(value, path);
-  const type = literal(v.type, ["delta", "receipt", "refused"], `${path}.type`);
+  const type = literal(v.type, ["delta", "tool", "receipt", "refused"], `${path}.type`);
   if (type === "delta") {
     exactKeys(v, ["type", "text"], [], path);
     return Object.freeze({ type, text: string(v.text, `${path}.text`) });
+  }
+  if (type === "tool") {
+    exactKeys(v, ["type", "callId", "capability", "status"], [], path);
+    return Object.freeze({
+      type,
+      callId: id(v.callId, `${path}.callId`),
+      capability: string(v.capability, `${path}.capability`),
+      status: literal(v.status, ["queued", "using", "completed", "failed"], `${path}.status`),
+    });
   }
   if (type === "receipt") {
     exactKeys(v, ["type", "receipt"], [], path);

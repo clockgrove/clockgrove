@@ -18,13 +18,18 @@ export interface ExternalEffectPorts {
   readonly effects: Pick<PostgreSqlEffects, "resolveDispatch" | "claim" | "reconcile" | "complete">;
   /** Reload canonical installation, binding and member grants; verify stored argument hash. */
   readonly admit: (intent: EffectIntentMetadata) => Promise<AdmittedMcpRead | null>;
-  readonly adapter: { execute(request: AdmittedMcpRead): Promise<McpReadEvidence> };
+  readonly adapter: {
+    execute(request: AdmittedMcpRead, intent: EffectIntentMetadata): Promise<McpReadEvidence>;
+  };
+  /** Canonical completion is committed before notifying the waiting actor. */
+  readonly completed?: (intent: EffectIntentMetadata) => Promise<void>;
   /** Write sanitized evidence as an encrypted, scoped canonical artifact. */
   readonly persistResult: (
     intent: EffectIntentMetadata,
     evidence: McpReadEvidence,
   ) => Promise<string>;
   readonly attemptId: () => string;
+  readonly knownCost?: (intent: EffectIntentMetadata) => number | null;
 }
 
 export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueConsumer {
@@ -38,6 +43,7 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
         const recorded = await ports.effects.reconcile(intent);
         if (!recorded || recorded.disposition === "pending" || recorded.disposition === "started")
           throw new Error("External effect is in flight");
+        await ports.completed?.(intent);
         return;
       }
       let completion: EffectCompletion;
@@ -61,6 +67,7 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
           costMicrousd: null,
         };
         await ports.effects.complete(intent, attemptId, completion);
+        await ports.completed?.(intent);
         return;
       }
       if (!request) {
@@ -73,14 +80,14 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
       } else {
         let resultReceived = false;
         try {
-          const evidence = await ports.adapter.execute(request);
+          const evidence = await ports.adapter.execute(request, intent);
           resultReceived = true;
           const resultArtifactId = await ports.persistResult(intent, evidence);
           completion = {
             disposition: evidence.status === "ok" ? "succeeded" : "failed",
             outcomeCode: evidence.status === "ok" ? "ok" : "tool_error",
             resultArtifactId,
-            costMicrousd: null,
+            costMicrousd: ports.knownCost?.(intent) ?? null,
           };
         } catch (error) {
           const transportFailure =
@@ -103,6 +110,7 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
       }
       // A storage failure must reach Queue retry, which can reconcile but never resend.
       await ports.effects.complete(intent, attemptId, completion);
+      await ports.completed?.(intent);
     },
   });
 }

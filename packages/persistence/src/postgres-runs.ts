@@ -4,6 +4,7 @@ import {
   type ModelUsage,
   type RuntimeAuthorizationContext,
   type TurnCommandRecord,
+  type TurnToolCall,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -38,7 +39,7 @@ const RUN_COLUMNS = `run_id, session_id, actor_id, principal_id, persona_id, act
 const STEP_COLUMNS = `run_id, step, kind, status, outcome_code, model, tool, command_id,
   output_message_id, input_artifact_id, input_privacy_class, output_artifact_id, input_tokens,
   output_tokens,
-  cost_microusd, summary, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
+  cost_microusd, summary, tool_evidence, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
 /** The caller's whole browser scope: an inspect grant for one space reads only that space's runs. */
 const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4";
 /** Decision: as `guard_agent_run` (0036), four attempts for each of a session's 500 turns. */
@@ -150,7 +151,7 @@ export class PostgreSqlRunRecorder {
       `UPDATE clockgrove.run_steps
           SET status = 'succeeded', output_artifact_id = $3, cost_microusd = $4,
               input_tokens = $5, output_tokens = $6, summary = 'Model answered'
-        WHERE tenant_id = $1 AND run_id = $2 AND step = 2`,
+        WHERE tenant_id = $1 AND run_id = $2 AND kind='model_attempt' AND status='running'`,
       [
         tenantId,
         runId,
@@ -158,6 +159,105 @@ export class PostgreSqlRunRecorder {
         usage.costMicrousd,
         usage.inputTokens,
         usage.outputTokens,
+      ],
+    );
+  }
+
+  async systemOutcome(
+    tenantId: string,
+    sessionId: string,
+    runId: string,
+    code: string,
+  ): Promise<void> {
+    await this.client.query(
+      `UPDATE clockgrove.run_steps SET status='failed',outcome_code=$3,summary='Model unavailable or research bound reached'
+        WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
+      [tenantId, runId, code],
+    );
+    const found = await this.client.query(
+      `SELECT coalesce(max(step),0)+1 AS step FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,
+      [tenantId, runId],
+    );
+    await this.validated(tenantId, sessionId, runId, Number((found.rows[0] as Row).step), {
+      refused: code,
+      summary: "System disposition; no actor behavior claimed",
+    });
+  }
+
+  async nextModelAttempt(
+    tenantId: string,
+    sessionId: string,
+    runId: string,
+    model: string,
+    promptArtifactId?: string,
+  ): Promise<void> {
+    const found = await this.client.query(
+      `SELECT step,input_artifact_id,input_privacy_class FROM clockgrove.run_steps
+        WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' ORDER BY step DESC LIMIT 1`,
+      [tenantId, runId],
+    );
+    const running = await this.client.query(
+      `SELECT 1 FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
+      [tenantId, runId],
+    );
+    if (running.rows.length > 0 && promptArtifactId === undefined) return;
+    if (running.rows.length > 0)
+      await this.client.query(
+        `UPDATE clockgrove.run_steps SET status='abandoned',outcome_code='research_context_replaced'
+        WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
+        [tenantId, runId],
+      );
+    const prior = found.rows[0] as Row;
+    await this.client.query(
+      `INSERT INTO clockgrove.run_steps(tenant_id,run_id,session_id,step,kind,model,input_artifact_id,input_privacy_class,summary)
+        SELECT $1,$2,$3,coalesce(max(step),0)+1,'model_attempt',$4,$5,$6,'Model attempt after tool'
+          FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,
+      [
+        tenantId,
+        runId,
+        sessionId,
+        model,
+        promptArtifactId ?? prior.input_artifact_id,
+        promptArtifactId === undefined ? prior.input_privacy_class : "private_cognition",
+      ],
+    );
+  }
+
+  async toolStep(
+    tenantId: string,
+    sessionId: string,
+    runId: string,
+    kind: "tool_proposal" | "tool_execution",
+    call: TurnToolCall,
+  ): Promise<void> {
+    await this.client.query(
+      `INSERT INTO clockgrove.run_steps(tenant_id,run_id,session_id,step,kind,status,outcome_code,tool,
+          output_artifact_id,cost_microusd,summary,tool_evidence)
+        SELECT $1,$2,$3,coalesce(max(step),0)+1,$4,$5,$6,$7,$8,$11,$9,$10::jsonb
+          FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,
+      [
+        tenantId,
+        runId,
+        sessionId,
+        kind,
+        call.status === "waiting" || call.status === "succeeded" || call.status === "simulated"
+          ? "succeeded"
+          : "failed",
+        call.code,
+        call.capability,
+        call.resultArtifactId,
+        kind === "tool_proposal"
+          ? "Tool proposal checkpointed"
+          : "Tool result recorded as untrusted evidence",
+        JSON.stringify({
+          callId: call.callId,
+          effectId: call.effectId,
+          grantId: call.grantId,
+          resultArtifactId: call.resultArtifactId,
+          status: call.status,
+          queueLatencyMs: call.queueLatencyMs ?? null,
+        }),
+        call.costMicrousd ?? null,
       ],
     );
   }
@@ -204,6 +304,7 @@ export class PostgreSqlRunRecorder {
     turn: number,
     replyMessageId: string,
     step: number,
+    outcomeCode: string | null = null,
   ): Promise<void> {
     await this.client.query(
       `INSERT INTO clockgrove.run_steps (
@@ -212,9 +313,9 @@ export class PostgreSqlRunRecorder {
       [tenantId, runId, sessionId, replyMessageId, `Committed turn ${turn}`, step],
     );
     await this.client.query(
-      `UPDATE clockgrove.agent_runs SET status = 'completed', turn = $3
+      `UPDATE clockgrove.agent_runs SET status = CASE WHEN $4::text IS NULL THEN 'completed' ELSE 'failed' END, turn = CASE WHEN $4::text IS NULL THEN $3::integer ELSE NULL END, outcome_code=$4
         WHERE tenant_id = $1 AND run_id = $2`,
-      [tenantId, runId, turn],
+      [tenantId, runId, turn, outcomeCode],
     );
   }
 
@@ -320,6 +421,9 @@ export class PostgreSqlRunReader {
           outcomeCode: nullable(step.outcome_code),
           model: nullable(step.model),
           tool: nullable(step.tool),
+          ...(step.tool_evidence == null
+            ? {}
+            : { toolEvidence: step.tool_evidence as NonNullable<RunStepView["toolEvidence"]> }),
           commandId: nullable(step.command_id),
           outputMessageId: nullable(step.output_message_id),
           inputTokens: count(step.input_tokens),
@@ -408,11 +512,17 @@ function entryMatch(entry: RunEntry): readonly [string, readonly unknown[]] {
       [entry.commandId],
     ];
   if ("turn" in entry)
-    // Every attempt at the turn's input message, whichever of them committed it.
+    // Every attempt at the turn's input, using metadata only: inspectors cannot read transcripts.
+    // A service failure keeps run.turn NULL; each private turn appends exactly one message pair.
     return [
       `session_id = $5 AND input_message_id IN (
-         SELECT input_message_id FROM clockgrove.agent_runs
-          WHERE tenant_id = $1 AND session_id = $5 AND turn = $6)`,
+         SELECT candidate.input_message_id FROM clockgrove.agent_runs candidate
+          WHERE candidate.tenant_id=$1 AND candidate.session_id=$5 AND (
+            candidate.turn=$6 OR candidate.turn IS NULL
+              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')
+              AND candidate.input_revision=($6::integer-1)*2 AND EXISTS (
+                SELECT 1 FROM clockgrove.run_steps committed WHERE committed.tenant_id=candidate.tenant_id
+                  AND committed.run_id=candidate.run_id AND committed.kind='commit' AND committed.status='succeeded')))`,
       [entry.sessionId, entry.turn],
     ];
   // A message is a run's input, or what one of its steps produced.

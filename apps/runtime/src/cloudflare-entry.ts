@@ -8,6 +8,7 @@ import type {
   RuntimeMetrics,
 } from "@clockgrove/application";
 import {
+  type AdmittedMcpRead,
   AuthenticationRefusedError,
   type CatchUpWorkflowEnvelope,
   DispatchHintNotifier,
@@ -16,6 +17,8 @@ import {
   JOURNAL_EVENT_REGISTRY,
   JournalRangeReader,
   type LifecycleWorkflowEnvelope,
+  type McpReadEvidence,
+  McpReadFailure,
   McpRefusal,
   maintainPartitionSnapshot,
   NO_METRICS,
@@ -39,6 +42,7 @@ import {
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
   activationEventSubscribers,
+  type EffectIntentMetadata,
   PostgreSqlActivations,
   PostgreSqlActorProcesses,
   PostgreSqlArtifactStore,
@@ -51,6 +55,7 @@ import {
   PostgreSqlJournalRangeSource,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlManagementReaders,
+  PostgreSqlMcpReadAdmission,
   PostgreSqlSnapshotStore,
   PostgreSqlWorldAuthorizationReader,
   PostgreSqlWorldOwnerReader,
@@ -111,6 +116,11 @@ import {
   refusingRuntimeQueueConsumers,
   TypedQueueConsumer,
 } from "./queues.js";
+import {
+  composeResearch,
+  type ResearchConfiguration,
+  type ResearchResumeTarget,
+} from "./research.js";
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
@@ -686,7 +696,9 @@ export interface RuntimeEnvironment {
       Partial<Pick<SpaceDO, "catchUp" | "prepareCatchUp" | "runtimeState" | "fetch">>
   >;
   /** Local-only retained credential owner; never exposed as a public route. */
-  readonly MCP_OPERATOR_DO?: DurableObjectNamespace<Pick<McpOperatorDO, "execute" | "close">>;
+  readonly MCP_OPERATOR_DO?: DurableObjectNamespace<
+    Pick<McpOperatorDO, "execute" | "read" | "close">
+  >;
   readonly ACTOR_AGENT_DO: DurableObjectNamespace<
     Pick<
       ActorAgentDO,
@@ -705,6 +717,7 @@ export interface RuntimeEnvironment {
       | "hintActivations"
       | "wakeTriageReport"
       | "moderationShadowReport"
+      | "toolCompleted"
     >
   >;
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;
@@ -773,6 +786,12 @@ export const runtimeBindingManifest = {
 } as const;
 
 export interface RuntimeComposition {
+  readonly research?: ReturnType<typeof composeResearch> | undefined;
+  readonly researchConfiguration?: Omit<
+    ResearchConfiguration,
+    "environment" | "publish" | "wake" | "adapter" | "internalRead"
+  >;
+
   /** Trusted local composition; hosted activation remains guarded pending issue 3. */
   readonly mcp?: import("./mcp.js").McpRuntimePort | undefined;
   readonly mcpConfiguration?: Omit<
@@ -835,8 +854,12 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   };
   const connectionString = env.HYPERDRIVE?.connectionString;
   const mcp = composeGuardedMcpOperator(env, injected);
+  const research = composeGuardedResearch(env, injected);
+  const consumers = research
+    ? { ...injected.consumers, externalEffects: research.consumer }
+    : injected.consumers;
   if (injected.journal !== undefined && injected.canonical !== undefined)
-    return { ...injected, mcp } as RuntimeComposition;
+    return { ...injected, mcp, research, consumers } as RuntimeComposition;
   if (connectionString === undefined && composition !== undefined)
     throw new Error("Hyperdrive binding required for PostgreSQL composition");
   // Each call owns one connection; exact retries are answered from stored outcomes.
@@ -853,6 +876,8 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   return {
     ...injected,
     mcp,
+    research,
+    consumers,
     journal: injected.journal ?? postgreSqlJournal,
     canonical: injected.canonical ?? {
       loadReadyRuntimeState: (context, scope) =>
@@ -861,6 +886,102 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
         ),
     },
   };
+}
+
+/** Shared local read adapter; fresh member authority governs both native execution and fixtures. */
+export function composeResearchInternalRead(
+  env: RuntimeEnvironment,
+  authentication: RuntimeAuthenticationDependencies,
+): NonNullable<ResearchConfiguration["internalRead"]> {
+  const contextFor = async (target: ResearchResumeTarget) => {
+    const authority = await authentication.world.resolveWorld(
+      decodeOpaqueId(target.principalId, "PrincipalId"),
+      target.scope,
+    );
+    if (
+      !authority ||
+      authority.tenantId !== target.scope.tenantId ||
+      authority.worldId !== target.scope.worldId ||
+      authority.timelineId !== target.scope.timelineId ||
+      authority.spaceId !== target.scope.spaceId ||
+      authority.principalId !== target.principalId ||
+      authority.personaId !== target.personaId ||
+      !authority.grants.some((grant) => grant === "runtime:world-observe")
+    )
+      throw new Error("Research authority unavailable");
+    const { constructTrustedExecutionContext } = await import("@clockgrove/contracts/trusted");
+    return constructTrustedExecutionContext({
+      version: 1,
+      ...target.scope,
+      principalId: authority.principalId,
+      worldMembershipId: authority.membershipId,
+      personaId: authority.personaId,
+      roles: authority.roles,
+      grants: authority.grants,
+      privacyCeiling: authority.privacyCeiling,
+      correlationId: target.messageId,
+      requestId: target.messageId,
+      codeVersion: authentication.codeVersion,
+      protocolVersion: 1,
+    });
+  };
+  return async (target, capability, input) => {
+    const context = await contextFor(target);
+    const value =
+      capability === "inspect"
+        ? await perceiveScene(env, target.scope, context)
+        : await withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+            new PostgreSqlCausalInspector(client).recordedWhy(
+              {
+                scope: target.scope,
+                commandId: decodeOpaqueId((input as { commandId: string }).commandId, "CommandId"),
+              },
+              context,
+            ),
+          );
+    return {
+      trust: "untrusted_evidence",
+      status: "ok",
+      content: [{ type: "text", text: JSON.stringify(value) }],
+      sanitized: false,
+      costMicrousd: null,
+    };
+  };
+}
+
+function composeGuardedResearch(
+  env: RuntimeEnvironment,
+  supplied: Pick<RuntimeComposition, "research" | "researchConfiguration" | "authentication">,
+): ReturnType<typeof composeResearch> | undefined {
+  if (env.PROVIDER_ENVIRONMENT !== "local") return undefined;
+  if (supplied.research) return supplied.research;
+  const configuration = supplied.researchConfiguration;
+  if (!configuration) return undefined;
+  return composeResearch({
+    ...configuration,
+    environment: "local",
+    publish: (message) => env.EXTERNAL_EFFECTS_QUEUE.send(message),
+    wake: async (target) => {
+      const route = await runtimeRouteName(
+        "actor-agent",
+        target.scope,
+        decodeOpaqueId(target.actorId, "SubjectId"),
+      );
+      await env.ACTOR_AGENT_DO.get(env.ACTOR_AGENT_DO.idFromName(route)).toolCompleted(target);
+    },
+    adapter: {
+      execute: async (request, intent) => {
+        const owners = env.MCP_OPERATOR_DO;
+        if (!owners) throw new McpReadFailure("credential_unavailable", "not_sent");
+        const result = await owners
+          .get(owners.idFromName("local-mcp-operator"))
+          .read(intent, request);
+        if (!result.ok) throw new McpReadFailure(result.code, result.disposition);
+        return result.value;
+      },
+    },
+    internalRead: composeResearchInternalRead(env, supplied.authentication),
+  });
 }
 
 function composeGuardedMcpOperator(
@@ -909,6 +1030,49 @@ class McpOperatorDO extends DurableObject<RuntimeEnvironment> {
     } catch (error) {
       // RPC serializes Errors without their class identity. Reconstruct only closed policy codes.
       return { ok: false, code: safeMcpNetworkRefusal(error)?.code ?? "mcp_operation_failed" };
+    }
+  }
+
+  async read(
+    intent: EffectIntentMetadata,
+    request: AdmittedMcpRead,
+  ): Promise<
+    | { ok: true; value: McpReadEvidence }
+    | { ok: false; code: string; disposition: "not_sent" | "uncertain" | "result_refused" }
+  > {
+    try {
+      if (this.environment.PROVIDER_ENVIRONMENT !== "local") throw new Error();
+      const supplied = suppliedComposition(this.environment);
+      if (!supplied.researchConfiguration || !supplied.mcpConfiguration) throw new Error();
+      const installationId = await supplied.researchConfiguration.withClient(async (client) => {
+        const admitted = await new PostgreSqlMcpReadAdmission(client).admit(
+          intent,
+          request.arguments,
+        );
+        if (!admitted) return null;
+        const result = await client.query(
+          `SELECT installation_id FROM clockgrove.mcp_read_admissions
+          WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4 AND admitted`,
+          [intent.tenantId, intent.worldId, intent.timelineId, intent.effectId],
+        );
+        const id = (result.rows[0] as { installation_id: string } | undefined)?.installation_id;
+        return id ? { installationId: id, request: admitted } : null;
+      });
+      if (!installationId) throw new Error();
+      this.operator ??= composeOwnedMcpOperator(this.environment, supplied.mcpConfiguration);
+      return {
+        ok: true,
+        value: await this.operator.executeRead(
+          { ...intent, installationId: installationId.installationId },
+          installationId.request,
+        ),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        code: error instanceof McpReadFailure ? error.code : "read_unavailable",
+        disposition: error instanceof McpReadFailure ? error.disposition : "not_sent",
+      };
     }
   }
 
@@ -1294,7 +1458,7 @@ export default {
       env.EXTERNAL_EFFECTS_QUEUE_NAME,
     ];
     if (new Set(names).size !== names.length) throw new Error("queue names must be distinct");
-    const { consumers, logger } = composeRuntime(env);
+    const { consumers, logger, research } = composeRuntime(env);
     const queue = new Map([
       [names[0], ["world-reactions", consumers.worldReactions] as const],
       [names[1], ["cognitive-indexing", consumers.cognitiveIndexing] as const],
@@ -1317,6 +1481,16 @@ export default {
           logQueueDeadLetter(logger, channel, message.id, message.attempts, failureClass);
           if (channel === "world-reactions")
             await recordDeadLetter(env, message.body, failureClass);
+          if (channel === "external-effects" && research) {
+            try {
+              await research.deadLetter(
+                decodeQueueEnvelope(message.body, (value) => value),
+                failureClass,
+              );
+            } catch {
+              /* Malformed data has no canonical source row. */
+            }
+          }
         }
         message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
       }
@@ -1327,18 +1501,21 @@ export default {
     if (controller.cron === runtimeBindingManifest.crons.snapshots)
       return { snapshots: await sweepPartitionSnapshots(env) };
     // Independent recoveries: one failing does not stop the others.
-    const [reactions, provisioning, catchUp] = await Promise.allSettled([
+    const [reactions, provisioning, catchUp, research] = await Promise.allSettled([
       processWorldReactionDispatches(env),
       reconcileOpenWorldProvisioning(env),
       reconcileOpenWorldCatchUp(env),
+      composeRuntime(env).research?.sweep(),
     ]);
     if (reactions.status === "rejected") throw reactions.reason;
     if (provisioning.status === "rejected") throw provisioning.reason;
     if (catchUp.status === "rejected") throw catchUp.reason;
+    if (research.status === "rejected") throw research.reason;
     return {
       reactions: reactions.value,
       provisioning: provisioning.value,
       catchUp: catchUp.value,
+      research: research.value,
     };
   },
 };

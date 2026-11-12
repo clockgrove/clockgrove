@@ -107,7 +107,15 @@ function reservationValues(request: EffectReservation) {
   if (
     !metadata
       .slice(0, 9)
-      .every((value, index) => (index === 4 && value === null) || identity(value as string)) ||
+      .every(
+        (value, index) =>
+          (index === 4 && value === null) ||
+          (index === 6
+            ? typeof value === "string" &&
+              new TextEncoder().encode(value).length >= 1 &&
+              new TextEncoder().encode(value).length <= 4096
+            : identity(value as string)),
+      ) ||
     !/^[a-f0-9]{64}$/.test(request.argumentsHash) ||
     (request.argumentsArtifactId !== null && !identity(request.argumentsArtifactId)) ||
     !Number.isSafeInteger(request.reservedMicrousd) ||

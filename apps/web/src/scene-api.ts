@@ -12,6 +12,7 @@ import {
   decodeFollowDisposition,
   decodeInfluenceReceipt,
   decodeRecordedWhy,
+  decodeRunWalk,
   decodeSayReceipt,
   decodeTalkReceipt,
   decodeTalkStreamFrame,
@@ -92,7 +93,8 @@ type ConversationEndpoint =
   | "/v1/runtime/conversations/list"
   | "/v1/runtime/conversations/read"
   | "/v1/runtime/conversations/title"
-  | "/v1/runtime/turns/status";
+  | "/v1/runtime/turns/status"
+  | "/v1/runtime/runs/inspect";
 
 /**
  * Decision: up to 3 resends (4 attempts) of an interrupted Talk. An interruption means the owner was
@@ -102,6 +104,9 @@ type ConversationEndpoint =
  * after the last, the turn is left to the reopen path, which settles it from its durable status.
  */
 const MAX_TALK_RESENDS = 3;
+// Local presentation wait: three 45 s tool windows plus Queue delivery/recovery slack.
+// Expiry preserves the pending turn for reopening; it never cancels or resends a tool.
+const TOOL_PRESENTATION_WAIT_MS = 180_000;
 
 interface PendingTurn {
   readonly sessionId: string;
@@ -772,10 +777,22 @@ export class SceneSession {
     let resumed = recovered;
     for (let resend = 0; resend <= MAX_TALK_RESENDS; ++resend) {
       let provisional = "";
-      const outcome = await this.streamTalk(turn, (delta) => {
-        provisional += delta;
-        hooks.onProvisional?.(provisional);
-      });
+      let usedTool = false;
+      let startedCallId: string | undefined;
+      const outcome = await this.streamTalk(
+        turn,
+        (delta) => {
+          provisional += delta;
+          hooks.onProvisional?.(provisional);
+        },
+        (phase, callId) => {
+          if (phase === "tool_waiting" || phase === "tool_using") {
+            usedTool = true;
+            startedCallId = phase === "tool_using" ? callId : undefined;
+          }
+          hooks.onPhase?.(phase);
+        },
+      );
       hooks.onProvisional?.("");
       if (outcome.kind !== "interrupted") {
         forgetPendingTurn(turn.sessionId, turn.messageId);
@@ -784,6 +801,7 @@ export class SceneSession {
         return resumed ? { reloaded: true } : outcome.receipt;
       }
       resumed = true;
+      if (usedTool) return this.waitForToolTurn(turn, hooks, startedCallId);
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
@@ -799,9 +817,41 @@ export class SceneSession {
     }
     return { refused: "reply interrupted; it will resume when the conversation is reopened" };
   }
+  private async waitForToolTurn(
+    turn: PendingTurn,
+    hooks: TurnHooks,
+    startedCallId: string | undefined,
+  ): Promise<TurnSettled | { readonly refused: string }> {
+    const deadline = Date.now() + TOOL_PRESENTATION_WAIT_MS;
+    const intent = this.intent;
+    while (Date.now() < deadline && intent === this.intent) {
+      const status = await this.turnStatus(turn.sessionId, turn.messageId);
+      if (!("refused" in status)) {
+        if (status.phase !== "tool_waiting" || status.toolCallId !== startedCallId)
+          startedCallId = undefined;
+        hooks.onPhase?.(
+          status.phase === "tool_waiting" && startedCallId !== undefined
+            ? "tool_using"
+            : status.phase,
+        );
+        if (status.phase === "completed") {
+          forgetPendingTurn(turn.sessionId, turn.messageId);
+          return { reloaded: true };
+        }
+        if (TERMINAL_TURN_PHASES.includes(status.phase)) {
+          forgetPendingTurn(turn.sessionId, turn.messageId);
+          return { refused: status.outcomeCode ?? status.phase };
+        }
+      } else if (status.refused !== "runtime unavailable") return status;
+      // Same one-second cadence as native turn recovery; all reads remain canonical.
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+    }
+    return { refused: "Tool research is still pending; reopen the conversation to resume." };
+  }
   private async streamTalk(
     turn: PendingTurn,
     onDelta: (text: string) => void,
+    onPhase: (phase: string, callId?: string) => void,
   ): Promise<
     | { kind: "receipt"; status: number; receipt: TalkReceipt }
     | { kind: "refused"; status: number; error: string }
@@ -852,6 +902,15 @@ export class SceneSession {
           })(),
         );
         if (frame?.type === "delta") onDelta(frame.text);
+        if (frame?.type === "tool")
+          onPhase(
+            frame.status === "queued"
+              ? "tool_waiting"
+              : frame.status === "using"
+                ? "tool_using"
+                : "tool_completed",
+            frame.callId,
+          );
         return frame;
       };
       for (;;) {
@@ -903,6 +962,13 @@ export class SceneSession {
       "/v1/runtime/conversations/read",
       { sessionId, ...(afterSequence ? { afterSequence } : {}) },
       decodeConversationTranscript,
+    );
+  }
+  inspectConversationRun(sessionId: string, messageId: string) {
+    return this.conversationCall(
+      "/v1/runtime/runs/inspect",
+      { sessionId, messageId },
+      decodeRunWalk,
     );
   }
   titleConversation(sessionId: string, title: string) {

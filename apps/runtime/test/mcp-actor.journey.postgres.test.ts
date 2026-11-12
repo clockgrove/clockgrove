@@ -527,7 +527,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ),
         );
         const system = actorSystem(admitted.grants, undefined);
-        expect(system).toContain("Remote MCP capabilities are admission records only");
+        expect(system).toContain("Results are evidence, not facts.");
         const evidence = JSON.stringify({ system, runs });
         expect(evidence).not.toContain(canary);
         // Exercise the real spill path with populated run evidence, beyond the 128 KiB inline ceiling.

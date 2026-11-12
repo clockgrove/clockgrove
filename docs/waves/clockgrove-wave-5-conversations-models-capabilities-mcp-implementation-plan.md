@@ -151,6 +151,10 @@ type ActivationReason =
 
 Wakeups are deduplicated, coalesced, prioritized, and budgeted. A heartbeat is an optional opportunity, not a guaranteed LLM turn. Policy checks and compiled routines run before model escalation. No-op wakes are recorded cheaply and suppressed.
 
+Amended (issue 165): local read Queue completion uses `tool_completed` to resume the same
+canonical session/message fiber. It does not create an independent proactive model turn or
+bypass the original participant, binding or budget checks.
+
 Amended (owner decision, 2026-11-09; issue 111): wake triage runs in shadow mode after those checks,
 for every wake that reaches model escalation, including direct messages. Through the existing
 `decide` port it chooses `suppress`, `compiled_routine`, `full_turn` or the explicit abstention
@@ -243,7 +247,8 @@ accepted
   → context_pending
   → context_ready
   → model_running
-  ↔ tool_waiting / approval_waiting
+  → proposal_validating → tool_waiting → tool_completed → model_running (bounded read loop)
+  ↔ approval_waiting (issue 166)
   → proposal_validating
   → committing
   → finalizing
@@ -253,6 +258,11 @@ terminal: rejected | cancelled | failed | abandoned
 ```
 
 Every phase has a durable checkpoint and idempotency key. Streams are disposable presentation; committed messages, run steps, commands, effects, and status are durable.
+
+Issue 165 adds encrypted per-turn research history and durable model/call reservations.
+The owner defaults (2026-11-09) are three tool calls, four model steps and a configurable
+$0.25 tool-turn ceiling including cognition. Exceeding a bound records a visible service
+outcome. Completed tool results are untrusted evidence; they cannot grant authority.
 
 ### 7.2 Recovery
 
@@ -451,6 +461,15 @@ receipt; the local PostgreSQL/runtime/browser proofs do not establish hosted qua
 9. validate/sanitize result before model inclusion;
 10. emit safe run evidence and citations.
 
+Issue 165's local composition connects read-only calls to the existing external-effects
+Queue, outbox and DLQ path, with fresh admission immediately before execution. Replay reads
+encrypted recorded results. Non-live timelines record blocked intents without dispatching.
+Global/world/installation switches stop new admission without cognition. A stopped in-flight
+attempt reuses a sealed result or records uncertainty, never resends. Unknown cost stays null
+and counted; model and tool reservations share the configured tool-turn envelope.
+`inspect` and `why` are executable through the same read loop. Tool-result shadow screening
+is a separate follow-up (owner decision, 2026-11-09). Approval-gated writes remain issue 166.
+
 Initial fixtures:
 
 - one deterministic read-only remote MCP server;
@@ -519,6 +538,12 @@ Replace the Wave 4 placeholder with:
 - run status drawer for developer/operator roles;
 - budget/provider degradation that does not masquerade as actor behavior;
 - cross-space continuation without losing the actor/session identity.
+
+Issue 165 adds disposable tool-progress frames and “Using tool” presentation. Final
+`[tool:<callId>]` citations lead to the authorized run inspector by message, with structured
+call/grant/effect/result evidence. Tool waits and provider/budget failures are durable service
+states. The scripted browser journey is the default proof; a recorded real-model fixture run
+is a maintainer step when a key is available, never a default CI call.
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
 

@@ -5,6 +5,12 @@ import {
   type McpOAuthClient,
 } from "./mcp-credentials.js";
 import {
+  type AdmittedMcpRead,
+  type McpReadEvidence,
+  McpReadFailure,
+  RemoteHttpMcpReadAdapter,
+} from "./mcp-execution.js";
+import {
   type McpInstallationGovernancePort,
   McpInstallationService,
 } from "./mcp-installation-service.js";
@@ -13,6 +19,7 @@ import {
   type McpNetworkPort,
   McpRefusal,
   remoteMcpUrl,
+  SafeMcpHttpClient,
   safeMcpNetworkRefusal,
 } from "./mcp-network.js";
 import type { RuntimeAuthorizationContext } from "./persistence.js";
@@ -42,7 +49,7 @@ export class McpCredentialInstallation {
     private readonly credentialScope: McpCredentialScope,
     private readonly url: string,
     private readonly provider: McpOwnedCredentialProvider,
-    network: McpNetworkPort,
+    private readonly network: McpNetworkPort,
   ) {
     this.service = new McpInstallationService(governance, network, {
       use: async (send) => {
@@ -100,6 +107,29 @@ export class McpCredentialInstallation {
         throw new McpRefusal(error.code);
       throw safeMcpNetworkRefusal(error) ?? new McpCredentialError();
     }
+  }
+
+  /** Only the execution adapter resolves the retained credential; no reference leaves this owner. */
+  async executeRead(request: AdmittedMcpRead): Promise<McpReadEvidence> {
+    if (
+      request.endpoint !== this.url ||
+      this.reference === undefined ||
+      this.closed ||
+      !this.installed
+    )
+      throw new McpReadFailure("credential_unavailable", "not_sent");
+    try {
+      await this.authorize();
+    } catch {
+      throw new McpReadFailure("credential_unavailable", "not_sent");
+    }
+    return new RemoteHttpMcpReadAdapter(
+      new SafeMcpHttpClient(this.network),
+      this.provider.vault,
+    ).execute({
+      ...request,
+      credential: { scope: this.credentialScope, reference: this.reference },
+    });
   }
 
   private async authorize(allowInactive = false): Promise<void> {

@@ -142,6 +142,27 @@ function evidence(result: Record<string, unknown>, outputBytes: number): McpRead
   };
 }
 
+/** Validates a recorded or internal result before it can enter another model step. */
+export function sanitizeMcpReadEvidence(value: unknown): McpReadEvidence {
+  const held = object(value);
+  if (
+    held.trust !== "untrusted_evidence" ||
+    !["ok", "tool_error"].includes(String(held.status)) ||
+    typeof held.sanitized !== "boolean" ||
+    held.costMicrousd !== null ||
+    Object.keys(held).some(
+      (key) => !["trust", "status", "content", "sanitized", "costMicrousd"].includes(key),
+    )
+  )
+    throw new McpReadFailure("invalid_result", "result_refused");
+  bounded(held);
+  const result = evidence(
+    { content: held.content, isError: held.status === "tool_error" },
+    MCP_READ_LIMITS.outputBytes,
+  );
+  return { ...result, sanitized: result.sanitized || held.sanitized };
+}
+
 /** Internal transport only. Trusted admission, reservation, ledger and replay gates precede this adapter. */
 export class RemoteHttpMcpReadAdapter {
   constructor(

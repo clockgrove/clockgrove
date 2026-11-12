@@ -1156,7 +1156,7 @@ export class RuntimeWorker {
       if (request.headers.get("accept")?.includes("application/x-ndjson"))
         return new Response(answer, { headers: { "content-type": "application/x-ndjson" } });
       const last = await lastTalkFrame(answer);
-      if (last === undefined || last.type === "delta") {
+      if (last === undefined || last.type === "delta" || last.type === "tool") {
         note.outcome = "unavailable";
         return jsonResponse({ error: "turn_interrupted" }, 503);
       }

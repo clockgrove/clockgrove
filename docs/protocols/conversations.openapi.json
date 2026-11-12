@@ -1461,6 +1461,15 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "serviceOutcome": {
+            "enum": [
+              "model_unavailable",
+              "model_steps_exhausted",
+              "cost_budget_exhausted",
+              "tool_calls_exhausted"
+            ],
+            "description": "Canonical runtime service disposition; displayed without actor voice attribution."
           }
         }
       },
@@ -1709,6 +1718,39 @@
             "additionalProperties": false,
             "required": [
               "type",
+              "callId",
+              "capability",
+              "status"
+            ],
+            "properties": {
+              "type": {
+                "const": "tool"
+              },
+              "callId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "capability": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "using",
+                  "completed",
+                  "failed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
               "receipt"
             ],
             "properties": {
@@ -1766,6 +1808,8 @@
               "context_ready",
               "model_running",
               "proposal_validating",
+              "tool_waiting",
+              "tool_completed",
               "committing",
               "finalizing",
               "completed",
@@ -1785,6 +1829,12 @@
               "string",
               "null"
             ]
+          },
+          "toolCallId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "Current waiting tool call identity only; execution progress must match this identity."
           }
         }
       },

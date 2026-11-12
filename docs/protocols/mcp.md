@@ -444,8 +444,8 @@ registry snapshot without endpoint, owner or secret metadata. Installation and b
 tenant/world/timeline, so admission and revision notifications span spaces within that scope;
 the participant still needs live membership in the session's own space. Actor owners reload before claim,
 model context and proposal and reconcile the revision hook. Revocation therefore stops new
-admission without cognition, including after a missed notification. Remote tool execution and
-canonical call/spend reservations remain RW-0508. The
+admission without cognition, including after a missed notification. RW-0508 now connects local
+read execution and canonical call/spend reservations through the governed research composition below. The
 [runtime runbook](../runbooks/runtime.md#local-operator-lifecycle) describes install, review, bind,
 refresh, reconnect and revoke.
 
@@ -539,12 +539,11 @@ credential echoes are never exposed as diagnostics. Echo screening uses the norm
 Authorization header token actually transmitted, including when the stored credential is padded. Tool cost remains unknown rather than inferred as zero.
 The owner-deferred shadow judge is not added here.
 
-This part does not compose ledger admission, the external-effects Queue consumer or DLQ,
-kill switches, actor tool waits, model steps, replay consumption, citations or browser
-research. Those remain later parts of issue 165. A transport proof alone establishes
-neither tenant/grant admission nor a crash-safe call: future Queue composition must claim
-the durable attempt before invocation and record explicit uncertainty after interrupted
-transport, with no automatic resend.
+The transport alone supplies neither tenant/grant admission nor a crash-safe call.
+The final local composition below adds ledger admission, Queue/DLQ, kill switches,
+durable waits, model steps, replay, citations and browser research. It claims the durable
+attempt before invocation and records explicit uncertainty after interrupted transport,
+with no automatic resend.
 
 ### Internal intent and outbox persistence (delivery part 3)
 
@@ -588,9 +587,8 @@ Non-JSON values are refused rather than silently changed by serialization.
 Trusted composition must supply fresh admission and request loading, the read
 adapter, and encrypted result-artifact persistence. These are required internal
 ports, not optional bypasses. This boundary does not implement canonical grant or
-budget admission itself. Production composition remains disabled. The existing
-runtime queue factory still refuses external effects until governed local
-composition is connected in a subsequent part.
+budget admission itself. The final local composition connects these ports to canonical
+admission and the existing Queue factory. Hosted composition remains disabled.
 
 The consumer claims the ledger attempt before calling its adapter. Only the winner
 may execute. Terminal duplicates reconcile and return without another adapter call;
@@ -603,10 +601,10 @@ remote call under the same identity.
 
 The retained PostgreSQL proof exercises the typed consumer with a deterministic fake
 adapter. It does not establish hosted Queue delivery, DLQ routing or an actor turn.
-Canonical admission and kill switches, publication and deployed Queue/DLQ composition,
-turn waits, the model loop, citations and the browser research journey remain parts
-5–6. The existing Queue retry/dead-letter wrapper is unchanged; its source-row
-dead-letter diagnostic currently covers world reactions only.
+Parts 5–6 add canonical admission and kill switches, local publication/Queue/DLQ composition,
+turn waits, the model loop, citations and native/browser proofs. External-effect dead-letter
+and exhausted-publication diagnostics now settle unsent effects visibly and resume waiting
+turns; the provider Queue retry policy is unchanged.
 
 
 ### Internal canonical read admission (delivery part 5)
@@ -636,8 +634,8 @@ microusd tool-turn envelope (2026-11-09). The internal reservation uses the full
 notification and call (three 15-second HTTP deadlines) and 64 KiB of result text per
 call. The default turn therefore reserves at most 135 seconds and 192 KiB. Smaller
 remaining capacity refuses a new call rather than weakening the adapter limit.
-Model-step execution and inclusion of model spend in the integrated envelope remain
-final-part work.
+The final research loop reserves model steps before cognition and includes their capacity
+in the same envelope, pinned to the turn across recovery.
 
 Global, world and installation kill switches are checked during reservation and
 fresh pre-execution admission. The latter reloads persisted identity and current
@@ -647,13 +645,54 @@ an already-sent call: the one-attempt ledger must retain its result or explicit
 uncertainty. Switch administration requires a privileged operator connection;
 there is no actor capability or HTTP switch endpoint.
 
-This foundation does not activate a Queue handler. Trusted final composition still
-must apply network admission before reservation, load and verify encrypted argument
-artifacts, enforce the reserved time/output bounds, obtain credentials only through
-the retained installation provider inside the adapter, and save encrypted results.
+The admission class alone does not activate a Queue handler. The trusted final composition
+applies network admission before reservation, loads and verifies encrypted arguments,
+enforces time/output bounds, resolves credentials only through the retained installation
+provider inside the adapter, and saves encrypted results.
 Canonical installation rows do not yet contain a credential-reference directory;
 this admission API never accepts a credential supplied by a queue message or model.
-It does not establish authenticated remote execution by itself. Local Queue
-publication/DLQ integration, durable actor tool waits and the bounded model loop,
-run evidence/citations, malicious fixture and scripted browser research proofs remain
-the final delivery part. Hosted remote activation retains issue 3's egress gate.
+It does not establish authenticated remote execution by itself. The final delivery part
+below connects local Queue publication/DLQ, durable actor waits and bounded model loop,
+run evidence/citations, malicious fixtures and the scripted browser research proof. Hosted remote activation retains issue 3's egress gate.
+
+## Local governed research (issue 165, final integration)
+
+`apps/runtime/src/research.ts` composes the merged admission, effect ledger, encrypted artifact
+store and typed Queue consumer. This local path supersedes the pending local-integration notes
+in delivery parts 1–5 above. Hosted MCP stays disabled pending issue 3's accepted egress receipt;
+local fixture routing is not evidence of hosted SSRF or DNS-pinning safety.
+
+Every call resolves the current installation, reviewed pin, binding and member grant (or the
+canonical installing owner for an admitted proactive turn). Normalized arguments and network
+preflight precede durable capacity reservation. The canonical effect has a stable call/idempotency
+identity, argument hash and encrypted argument artifact. Its conversation event/outbox publishes
+only an effect reference on `external-effects`, using the ordinary publication/retry/DLQ path.
+Fresh pre-execution admission checks revocation and global/world/installation fences again.
+The adapter resolves credentials through the retained installation owner; no queue field supplies
+a credential, endpoint, grant or execution authority.
+
+Only one attempt may send. Sanitized text evidence is encrypted before a terminal success is
+recorded. Queue redelivery reads that result without contacting the MCP server. A started attempt
+is never reset to pending: after three 15-second transport deadlines plus a 15-second persistence
+allowance, reconciliation uses an already sealed result or records explicit uncertainty.
+Late or duplicated completion cannot overwrite an earlier terminal disposition. A completed
+call wakes the same turn through `tool_completed`, rather than opening another conversation.
+
+The policy configures calls, model steps, cost and conservative per-call/model reservations.
+Owner defaults are three calls, four model steps and 250000 microusd per tool-using turn.
+Reservations are capacity, not observed prices; unknown actual cost remains null and counted.
+Model retries retain earlier capacity. Internal `inspect` and `why` use this loop too, under
+ordinary current member authority. Bounds, revoked grants, changed arguments, unsafe targets,
+preview blocks and unavailable dependencies are recorded rather than treated as actor behavior.
+
+Tool results remain untrusted evidence. The transport refuses malformed/oversized content,
+unsafe redirects, SSRF and DNS changes; a tool cannot widen policy or the catalog. A bounded,
+labelled excerpt enters model context; the complete sanitized result remains protected.
+`[tool:<callId>]` citations and structured run-step evidence join message, turn, run, call, grant,
+effect and result. See [turn recovery](conversation-fibers.md#governed-research-turns-issue-165),
+[run evidence](runs.md#research-evidence-issue-165) and the
+[operator procedure](../runbooks/runtime.md#internal-external-effects-recovery).
+
+A real-model run against the fixture remains a maintainer action when a key is available.
+CI and the default local proofs use deterministic scripted models; they never call a real provider.
+The tool-result shadow judge remains the owner's separate follow-up to issue 162.

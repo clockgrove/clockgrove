@@ -148,6 +148,12 @@ export interface ConversationMessage {
   /** On an actor reply: the world command proposed in that turn and what became of it, read from run evidence. */
   readonly command?: TalkCommandOutcome;
   readonly moderationShadow?: ModerationShadowJudgement;
+  /** Runtime degradation is a service disposition, not an actor's authored behavior. */
+  readonly serviceOutcome?:
+    | "model_unavailable"
+    | "model_steps_exhausted"
+    | "cost_budget_exhausted"
+    | "tool_calls_exhausted";
 }
 
 /** One input message and its answer. The scripted fixture completes a turn in its request. */
@@ -444,7 +450,7 @@ export function decodeConversationMessage(
   exactKeys(
     v,
     ["sessionId", "sequence", "messageId", "role", "authorId", "voiceMode", "text", "createdAt"],
-    ["command", "moderationShadow"],
+    ["command", "moderationShadow", "serviceOutcome"],
     path,
   );
   const role = literal(v.role, ["caretaker", "actor"], `${path}.role`);
@@ -461,6 +467,20 @@ export function decodeConversationMessage(
     voiceMode,
     text: string(v.text, `${path}.text`),
     createdAt: utcTimestamp(v.createdAt, `${path}.createdAt`),
+    ...(v.serviceOutcome === undefined
+      ? {}
+      : {
+          serviceOutcome: literal(
+            v.serviceOutcome,
+            [
+              "model_unavailable",
+              "model_steps_exhausted",
+              "cost_budget_exhausted",
+              "tool_calls_exhausted",
+            ],
+            `${path}.serviceOutcome`,
+          ),
+        }),
     ...(v.command === undefined
       ? {}
       : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),

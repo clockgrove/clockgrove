@@ -80,11 +80,13 @@ import {
   type DirectMessageActivation,
   PerceptionInbox,
   TurnFibers,
+  type TurnResearchHost,
 } from "./actor-agent.js";
 import {
   actorCommandId,
   actorGateway,
   actorModelConfiguration,
+  actorModelStepReserveMicrousd,
   actorOfferCommand,
   actorResponder,
 } from "./actor-model.js";
@@ -1671,6 +1673,14 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const done = this.fibers(scope, actorId)
       .talk(participant, request, write, admitted)
       .then(async (outcome) => {
+        if (outcome.refused === "conversation_busy") {
+          const status = await this.stores()((store) => store.turnStatus(participant, request));
+          if (status.phase === "tool_waiting") {
+            // No terminal frame: callers retain the message ID and resume its durable wait.
+            await writer.close();
+            return;
+          }
+        }
         write(
           outcome.receipt !== undefined
             ? { type: "receipt", receipt: outcome.receipt }
@@ -1694,6 +1704,77 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       });
     this.objectState.waitUntil(done);
     return readable;
+  }
+
+  /** Queue completion carries identity only; every resumption reloads canonical membership. */
+  async toolCompleted(target: {
+    readonly scope: BrowserScope;
+    readonly actorId: string;
+    readonly sessionId: string;
+    readonly messageId: string;
+    readonly principalId: string;
+    readonly personaId: string;
+  }): Promise<void> {
+    const { scope } = target;
+    const authentication = composeRuntime(this.environment).authentication;
+    const authority = await authentication.world.resolveWorld(
+      decodeOpaqueId(target.principalId, "PrincipalId"),
+      scope,
+    );
+    if (
+      authority === undefined ||
+      authority.tenantId !== scope.tenantId ||
+      authority.worldId !== scope.worldId ||
+      authority.timelineId !== scope.timelineId ||
+      authority.spaceId !== scope.spaceId ||
+      authority.principalId !== target.principalId ||
+      authority.personaId !== target.personaId ||
+      !authority.privacyCeiling.allowedCategories.includes("conversation")
+    )
+      return;
+    const context = constructTrustedExecutionContext({
+      version: 1,
+      ...scope,
+      principalId: authority.principalId,
+      worldMembershipId: authority.membershipId,
+      personaId: authority.personaId,
+      roles: authority.roles,
+      grants: authority.grants,
+      privacyCeiling: authority.privacyCeiling,
+      correlationId: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
+      codeVersion: authentication.codeVersion,
+      protocolVersion: 1,
+    });
+    const participant: ConversationParticipant = {
+      tenantId: authority.tenantId,
+      principalId: authority.principalId,
+      personaId: authority.personaId,
+      privacyCeiling: authority.privacyCeiling,
+    };
+    await this.ready(scope, context, target.actorId);
+    this.#talkContexts.set(`${participant.principalId}:${participant.personaId}`, context);
+    // Queue acknowledgement cannot wait for cognition that may queue another call on that same
+    // serial consumer. The effect is already durable; SDK recovery and the sweep retain the wake.
+    const resume = async () => {
+      // Completion can arrive before the publishing turn has returned its pending state. An
+      // activation can join that turn; after it settles, re-read its wait and activate once more.
+      for (let round = 0; round < 2; round++) {
+        const open = await this.stores()((store) =>
+          store.openTurns(participant, scope, target.actorId),
+        );
+        const fiber = open.find(
+          (candidate) =>
+            candidate.sessionId === target.sessionId &&
+            candidate.messageId === target.messageId &&
+            candidate.phase === "tool_waiting",
+        );
+        if (fiber === undefined) return;
+        await this.fibers(scope, target.actorId).activate(participant, fiber);
+      }
+    };
+    // TurnFibers records failed attempts; background failure remains resumable from canonical state.
+    this.objectState.waitUntil(resume().catch(() => undefined));
   }
 
   /** A turn's durable status; reading it also resumes the turn if this owner is not running it. */
@@ -1829,6 +1910,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     operation: (store: ConversationStore) => Promise<TurnStatus>,
   ): Promise<TurnOwnerAnswer<TurnStatus>> {
     await this.ready(scope, context, actorId);
+    this.#talkContexts.set(`${participant.principalId}:${participant.personaId}`, context);
     try {
       return { value: await this.stores()(operation) };
     } catch (error) {
@@ -1936,6 +2018,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const gateway = actorGateway(this.environment);
     if (gateway !== undefined)
       return actorResponder({
+        researchEnabled: this.research() !== undefined,
         configuration: actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
         gateway,
         grants: (participant, session) =>
@@ -2041,12 +2124,28 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     };
   }
 
+  protected research(): TurnResearchHost | undefined {
+    const research = composeRuntime(this.environment).research;
+    if (research === undefined || actorGateway(this.environment) === undefined) return research;
+    const reserve = actorModelStepReserveMicrousd(
+      actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
+    );
+    return {
+      ...research,
+      policy: {
+        ...research.policy,
+        modelStepReserveMicrousd: Math.max(research.policy.modelStepReserveMicrousd, reserve),
+      },
+    };
+  }
+
   private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
     this.#fibers ??= new TurnFibers({
       holder: this.instanceId,
       actorId,
       stores: this.stores(),
       respond: this.responder(),
+      research: this.research(),
       grants: (participant, fiber) =>
         this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId),
       submitCommand: (participant, fiber, proposal, offer) =>

@@ -39,6 +39,7 @@ recovery metadata and the SDK's own fiber rows. Losing all of it loses no turn.
 
 ```text
 accepted → context_pending → context_ready → model_running → proposal_validating
+         → tool_waiting → tool_completed → model_running (for a read)
          → committing → finalizing → completed
 terminal: rejected | cancelled | failed | abandoned
 ```
@@ -69,9 +70,9 @@ Its phase is its checkpoint. The phases do this:
 SQL guards (`guard_turn_fiber`) enforce these rules for every writer:
 
 - A turn starts `accepted`.
-- Its phase moves only forward.
+- Its phase moves forward, with the bounded `tool_completed → model_running` research loop.
 - A finished turn never changes.
-- A checkpointed answer never changes, and a proposal is checkpointed only with its answer.
+- A checkpointed answer never changes within a model step. A completed tool resets the intermediate answer/proposal before the next step; a declared research bound replaces it with a fixed service-status reply. A proposal is checkpointed only with its answer.
 - The lease epoch never decreases.
 
 A session holds at most one open turn, enforced by a unique index. A different message sent while
@@ -254,3 +255,54 @@ qualification and hosted delivery remain separate obligations.
 An explicitly configured delivery snapshots its intent into the admitted activation receipt (migration 0052). Coalesced wakes inherit the canonical leader’s intent; later configuration edits cannot change it. After the ordinary turn commits its encrypted actor reply, the actor owner requests governed private delivery before settling the activation. The producer derives the recipient, channel/thread and artifact from the stored authorized session and reply, and rechecks current activation authority. Recovery uses the stable activation delivery key and historical receipt, so an interruption after delivery cannot send or reserve twice.
 
 The registered `delivery.request` capability has no default grant for ordinary Talk turns. The compiled proactive producer is its first executor; recipient-owned per-actor consent and reserved budget remain mandatory. Quiet-hour delay remains pending until an explicit resume in this part. Automatic delayed dispatch and the final cross-adapter completion proof remain Part 5 of issue 168. See [channels](channels.md#governed-outbound-delivery).
+
+## Governed research turns (issue 165)
+
+Local research composition adds a bounded tool loop to the same fiber. A model proposal is
+checkpointed before the turn enters `tool_waiting`; it is not streamed as an answer to a call
+that has not happened. Admission creates the scoped effect and outbox, and the `external-effects`
+Queue consumer executes it. `tool_completed` wakes the same actor/session/message, reads the
+recorded result and resumes cognition through `model_running`. A historical call never invokes
+the adapter again. See [MCP execution](mcp.md) for admission and recovery boundaries.
+
+Research counters survive owner claims. Policy defaults are three calls, four model steps and
+250000 microusd for the complete tool-using turn (owner decision, 2026-11-09). Each model attempt
+reserves capacity before cognition, including retries after interruption. Model and tool
+reservations share the turn envelope; unknown actual costs remain unknown and counted.
+Bounds and provider failures have explicit service-status outcomes rather than guessed actor
+answers. Tool evidence is encrypted private cognition. At most 8 KiB per call enters subsequent
+model context, with a visible truncation marker; the full sanitized result remains its separate
+protected artifact. Tool text is labelled untrusted evidence, never an instruction or grant.
+
+Streaming adds `{type:"tool",callId,capability,status}` with `queued`, `using`, `completed` or `failed`.
+These frames are disposable progress. A stream that ends in a durable tool wait has no terminal
+receipt/refusal; a nonstream caller receives `turn_interrupted`. The browser shows “Using tool”,
+then reads canonical status for up to 180 seconds at the existing one-second recovery cadence.
+That presentation limit allows three 45-second tool windows and Queue/recovery slack. Expiry
+preserves the pending message for reopening and never cancels or repeats the remote call.
+
+
+### Queued and executing progress
+
+A durable `tool_waiting` checkpoint means a call is waiting for an outcome, including admission
+and Queue publication. It does not by itself prove an attempt has started. The owner emits
+`queued` first and emits `using` only after observing a scoped canonical attempt. Its bounded
+progress observation uses the existing one-second recovery cadence and 60-second reconciliation
+window, releasing the database client between reads. This changes presentation, never execution
+identity, grant admission or no-resend rules.
+
+Status includes optional `toolCallId` for the current waiting call, derived from its existing
+protected history. It contains no argument/result text and needs no new ledger privilege.
+The browser associates observed execution with this exact ID: a new call returns to waiting
+even if polling missed the intervening model step. Reconnection without an observed start
+shows waiting rather than claiming that a call is executing.
+
+The durable attempt is committed before admission and protocol traffic. In-flight crash proofs
+must therefore establish receipt of the actual held `tools/call` at the fixture server before
+stopping the runtime; a started row alone can also describe an uncertain pre-send interruption.
+
+Queue completion commits the effect outcome before notifying the actor. The actor registers its
+bounded resumption under the existing keep-alive and returns the notification; it does not hold
+Queue acknowledgement until subsequent cognition finishes. A resumed model can therefore queue
+another read on the same serial consumer without deadlocking its previous call. Canonical
+terminal-wait recovery and SDK ownership remain the backstops if background resumption fails.

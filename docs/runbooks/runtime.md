@@ -1050,7 +1050,8 @@ claim) through `WORLD_REACTIONS_QUEUE`; the command never awaits it. The configu
 scheduled handler independently sweeps every due principal after a lost or failed hint or isolate
 replacement. Each principal is isolated: a failure logs `world_reactions_sweep_failed`
 (`trigger`, `failureClass`) and the others continue. Neither recovery path needs browser traffic.
-`cognitive-indexing` and `external-effects` retain refusing consumers.
+`cognitive-indexing` retains its refusing consumer. Local configured research connects
+`external-effects` to the governed consumer described below; hosted execution remains guarded.
 
 Publication and consumption are separate. `event_dispatches.status = 'delivered'` means Queue
 publication succeeded, while `consumed_at` means the committed batch was durably verified.
@@ -1567,7 +1568,7 @@ Provisioning prerequisites are in the [database runbook](database.md#mcp-secret-
 Installation and binding changes require `runtime:mcp-install`, held by world owners by
 default. Actor identities and decision models cannot connect credentials, install servers,
 review tools or grant authority. Server descriptions, resources and prompts are untrusted data;
-prompts never become policy. Remote tool execution belongs to RW-0508.
+prompts never become policy. Local read execution uses RW-0508's governed research composition; hosted execution remains disabled.
 
 ## Moderation shadow report
 
@@ -1747,7 +1748,7 @@ the installation grant by default; ordinary operating grants do not imply it.
    uncertain cleanup never restores enablement.
 5. Revoke an installation to remove all its remote admission. Actor admission reloads current
    canonical state before a proposal even if a revision notification was missed. Remote
-   execution itself remains RW-0508; this screen does not make provider code executable.
+   execution requires the separate governed research composition; this screen alone does not activate provider calls.
 
 Trusted local composition uses `composeMcpOperator` with separate runtime and direct secret
 PostgreSQL URLs, a dedicated versioned credential keyring, the test-only network port, registered
@@ -1822,12 +1823,12 @@ refused. A wake cannot choose another recipient or bypass that policy.
 ## Internal external-effects recovery
 
 Issue 165 part 4 adds an internal typed consumer for already-admitted effect intents;
-it is not activated by the deployed queue factory. See the
+the local configured research composition activates it on the existing Queue path. See the
 [MCP execution boundary](../protocols/mcp.md#internal-queue-execution-boundary-delivery-part-4).
 Part 5 adds privileged internal global, world and installation kill-switch storage
-and fresh canonical admission. There is no public operator command or activated
-Queue composition yet; local activation and actor tool-call evidence/citations remain
-part 6. See the [canonical admission boundary](../protocols/mcp.md#internal-canonical-read-admission-delivery-part-5).
+and fresh canonical admission. Part 6 connects the local configured consumer, encrypted
+arguments/results and durable actor tool loop. There is no public switch endpoint;
+operators still use the privileged internal procedure below. Hosted activation remains guarded. See the [canonical admission boundary](../protocols/mcp.md#internal-canonical-read-admission-delivery-part-5).
 
 For an emergency stop of the internal execution boundary, an operator with the
 privileged admission connection calls `PostgreSqlMcpReadAdmission.setSwitch(target, true)`.
@@ -1846,8 +1847,7 @@ Commit the change before checking the next admission. Both new reservation and t
 fresh pre-execution check observe the fence; a refused new intent records
 `kill_switch`. Calls already sent require the existing result/uncertainty reconciliation
 below. Re-enable only deliberately, using `setSwitch(target, false)`; never erase
-intents, attempts or capacity to clear a fence. This internal procedure does not
-activate remote calls or establish hosted egress safety.
+intents, attempts or capacity to clear a fence. This procedure changes admission fences; it does not configure adapters or establish hosted egress safety.
 
 For an internal fixture execution, read `effect_intents` and `effect_attempts` using
 the complete tenant/world/timeline/effect identity under authorized database access.
@@ -1867,3 +1867,27 @@ The existing physical Queue retry/dead-letter path will handle thrown consumer f
 when composition is connected. External-effects source-row DLQ diagnostics and automatic
 actor notification are not delivered in this part. Do not treat a passing fake-adapter
 PostgreSQL proof as hosted delivery or end-to-end actor research evidence.
+
+
+### Reading a research call
+
+In browser chat, a queued call shows “Using tool”. A final `[tool:<callId>]` citation offers
+“Why? Tool evidence”. The existing run-inspector grant and privacy ceiling govern that read;
+an ordinary chat participant gains no inspector access by receiving a citation. The inspector
+shows the message/run and structured call, grant, effect and protected-result identifiers,
+status and Queue latency. Use those identifiers with the scoped effect ledger query described
+above. Protected payload text stays behind the existing session-participant and category checks.
+
+Configure local research only through trusted runtime composition: an isolated privileged
+canonical client, the normal encrypted artifact store, safe pinned network port, retained
+installation-owned adapter and `external-effects` Queue publisher. The ordinary runtime SQL
+role receives no ledger or installation mutation privilege. Do not substitute global fetch,
+a plaintext artifact store, a per-call reopened credential provider or an inline MCP call.
+Maintain the configured per-turn step/call/cost bounds. Unknown observed costs are reported
+separately from reservations and known cost totals.
+
+A lost attempt is reconciled after 60 seconds: three existing 15-second HTTP deadlines and a
+15-second persistence allowance. A sealed result can be reused; an absent result becomes
+`tool_uncertain`. Never clear the effect to retry it. Queue retry and sweep recovery resume
+canonical work; physical DLQ inspection remains an operator action. The browser's 180-second
+presentation wait preserves its pending message on expiry, so reopening can read or resume it.

@@ -345,7 +345,12 @@ export async function withNativeWorldOwner(
         },
         ...(fixture.queues
           ? {
-              queueProducers: { WORLD_REACTIONS_QUEUE: "rw-production-world-reactions" },
+              queueProducers: {
+                WORLD_REACTIONS_QUEUE: "rw-production-world-reactions",
+                ...(process.env.NATIVE_RESEARCH_ORIGIN
+                  ? { EXTERNAL_EFFECTS_QUEUE: "rw-production-external-effects" }
+                  : {}),
+              },
               queueConsumers: {
                 "rw-production-world-reactions": {
                   maxBatchTimeout: 0,
@@ -353,6 +358,16 @@ export async function withNativeWorldOwner(
                   deadLetterQueue: "rw-production-world-reactions-dlq",
                 },
                 "rw-production-world-reactions-dlq": { maxBatchTimeout: 0 },
+                ...(process.env.NATIVE_RESEARCH_ORIGIN
+                  ? {
+                      "rw-production-external-effects": {
+                        maxBatchTimeout: 0,
+                        maxRetries: 3,
+                        deadLetterQueue: "rw-production-external-effects-dlq",
+                      },
+                      "rw-production-external-effects-dlq": { maxBatchTimeout: 0 },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -410,6 +425,12 @@ export async function withNativeWorldOwner(
           process.env.AI_GATEWAY_API_KEY === undefined
             ? {}
             : { AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY }),
+          ...(process.env.NATIVE_RESEARCH_ORIGIN
+            ? {
+                NATIVE_RESEARCH_ORIGIN: process.env.NATIVE_RESEARCH_ORIGIN,
+                NATIVE_RESEARCH_DATABASE_URL: connection("clockgrove_admin"),
+              }
+            : {}),
           NATIVE_PROVISIONING_FAULTS_DISABLED: provisioningFaultsDisabled,
           AUTH_DATABASE_URL: connection("clockgrove_auth_verifier"),
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),
