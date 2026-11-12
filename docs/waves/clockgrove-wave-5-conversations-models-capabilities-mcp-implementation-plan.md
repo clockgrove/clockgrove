@@ -392,6 +392,13 @@ versioned exact-call hash and identical-retry recovery. It does not activate wri
 or implement policy admission, actor waits or approval controls; see the
 [atomic reservation boundary](../protocols/mcp.md#atomic-approved-effect-reservation-issue-166-part-2).
 
+Part 3 joins current canonical session/member/binding policy and shared read/write
+turn budgets to exact approval consumption and effect/outbox reservation. The internal
+write port uses per-call session-person approvals; it does not activate transport,
+authenticate human decisions or provide operator/proactive routing. Read admission
+remains approval-free. Actor waits and human controls remain subsequent parts; see
+the [protected-write admission boundary](../protocols/mcp.md#internal-protected-write-admission-issue-166-part-3).
+
 The owner decisions (2026-11-09) require approval for `external-write`, `destructive`
 and `cost`, and for `network` according to the grant; `read` never needs it. There are
 no standing approvals. The session person may approve within their own grants;

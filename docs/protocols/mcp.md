@@ -862,3 +862,38 @@ before transport, and preserve the existing preview/replay fences.
 The real PostgreSQL proof is `apps/runtime/test/approved-effects.postgres.test.ts`.
 It establishes atomic storage reservation and recovery, not actor execution, a remote
 write or a browser approval journey.
+
+
+## Internal protected-write admission (issue 166, part 3)
+
+The privileged persistence admission boundary now joins current MCP policy checks with
+exact approval consumption and effect/outbox reservation. It remains an internal
+prerequisite: the actor research loop still executes reads only. Human approval
+routes, durable actor approval waits, operator resolution and the browser approval
+journey remain subsequent parts; no external write transport is activated here.
+
+Protected-write admission reloads the canonical installation, reviewed schema/effect
+pin, scoped binding and current session member grant. It validates normalized arguments
+and the encrypted argument-artifact reference, then consumes the exact approval in
+the same transaction that reserves capacity and creates the effect/outbox. The
+existing global/world/installation fences and conservative turn budgets are shared
+with reads, so changing call class does not create another spending envelope.
+The live-timeline fence continues to refuse preview writes.
+
+The internal write port requires a separate approval for every call. Its initial
+session path accepts the session person as designated approver within their current
+grants. Operator and proactive approval routing remain later integration work. A
+trusted human-authenticated boundary must record decisions; model output and tool
+results have no decision authority. This storage API does not authenticate a person.
+
+Admission identity retains the approval binding and call mode, never plaintext
+arguments or credentials. Identical reservation recovery returns the recorded
+outcome without consuming approval again, reserving capacity again or adding an
+outbox entry. A fresh pre-execution check reloads policy and fences; it does not
+reset a started or uncertain attempt. The read adapter cannot execute the write
+admission result. These records reuse the existing admission/budget families and
+their RLS and retention; no runtime SQL mutation privilege is added.
+
+The focused PostgreSQL proof is
+`apps/runtime/test/mcp-write-admission.postgres.test.ts`; it proves the internal
+admission prerequisite, not actor execution, remote fixture effects or browser controls.

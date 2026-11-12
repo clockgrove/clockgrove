@@ -122,3 +122,18 @@ An activation configuration may explicitly request private delivery of the actor
 
 The native actor owner commits its ordinary recoverable turn, then asks `delivery.request` to deliver the stored actor reply before settling the activation. The producer rechecks current activation authority and existing private session/binding provenance. It derives a stable request and reservation identity from the activation. A retry reads the durable receipt before constructing a new request, preserving the original consent version and spending no second reservation. All delivery decisions go through the [governed boundary](channels.md#governed-outbound-delivery). Automatic quiet-hour resumption remains Part 5 of issue 168.
 
+
+
+## Protected MCP write admission prerequisite (issue 166, part 3)
+
+The internal persistence write-admission port requires a current reviewed capability,
+member grant and scoped binding as well as the exact per-call approval. Approval
+cannot create a grant or bypass revocation, kill switches, schema validation or
+shared turn capacity. The initial session path binds the designated approver to
+the session person acting within their own grants. Human authentication remains
+the responsibility of future trusted API composition; models and tool results
+never decide approvals. See the [current boundary](mcp.md#internal-protected-write-admission-issue-166-part-3).
+
+This prerequisite does not activate actor writes. Operator/proactive routing,
+protected-class policy in the actor, human controls and uncertain-write resolution
+remain subsequent delivery parts. Read calls keep their existing approval-free path.
