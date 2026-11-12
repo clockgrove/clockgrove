@@ -1,6 +1,7 @@
 import { MAX_RUN_SEARCH_PAGE, RUN_STATUSES } from "@clockgrove/contracts";
 import { fromJsonSchema, type JsonSchemaType, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
+import { submitWorldMcpCommand, type WorldMcpApplication } from "./world-mcp-commands.js";
 import {
   operateWorldMcpTool,
   WORLD_MCP_OPERATION_TOOLS,
@@ -9,7 +10,6 @@ import {
 import {
   readWorldMcpTool,
   WORLD_MCP_READ_TOOLS,
-  type WorldMcpReadApplication,
   type WorldMcpReadTool,
 } from "./world-mcp-reads.js";
 
@@ -75,6 +75,13 @@ const schemas: Record<WorldMcpReadTool, JsonSchemaType> = {
     Object.keys(scoped),
   ),
 };
+const commandSchema = envelope({
+  schemaVersion: version,
+  ...scope,
+  routingEpoch: { type: "string", pattern: "^(0|[1-9][0-9]*)$" },
+  authorityEpoch: { type: "string", pattern: "^(0|[1-9][0-9]*)$" },
+  command: { type: "array" },
+});
 const operationScope = { schemaVersion: version, ...scope };
 const operationSchemas: Record<WorldMcpOperationTool, JsonSchemaType> = {
   runtime_state: envelope(operationScope),
@@ -120,7 +127,7 @@ export async function boundedWorldMcpBody(
 }
 /** Internal transport only: public credential and principal-budget composition must precede routing. */
 export async function handleWorldMcpRequest(
-  application: WorldMcpReadApplication,
+  application: WorldMcpApplication,
   request: Request,
 ): Promise<Response> {
   const credential = /^Bearer (\S+)$/u.exec(request.headers.get("authorization") ?? "")?.[1] ?? "";
@@ -197,6 +204,21 @@ export async function handleWorldMcpRequest(
             },
           );
         }
+        server.registerTool(
+          "command_submit",
+          {
+            inputSchema: fromJsonSchema(commandSchema),
+            annotations: { readOnlyHint: false },
+            description:
+              "Submit an ordinary typed world command under current member authority; returns the web command receipt.",
+          },
+          async (args) => {
+            const result = await submitWorldMcpCommand(application, args, credential);
+            const text = JSON.stringify(result);
+            if (!result.ok) applicationErrorText = text;
+            return { content: [{ type: "text", text }], ...(!result.ok && { isError: true }) };
+          },
+        );
         return server;
       },
       {

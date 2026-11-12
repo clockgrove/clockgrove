@@ -77,6 +77,8 @@ import {
 } from "./types.js";
 
 export interface WorldCommandInput {
+  /** Verified credential client; set only by the trusted MCP composition, never the HTTP decoder. */
+  readonly mcpClientId?: string;
   readonly clockCommand?: ClockCommand;
   readonly scope: RuntimeScope;
   readonly epochs: RuntimeEpochs;
@@ -198,6 +200,7 @@ export function worldCommandBytes(input: WorldCommandInput, principalId: string)
     epochs: input.epochs,
     command: input.command,
     principalId,
+    ...(input.mcpClientId === undefined ? {} : { mcpClientId: input.mcpClientId }),
   });
 }
 
@@ -323,6 +326,13 @@ export class PostgreSqlCommandOwner {
         effectiveActorId: input.command.attribution.effectiveActorId,
         causalRootActionId: input.command.attribution.causalRootActionId,
         principalId,
+        ...(input.mcpClientId === undefined
+          ? {}
+          : {
+              initiatorId: denial.inputs.personaId ?? principalId,
+              effectiveActorId: denial.inputs.personaId ?? principalId,
+              channel: `mcp:${input.mcpClientId}`,
+            }),
         ...(denial.inputs.worldMembershipId === undefined
           ? {}
           : { worldMembershipId: denial.inputs.worldMembershipId }),
@@ -419,6 +429,13 @@ export class PostgreSqlCommandOwner {
         effectiveActorId: input.command.attribution.effectiveActorId,
         causalRootActionId: input.command.attribution.causalRootActionId,
         principalId: context.principalId,
+        ...(input.mcpClientId === undefined
+          ? {}
+          : {
+              initiatorId: context.personaId ?? context.principalId,
+              effectiveActorId: context.personaId ?? context.principalId,
+              channel: `mcp:${input.mcpClientId}`,
+            }),
         ...(context.worldMembershipId === undefined
           ? {}
           : { worldMembershipId: context.worldMembershipId }),

@@ -192,6 +192,10 @@ export interface WorldMcpAuthenticationConfiguration extends ReferenceAuthentica
 
 export interface WorldMcpAuthentication {
   readonly provider: AuthProviderPort;
+  /** Fresh storage verification; client provenance never comes from MCP initialize metadata. */
+  authenticate(
+    credential: string,
+  ): Promise<VerifiedExternalIdentity & { readonly clientId: string }>;
   /** Internal auth route adapter. Public routing and its web UI are composed separately. */
   handle(request: Request): Promise<Response>;
 }
@@ -214,8 +218,9 @@ function worldMcpAuthOptions(secret: string, config: WorldMcpAuthenticationConfi
     ],
     grantTypes: ["authorization_code"],
     allowDynamicClientRegistration: true,
+    clientRegistrationDefaultApplicationType: "infer",
     clientRegistrationDefaultResources: [config.resourceURL],
-    allowUnauthenticatedClientRegistration: false,
+    allowUnauthenticatedClientRegistration: true,
     disableJwtPlugin: true,
     accessTokenExpiresIn: MCP_ACCESS_SECONDS,
     prefix: { opaqueAccessToken: OAUTH_TOKEN_PREFIX },
@@ -253,10 +258,11 @@ function worldMcpAuthOptions(secret: string, config: WorldMcpAuthenticationConfi
                 typeof claims.scope !== "string" ||
                 !claims.scope.split(" ").includes(MCP_SCOPE) ||
                 typeof claims.sub !== "string" ||
+                typeof claims.azp !== "string" ||
                 claims.cnf !== undefined
               )
                 throw new AuthenticationRefusedError("authentication refused");
-              return { subject: claims.sub };
+              return { subject: claims.sub, clientId: claims.azp };
             },
           ),
         },
@@ -361,44 +367,69 @@ export function composeWorldMcpAuthentication(
       throw new AuthenticationRefusedError("authentication refused");
     return Object.freeze({ externalIdentityId });
   }
+  async function authenticate(credential: string) {
+    try {
+      if (credential.length > MCP_AUTH_BYTES || !/^\S+$/u.test(credential))
+        throw new AuthenticationRefusedError("authentication refused");
+      return await withAuth(async (auth) => {
+        if (credential.startsWith(MEMBER_TOKEN_PREFIX)) {
+          const result = await auth.api.verifyApiKey({ body: { key: credential } });
+          if (!result.valid || result.key === null)
+            throw new AuthenticationRefusedError("authentication refused");
+          return Object.freeze({
+            ...(await identity(result.key.referenceId)),
+            clientId: `member-key:${result.key.id}`,
+          });
+        }
+        if (!credential.startsWith(OAUTH_TOKEN_PREFIX))
+          throw new AuthenticationRefusedError("authentication refused");
+        const result = await auth.api.worldMcpIdentity({
+          headers: new Headers({ authorization: `Bearer ${credential}` }),
+        });
+        return Object.freeze({
+          ...(await identity(result.subject)),
+          clientId: `oauth:${result.clientId}`,
+        });
+      });
+    } catch {
+      throw new AuthenticationRefusedError("authentication refused");
+    }
+  }
   return {
+    authenticate,
     provider: {
       async authenticate(credential) {
-        try {
-          if (credential.length > MCP_AUTH_BYTES || !/^\S+$/u.test(credential))
-            throw new AuthenticationRefusedError("authentication refused");
-          return await withAuth(async (auth) => {
-            if (credential.startsWith(MEMBER_TOKEN_PREFIX)) {
-              const result = await auth.api.verifyApiKey({ body: { key: credential } });
-              if (!result.valid || result.key === null)
-                throw new AuthenticationRefusedError("authentication refused");
-              return identity(result.key.referenceId);
-            }
-            if (!credential.startsWith(OAUTH_TOKEN_PREFIX))
-              throw new AuthenticationRefusedError("authentication refused");
-            const result = await auth.api.worldMcpIdentity({
-              headers: new Headers({ authorization: `Bearer ${credential}` }),
-            });
-            return identity(result.subject);
-          });
-        } catch {
-          throw new AuthenticationRefusedError("authentication refused");
-        }
+        const verified = await authenticate(credential);
+        return Object.freeze({ externalIdentityId: verified.externalIdentityId });
       },
     },
     async handle(request) {
       try {
         const url = new URL(request.url);
+        if (
+          request.method === "GET" &&
+          [
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-authorization-server/api/auth",
+          ].includes(url.pathname)
+        ) {
+          url.pathname = "/api/auth/.well-known/oauth-authorization-server";
+          request = new Request(url, request);
+        }
         const route = `${request.method} ${url.pathname}`;
         const memberRoutes = new Set([
-          "POST /api/auth/oauth2/register",
           "POST /api/auth/oauth2/consent",
-          "GET /api/auth/oauth2/authorize",
           "POST /api/auth/api-key/create",
           "GET /api/auth/api-key/list",
           "POST /api/auth/api-key/delete",
+          "GET /api/auth/oauth2/get-consents",
+          "POST /api/auth/oauth2/delete-consent",
+          "GET /api/auth/oauth2/get-clients",
+          "POST /api/auth/oauth2/delete-client",
         ]);
         const otherRoutes = new Set([
+          "POST /api/auth/oauth2/register",
+          "GET /api/auth/oauth2/authorize",
           "POST /api/auth/oauth2/token",
           "POST /api/auth/oauth2/revoke",
           "GET /api/auth/.well-known/oauth-authorization-server",
@@ -407,7 +438,11 @@ export function composeWorldMcpAuthentication(
           return Response.json({ error: "invalid_request" }, { status: 404 });
         if (new TextEncoder().encode(url.search).byteLength > MCP_AUTH_BYTES)
           return Response.json({ error: "invalid_request" }, { status: 413 });
-        if (memberRoutes.has(route)) {
+        if (
+          memberRoutes.has(route) ||
+          url.pathname === "/api/auth/oauth2/authorize" ||
+          url.pathname === "/api/auth/oauth2/register"
+        ) {
           const credential =
             /^Bearer (\S+)$/u.exec(request.headers.get("authorization") ?? "")?.[1] ?? "";
           // Cookie sessions may also authorize the web consent/token management flow.
@@ -416,7 +451,12 @@ export function composeWorldMcpAuthentication(
               headers: request.headers,
               query: { disableCookieCache: true, disableRefresh: true },
             });
-            if (session === null || session.session.expiresAt.getTime() <= Date.now())
+            if (session === null) {
+              if (memberRoutes.has(route))
+                throw new AuthenticationRefusedError("authentication refused");
+              return;
+            }
+            if (session.session.expiresAt.getTime() <= Date.now())
               throw new AuthenticationRefusedError("authentication refused");
             await identity(session.user.id);
           });
@@ -442,7 +482,7 @@ export function composeWorldMcpAuthentication(
             reader.releaseLock();
           }
         }
-        const body = new Uint8Array(size);
+        let body = new Uint8Array(size);
         let offset = 0;
         for (const chunk of chunks) {
           body.set(chunk, offset);
@@ -450,10 +490,18 @@ export function composeWorldMcpAuthentication(
         }
         if (
           url.pathname === "/api/auth/api-key/create" ||
-          url.pathname === "/api/auth/api-key/delete"
+          url.pathname === "/api/auth/api-key/delete" ||
+          url.pathname === "/api/auth/oauth2/delete-consent" ||
+          url.pathname === "/api/auth/oauth2/delete-client"
         ) {
           const input: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
-          const field = url.pathname.endsWith("/create") ? "name" : "keyId";
+          const field = url.pathname.endsWith("/create")
+            ? "name"
+            : url.pathname.endsWith("delete-consent")
+              ? "id"
+              : url.pathname.endsWith("delete-client")
+                ? "client_id"
+                : "keyId";
           if (
             input === null ||
             typeof input !== "object" ||
@@ -476,18 +524,52 @@ export function composeWorldMcpAuthentication(
             "grant_types",
             "response_types",
             "scope",
+            "application_type",
           ]);
           if (
             input === null ||
             typeof input !== "object" ||
             Array.isArray(input) ||
             Object.keys(input).some((key) => !fields.has(key)) ||
-            input.token_endpoint_auth_method !== "none" ||
-            input.scope !== MCP_SCOPE ||
-            JSON.stringify(input.grant_types) !== '["authorization_code"]' ||
-            JSON.stringify(input.response_types) !== '["code"]'
+            (input.token_endpoint_auth_method !== undefined &&
+              input.token_endpoint_auth_method !== "none") ||
+            (input.scope !== undefined && input.scope !== MCP_SCOPE) ||
+            (input.grant_types !== undefined &&
+              JSON.stringify(input.grant_types) !== '["authorization_code"]') ||
+            (input.response_types !== undefined &&
+              JSON.stringify(input.response_types) !== '["code"]') ||
+            (input.client_name !== undefined &&
+              (typeof input.client_name !== "string" || input.client_name.length > 128)) ||
+            !Array.isArray(input.redirect_uris) ||
+            input.redirect_uris.length < 1 ||
+            input.redirect_uris.length > 8 ||
+            !input.redirect_uris.every((uri) => {
+              if (typeof uri !== "string" || uri.length > 2048) return false;
+              try {
+                const redirect = new URL(uri);
+                return (
+                  redirect.username === "" &&
+                  redirect.password === "" &&
+                  redirect.hash === "" &&
+                  (redirect.protocol === "https:" ||
+                    (redirect.protocol === "http:" &&
+                      ["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname)))
+                );
+              } catch {
+                return false;
+              }
+            })
           )
             return Response.json({ error: "invalid_request" }, { status: 400 });
+          body = new TextEncoder().encode(
+            JSON.stringify({
+              ...input,
+              token_endpoint_auth_method: "none",
+              scope: MCP_SCOPE,
+              grant_types: ["authorization_code"],
+              response_types: ["code"],
+            }),
+          );
         }
         const response = await withAuth((auth) =>
           auth.handler(
@@ -498,6 +580,15 @@ export function composeWorldMcpAuthentication(
             }),
           ),
         );
+        const redirect = response.headers.get("location");
+        if (
+          redirect !== null &&
+          response.status >= 300 &&
+          response.status < 400 &&
+          request.headers.get("accept")?.includes("application/json")
+        ) {
+          return Response.json({ url: redirect }, { headers: { "cache-control": "no-store" } });
+        }
         if (response.status >= 400) {
           const known = new Set([
             "invalid_request",
@@ -514,7 +605,9 @@ export function composeWorldMcpAuthentication(
             { status: response.status },
           );
         }
-        return response;
+        const headers = new Headers(response.headers);
+        headers.set("cache-control", "no-store");
+        return new Response(response.body, { status: response.status, headers });
       } catch {
         return Response.json({ error: "access_denied" }, { status: 401 });
       }

@@ -66,6 +66,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "runtime_action",
           "changeset_prepare",
           "changeset_apply",
+          "command_submit",
         ]);
         expect(tools.tools.every((tool) => tool.inputSchema.additionalProperties === false)).toBe(
           true,

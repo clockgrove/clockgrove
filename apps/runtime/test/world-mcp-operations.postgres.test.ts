@@ -74,6 +74,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ["runtime_action", false],
           ["changeset_prepare", true],
           ["changeset_apply", true],
+          ["command_submit", false],
         ]);
         expect(catalog.every(({ inputSchema }) => inputSchema.additionalProperties === false)).toBe(
           true,

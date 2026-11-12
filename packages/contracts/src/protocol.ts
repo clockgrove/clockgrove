@@ -44,6 +44,7 @@ export interface AttributionIntent {
   readonly worldMembershipId?: WorldMembershipId;
   readonly personaId?: WorldPersonaId;
   readonly initiatorId?: string;
+  readonly channel?: string;
   readonly effectiveActorId: string;
   readonly causalRootActionId: ActionId;
   readonly immediateCauseId?: string;
@@ -134,6 +135,7 @@ export function decodeAttributionIntent(value: unknown, path = "attribution"): A
       "worldMembershipId",
       "personaId",
       "initiatorId",
+      "channel",
       "immediateCauseId",
       "sessionId",
     ],
@@ -144,6 +146,7 @@ export function decodeAttributionIntent(value: unknown, path = "attribution"): A
     ...optionalId(input, "worldMembershipId", "WorldMembershipId", path),
     ...optionalId(input, "personaId", "WorldPersonaId", path),
     ...optionalString(input, "initiatorId", path),
+    ...optionalString(input, "channel", path),
     effectiveActorId: string(input.effectiveActorId, `${path}.effectiveActorId`),
     causalRootActionId: decodeOpaqueId(
       input.causalRootActionId,
@@ -182,6 +185,7 @@ export function decodeAttributionEnvelope(
     "worldMembershipId",
     "personaId",
     "initiatorId",
+    "channel",
     "effectiveActorId",
     "causalRootActionId",
     "immediateCauseId",

@@ -28,6 +28,7 @@ import {
   releaseRuntimeLogger,
   safeMcpNetworkRefusal,
   sweepDispatches,
+  WorldMcpAdmission,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -58,6 +59,7 @@ import {
   PostgreSqlMcpReadAdmission,
   PostgreSqlSnapshotStore,
   PostgreSqlWorldAuthorizationReader,
+  PostgreSqlWorldMcpAdmission,
   PostgreSqlWorldOwnerReader,
   PostgreSqlWorldProvisioningStore,
   type R2BucketLike,
@@ -69,7 +71,10 @@ import type { ActivationOwners } from "./activation-routes.js";
 import { type ActorScene, describeScene } from "./actor-model.js";
 import {
   composeReferenceAuthentication,
+  composeWorldMcpAuthentication,
   type ReferenceAuthenticationConfiguration,
+  type WorldMcpAuthentication,
+  type WorldMcpAuthenticationConfiguration,
 } from "./better-auth-adapter.js";
 import {
   type CanonicalRuntimeStateSource,
@@ -133,6 +138,7 @@ import { PostgreSqlClientViewInspector } from "./view-trace.js";
 import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
 import { callWorldOwner, PostgreSqlCommandOwner, unwrapWorldCommandRpc } from "./world-commands.js";
+import { handleWorldMcpEndpoint, isWorldMcpRoute } from "./world-mcp-endpoint.js";
 
 /**
  * One invocation owns the connection for its reads and journal work, then closes it. Inside an owner
@@ -664,6 +670,8 @@ export interface RuntimeEnvironment {
   readonly MODERATION_SHADOW_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
+  /** Dedicated credential writer; omitted means first-party MCP is unavailable. */
+  readonly MCP_AUTH_DATABASE_URL?: string;
   readonly MANAGEMENT_DATABASE_URL?: string;
   readonly WORLD_AUTHORIZATION_DATABASE_URL?: string;
   readonly AUTH_ORIGIN?: string;
@@ -798,6 +806,8 @@ export interface RuntimeComposition {
     import("./mcp-composition.js").McpCompositionConfiguration,
     "environment" | "runtimeDatabaseUrl" | "changed" | "withClient" | "openSecretClient"
   >;
+  readonly worldMcpAuthentication?: WorldMcpAuthentication | undefined;
+  readonly worldMcpResourceURL?: string | undefined;
   readonly journal: Journal;
   readonly authentication: RuntimeAuthenticationDependencies;
   readonly canonical: CanonicalRuntimeStateSource;
@@ -811,6 +821,7 @@ export type RuntimeCompositionFunction = (env: RuntimeEnvironment) => Omit<
 > &
   Partial<Pick<RuntimeComposition, "journal" | "canonical" | "logger">> & {
     readonly referenceAuthentication?: ReferenceAuthenticationConfiguration;
+    readonly worldMcpAuthenticationConfiguration?: WorldMcpAuthenticationConfiguration;
   };
 let composition: RuntimeCompositionFunction | undefined;
 
@@ -852,6 +863,20 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
       ),
     },
   };
+  let worldMcpAuthentication: WorldMcpAuthentication | undefined;
+  try {
+    if (supplied.worldMcpAuthenticationConfiguration !== undefined)
+      worldMcpAuthentication = composeWorldMcpAuthentication(
+        env.BETTER_AUTH_SECRET ?? "",
+        supplied.worldMcpAuthenticationConfiguration,
+      );
+  } catch {
+    // Invalid optional MCP credentials never alter ordinary web authentication.
+  }
+  const worldMcp = {
+    worldMcpAuthentication,
+    worldMcpResourceURL: supplied.worldMcpAuthenticationConfiguration?.resourceURL,
+  };
   const connectionString = env.HYPERDRIVE?.connectionString;
   const mcp = composeGuardedMcpOperator(env, injected);
   const research = composeGuardedResearch(env, injected);
@@ -859,7 +884,7 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
     ? { ...injected.consumers, externalEffects: research.consumer }
     : injected.consumers;
   if (injected.journal !== undefined && injected.canonical !== undefined)
-    return { ...injected, mcp, research, consumers } as RuntimeComposition;
+    return { ...injected, ...worldMcp, mcp, research, consumers } as RuntimeComposition;
   if (connectionString === undefined && composition !== undefined)
     throw new Error("Hyperdrive binding required for PostgreSQL composition");
   // Each call owns one connection; exact retries are answered from stored outcomes.
@@ -875,6 +900,7 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   };
   return {
     ...injected,
+    ...worldMcp,
     mcp,
     research,
     consumers,
@@ -1216,10 +1242,36 @@ function defaultRuntimeComposition(
   } catch {
     /* Missing/invalid configuration selects the refusing provider. */
   }
+  let worldMcpAuthenticationConfiguration: WorldMcpAuthenticationConfiguration | undefined;
+  if (referenceAuthentication !== undefined && env.MCP_AUTH_DATABASE_URL !== undefined) {
+    try {
+      const writer = new URL(env.MCP_AUTH_DATABASE_URL);
+      const verifier = new URL(referenceAuthentication.connectionString);
+      if (
+        writer.hostname !== verifier.hostname ||
+        writer.port !== verifier.port ||
+        writer.pathname !== verifier.pathname ||
+        writer.searchParams.get("host") !== verifier.searchParams.get("host") ||
+        (!["local", "ci"].includes(referenceAuthentication.environment) &&
+          (writer.searchParams.get("sslmode") !== "verify-full" || writer.searchParams.has("host")))
+      )
+        throw new Error("mismatched credential storage");
+      worldMcpAuthenticationConfiguration = {
+        ...referenceAuthentication,
+        connectionString: env.MCP_AUTH_DATABASE_URL,
+        resourceURL: `${referenceAuthentication.baseURL}/mcp`,
+      };
+    } catch {
+      /* Invalid optional credential storage leaves MCP unavailable. */
+    }
+  }
   return {
     authentication,
     consumers: worldReactionConsumers(env),
     ...(referenceAuthentication === undefined ? {} : { referenceAuthentication }),
+    ...(worldMcpAuthenticationConfiguration === undefined
+      ? {}
+      : { worldMcpAuthenticationConfiguration }),
   };
 }
 
@@ -1291,8 +1343,13 @@ export default {
           }),
         ),
       );
-    return new RuntimeWorker(
-      new TrustedRuntimeRequestAuthenticator(dependencies.authentication),
+    const mcpRequest = isWorldMcpRoute(new URL(request.url).pathname);
+    const runtimeAuthentication =
+      mcpRequest && dependencies.worldMcpAuthentication !== undefined
+        ? { ...dependencies.authentication, provider: dependencies.worldMcpAuthentication.provider }
+        : dependencies.authentication;
+    const worker = new RuntimeWorker(
+      new TrustedRuntimeRequestAuthenticator(runtimeAuthentication),
       {
         mcp: env.PROVIDER_ENVIRONMENT === "local" ? dependencies.mcp : undefined,
         sceneConnection: async (scope, context, interest) => {
@@ -1449,7 +1506,32 @@ export default {
         },
       },
       dependencies.logger,
-    ).fetch(request);
+    );
+    if (mcpRequest) {
+      const authentication = dependencies.worldMcpAuthentication;
+      const resourceURL = dependencies.worldMcpResourceURL;
+      if (authentication === undefined || resourceURL === undefined)
+        return Response.json({ error: "mcp_unavailable" }, { status: 503 });
+      return handleWorldMcpEndpoint(request, {
+        resourceURL,
+        authentication,
+        admission: new WorldMcpAdmission({
+          provider: authentication.provider,
+          mapping: dependencies.authentication.mapping,
+          store: {
+            reserve: (principalId, phase, work) =>
+              withHyperdrivePostgreSqlClient(connection, (client) =>
+                new PostgreSqlWorldMcpAdmission(client).reserve(principalId, phase, work),
+              ),
+          },
+        }),
+        application: (clientId) => ({
+          fetch: (input: Request) => worker.fetch(input),
+          submitCommand: (input: Request) => worker.fetchMcpCommand(input, clientId),
+        }),
+      });
+    }
+    return worker.fetch(request);
   },
   async queue(batch: MessageBatch, env: RuntimeEnvironment): Promise<void> {
     const names = [

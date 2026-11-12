@@ -435,6 +435,13 @@
       "when": 1796162400002,
       "tag": "0062_world_mcp_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1796162400003,
+      "tag": "0063_world_mcp_credential_bounds",
+      "breakpoints": true
     }
   ]
 }

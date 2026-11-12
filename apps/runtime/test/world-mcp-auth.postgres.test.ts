@@ -85,8 +85,34 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
         access_token: string;
         scope: string;
         expires_in: number;
+        issuer: string;
+        authorization_endpoint: string;
+        registration_endpoint: string;
       };
     };
+    const metadata = await json(
+      await authentication.handle(
+        new Request("https://clockgrove.test/.well-known/oauth-authorization-server/api/auth"),
+      ),
+    );
+    expect(metadata.authorization_endpoint).toBe(
+      "https://clockgrove.test/api/auth/oauth2/authorize",
+    );
+    expect(metadata.registration_endpoint).toBe("https://clockgrove.test/api/auth/oauth2/register");
+    const anonymous = await json(
+      await authentication.handle(
+        new Request("https://clockgrove.test/api/auth/oauth2/register", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            client_name: "Unauthenticated public client",
+            redirect_uris: ["http://127.0.0.1:4321/callback"],
+          }),
+        }),
+      ),
+      201,
+    );
+    expect(typeof anonymous.client_id).toBe("string");
     const key = await json(await request("/api-key/create", { name: "Fixture client" }));
     expect(typeof key.key === "string" && key.key.startsWith("cg_member_")).toBe(true);
     expect(
@@ -110,7 +136,44 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
     expect(await authentication.provider.authenticate(key.key)).toEqual({
       externalIdentityId: "member-identity",
     });
+    expect(await authentication.authenticate(key.key)).toEqual({
+      externalIdentityId: "member-identity",
+      clientId: `member-key:${key.id}`,
+    });
     expect((await json(await request("/api-key/list", undefined, true, "GET"))).total).toBe(1);
+    await sql(`INSERT INTO clockgrove_auth."user" VALUES ('other-subject','Other','other@example.test',true,null,now(),now());
+      INSERT INTO clockgrove_auth.session VALUES ('other-session',now()+interval '1 hour','fixture-other-session',now(),now(),null,null,'other-subject');
+      INSERT INTO clockgrove_management.principals VALUES ('other-principal',null);
+      INSERT INTO clockgrove_management.identity_links VALUES ('ci','other-subject','other-identity','other-principal',null);`);
+    const otherHeaders = {
+      authorization: `Bearer ${["fixture", "other", "session"].join("-")}`,
+      "content-type": "application/json",
+      origin: "https://clockgrove.test",
+    };
+    expect(
+      (
+        await json(
+          await authentication.handle(
+            new Request("https://clockgrove.test/api/auth/api-key/list", { headers: otherHeaders }),
+          ),
+        )
+      ).total,
+    ).toBe(0);
+    expect(
+      (
+        await authentication.handle(
+          new Request("https://clockgrove.test/api/auth/api-key/delete", {
+            method: "POST",
+            headers: otherHeaders,
+            body: JSON.stringify({ keyId: key.id }),
+          }),
+        )
+      ).status,
+    ).toBe(404);
+    expect(await authentication.authenticate(key.key)).toEqual({
+      externalIdentityId: "member-identity",
+      clientId: `member-key:${key.id}`,
+    });
     await json(await request("/api-key/delete", { keyId: key.id }));
     await expect(authentication.provider.authenticate(key.key)).rejects.toThrow(
       "authentication refused",
@@ -138,6 +201,11 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),
       code_challenge_method: "S256",
     });
+    const login = await request(`/oauth2/authorize?${query}`, undefined, false, "GET");
+    expect(login.status).toBe(302);
+    expect(new URL(login.headers.get("location")!, "https://clockgrove.test").pathname).toBe(
+      "/sign-in",
+    );
     const authorizeCode = async (requireConsent = false) => {
       const authorize = await request(`/oauth2/authorize?${query}`, undefined, true, "GET");
       expect([200, 302]).toContain(authorize.status);
@@ -172,6 +240,10 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
     expect((await exchange("incorrect-verifier".repeat(4))).status).toBe(400);
     code = await authorizeCode();
     const token = await json(await exchange(verifier));
+    expect(await authentication.authenticate(token.access_token)).toEqual({
+      externalIdentityId: "member-identity",
+      clientId: `oauth:${client.client_id}`,
+    });
     expect(token.scope).toBe("clockgrove:mcp");
     expect(token.expires_in).toBe(3600);
     expect(await authentication.provider.authenticate(token.access_token)).toEqual({
@@ -195,6 +267,54 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
       "authentication refused",
     );
 
+    code = await authorizeCode();
+    const consentToken = await json(await exchange(verifier));
+    code = await authorizeCode();
+    const revokedCode = code;
+    const otherClient = await json(
+      await request("/oauth2/register", { redirect_uris: ["https://client.test/callback"] }, false),
+      201,
+    );
+    query.set("client_id", otherClient.client_id);
+    const otherCode = await authorizeCode(true);
+    query.set("client_id", client.client_id);
+    await sql(
+      `INSERT INTO clockgrove_auth.verification VALUES ('malformed-fixture', 'unrelated-fixture', 'not JSON', now()+interval '1 hour', now(), now())`,
+    );
+    const consentId = (
+      await sql(
+        `SELECT id FROM clockgrove_auth."oauthConsent" WHERE "clientId"='${client.client_id}'`,
+      )
+    ).trim();
+    expect((await request("/oauth2/delete-consent", { id: consentId })).status).toBe(200);
+    await expect(authentication.authenticate(consentToken.access_token)).rejects.toThrow(
+      "authentication refused",
+    );
+    code = revokedCode;
+    expect((await exchange(verifier)).status).toBe(400);
+    code = otherCode;
+    const otherExchange = await request(
+      "/oauth2/token",
+      {
+        grant_type: "authorization_code",
+        client_id: otherClient.client_id,
+        redirect_uri: "https://client.test/callback",
+        code,
+        code_verifier: verifier,
+        resource: "https://clockgrove.test/mcp",
+      },
+      false,
+    );
+    const otherToken = await json(otherExchange);
+    expect(await authentication.authenticate(otherToken.access_token)).toEqual({
+      externalIdentityId: "member-identity",
+      clientId: `oauth:${otherClient.client_id}`,
+    });
+    expect(
+      (
+        await sql("SELECT value FROM clockgrove_auth.verification WHERE id='malformed-fixture'")
+      ).trim(),
+    ).toBe("not JSON");
     const second = await json(await request("/api-key/create", { name: "Revoked principal" }));
     await sql('UPDATE clockgrove_auth.apikey SET "expiresAt"=now()');
     await expect(authentication.provider.authenticate(second.key)).rejects.toThrow(
@@ -216,6 +336,33 @@ it("issues PKCE OAuth and member keys with fresh mapped authority and immediate 
     await sql(
       `INSERT INTO clockgrove_auth.session VALUES ('new-member-session',now()+interval '1 hour','${sessionCredential}',now(),now(),null,null,'member-subject')`,
     );
+    const keys = await Promise.all(
+      Array.from({ length: 15 }, (_, i) =>
+        request("/api-key/create", { name: `Capacity ${i}` }).then((response) => json(response)),
+      ),
+    );
+    expect((await request("/api-key/create", { name: "Over capacity" })).status).toBe(500);
+    expect((await sql("SELECT count(*) FROM clockgrove_auth.apikey")).trim()).toBe("16");
+    await json(await request("/api-key/delete", { keyId: keys[0]!.id }));
+    await json(await request("/api-key/create", { name: "Reused capacity" }));
+    await sql(
+      `UPDATE clockgrove_auth."oauthClient" SET "createdAt"=now()-interval '31 days' WHERE "clientId"='${anonymous.client_id}'`,
+    );
+    await json(
+      await request(
+        "/oauth2/register",
+        { redirect_uris: ["https://new-client.test/callback"] },
+        false,
+      ),
+      201,
+    );
+    expect(
+      (
+        await sql(
+          `SELECT count(*) FROM clockgrove_auth."oauthClient" WHERE "clientId"='${anonymous.client_id}'`,
+        )
+      ).trim(),
+    ).toBe("0");
     await sql("UPDATE clockgrove_management.identity_links SET revoked_at=now()");
     await expect(authentication.provider.authenticate(third.key)).rejects.toThrow(
       "authentication refused",
