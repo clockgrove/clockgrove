@@ -62,6 +62,12 @@ export interface TurnResearchHost {
     proposal: StoredCommandProposal,
     call: TurnToolCall,
   ): Promise<TurnToolCall | undefined>;
+  /** Presentation only: observes the canonical attempt without dispatching or invoking cognition. */
+  waitForToolStart?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: TurnToolCall,
+  ): Promise<boolean>;
 }
 
 function citedReply(text: string, calls: readonly TurnToolCall[]): string {
@@ -423,7 +429,7 @@ export class TurnFibers {
               type: "tool",
               callId: call.callId,
               capability: call.capability,
-              status: "using",
+              status: "queued",
             });
             const result = await this.host.research.executeTool(
               participant,
@@ -431,6 +437,17 @@ export class TurnFibers {
               proposal,
               call,
             );
+            if (
+              result?.status !== "refused" &&
+              result?.status !== "simulated" &&
+              (await this.host.research.waitForToolStart?.(participant, current, call))
+            )
+              emit({
+                type: "tool",
+                callId: call.callId,
+                capability: call.capability,
+                status: "using",
+              });
             if (result === undefined || result.status === "waiting")
               return { refused: "conversation_busy" };
             next = await this.store((store) =>

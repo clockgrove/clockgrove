@@ -274,9 +274,35 @@ answers. Tool evidence is encrypted private cognition. At most 8 KiB per call en
 model context, with a visible truncation marker; the full sanitized result remains its separate
 protected artifact. Tool text is labelled untrusted evidence, never an instruction or grant.
 
-Streaming adds `{type:"tool",callId,capability,status}` with `using`, `completed` or `failed`.
+Streaming adds `{type:"tool",callId,capability,status}` with `queued`, `using`, `completed` or `failed`.
 These frames are disposable progress. A stream that ends in a durable tool wait has no terminal
 receipt/refusal; a nonstream caller receives `turn_interrupted`. The browser shows “Using tool”,
 then reads canonical status for up to 180 seconds at the existing one-second recovery cadence.
 That presentation limit allows three 45-second tool windows and Queue/recovery slack. Expiry
 preserves the pending message for reopening and never cancels or repeats the remote call.
+
+
+### Queued and executing progress
+
+A durable `tool_waiting` checkpoint means a call is waiting for an outcome, including admission
+and Queue publication. It does not by itself prove an attempt has started. The owner emits
+`queued` first and emits `using` only after observing a scoped canonical attempt. Its bounded
+progress observation uses the existing one-second recovery cadence and 60-second reconciliation
+window, releasing the database client between reads. This changes presentation, never execution
+identity, grant admission or no-resend rules.
+
+Status includes optional `toolCallId` for the current waiting call, derived from its existing
+protected history. It contains no argument/result text and needs no new ledger privilege.
+The browser associates observed execution with this exact ID: a new call returns to waiting
+even if polling missed the intervening model step. Reconnection without an observed start
+shows waiting rather than claiming that a call is executing.
+
+The durable attempt is committed before admission and protocol traffic. In-flight crash proofs
+must therefore establish receipt of the actual held `tools/call` at the fixture server before
+stopping the runtime; a started row alone can also describe an uncertain pre-send interruption.
+
+Queue completion commits the effect outcome before notifying the actor. The actor registers its
+bounded resumption under the existing keep-alive and returns the notification; it does not hold
+Queue acknowledgement until subsequent cognition finishes. A resumed model can therefore queue
+another read on the same serial consumer without deadlocking its previous call. Canonical
+terminal-wait recovery and SDK ownership remain the backstops if background resumption fails.

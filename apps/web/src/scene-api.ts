@@ -778,14 +778,18 @@ export class SceneSession {
     for (let resend = 0; resend <= MAX_TALK_RESENDS; ++resend) {
       let provisional = "";
       let usedTool = false;
+      let startedCallId: string | undefined;
       const outcome = await this.streamTalk(
         turn,
         (delta) => {
           provisional += delta;
           hooks.onProvisional?.(provisional);
         },
-        (phase) => {
-          if (phase === "tool_waiting") usedTool = true;
+        (phase, callId) => {
+          if (phase === "tool_waiting" || phase === "tool_using") {
+            usedTool = true;
+            startedCallId = phase === "tool_using" ? callId : undefined;
+          }
           hooks.onPhase?.(phase);
         },
       );
@@ -797,7 +801,7 @@ export class SceneSession {
         return resumed ? { reloaded: true } : outcome.receipt;
       }
       resumed = true;
-      if (usedTool) return this.waitForToolTurn(turn, hooks);
+      if (usedTool) return this.waitForToolTurn(turn, hooks, startedCallId);
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
@@ -816,13 +820,20 @@ export class SceneSession {
   private async waitForToolTurn(
     turn: PendingTurn,
     hooks: TurnHooks,
+    startedCallId: string | undefined,
   ): Promise<TurnSettled | { readonly refused: string }> {
     const deadline = Date.now() + TOOL_PRESENTATION_WAIT_MS;
     const intent = this.intent;
     while (Date.now() < deadline && intent === this.intent) {
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
-        hooks.onPhase?.(status.phase);
+        if (status.phase !== "tool_waiting" || status.toolCallId !== startedCallId)
+          startedCallId = undefined;
+        hooks.onPhase?.(
+          status.phase === "tool_waiting" && startedCallId !== undefined
+            ? "tool_using"
+            : status.phase,
+        );
         if (status.phase === "completed") {
           forgetPendingTurn(turn.sessionId);
           return { reloaded: true };
@@ -840,7 +851,7 @@ export class SceneSession {
   private async streamTalk(
     turn: PendingTurn,
     onDelta: (text: string) => void,
-    onPhase: (phase: string) => void,
+    onPhase: (phase: string, callId?: string) => void,
   ): Promise<
     | { kind: "receipt"; status: number; receipt: TalkReceipt }
     | { kind: "refused"; status: number; error: string }
@@ -892,7 +903,14 @@ export class SceneSession {
         );
         if (frame?.type === "delta") onDelta(frame.text);
         if (frame?.type === "tool")
-          onPhase(frame.status === "using" ? "tool_waiting" : "tool_completed");
+          onPhase(
+            frame.status === "queued"
+              ? "tool_waiting"
+              : frame.status === "using"
+                ? "tool_using"
+                : "tool_completed",
+            frame.callId,
+          );
         return frame;
       };
       for (;;) {

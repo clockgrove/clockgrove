@@ -222,6 +222,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ),
         )
         .toBe("1");
+      // The durable claim precedes transport setup; kill only after the fixture received tools/call.
+      await expect
+        .poll(
+          async () =>
+            Number(
+              await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((response) =>
+                response.text(),
+              ),
+            ),
+          { timeout: 60000 },
+        )
+        .toBe(beforeFlight + 1);
       await owner.replace(true);
       await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/release`);
       await expect

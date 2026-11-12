@@ -55,6 +55,8 @@ export interface TurnStatus {
   readonly phase: TurnPhase;
   readonly attempt: number;
   readonly outcomeCode: string | null;
+  /** The current waiting call's scoped metadata identity, never its arguments or result text. */
+  readonly toolCallId?: string;
 }
 
 /** `/v1/runtime/turns/status` and `/v1/runtime/turns/cancel`: one turn, by its message ID. */
@@ -74,7 +76,7 @@ export type TalkStreamFrame =
       readonly type: "tool";
       readonly callId: string;
       readonly capability: string;
-      readonly status: "using" | "completed" | "failed";
+      readonly status: "queued" | "using" | "completed" | "failed";
     }
   | { readonly type: "receipt"; readonly receipt: TalkReceipt }
   | { readonly type: "refused"; readonly status: number; readonly error: string };
@@ -105,13 +107,16 @@ export function decodeTurnRequest(value: unknown, path = "turn"): TurnRequest {
 
 export function decodeTurnStatus(value: unknown, path = "turnStatus"): TurnStatus {
   const v = record(value, path);
-  exactKeys(v, ["sessionId", "messageId", "phase", "attempt", "outcomeCode"], [], path);
+  exactKeys(v, ["sessionId", "messageId", "phase", "attempt", "outcomeCode"], ["toolCallId"], path);
+  if (v.toolCallId !== undefined && v.phase !== "tool_waiting")
+    throw new ContractDecodeError(`${path}.toolCallId`, "expected a waiting turn");
   return Object.freeze({
     sessionId: id(v.sessionId, `${path}.sessionId`),
     messageId: id(v.messageId, `${path}.messageId`),
     phase: literal(v.phase, TURN_PHASES, `${path}.phase`),
     attempt: nonNegativeInteger(v.attempt, `${path}.attempt`),
     outcomeCode: v.outcomeCode === null ? null : string(v.outcomeCode, `${path}.outcomeCode`),
+    ...(v.toolCallId === undefined ? {} : { toolCallId: id(v.toolCallId, `${path}.toolCallId`) }),
   });
 }
 
@@ -128,7 +133,7 @@ export function decodeTalkStreamFrame(value: unknown, path = "talkStream"): Talk
       type,
       callId: id(v.callId, `${path}.callId`),
       capability: string(v.capability, `${path}.capability`),
-      status: literal(v.status, ["using", "completed", "failed"], `${path}.status`),
+      status: literal(v.status, ["queued", "using", "completed", "failed"], `${path}.status`),
     });
   }
   if (type === "receipt") {

@@ -989,6 +989,11 @@ export class PostgreSqlConversationStore implements ConversationStore {
       request.messageId,
     );
     if (fiber === undefined) throw new ConversationRefusedError("turn_not_found");
+    if (fiber.phase === "tool_waiting") {
+      const current = (await this.researchState(participant, fiber)).calls.at(-1);
+      if (current?.status === "waiting")
+        return Object.freeze({ ...statusOf(fiber), toolCallId: current.callId });
+    }
     return statusOf(fiber);
   }
 

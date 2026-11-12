@@ -406,9 +406,11 @@ export function ConversationPanel({
         <div aria-live="polite">
           {phase && (
             <p>
-              {phase === "tool_waiting"
+              {phase === "tool_using"
                 ? "Using tool…"
-                : `Reply in progress (${phase.replaceAll("_", " ")})`}
+                : phase === "tool_waiting"
+                  ? "Waiting for tool…"
+                  : `Reply in progress (${phase.replaceAll("_", " ")})`}
             </p>
           )}
           {provisional && (

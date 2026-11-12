@@ -1754,21 +1754,27 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     };
     await this.ready(scope, context, target.actorId);
     this.#talkContexts.set(`${participant.principalId}:${participant.personaId}`, context);
-    // Completion can arrive before the publishing turn has returned its pending state. An
-    // activation can join that turn; after it settles, re-read its wait and activate once more.
-    for (let round = 0; round < 2; round++) {
-      const open = await this.stores()((store) =>
-        store.openTurns(participant, scope, target.actorId),
-      );
-      const fiber = open.find(
-        (candidate) =>
-          candidate.sessionId === target.sessionId &&
-          candidate.messageId === target.messageId &&
-          candidate.phase === "tool_waiting",
-      );
-      if (fiber === undefined) return;
-      await this.fibers(scope, target.actorId).activate(participant, fiber);
-    }
+    // Queue acknowledgement cannot wait for cognition that may queue another call on that same
+    // serial consumer. The effect is already durable; SDK recovery and the sweep retain the wake.
+    const resume = async () => {
+      // Completion can arrive before the publishing turn has returned its pending state. An
+      // activation can join that turn; after it settles, re-read its wait and activate once more.
+      for (let round = 0; round < 2; round++) {
+        const open = await this.stores()((store) =>
+          store.openTurns(participant, scope, target.actorId),
+        );
+        const fiber = open.find(
+          (candidate) =>
+            candidate.sessionId === target.sessionId &&
+            candidate.messageId === target.messageId &&
+            candidate.phase === "tool_waiting",
+        );
+        if (fiber === undefined) return;
+        await this.fibers(scope, target.actorId).activate(participant, fiber);
+      }
+    };
+    // TurnFibers records failed attempts; background failure remains resumable from canonical state.
+    this.objectState.waitUntil(resume().catch(() => undefined));
   }
 
   /** A turn's durable status; reading it also resumes the turn if this owner is not running it. */

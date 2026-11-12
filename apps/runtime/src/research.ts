@@ -713,6 +713,57 @@ export function composeResearch(configuration: ResearchConfiguration) {
     }
   }
 
+  async function waitForToolStart(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: TurnToolCall,
+  ): Promise<boolean> {
+    try {
+      if (participant.tenantId !== fiber.scope.tenantId) return false;
+      // Reuse the existing recovery window and one-second publication-recovery cadence.
+      const deadline = Date.now() + ATTEMPT_RECONCILIATION_MS;
+      while (Date.now() < deadline) {
+        const progress = await configuration.withClient(async (client) => {
+          const found = await client.query(
+            `SELECT i.disposition,a.attempt_id FROM clockgrove.effect_intents i
+              JOIN clockgrove.agent_runs r ON r.tenant_id=i.tenant_id AND r.run_id=i.run_id
+              JOIN clockgrove.conversation_turn_fibers f ON f.tenant_id=r.tenant_id
+                AND f.session_id=r.session_id AND f.message_id=r.input_message_id
+              LEFT JOIN clockgrove.effect_attempts a ON a.tenant_id=i.tenant_id
+                AND a.world_id=i.world_id AND a.timeline_id=i.timeline_id AND a.effect_id=i.effect_id
+              WHERE i.tenant_id=$1 AND i.world_id=$2 AND i.timeline_id=$3 AND i.space_id=$4
+                AND i.effect_id=$5 AND i.call_id=$6 AND i.actor_id=$7 AND i.principal_id=$8
+                AND r.session_id=$9 AND r.input_message_id=$10 AND f.principal_id=$8 AND f.persona_id=$11
+                AND f.actor_id=$7 AND f.world_id=$2 AND f.timeline_id=$3
+                AND r.actor_id=$7 AND r.principal_id=$8 AND r.world_id=$2 AND r.timeline_id=$3 AND r.space_id=$4`,
+            [
+              fiber.scope.tenantId,
+              fiber.scope.worldId,
+              fiber.scope.timelineId,
+              fiber.scope.spaceId,
+              call.effectId,
+              call.callId,
+              fiber.actorId,
+              participant.principalId,
+              fiber.sessionId,
+              fiber.messageId,
+              participant.personaId,
+            ],
+          );
+          return found.rows[0] as { disposition: string; attempt_id: string | null } | undefined;
+        });
+        if (!progress) return false;
+        if (progress.attempt_id !== null) return true;
+        if (progress.disposition !== "pending") return false;
+        // The connection has closed before waiting; this observes progress and never republishes.
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+      }
+      return false;
+    } catch {
+      throw new Error("Research progress unavailable");
+    }
+  }
+
   async function failUnsent(
     client: PostgreSqlClient,
     intent: EffectIntentMetadata,
@@ -897,5 +948,5 @@ export function composeResearch(configuration: ResearchConfiguration) {
       if (c) await configuration.wake(c);
     });
   }
-  return { policy, executeTool, consumer, sweep, deadLetter };
+  return { policy, executeTool, waitForToolStart, consumer, sweep, deadLetter };
 }
