@@ -89,6 +89,8 @@ export interface TurnCommandRecord {
 }
 
 export interface TurnToolCall {
+  /** Set only by trusted approval checkpointing; survives the transition back to tool_waiting. */
+  readonly approvalRequired?: boolean;
   readonly callId: string;
   readonly effectId: string;
   readonly capability: string;
@@ -224,6 +226,14 @@ export interface ConversationStore {
     participant: ConversationParticipant,
     fiber: TurnFiber,
     call: Pick<TurnToolCall, "callId" | "effectId" | "capability">,
+  ): Promise<TurnFiber | undefined>;
+  waitForApproval?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+  ): Promise<TurnFiber | undefined>;
+  resumeAfterApproval?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
   ): Promise<TurnFiber | undefined>;
   completeTool?(
     participant: ConversationParticipant,

@@ -2054,3 +2054,25 @@ client. It includes foreign-scope/private-data attacks, current grants, trusted
 persona/channel/root attribution, Why and revocation. The existing browser MCP
 journey covers the token controls against that runtime storage. These are fixture-only
 local proofs; hosted deployment and published-head quality remain separate evidence.
+
+### Human effect controls (issue 166, part 5)
+
+The internal `effect-controls.ts` composition must be supplied a trusted human
+session verifier and current call admission. Never supply a principal from request
+JSON, a model answer or tool content. Reconstruct scope from canonical records, check
+current membership and grants on every action, then expose only the permitted preview.
+Unavailable authentication or revoked authority refuses every action. Missing encrypted
+artifacts or mismatched hashes refuse previews and approval; denial and revocation remain
+available without a valid preview.
+
+For an uncertain write, the operator first checks the provider using its own authorized
+operational surface. Read the scoped unresolved record, then record `done` or `failed`
+through the control boundary. The ledger attributes the finding to the authenticated
+operator and retains the original uncertain attempt. Conflicting findings refuse;
+repeating the same finding recovers the original record. This action sends no write.
+A retry is not available in this part: final integration must require safe declared
+idempotency and a fresh exact approval with new call/effect identities.
+
+No human effect-control HTTP route or browser view is activated by this part. These
+procedures describe the internal composition contract; public controls, write fixture,
+phase-injected recovery proof and browser approval journey remain part 6 of issue 166.

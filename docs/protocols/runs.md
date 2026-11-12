@@ -171,3 +171,13 @@ message and releasing the conversation turn. Turn-entry inspection derives its c
 position from run/step metadata, so an operator without conversation access can still follow
 it. Empty, non-printable or oversized model capability names are rejected before a tool wait;
 they cannot strand the turn on an unrecordable proposal.
+
+## Approval checkpoint evidence (issue 166, part 5)
+
+The actor's optional approval hook checkpoints the original tool call in
+`approval_waiting` and records an `approval` step. Its metadata links the same call and
+effect as the tool proposal; protected argument bytes remain in encrypted artifacts.
+Recovery retains that identity, and denial/expiry/revocation appears as a fixed tool
+refusal through the ordinary tool-execution evidence. Inspector authorization and
+privacy ceilings remain unchanged. This evidence establishes a runtime checkpoint,
+not public human authentication or proof that an external write ran.

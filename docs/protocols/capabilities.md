@@ -137,3 +137,19 @@ never decide approvals. See the [current boundary](mcp.md#internal-protected-wri
 This prerequisite does not activate actor writes. Operator/proactive routing,
 protected-class policy in the actor, human controls and uncertain-write resolution
 remain subsequent delivery parts. Read calls keep their existing approval-free path.
+
+## Human approval controls (issue 166, part 5)
+
+The internal runtime control boundary takes identity from trusted human authentication,
+reloads scoped membership and checks current call authority before person approval.
+Operator uncertainty resolution requires current scoped operator authority. Argument
+previews decrypt only within the authorized scope and must match the recorded hash;
+model proposals and tool content are never approval authority. The optional actor host
+hook records a durable wait for the existing call. It does not turn session membership
+or a model proposal into a capability grant.
+
+External-write, destructive and cost calls always need per-call approval; network calls
+follow grant policy, and read calls never need it (owner decision, 2026-11-09). The
+configured wall-clock lifetime defaults to ten minutes. No standing approval is provided.
+Final policy/routing, public controls, transport and safe retry integration remain part 6.
+See the [current runtime boundary](mcp.md#human-control-and-durable-wait-boundary-issue-166-part-5).

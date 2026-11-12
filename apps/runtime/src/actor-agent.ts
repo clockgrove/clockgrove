@@ -62,6 +62,13 @@ export interface TurnResearchHost {
     proposal: StoredCommandProposal,
     call: TurnToolCall,
   ): Promise<TurnToolCall | undefined>;
+  /** Trusted composition reads canonical human approval; model/tool output cannot decide it. */
+  approvalState?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    call: TurnToolCall,
+  ): Promise<"not_required" | "waiting" | "approved" | "denied" | "expired" | "revoked">;
   /** Presentation only: observes the canonical attempt without dispatching or invoking cognition. */
   waitForToolStart?(
     participant: ConversationParticipant,
@@ -417,6 +424,7 @@ export class TurnFibers {
             next = await this.store((store) => store.recordCommand(participant, current, record));
             break;
           }
+          case "approval_waiting":
           case "tool_waiting": {
             const state = await this.store((store) => store.researchState!(participant, current));
             const call = state.calls.at(-1);
@@ -425,6 +433,39 @@ export class TurnFibers {
             );
             if (call === undefined || proposal === undefined || this.host.research === undefined)
               throw new Error("tool checkpoint unavailable");
+            const approval = await this.host.research.approvalState?.(
+              participant,
+              current,
+              proposal,
+              call,
+            );
+            if (approval === "waiting") {
+              if (current.phase === "tool_waiting") {
+                next = await this.store((store) => store.waitForApproval!(participant, current));
+                break;
+              }
+              return { refused: "conversation_busy" };
+            }
+            if (approval === "denied" || approval === "expired" || approval === "revoked") {
+              next = await this.store((store) =>
+                store.completeTool!(participant, current, {
+                  ...call,
+                  status: "refused",
+                  code: `approval_${approval}`,
+                  text: `Tool refused: approval_${approval}`,
+                  costMicrousd: 0,
+                }),
+              );
+              break;
+            }
+            if (current.phase === "approval_waiting") {
+              // Losing trusted approval composition must never turn a durable wait into permission.
+              if (approval !== "approved") return { refused: "conversation_busy" };
+              next = await this.store((store) => store.resumeAfterApproval!(participant, current));
+              break;
+            }
+            if (call.approvalRequired && approval !== "approved")
+              return { refused: "conversation_busy" };
             emit({
               type: "tool",
               callId: call.callId,

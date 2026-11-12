@@ -306,3 +306,21 @@ bounded resumption under the existing keep-alive and returns the notification; i
 Queue acknowledgement until subsequent cognition finishes. A resumed model can therefore queue
 another read on the same serial consumer without deadlocking its previous call. Canonical
 terminal-wait recovery and SDK ownership remain the backstops if background resumption fails.
+
+## Approval wait checkpoints (issue 166, part 5)
+
+An optional trusted research host can require approval before the current tool call
+executes. `approval_waiting` is a durable, cancellable turn phase, carrying the same
+call identity and encrypted proposal as `tool_waiting`. Owner recovery consults the
+host again; it never creates another proposal or treats model text as a decision.
+Approval resumes the original call. Denial, expiry or revocation records a fixed refusal
+and continues through the existing bounded tool-completion path. The approval step is
+canonical run evidence. A protected-call marker persists in encrypted call history even after the phase
+resumes to `tool_waiting`; a host missing its approval dependency cannot execute that
+call. Existing read-only hosts remain compatible without installing the optional hook.
+
+This checkpoint is an internal prerequisite. Public approval decisions, the argument
+preview controls, automatic wake/expiry scheduling, proactive operator routing and
+full write execution are part of the final integration of issue 166. A checkpoint alone
+is neither approval nor dispatch authority; the exact approval must still be consumed
+atomically with current-policy admission and the effect/outbox reservation.
