@@ -2,19 +2,33 @@
 
 ## First-party server readiness
 
-Issue 167 parts 1 and 2 provide an internal read-tool adapter in
+Issue 167 parts 1–3 provide an internal read-tool adapter in
 `apps/runtime/src/world-mcp-reads.ts` and a stateless MCP transport in
 `apps/runtime/src/world-mcp-server.ts`. The transport uses the current Agents
 `createMcpHandler` from `agents/mcp/server`, with a fresh server for each request.
-It declares six tools: `world_directory`, `world_status`, `entity_inspect`,
+Its six read tools are: `world_directory`, `world_status`, `entity_inspect`,
 `command_receipt`, `run_receipt` and `run_search`. Each tool calls the existing
 runtime HTTP use case in process; neither adapter resolves authority nor reads SQL.
 See [run receipts](runs.md) for inspector authorization.
 
+The internal operation adapter in `apps/runtime/src/world-mcp-operations.ts` adds
+`runtime_state` and `runtime_action`. They call the ordinary `/v1/runtime/runtime-state`
+and `/v1/runtime/actions` use cases with their strict `schemaVersion: 1` envelopes.
+Runtime state requires `runtime:world-inspect` and retains the existing privacy-ceiling
+redaction and RLS; actions require `runtime:world-operate` and retain the existing scoped
+operator checks, audit and rate limits. The supported actions are `repair-publication`
+and `replay-message`. MCP client metadata never supplies grants or authority.
+
+`changeset_prepare` and `changeset_apply` are declared placeholders. Their strict
+inputs contain only `schemaVersion: 1` and the tenant/world/timeline/space scope.
+They always return the tool error `changesets_unavailable_until_wave_7` and dispatch
+no application mutation. They accept no changeset content until the Wave 7 contract
+exists; neither an operator grant nor a client assertion enables them.
+
 Every protocol request, including initialization and tool listing, supplies its own
 bearer credential and authenticates through the ordinary world-directory use case.
-Tool dispatch authenticates again through its application use case, which applies
-its existing observe or inspect grant, privacy ceiling and inspector audit rules.
+Read and operator dispatch authenticate again through their application use cases,
+which apply the existing observe, inspect or operate grant, privacy ceiling and audit rules.
 There is no retained credential, actor memory, conversation or connection session.
 The handler accepts the current SDK stateless protocol with finite JSON responses;
 legacy protocol requests are rejected rather than retaining a connection or stream.
@@ -26,17 +40,19 @@ at 128 KiB, an engineering choice allowing the argument envelope plus protocol m
 Successful tool responses retain their application representation; failures return
 fixed public errors without application or provider exception details.
 
-The real MCP SDK client proof in
-`apps/runtime/test/world-mcp-server.postgres.test.ts` bridges Streamable HTTP fetches
-to this internal handler and exercises the native runtime with real PostgreSQL and
-the fixture world. It proves the internal transport, not a deployed endpoint, OAuth
+The real MCP SDK client proofs in
+`apps/runtime/test/world-mcp-server.postgres.test.ts` and
+`apps/runtime/test/world-mcp-operations.postgres.test.ts` bridge Streamable HTTP fetches
+to this internal handler and exercise the native runtime with real PostgreSQL and
+the fixture world. They prove the internal transport, not a deployed endpoint, OAuth
 flow or member API-token issuer.
 
 This is an internal foundation, not a connectable deployed MCP endpoint. Later parts
 of issue 167 provide OAuth through the auth adapter and web-issued member API tokens
 with immediate revocation, principal-wide rate/cost admission, authenticated endpoint
-composition and MCP-surface database attack coverage, full world/timeline discovery,
-attributed ordinary command and operator tools, and explicit Wave 7 changeset refusals.
+composition and MCP-surface database attack coverage, full world/timeline discovery
+and attributed ordinary commands. Operator tools and Wave 7 refusals
+are available only on the internal transport described above.
 Both authentication modes and existing operator grants remain required. Commands must
 preserve the member's world persona, MCP client channel and causal root through the
 ordinary validator and Journal. Talk stays on the channel-neutral session path. The

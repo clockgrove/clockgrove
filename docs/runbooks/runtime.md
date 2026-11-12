@@ -9,7 +9,7 @@ an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging 
 ## Connecting a first-party MCP client
 
 There is currently no deployed first-party MCP endpoint to configure in a client.
-Issue 167 parts 1 and 2 supply an internal read adapter and stateless transport over
+Issue 167 parts 1–3 supply an internal read adapter and stateless transport over
 the authenticated runtime APIs. The transport declares `world_directory`,
 `world_status`, `entity_inspect`, `command_receipt`, `run_receipt` and `run_search`;
 it does not issue credentials or add a public runtime route. Each protocol request
@@ -18,18 +18,26 @@ tool reads apply their existing application authorization. Request bodies are bo
 at 128 KiB and tool arguments at 64 KiB. Responses are finite JSON under the current
 SDK stateless protocol; legacy protocol requests are rejected.
 
+The internal catalog also includes `runtime_state` (`runtime:world-inspect` with the existing privacy-ceiling
+redaction and RLS) and `runtime_action` (`runtime:world-operate` under the existing
+operator rules). These use the ordinary runtime-state and actions APIs, including
+their scoped audit and limits. `runtime_action` accepts `repair-publication` or
+`replay-message` with a dispatch message ID. `changeset_prepare` and `changeset_apply`
+accept only the strict versioned scope and always refuse with
+`changesets_unavailable_until_wave_7`, without dispatching a mutation.
+
 The native proof uses a real MCP SDK client with an in-process Streamable HTTP fetch
 bridge, the fixture runtime and PostgreSQL. Run it from the repository root with:
 
 ```bash
-pnpm exec vitest run --config apps/runtime/vitest.runtime.config.ts apps/runtime/test/world-mcp-server.postgres.test.ts
+pnpm exec vitest run --config apps/runtime/vitest.runtime.config.ts apps/runtime/test/world-mcp-server.postgres.test.ts apps/runtime/test/world-mcp-operations.postgres.test.ts
 ```
 
 This is an internal integration proof, not a client connection setup procedure. The
 [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
 tracks the remaining OAuth and web-issued/revocable member-token setup, principal-wide
 rate/cost limits, authenticated public composition and attack proof, full discovery,
-command/operator attribution and changeset placeholders. Both credential modes remain
+attributed ordinary command submission and final discovery/authorization coverage. Both credential modes remain
 required; a working client connection procedure accompanies that delivery. Talk remains
 on the channel-neutral session path. Remote MCP installation described elsewhere in
 this runbook connects Clockgrove to another server and is a separate path.

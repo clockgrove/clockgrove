@@ -461,9 +461,9 @@ Initial fixtures:
 
 Expose a stateless authenticated MCP surface over application APIs for world/timeline list, authorized search/inspection, command submission, run receipt, and changeset placeholders. It does not host actor memory or session state inside the MCP connection.
 
-Issue 167 parts 1 and 2 supply an internal bounded read adapter and the current
+Issue 167 parts 1–3 supply an internal bounded read adapter and the current
 Agents stateless MCP handler over authenticated runtime HTTP use cases, with no
-composed public endpoint. Six declared tools cover world directory/status, entity
+composed public endpoint. Six read tools cover world directory/status, entity
 inspection, command/run receipts and run search. Every request authenticates through
 the ordinary directory use case, and tool reads retain application authorization.
 Strict schemas and 64 KiB argument/128 KiB request bounds constrain untrusted input;
@@ -473,7 +473,12 @@ the native fixture runtime and PostgreSQL. This does not prove deployed authenti
 The [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
 records the remaining OAuth and web-issued/revocable member-token modes, principal-wide
 rate/cost admission, authenticated endpoint composition and database attack proof,
-full discovery, attributed commands/operator tools and Wave 7 changeset refusals.
+full discovery and attributed commands. Internal `runtime_state` and `runtime_action`
+tools use the ordinary inspector/operator APIs and their distinct grants, scoped audit
+and limits. Declared `changeset_prepare` and `changeset_apply` placeholders accept
+only a strict versioned scope and refuse with `changesets_unavailable_until_wave_7`
+without dispatching a mutation. These tools remain internal until authenticated
+endpoint composition is complete.
 Commands must preserve member persona, MCP client channel and causal root through the
 ordinary validator and Journal. Talk stays on the channel-neutral session path.
 These remain Objective acceptance obligations; the internal transport alone does

@@ -2,6 +2,11 @@ import { MAX_RUN_SEARCH_PAGE, RUN_STATUSES } from "@clockgrove/contracts";
 import { fromJsonSchema, type JsonSchemaType, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import {
+  operateWorldMcpTool,
+  WORLD_MCP_OPERATION_TOOLS,
+  type WorldMcpOperationTool,
+} from "./world-mcp-operations.js";
+import {
   readWorldMcpTool,
   WORLD_MCP_READ_TOOLS,
   type WorldMcpReadApplication,
@@ -69,6 +74,17 @@ const schemas: Record<WorldMcpReadTool, JsonSchemaType> = {
     },
     Object.keys(scoped),
   ),
+};
+const operationScope = { schemaVersion: version, ...scope };
+const operationSchemas: Record<WorldMcpOperationTool, JsonSchemaType> = {
+  runtime_state: envelope(operationScope),
+  runtime_action: envelope({
+    ...operationScope,
+    action: { type: "string", enum: ["repair-publication", "replay-message"] },
+    messageId: id,
+  }),
+  changeset_prepare: envelope(operationScope),
+  changeset_apply: envelope(operationScope),
 };
 function refusal(status: number, message: string): Response {
   return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message } }, { status });
@@ -146,6 +162,29 @@ export async function handleWorldMcpRequest(
             { inputSchema: fromJsonSchema(schemas[name]), annotations: { readOnlyHint: true } },
             async (args) => {
               const result = await readWorldMcpTool(
+                application,
+                { name, arguments: args },
+                credential,
+              );
+              const text = JSON.stringify(result);
+              if (!result.ok) applicationErrorText = text;
+              return { content: [{ type: "text", text }], ...(!result.ok && { isError: true }) };
+            },
+          );
+        }
+        for (const name of WORLD_MCP_OPERATION_TOOLS) {
+          server.registerTool(
+            name,
+            {
+              inputSchema: fromJsonSchema(operationSchemas[name]),
+              annotations: { readOnlyHint: name !== "runtime_action" },
+              ...((name === "changeset_prepare" || name === "changeset_apply") && {
+                description:
+                  "Placeholder: unavailable until Wave 7; always refuses without mutation.",
+              }),
+            },
+            async (args) => {
+              const result = await operateWorldMcpTool(
                 application,
                 { name, arguments: args },
                 credential,
