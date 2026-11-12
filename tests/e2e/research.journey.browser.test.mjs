@@ -98,6 +98,8 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
         response.text(),
       );
       await page.reload();
+      await page.getByLabel("Local session credential").fill("local-reader-session");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page.getByRole("button", { name: ACTOR, exact: true }).press("Enter");
       await page.getByRole("button", { name: "Talk", exact: true }).click();
       await history
