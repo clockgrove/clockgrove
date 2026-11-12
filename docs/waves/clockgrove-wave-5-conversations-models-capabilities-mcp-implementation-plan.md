@@ -381,6 +381,20 @@ RW-0508.
 
 Bindings connect capability to tenant/world/timeline/actor/session scope. Grants can narrow input fields, destinations, call counts, effect class, budget, and expiry. Approval records bind exact normalized arguments, scope, effect hash, principal, and expiry. Argument changes require new approval.
 
+Issue 166 part 1 adds the privileged canonical approval ledger only, with exact
+hash/scope/principal binding, wall-clock expiry, attributed decisions, revocation and
+single consumption. Runtime roles cannot mutate it. It does not yet authorize a
+transport call: trusted human authorization, atomic dispatch admission, durable actor
+waits and approval UI are subsequent parts. See the [current MCP boundary](../protocols/mcp.md#internal-approval-ledger-issue-166-part-1).
+
+The owner decisions (2026-11-09) require approval for `external-write`, `destructive`
+and `cost`, and for `network` according to the grant; `read` never needs it. There are
+no standing approvals. The session person may approve within their own grants;
+otherwise, including proactive turns, the world operator approves. The default
+wall-clock expiry is ten minutes. Uncertain-write operator resolution may mark done,
+mark failed or request a retry; retry requires a fresh approval and declared safe
+idempotency. The ledger foundation does not implement those resolution actions.
+
 ### 11.3 Guide and counterfactual consumers
 
 Field-guide read/share in Wave 6 consumes these governed document, capability, context and channel boundaries. Its destination audience, permitted source disclosure and exact version must be validated independently of an actor's source read access. Guide text remains untrusted contextual testimony, not a new instruction hierarchy. Actual guide synthesis/sharing behavior and qualification belong to Wave 6; counterfactual preview execution belongs to Wave 7. See the [accepted topic ADR](../adr/clockgrove-adr-field-guides-and-counterfactual-why.md).
