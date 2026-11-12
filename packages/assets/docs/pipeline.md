@@ -289,3 +289,82 @@ activity changes. The CLI passes the world's style profile to the builder so eac
 channel retains its declared `srgb` or `linear` encoding. Programmatic builders can supply the
 same profile as the third `buildAtlases` argument. The product renderer uses the albedo encoding;
 other maps remain available to adapters that support them.
+
+## glTF models
+
+A world may put `kind: "model"` version-2 manifests beside strip manifests in
+`assets/manifests/<assetId>/model.json`. Existing strip declarations and their
+atlas output are unchanged. Model manifests use the same source attribution,
+provenance, licence, review, semantic role and accessibility fields, plus the
+[model output contract](../../../docs/protocols/shared-contracts.md#3d-model-assets).
+Models have no strip frame grid, palette or atlas placement. `output.path` names
+a self-contained `.glb`, relative to the world; `source.path` names that same file.
+The CLI refuses files outside the world, including symlink escapes. Embedded
+buffer views and data URIs are supported; remote and separate resource files are
+refused, so validation never downloads resources.
+
+Declare `reference/model-target.json`, for example:
+
+```json
+{
+  "version": 1,
+  "limits": {"triangles": 1200, "textureMaxPx": 1024, "materials": 3, "bones": 24, "lods": 3},
+  "tiers": {
+    "mobile": {"triangles": 800, "textureMaxPx": 512, "materials": 2, "bones": 24, "lods": 3}
+  }
+}
+```
+
+These are illustrative world-owned maxima, not platform defaults. Validation
+checks every metric against `limits` and every named tier, including a tier named
+`default`; no tier can replace `limits`. A world supplies its own numbers. All
+five metrics are required in each limit record, and zero is allowed (for example,
+zero bones for an unrigged prop or zero texture pixels for an untextured model).
+
+`clockgrove-assets validate <manifest> --world <world>` validates the exact GLB
+bytes against the pinned Khronos glTF validator and reads them with glTF Transform.
+Meshopt geometry is decoded with the pinned Meshoptimizer decoder. PNG and JPEG
+handoff textures and KTX2 shipped textures are accepted by the same validator;
+no target-side compression is required before handoff.
+
+The inspected metrics have explicit meanings:
+
+- `triangles` sums triangle primitives across all mesh definitions, including
+  LOD meshes; repeated node instances do not multiply the count. Triangle lists,
+  strips and fans are supported.
+- `textureMaxPx` is the greatest width or height of the embedded images, or zero
+  with no images. `materials` counts declared material records.
+- `bones` counts distinct joint nodes across every skin. `lods` is one base level
+  plus the largest `MSFT_lod` alternate-node list (one when no LODs are declared).
+- `bounds.min/max` are the default scene's rest/base geometry AABB after node
+  transforms, in glTF metres. They are calculated from decoded vertex data, not
+  copied from accessor bounds, and do not represent the envelope of animations.
+  A one-micrometre comparison tolerance accounts for float32 transform rounding.
+- Clips are matched by name. `durationMs` is the greatest sampler keyframe time
+  in milliseconds, matching the renderer's clip duration; the comparison allows
+  one microsecond of float32 rounding. `loop` and optional `generated` are stored
+  in each glTF animation's `extras`, since glTF has no native playback-loop flag.
+  Names must be nonempty and unique. Any generated clip requires generated-asset
+  provenance rather than bypassing the output-grant gate through authored metadata.
+- Optional `output.rig` is the shared-rig identity `{template, sha256}` from
+  `asset.extras.rig`. It is compared as identity metadata, not a hash of GLB bytes
+  or an inferred skeleton hash. The world's tooling owns this identity.
+
+Stable refusals include `MODEL_GLB_INVALID`, `MODEL_HASH_MISMATCH`,
+`MODEL_METRIC_MISMATCH`, `MODEL_BUDGET_EXCEEDED`, `MODEL_CLIPS_MISMATCH`,
+`MODEL_BOUNDS_MISMATCH`, `MODEL_RIG_MISMATCH`, `MODEL_PROFILE_REQUIRED`,
+`MODEL_PROFILE_INVALID`, `MODEL_SOURCE_REQUIRED` and `MODEL_MANIFEST_PATH`.
+Manifest decoder failures retain `ASSET_MANIFEST_INVALID`. Licence and provider
+output-grant refusals retain the existing deploy codes. Pending human review is
+accepted by `validate`; `check` and shipping retain the human approval gate.
+The inspector has a 60-second local process deadline so malformed media cannot
+hold the synchronous validation hook indefinitely.
+
+Mixed-world `build` validates both kinds, packs only strips, and copies approved
+models into reviewed `<assetId>.glb` files with a `models.json` delivery index.
+The licence report includes both kinds. Model-only builds do not require a sprite
+style profile or a 2D sprite golden; their presentation is owned by world content.
+The existing world-content renderer loader loads these GLBs and their animation
+clips. A retained browser journey generates a throwaway rigged idle fixture,
+validates its bytes through the CLI, then loads it through that live renderer
+seam. No binary model fixture is committed.

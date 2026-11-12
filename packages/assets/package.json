@@ -18,9 +18,14 @@
   },
   "dependencies": {
     "@clockgrove/contracts": "workspace:*",
-    "ktx2-encoder": "0.6.0"
+    "ktx2-encoder": "0.6.0",
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "meshoptimizer": "1.3.0"
   },
   "devDependencies": {
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "sharp": "0.35.5"
   }
 }

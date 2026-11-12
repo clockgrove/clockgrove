@@ -1,7 +1,13 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ContractDecodeError } from "@clockgrove/contracts";
+import {
+  ContractDecodeError,
+  decodeModelAssetManifest,
+  decodeModelTargetProfile,
+  type ModelAssetManifest,
+  type ModelTargetProfile,
+} from "@clockgrove/contracts";
 import {
   type AssetManifest,
   decodeAssetManifest,
@@ -98,6 +104,7 @@ export function readManifests(root: string, assetRoot = "assets"): ManifestFile[
     for (const name of names(join(base, assetId), ".json")) {
       const path = `${assetRoot}/manifests/${assetId}/${name}`;
       const json = readJson(join(root, path));
+      if (json.kind === "model") continue;
       const manifest: AssetManifest = decodeAs("ASSET_MANIFEST_INVALID", () =>
         decodeAssetManifest(json, path),
       );
@@ -203,4 +210,48 @@ export function readMaterialSources(
       if (existsSync(path)) sources[source.path] = readFileSync(path);
     }
   return sources;
+}
+
+export interface ModelManifestFile {
+  readonly path: string;
+  readonly manifest: ModelAssetManifest;
+  readonly bytes: Uint8Array;
+}
+export function readModelTargetProfile(root: string, packDir: string): ModelTargetProfile {
+  const path = join(root, packDir, "model-target.json");
+  if (!existsSync(path)) throw new Error(`MODEL_PROFILE_REQUIRED: ${path}`);
+  return decodeAs("MODEL_PROFILE_INVALID", () => decodeModelTargetProfile(readJson(path), path));
+}
+export function readModelBytes(root: string, manifest: ModelAssetManifest): Uint8Array {
+  const path = resolve(root, manifest.output.path);
+  if (relative(root, path).startsWith(".."))
+    throw new Error("ASSET_PATH_INVALID: model output is outside world");
+  if (!existsSync(path) || !statSync(path).isFile())
+    throw new Error(`MODEL_SOURCE_REQUIRED: ${manifest.output.path}`);
+  if (relative(realpathSync(root), realpathSync(path)).startsWith(".."))
+    throw new Error("ASSET_PATH_INVALID: model output resolves outside world");
+  return readFileSync(path);
+}
+export function readModelManifests(root: string, assetRoot = "assets"): ModelManifestFile[] {
+  const base = join(root, assetRoot, "manifests");
+  const files: ModelManifestFile[] = [];
+  for (const assetId of existsSync(base) ? readdirSync(base).sort() : [])
+    for (const name of names(join(base, assetId), ".json")) {
+      const path = `${assetRoot}/manifests/${assetId}/${name}`;
+      const json = readJson(join(root, path));
+      if (json.kind !== "model") continue;
+      const manifest = decodeAs("ASSET_MANIFEST_INVALID", () =>
+        decodeModelAssetManifest(json, path),
+      );
+      if (name !== "model.json" || assetId !== manifest.assetId)
+        throw new Error(
+          `MODEL_MANIFEST_PATH: expected assets/manifests/${manifest.assetId}/model.json`,
+        );
+      files.push({
+        path,
+        manifest,
+        bytes: readModelBytes(join(root, dirname(assetRoot)), manifest),
+      });
+    }
+  return files;
 }

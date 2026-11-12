@@ -8,20 +8,26 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { decodeModelAssetManifest } from "@clockgrove/contracts";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
 import { atlasLocationProblems, buildAtlases, packAtlas, reviewedFiles } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
+import { validateModel } from "./model.js";
 import {
   decodeAs,
   type GoldenRecord,
   goldenPaths,
   type ManifestFile,
+  type ModelManifestFile,
   type PackScene,
   readAssetStyleProfile,
   readGolden,
   readJson,
   readManifests,
   readMaterialSources,
+  readModelBytes,
+  readModelManifests,
+  readModelTargetProfile,
   readPackScenes,
   repositoryRoot,
 } from "./repository.js";
@@ -66,18 +72,27 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
   const regenerate =
     "run `pnpm --filter @clockgrove/assets run update-golden` and get human approval";
   let files: ManifestFile[] = [];
+  let models: ModelManifestFile[] = [];
   let deployable: ManifestFile[] = [];
   let layout: ManifestFile["manifest"][] = [];
   let buildProfile: ReturnType<typeof readAssetStyleProfile> | undefined;
 
   function preflight(): string[] {
     files = readManifests(root, assetRoot);
+    models = readModelManifests(root, assetRoot);
     deployable = files.filter((f) => assetDeployRefusals(f.manifest).length === 0);
     layout = files.map((f) => f.manifest);
     // A world with no manifests would otherwise pass while checking nothing (wrong directory,
     // or assets kept elsewhere while presentation metadata binds them).
-    if (files.length === 0)
+    if (files.length + models.length === 0)
       return [`ASSETS_REQUIRED: no asset manifests under ${join(root, assetRoot, "manifests")}`];
+    const modelProblems = models.length
+      ? models.flatMap((f) =>
+          validateModel(f.manifest, f.bytes, readModelTargetProfile(root, referenceRoot)),
+        )
+      : [];
+    if (modelProblems.length) return modelProblems;
+    if (!files.length) return [];
     const profile = readAssetStyleProfile(root, referenceRoot);
     buildProfile = profile;
     const problems = files.flatMap((f) =>
@@ -95,9 +110,20 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
   }
 
   function expectedReviewed(): Map<string, Uint8Array> {
-    return new Map(
+    const result = new Map(
       reviewedFiles(buildAtlases(deployable, layout, buildProfile)).map((f) => [f.name, f.bytes]),
     );
+    const shippedModels = models.filter((f) => assetDeployRefusals(f.manifest).length === 0);
+    if (shippedModels.length) {
+      const index: Record<string, unknown> = {};
+      for (const f of shippedModels) {
+        const name = `${f.manifest.assetId}.glb`;
+        result.set(name, f.bytes);
+        index[f.manifest.assetId] = { ...f.manifest.output, path: name };
+      }
+      result.set("models.json", Buffer.from(`${JSON.stringify(index)}\n`));
+    }
+    return result;
   }
 
   function render(scene: PackScene, golden: GoldenRecord): Uint8Array {
@@ -122,7 +148,7 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
 
   function check(): string[] {
     const problems: string[] = external
-      ? files.flatMap((f) =>
+      ? [...files, ...models].flatMap((f) =>
           assetDeployRefusals(f.manifest).map((r) => `${r.code} ${r.asset}: ${r.detail}`),
         )
       : [];
@@ -156,11 +182,16 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
           for (const r of refusals)
             problems.push(`${assetRoot}/reviewed/${name}: ${r.code} ${r.asset}: ${r.detail}`);
     }
-    if (!same(read(reportPath), Buffer.from(licenseReport(layout))))
+    if (
+      !same(
+        read(reportPath),
+        Buffer.from(licenseReport([...layout, ...models.map((f) => f.manifest)])),
+      )
+    )
       problems.push(`${assetRoot}/license-report.md: stale, run the asset build command`);
 
     const scenes = readPackScenes(root, worldRoot);
-    if (scenes.length === 0)
+    if (scenes.length === 0 && files.length > 0)
       problems.push("GOLDEN_SCENE_REQUIRED: world presentation metadata is missing");
     for (const scene of scenes) {
       const paths = goldenPaths(root, scene.packDir, assetRoot);
@@ -187,7 +218,7 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
     rmSync(reviewedDir, { recursive: true, force: true });
     if (expected.size > 0) mkdirSync(reviewedDir, { recursive: true });
     for (const [name, bytes] of expected) writeFileSync(join(reviewedDir, name), bytes);
-    writeFileSync(reportPath, licenseReport(layout));
+    writeFileSync(reportPath, licenseReport([...layout, ...models.map((f) => f.manifest)]));
   }
 
   function updateGolden(): void {
@@ -226,6 +257,21 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
     if (!existsSync(absolute) || !statSync(absolute).isFile())
       throw new UsageError(`ASSET_MANIFEST_REQUIRED: ${absolute} is not a file`);
     const json = readJson(absolute);
+    if (json.kind === "model") {
+      const manifest = decodeAs("ASSET_MANIFEST_INVALID", () =>
+        decodeModelAssetManifest(json, path),
+      );
+      return [
+        ...validateModel(
+          manifest,
+          readModelBytes(join(root, external ? "." : "worlds/fixture"), manifest),
+          readModelTargetProfile(root, referenceRoot),
+        ),
+        ...assetDeployRefusals(manifest)
+          .filter((r) => r.code !== "REVIEW_NOT_APPROVED")
+          .map((r) => `${r.code} ${r.asset}: ${r.detail}`),
+      ];
+    }
     const manifest = decodeAs("ASSET_MANIFEST_INVALID", () => decodeAssetManifest(json, path));
     const profile = readAssetStyleProfile(root, referenceRoot);
     // Check that every frame fits an atlas page, without loading the world's other manifests.
