@@ -1289,6 +1289,7 @@ export interface RecordedWhy extends BrowserScope {
   readonly entry: PublicCausalEntry;
   readonly commandId: CommandId;
   readonly actionId: ActionId | null;
+  readonly channel?: string;
   readonly receiptStatus: "pending" | "committed" | "rejected" | "failed";
   readonly traces: PublicDecisionEvidence;
   readonly resourceCauses?: readonly PublicResourceCause[];
@@ -1507,7 +1508,7 @@ export function decodeRecordedWhy(value: unknown): RecordedWhy {
       "schedules",
       "links",
     ],
-    ["resourceCauses"],
+    ["resourceCauses", "channel"],
     "why",
   );
   const evidence = decodeEvidenceLabels(v.evidence, RECORDED_WHY_EVIDENCE, "why.evidence");
@@ -1560,6 +1561,7 @@ export function decodeRecordedWhy(value: unknown): RecordedWhy {
         }),
     actionId: v.actionId === null ? null : decodeOpaqueId(v.actionId, "ActionId"),
     receiptStatus: v.receiptStatus,
+    ...(v.channel === undefined ? {} : { channel: string(v.channel, "why.channel") }),
     traces: { status: t.status, drafts },
     links: {
       parents: array(links.parents, "why.links.parents", (value) =>

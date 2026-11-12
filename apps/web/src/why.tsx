@@ -76,6 +76,12 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
             <dd>{value.commandId}</dd>
             <dt>Recorded action</dt>
             <dd>{value.actionId ?? "None"}</dd>
+            {value.channel !== undefined && (
+              <>
+                <dt>Channel</dt>
+                <dd>{value.channel}</dd>
+              </>
+            )}
             <dt>Receipt status</dt>
             <dd>{value.receiptStatus}</dd>
           </dl>

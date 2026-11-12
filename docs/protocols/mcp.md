@@ -2,177 +2,148 @@
 
 ## First-party server readiness
 
-Issue 167 parts 1–4 provide an internal read-tool adapter in
-`apps/runtime/src/world-mcp-reads.ts` and a stateless MCP transport in
-`apps/runtime/src/world-mcp-server.ts`. The transport uses the current Agents
-`createMcpHandler` from `agents/mcp/server`, with a fresh server for each request.
-Its six read tools are: `world_directory`, `world_status`, `entity_inspect`,
-`command_receipt`, `run_receipt` and `run_search`. Each tool calls the existing
-runtime HTTP use case in process; neither adapter resolves authority nor reads SQL.
-See [run receipts](runs.md) for inspector authorization.
+The first-party server is a stateless authenticated surface over the ordinary runtime
+application APIs. Configure the separate MCP authentication writer as described in the
+[runtime runbook](../runbooks/runtime.md#first-party-world-mcp-connection). The endpoint
+is `/mcp` on `AUTH_ORIGIN`; without its explicit writer configuration it fails closed.
+This service is distinct from outbound remote MCP installations below.
 
-The internal operation adapter in `apps/runtime/src/world-mcp-operations.ts` adds
-`runtime_state` and `runtime_action`. They call the ordinary `/v1/runtime/runtime-state`
-and `/v1/runtime/actions` use cases with their strict `schemaVersion: 1` envelopes.
-Runtime state requires `runtime:world-inspect` and retains the existing privacy-ceiling
-redaction and RLS; actions require `runtime:world-operate` and retain the existing scoped
-operator checks, audit and rate limits. The supported actions are `repair-publication`
-and `replay-message`. MCP client metadata never supplies grants or authority.
+`apps/runtime/src/world-mcp-endpoint.ts` composes fresh credential verification,
+durable principal admission and ordinary `RuntimeWorker` application dispatch.
+`world-mcp-server.ts` uses the current Agents `createMcpHandler` from
+`agents/mcp/server`, constructing a fresh MCP server for every request. No actor
+memory, conversation, credential cache, subscription or MCP session is retained.
+The current SDK stateless protocol returns finite JSON; legacy stateful transport
+is refused. OAuth protocol records are durable credential state, not MCP connection memory.
 
-`changeset_prepare` and `changeset_apply` are declared placeholders. Their strict
-inputs contain only `schemaVersion: 1` and the tenant/world/timeline/space scope.
-They always return the tool error `changesets_unavailable_until_wave_7` and dispatch
-no application mutation. They accept no changeset content until the Wave 7 contract
-exists; neither an operator grant nor a client assertion enables them.
-
-Every protocol request, including initialization and tool listing, supplies its own
-bearer credential and authenticates through the ordinary world-directory use case.
-Read and operator dispatch authenticate again through their application use cases,
-which apply the existing observe, inspect or operate grant, privacy ceiling and audit rules.
-There is no retained credential, actor memory, conversation or connection session.
-The handler accepts the current SDK stateless protocol with finite JSON responses;
-legacy protocol requests are rejected rather than retaining a connection or stream.
-
-Published tool schemas use strict versioned application envelopes. Arguments remain
-limited to 64 KiB of UTF-8 JSON, an engineering bound chosen for metadata reads, and
-the application decoders remain authoritative. Raw requests are bounded before parsing
-at 128 KiB, an engineering choice allowing the argument envelope plus protocol metadata.
-Successful tool responses retain their application representation; failures return
-fixed public errors without application or provider exception details.
-
-The real MCP SDK client proofs in
-`apps/runtime/test/world-mcp-server.postgres.test.ts`,
-`apps/runtime/test/world-mcp-operations.postgres.test.ts` and
-`apps/runtime/test/world-mcp-admission.postgres.test.ts` bridge Streamable HTTP fetches
-to this internal handler and exercise the native runtime with real PostgreSQL and
-the fixture world. They prove the internal transport, not a deployed endpoint, OAuth
-flow or member API-token issuer.
-
-Part 4 adds an internal admitted entry point in
-`apps/runtime/src/world-mcp-admission.ts`, backed by the application admission use case
-and an atomic PostgreSQL reservation. It authenticates and maps the credential afresh
-before reserving against the canonical principal; different credentials, worlds and
-connections share the same budget. The original internal transport remains a primitive
-for existing proofs. A public composition must use the admitted entry point.
-
-Engineering admission policy: each principal may reserve 60 exchanges and 240 work
-units per fixed UTC minute, using database time. An exchange reserves one unit plus
-one unit per started 4 KiB of raw body bytes, within the existing 128 KiB body bound.
-The exchange limit and raw body cap bound reading; the work budget additionally
-bounds admitted parsing/dispatch input. These conservative limits bound request work; work
-units are not currency or a measurement of model spend. Initialization, catalog and
-refused tool exchanges consume budget too. Reservations are atomic and never refunded
-when parsing, authorization or downstream execution fails. The count and initial unit
-reserve before body reading, so slow streams consume rate capacity; body units reserve
-before parsing/dispatch. Each phase charges its database minute, including body work
-that crosses a minute boundary. Oversized, invalidly encoded or failed body reads charge
-the maximum 32 body units before refusing. Admission storage errors
-fail closed with fixed public errors. A single mutable counter row per existing
-principal persists across handler recreation; it stores no credentials, tool arguments,
-conversation or connection session. Counter lifetime follows its principal.
-
-No current internal MCP tool invokes a model. Future billable commands need their own
-worst-case monetary-cost reservation before they can execute; these work units do
-not establish that later acceptance. Both credential modes must be wired to public endpoint composition in part 6;
-part 5 supplies their internal mechanisms below.
-
-This is an internal foundation, not a connectable deployed MCP endpoint. Later parts
-of issue 167 complete OAuth/web-issued member-token integration on top of the internal
-credential mechanisms below, monetary-cost admission for billable operations, authenticated endpoint
-composition and MCP-surface database attack coverage, full world/timeline discovery
-and attributed ordinary commands. Operator tools and Wave 7 refusals
-are available only on the internal transport described above.
-Both authentication modes and existing operator grants remain required. Commands must
-preserve the member's world persona, MCP client channel and causal root through the
-ordinary validator and Journal. Talk stays on the channel-neutral session path. The
-endpoint, authentication setup and working client connection procedure must ship in
-the runtime runbook with that composition; none is available yet.
-
-The remaining acceptance work is assigned to the following delivery parts; part 4
-establishes rate and input-work admission only.
-
-| Issue 167 acceptance entry | Required remaining delivery |
+| Tool | Ordinary use case and authority |
 | --- | --- |
-| 2 — Same authority and isolation | Part 6: tenant/world/timeline isolation and private-data authorization attacks through the MCP surface. Direct budget-table SQL privilege refusals do not establish this coverage. |
-| 3 — Ordinary commands | Part 6: command submission through the ordinary validator and Journal, proving member-persona initiator, authenticated MCP client channel and preserved causal root. |
-| 7 — Principal limits | Part 6: monetary-cost admission before billable commands can dispatch. Part 4's request count and input-byte work reservations do not reserve execution or monetary cost. |
-| 10 — Connection documentation | Part 5 supplies internal OAuth and revocable member-token mechanisms. Part 6: public endpoint composition, web issuance/consent UI, durable credential capacity/retirement policy, a working external-client connection procedure and final real-client acceptance proof. |
+| `world_directory` | Lists the member's observable world/timeline/space scopes, using current membership and `runtime:world-observe`. |
+| `world_status`, `entity_inspect` | Existing authorized observation and entity inspection, scoped to tenant/world/timeline/space. |
+| `command_receipt` | Existing causal inspector, `runtime:world-inspect` and privacy ceiling. |
+| `run_receipt`, `run_search` | Existing [run inspector](runs.md#inspector-api), including participant-only payload access, audit and rate limits. |
+| `command_submit` | Typed ordinary [world commands](runtime-world-commands.md), validator and Journal. Requires `runtime:world-command`, or the distinct clock grant for clock controls. |
+| `runtime_state` | Existing runtime inspector under `runtime:world-inspect`, including privacy redaction and RLS. |
+| `runtime_action` | Ordinary `repair-publication` and `replay-message`, requiring scoped `runtime:world-operate`, audit and operator limits. |
+| `changeset_prepare`, `changeset_apply` | Declared Wave 7 placeholders. Strict versioned scope only; always `changesets_unavailable_until_wave_7`, without mutation. |
+
+There is no Talk tool. Conversation remains on the channel-neutral session path.
+MCP adapters issue no SQL and supply no grants. Each exchange authenticates anew;
+application dispatch verifies current identity, membership, grant and privacy rules
+again. Tenant/world/timeline identifiers are untrusted scope, never authority.
+
+### Command attribution and receipts
+
+`command_submit` accepts the same strict version-1 envelope as `/v1/runtime/commands`,
+including canonical-node typed command bytes and routing/authority epochs. It returns
+the ordinary canonical receipt for a committed, kernel-refused or authorized-denied
+command. Boundary failures use fixed public error categories. A retry preserves
+accepted bytes; command identity includes the verified MCP client identity, so a
+second credential cannot silently adopt an earlier credential's receipt identity.
+
+The endpoint obtains client identity from fresh Better Auth storage verification:
+`member-key:<keyId>` or `oauth:<clientId>`. An internal worker method carries that
+identity to the ordinary command owner, which seals `channel: mcp:<clientIdentity>`
+and the authorized member's world persona as initiator and effective actor. Caller
+attribution, headers and MCP initialization metadata cannot select these fields.
+The presented causal root is retained. A successful command requires a world persona.
+Why projects the recorded nonsecret channel alongside the command receipt; full
+command and run receipts retain inspector authorization.
+
+### Input and principal limits
+
+Published tools use strict application envelopes; application decoders remain
+authoritative. Arguments are limited to 64 KiB UTF-8 JSON and raw requests to
+128 KiB before parsing. These engineering bounds allow command metadata without
+unbounded parsing. Errors expose fixed categories, never exceptions, credentials
+or application response text.
+
+Every authenticated protocol exchange, including initialization, listing and refused
+calls, reserves durable capacity against the canonical principal across credentials,
+worlds and connections. Policy is 60 exchanges and 240 input-work units per fixed
+UTC database minute: one initial unit plus one per started 4 KiB. Reservation precedes
+body reading, and body-work admission precedes parsing/dispatch. Invalid/oversized
+bodies charge the maximum 32 body units. Failed downstream work is not refunded;
+storage failure refuses execution. One mutable row follows each principal's lifetime.
+
+These units bound local request work, not currency. The exposed command path performs
+physical/control kernel work and invokes no model or newly billable remote action.
+Operator repair/replay retains ordinary application admission and existing effect
+reservations. No Talk or arbitrary remote tool execution is exposed. A future billable
+MCP operation must reserve worst-case monetary capacity before dispatch; request units
+cannot substitute for that reservation.
 
 ## Internal member credential composition (issue 167, part 5)
 
-The authentication mechanisms are separate from the MCP connection. The internal
-`composeWorldMcpAuthentication` factory in `apps/runtime/src/better-auth-adapter.ts`
-uses Better Auth's matching OAuth-provider and API-key plugins. It supplies a
-project-owned authentication port and a bounded, allowlisted auth request handler;
-it does not register a public route, create a member, link an identity, or grant
-world access. The existing session verifier remains read-only and unchanged.
+The credential foundation from part 5 is now integrated into the endpoint.
+`composeWorldMcpAuthentication` confines Better Auth OAuth-provider/API-key SDKs
+to the auth adapter. The existing read-only session verifier is unchanged; the
+separately configured `clockgrove_mcp_auth_writer` cannot mutate world history,
+Management identity links, existing users or web sessions. Issuing a credential
+never enrolls a member, links an identity or creates a grant.
 
-OAuth registers public clients only (`token_endpoint_auth_method: none`) and uses
-the authorization-code flow with PKCE, explicit member consent,
-`clockgrove:mcp` scope and the configured MCP resource audience. Access tokens are
-opaque and verified against current provider storage on every request. API tokens
-belong to the signed-in member, expire after thirty days, store only a key hash
-and likewise require fresh storage verification. OAuth access lasts one hour;
-these are engineering lifetime decisions that bound exposure without retaining
-an MCP session. Auth bodies and queries are bounded at 16 KiB of UTF-8, credential strings at
-16,384 UTF-16 code units, and
-member-key names/identifiers at 128 characters (engineering metadata bounds).
-Registration accepts no remote key-discovery fields.
-Both modes resolve an existing environment/subject identity link; the ordinary
-principal mapping and world grants still decide authority. A credential never
-provides its own principal, persona or world grant.
+Both owner-required credential modes are available. OAuth authorization code uses
+PKCE S256, explicit member consent, fixed `clockgrove:mcp` scope and exact resource
+audience. Discovery supplies protected-resource and authorization-server metadata;
+bounded public dynamic registration admits public clients only. Unauthenticated
+authorization redirects to the existing member-session sign-in handoff. Member API
+tokens are created/listed/revoked through `/mcp/tokens`; `/mcp/consent` approves or
+denies OAuth, and token management also lists/revokes existing consents. Browser
+credentials stay in component memory; a newly issued token is shown once.
 
-A dedicated authentication writer owns provider protocol records through explicit
-configuration. It has no canonical world or Management write authority. Do not
-supply the existing `AUTH_DATABASE_URL` verifier credential to this factory or
-replace the default runtime authentication composition with it implicitly.
-The dedicated role is provisioned as `NOLOGIN`, with no deployed password in this
-part. Credential records are separate from world history: member keys cascade
-with their auth user and can be deleted through the owner route; expired/revoked
-OAuth records remain until their client or auth user is deleted. Expiry prevents
-use but does not physically retire those rows. Deleting the authorizing web
-session deletes its OAuth access/refresh rows, so session cleanup cannot turn
-a session-bound credential into an independent credential. Member API keys are
-independent of web session lifetime and still require a live identity link.
-Part 6 must bound public credential
-issuance and supply its retirement/administration procedure before activation.
+Opaque OAuth tokens and member keys use fresh provider storage verification on every
+exchange and resolve an existing environment/subject identity link. OAuth access
+lasts one hour and member keys thirty days, engineering exposure bounds. Revocation,
+expired credentials, deleted authorizing OAuth sessions, revoked identity links or
+revoked principals refuse the next exchange. Member keys are independent of web
+session lifetime and remain subject to their own revocation/expiry and live mapping.
 
-Part 6 must connect this port to ordinary application dispatch and principal
-admission, expose the endpoint and member token controls, and prove the complete
-client flow and isolation attacks. These mechanisms alone are not a connectable
-Clockgrove MCP endpoint.
-
-Before public activation, part 6 must satisfy these remaining acceptance gates:
-
-- **Acceptance 2:** authenticated MCP attacks through ordinary application dispatch
-  prove tenant, world and timeline isolation and refusal of private-data access.
-- **Acceptance 3:** command submission derives the member persona and MCP client
-  channel from trusted credential authority, preserves the causal root, and passes
-  the ordinary validator and Journal with that full attribution envelope.
-- **Acceptance 7:** verified credentials enter principal admission, and billable
-  operations reserve worst-case monetary cost before dispatch.
-- **Acceptance 8:** both issued OAuth and member-token credentials drive a real MCP
-  client through authenticated dispatch, runtime execution and PostgreSQL receipts;
-  revocation refuses the next request.
-- **Acceptance 10:** the runtime runbook provides usable external-client connection
-  and authentication instructions for the integrated endpoint.
+Auth bodies/queries are bounded at 16 KiB UTF-8, credentials at 16,384 UTF-16 code
+units and key names/identifiers at 128 characters, engineering metadata limits.
+Registration refuses remote key-discovery fields, secret-bearing client modes and
+unapproved scopes/grants. Endpoint origins must match the configured service origin;
+there is no cross-origin ambient-cookie authority.
 
 ### Credential record retention
 
-These provider tables are mutable and deletable, so they are documented here;
-the database retention registry covers append-only world history. Expiry is an
-authentication refusal, distinct from physical row deletion.
+Migration 0063 serializes successful credential insertion with a database lock and
+caps public issuance at 240 credential rows per database minute. This includes
+dependent rows, so a complete OAuth flow consumes more than one unit. Failed
+transactions do not retain reservations or credentials. These are engineering
+storage/issuance bounds, separate from principal MCP execution admission.
 
-| Table | Current retention |
+| Table | Capacity and retirement |
 | --- | --- |
-| `clockgrove_auth.oauthClient` | Issue 167 registered OAuth clients: mutable member-owned client registrations persist until provider/operator client deletion or auth-user cascade. The internal adapter adds no automatic client retirement; public activation must bound registration growth. |
-| `clockgrove_auth.oauthResource` | Issue 167 configured protected resources: one provider-seeded row per exact configured resource URL. Persists until explicit operator deletion; restarting inserts only missing resources. |
-| `clockgrove_auth.oauthClientResource` | Issue 167 resource allowlist: one unique client/resource pair, deleted by either parent cascade. Grows with retained registered clients. |
-| `clockgrove_auth.oauthRefreshToken` | Issue 167 provider schema compatibility: refresh grant and offline_access are disabled, so the mounted adapter creates no refresh rows. Future refresh activation needs its own lifecycle policy. |
-| `clockgrove_auth.oauthAccessToken` | Issue 167 OAuth credentials: hashed opaque tokens expire after one hour and support immediate revocation. Expired/revoked rows remain until client/user/session deletion cascades; issuance grows this row set. A credential lifecycle/capacity policy remains required before public activation. |
-| `clockgrove_auth.oauthConsent` | Issue 167 OAuth consent: persists until provider/operator deletion or client/user cascade; authorization may update existing consent. No conversation or connection state is retained. |
-| `clockgrove_auth.oauthClientAssertion` | Issue 167 provider schema compatibility: expiresAt records replay defense if a supported assertion method is used. The internal adapter exposes no assertion registration UI; expired rows require provider/operator cleanup, not MCP connection state. |
-| `clockgrove_auth.apikey` | Issue 167 member credentials: mutable user-owned hashed keys expire after thirty days; explicit member deletion and auth-user cascade physically remove keys. Expiry refuses use immediately; physical expiry cleanup is provider-owned and not an MCP admission guarantee. |
+| `clockgrove_auth.apikey` | 16 live keys per subject, 16,384 globally; expiry/disabled cleanup, member deletion or auth-user cascade. |
+| `clockgrove_auth.oauthClient` | 1,024 global registrations; retire after thirty days or explicit client deletion. Cascades resources, consents and credentials. |
+| `clockgrove_auth.oauthResource` | One seeded row per configured resource URL; explicit operator deletion. |
+| `clockgrove_auth.oauthClientResource` | Unique client/resource pair, bounded by registered clients and configured resource; parent cascade. |
+| `clockgrove_auth.oauthAccessToken` | 64 per subject, 65,536 global; one-hour expiry, immediate revocation and expiry/revocation cleanup. Client/user/session deletion cascades. |
+| `clockgrove_auth.oauthConsent` | 64 per subject, 65,536 global; retire after thirty days without update or member revocation. Deletion revokes corresponding credentials. |
+| `clockgrove_auth.verification` | At most 2,048 live public-issuance records; expired records removed. |
+| `clockgrove_auth.oauthRefreshToken` | Refresh grant/offline access disabled; expired/revoked compatibility rows cleaned. |
+| `clockgrove_auth.oauthClientAssertion` | Assertion client modes not exposed; expired compatibility rows cleaned. |
+| `clockgrove_auth.mcp_issuance_budget` | One mutable singleton counter, replaced in place each database-minute window. |
+
+These mutable provider records are separate from append-only world history.
+`clockgrove_auth.retire_mcp_credentials()` runs before credential insertion and is
+available for explicit administration; it never makes an expired credential valid.
+The caps bound abandoned issuance even when there is no scheduled cleanup. Operators
+can run retirement without an MCP connection; see the runbook procedure.
+
+### Real path and attacks
+
+`apps/runtime/test/world-mcp-public.postgres.test.ts` drives the production Worker,
+native owners and PostgreSQL through a real SDK client using issued OAuth and member
+credentials. It proves trusted Journal attribution, Why channel, private payload
+redaction, foreign tenant/world/timeline refusal and immediate credential/grant/link
+revocation. The focused command, auth, endpoint, operation, transport and admission
+PostgreSQL proofs cover their own boundaries. `tests/database/authorization.sql` retains
+the canonical RLS/privilege attack inventory, including the inaccessible principal-budget
+table; public MCP attacks exercise those existing use cases rather than a separate SQL path.
+The existing browser MCP journey additionally creates and revokes a member key through
+the web controls against native runtime auth storage. Every proof uses the fixture world.
+Local proof does not establish a hosted deployment or hosted egress qualification.
 
 ## Remote MCP installation
 

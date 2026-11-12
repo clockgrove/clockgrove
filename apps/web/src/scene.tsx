@@ -482,6 +482,9 @@ export function WorldApp({
         </div>
       </header>
       <main className="rw-main">
+        <a className="rw-mcp-link" href="/mcp/tokens">
+          Manage first-party MCP access
+        </a>
         {signedIn && entry && capabilitiesOpen && (
           <McpCapabilities key={worldRoutePath(entry)} session={session} scope={entry} />
         )}

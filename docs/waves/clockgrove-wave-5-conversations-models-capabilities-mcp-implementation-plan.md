@@ -480,46 +480,35 @@ Initial fixtures:
 
 Expose a stateless authenticated MCP surface over application APIs for world/timeline list, authorized search/inspection, command submission, run receipt, and changeset placeholders. It does not host actor memory or session state inside the MCP connection.
 
-Issue 167 parts 1–4 supply an internal bounded read adapter and the current
-Agents stateless MCP handler over authenticated runtime HTTP use cases, with no
-composed public endpoint. Six read tools cover world directory/status, entity
-inspection, command/run receipts and run search. Every request authenticates through
-the ordinary directory use case, and tool reads retain application authorization.
-Strict schemas and 64 KiB argument/128 KiB request bounds constrain untrusted input;
-finite JSON responses use the current SDK protocol and reject legacy requests.
-A real MCP SDK client exercises the handler through an in-process fetch bridge to
-the native fixture runtime and PostgreSQL. This does not prove deployed authentication.
-The [first-party readiness contract](../protocols/mcp.md#first-party-server-readiness)
-records the remaining OAuth and web-issued/revocable member-token modes, principal-wide
-monetary-cost admission for billable operations, authenticated endpoint composition and database attack proof,
-full discovery and attributed commands. Internal `runtime_state` and `runtime_action`
-tools use the ordinary inspector/operator APIs and their distinct grants, scoped audit
-and limits. Declared `changeset_prepare` and `changeset_apply` placeholders accept
-only a strict versioned scope and refuse with `changesets_unavailable_until_wave_7`
-without dispatching a mutation. These tools remain internal until authenticated
-endpoint composition is complete.
-Part 4 adds an internal admitted entry point with atomic PostgreSQL counters keyed by
-freshly authenticated principal across credentials, worlds and connections. Engineering
-policy admits at most 60 exchanges and 240 input work units per fixed UTC minute
-(one unit plus one per started 4 KiB). Refusals and downstream failures retain their
-reservation; storage failures refuse execution. Count/initial work reserve before body
-reading and body work before parsing/dispatch. Each phase charges its database minute;
-oversized or invalid reads charge maximum body work. One mutable counter row per principal
-stores no connection state or content. These work units bound request/input processing,
-not monetary model spend; future billable operations need separate monetary admission.
-The endpoint remains uncomposed until both required credential modes are ready.
-Commands must preserve member persona, MCP client channel and causal root through the
-ordinary validator and Journal. Talk stays on the channel-neutral session path.
-Part 5 adds internal Better Auth OAuth-provider and API-key credential mechanisms,
-with a separate auth writer and fresh storage verification. OAuth uses PKCE,
-member consent, a fixed MCP scope and the configured resource audience. Neither
-credential mode grants world authority or activates public routing. See the
-[credential boundary](../protocols/mcp.md#internal-member-credential-composition-issue-167-part-5).
-Part 6 retains endpoint/web integration, attributed commands, complete attacks and
-the working client connection proof. These remain Objective acceptance obligations;
-the internal transport and credential mechanisms alone do not complete RW-0509.
+Issue 167 integrates the current Agents stateless MCP handler at `/mcp` with fresh
+Better Auth OAuth PKCE and web-issued/revocable member API tokens. Optional explicit
+authentication-writer configuration activates the service; existing web session
+verification and all world grants remain unchanged. OAuth discovery, bounded public
+client registration and the existing member-session sign-in/consent handoff are wired;
+credential capacity and retirement are canonical PostgreSQL policy.
 
----
+World/timeline directory, status, entity inspection, command/run receipts and run search
+call ordinary application APIs. Operator state/actions use the same scoped inspect/operate
+grants. `command_submit` passes typed ordinary commands through the validator and Journal,
+with the member's world persona as initiator, credential-derived MCP client channel and
+preserved causal root. Why shows that recorded channel. Strict changeset placeholders
+always refuse until Wave 7. Talk remains on the channel-neutral session path.
+
+Every request authenticates independently and reserves principal-wide durable request/input
+capacity across credentials and connections: 60 exchanges and 240 work units per database
+UTC minute, one unit plus one per started 4 KiB. Tool arguments cap at 64 KiB and requests
+at 128 KiB. These explicit engineering limits bound local work, not monetary model spend.
+Current MCP physical/control commands invoke no model or newly billable remote operation;
+a future billable operation requires separate worst-case monetary admission before dispatch.
+
+A real SDK client drives issued OAuth and member credentials through the production Worker,
+native runtime and PostgreSQL, including command attribution, receipt authorization,
+foreign tenant/world/timeline/private-data attacks and immediate revocation. A browser proof
+creates and revokes a member key through the web controls. All proofs use the fixture world.
+The [first-party contract](../protocols/mcp.md#first-party-server-readiness) describes the
+implemented surface and limits, and the [runtime connection procedure](../runbooks/runtime.md#first-party-world-mcp-connection)
+covers configuration, both client modes and credential administration. Local acceptance
+does not establish hosted deployment or hosted egress qualification.
 
 ## 13. Channel-neutral session and delivery contracts
 

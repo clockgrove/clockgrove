@@ -56,7 +56,11 @@ interface NativeRuntime {
   dispose(): Promise<void>;
   dispatchFetch(
     url: string,
-    init: { readonly headers: Readonly<Record<string, string>> },
+    init: {
+      readonly headers: Readonly<Record<string, string>>;
+      readonly method?: string;
+      readonly body?: string;
+    },
   ): Promise<NativeUpgradeResponse>;
   getWorker(): Promise<{ scheduled(options: { readonly cron: string }): Promise<unknown> }>;
 }
@@ -67,12 +71,14 @@ export interface NativeResponse {
 export interface NativeSocket extends Pick<WebSocket, "send" | "close" | "addEventListener"> {
   accept(): void;
 }
-export interface NativeUpgradeResponse extends Pick<Response, "status" | "headers" | "json"> {
+export interface NativeUpgradeResponse
+  extends Pick<Response, "status" | "headers" | "json" | "text"> {
   readonly webSocket: NativeSocket | null;
 }
 export interface NativeWorldOwner {
   readonly fixture: DatabaseFixture;
   origin(): Promise<string>;
+  fetch(request: Request): Promise<globalThis.Response>;
   readonly world: Awaited<ReturnType<typeof testWorld>>;
   readonly packName: string;
   readonly scope: {
@@ -282,6 +288,7 @@ export function isNativeWorldOwnerChild(): boolean {
 /** Finite real-provider surface reused by owner safety and downstream scenario parity. */
 export async function withNativeWorldOwner(
   operation: (owner: NativeWorldOwner) => Promise<void>,
+  { mcp = false } = {},
 ): Promise<void> {
   const inherited = process.env[fixtureVariable];
   if (inherited === undefined)
@@ -433,6 +440,7 @@ export async function withNativeWorldOwner(
             : {}),
           NATIVE_PROVISIONING_FAULTS_DISABLED: provisioningFaultsDisabled,
           AUTH_DATABASE_URL: connection("clockgrove_auth_verifier"),
+          ...(mcp ? { MCP_AUTH_DATABASE_URL: connection("clockgrove_mcp_auth_writer") } : {}),
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),
           WORLD_AUTHORIZATION_DATABASE_URL: connection("clockgrove_world_reader"),
           BETTER_AUTH_SECRET: fixtureSecret,
@@ -482,6 +490,21 @@ export async function withNativeWorldOwner(
   try {
     await operation({
       fixture,
+      fetch: async (request) => {
+        if (runtime === undefined) throw new Error("native runtime stopped");
+        const response = await runtime.dispatchFetch(request.url, {
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          ...(request.body === null ? {} : { body: await request.text() }),
+        });
+        return new globalThis.Response(
+          [204, 205, 304].includes(response.status) ? null : await response.text(),
+          {
+            status: response.status,
+            headers: response.headers,
+          },
+        );
+      },
       origin: async () => {
         if (runtime === undefined) throw new Error("native runtime stopped");
         return (await runtime.ready).origin;

@@ -761,11 +761,30 @@ export class RuntimeWorker {
     }
   }
 
-  private worldCommand(request: Request, note: RequestNote): Promise<Response> {
+  /** Trusted MCP composition only: client identity is verified outside caller-controlled HTTP data. */
+  fetchMcpCommand(request: Request, clientId: string): Promise<Response> {
+    // Engineering metadata bound: one provider-issued identifier plus its credential-kind prefix.
+    if (typeof clientId !== "string" || clientId.length === 0 || clientId.length > 256)
+      return Promise.resolve(jsonResponse({ error: "authentication_refused" }, 401));
+    return this.answer("world_command_answered", (note) =>
+      this.worldCommand(request, note, clientId),
+    );
+  }
+
+  private worldCommand(
+    request: Request,
+    note: RequestNote,
+    mcpClientId?: string,
+  ): Promise<Response> {
     return this.submitWorldCommand(
       request,
       note,
-      async () => ({ input: decodeWorldCommandInput(await request.json()) }),
+      async () => ({
+        input: {
+          ...decodeWorldCommandInput(await request.json()),
+          ...(mcpClientId === undefined ? {} : { mcpClientId }),
+        },
+      }),
       (result, replayed) => worldResult(note, result, replayed),
     );
   }
@@ -871,6 +890,8 @@ export class RuntimeWorker {
         }
         throw error;
       }
+      if (input.mcpClientId !== undefined && context.personaId === undefined)
+        throw new AuthorizationRefusedError("world persona required");
       note.authorization = "authorized";
       return answer(await bindings.submit(input, context), undefined, context.personaId);
     } catch (error) {

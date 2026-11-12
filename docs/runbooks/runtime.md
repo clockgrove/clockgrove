@@ -1906,27 +1906,122 @@ canonical work; physical DLQ inspection remains an operator action. The browser'
 presentation wait preserves its pending message on expiry, so reopening can read or resume it.
 
 
-## Internal first-party MCP credentials
+## First-party world MCP connection
 
-Issue 167 part 5 supplies the internal `composeWorldMcpAuthentication` factory in
-`apps/runtime/src/better-auth-adapter.ts`. It supports both owner-required modes:
-OAuth authorization code with PKCE and member API tokens. It does not mount a
-public MCP or auth route. Final endpoint composition, the web token controls and
-a working external-client connection procedure remain part 6.
+The first-party `/mcp` endpoint uses the member's existing world authority. It is
+separate from the outbound remote installation procedure above. Both OAuth PKCE
+and member API tokens are supported; Talk stays on the ordinary session path.
 
-Keep the current `AUTH_DATABASE_URL` verification-only connection unchanged.
-Provisioning creates `clockgrove_mcp_auth_writer` as `NOLOGIN` with no password;
-this part does not activate it. The new factory requires explicit, separate
-authentication-writer configuration;
-that writer must never be the runtime, migrator, Management or World-reader
-connection. Configure the exact MCP resource URL and the existing identity-link
-resolver. OAuth scope/consent and token possession cannot create world grants.
-The adapter disables session refresh and cannot write existing users or sessions.
-OAuth access lasts one hour; member tokens last thirty days. Part 6 must add
-public issuance capacity limits and credential retirement/administration before
-activation. Never put credentials in URLs, command arguments, logs or committed
-configuration.
+### Configure the service
 
-See the [MCP credential contract](../protocols/mcp.md#internal-member-credential-composition-issue-167-part-5)
-for the internal boundary and remaining integration obligations. There is no
-external connection command to run until that composition is delivered.
+1. Retain the existing read-only `AUTH_DATABASE_URL`, Management/world readers,
+   `HYPERDRIVE`, `AUTH_ORIGIN` and `BETTER_AUTH_SECRET` configuration. Apply all
+   migrations, including 0063. `AUTH_ORIGIN` is the HTTPS origin serving the browser
+   and runtime API. Route `/mcp`, `/api/auth/oauth2/*`, `/api/auth/api-key/*` and OAuth
+   discovery paths to the runtime; route `/sign-in`, `/mcp/consent` and `/mcp/tokens`
+   to the web application. Do not forward the MCP URL to an outbound installation.
+2. Explicitly activate the existing least-privilege `clockgrove_mcp_auth_writer`
+   role through an authorized PostgreSQL administrator. It starts as `NOLOGIN`.
+   In an interactive `psql` session, run `ALTER ROLE clockgrove_mcp_auth_writer LOGIN;`
+   and then `\password clockgrove_mcp_auth_writer` to set its password through the
+   secure prompt. Do not place a password in command arguments, a SQL file or logs.
+   Ordinary provisioning deliberately normalizes this optional role back to
+   `NOLOGIN`; reactivate it explicitly when enabling the service after provisioning.
+3. Set the optional secret binding `MCP_AUTH_DATABASE_URL` to that writer's
+   connection on the **same PostgreSQL database** as the existing auth verifier and
+   canonical readers. Non-local direct connections require `sslmode=verify-full`.
+   Never substitute the runtime, migrator or existing read-only verifier connection.
+   No configuration adds a member, identity link, world persona or grant.
+   Missing/invalid MCP configuration leaves its routes unavailable and does not
+   change ordinary web authentication.
+
+The optional binding is supplied explicitly by the local/deployment operator;
+this change does not create or deploy a credential. The existing linked member
+must already hold each observe, inspect, command, clock or operator grant needed.
+
+### Connect with OAuth
+
+Point a current stateless MCP client at `https://YOUR_ORIGIN/mcp`. An unauthenticated
+request returns a Bearer challenge naming
+`https://YOUR_ORIGIN/.well-known/oauth-protected-resource/mcp`. That document
+advertises `https://YOUR_ORIGIN/api/auth` as authorization server; RFC 8414 metadata
+is available at `/.well-known/oauth-authorization-server/api/auth` and the root alias.
+
+The client registers its public redirect URI through the advertised registration
+endpoint, requests `clockgrove:mcp`, uses authorization code with PKCE S256 and
+sets `resource` to the exact MCP URL. HTTPS redirect URIs and exact HTTP loopback
+callbacks are supported. Registration is bounded and creates no world authority.
+Sign in using an existing member browser session, or enter an existing member
+session credential at the local sign-in handoff. This is the repository's existing
+session flow; it does not enroll an account or create a password login. On consent,
+check the displayed client identifier and requested scope, then choose Allow or Deny.
+The client exchanges the code and sends the resulting opaque bearer on every MCP
+request. OAuth access expires after one hour. Consent can be revoked on `/mcp/tokens`;
+revoking the token or its authorizing web session also stops it on the next request.
+
+### Connect with a member token
+
+Open `https://YOUR_ORIGIN/mcp/tokens`, authorize with the existing member session,
+enter a token name and select Create token. Copy the newly displayed value directly
+into the MCP client's secret/header configuration and then hide it. It is shown once,
+stored hashed by the server, and never put in browser persistent storage. Tokens
+expire after thirty days. The same screen lists tokens and revokes them immediately.
+Do not put a token into a URL, tool argument, connection transcript or committed file.
+
+A client supporting explicit bearer authentication sends
+`Authorization: Bearer <member-token>` on every exchange to `/mcp`. For a programmatic
+client using the repository's current SDK, the equivalent setup is:
+
+```ts
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+const client = new Client({ name: "owner-client", version: "1.0.0" });
+await client.connect(new StreamableHTTPClientTransport(new URL(resourceURL), {
+  authProvider: { token: async () => memberToken },
+}));
+const tools = await client.listTools();
+await client.callTool({ name: "world_directory", arguments: { version: 1 } });
+await client.close();
+```
+
+`resourceURL` and `memberToken` above come from the operator's configuration and
+secret store; the example deliberately prints neither credential nor private results.
+Use a current client with the SDK's stateless protocol; legacy stateful connections
+are refused. Tool calls need strict application envelopes, and `command_submit`
+uses the canonical typed command envelope documented in
+[world commands](../protocols/runtime-world-commands.md). Why shows the credential-derived
+MCP channel; inspector grants still govern command and run receipts.
+
+### Limits and credential administration
+
+Principal-wide limits are 60 MCP exchanges and 240 input-work units per database UTC
+minute, across credentials/connections/worlds. A request reserves one unit plus one
+per started 4 KiB; raw requests cap at 128 KiB, arguments at 64 KiB. These engineering
+bounds cover request work. The exposed physical/control commands invoke no model;
+there is no Talk or newly billable remote operation. Future billable tools require
+separate worst-case monetary reservation before dispatch.
+
+Credential issuance additionally serializes successful inserts and caps them at
+240 rows per database minute. Live storage caps are 16 member keys and 64 OAuth
+access tokens/consents per auth subject, with installation ceilings and a 1,024-client
+registration cap. See the [credential retention inventory](../protocols/mcp.md#credential-record-retention)
+for every table and its lifecycle. Expired/revoked rows and registrations/consents
+older than thirty days become eligible for retirement on the next successful issuance.
+No cleanup runs on the authentication read path; native expiry/revocation checks
+remain authoritative even without cleanup traffic.
+
+For immediate housekeeping, run
+`SELECT clockgrove_auth.retire_mcp_credentials();` through an authorized admin or
+MCP auth writer connection. Members revoke their keys or consents through the web
+controls; administrators may delete a compromised OAuth client in provider storage
+which cascades its credentials. To disable new MCP exchanges entirely, remove the
+optional writer binding and disable the writer login. Already accepted commands
+retain their ordinary committed receipts; revocation does not undo history.
+
+### Local proof
+
+The focused `world-mcp-public.postgres.test.ts` drives issued OAuth/member credentials
+through the production Worker and native owners with PostgreSQL and a real SDK
+client. It includes foreign-scope/private-data attacks, current grants, trusted
+persona/channel/root attribution, Why and revocation. The existing browser MCP
+journey covers the token controls against that runtime storage. These are fixture-only
+local proofs; hosted deployment and published-head quality remain separate evidence.

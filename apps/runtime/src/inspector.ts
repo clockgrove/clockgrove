@@ -554,6 +554,9 @@ export async function publicRecordedWhy(
     commandId: view.receipt.commandId,
     actionId: view.receipt.actionId ?? null,
     receiptStatus: view.receipt.status,
+    ...(view.receipt.attribution?.channel === undefined
+      ? {}
+      : { channel: view.receipt.attribution.channel }),
     traces,
     ...(includeResourceCauses ? { resourceCauses: publicResourceCauses(view) } : {}),
     schedules,

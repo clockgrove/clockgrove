@@ -581,3 +581,17 @@ body {
 .rw-mcp input, .rw-mcp select { max-width: 100%; }
 .rw-mcp pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rw-mcp article, .rw-mcp article section { border-top: 1px solid currentColor; margin-block: var(--cg-v1-space-3); padding-block: var(--cg-v1-space-2); }
+
+.rw-mcp-link,
+.rw-mcp-access a {
+  color: var(--cg-v1-text);
+}
+
+.rw-mcp-access {
+  padding: var(--cg-v1-space-4);
+  margin-inline: auto;
+}
+
+.rw-mcp-access output {
+  overflow-wrap: anywhere;
+}
