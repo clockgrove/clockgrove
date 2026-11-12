@@ -387,6 +387,11 @@ single consumption. Runtime roles cannot mutate it. It does not yet authorize a
 transport call: trusted human authorization, atomic dispatch admission, durable actor
 waits and approval UI are subsequent parts. See the [current MCP boundary](../protocols/mcp.md#internal-approval-ledger-issue-166-part-1).
 
+Part 2 adds an internal atomic approved-effect/outbox reservation with a recomputed
+versioned exact-call hash and identical-retry recovery. It does not activate writes
+or implement policy admission, actor waits or approval controls; see the
+[atomic reservation boundary](../protocols/mcp.md#atomic-approved-effect-reservation-issue-166-part-2).
+
 The owner decisions (2026-11-09) require approval for `external-write`, `destructive`
 and `cost`, and for `network` according to the grant; `read` never needs it. There are
 no standing approvals. The session person may approve within their own grants;
