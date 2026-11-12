@@ -1022,7 +1022,7 @@ function runWorld(
   let lifecycleRandom: NamedRandomState = input.randomState;
   const randomLog: { time: bigint; random: NamedRandomState }[] = [];
   let shelterChanged = false;
-  function shelterChanges(changing: WorldEvent) {
+  function shelterChanges(changing: WorldEvent, before = current()) {
     if (
       ![
         "movement.started",
@@ -1037,18 +1037,41 @@ function runWorld(
       movementId?: string;
       movement?: MovementRecord;
     };
-    const shelter = objectsOf(current(), data.objectId);
+    const shelter = objectsOf(before, data.objectId);
     if (shelter?.shelter === undefined) return undefined;
     const departing = data.movement !== undefined && leavesStart(data.movement);
     if (data.movement !== undefined && !departing) return undefined;
     const after = departing
       ? {
-          ...current(),
-          entities: current().entities.filter((entity) => entity.objectId !== shelter.objectId),
+          ...before,
+          entities: before.entities.filter((entity) => entity.objectId !== shelter.objectId),
         }
-      : reduceWorldEvent(current(), changing);
-    const changes = current()
-      .entities.filter(
+      : {
+          ...before,
+          // Budget planning runs before pending crossings are journaled; only the stopped pose
+          // matters here. The emitted movement event still goes through the validating reducer.
+          entities: before.entities.map((entity) =>
+            entity.objectId !== shelter.objectId
+              ? entity
+              : {
+                  ...entity,
+                  pose: {
+                    ...entity.pose,
+                    coordinates: positionAt(
+                      entity.movement!.segment,
+                      changing.simulationTime,
+                    ) as WorldEntity["pose"]["coordinates"],
+                  },
+                  movement: {
+                    ...entity.movement!,
+                    status: "completed" as const,
+                    endedAt: changing.simulationTime,
+                  },
+                },
+          ),
+        };
+    const changes = before.entities
+      .filter(
         (entity) =>
           active(entity) &&
           entity.movement?.status !== "active" &&
@@ -1058,10 +1081,10 @@ function runWorld(
       )
       .map((entity) => ({ entity, locationId: shelterAt(after, entity, entity.pose.coordinates) }))
       .filter(({ entity, locationId }) => (entity.locationId ?? null) !== locationId);
-    return { departing, changes, planId: data.movement?.movementId ?? data.movementId! };
+    return { after, departing, changes, planId: data.movement?.movementId ?? data.movementId! };
   }
-  function shelterEventCount(changing: WorldEvent): number {
-    const plan = shelterChanges(changing);
+  function shelterEventCount(changing: WorldEvent, before = current()): number {
+    const plan = shelterChanges(changing, before);
     return (
       plan?.changes.reduce(
         (total, { entity }) =>
@@ -1960,6 +1983,7 @@ function runWorld(
         moverCrossings.push({ objectId, movement, crossings });
         movementSize += crossings.length;
       }
+      let arrivalState = before;
       for (const { objectId, movement } of moverCrossings) {
         if (movementCompletionTime(movement.segment) !== at) continue;
         arrivalIds.push(objectId);
@@ -1981,12 +2005,45 @@ function runWorld(
               plan.consume.quantity,
           );
         }
-        movementSize += shelterEventCount(
-          event("movement.completed", at, {
-            objectId: objectId as ObjectId,
-            movementId: movement.movementId,
-          }),
+        if (
+          plan.location === undefined &&
+          shelterAt(arrivalState, actor, positionAt(movement.segment, at)) !==
+            (actor.locationId ?? null)
+        )
+          movementSize += 1;
+        const completion = event("movement.completed", at, {
+          objectId: objectId as ObjectId,
+          movementId: movement.movementId,
+        });
+        movementSize += shelterEventCount(completion, arrivalState);
+        const shelterPlan = shelterChanges(completion, arrivalState);
+        const stopped = {
+          ...objectsOf(arrivalState, objectId)!,
+          pose: {
+            ...actor.pose,
+            coordinates: positionAt(movement.segment, at) as WorldEntity["pose"]["coordinates"],
+          },
+          movement: { ...movement, status: "completed" as const, endedAt: at },
+        };
+        const projected = {
+          ...arrivalState,
+          entities: arrivalState.entities.map((entity) =>
+            entity.objectId === objectId ? stopped : entity,
+          ),
+        };
+        const locations = new Map(
+          shelterPlan?.changes.map(({ entity, locationId }) => [entity.objectId, locationId]),
         );
+        locations.set(stopped.objectId, shelterAt(projected, stopped, stopped.pose.coordinates));
+        arrivalState = {
+          ...projected,
+          entities: projected.entities.map((entity) => {
+            if (!locations.has(entity.objectId)) return entity;
+            const { locationId: _old, ...rest } = entity;
+            const locationId = locations.get(entity.objectId);
+            return locationId == null ? rest : { ...rest, locationId: locationId as ObjectId };
+          }),
+        };
         movementSize +=
           (integratedHere.has(objectId)
             ? 0

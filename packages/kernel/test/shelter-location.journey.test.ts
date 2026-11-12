@@ -258,6 +258,15 @@ it("rebuilds exposure when a routine shelter moves after its occupant decided", 
     ...base,
     state: {
       ...base.state,
+      spatialRegions: [
+        {
+          regionId: "arrival-edge",
+          version: 1,
+          frameId: base.state.entities[0]!.pose.frameId,
+          frameVersion: 1,
+          shape: { kind: "rectangle", min: [1500n, -100n], max: [2000n, 100n] },
+        },
+      ] as never,
       entities: base.state.entities.map((entity) =>
         entity.objectId === "z-shelter"
           ? { ...entity, shelter: { rainProtection: 10000 } }
@@ -278,6 +287,15 @@ it("rebuilds exposure when a routine shelter moves after its occupant decided", 
     fast.world.state.entities.find((entity) => entity.objectId === "a-occupant")!.needs!.wetness,
   ).toBe(3749);
   expect(changes(fast.events)).toContainEqual([0n, "a-occupant", null]);
+  const arrived = runChain(world, "arrival-fast", 1500n);
+  const stepped = runLiveSteps(world, "arrival-live", 1500n, [300, 200]);
+  expect(stepped.world.state.entities).toEqual(arrived.world.state.entities);
+  expect(stepped.world.state.wellbeing).toEqual(arrived.world.state.wellbeing);
+  expect(
+    arrived.events
+      .filter((event) => event.type === "movement.completed")
+      .map((event) => [event.simulationTime, event.payload.objectId]),
+  ).toContainEqual([1000n, "z-shelter"]);
   expect(
     fast.events
       .filter((event) => event.type === "exposure.threshold-crossed")
