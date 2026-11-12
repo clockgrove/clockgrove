@@ -76,7 +76,7 @@ jobs:
       wake_at: "${{ steps.f.outputs.wake_at }}"
       wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/factory@v0.9.11
+      - uses: clockgrove/factory@v0.9.13
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   queue-watch:
@@ -96,7 +96,7 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.9.11
+      - uses: clockgrove/factory@v0.9.13
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
@@ -142,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.11
+      - uses: clockgrove/factory@v0.9.13
         id: f
         with:
           mode: work
@@ -177,7 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.11
+      - uses: clockgrove/factory@v0.9.13
         id: f
         with:
           mode: review
@@ -190,6 +190,7 @@ jobs:
           codex_gateway_key: ${{ secrets.FACTORY_CODEX_GATEWAY_KEY }}
           copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }}
+          worker_secret_values: ${{ secrets.FACTORY_WORKER_SECRET_VALUES }} # with FACTORY_WORKER_SECRETS: the fix and answer passes only, never the reviewer
           # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       - uses: actions/upload-artifact@v7
