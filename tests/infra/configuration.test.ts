@@ -7,6 +7,8 @@ import { deploymentSurface, readJson, verifyWrangler } from "../../infra/check-c
 import { environmentSchema } from "../../infra/environment-schema.ts";
 import {
   applyStage,
+  boundedDeploymentPhase,
+  deploymentBounds,
   failedDeploymentStatus,
   providerMessage,
   provisionOptions,
@@ -802,6 +804,84 @@ describe("provision retry", () => {
     // The last call stops by the budget plus the grace, inside the 45-minute job with room for
     // the job's setup steps and the evidence upload.
     expect(budgetSeconds + graceSeconds).toBeLessThanOrEqual(35 * 60);
+  });
+
+  it("bounds grants, migrations and both publications with the shared budget and preserves timeout uncertainty", async () => {
+    // Local payloads stand in for psql, the migration CLI and Wrangler; cancellation and evidence
+    // use the real subprocess path. No hosted database or Cloudflare outcome is claimed.
+    const commands = [
+      ["reviewed database-role grants", "psql", ["--file=-"]],
+      ["database migrations", "node", ["migrate.mjs"]],
+      ["Wrangler secret publication", "wrangler", ["secret", "bulk"]],
+      ["Wrangler Worker publication", "wrangler", ["deploy"]],
+    ] as const;
+    for (const [name, executable, args] of commands) {
+      expect(deploymentBounds(executable, args, 0)).toEqual({
+        timeoutMs: 300_000,
+        killGraceMs: 120_000,
+      });
+      expect(deploymentBounds(executable, args, 1_700_000)).toEqual({
+        timeoutMs: 100_000,
+        killGraceMs: 120_000,
+      });
+      const refused = deploymentBounds(executable, args, 1_741_000);
+      expect(refused).toEqual({
+        refused:
+          "the minimum 60 s limit does not fit the 59 s left of the deploy's 1800 s deploy budget",
+      });
+      const result = { phases: [] as Phase[] };
+      await expect(
+        boundedDeploymentPhase(
+          result,
+          { commit: "a".repeat(40), tree: "b".repeat(40) },
+          name,
+          process.execPath,
+          ["-e", 'process.on("SIGINT", () => process.exit(0)); setInterval(() => {}, 1000)'],
+          0,
+          { retryable: () => true },
+          { ...tofuLimits, callSeconds: 0.8, graceSeconds: 0.1 },
+        ),
+      ).rejects.toMatchObject({ retryable: false });
+      expect(result.phases).toHaveLength(1);
+      expect(result.phases[0]).toMatchObject({
+        command: [name],
+        status: "unknown",
+        reason: "timeout",
+        errorCode: "ETIMEDOUT",
+        exitCode: 0,
+        signal: null,
+      });
+      expect(failedDeploymentStatus(result.phases, true)).toBe("unknown");
+      expect(() =>
+        assertDeploymentOutcome({ status: "unknown", phases: result.phases }),
+      ).not.toThrow();
+      expect(() => assertDeploymentOutcome({ status: "passed", phases: result.phases })).toThrow(
+        "deployment effect uncertainty mismatch",
+      );
+      expect(() =>
+        assertDeploymentOutcome({
+          status: "unknown",
+          phases: [...result.phases, { command: [name], status: "passed" }],
+        }),
+      ).toThrow("deployment continued after a time-limited phase");
+      const blocked = { phases: [] as Phase[] };
+      await expect(
+        boundedDeploymentPhase(
+          blocked,
+          { commit: "a".repeat(40), tree: "b".repeat(40) },
+          name,
+          "must-not-exist",
+          [],
+          1_741_000,
+        ),
+      ).rejects.toThrow("not started");
+      expect(blocked.phases[0]).toMatchObject({
+        status: "failed",
+        reason: "budget",
+        exitCode: null,
+        errorCode: null,
+      });
+    }
   });
 
   it("records a call the budget refuses as a failed phase that ends the deploy, retrying nothing", async () => {
