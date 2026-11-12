@@ -627,15 +627,6 @@ export function composeResearch(configuration: ResearchConfiguration) {
             hash = mcpReadArgumentsHash({ invalidArguments: true });
             reason = "invalid_input";
           }
-          if (!reason && resolved.definition?.remoteMcp && resolved.installation) {
-            try {
-              await new SafeMcpHttpClient(configuration.network).validate(
-                resolved.installation.url,
-              );
-            } catch {
-              reason = "network_refused";
-            }
-          }
           intent = {
             ...fiber.scope,
             effectId: call.effectId,
@@ -665,7 +656,9 @@ export function composeResearch(configuration: ResearchConfiguration) {
           else if (internal(proposal.capability)) {
             await reserveInternal(client, c, intent, eventId);
           } else
-            await new PostgreSqlMcpReadAdmission(client).reserve({
+            await new PostgreSqlMcpReadAdmission(client, (admitted) =>
+              new SafeMcpHttpClient(configuration.network).validate(admitted.endpoint),
+            ).reserve({
               intent,
               turnId: fiber.messageId,
               sessionId: fiber.sessionId,

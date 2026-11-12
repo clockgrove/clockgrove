@@ -512,13 +512,17 @@ function entryMatch(entry: RunEntry): readonly [string, readonly unknown[]] {
       [entry.commandId],
     ];
   if ("turn" in entry)
-    // Every attempt at the turn's input message, whichever of them committed it.
+    // Every attempt at the turn's input, using metadata only: inspectors cannot read transcripts.
+    // A service failure keeps run.turn NULL; each private turn appends exactly one message pair.
     return [
       `session_id = $5 AND input_message_id IN (
-         SELECT m.message_id FROM clockgrove.conversation_turns t
-           JOIN clockgrove.conversation_messages m ON m.tenant_id=t.tenant_id
-             AND m.session_id=t.session_id AND m.sequence=t.input_sequence
-          WHERE t.tenant_id=$1 AND t.session_id=$5 AND t.turn=$6)`,
+         SELECT candidate.input_message_id FROM clockgrove.agent_runs candidate
+          WHERE candidate.tenant_id=$1 AND candidate.session_id=$5 AND (
+            candidate.turn=$6 OR candidate.turn IS NULL
+              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')
+              AND candidate.input_revision=($6::integer-1)*2 AND EXISTS (
+                SELECT 1 FROM clockgrove.run_steps committed WHERE committed.tenant_id=candidate.tenant_id
+                  AND committed.run_id=candidate.run_id AND committed.kind='commit' AND committed.status='succeeded')))`,
       [entry.sessionId, entry.turn],
     ];
   // A message is a run's input, or what one of its steps produced.

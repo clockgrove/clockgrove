@@ -3,11 +3,13 @@ import {
   type ConversationParticipant,
   ConversationRefusedError,
   type ConversationResponder,
+  type ConversationResponse,
   type ConversationStore,
   type StoredCommandProposal,
   type TurnCommandRecord,
   type TurnFiber,
   type TurnInput,
+  type TurnToolCall,
 } from "@clockgrove/application";
 import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
 import { CONVERSATION_REFUSAL_STATUS, type ConversationStores } from "./conversations.js";
@@ -43,6 +45,37 @@ export interface ActorAgentRecovery {
   readonly recoveredTurns: number;
 }
 
+/** Owner decisions for tool-using turns (issue 165, 2026-11-09); composition supplies model pricing. */
+export interface TurnResearchPolicy {
+  readonly maxCalls: number;
+  readonly maxModelSteps: number;
+  readonly maxCostMicrousd: number;
+  readonly modelStepReserveMicrousd: number;
+}
+
+export interface TurnResearchHost {
+  readonly policy: TurnResearchPolicy;
+  /** Enqueues or reads the deterministic call; undefined means canonical Queue work is pending. */
+  executeTool(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    call: TurnToolCall,
+  ): Promise<TurnToolCall | undefined>;
+}
+
+function citedReply(text: string, calls: readonly TurnToolCall[]): string {
+  const recorded = calls.filter((call) => call.status !== "waiting");
+  const citations = recorded.map((call) => `[tool:${call.callId}]`);
+  const valid = new Set(citations);
+  const clean = text
+    .replace(/\[tool:[^\]\r\n]*\]/gu, (citation) =>
+      valid.has(citation) ? "" : "[unverified tool citation]",
+    )
+    .trim();
+  return citations.length === 0 ? clean : `${clean}\n\nResearch evidence: ${citations.join(" ")}`;
+}
+
 /** The owner-specific edges of a fiber: its lease holder, connection, checkpoint hook and keep-alive. */
 export interface TurnFiberHost {
   readonly holder: string;
@@ -50,6 +83,7 @@ export interface TurnFiberHost {
   readonly actorId: string;
   readonly stores: ConversationStores;
   readonly respond: ConversationResponder;
+  readonly research?: TurnResearchHost | undefined;
   capabilityRevision(): number;
   beforeModel?(
     participant: ConversationParticipant,
@@ -276,7 +310,49 @@ export class TurnFibers {
               input,
               prompt,
             });
-            const response = await this.host.respond(session, caretakerMessages, input, prompt);
+            let response: ConversationResponse | undefined;
+            if (this.host.research !== undefined) {
+              const policy = this.host.research.policy;
+              const reserved = await this.store((store) =>
+                store.reserveModelStep!(participant, current, {
+                  maxModelSteps: policy.maxModelSteps,
+                  maxCostMicrousd: policy.maxCostMicrousd,
+                  reserveMicrousd: policy.modelStepReserveMicrousd,
+                }),
+              );
+              if (reserved === "fenced") return this.settled(participant, current);
+              if (reserved !== "reserved") {
+                response = {
+                  text: `Research stopped: ${reserved}. No further action was taken.`,
+                  outcomeCode: reserved,
+                };
+              }
+            }
+            if (response === undefined) {
+              try {
+                response = await this.host.respond(session, caretakerMessages, input, prompt);
+              } catch (error) {
+                if (this.host.research === undefined) throw error;
+                // Provider exception text can contain prompts or credentials; only a fixed state leaves.
+                response = {
+                  text: "Model unavailable. I could not finish this turn.",
+                  outcomeCode: "model_unavailable",
+                };
+              }
+            }
+            if (this.host.research !== undefined) {
+              if (
+                response.command !== undefined &&
+                !/^[!-~]{1,4096}$/u.test(response.command.capability)
+              )
+                response = {
+                  text: "Model unavailable. The model returned an invalid tool proposal.",
+                  outcomeCode: "model_unavailable",
+                  ...(response.usage === undefined ? {} : { usage: response.usage }),
+                };
+              const state = await this.store((store) => store.researchState!(participant, current));
+              response = { ...response, text: citedReply(response.text, state.calls) };
+            }
             next = await this.store((store) => store.answerTurn(participant, current, response));
             break;
           }
@@ -292,10 +368,91 @@ export class TurnFibers {
               );
               break;
             }
+            // Existing world-command behavior stays on its ordinary Journal path. A read gets
+            // a durable identity before admission or Queue publication can happen.
+            if (this.host.research !== undefined && proposal.capability !== "world.command") {
+              const state = await this.store((store) => store.researchState!(participant, current));
+              if (state.calls.length >= this.host.research.policy.maxCalls) {
+                next = await this.store((store) =>
+                  store.stopResearch!(
+                    participant,
+                    current,
+                    "tool_calls_exhausted",
+                    citedReply(
+                      "Research stopped: tool_calls_exhausted. No further action was taken.",
+                      state.calls,
+                    ),
+                  ),
+                );
+              } else {
+                const digest = await crypto.subtle.digest(
+                  "SHA-256",
+                  new TextEncoder().encode(
+                    JSON.stringify([
+                      current.scope.tenantId,
+                      current.sessionId,
+                      current.messageId,
+                      state.calls.length + 1,
+                    ]),
+                  ),
+                );
+                const callId = `tool:${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+                next = await this.store((store) =>
+                  store.waitForTool!(participant, current, {
+                    callId,
+                    effectId: callId,
+                    capability: proposal.capability,
+                  }),
+                );
+              }
+              break;
+            }
             const record = await this.decideCommand(participant, current, proposal);
             next = await this.store((store) => store.recordCommand(participant, current, record));
             break;
           }
+          case "tool_waiting": {
+            const state = await this.store((store) => store.researchState!(participant, current));
+            const call = state.calls.at(-1);
+            const proposal = await this.store((store) =>
+              store.commandProposal(participant, current),
+            );
+            if (call === undefined || proposal === undefined || this.host.research === undefined)
+              throw new Error("tool checkpoint unavailable");
+            emit({
+              type: "tool",
+              callId: call.callId,
+              capability: call.capability,
+              status: "using",
+            });
+            const result = await this.host.research.executeTool(
+              participant,
+              current,
+              proposal,
+              call,
+            );
+            if (result === undefined || result.status === "waiting")
+              return { refused: "conversation_busy" };
+            next = await this.store((store) =>
+              store.completeTool!(participant, current, {
+                ...result,
+                status: result.status as Exclude<TurnToolCall["status"], "waiting">,
+              }),
+            );
+            emit({
+              type: "tool",
+              callId: call.callId,
+              capability: call.capability,
+              status:
+                result.status === "succeeded" || result.status === "simulated"
+                  ? "completed"
+                  : "failed",
+            });
+            break;
+          }
+          case "tool_completed":
+            next = await this.store((store) => store.resumeAfterTool!(participant, current));
+            break;
           case "committing": {
             next = await this.store((store) => store.commitTurn(participant, current));
             if (next !== undefined) {

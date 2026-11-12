@@ -24,6 +24,8 @@ export interface CapabilityUseContext {
 export interface CapabilityDefinition {
   readonly name: string;
   readonly description: string;
+  /** Canonical bounded schema metadata; never an instruction or execution authority. */
+  readonly inputSchema?: unknown;
   readonly effect: CapabilityEffect;
   /** For remote tools, reviewed binding policy supplies authority instead of a default grant. */
   readonly remoteMcp?: {
@@ -121,6 +123,13 @@ export class CapabilityGrants {
       .map((grant) => grant.capability);
   }
 
+  availableDefinitions(): readonly CapabilityDefinition[] {
+    return this.available().flatMap((name) => {
+      const definition = this.registry.get(name);
+      return definition === undefined ? [] : [definition];
+    });
+  }
+
   /**
    * Decides one proposal against the grants and the calls already made this turn. The input is
    * checked by the capability's own schema only after the grant allows it, and a world command's
@@ -198,6 +207,7 @@ export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
   },
   {
     name: "inspect",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
     description: "Read the authorized scene around the actor.",
     effect: "read",
     requiredRuntimeGrant: "runtime:world-observe",
@@ -208,6 +218,12 @@ export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
   },
   {
     name: "why",
+    inputSchema: {
+      type: "object",
+      properties: { commandId: { type: "string" } },
+      required: ["commandId"],
+      additionalProperties: false,
+    },
     description: "Read the recorded explanation of one command.",
     effect: "read",
     requiredRuntimeGrant: "runtime:world-observe",

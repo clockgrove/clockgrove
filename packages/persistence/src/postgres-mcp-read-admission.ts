@@ -68,7 +68,10 @@ function validPolicy(policy: McpReadTurnPolicy): boolean {
 
 /** Internal privileged client only. No SQL privilege or remote adapter is installed here. */
 export class PostgreSqlMcpReadAdmission {
-  constructor(private readonly client: PostgreSqlClient) {}
+  constructor(
+    private readonly client: PostgreSqlClient,
+    private readonly preflight?: (request: AdmittedMcpRead) => Promise<void>,
+  ) {}
 
   private async transaction<T>(operation: () => Promise<T>): Promise<T> {
     try {
@@ -410,6 +413,13 @@ export class PostgreSqlMcpReadAdmission {
       else if (await this.killed(i, request.installationId)) reason = "kill_switch";
       const resolved = reason ? null : await this.resolve(identity, input, budget);
       if (resolved && "reason" in resolved) reason = resolved.reason;
+      if (!reason && resolved && "request" in resolved && this.preflight) {
+        try {
+          await this.preflight(resolved.request);
+        } catch {
+          reason = "network_refused";
+        }
+      }
       if (!reason && i.argumentsArtifactId === null) reason = "arguments_artifact_required";
       if (
         !reason &&

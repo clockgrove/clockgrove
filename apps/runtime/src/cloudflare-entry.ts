@@ -888,20 +888,26 @@ export function composeRuntime(env: RuntimeEnvironment): RuntimeComposition {
   };
 }
 
-function composeGuardedResearch(
+/** Shared local read adapter; fresh member authority governs both native execution and fixtures. */
+export function composeResearchInternalRead(
   env: RuntimeEnvironment,
-  supplied: Pick<RuntimeComposition, "research" | "researchConfiguration" | "authentication">,
-): ReturnType<typeof composeResearch> | undefined {
-  if (env.PROVIDER_ENVIRONMENT !== "local") return undefined;
-  if (supplied.research) return supplied.research;
-  const configuration = supplied.researchConfiguration;
-  if (!configuration) return undefined;
+  authentication: RuntimeAuthenticationDependencies,
+): NonNullable<ResearchConfiguration["internalRead"]> {
   const contextFor = async (target: ResearchResumeTarget) => {
-    const authority = await supplied.authentication.world.resolveWorld(
+    const authority = await authentication.world.resolveWorld(
       decodeOpaqueId(target.principalId, "PrincipalId"),
       target.scope,
     );
-    if (!authority || authority.personaId !== target.personaId)
+    if (
+      !authority ||
+      authority.tenantId !== target.scope.tenantId ||
+      authority.worldId !== target.scope.worldId ||
+      authority.timelineId !== target.scope.timelineId ||
+      authority.spaceId !== target.scope.spaceId ||
+      authority.principalId !== target.principalId ||
+      authority.personaId !== target.personaId ||
+      !authority.grants.some((grant) => grant === "runtime:world-observe")
+    )
       throw new Error("Research authority unavailable");
     const { constructTrustedExecutionContext } = await import("@clockgrove/contracts/trusted");
     return constructTrustedExecutionContext({
@@ -915,10 +921,42 @@ function composeGuardedResearch(
       privacyCeiling: authority.privacyCeiling,
       correlationId: target.messageId,
       requestId: target.messageId,
-      codeVersion: supplied.authentication.codeVersion,
+      codeVersion: authentication.codeVersion,
       protocolVersion: 1,
     });
   };
+  return async (target, capability, input) => {
+    const context = await contextFor(target);
+    const value =
+      capability === "inspect"
+        ? await perceiveScene(env, target.scope, context)
+        : await withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+            new PostgreSqlCausalInspector(client).recordedWhy(
+              {
+                scope: target.scope,
+                commandId: decodeOpaqueId((input as { commandId: string }).commandId, "CommandId"),
+              },
+              context,
+            ),
+          );
+    return {
+      trust: "untrusted_evidence",
+      status: "ok",
+      content: [{ type: "text", text: JSON.stringify(value) }],
+      sanitized: false,
+      costMicrousd: null,
+    };
+  };
+}
+
+function composeGuardedResearch(
+  env: RuntimeEnvironment,
+  supplied: Pick<RuntimeComposition, "research" | "researchConfiguration" | "authentication">,
+): ReturnType<typeof composeResearch> | undefined {
+  if (env.PROVIDER_ENVIRONMENT !== "local") return undefined;
+  if (supplied.research) return supplied.research;
+  const configuration = supplied.researchConfiguration;
+  if (!configuration) return undefined;
   return composeResearch({
     ...configuration,
     environment: "local",
@@ -942,31 +980,7 @@ function composeGuardedResearch(
         return result.value;
       },
     },
-    internalRead: async (target, capability, input) => {
-      const context = await contextFor(target);
-      const value =
-        capability === "inspect"
-          ? await perceiveScene(env, target.scope, context)
-          : await withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
-              new PostgreSqlCausalInspector(client).recordedWhy(
-                {
-                  scope: target.scope,
-                  commandId: decodeOpaqueId(
-                    (input as { commandId: string }).commandId,
-                    "CommandId",
-                  ),
-                },
-                context,
-              ),
-            );
-      return {
-        trust: "untrusted_evidence",
-        status: "ok",
-        content: [{ type: "text", text: JSON.stringify(value) }],
-        sanitized: false,
-        costMicrousd: null,
-      };
-    },
+    internalRead: composeResearchInternalRead(env, supplied.authentication),
   });
 }
 

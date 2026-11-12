@@ -98,7 +98,12 @@ const MESSAGE_COLUMNS = `session_id, sequence, message_id, role, author_id, voic
   content_artifact_id, ${timestamp("created_at")},
   (SELECT q.record FROM clockgrove.moderation_shadow q
     WHERE q.tenant_id=conversation_messages.tenant_id AND q.session_id=conversation_messages.session_id
-      AND q.message_id=conversation_messages.message_id) AS moderation_shadow`;
+      AND q.message_id=conversation_messages.message_id) AS moderation_shadow,
+  (SELECT f.outcome_code FROM clockgrove.conversation_turn_fibers f
+    WHERE f.tenant_id=conversation_messages.tenant_id AND f.session_id=conversation_messages.session_id
+      AND f.message_id=left(conversation_messages.message_id,-6) AND conversation_messages.role='actor'
+      AND right(conversation_messages.message_id,6)=':reply'
+      AND f.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')) AS service_outcome`;
 const TURN_COLUMNS = `session_id, turn, input_sequence, output_sequence, model, state,
   ${timestamp("created_at")}`;
 /** Same scope filter for every session read; RLS admits only sessions the caller participates in. */
@@ -1640,6 +1645,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
       voiceMode: row.voice_mode,
       text: await this.text(participant, stored, String(row.content_artifact_id)),
       createdAt: row.created_at,
+      ...(row.service_outcome == null ? {} : { serviceOutcome: row.service_outcome }),
       ...(row.moderation_shadow == null
         ? {}
         : {

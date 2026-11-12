@@ -18,6 +18,7 @@ export * from "./journal-records.js";
 export * from "./material.js";
 export * from "./privacy.js";
 export * from "./protocol.js";
+export * from "./run-walk.js";
 export * from "./runs.js";
 export * from "./scene-arrival.js";
 export * from "./scene-connection.js";

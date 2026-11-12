@@ -359,6 +359,7 @@ export function resolveMcpCapabilityRegistry(
         name,
         effect,
         description: "Remote MCP tool; untrusted server content is not policy.",
+        inputSchema: candidate.schema,
         requiredRuntimeGrant: "runtime:mcp-install",
         remoteMcp: {
           installationId: installation.installationId,

@@ -5,6 +5,7 @@ import {
   type InteractionActionKind,
   type InteractionSummary,
   type ObjectId,
+  type RunWalk,
   type TalkCommandOutcome,
   VOICE_DISCLOSURES,
 } from "@clockgrove/contracts";
@@ -78,6 +79,8 @@ export function ConversationPanel({
   const [refusal, setRefusal] = useState<string>();
   const [provisional, setProvisional] = useState("");
   const [phase, setPhase] = useState<string>();
+  const [toolEvidence, setToolEvidence] = useState<RunWalk>();
+  const evidenceRequest = useRef(0);
   const hooks = { onProvisional: setProvisional, onPhase: setPhase };
 
   const enabledAction = (kind: InteractionActionKind) =>
@@ -85,6 +88,18 @@ export function ConversationPanel({
   const openWhy = (commandId: string, opener: HTMLElement) => {
     whyOpener.current = opener;
     session.explainReceipt(commandId as CommandId);
+  };
+  const inspectTools = async (messageId: string) => {
+    if (!current) return;
+    const request = ++evidenceRequest.current;
+    setToolEvidence(undefined);
+    setRefusal(undefined);
+    // Reply IDs append :reply to their canonical input; entering by input reaches every attempt.
+    const inputMessageId = messageId.endsWith(":reply") ? messageId.slice(0, -6) : messageId;
+    const evidence = await session.inspectConversationRun(current.sessionId, inputMessageId);
+    if (request !== evidenceRequest.current) return;
+    if ("refused" in evidence) setRefusal(evidence.refused);
+    else setToolEvidence(evidence);
   };
   const railAction = (kind: InteractionActionKind, opener: HTMLElement) => {
     if (kind === "talk") input.current?.focus();
@@ -98,6 +113,8 @@ export function ConversationPanel({
 
   const choose = useCallback((id: string | undefined) => {
     chosen.current = id;
+    ++evidenceRequest.current;
+    setToolEvidence(undefined);
     setSelectedId(id);
   }, []);
 
@@ -341,14 +358,26 @@ export function ConversationPanel({
         <ol className="rw-chat" aria-label="Conversation history">
           {messages.map((message) => {
             const mine = message.role === "caretaker";
+            const service = message.serviceOutcome !== undefined;
             const outcome = outcomeOf(message);
             return (
-              <li key={message.messageId} className="rw-bubble" data-from={mine ? "you" : "actor"}>
-                {!mine && <Portrait label={name} className="rw-bubble-avatar" />}
+              <li
+                key={message.messageId}
+                className="rw-bubble"
+                data-from={mine ? "you" : service ? "system" : "actor"}
+              >
+                {!mine && !service && <Portrait label={name} className="rw-bubble-avatar" />}
                 <div>
-                  <strong>{mine ? "You" : name}</strong>
-                  {message.voiceMode && <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>}
+                  <strong>{mine ? "You" : service ? "Runtime status" : name}</strong>
+                  {!service && message.voiceMode && (
+                    <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>
+                  )}
                   <p>{message.text}</p>
+                  {!mine && message.text.includes("[tool:") && (
+                    <button type="button" onClick={() => void inspectTools(message.messageId)}>
+                      Why? Tool evidence
+                    </button>
+                  )}
                   <time dateTime={message.createdAt} data-wall-clock>
                     {worldTime(message.createdAt)}
                   </time>
@@ -375,13 +404,67 @@ export function ConversationPanel({
           })}
         </ol>
         <div aria-live="polite">
-          {phase && <p>Reply in progress ({phase.replaceAll("_", " ")})</p>}
+          {phase && (
+            <p>
+              {phase === "tool_waiting"
+                ? "Using tool…"
+                : `Reply in progress (${phase.replaceAll("_", " ")})`}
+            </p>
+          )}
           {provisional && (
             <p>
               <em>{name} is replying…</em> {provisional}
             </p>
           )}
         </div>
+        {toolEvidence && (
+          <aside aria-label="Tool evidence">
+            <h3>Tool evidence</h3>
+            <button type="button" onClick={() => setToolEvidence(undefined)}>
+              Close evidence
+            </button>
+            {toolEvidence.runs.map((run) => (
+              <div key={run.runId}>
+                <p>
+                  Run {run.runId} · message {run.inputMessageId} · {run.status}
+                </p>
+                <ol>
+                  {run.steps
+                    .filter(
+                      (step) => step.kind === "tool_proposal" || step.kind === "tool_execution",
+                    )
+                    .map((step) => (
+                      <li key={step.step}>
+                        <p>
+                          {step.tool} · {step.status} · {step.outcomeCode ?? "ok"}
+                        </p>
+                        <p>{step.summary}</p>
+                        {step.toolEvidence && (
+                          <dl>
+                            <dt>Call</dt>
+                            <dd>{step.toolEvidence.callId}</dd>
+                            <dt>Effect</dt>
+                            <dd>{step.toolEvidence.effectId}</dd>
+                            <dt>Grant</dt>
+                            <dd>{step.toolEvidence.grantId ?? "none"}</dd>
+                            <dt>Result</dt>
+                            <dd>{step.toolEvidence.resultArtifactId ?? "none"}</dd>
+                            <dt>Queue latency</dt>
+                            <dd>
+                              {step.toolEvidence.queueLatencyMs === null
+                                ? "unknown"
+                                : `${step.toolEvidence.queueLatencyMs} ms`}
+                            </dd>
+                          </dl>
+                        )}
+                        {step.output && <p>Protected result: {step.output.artifactId}</p>}
+                      </li>
+                    ))}
+                </ol>
+              </div>
+            ))}
+          </aside>
+        )}
         {next !== null && (
           <button type="button" onClick={() => void loadMore()}>
             Load more

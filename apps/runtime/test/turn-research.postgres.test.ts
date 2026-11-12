@@ -3,6 +3,7 @@ import { decodeBrowserScope, decodeOpaqueId } from "@clockgrove/contracts";
 import {
   PostgreSqlArtifactStore,
   PostgreSqlConversationStore,
+  PostgreSqlRunReader,
   WebCryptoKeyring,
 } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
@@ -190,6 +191,24 @@ it("checkpoints encrypted research, fences old owners and reserves all model ret
       expect((await store.turnReceipt(participant, bound)).reply.text).toBe(
         "Tool call limit reached; no further tool was called.",
       );
+      expect((await store.turnReceipt(participant, bound)).reply.serviceOutcome).toBe(
+        "tool_calls_exhausted",
+      );
+      expect(
+        (await store.read(participant, scope, session.sessionId, 0, 100)).messages.at(-1)
+          ?.serviceOutcome,
+      ).toBe("tool_calls_exhausted");
+      const metadata = await new PostgreSqlRunReader(client, artifacts).walk(
+        {
+          ...participant,
+          privacyCeiling: { version: 1, allowedCategories: ["operator_evidence"] },
+        },
+        scope,
+        { sessionId: session.sessionId, turn: 2 },
+      );
+      expect(metadata.map((run) => [run.status, run.outcomeCode, run.prompt?.text])).toEqual([
+        ["failed", "tool_calls_exhausted", null],
+      ]);
       expect(
         await sql(
           "SELECT status||'/'||outcome_code FROM clockgrove.agent_runs WHERE input_message_id='bound'",
