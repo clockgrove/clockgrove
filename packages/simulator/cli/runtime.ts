@@ -25,6 +25,27 @@ export const WORKERS_PEAK_MEMORY_REASON =
   "workerd exposes no in-isolate memory API; the harness cannot measure its peak memory from the host here";
 
 /** The workers runtime could not be started or did not answer as actual workerd. */
+/** True for undici's error when a kept-alive connection was closed by the other side before the request went out. */
+function isStaleSocket(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | null)?.cause;
+  return cause?.code === "UND_ERR_SOCKET";
+}
+
+/**
+ * Sends a request to the local workerd, once more if the kept-alive loopback connection had gone stale. A long
+ * CPU-bound Node run between two requests keeps this process from reading the socket, workerd closes it as idle, and
+ * the next request fails with UND_ERR_SOCKET ("other side closed") before reaching the worker. A wire request is a
+ * deterministic simulation with no state in the worker, so sending it again is safe; any other failure is not retried.
+ */
+export async function retryStaleSocket<T>(send: () => Promise<T>): Promise<T> {
+  try {
+    return await send();
+  } catch (error) {
+    if (!isStaleSocket(error)) throw error;
+    return await send();
+  }
+}
+
 export class WorkersUnavailable extends Error {
   constructor(detail: string) {
     super(detail);
@@ -150,10 +171,13 @@ export class WorkersSession {
     if (this.worker === undefined || this.disposed)
       throw new WorkersUnavailable("the workers session is not running");
     const started = performance.now();
-    const response = await this.worker.dispatchFetch("http://local.invalid/", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    const worker = this.worker;
+    const response = await retryStaleSocket(() =>
+      worker.dispatchFetch("http://local.invalid/", {
+        method: "POST",
+        body: JSON.stringify(request),
+      }),
+    );
     const text = await response.text();
     const durationMs = performance.now() - started;
     if (response.status !== 200)
