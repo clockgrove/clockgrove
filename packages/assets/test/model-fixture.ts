@@ -226,3 +226,10 @@ export async function createRiggedModelFixture(
   };
   return { bytes, manifest, profile };
 }
+
+export function modelWithTriangles(bytes: Uint8Array, triangles: number): Uint8Array {
+  return rewriteModelJson(bytes, (json) => {
+    const primitive = json.meshes[0].primitives[0];
+    json.meshes[0].primitives = Array.from({ length: triangles }, () => primitive);
+  });
+}

@@ -26,6 +26,7 @@ import {
   readManifests,
   readMaterialSources,
   readModelBytes,
+  readModelLevelSources,
   readModelManifests,
   readModelTargetProfile,
   readPackScenes,
@@ -88,7 +89,12 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
       return [`ASSETS_REQUIRED: no asset manifests under ${join(root, assetRoot, "manifests")}`];
     const modelProblems = models.length
       ? models.flatMap((f) =>
-          validateModel(f.manifest, f.bytes, readModelTargetProfile(root, referenceRoot)),
+          validateModel(
+            f.manifest,
+            f.bytes,
+            readModelTargetProfile(root, referenceRoot),
+            f.levelSources,
+          ),
         )
       : [];
     if (modelProblems.length) return modelProblems;
@@ -119,7 +125,21 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
       for (const f of shippedModels) {
         const name = `${f.manifest.assetId}.glb`;
         result.set(name, f.bytes);
-        index[f.manifest.assetId] = { ...f.manifest.output, path: name };
+        const levels = f.manifest.output.levels?.map((level, index) => {
+          if (!level.path) return level;
+          const path = index === 0 ? name : `${f.manifest.assetId}.lod-${index}.glb`;
+          if (index !== 0) {
+            const bytes = f.levelSources?.[level.path];
+            if (!bytes) throw new Error(`MODEL_SOURCE_REQUIRED: ${level.path}`);
+            result.set(path, bytes);
+          }
+          return { ...level, path };
+        });
+        index[f.manifest.assetId] = {
+          ...f.manifest.output,
+          path: name,
+          ...(levels === undefined ? {} : { levels }),
+        };
       }
       result.set("models.json", Buffer.from(`${JSON.stringify(index)}\n`));
     }
@@ -266,6 +286,7 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
           manifest,
           readModelBytes(join(root, external ? "." : "worlds/fixture"), manifest),
           readModelTargetProfile(root, referenceRoot),
+          readModelLevelSources(join(root, external ? "." : "worlds/fixture"), manifest),
         ),
         ...assetDeployRefusals(manifest)
           .filter((r) => r.code !== "REVIEW_NOT_APPROVED")

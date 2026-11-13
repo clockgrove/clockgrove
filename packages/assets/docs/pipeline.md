@@ -330,13 +330,19 @@ no target-side compression is required before handoff.
 
 The inspected metrics have explicit meanings:
 
-- `triangles` sums triangle primitives across all mesh definitions, including
-  LOD meshes; repeated node instances do not multiply the count. Triangle lists,
-  strips and fans are supported.
+- `triangles` is level zero's triangle count. With `MSFT_lod`, the inspector reports
+  `levelTriangles` in full-to-low detail order, substituting each chain's node subtree
+  while retaining ordinary scene geometry. Shorter parallel chains retain their last
+  level. Each mesh definition is counted once per level, regardless of node instances.
+  Alternate-node lists must be unique, acyclic and reference existing nodes.
+  Nested alternate chains expand depth-first in declared order, counting each node
+  once in a chain. Triangle lists, strips and fans
+  are supported. Models without LODs retain the existing sum over all mesh definitions.
 - `textureMaxPx` is the greatest width or height of the embedded images, or zero
   with no images. `materials` counts declared material records.
 - `bones` counts distinct joint nodes across every skin. `lods` is one base level
-  plus the largest `MSFT_lod` alternate-node list (one when no LODs are declared).
+  plus the largest expanded `MSFT_lod` alternate-node chain (one when no LODs are declared).
+  Separate-file declarations use their number of entries.
 - `bounds.min/max` are the default scene's rest/base geometry AABB after node
   transforms, in glTF metres. They are calculated from decoded vertex data, not
   copied from accessor bounds, and do not represent the envelope of animations.
@@ -364,8 +370,26 @@ accepted by `validate`; `check` and shipping retain the human approval gate.
 The inspector has a 60-second local process deadline so malformed media cannot
 hold the synchronous validation hook indefinitely.
 
+Optional `output.levels` declares ordered triangle counts, either embedded entries
+`{"triangles": 59847}` or separate-file entries with `path` and `sha256` as well.
+The entry count equals `output.lods`; file level zero matches the top-level path/hash,
+and all file paths are distinct safe world-relative GLBs. Each separate GLB must have
+one level. Every declared file must exist within the world (including symlink resolution),
+hash-match and decode, even if no tier selects it. All declared triangle counts are
+compared to inspection with `MODEL_METRIC_MISMATCH` on differences.
+`output.renditions`, for example `{"phone": [1, 2]}`, selects every level a named tier
+may draw. Tier names must exist in the world profile and indices must be distinct,
+nonempty and in range. Default limits always apply to level zero; each named tier's
+budgets apply to every selected level, or level zero when omitted. Chain length is
+checked against each `lods` budget. Separate files use their own measured resource
+metrics; embedded levels conservatively share texture/material/bone counts. A lower
+file containing generated clips still requires generated provenance on the manifest.
+These optional additions require no changes to a single-level manifest.
+
 Mixed-world `build` validates both kinds, packs only strips, and copies approved
 models into reviewed `<assetId>.glb` files with a `models.json` delivery index.
+Declared sibling levels ship as `<assetId>.lod-<index>.glb`; the index rewrites their
+paths to reviewed basenames and retains hashes, counts and tier selections.
 The licence report includes both kinds. Model-only builds do not require a sprite
 style profile or a 2D sprite golden; their presentation is owned by world content.
 The existing world-content renderer loader loads these GLBs and their animation
