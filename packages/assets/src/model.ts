@@ -108,7 +108,8 @@ export function validateModel(
     if (!Object.hasOwn(profile.tiers ?? {}, tier))
       fail("MODEL_PROFILE_INVALID", `rendition names unknown tier ${tier}`);
   for (const [tier, limits] of Object.entries(profile.tiers ?? {})) {
-    const selections = manifest.output.renditions?.[tier] ?? [0];
+    const renditions = manifest.output.renditions;
+    const selections = renditions && Object.hasOwn(renditions, tier) ? renditions[tier]! : [0];
     for (const index of selections) {
       if (index >= actualLods) {
         fail("MODEL_METRIC_MISMATCH", `${tier} selects missing level ${index}`);

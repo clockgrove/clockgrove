@@ -264,6 +264,46 @@ it("checks embedded LOD triangle levels and each selected tier through CLI", asy
     output.renditions.low = [3];
     save();
     expect(run().stderr).toContain("ASSET_MANIFEST_INVALID");
+    output.renditions.low = [1];
+    Object.defineProperty(profile.tiers, "constructor", {
+      value: { ...profile.tiers.low, triangles: 6 },
+      enumerable: true,
+    });
+    save();
+    expect(run()).toEqual({
+      status: 1,
+      stdout: "",
+      stderr: "model-fixture/model: MODEL_BUDGET_EXCEEDED: constructor.triangles: 7 exceeds 6\n",
+    });
+    Object.defineProperty(output.renditions, "constructor", { value: [1], enumerable: true });
+    save();
+    expect(run()).toEqual({
+      status: 0,
+      stdout: '{"status":"ok","command":"validate"}\n',
+      stderr: "",
+    });
+    const otherScene = rewriteModelJson(bytes, (json) => {
+      const actor = json.nodes.findIndex((node: { name: string }) => node.name === "actor");
+      const inactive = json.nodes.length;
+      json.nodes.push({ extensions: { MSFT_lod: { ids: [actor] } } });
+      json.scenes.push({ nodes: [inactive] });
+      json.extensionsUsed = ["MSFT_lod"];
+    });
+    expect(inspectModel(otherScene).levelTriangles).toEqual([1, 1]);
+    Object.assign(output, {
+      triangles: 1,
+      lods: 2,
+      levels: [{ triangles: 1 }, { triangles: 1 }],
+      sha256: createHash("sha256").update(otherScene).digest("hex"),
+    });
+    profile.tiers.low.triangles = 0;
+    writeFileSync(join(world, manifest.output.path), otherScene);
+    save();
+    expect(run()).toEqual({
+      status: 1,
+      stdout: "",
+      stderr: "model-fixture/model: MODEL_BUDGET_EXCEEDED: low.triangles: 1 exceeds 0 (level 1)\n",
+    });
   } finally {
     rmSync(world, { recursive: true, force: true });
   }

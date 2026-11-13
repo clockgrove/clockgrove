@@ -154,9 +154,21 @@ try {
   };
   for (let index = 0; index < (json.nodes?.length ?? 0); index++)
     lods = Math.max(lods, chainFor(index).length);
-  const alternateNodes = new Set(
-    (json.nodes ?? []).flatMap((node) => node.extensions?.MSFT_lod?.ids ?? []),
-  );
+  const sourceScene = json.scenes[json.scene ?? 0];
+  const alternateNodes = new Set();
+  const sceneNodes = new Set();
+  const collectSceneChains = (index) => {
+    if (!reference(json.nodes, index)) throw new Error("invalid scene node reference");
+    if (sceneNodes.has(index)) return;
+    sceneNodes.add(index);
+    const node = json.nodes[index];
+    for (const id of node.extensions?.MSFT_lod?.ids ?? []) {
+      alternateNodes.add(id);
+      collectSceneChains(id);
+    }
+    for (const child of node.children ?? []) collectSceneChains(child);
+  };
+  for (const index of sourceScene.nodes ?? []) collectSceneChains(index);
   const levelTriangles = Array.from({ length: lods }, (_, level) => {
     // Preserve the historical mesh-definition metric for models without a chain.
     if (lods === 1) return meshTriangles.reduce((sum, count) => sum + count, 0);
@@ -179,7 +191,6 @@ try {
       }
       active.delete(index);
     };
-    const sourceScene = json.scenes[json.scene ?? 0];
     for (const index of sourceScene.nodes ?? []) if (!alternateNodes.has(index)) visit(index);
     return [...meshes].reduce((sum, index) => sum + meshTriangles[index], 0);
   });
