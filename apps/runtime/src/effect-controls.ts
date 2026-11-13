@@ -61,7 +61,7 @@ const scopeValues = (scope: BrowserScope) => [
   scope.spaceId,
 ];
 
-/** Internal human-only composition; it installs no HTTP route, actor tool or transport. */
+/** Human-only controls; no control method is registered as an actor tool. */
 export function composeEffectControls(configuration: EffectControlsConfiguration) {
   async function identity(scope: BrowserScope) {
     const authorization = structuredClone(
@@ -234,12 +234,74 @@ export function composeEffectControls(configuration: EffectControlsConfiguration
     if (mcpReadArgumentsHash(argumentsValue) !== approval.argumentsHash) throw unavailable();
     return argumentsValue;
   }
+  async function operationName(client: PostgreSqlClient, approval: RecordedEffectApproval) {
+    const result = await withClientTransaction(client, {}, () =>
+      client.query(
+        `SELECT payload->>'capabilityId' AS capability FROM clockgrove.events
+       WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4
+         AND event_id=$5 AND payload->>'argumentsHash'=$6`,
+        [
+          approval.tenantId,
+          approval.worldId,
+          approval.timelineId,
+          approval.spaceId,
+          `trusted:research:${approval.effectId}:event`,
+          approval.argumentsHash,
+        ],
+      ),
+    );
+    return (result.rows[0] as { capability: string } | undefined)?.capability;
+  }
   return {
+    async approvals(scope: BrowserScope, sessionId?: string) {
+      scope = structuredClone(scope);
+      const authorization = await identity(scope);
+      const ids = await configuration.withClient((client) =>
+        withClientTransaction(client, {}, async () => {
+          await authorize(client, authorization, scope, false);
+          return client.query(
+            `SELECT approval_id AS "approvalId" FROM clockgrove.effect_approvals
+             WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4
+               AND approver_principal_id=$5 AND state IN ('pending','approved') ORDER BY created_at DESC LIMIT 100`,
+            [...scopeValues(scope), authorization.principalId],
+          );
+        }),
+      );
+      const visible = [];
+      for (const row of ids.rows as { approvalId: string }[]) {
+        try {
+          const preview = await approvalClient(
+            { scope, approvalId: row.approvalId },
+            async (client, who, approval) => {
+              const route = await withClientTransaction(client, {}, () =>
+                configuration.admitCall(client, who, approval),
+              );
+              if (
+                !route ||
+                (sessionId !== undefined &&
+                  (!("sessionId" in route) || route.sessionId !== sessionId))
+              )
+                return null;
+              return {
+                approval,
+                capability: await operationName(client, approval),
+                arguments: await verifiedArguments(client, who, approval, scope),
+              };
+            },
+          );
+          if (preview) visible.push(preview);
+        } catch {
+          // A revoked grant must not reveal a formerly authorized argument preview.
+        }
+      }
+      return visible;
+    },
     approval(target: ApprovalControlTarget) {
       target = structuredClone(target);
       return approvalClient(target, async (client, authorization, approval) => {
         return {
           approval,
+          capability: await operationName(client, approval),
           arguments: await verifiedArguments(client, authorization, approval, target.scope),
         };
       });
@@ -262,23 +324,57 @@ export function composeEffectControls(configuration: EffectControlsConfiguration
       );
     },
     // Engineering page bound: a control read returns at most 100 records, without remote I/O.
-    uncertain(scope: BrowserScope) {
+    async uncertain(scope: BrowserScope, sessionId?: string) {
       scope = structuredClone(scope);
-      return operatorClient(scope, (client) =>
-        withClientTransaction(client, {}, () =>
-          client.query(
+      const read = (client: PostgreSqlClient) =>
+        client
+          .query(
             `SELECT i.effect_id AS "effectId",i.call_id AS "callId",i.principal_id AS "principalId",
-          a.attempt_id AS "attemptId",a.outcome_code AS "outcomeCode",a.ended_at::text AS "completedAt"
+          a.attempt_id AS "attemptId",a.outcome_code AS "outcomeCode",a.ended_at::text AS "completedAt",
+          EXISTS (SELECT 1 FROM clockgrove.events e WHERE e.tenant_id=i.tenant_id
+            AND e.world_id=i.world_id AND e.timeline_id=i.timeline_id AND e.space_id=i.space_id
+            AND e.event_id='trusted:research:'||i.effect_id||':event'
+            AND e.payload->>'idempotency' IN ('application','provider')) AS "retryAllowed"
          FROM clockgrove.effect_intents i JOIN clockgrove.effect_attempts a
            USING(tenant_id,world_id,timeline_id,effect_id)
          WHERE i.tenant_id=$1 AND i.world_id=$2 AND i.timeline_id=$3 AND i.space_id=$4
            AND i.disposition='uncertain' AND a.disposition='uncertain'
+           AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM clockgrove.events e
+             WHERE e.tenant_id=i.tenant_id AND e.world_id=i.world_id
+               AND e.timeline_id=i.timeline_id AND e.space_id=i.space_id
+               AND e.event_id='trusted:research:'||i.effect_id||':event'
+               AND e.payload->>'sessionId'=$5))
            AND NOT EXISTS (SELECT 1 FROM clockgrove.effect_resolutions r WHERE r.tenant_id=i.tenant_id
              AND r.world_id=i.world_id AND r.timeline_id=i.timeline_id AND r.effect_id=i.effect_id)
          ORDER BY a.ended_at,i.effect_id LIMIT 100`,
-            scopeValues(scope),
-          ),
-        ).then((result) => result.rows),
+            [...scopeValues(scope), sessionId ?? null],
+          )
+          .then((result) => result.rows);
+      if (sessionId === undefined)
+        return operatorClient(scope, (client) =>
+          withClientTransaction(client, {}, () => read(client)),
+        );
+      const authorization = await identity(scope);
+      return configuration.withClient((client) =>
+        withClientTransaction(client, {}, async () => {
+          const membership = await authorize(client, authorization, scope, false);
+          if (
+            !membership.grants.some(
+              (grant) => grant === "runtime:world-observe" || grant === "runtime:world-operate",
+            )
+          )
+            throw unavailable();
+          const session = await client.query(
+            `SELECT 1 FROM clockgrove.conversation_sessions s
+             JOIN clockgrove.conversation_participants p USING(tenant_id,session_id)
+             WHERE s.tenant_id=$1 AND s.world_id=$2 AND s.timeline_id=$3 AND s.space_id=$4
+               AND s.session_id=$5 AND p.principal_id=$6 AND p.persona_id=$7
+             FOR SHARE OF s,p`,
+            [...scopeValues(scope), sessionId, authorization.principalId, membership.personaId],
+          );
+          if (!session.rows.length) throw unavailable();
+          return read(client);
+        }),
       );
     },
     resolve(

@@ -1417,6 +1417,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         () => undefined,
         false,
       );
+      // A durable approval/tool wait is unfinished work; its alarm must retain admission.
+      if (result.receipt === undefined && result.refused === "conversation_busy") return admitted;
       if (result.receipt !== undefined && admitted.delivery !== undefined)
         await withActivations(this.environment, (store) =>
           store.deliver(address, admitted.activationId),
@@ -1675,7 +1677,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       .then(async (outcome) => {
         if (outcome.refused === "conversation_busy") {
           const status = await this.stores()((store) => store.turnStatus(participant, request));
-          if (status.phase === "tool_waiting") {
+          if (status.phase === "tool_waiting" || status.phase === "approval_waiting") {
             // No terminal frame: callers retain the message ID and resume its durable wait.
             await writer.close();
             return;
@@ -1767,7 +1769,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           (candidate) =>
             candidate.sessionId === target.sessionId &&
             candidate.messageId === target.messageId &&
-            candidate.phase === "tool_waiting",
+            (candidate.phase === "tool_waiting" || candidate.phase === "approval_waiting"),
         );
         if (fiber === undefined) return;
         await this.fibers(scope, target.actorId).activate(participant, fiber);

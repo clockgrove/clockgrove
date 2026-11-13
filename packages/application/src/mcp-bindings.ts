@@ -23,6 +23,8 @@ export interface McpBindingConstraints {
   readonly effectClasses: readonly McpEffectClass[];
   readonly budgetMicrousd?: number;
   readonly expiresAt?: string;
+  readonly approvalRequired?: boolean;
+  readonly idempotency?: "none" | "application" | "provider";
 }
 export interface McpBinding {
   readonly bindingId: string;

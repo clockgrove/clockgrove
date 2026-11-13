@@ -130,13 +130,11 @@ The internal persistence write-admission port requires a current reviewed capabi
 member grant and scoped binding as well as the exact per-call approval. Approval
 cannot create a grant or bypass revocation, kill switches, schema validation or
 shared turn capacity. The initial session path binds the designated approver to
-the session person acting within their own grants. Human authentication remains
-the responsibility of future trusted API composition; models and tool results
+the session person acting within their own grants. Human authentication is
+the responsibility of trusted server API composition; models and tool results
 never decide approvals. See the [current boundary](mcp.md#internal-protected-write-admission-issue-166-part-3).
 
-This prerequisite does not activate actor writes. Operator/proactive routing,
-protected-class policy in the actor, human controls and uncertain-write resolution
-remain subsequent delivery parts. Read calls keep their existing approval-free path.
+The local actor now composes this prerequisite with protected-class policy, durable waits and authenticated human controls. Read calls keep their existing approval-free path.
 
 ## Human approval controls (issue 166, part 5)
 
@@ -151,5 +149,5 @@ or a model proposal into a capability grant.
 External-write, destructive and cost calls always need per-call approval; network calls
 follow grant policy, and read calls never need it (owner decision, 2026-11-09). The
 configured wall-clock lifetime defaults to ten minutes. No standing approval is provided.
-Final policy/routing, public controls, transport and safe retry integration remain part 6.
+The final integration connects this policy to local research and authenticated conversation/operator controls. See [governed writes](mcp.md#governed-writes-and-human-controls-issue-166-final-integration) for current behavior and idempotency declarations.
 See the [current runtime boundary](mcp.md#human-control-and-durable-wait-boundary-issue-166-part-5).

@@ -6,9 +6,11 @@ import {
 } from "./mcp-credentials.js";
 import {
   type AdmittedMcpRead,
+  type AdmittedMcpWrite,
   type McpReadEvidence,
   McpReadFailure,
   RemoteHttpMcpReadAdapter,
+  RemoteHttpMcpWriteAdapter,
 } from "./mcp-execution.js";
 import {
   type McpInstallationGovernancePort,
@@ -124,6 +126,28 @@ export class McpCredentialInstallation {
       throw new McpReadFailure("credential_unavailable", "not_sent");
     }
     return new RemoteHttpMcpReadAdapter(
+      new SafeMcpHttpClient(this.network),
+      this.provider.vault,
+    ).execute({
+      ...request,
+      credential: { scope: this.credentialScope, reference: this.reference },
+    });
+  }
+
+  async executeWrite(request: AdmittedMcpWrite): Promise<McpReadEvidence> {
+    if (
+      request.endpoint !== this.url ||
+      this.reference === undefined ||
+      this.closed ||
+      !this.installed
+    )
+      throw new McpReadFailure("credential_unavailable", "not_sent");
+    try {
+      await this.authorize();
+    } catch {
+      throw new McpReadFailure("credential_unavailable", "not_sent");
+    }
+    return new RemoteHttpMcpWriteAdapter(
       new SafeMcpHttpClient(this.network),
       this.provider.vault,
     ).execute({

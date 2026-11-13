@@ -250,6 +250,18 @@ export class SceneSession {
     }
     return result as T;
   }
+  async effectRequest<T>(operation: string, payload: object = {}): Promise<T> {
+    const scope = this.getSnapshot().scope;
+    const credential = this.account?.credential;
+    if (!scope || !credential) throw new Error("Effect controls unavailable");
+    const response = await fetch(new URL(`/v1/runtime/effects/${operation}`, this.origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...scope, ...payload, commandId: crypto.randomUUID() }),
+    });
+    if (!response.ok) throw new Error("Effect controls unavailable");
+    return response.json() as Promise<T>;
+  }
   readonly getDirectoryKey = (): DirectoryQueryKey => this.directoryKey;
   readonly getSelectionKey = (): EntityQueryKey => this.selectionKey;
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;
@@ -786,7 +798,7 @@ export class SceneSession {
           hooks.onProvisional?.(provisional);
         },
         (phase, callId) => {
-          if (phase === "tool_waiting" || phase === "tool_using") {
+          if (phase === "tool_waiting" || phase === "tool_using" || phase === "approval_waiting") {
             usedTool = true;
             startedCallId = phase === "tool_using" ? callId : undefined;
           }
@@ -805,6 +817,8 @@ export class SceneSession {
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
+        if (status.phase === "approval_waiting")
+          return this.waitForToolTurn(turn, hooks, undefined);
         if (status.phase === "completed") {
           forgetPendingTurn(turn.sessionId, turn.messageId);
           return { reloaded: true };

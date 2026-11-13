@@ -47,6 +47,7 @@ export interface McpReadReservation {
   readonly dispatchId: string;
   readonly eventId: string;
   readonly policy: McpReadTurnPolicy;
+  readonly idempotency?: "none" | "application" | "provider";
 }
 export type McpReadSwitch =
   | { readonly scope: "global" }
@@ -76,6 +77,7 @@ export interface AdmittedMcpCall {
   readonly endpoint: string;
   readonly toolName: string;
   readonly arguments: Readonly<Record<string, CapabilityValue>>;
+  readonly idempotencyKey?: string;
 }
 export interface McpAdmissionReservation extends McpReadReservation {
   readonly approval?: EffectApprovalBinding;
@@ -183,7 +185,7 @@ export class PostgreSqlMcpAdmission {
         i.runId,
         request.turnId,
         request.sessionId,
-        existing,
+        existing || this.kind === "write",
       ],
     );
     return result.rows.length === 1;
@@ -235,11 +237,11 @@ export class PostgreSqlMcpAdmission {
         ORDER BY r.leader DESC LIMIT 1`,
       [...scope(i), i.spaceId, i.actorId, i.principalId, request.sessionId, request.turnId],
     );
-    if (activation.rows.length && this.kind === "write")
-      return { reason: "write_activation_unavailable" };
     if (activation.rows.length) {
       if (!(activation.rows[0] as { valid: boolean }).valid)
-        return { reason: "activation_unavailable" };
+        return {
+          reason: this.kind === "write" ? "write_activation_unavailable" : "activation_unavailable",
+        };
       const owner = await this.client.query(
         `SELECT 1 FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2
           AND timeline_id=$3 AND space_id=$4 AND principal_id=$5 AND revoked_at IS NULL
@@ -269,7 +271,13 @@ export class PostgreSqlMcpAdmission {
     if (
       !definition?.remoteMcp ||
       (this.kind === "read"
-        ? definition.effect !== "read"
+        ? !(
+            definition.effect === "read" ||
+            (definition.effect === "network" &&
+              bindings.some(
+                (b) => b.bindingId === i.grantId && b.constraints.approvalRequired === false,
+              ))
+          )
         : !["external-write", "destructive", "cost", "network"].includes(definition.effect))
     )
       return { reason: this.kind === "read" ? "read_only_required" : "protected_write_required" };
@@ -287,6 +295,9 @@ export class PostgreSqlMcpAdmission {
     );
     const specificity = Math.max(-1, ...selected.map((b) => scopeTypes.indexOf(b.scopeType)));
 
+    const declaration =
+      selected.find((b) => b.bindingId === i.grantId)?.constraints.idempotency ?? "none";
+    if ((request.idempotency ?? "none") !== declaration) return { reason: "idempotency_changed" };
     const held = grants.grants.find((g) => g.capability === i.capabilityId);
     if (
       !selected.some(
@@ -334,6 +345,18 @@ export class PostgreSqlMcpAdmission {
         endpoint: installation.url,
         toolName: definition.remoteMcp.candidateId,
         arguments: decision.input as AdmittedMcpCall["arguments"],
+        ...(selected.find((b) => b.bindingId === i.grantId)?.constraints.idempotency === "provider"
+          ? {
+              idempotencyKey:
+                /^retry:([a-f0-9]{64}):/.exec(i.effectId)?.[1] ??
+                mcpReadArgumentsHash({
+                  tenantId: i.tenantId,
+                  worldId: i.worldId,
+                  timelineId: i.timelineId,
+                  effectId: i.effectId,
+                }),
+            }
+          : {}),
       },
       callsPerTurn: held?.callsPerTurn ?? 0,
     };
@@ -345,8 +368,27 @@ export class PostgreSqlMcpAdmission {
   ): Promise<string | null> {
     const approval = request.approval;
     const i = request.intent;
-    if (!approval || approval.approverPrincipalId !== i.principalId)
-      return "approval_authority_required";
+    if (!approval) return "approval_authority_required";
+    if (approval.approverPrincipalId !== i.principalId) {
+      const operator = await this.client.query(
+        `SELECT 1 FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4
+        AND principal_id=$5 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation'`,
+        [...scope(i), i.spaceId, approval.approverPrincipalId],
+      );
+      if (operator.rows.length !== 1) return "approval_authority_required";
+    }
+    const proactive = await this.client.query(
+      `SELECT 1 FROM clockgrove.actor_activations WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$4 AND message_id=$5`,
+      [...scope(i), request.sessionId, request.turnId],
+    );
+    if (proactive.rows.length) {
+      const operator = await this.client.query(
+        `SELECT 1 FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4
+        AND principal_id=$5 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate']`,
+        [...scope(i), i.spaceId, approval.approverPrincipalId],
+      );
+      if (operator.rows.length !== 1) return "approval_authority_required";
+    }
     const reservation = {
       ...i,
       disposition: "pending" as const,

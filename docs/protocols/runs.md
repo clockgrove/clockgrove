@@ -179,5 +179,4 @@ The actor's optional approval hook checkpoints the original tool call in
 effect as the tool proposal; protected argument bytes remain in encrypted artifacts.
 Recovery retains that identity, and denial/expiry/revocation appears as a fixed tool
 refusal through the ordinary tool-execution evidence. Inspector authorization and
-privacy ceilings remain unchanged. This evidence establishes a runtime checkpoint,
-not public human authentication or proof that an external write ran.
+privacy ceilings remain unchanged. The local authenticated approval controls now wake this checkpoint. An `approval` step establishes the wait; the linked effect intent/attempt establishes dispatch and its recorded result. An uncertain attempt remains uncertain after an operator records an attributed resolution, and a separately approved retry has its own call/effect identity. No model attempt or tool result can produce a human decision.

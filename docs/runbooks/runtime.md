@@ -1910,9 +1910,7 @@ presentation wait preserves its pending message on expiry, so reopening can read
 
 Issue 166 part 4 provides the internal
 [resolution ledger](../protocols/mcp.md#internal-uncertainty-resolution-issue-166-part-4).
-There is no member/operator HTTP or browser control yet. This procedure requires an
-already authorized privileged persistence connection; ordinary runtime SQL cannot write
-the ledger, and a model proposal or supplied principal identifier grants no authority.
+The local operator effect controls now expose this ledger through authenticated HTTP and the browser. Ordinary runtime SQL cannot write the ledger; a model proposal or supplied principal identifier grants no authority.
 
 1. Locate the intent and attempt by the complete tenant/world/timeline/effect address.
    Confirm the attempt is terminal `uncertain`. If its intent has not settled, use
@@ -1930,9 +1928,7 @@ the ledger, and a model proposal or supplied principal identifier grants no auth
    its existing record; a conflicting finding refuses. Resolution creates no new dispatch
    and does not reset unknown cost or release reserved capacity.
 
-This boundary offers no retry. Do not reset an uncertain attempt, replace its identity
-manually or redeliver it to force execution. Future safe retry controls require declared
-idempotency plus a fresh exact human approval and separately recorded call/effect.
+Do not reset an uncertain attempt, replace its identity manually or redeliver it to force execution. A safe retry requires declared application/provider idempotency, a fresh exact human approval and a separately recorded call/effect. The default declaration `none` refuses retry.
 
 
 ## First-party world MCP connection
@@ -2070,9 +2066,18 @@ operational surface. Read the scoped unresolved record, then record `done` or `f
 through the control boundary. The ledger attributes the finding to the authenticated
 operator and retains the original uncertain attempt. Conflicting findings refuse;
 repeating the same finding recovers the original record. This action sends no write.
-A retry is not available in this part: final integration must require safe declared
-idempotency and a fresh exact approval with new call/effect identities.
+A retry must use the separate safe retry control, with declared application/provider idempotency and a fresh exact approval with new call/effect identities.
 
-No human effect-control HTTP route or browser view is activated by this part. These
-procedures describe the internal composition contract; public controls, write fixture,
-phase-injected recovery proof and browser approval journey remain part 6 of issue 166.
+The final local integration provides `/v1/runtime/effects/` POST controls. Open the
+world's approval view using an authenticated session; inspect the exact arguments before
+approving, denying or revoking a pending call. For uncertainty, open the operator view,
+check the provider independently, and choose done or failed. The resolve request carries
+the full scope, effect and attempt IDs, disposition and command ID; the server supplies
+the authenticated resolving principal. A repeated matching resolution returns the
+original finding; a conflicting finding refuses. Neither action clears the uncertain
+record or sends the original call again. See [governed writes](../protocols/mcp.md#governed-writes-and-human-controls-issue-166-final-integration).
+
+If a pending call loses its grant, installation, binding or membership, restore no authority
+merely to approve it: allow canonical refusal/recovery to finish it. Approval expiry is ten
+wall-clock minutes by default. Pending-wait sweeps and human decisions resume the existing
+turn, without another approval decision by a model. Hosted MCP activation remains disabled.

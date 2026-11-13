@@ -14,8 +14,15 @@ export async function seedResearch(owner: NativeWorldOwner): Promise<void> {
       VALUES('${t}','${w}','${tl}','fixture','binding','${s}',
       '{"bindingId":"binding","installationId":"fixture","candidateId":"lookup","schemaHash":"${"1".repeat(64)}","protocolVersion":"2025-11-25","scopeType":"actor","scopeId":"${ACTOR}","effect":"allow","enabled":true,"constraints":{"callsPerTurn":3,"effectClasses":["read"],"budgetMicrousd":250000}}');`);
 }
+export async function seedWriteResearch(owner: NativeWorldOwner): Promise<void> {
+  await seedResearch(owner);
+  await owner.sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"external-write"') WHERE installation_id='fixture';
+    UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["external-write"]') WHERE binding_id='binding';
+    UPDATE clockgrove.world_memberships SET grants=grants||ARRAY['runtime:world-operate'] WHERE principal_id='principal-runtime';`);
+}
 export async function withResearchFixture(operation: () => Promise<void>): Promise<void> {
   let calls = 0;
+  const providerKeys = new Set<string>();
   let release = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -54,8 +61,11 @@ export async function withResearchFixture(operation: () => Promise<void>): Promi
             ],
           };
     if (rpc.method === "tools/call") {
-      calls++;
-      if (rpc.params.arguments.q === "down") {
+      const key = request.headers["idempotency-key"];
+      const duplicate = typeof key === "string" && providerKeys.has(key);
+      if (!duplicate) calls++;
+      if (typeof key === "string") providerKeys.add(key);
+      if (rpc.params.arguments.q === "down" && !duplicate) {
         response.destroy();
         return;
       }

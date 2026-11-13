@@ -268,7 +268,7 @@ Issue 166 part 5 adds the durable `approval_waiting` checkpoint through an optio
 trusted actor host hook. Recovery retains the original call and encrypted proposal,
 consults approval state before execution, and records denied/expired/revoked calls
 as refusals without another decision model. Existing read hosts remain compatible.
-Public approval routing and automatic wake/expiry scheduling remain part 6; see
+The final local integration supplies public approval routing and wake/expiry recovery; see
 [approval checkpoints](../protocols/conversation-fibers.md#approval-wait-checkpoints-issue-166-part-5).
 
 ### 7.2 Recovery
@@ -417,8 +417,7 @@ idempotency. The ledger foundation does not implement those resolution actions.
 Part 5 adds an internal human control boundary with trusted authentication, fresh
 scoped authority, exact encrypted preview verification and attributed ledger decisions.
 It also adds the optional durable actor wait hook. These are reusable boundaries, not
-public route or write activation; part 6 connects protected-class policy, proactive
-operator routing and safe freshly approved retry. See the
+the complete public composition. The final local integration connects protected-class policy, operator routing and safe freshly approved retry. See the
 [current controls](../protocols/mcp.md#human-control-and-durable-wait-boundary-issue-166-part-5).
 
 ### 11.3 Guide and counterfactual consumers
@@ -514,13 +513,13 @@ Issue 166 part 4 adds an internal immutable resolution ledger for a settled unce
 attempt. A privileged operator composition can record `done` or `failed` after checking
 the provider; the original uncertain attempt and costs remain unchanged. A resolution
 creates no dispatch and permits no retry. Authenticated human controls, actor waits,
-safe freshly approved retry and the browser/write-fixture journey remain later parts.
+safe freshly approved retry and the browser/write-fixture journey are connected by the final local integration.
 See the [current resolution boundary](../protocols/mcp.md#internal-uncertainty-resolution-issue-166-part-4).
 
 Part 5 adds internal human-authenticated uncertainty inspection/resolution controls
 over that ledger. The operator must retain current scoped authority; resolution keeps
-the original attempt uncertain and never sends or schedules a retry. The final part
-still owns public controls, transport, safe retry and phase-injected end-to-end proof.
+the original attempt uncertain and never resends it. The final local integration
+now connects public controls, transport, safe retry and phase-injected end-to-end proof.
 
 Initial fixtures:
 
@@ -602,10 +601,11 @@ call/grant/effect/result evidence. Tool waits and provider/budget failures are d
 states. The scripted browser journey is the default proof; a recorded real-model fixture run
 is a maintainer step when a key is available, never a default CI call.
 
-Issue 166 part 5 exposes an additive durable approval-wait status in the turn contract,
-but adds no approval browser control. The final part supplies the conversation argument
-preview, approve/deny controls, operator approvals/uncertainty view and scripted browser
-journey. The internal control boundary alone is not browser acceptance evidence.
+Issue 166 exposes a durable approval-wait status and conversation argument previews with
+approve/deny/revoke controls. The world operator view receives routed approvals and
+uncertain writes, with attributed resolution and freshly approved safe retry. The scripted
+browser journey exercises reload during the wait, exact approval, changed-argument denial,
+uncertainty and operator resolution through the native actor and PostgreSQL.
 
 The scene remains usable while a turn runs. Tokens do not directly animate or mutate the world.
 
@@ -789,3 +789,25 @@ The manifest records commit, schema/policy/model/tool versions, provider and scr
 ## 21. Handoff to Wave 6
 
 Wave 6 replaces the shallow Wave 5 context placeholders with provenance-bearing perceptions, episodes, claims/evidence, beliefs, relationships, retrieval, consolidation, and social learning. It consumes the same session, run, context-manifest, activation, event, and inspector contracts. Memory changes future candidate scoring only through canonical cognitive events and versioned decision policy.
+
+
+## Issue 166 final local write integration
+
+The local actor research path now composes the approval/reservation ledgers, protected
+class policy, authenticated human controls and one-attempt write transport described in
+[governed writes](../protocols/mcp.md#governed-writes-and-human-controls-issue-166-final-integration).
+This is the current implementation boundary for §7.1, §11.2, §12.2 and §14, superseding
+the prerequisite-only descriptions of issue 166's earlier delivery parts above.
+
+The conversation shows awaiting approval and the authorized exact argument preview.
+The session person decides within their own grants; operator-routed and proactive calls
+appear in the world operator approval view. Human decisions wake the canonical wait;
+denial, revocation and expiry retain visible recorded reasons. The actor reply cites the
+recorded tool result, including uncertainty. Models receive evidence, never approval power.
+
+An uncertain call never automatically retries. Operator resolution records done or failed
+without changing its attempt. An explicitly requested safe retry needs an application or
+provider idempotency declaration and a new exact approval; provider keys remain stable
+across separately recorded retries. Replay, preview, Queue redelivery and owner recovery
+never dispatch the original recorded write twice. Credentials stay inside the vault-bound
+transport. Hosted egress activation remains outside this local boundary.

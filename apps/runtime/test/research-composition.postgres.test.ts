@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+  type AdmittedMcpExecution,
   type ConversationParticipant,
   type McpNetworkPort,
   mcpCapabilityName,
@@ -9,8 +10,10 @@ import {
 import { decodeBrowserScope, decodeOpaqueId, type QueueEnvelope } from "@clockgrove/contracts";
 import { constructTrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
+  type EffectIntentMetadata,
   PostgreSqlArtifactStore,
   PostgreSqlConversationStore,
+  PostgreSqlEffectApprovals,
   PostgreSqlMcpReadAdmission,
   WebCryptoKeyring,
 } from "@clockgrove/persistence";
@@ -276,23 +279,23 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       `);
       const queued: QueueEnvelope<unknown>[] = [];
       let wakes = 0;
+      const execute = (request: AdmittedMcpExecution, intent: EffectIntentMetadata) =>
+        withAdmin(async (client) => {
+          const result = await client.query(
+            "SELECT installation_id FROM clockgrove.mcp_read_admissions WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4 AND admitted",
+            [intent.tenantId, intent.worldId, intent.timelineId, intent.effectId],
+          );
+          const installationId = (result.rows[0] as { installation_id: string }).installation_id;
+          return request.admittedReadOnly
+            ? operator.executeRead({ ...intent, installationId }, request)
+            : operator.executeWrite({ ...intent, installationId }, request);
+        });
       const research = composeResearch({
         environment: "local",
         withClient: withAdmin,
         network,
         artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
-        adapter: {
-          execute: (request, intent) =>
-            withAdmin(async (client) => {
-              const result = await client.query(
-                "SELECT installation_id FROM clockgrove.mcp_read_admissions WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4 AND admitted",
-                [intent.tenantId, intent.worldId, intent.timelineId, intent.effectId],
-              );
-              const installationId = (result.rows[0] as { installation_id: string })
-                .installation_id;
-              return operator.executeRead({ ...intent, installationId }, request);
-            }),
-        },
+        adapter: { execute, executeWrite: execute },
         publish: async (message) => {
           queued.push(message);
         },
@@ -596,6 +599,37 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       await sql(
         "UPDATE clockgrove.world_memberships SET revoked_at=NULL WHERE tenant_id='tenant-a'",
       );
+      await sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"external-write"') WHERE installation_id='fixture';
+        UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["external-write"]') WHERE binding_id='research-binding'`);
+      for (const q of ["approved-write-canary", "echo"]) {
+        const write = await prepare(q);
+        expect(
+          await research.approvalState(participant, write.fiber, write.proposal, write.call),
+        ).toBe("waiting");
+        await withAdmin(async (client) => {
+          const approvals = new PostgreSqlEffectApprovals(client);
+          const approval = (await approvals.read({
+            ...scope,
+            approvalId: `${write.call.effectId}:approval`,
+          }))!;
+          await approvals.decide(approval, participant.principalId, "approved");
+        });
+        await research.executeTool(participant, write.fiber, write.proposal, write.call);
+        const dispatch = queued.shift()!;
+        await research.consumer.consume(dispatch, (value) => value);
+        await research.consumer.consume(dispatch, (value) => value);
+        const recorded = await research.executeTool(
+          participant,
+          write.fiber,
+          write.proposal,
+          write.call,
+        );
+        expect(recorded?.status).toBe(q === "echo" ? "uncertain" : "succeeded");
+        expect(recorded?.text).not.toContain(canary);
+        expect(calls.filter((value) => value === q).length).toBe(q === "echo" ? 2 : 1);
+      }
+      await sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"read"') WHERE installation_id='fixture';
+        UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["read"]') WHERE binding_id='research-binding'`);
       await withAdmin((client) =>
         new PostgreSqlMcpReadAdmission(client).setSwitch({ scope: "global" }, true),
       );
