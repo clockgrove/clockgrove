@@ -1417,6 +1417,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         () => undefined,
         false,
       );
+      // A durable approval/tool wait is unfinished work; its alarm must retain admission.
+      if (result.receipt === undefined && result.refused === "conversation_busy") return admitted;
       if (result.receipt !== undefined && admitted.delivery !== undefined)
         await withActivations(this.environment, (store) =>
           store.deliver(address, admitted.activationId),
