@@ -74,8 +74,31 @@ it("recovers approved writes at the wait, interrupted transport and reply bounda
       return decodeTalkReceipt((await talk(sessionId, q)).body);
     };
     const waiting = await open();
+    await owner.sql(`CREATE FUNCTION clockgrove.fail_approval_request() RETURNS trigger
+      LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected approval request interruption'; END $$;
+      CREATE TRIGGER fail_approval_request BEFORE INSERT ON clockgrove.effect_approvals
+      FOR EACH ROW EXECUTE FUNCTION clockgrove.fail_approval_request()`);
+    await talk(waiting, "archive");
+    await expect
+      .poll(() =>
+        owner.sql(
+          `SELECT count(*) FROM clockgrove.events WHERE payload->>'sessionId'='${waiting}' AND payload ? 'approvalIntent'`,
+        ),
+      )
+      .toBe("1");
+    expect(await owner.sql("SELECT count(*) FROM clockgrove.effect_approvals")).toBe("0");
+    await owner.replace(true);
+    await owner.sql(`DROP TRIGGER fail_approval_request ON clockgrove.effect_approvals;
+      DROP FUNCTION clockgrove.fail_approval_request()`);
     await talk(waiting, "archive");
     const id = await approval(waiting);
+    expect(
+      await owner.sql(
+        `SELECT count(*) FROM clockgrove.events e JOIN clockgrove.conversation_turn_fibers f ON f.session_id=e.payload->>'sessionId'
+       WHERE f.session_id='${waiting}' AND e.payload ? 'approvalIntent'
+       AND e.payload->'approvalIntent'->>'runId' <> f.run_id`,
+      ),
+    ).toBe("1");
     expect(await count()).toBe(0);
     const preview = await post("/v1/runtime/effects/approval", { approvalId: id });
     expect(preview.status).toBe(200);

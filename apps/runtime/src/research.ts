@@ -720,8 +720,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
         return prior ? "revoked" : "not_required";
       let intent = intentFor(c, fiber, proposal, call, resolved, resolved.decision.input);
       const sealed = await sealedCall(client, fiber.scope, call.effectId);
-      if (prior && sealed?.approvalIntent)
-        intent = { ...intent, runId: sealed.approvalIntent.runId };
+      if (sealed?.approvalIntent) intent = { ...intent, runId: sealed.approvalIntent.runId };
       if (prior && sealed?.idempotency !== (resolved.binding?.constraints.idempotency ?? "none"))
         return "revoked";
       const eventId = `trusted:research:${intent.effectId}:event`;
