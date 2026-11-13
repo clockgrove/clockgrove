@@ -24,28 +24,43 @@ export const WORKERS_RUNTIME_HEADER = "x-clockgrove-runtime";
 export const WORKERS_PEAK_MEMORY_REASON =
   "workerd exposes no in-isolate memory API; the harness cannot measure its peak memory from the host here";
 
-/** The workers runtime could not be started or did not answer as actual workerd. */
-/** True for undici's error when a kept-alive connection was closed by the other side before the request went out. */
-function isStaleSocket(error: unknown): boolean {
-  const cause = (error as { cause?: { code?: unknown } } | null)?.cause;
-  return cause?.code === "UND_ERR_SOCKET";
+/** True when undici's fetch failed at the connection (it throws a TypeError "fetch failed" with the socket error as cause). */
+function isConnectionFailure(error: unknown): boolean {
+  return error instanceof TypeError && (error as { cause?: unknown }).cause !== undefined;
+}
+
+/** The connection error behind a failed fetch, for the message: its code and text. */
+function describeCause(error: unknown): string {
+  const cause = (error as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+  if (cause === undefined || cause === null) return String((error as Error)?.message ?? error);
+  return [cause.code, cause.message].filter((part) => part !== undefined).join(": ");
 }
 
 /**
- * Sends a request to the local workerd, once more if the kept-alive loopback connection had gone stale. A long
- * CPU-bound Node run between two requests keeps this process from reading the socket, workerd closes it as idle, and
- * the next request fails with UND_ERR_SOCKET ("other side closed") before reaching the worker. A wire request is a
- * deterministic simulation with no state in the worker, so sending it again is safe; any other failure is not retried.
+ * Sends a request to the local workerd, again (twice at most) when the loopback connection failed. A long CPU-bound
+ * Node run between two requests keeps this process from reading the socket, workerd closes the kept-alive connection
+ * as idle, and the next request fails at the connection before reaching the worker: UND_ERR_SOCKET ("other side
+ * closed") or another connection error. A wire request is a deterministic simulation with no state in the worker, so sending it again is safe. A failure that is not at the
+ * connection is not retried; a connection that still fails is reported with its cause.
  */
 export async function retryStaleSocket<T>(send: () => Promise<T>): Promise<T> {
-  try {
-    return await send();
-  } catch (error) {
-    if (!isStaleSocket(error)) throw error;
-    return await send();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await send();
+    } catch (error) {
+      if (!isConnectionFailure(error)) throw error;
+      if (attempt === 3)
+        throw new Error(
+          `the workerd request failed at the connection ${attempt} times: ${describeCause(error)}`,
+          {
+            cause: error,
+          },
+        );
+    }
   }
 }
 
+/** The workers runtime could not be started or did not answer as actual workerd. */
 export class WorkersUnavailable extends Error {
   constructor(detail: string) {
     super(detail);
