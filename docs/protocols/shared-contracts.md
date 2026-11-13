@@ -232,7 +232,23 @@ provenance and output-grant checks as a generated model.
 in `reference/model-target.json`. Its shape is `{ version: 1, limits, tiers? }`. `limits`
 contains non-negative integer upper bounds named `triangles`, `textureMaxPx`, `materials`,
 `bones` and `lods`; `tiers`, if supplied, is a non-empty map from tier names to complete sets of
-the same bounds. Validation applies the default limits and each supplied tier independently.
+the same bounds. Validation applies the default limits to level zero and each supplied tier
+independently to its selected levels (level zero when no rendition is declared), including
+when a tier is named `default`. The chain length is checked against each `lods` budget.
+
+`output.triangles` is the triangle count at level zero (full detail), never the sum of LODs.
+Optional `output.levels` is an ordered array from full to lowest detail, with exactly `lods`
+entries. Every entry declares `triangles`; embedded `MSFT_lod` entries have no other fields.
+For separate files, every entry also has a safe world-relative `path` and lowercase `sha256`.
+Paths are unique; level zero's path and hash equal `output.path` and `output.sha256`.
+Each file is a single-level GLB and is inspected and hash-checked, including unselected levels.
+A declared count differing from inspection is `MODEL_METRIC_MISMATCH`.
+
+Optional `output.renditions` maps profile tier names to nonempty arrays of distinct zero-based
+level indices, for example `{"phone": [1, 2]}`. Unknown tiers and missing indices are refused.
+Each selected level must fit all of that tier's budgets. Separate files supply their own
+texture, material and bone facts; embedded levels share the GLB's resource metrics.
+Omitting these fields preserves single-level manifests and tier validation.
 There are no platform budget defaults, world-specific rig names or character rules. A world's
 encode pipeline may supply PNG, JPEG or KTX2 textures and plain or meshopt-compressed geometry;
 these encoding choices do not change the metric field names or impose a hand-off conversion.

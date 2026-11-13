@@ -95,8 +95,8 @@ try {
   const bounds = getBounds(scene);
   if (![...bounds.min, ...bounds.max].every(Number.isFinite))
     throw new Error("scene has no finite geometry bounds");
-  let triangles = 0;
-  for (const mesh of root.listMeshes())
+  const meshTriangles = root.listMeshes().map((mesh) => {
+    let triangles = 0;
     for (const primitive of mesh.listPrimitives()) {
       const count = (primitive.getIndices() ?? primitive.getAttribute("POSITION"))?.getCount();
       if (count === undefined) throw new Error("primitive has no positions");
@@ -105,8 +105,10 @@ try {
       else if (mode === 5 || mode === 6) triangles += Math.max(0, count - 2);
       else throw new Error("model primitives must contain triangles");
     }
-  if (!Number.isInteger(triangles))
-    throw new Error("triangle index count is not divisible by three");
+    if (!Number.isInteger(triangles))
+      throw new Error("triangle index count is not divisible by three");
+    return triangles;
+  });
   let textureMaxPx = 0;
   for (const texture of root.listTextures()) {
     if (!["image/png", "image/jpeg", "image/ktx2"].includes(texture.getMimeType()))
@@ -140,6 +142,59 @@ try {
     visited.add(index);
   };
   for (let index = 0; index < (json.nodes?.length ?? 0); index++) visitLod(index);
+  const chains = new Map();
+  const chainFor = (index) => {
+    if (!chains.has(index)) {
+      const chain = [index];
+      for (const id of json.nodes[index].extensions?.MSFT_lod?.ids ?? [])
+        for (const alternate of chainFor(id)) if (!chain.includes(alternate)) chain.push(alternate);
+      chains.set(index, chain);
+    }
+    return chains.get(index);
+  };
+  for (let index = 0; index < (json.nodes?.length ?? 0); index++)
+    lods = Math.max(lods, chainFor(index).length);
+  const sourceScene = json.scenes[json.scene ?? 0];
+  const alternateNodes = new Set();
+  const sceneNodes = new Set();
+  const collectSceneChains = (index) => {
+    if (!reference(json.nodes, index)) throw new Error("invalid scene node reference");
+    if (sceneNodes.has(index)) return;
+    sceneNodes.add(index);
+    const node = json.nodes[index];
+    for (const id of node.extensions?.MSFT_lod?.ids ?? []) {
+      alternateNodes.add(id);
+      collectSceneChains(id);
+    }
+    for (const child of node.children ?? []) collectSceneChains(child);
+  };
+  for (const index of sourceScene.nodes ?? []) collectSceneChains(index);
+  const levelTriangles = Array.from({ length: lods }, (_, level) => {
+    // Preserve the historical mesh-definition metric for models without a chain.
+    if (lods === 1) return meshTriangles.reduce((sum, count) => sum + count, 0);
+    const meshes = new Set();
+    const active = new Set();
+    const visit = (index, replace = true) => {
+      if (!reference(json.nodes, index) || active.has(index))
+        throw new Error("invalid or cyclic scene node references");
+      active.add(index);
+      const node = json.nodes[index];
+      const chain = chainFor(index);
+      if (replace && level > 0 && chain.length > 1)
+        visit(chain[Math.min(level, chain.length - 1)], false);
+      else {
+        if (node.mesh !== undefined) {
+          if (!reference(json.meshes, node.mesh)) throw new Error("invalid mesh reference");
+          meshes.add(node.mesh);
+        }
+        for (const child of node.children ?? []) visit(child);
+      }
+      active.delete(index);
+    };
+    for (const index of sourceScene.nodes ?? []) if (!alternateNodes.has(index)) visit(index);
+    return [...meshes].reduce((sum, index) => sum + meshTriangles[index], 0);
+  });
+  const triangles = levelTriangles[0];
   const clips = root.listAnimations().map((animation) => {
     for (const sampler of animation.listSamplers()) {
       const input = sampler.getInput();
@@ -211,6 +266,7 @@ try {
   process.stdout.write(
     JSON.stringify({
       triangles,
+      levelTriangles,
       textureMaxPx,
       materials: root.listMaterials().length,
       bones: joints.size,

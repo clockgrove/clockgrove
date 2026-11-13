@@ -5,6 +5,7 @@ import { sha256Hex } from "./validate.js";
 
 export interface ModelFacts {
   triangles: number;
+  levelTriangles?: readonly number[];
   textureMaxPx: number;
   materials: number;
   bones: number;
@@ -36,6 +37,7 @@ export function validateModel(
   manifest: ModelAssetManifest,
   bytes: Uint8Array,
   profile: ModelTargetProfile,
+  sources: Readonly<Record<string, Uint8Array>> = {},
 ): string[] {
   const problems: string[] = [];
   const fail = (code: string, detail: string) =>
@@ -48,22 +50,82 @@ export function validateModel(
   } catch (error) {
     return [...problems, `${manifest.assetId}/model: ${(error as Error).message}`];
   }
+  const declared = manifest.output.levels;
+  const fileLevels = declared?.[0]?.path !== undefined;
+  const levels: ModelFacts[] = fileLevels
+    ? [facts]
+    : (facts.levelTriangles ?? [facts.triangles]).map((triangles) => ({ ...facts, triangles }));
+  if (fileLevels) {
+    if (facts.lods !== 1) fail("MODEL_METRIC_MISMATCH", "levels[0] must be a single-level GLB");
+    for (const [index, level] of declared!.entries()) {
+      if (index === 0) continue;
+      const data = sources[level.path!];
+      if (!data) {
+        fail("MODEL_SOURCE_REQUIRED", level.path!);
+        continue;
+      }
+      if (sha256Hex(data) !== level.sha256)
+        fail("MODEL_HASH_MISMATCH", `levels[${index}].sha256 differs from ${level.path}`);
+      try {
+        const actual = inspectModel(data);
+        if (actual.lods !== 1)
+          fail("MODEL_METRIC_MISMATCH", `levels[${index}] must be a single-level GLB`);
+        if (manifest.source.kind !== "generated" && actual.clips.some((clip) => clip.generated))
+          fail(
+            "MODEL_CLIPS_MISMATCH",
+            `levels[${index}] generated clips require generated-asset provenance`,
+          );
+        levels[index] = actual;
+      } catch (error) {
+        fail("MODEL_GLB_INVALID", `levels[${index}]: ${(error as Error).message}`);
+      }
+    }
+  }
+  const actualLods = fileLevels ? declared!.length : facts.lods;
   const metrics = ["triangles", "textureMaxPx", "materials", "bones", "lods"] as const;
   for (const metric of metrics) {
-    if (facts[metric] !== manifest.output[metric])
+    const actual = metric === "lods" ? actualLods : facts[metric];
+    if (actual !== manifest.output[metric])
       fail(
         "MODEL_METRIC_MISMATCH",
-        `${metric}: declared ${manifest.output[metric]}, actual ${facts[metric]}`,
+        `${metric}: declared ${manifest.output[metric]}, actual ${actual}`,
       );
-    for (const [tier, limits] of [
-      ["default", profile.limits],
-      ...Object.entries(profile.tiers ?? {}),
-    ] as const)
-      if (facts[metric] > limits[metric])
+    if (actual > profile.limits[metric])
+      fail(
+        "MODEL_BUDGET_EXCEEDED",
+        `default.${metric}: ${actual} exceeds ${profile.limits[metric]}`,
+      );
+  }
+  if (declared)
+    for (const [index, level] of declared.entries()) {
+      if (levels[index] && levels[index]!.triangles !== level.triangles)
         fail(
-          "MODEL_BUDGET_EXCEEDED",
-          `${tier}.${metric}: ${facts[metric]} exceeds ${limits[metric]}`,
+          "MODEL_METRIC_MISMATCH",
+          `levels[${index}].triangles: declared ${level.triangles}, actual ${levels[index]!.triangles}`,
         );
+    }
+  for (const tier of Object.keys(manifest.output.renditions ?? {}))
+    if (!Object.hasOwn(profile.tiers ?? {}, tier))
+      fail("MODEL_PROFILE_INVALID", `rendition names unknown tier ${tier}`);
+  for (const [tier, limits] of Object.entries(profile.tiers ?? {})) {
+    const renditions = manifest.output.renditions;
+    const selections = renditions && Object.hasOwn(renditions, tier) ? renditions[tier]! : [0];
+    for (const index of selections) {
+      if (index >= actualLods) {
+        fail("MODEL_METRIC_MISMATCH", `${tier} selects missing level ${index}`);
+        continue;
+      }
+      const actual = levels[index];
+      if (!actual) continue;
+      for (const metric of metrics) {
+        const value = metric === "lods" ? actualLods : actual[metric];
+        if (value > limits[metric])
+          fail(
+            "MODEL_BUDGET_EXCEEDED",
+            `${tier}.${metric}: ${value} exceeds ${limits[metric]}${index ? ` (level ${index})` : ""}`,
+          );
+      }
+    }
   }
   if (
     facts.clips.length !== manifest.output.clips.length ||

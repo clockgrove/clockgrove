@@ -216,6 +216,7 @@ export interface ModelManifestFile {
   readonly path: string;
   readonly manifest: ModelAssetManifest;
   readonly bytes: Uint8Array;
+  readonly levelSources?: Readonly<Record<string, Uint8Array>>;
 }
 export function readModelTargetProfile(root: string, packDir: string): ModelTargetProfile {
   const path = join(root, packDir, "model-target.json");
@@ -223,14 +224,29 @@ export function readModelTargetProfile(root: string, packDir: string): ModelTarg
   return decodeAs("MODEL_PROFILE_INVALID", () => decodeModelTargetProfile(readJson(path), path));
 }
 export function readModelBytes(root: string, manifest: ModelAssetManifest): Uint8Array {
-  const path = resolve(root, manifest.output.path);
+  return readModelSource(root, manifest.output.path);
+}
+function readModelSource(root: string, source: string): Uint8Array {
+  const path = resolve(root, source);
   if (relative(root, path).startsWith(".."))
     throw new Error("ASSET_PATH_INVALID: model output is outside world");
   if (!existsSync(path) || !statSync(path).isFile())
-    throw new Error(`MODEL_SOURCE_REQUIRED: ${manifest.output.path}`);
+    throw new Error(`MODEL_SOURCE_REQUIRED: ${source}`);
   if (relative(realpathSync(root), realpathSync(path)).startsWith(".."))
     throw new Error("ASSET_PATH_INVALID: model output resolves outside world");
   return readFileSync(path);
+}
+export function readModelLevelSources(
+  root: string,
+  manifest: ModelAssetManifest,
+): Readonly<Record<string, Uint8Array>> {
+  return Object.fromEntries(
+    (manifest.output.levels ?? []).flatMap((level) =>
+      level.path && level.path !== manifest.output.path
+        ? [[level.path, readModelSource(root, level.path)]]
+        : [],
+    ),
+  );
 }
 export function readModelManifests(root: string, assetRoot = "assets"): ModelManifestFile[] {
   const base = join(root, assetRoot, "manifests");
@@ -251,6 +267,7 @@ export function readModelManifests(root: string, assetRoot = "assets"): ModelMan
         path,
         manifest,
         bytes: readModelBytes(join(root, dirname(assetRoot)), manifest),
+        levelSources: readModelLevelSources(join(root, dirname(assetRoot)), manifest),
       });
     }
   return files;

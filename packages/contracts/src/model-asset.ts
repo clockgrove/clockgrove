@@ -54,6 +54,13 @@ export interface ModelAssetManifest
       readonly max: readonly [number, number, number];
     };
     readonly rig?: { readonly template: string; readonly sha256: string };
+    /** Ordered full-detail to lowest-detail levels; paths identify separate GLBs. */
+    readonly levels?: readonly {
+      readonly triangles: number;
+      readonly path?: string;
+      readonly sha256?: string;
+    }[];
+    readonly renditions?: Readonly<Record<string, readonly number[]>>;
   };
 }
 export interface ModelTargetProfile {
@@ -229,7 +236,7 @@ export function decodeModelAssetManifest(value: unknown, path = "manifest"): Mod
   exactKeys(
     output,
     ["path", "mediaType", "extension", "sha256", ...metrics, "clips", "bounds"],
-    ["rig"],
+    ["rig", "levels", "renditions"],
     `${path}.output`,
   );
   if (output.path !== sourcePath)
@@ -276,6 +283,73 @@ export function decodeModelAssetManifest(value: unknown, path = "manifest"): Mod
     },
     `${path}.output`,
   );
+  const levels = optional(
+    output,
+    "levels",
+    (value, p) => {
+      const result = array(value, p, (value, p) => {
+        const level = record(value, p);
+        exactKeys(level, ["triangles"], ["path", "sha256"], p);
+        if ((level.path === undefined) !== (level.sha256 === undefined))
+          throw new ContractDecodeError(p, "path and sha256 must be supplied together");
+        const levelPath = optional(level, "path", string, p);
+        if (
+          levelPath !== undefined &&
+          (!levelPath.endsWith(".glb") ||
+            !/^[a-zA-Z0-9_./-]+$/u.test(levelPath) ||
+            levelPath.split("/").some((part) => !part || part === "." || part === ".."))
+        )
+          throw new ContractDecodeError(`${p}.path`, "expected a safe world-relative .glb path");
+        return Object.freeze({
+          triangles: nonNegativeInteger(level.triangles, `${p}.triangles`),
+          ...(levelPath === undefined
+            ? {}
+            : { path: levelPath, sha256: hash(level.sha256, `${p}.sha256`) }),
+        });
+      });
+      if (!result.length || result.length !== output.lods)
+        throw new ContractDecodeError(p, "levels must contain exactly output.lods entries");
+      const files = result[0]?.path !== undefined;
+      if (result.some((level) => (level.path !== undefined) !== files))
+        throw new ContractDecodeError(p, "levels must be all embedded or all separate files");
+      if (
+        files &&
+        (result[0]?.path !== sourcePath ||
+          result[0]?.sha256 !== output.sha256 ||
+          new Set(result.map((level) => level.path)).size !== result.length)
+      )
+        throw new ContractDecodeError(
+          p,
+          "file levels need unique paths and level zero must match output path and hash",
+        );
+      return Object.freeze(result);
+    },
+    `${path}.output`,
+  );
+  const renditions = optional(
+    output,
+    "renditions",
+    (value, p) =>
+      Object.freeze(
+        Object.fromEntries(
+          Object.entries(record(value, p)).map(([tier, value]) => {
+            string(tier, p);
+            const indices = array(value, `${p}.${tier}`, nonNegativeInteger);
+            if (
+              !indices.length ||
+              new Set(indices).size !== indices.length ||
+              indices.some((index) => index >= Number(output.lods))
+            )
+              throw new ContractDecodeError(
+                `${p}.${tier}`,
+                "expected distinct existing level indices",
+              );
+            return [tier, Object.freeze(indices)];
+          }),
+        ),
+      ),
+    `${path}.output`,
+  );
   const license = string(v.license, `${path}.license`);
   if (!/^[A-Za-z0-9.+-]+$/u.test(license))
     throw new ContractDecodeError(`${path}.license`, "expected an SPDX identifier");
@@ -319,6 +393,8 @@ export function decodeModelAssetManifest(value: unknown, path = "manifest"): Mod
       clips,
       bounds: Object.freeze({ min, max }),
       ...(rig === undefined ? {} : { rig }),
+      ...(levels === undefined ? {} : { levels }),
+      ...(renditions === undefined ? {} : { renditions }),
     }),
   });
 }
