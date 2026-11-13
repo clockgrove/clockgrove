@@ -37,6 +37,12 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - Treat Copilot Memory and agent-session history as derived context. Reconstruct consequential state from current repository and GitHub evidence.
 - Preserve the clean-room and publication boundaries in `README.md`; do not introduce private source, credentials, unpublished operational history, or unrelated proprietary artifacts.
 
+## Dependencies
+
+- **Use an existing SDK or library before writing your own.** For a protocol, a file format, a codec or a provider's API, look first for the official SDK, then for a maintained library whose licence this repository can take. Hand-written protocol code falls behind its standard, and every line of it is ours to maintain.
+- **Write it yourself only when nothing fits:** no library exists, its licence doesn't fit, it brings an unwanted install script or native binary, or the output must be byte-for-byte deterministic. Record the exception as an ADR in `docs/adr/`: what you looked at and why it didn't fit.
+- **Name the choice in the pull request:** the SDK or library you chose, or the recorded exception that applies. A reviewer treats unrecorded hand-written protocol, format or codec code as a finding.
+
 ## Delivery record
 
 - GitHub Issues, sub-issues, pull requests, checks, and merges are the durable delivery record. Agent-session memory is not.
