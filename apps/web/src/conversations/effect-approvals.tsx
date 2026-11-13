@@ -43,8 +43,11 @@ export function EffectApprovals({
       sessionId ? { sessionId } : {},
     );
     setApprovals(result.approvals);
-    if (operator) {
-      const unresolved = await session.effectRequest<{ uncertain: UncertainWrite[] }>("uncertain");
+    if (operator || sessionId) {
+      const unresolved = await session.effectRequest<{ uncertain: UncertainWrite[] }>(
+        "uncertain",
+        sessionId ? { sessionId } : {},
+      );
       setUncertain(unresolved.uncertain);
     }
   }, [session, sessionId, operator]);
@@ -134,30 +137,34 @@ export function EffectApprovals({
             Uncertain write: {write.callId} ({write.outcomeCode}). Check the provider before
             recording a resolution.
           </p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("resolve", { ...write, disposition: "done" })}
-          >
-            Mark done after checking provider
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("resolve", { ...write, disposition: "failed" })}
-          >
-            Mark failed after checking provider
-          </button>
-          {write.retryAllowed ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void act("retry", { effectId: write.effectId })}
-            >
-              Propose safe retry for fresh approval
-            </button>
-          ) : (
-            <p>Retry unavailable: this call has no safe idempotency declaration.</p>
+          {operator && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void act("resolve", { ...write, disposition: "done" })}
+              >
+                Mark done after checking provider
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void act("resolve", { ...write, disposition: "failed" })}
+              >
+                Mark failed after checking provider
+              </button>
+              {write.retryAllowed ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void act("retry", { effectId: write.effectId })}
+                >
+                  Propose safe retry for fresh approval
+                </button>
+              ) : (
+                <p>Retry unavailable: this call has no safe idempotency declaration.</p>
+              )}
+            </>
           )}
         </section>
       ))}

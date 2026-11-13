@@ -204,20 +204,46 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
         String(Number(calls) + 1),
       );
+      await native.sql(
+        "UPDATE clockgrove.world_memberships SET grants=array_remove(array_remove(grants,'runtime:world-operate'),'runtime:world-inspect') WHERE principal_id='principal-runtime'",
+      );
       await page
         .getByLabel("Message Keeper…", { exact: true })
         .fill(`fixture:research 1 ${CAPABILITY} {"q":"down"}`);
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
       await approvals.getByRole("button", { name: "Approve exact call", exact: true }).click();
+      await approvals.getByText(/Uncertain write:/u).waitFor();
+      expect(
+        await approvals
+          .getByRole("button", { name: "Mark done after checking provider", exact: true })
+          .count(),
+      ).toBe(0);
       await history
         .getByText(/Fixture research uncertain: tool_uncertain/u)
         .waitFor({ timeout: 60000 });
+      await page
+        .getByLabel("Message Keeper…", { exact: true })
+        .fill(`fixture:research-no-answer 1 ${CAPABILITY} {"q":"down"}`);
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      await approvals.getByRole("button", { name: "Approve exact call", exact: true }).click();
+      await expect.poll(() => approvals.getByText(/Uncertain write:/u).count()).toBe(2);
+      await history
+        .getByText(/Model unavailable\. I could not finish this turn\./u)
+        .waitFor({ timeout: 60000 });
+      await native.sql(
+        "UPDATE clockgrove.world_memberships SET grants=grants||ARRAY['runtime:world-operate'] WHERE principal_id='principal-runtime'",
+      );
       await page.getByText("Operator approvals", { exact: true }).click();
       const operator = page.getByRole("complementary", { name: "Operator approvals", exact: true });
-      await operator.getByText(/Uncertain write:/u).waitFor();
+      await operator
+        .getByText(/Uncertain write:/u)
+        .first()
+        .waitFor();
       await operator
         .getByRole("button", { name: "Mark done after checking provider", exact: true })
+        .first()
         .click();
       await expect
         .poll(() =>
@@ -225,7 +251,7 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
         )
         .toBe("principal-runtime:done");
       expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
-        String(Number(calls) + 2),
+        String(Number(calls) + 3),
       );
     } finally {
       releaseList();

@@ -46,7 +46,11 @@ export async function handleEffectEndpoint(
     const auth = new TrustedRuntimeRequestAuthenticator(ports.authentication);
     const identified = await auth.identify(request);
     const action = new URL(request.url).pathname.slice("/v1/runtime/effects/".length);
-    const operatorAction = ["uncertain", "resolve", "retry"].includes(action);
+    const body = (await request.json()) as Record<string, unknown>;
+    if (body.sessionId !== undefined && typeof body.sessionId !== "string") throw new Error();
+    const operatorAction =
+      ["resolve", "retry"].includes(action) ||
+      (action === "uncertain" && body.sessionId === undefined);
     let context;
     try {
       context = await auth.authorize(
@@ -58,7 +62,6 @@ export async function handleEffectEndpoint(
       if (operatorAction || !(error instanceof AuthorizationRefusedError)) throw error;
       context = await auth.authorize(identified, undefined, "runtime:world-operate");
     }
-    const body = (await request.json()) as Record<string, unknown>;
     const scope = decodeBrowserScope({
       tenantId: body.tenantId,
       worldId: body.worldId,
@@ -92,7 +95,7 @@ export async function handleEffectEndpoint(
       const resume = await ports.research.approvalTarget(scope, approvalId);
       if (resume) await ports.wake(resume);
     } else if (action === "uncertain") {
-      value = { uncertain: await controls.uncertain(scope) };
+      value = { uncertain: await controls.uncertain(scope, body.sessionId as string | undefined) };
     } else if (action === "retry") {
       value = await ports.research.retry(scope, text("effectId"), context);
     } else if (action === "resolve") {

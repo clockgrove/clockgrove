@@ -63,6 +63,12 @@ it("authenticates human HTTP controls and records exact decisions and operator r
         { scope, actorId: decodeOpaqueId("actor", "ObjectId"), voiceMode: "cognitive" },
       ),
     );
+    const otherSession = await withClient((client) =>
+      new PostgreSqlConversationStore(client, artifacts(client), () => "other-http-session").open(
+        person,
+        { scope, actorId: decodeOpaqueId("other-actor", "ObjectId"), voiceMode: "cognitive" },
+      ),
+    );
     await withClient(async (client) => {
       await artifacts(client).put(person, {
         ...scope,
@@ -95,6 +101,14 @@ it("authenticates human HTTP controls and records exact decisions and operator r
         costMicrousd: null,
       });
     });
+    await sql(`INSERT INTO clockgrove.events
+      (event_id,tenant_id,world_id,timeline_id,partition_id,space_id,stream_id,stream_sequence,
+       partition_sequence,event_type,schema_version,simulation_time,command_id,correlation_id,
+       principal_id,privacy_class,payload_hash,attribution,policy_versions,payload,event_bytes)
+      VALUES ('trusted:research:uncertain:event','tenant-a','world-a','timeline-a','partition-a',
+        'space-a','stream-a',3,3,'ResearchFixture',2,0,'command-a','correlation-a','principal-a',
+        'conversation','hash-uncertain','{}','{}','{"sessionId":"http-session"}',
+        convert_to('{"schemaVersion":2}','UTF8'))`);
     // The identity provider and exact-call port are fixtures; canonical controls/artifacts are real.
     const authentication: RuntimeAuthenticationDependencies = {
       provider: {
@@ -190,6 +204,35 @@ it("authenticates human HTTP controls and records exact decisions and operator r
     expect(
       await (await call("decide", { approvalId: "http-approval", decision: "approved" })).json(),
     ).toEqual(approved);
+    // Canonical uncertainty is visible without any answer-model continuation or operator grant.
+    expect(await (await call("uncertain", { sessionId: session.sessionId })).json()).toEqual({
+      uncertain: [
+        {
+          effectId: "uncertain",
+          callId: "call",
+          principalId: "principal-a",
+          attemptId: "attempt",
+          outcomeCode: "reply_lost",
+          completedAt: expect.any(String),
+          retryAllowed: false,
+        },
+      ],
+    });
+    expect(await (await call("uncertain", { sessionId: otherSession.sessionId })).json()).toEqual({
+      uncertain: [],
+    });
+    expect(
+      (await call("uncertain", { sessionId: session.sessionId, tenantId: "tenant-b" })).status,
+    ).toBe(403);
+    expect((await call("uncertain")).status).toBe(403);
+    expect((await call("uncertain", { sessionId: "another-session" })).status).toBe(403);
+    expect(
+      (await call("uncertain", { sessionId: session.sessionId, spaceId: "other-space" })).status,
+    ).toBe(403);
+    await sql(
+      "UPDATE clockgrove.world_memberships SET grants=ARRAY['read'] WHERE tenant_id='tenant-a'",
+    );
+    expect((await call("uncertain", { sessionId: session.sessionId })).status).toBe(403);
     expect(
       (await call("resolve", { effectId: "uncertain", attemptId: "attempt", disposition: "done" }))
         .status,

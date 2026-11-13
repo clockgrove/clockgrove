@@ -977,8 +977,11 @@ The authenticated local `/v1/runtime/effects/` POST surface provides `approvals`
 `decide`, `revoke`, `uncertain`, `resolve` and `retry`. Requests carry the complete scope and a command
 identity; human identity comes only from the verified bearer session. The designated
 approver can inspect the exact encrypted argument preview and decide approved or denied.
-Operator uncertainty controls require current `runtime:world-operate` and conversation
-privacy. Cross-origin browser calls are refused. No route is installed as a model tool.
+Session uncertainty reads require current membership, conversation privacy and participation
+in the exact scoped session; only that session’s canonical proposal events are included.
+Unscoped uncertainty listings and all resolution/retry controls require current
+`runtime:world-operate` and conversation privacy. Cross-origin browser calls are refused.
+No route is installed as a model tool.
 
 `RemoteHttpMcpWriteAdapter` shares the confined credential and bounded HTTP lifecycle with
 reads. It sends one `tools/call`, with no automatic retry. A failure before transmission
@@ -996,7 +999,7 @@ an explicit provider integration contract, not an MCP protocol guarantee. A decl
 of `none` never permits retrying an uncertain write. Models and tool results cannot set
 these declarations or decide approval/resolution.
 
-The conversation exposes pending approval with its authorized argument preview; the
-operator view exposes routed approvals and unresolved uncertainty. The actor's recorded
-reply cites its tool call, including an explicit uncertain outcome. The local integration
-does not activate hosted egress or change the hosted enrollment boundary.
+The conversation exposes pending approval with its authorized argument preview and its
+session’s unresolved canonical uncertainty, even if model continuation fails. The operator view exposes routed approvals and unresolved uncertainty.
+The actor’s recorded reply cites its tool call, including an explicit uncertain outcome.
+The local integration does not activate hosted egress or change the hosted enrollment boundary.
