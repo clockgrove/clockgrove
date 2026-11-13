@@ -1,6 +1,7 @@
 import type { ClientViewTrace, LivingScene, SceneProjection, SpaceId } from "@clockgrove/contracts";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserAuthenticationPort } from "./api.js";
+import { OperatorEffects } from "./conversations/operator-effects.js";
 import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { McpCapabilities } from "./mcp-capabilities.js";
@@ -488,6 +489,7 @@ export function WorldApp({
         {signedIn && entry && capabilitiesOpen && (
           <McpCapabilities key={worldRoutePath(entry)} session={session} scope={entry} />
         )}
+        {signedIn && entry && <OperatorEffects key={worldRoutePath(entry)} session={session} />}
         <p className="rw-observation-details">
           Observe an authorized world. This view grants no world mutation authority.
         </p>

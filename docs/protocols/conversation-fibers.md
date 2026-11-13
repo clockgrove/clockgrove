@@ -319,8 +319,4 @@ canonical run evidence. A protected-call marker persists in encrypted call histo
 resumes to `tool_waiting`; a host missing its approval dependency cannot execute that
 call. Existing read-only hosts remain compatible without installing the optional hook.
 
-This checkpoint is an internal prerequisite. Public approval decisions, the argument
-preview controls, automatic wake/expiry scheduling, proactive operator routing and
-full write execution are part of the final integration of issue 166. A checkpoint alone
-is neither approval nor dispatch authority; the exact approval must still be consumed
-atomically with current-policy admission and the effect/outbox reservation.
+Local research now supplies the trusted hook and exact approval proposal. Authenticated human decisions wake the existing actor turn; recovery and sweep recheck pending approvals and expiry. Conversation controls load the exact argument preview within current privacy and capability authority. A sealed proposal retains its original run identity even if its owner is lost before the approval row is created. Proactive activations remain pending while approval or tool work waits. The operator view receives routed approvals and uncertain effects. Conversation participants can also read their session’s canonical uncertainty without relying on model continuation; resolution remains operator-only. A checkpoint alone is neither approval nor dispatch authority: the exact approval is consumed atomically with current-policy admission and the effect/outbox reservation. Browser reload, owner loss and duplicate clicks retain the same call identity. See [governed writes](mcp.md#governed-writes-and-human-controls-issue-166-final-integration).

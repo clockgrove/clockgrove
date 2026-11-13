@@ -1,5 +1,5 @@
 import {
-  type AdmittedMcpRead,
+  type AdmittedMcpExecution,
   type McpReadEvidence,
   McpReadFailure,
   mcpReadArgumentsHash,
@@ -17,9 +17,9 @@ export { mcpReadArgumentsHash } from "@clockgrove/application";
 export interface ExternalEffectPorts {
   readonly effects: Pick<PostgreSqlEffects, "resolveDispatch" | "claim" | "reconcile" | "complete">;
   /** Reload canonical installation, binding and member grants; verify stored argument hash. */
-  readonly admit: (intent: EffectIntentMetadata) => Promise<AdmittedMcpRead | null>;
+  readonly admit: (intent: EffectIntentMetadata) => Promise<AdmittedMcpExecution | null>;
   readonly adapter: {
-    execute(request: AdmittedMcpRead, intent: EffectIntentMetadata): Promise<McpReadEvidence>;
+    execute(request: AdmittedMcpExecution, intent: EffectIntentMetadata): Promise<McpReadEvidence>;
   };
   /** Canonical completion is committed before notifying the waiting actor. */
   readonly completed?: (intent: EffectIntentMetadata) => Promise<void>;
@@ -47,7 +47,7 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
         return;
       }
       let completion: EffectCompletion;
-      let request: AdmittedMcpRead | null;
+      let request: AdmittedMcpExecution | null;
       let argumentsChanged = false;
       try {
         const admitted = await ports.admit(structuredClone(intent));
@@ -94,13 +94,15 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
             !resultReceived && error instanceof McpReadFailure ? error : null;
           completion = {
             disposition:
-              transportFailure !== null && transportFailure.disposition !== "uncertain"
+              transportFailure !== null &&
+              transportFailure.disposition !== "uncertain" &&
+              (request.admittedReadOnly || transportFailure.disposition === "not_sent")
                 ? "failed"
                 : "uncertain",
             outcomeCode:
               transportFailure?.disposition === "not_sent"
                 ? "tool_not_sent"
-                : transportFailure?.disposition === "result_refused"
+                : request.admittedReadOnly && transportFailure?.disposition === "result_refused"
                   ? "tool_result_refused"
                   : "tool_uncertain",
             resultArtifactId: null,

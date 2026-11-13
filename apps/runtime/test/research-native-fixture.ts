@@ -1,6 +1,7 @@
 import {
   type McpNetworkPort,
   RemoteHttpMcpReadAdapter,
+  RemoteHttpMcpWriteAdapter,
   SafeMcpHttpClient,
 } from "@clockgrove/application";
 import { PostgreSqlArtifactStore, WebCryptoKeyring } from "@clockgrove/persistence";
@@ -10,14 +11,25 @@ import {
   type RuntimeEnvironment,
 } from "../src/cloudflare-entry.js";
 import { withHyperdrivePostgreSqlClient } from "../src/hyperdrive-postgres.js";
-import { composeResearch } from "../src/research.js";
+import { composeResearch, type ResearchConfiguration } from "../src/research.js";
 import { stableRuntimeRouteName } from "../src/routing.js";
 
 export type NativeResearchEnvironment = RuntimeEnvironment & {
   readonly NATIVE_RESEARCH_ORIGIN?: string;
   readonly NATIVE_RESEARCH_DATABASE_URL?: string;
 };
-let cached: { origin: string; service: ReturnType<typeof composeResearch> } | undefined;
+let cached:
+  | {
+      origin: string;
+      service: ReturnType<typeof composeResearch>;
+      configuration: ResearchConfiguration;
+    }
+  | undefined;
+
+export function nativeResearchConfiguration(env: NativeResearchEnvironment) {
+  nativeResearch(env);
+  return cached?.configuration;
+}
 
 /** Test-owned public DNS mapping to the actual loopback fixture HTTP server, never production. */
 export function nativeResearch(
@@ -35,7 +47,7 @@ export function nativeResearch(
     },
   };
   const keyring = WebCryptoKeyring.fromJson(env.ARTIFACT_KEYRING!);
-  const service = composeResearch({
+  const configuration: ResearchConfiguration = {
     environment: "local",
     withClient: (operation) =>
       withHyperdrivePostgreSqlClient(env.NATIVE_RESEARCH_DATABASE_URL!, operation),
@@ -47,7 +59,12 @@ export function nativeResearch(
     }),
     network,
     internalRead: composeResearchInternalRead(env, composeRuntime(env).authentication),
-    adapter: new RemoteHttpMcpReadAdapter(new SafeMcpHttpClient(network)),
+    adapter: {
+      execute: (request) =>
+        new RemoteHttpMcpReadAdapter(new SafeMcpHttpClient(network)).execute(request),
+      executeWrite: (request) =>
+        new RemoteHttpMcpWriteAdapter(new SafeMcpHttpClient(network)).execute(request),
+    },
     publish: async (envelope) => {
       await env.EXTERNAL_EFFECTS_QUEUE!.send(envelope);
     },
@@ -67,7 +84,8 @@ export function nativeResearch(
       modelStepReserveMicrousd: 50000,
     },
     toolCallReserveMicrousd: 1000,
-  });
-  cached = { origin, service };
+  };
+  const service = composeResearch(configuration);
+  cached = { origin, service, configuration };
   return service;
 }

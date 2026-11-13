@@ -18,6 +18,8 @@ export interface McpCapabilityConstraints {
   readonly effectClasses: readonly McpEffectClass[];
   readonly budgetMicrousd?: number;
   readonly expiresAt?: string;
+  readonly approvalRequired?: boolean;
+  readonly idempotency?: "none" | "application" | "provider";
 }
 export interface McpCapabilityBinding {
   readonly tenantId: string;
@@ -247,6 +249,10 @@ function boundedInput(value: unknown): CapabilityValue {
 
 function valid(constraints: McpCapabilityConstraints): boolean {
   return (
+    (constraints.approvalRequired === undefined ||
+      typeof constraints.approvalRequired === "boolean") &&
+    (constraints.idempotency === undefined ||
+      ["none", "application", "provider"].includes(constraints.idempotency)) &&
     Number.isSafeInteger(constraints.callsPerTurn) &&
     constraints.callsPerTurn > 0 &&
     Array.isArray(constraints.effectClasses) &&

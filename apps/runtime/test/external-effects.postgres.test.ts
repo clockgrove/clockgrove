@@ -108,7 +108,7 @@ it("verifies canonical Queue identity, executes once, records uncertainty and re
           admissions++;
           if (intent.effectId === "refused") return null;
           return {
-            admittedReadOnly: true,
+            admittedReadOnly: intent.effectId !== "uncertain",
             endpoint: "https://fixture.example/mcp",
             toolName: intent.effectId,
             arguments:
@@ -128,7 +128,7 @@ it("verifies canonical Queue identity, executes once, records uncertainty and re
               await waiting;
             }
             if (request.toolName === "uncertain")
-              throw new McpReadFailure("private-canary", "uncertain");
+              throw new McpReadFailure("private-canary", "result_refused");
             return evidence;
           },
         },
@@ -218,7 +218,7 @@ it("verifies canonical Queue identity, executes once, records uncertainty and re
         },
         attemptId: () => "completion-write-attempt",
         admit: async () => ({
-          admittedReadOnly: true,
+          admittedReadOnly: false,
           endpoint: "https://fixture.example/mcp",
           toolName: "completion-write",
           arguments: {},
