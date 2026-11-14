@@ -2880,7 +2880,7 @@ The initial human is an observer/caretaker, not an embodied avatar. Private `Tal
 
 ### 20.7 Asset pipeline
 
-Blender and image generation, through [Assetforge](https://github.com/clockgrove/assetforge), can assist authoring. Each world's art lives in that world's repository, under its own style bible. Clockgrove owns the pipeline and proves it on the fixture world's placeholder art. Runtime assets are reviewed 2D outputs:
+Blender and image generation, through [Assetgrove](https://github.com/clockgrove/assetgrove), can assist authoring. Each world's art lives in that world's repository, under its own style bible. Clockgrove owns the pipeline and proves it on the fixture world's placeholder art. Runtime assets are reviewed 2D outputs:
 
 - sprite sheets/atlases;
 - animation manifests;
