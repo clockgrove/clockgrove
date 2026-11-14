@@ -66,7 +66,7 @@ For product/runtime work:
 4. accepted ADRs relevant to the task
 5. the current wave plan and immediately preceding handoff
 
-The independent `clockgrove/skills` package provides product and engineering guidance, not product/runtime authority.
+The agent skills in `.agents/skills/` provide product and engineering guidance, not product/runtime authority.
 
 Agents start from the documentation map in [`../AGENTS.md`](../AGENTS.md); package and subsystem contracts live under each package's docs directory.
 

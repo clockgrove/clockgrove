@@ -31,11 +31,10 @@ This repository contains the **Clockgrove product/runtime** and its canonical pr
 Other repositories in the Clockgrove organization have separate responsibilities:
 
 - `clockgrove/factory` — external agent-orchestration tooling used to develop Clockgrove. Clockgrove does not depend on Factory to build or run.
-- `clockgrove/skills` — reusable Clockgrove product/engineering skills.
 - `clockgrove/raccoon-world` — Raccoon World, the reference world: its pack, art, style bible, theme and goldens, built against a pinned Clockgrove commit.
-- `clockgrove/.github` — public organization profile, shared GitHub metadata, and the Clockgrove Copilot capability marketplace.
+- `clockgrove/.github` — public organization profile and shared GitHub metadata.
 
-Factory develops Clockgrove through GitHub Issues, pull requests and checks (`.github/workflows/factory.yml`); it is not a build or runtime dependency. The independent Skills package is enabled through `.github/copilot/settings.json`.
+Factory develops Clockgrove through GitHub Issues, pull requests and checks (`.github/workflows/factory.yml`); it is not a build or runtime dependency. Agent skills for working in this repository live in `.agents/skills/`, with `.claude/skills/` linking to them.
 
 ## Contributor bootstrap
 
@@ -86,7 +85,7 @@ A few boundaries are intentionally strong:
 - **Objective state and subjective cognition remain distinct.** Perception, testimony, belief and memory are evidence-bearing actor-relative state rather than disguised global facts.
 - **Replay and explanation are product features.** Important behavior should be causally inspectable.
 - **Provider boundaries stay replaceable.** Cloud, authentication, model, tool, renderer and infrastructure SDKs remain behind project-owned contracts where they affect durable semantics.
-- **Clockgrove remains independently operable.** Development capabilities such as `clockgrove/factory` and `clockgrove/skills` may operate the repository but cannot become runtime dependencies.
+- **Clockgrove remains independently operable.** Development capabilities such as `clockgrove/factory` may operate the repository but cannot become runtime dependencies.
 
 ## Reference world
 
