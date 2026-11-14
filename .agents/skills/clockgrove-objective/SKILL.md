@@ -1,6 +1,6 @@
 ---
 name: clockgrove-objective
-description: Clockgrove's rules for working a Factory Objective in the clockgrove/clockgrove repository: the canonical commands, the test budget and its command, where browser tests live, the six design-checklist questions, documentation conventions and protected paths. Load alongside objective-plan, prove-acceptance and deliver-pr whenever the current repository is Clockgrove and the task is a factory:objective issue or a change that must pass pnpm check.
+description: "Clockgrove's rules for working a Factory Objective in the clockgrove/clockgrove repository: the canonical commands, the test budget and its command, where browser tests live, the six design-checklist questions, documentation conventions and protected paths. Load alongside factory-objective-plan, factory-prove-acceptance and factory-deliver-pr whenever the current repository is Clockgrove and the task is a factory:objective issue or a change that must pass pnpm check."
 ---
 
 # Working a Clockgrove Objective
