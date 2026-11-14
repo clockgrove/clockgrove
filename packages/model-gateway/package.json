@@ -19,8 +19,8 @@
     "vitest": "5.1.0"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.97",
-    "ai": "7.0.163",
+    "@ai-sdk/anthropic": "4.0.98",
+    "ai": "7.0.164",
     "zod": "4.6.7"
   }
 }
