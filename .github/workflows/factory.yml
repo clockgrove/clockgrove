@@ -1,5 +1,5 @@
 # Factory: unattended Objectives. Written by `/factory setup`; edit the env block, not the jobs.
-# Triggers: cron, manual (one issue), a new factory:objective label, the review job's own last step, and
+# Triggers: cron, manual (one issue), a new factory:objective label or its removal, the review job's own last step, and
 # pull_request when the Factory App labels a PR factory:review. Never from a fork: the Objective text (a writer) and the label (a
 # maintainer) are the only inputs. FACTORY_AUTO_MERGE is ON: Factory merges the reviewed head with
 # no human read. The gate is your CI workflow's checks on that exact head (and the merge queue's
@@ -13,8 +13,8 @@ on:
       issue: { description: Objective issue number (empty runs the dispatcher), required: false }
       harness: { description: "Override FACTORY_HARNESS for this run (claude | codex | copilot)", required: false }
       wake: { description: "Set by a wake job only (the deadline it slept to); leave empty", required: false }
-  issues: # a new Objective dispatches at once (labelled at creation, or labelled later); closed: an Objective blocked by that issue is ready now
-    types: [opened, labeled, closed]
+  issues: # a new Objective dispatches at once (labelled at creation, or labelled later); factory:objective removed: the dispatcher leaves a stopped Objective's PR a draft; factory:restart: the dispatcher restarts it; factory:draft applied: a stop, removed: a start; closed: an Objective blocked by that issue is ready now
+    types: [opened, labeled, unlabeled, closed]
   pull_request: # fires because the App (not the job token) applies factory:review, a human marks a Question draft ready (the App's own ready mark starts no job), a Factory PR merged (siblings may be stale now), or the merge queue dropped one (the dispatcher re-enqueues it once, then Blocks)
     types: [labeled, ready_for_review, closed, dequeued]
   check_suite: # CI from a GitHub App outside Actions finished on a factory/ branch: a stage waiting on it resumes, or the dispatcher's merge pass runs
@@ -54,14 +54,14 @@ permissions: # the job token reads code and Actions; every write goes through th
 jobs:
   dispatch:
     # Ticks: the */10 cron only (a backstop: GitHub fires schedules late or not at all; other schedules are other
-    # jobs'), a manual run, a new Objective's label, any issue closing (it may block an Objective), Factory's own jobs'
+    # jobs'), a manual run, a new Objective's label or its removal (a stop), a restart's label, a draft's label applied or removed (a stop, a start), any issue closing (it may block an Objective), Factory's own jobs'
     # last steps (a slot freed, a failed or requeued start), a merged Factory PR, the merge queue dropping one
     # (only GitHub and people with write access dequeue), the queue watch, and, without a sandbox, CI finishing on a
     # factory/ branch (the merge pass merges a PR whose checks just went green; with a sandbox the gate job takes those
     # events and ticks this job itself).
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'factory:objective' || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'factory:objective')))) ||
+      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'factory:objective' || github.event.label.name == 'factory:draft' || (github.event.action == 'labeled' && github.event.label.name == 'factory:restart') || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'factory:objective')))) ||
       (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'factory/')) ||
       (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'check_suite' && startsWith(github.event.check_suite.head_branch, 'factory/')) ||
@@ -76,7 +76,7 @@ jobs:
       wake_at: "${{ steps.f.outputs.wake_at }}"
       wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/factory@v0.9.26
+      - uses: clockgrove/factory@v0.9.27
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
   queue-watch:
@@ -96,7 +96,7 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.9.26
+      - uses: clockgrove/factory@v0.9.27
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
@@ -142,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.26
+      - uses: clockgrove/factory@v0.9.27
         id: f
         with:
           mode: work
@@ -177,7 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.26
+      - uses: clockgrove/factory@v0.9.27
         id: f
         with:
           mode: review
