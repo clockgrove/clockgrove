@@ -33,7 +33,8 @@ This repository owns Clockgrove product/runtime truth. Resolve product/runtime a
 - The deterministic simulation and typed application paths own canonical physical mutation. Models and tools may reason and propose, but do not become world-truth authority.
 - PostgreSQL is canonical durable world history. Runtime actors, queues, caches, indexes, browser state, and provider sessions are recoverable execution or projection state.
 - Keep provider SDK types behind project-owned adapters and composition roots. Preserve provider-neutral durable contracts.
-- `clockgrove/factory` and `clockgrove/skills` are external development capabilities. They may operate this repository, but must not become product/runtime dependencies or override accepted Clockgrove authority.
+- `clockgrove/factory` is an external development capability. It may operate this repository, but must not become a product/runtime dependency or override accepted Clockgrove authority.
+- Agent skills live in `.agents/skills/<name>/`, and `.claude/skills/<name>` is a symlink to each. They are guidance, not authority: where a skill and this file or a repository doc differ, the file or doc wins.
 - Treat Copilot Memory and agent-session history as derived context. Reconstruct consequential state from current repository and GitHub evidence.
 - Preserve the clean-room and publication boundaries in `README.md`; do not introduce private source, credentials, unpublished operational history, or unrelated proprietary artifacts.
 
