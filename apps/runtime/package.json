@@ -20,8 +20,8 @@
     "test:long-run": "vitest run --config vitest.long-run.config.ts"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.7.15",
-    "@better-auth/oauth-provider": "1.7.15",
+    "@better-auth/api-key": "1.7.18",
+    "@better-auth/oauth-provider": "1.7.18",
     "@clockgrove/application": "workspace:*",
     "@clockgrove/contracts": "workspace:*",
     "@clockgrove/domain": "workspace:*",
@@ -32,14 +32,14 @@
     "@clockgrove/world-pack-sdk": "workspace:*",
     "@modelcontextprotocol/server": "2.4.0",
     "agents": "0.33.0",
-    "better-auth": "1.7.15",
+    "better-auth": "1.7.18",
     "kysely": "0.29.8",
     "pg": "8.23.1"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
     "@types/pg": "8.23.1",
-    "undici": "8.12.3",
+    "undici": "8.12.4",
     "vitest": "5.1.0"
   }
 }
