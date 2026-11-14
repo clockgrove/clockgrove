@@ -2,7 +2,7 @@
 
 **Status:** Canonical brand foundation  
 **Applies to:** Clockgrove's product, documentation, platform demos, web presence, community and brand art, including generated and AI-assisted work on them  
-**Does not apply to:** a world's own art and creative direction, including AI-assisted asset creation for its pack. A world's art follows that world's style bible in its own repository, in [Assetforge's](https://github.com/clockgrove/assetforge) bible format (Raccoon World: [clockgrove/raccoon-world#2](https://github.com/clockgrove/raccoon-world/issues/2)).
+**Does not apply to:** a world's own art and creative direction, including AI-assisted asset creation for its pack. A world's art follows that world's style bible in its own repository, in [Assetgrove's](https://github.com/clockgrove/assetgrove) bible format (Raccoon World: [clockgrove/raccoon-world#2](https://github.com/clockgrove/raccoon-world/issues/2)).
 
 ---
 

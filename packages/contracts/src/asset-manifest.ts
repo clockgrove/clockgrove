@@ -47,7 +47,7 @@ const kebab = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const sha256 = /^[0-9a-f]{64}$/u;
 const colour = /^#[0-9a-f]{6}$/u;
 
-/** Assetforge #47 provider grant field names; absent fields are refused by the deploy gate. */
+/** Assetgrove #47 provider grant field names; absent fields are refused by the deploy gate. */
 export interface AssetOutputGrant {
   readonly license?: string;
   readonly plan?: string;

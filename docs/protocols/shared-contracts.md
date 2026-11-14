@@ -157,7 +157,7 @@ of the input references. An empty references array records that no references we
 not replace the prompt or parameters. Authored and imported assets retain the prompt/references
 shape without generated fields.
 
-`outputGrant` uses [Assetforge issue 47](https://github.com/clockgrove/assetforge/issues/47)'s field
+`outputGrant` uses [Assetgrove issue 47](https://github.com/clockgrove/assetgrove/issues/47)'s field
 names directly:
 
 | Field | Meaning |
@@ -216,7 +216,7 @@ Models share `assetId`, `source`, `license`, `provenance`, `review`, `semantic` 
 gate. They have no frame grid, atlas, pixel bounds or palette. The gate identifies them as
 `<assetId>/model`.
 
-Their `output` preserves the Assetforge hand-off field names: `path`, `mediaType`
+Their `output` preserves the Assetgrove hand-off field names: `path`, `mediaType`
 (`model/gltf-binary`), `extension` (`glb`), `sha256`, `triangles`, `textureMaxPx`, `materials`,
 `bones`, `lods`, `clips`, `bounds` and optional `rig`. `output.path` equals `source.path`: a safe
 world-relative `.glb` path without empty, `.` or `..` segments. Each clip has a unique `name`,
