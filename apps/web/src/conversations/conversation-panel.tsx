@@ -84,6 +84,19 @@ export function ConversationPanel({
   const chosen = useRef<string>(undefined);
   const creating = useRef<Promise<ConversationSession | { readonly refused: string }>>(undefined);
   const [current, setCurrent] = useState<ConversationSession>();
+  // Counts the person's successful renames and (un)archives, with the count at each conversation's
+  // latest one. A read of that conversation sent before it carries the older title or state, so it
+  // never replaces what the change returned.
+  const lifecycle = useRef<{ count: number; changed: Map<string, number> }>({
+    count: 0,
+    changed: new Map(),
+  });
+  const changedSince = useCallback(
+    (seen: number, sessionId: string) => (lifecycle.current.changed.get(sessionId) ?? 0) > seen,
+    [],
+  );
+  // The renames and (un)archives still in flight, and whether any of them overlapped another.
+  const changes = useRef({ inFlight: 0, overlapped: false, succeeded: false });
   const [messages, setMessages] = useState<readonly ConversationMessage[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -237,8 +250,11 @@ export function ConversationPanel({
 
   const reload = useCallback(
     async (preferred?: string) => {
+      const seen = lifecycle.current.count;
       const list = await session.listConversations(actorId);
       if ("refused" in list) return setRefusal(list.refused);
+      // A change that succeeded since this read was sent re-reads the list itself.
+      if (lifecycle.current.count !== seen) return;
       setSessions(list.sessions);
       // On opening, the conversation whose reply this tab left in progress comes first: a turn's
       // acceptance does not make its conversation the most recently updated.
@@ -282,16 +298,20 @@ export function ConversationPanel({
       if (live && !("refused" in found))
         setDeferred(found.filter((a) => a.status === "deferred" && a.sessionId === selectedId));
     });
-    const load = () =>
-      session.readConversation(selectedId).then((page) => {
+    const load = () => {
+      const seen = lifecycle.current.count;
+      return session.readConversation(selectedId).then((page) => {
         if (!live) return undefined;
         if ("refused" in page) return void setRefusal(page.refused);
-        setCurrent(page.session);
-        setTitle(page.session.title);
+        if (!changedSince(seen, selectedId)) {
+          setCurrent(page.session);
+          setTitle(page.session.title);
+        }
         setMessages(page.messages);
         setNext(page.nextAfterSequence);
         return page.messages;
       });
+    };
     void load().then(async () => {
       // A turn this browser left in flight is settled from its durable status, then re-read.
       let resumedId: string | undefined;
@@ -328,15 +348,16 @@ export function ConversationPanel({
     return () => {
       live = false;
     };
-  }, [session, selectedId, actorId, reportPhase, stillRunning]);
+  }, [session, selectedId, actorId, reportPhase, stillRunning, changedSince]);
 
   /** Shows how the turn settled, then re-reads its conversation if it is still the open one. */
   const settled = async (sessionId: string, outcome: TurnResult) => {
     setResult(outcome);
     if (chosen.current !== sessionId) return void (await reload());
+    const seen = lifecycle.current.count;
     const page = await session.readConversation(sessionId);
     if ("refused" in page) return refuse(page);
-    setCurrent(page.session);
+    if (!changedSince(seen, sessionId)) setCurrent(page.session);
     setMessages(page.messages);
     setNext(page.nextAfterSequence);
     await reload(sessionId);
@@ -371,10 +392,36 @@ export function ConversationPanel({
   };
   const update = async (action: Promise<ConversationSession | { readonly refused: string }>) => {
     setRefusal(undefined);
+    const batch = changes.current;
+    if (batch.inFlight > 0) batch.overlapped = true;
+    batch.inFlight += 1;
     const result = await action;
-    if ("refused" in result) return refuse(result);
-    setCurrent(result);
-    await reload(result.sessionId);
+    batch.inFlight -= 1;
+    if ("refused" in result) refuse(result);
+    else {
+      // Only a change that succeeded counts: reads sent before it are older than what it returned.
+      lifecycle.current.count += 1;
+      lifecycle.current.changed.set(result.sessionId, lifecycle.current.count);
+      batch.succeeded = true;
+    }
+    // While another change is in flight, the last one to answer shows the outcome.
+    if (batch.inFlight > 0 || !batch.succeeded) return;
+    const { overlapped } = batch;
+    changes.current = { inFlight: 0, overlapped: false, succeeded: false };
+    // The open conversation wins: one opened while the change was in flight stays open.
+    const open = chosen.current;
+    if (!overlapped && !("refused" in result)) {
+      if (open === result.sessionId) setCurrent(result);
+      return void (await reload(open === result.sessionId ? result.sessionId : undefined));
+    }
+    // Overlapping changes may answer in any order, so the server's current state is read again.
+    if (open !== undefined && lifecycle.current.changed.has(open)) {
+      const seen = lifecycle.current.count;
+      const page = await session.readConversation(open);
+      if ("refused" in page) return refuse(page);
+      if (chosen.current === open && !changedSince(seen, open)) setCurrent(page.session);
+    }
+    await reload();
   };
   const remove = async () => {
     if (!current) return;

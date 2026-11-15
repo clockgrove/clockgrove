@@ -39,6 +39,11 @@ const GPU_FLAGS = [
   "--enable-features=Vulkan",
   "--use-vulkan=swiftshader",
 ];
+// #207: subpixel (LCD) text antialiasing paints a colour fringe one pixel outside a glyph's box,
+// beyond the rect Chromium repaints when that text moves or goes away. The fringe pixel then
+// keeps whatever an earlier frame rastered there, which depends on timing: the column left of a
+// text's left edge varied between runs on CI. Grayscale antialiasing stays inside the glyph's box.
+const CAPTURE_FLAGS = [...GPU_FLAGS, "--disable-lcd-text"];
 const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
   ? [process.env.CLOCKGROVE_RENDERER_PROOF]
   : ["webgpu", "webgl2"];
@@ -206,7 +211,7 @@ const captureGoldenStates = async (backend) => {
       throwIfStopped();
       await server.listen();
       const { port } = server.httpServer.address();
-      browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+      browser = await chromium.launch({ headless: true, args: CAPTURE_FLAGS });
       throwIfStopped();
       const vitals = [];
       const open = async (viewport, text, missingAtlas = false) => {
