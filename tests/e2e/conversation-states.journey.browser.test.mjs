@@ -18,21 +18,16 @@ const OFFER = "fixture:offer fixture.water-bowl water";
 const BACKENDS = process.env.CLOCKGROVE_RENDERER_PROOF
   ? [process.env.CLOCKGROVE_RENDERER_PROOF]
   : ["webgpu", "webgl2"];
-const ARGS = {
-  webgpu: [
-    "--enable-unsafe-webgpu",
-    "--enable-unsafe-swiftshader",
-    "--use-webgpu-adapter=swiftshader",
-    "--use-angle=swiftshader",
-    "--enable-features=Vulkan",
-    "--use-vulkan=swiftshader",
-  ],
-  webgl2: [
-    "--disable-blink-features=WebGPU",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
-  ],
-};
+// Both runs use SwiftShader; the WebGL2 run forces the renderer's WebGL2 backend, as the living-hall
+// and golden-state journeys do.
+const ARGS = [
+  "--enable-unsafe-webgpu",
+  "--enable-unsafe-swiftshader",
+  "--use-webgpu-adapter=swiftshader",
+  "--use-angle=swiftshader",
+  "--enable-features=Vulkan",
+  "--use-vulkan=swiftshader",
+];
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
 
 it("shows each turn state, cancels, retries a stale offer and opens run details", async () => {
@@ -48,7 +43,7 @@ it("shows each turn state, cancels, retries a stale offer and opens run details"
             `UPDATE clockgrove.world_memberships
                 SET grants = ARRAY(SELECT DISTINCT unnest(grants || ARRAY['runtime:world-observe', 'runtime:world-command'])),
                     persona_id = 'persona-caretaker',
-                    privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation"]}'`,
+                    privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}'`,
           );
         },
       });
@@ -75,6 +70,20 @@ it("shows each turn state, cancels, retries a stale offer and opens run details"
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
+      plugins: [
+        {
+          name: "conversation-states-renderer-backend",
+          transform(code, id) {
+            if (id.split("?")[0] !== path.join(root, "apps/web/src/renderer.ts")) return;
+            return {
+              code: `${backend === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}
+const statesLoad = ThreeWorldSceneAdapter.prototype.loadSnapshot;
+ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.statesAdapter = this; return statesLoad.apply(this, args); };`,
+              map: null,
+            };
+          },
+        },
+      ],
       server: {
         host: "127.0.0.1",
         port: 0,
@@ -97,7 +106,7 @@ it("shows each turn state, cancels, retries a stale offer and opens run details"
     try {
       await server.listen();
       browserOrigin = `http://127.0.0.1:${server.httpServer.address().port}`;
-      browser = await chromium.launch({ headless: true, args: ARGS[backend] });
+      browser = await chromium.launch({ headless: true, args: ARGS });
       const page = await browser.newPage();
       const route = `/worlds/${Object.values(native.scope).map(encodeURIComponent).join("/")}`;
       const openTalk = async () => {
@@ -108,7 +117,7 @@ it("shows each turn state, cancels, retries a stale offer and opens run details"
         await page.getByRole("button", { name: "Talk", exact: true }).click();
       };
       await openTalk();
-      expect(await page.evaluate(() => "gpu" in navigator)).toBe(backend === "webgpu");
+      await expect.poll(() => page.evaluate(() => globalThis.statesAdapter?.backend)).toBe(backend);
       await page.getByRole("button", { name: "New conversation", exact: true }).click();
       const panel = page.getByRole("region", { name: "Private conversation" });
       const history = page.getByRole("list", { name: "Conversation history" });

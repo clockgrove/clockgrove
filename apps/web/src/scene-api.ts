@@ -884,8 +884,9 @@ export class SceneSession {
         return resumed ? { reloaded: true } : outcome.receipt;
       }
       resumed = true;
-      hooks.onRecovered?.();
+      // A tool turn's stream ends by design once the tool takes over; that is not a recovery.
       if (usedTool) return this.waitForToolTurn(turn, hooks, startedCallId);
+      hooks.onRecovered?.();
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
