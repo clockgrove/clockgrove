@@ -94,7 +94,10 @@ type ConversationEndpoint =
   | "/v1/runtime/conversations/read"
   | "/v1/runtime/conversations/title"
   | "/v1/runtime/turns/status"
-  | "/v1/runtime/runs/inspect";
+  | "/v1/runtime/runs/inspect"
+  | "/v1/runtime/runs/search"
+  | "/v1/runtime/turns/cancel"
+  | "/v1/runtime/activations/inspect";
 
 /**
  * Decision: up to 3 resends (4 attempts) of an interrupted Talk. An interruption means the owner was
@@ -118,6 +121,16 @@ export type TurnSettled = { readonly reloaded: true };
 export interface TurnHooks {
   readonly onProvisional?: (text: string) => void;
   readonly onPhase?: (phase: string) => void;
+  /** The turn's input message ID, once it is known (a new send or a resumed turn). */
+  readonly onTurn?: (messageId: string) => void;
+  /** The turn is being settled again after a reload or an interrupted stream. */
+  readonly onRecovered?: () => void;
+}
+export interface ActivationSummary {
+  readonly activationId: string;
+  readonly sessionId: string;
+  readonly status: string;
+  readonly outcome: string;
 }
 
 const pendingKey = (sessionId: string) => `clockgrove.pending-turn.${sessionId}`;
@@ -759,12 +772,18 @@ export class SceneSession {
       forgetPendingTurn(sessionId, pending.messageId);
       return { reloaded: true };
     }
+    if (status.phase === "cancelled") {
+      forgetPendingTurn(sessionId, pending.messageId);
+      return { refused: "turn_cancelled" };
+    }
     if (TERMINAL_TURN_PHASES.includes(status.phase)) {
       forgetPendingTurn(sessionId, pending.messageId);
       return {
         refused: `Reply ${status.phase}${status.outcomeCode ? `: ${status.outcomeCode}` : ""}`,
       };
     }
+    hooks.onTurn?.(pending.messageId);
+    hooks.onRecovered?.();
     hooks.onPhase?.(status.phase);
     const result = await this.runTurn(pending, hooks, true);
     return "refused" in result ? result : { reloaded: true };
@@ -780,12 +799,49 @@ export class SceneSession {
       decodeTurnStatus,
     );
   }
+  cancelTurn(sessionId: string, messageId: string) {
+    return this.conversationCall(
+      "/v1/runtime/turns/cancel",
+      { sessionId, messageId },
+      decodeTurnStatus,
+    );
+  }
+  /** Whether this session's role may read run evidence; the server's role check decides. */
+  async runAccess(sessionId: string): Promise<boolean> {
+    const answer = await this.postInteraction("/v1/runtime/runs/search", { sessionId, limit: 1 });
+    return answer.status === 200;
+  }
+  async inspectActivations(
+    actorId: ObjectId,
+  ): Promise<readonly ActivationSummary[] | { readonly refused: string }> {
+    // Activation routes take the scope as one nested field.
+    const answer = await this.postInteraction("/v1/runtime/activations/inspect", { actorId }, true);
+    const list = (answer.body as { activations?: unknown } | undefined)?.activations;
+    if (answer.status !== 200 || !Array.isArray(list)) return { refused: answer.refused };
+    return list.flatMap((item: Record<string, unknown>) =>
+      typeof item?.activationId === "string" &&
+      typeof item.sessionId === "string" &&
+      typeof item.status === "string" &&
+      typeof item.outcome === "string"
+        ? [
+            {
+              activationId: item.activationId,
+              sessionId: item.sessionId,
+              status: item.status,
+              outcome: item.outcome,
+            },
+          ]
+        : [],
+    );
+  }
   private async runTurn(
     turn: PendingTurn,
     hooks: TurnHooks,
     recovered: boolean,
   ): Promise<TalkReceipt | TurnSettled | { readonly refused: string }> {
     rememberPendingTurn(turn.sessionId, turn);
+    hooks.onTurn?.(turn.messageId);
+    if (recovered) hooks.onRecovered?.();
     let resumed = recovered;
     for (let resend = 0; resend <= MAX_TALK_RESENDS; ++resend) {
       let provisional = "";
@@ -813,6 +869,7 @@ export class SceneSession {
         return resumed ? { reloaded: true } : outcome.receipt;
       }
       resumed = true;
+      hooks.onRecovered?.();
       if (usedTool) return this.waitForToolTurn(turn, hooks, startedCallId);
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
       if (!("refused" in status)) {
@@ -825,7 +882,12 @@ export class SceneSession {
         }
         if (TERMINAL_TURN_PHASES.includes(status.phase)) {
           forgetPendingTurn(turn.sessionId, turn.messageId);
-          return { refused: status.outcomeCode ?? status.phase };
+          return {
+            refused:
+              status.phase === "cancelled"
+                ? "turn_cancelled"
+                : (status.outcomeCode ?? status.phase),
+          };
         }
       }
     }
@@ -854,7 +916,12 @@ export class SceneSession {
         }
         if (TERMINAL_TURN_PHASES.includes(status.phase)) {
           forgetPendingTurn(turn.sessionId, turn.messageId);
-          return { refused: status.outcomeCode ?? status.phase };
+          return {
+            refused:
+              status.phase === "cancelled"
+                ? "turn_cancelled"
+                : (status.outcomeCode ?? status.phase),
+          };
         }
       } else if (status.refused !== "runtime unavailable") return status;
       // Same one-second cadence as native turn recovery; all reads remain canonical.
@@ -1018,6 +1085,7 @@ export class SceneSession {
       | "/v1/runtime/talk"
       | ConversationEndpoint,
     body: object,
+    nestedScope = false,
   ): Promise<{ status: number; body: unknown; refused: string }> {
     const scope = this.getSnapshot().scope;
     const credential = this.credential;
@@ -1028,7 +1096,9 @@ export class SceneSession {
         method: "POST",
         cache: "no-store",
         headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-        body: JSON.stringify({ version: 1, ...scope, ...body }),
+        body: JSON.stringify(
+          nestedScope ? { version: 1, scope, ...body } : { version: 1, ...scope, ...body },
+        ),
       });
       const json: unknown = await response.json().catch(() => undefined);
       if (intent === this.intent && response.status === 401)

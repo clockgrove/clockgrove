@@ -1,4 +1,5 @@
 import {
+  CANCELLABLE_TURN_PHASES,
   type CommandId,
   type ConversationMessage,
   type ConversationSession,
@@ -7,15 +8,19 @@ import {
   type ObjectId,
   type RunWalk,
   type TalkCommandOutcome,
+  TERMINAL_TURN_PHASES,
+  type TurnPhase,
   VOICE_DISCLOSURES,
 } from "@clockgrove/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Portrait } from "../portrait.js";
-import type { SceneSession } from "../scene-api.js";
+import type { ActivationSummary, SceneSession } from "../scene-api.js";
 import { useSelectionQuery } from "../scene-queries.js";
 import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
 import { EffectApprovals } from "./effect-approvals.js";
+import { RunDrawer } from "./run-drawer.js";
+import { type TurnResult, turnStateLabel } from "./turn-state.js";
 
 const RAIL_ACTIONS = [
   ["talk", "Talk"],
@@ -82,7 +87,65 @@ export function ConversationPanel({
   const [phase, setPhase] = useState<string>();
   const [toolEvidence, setToolEvidence] = useState<RunWalk>();
   const evidenceRequest = useRef(0);
-  const hooks = { onProvisional: setProvisional, onPhase: setPhase };
+  const sending = useRef(false);
+  const [turnId, setTurnId] = useState<string>();
+  const [inFlight, setInFlight] = useState(false);
+  const [recovered, setRecovered] = useState(false);
+  const [result, setResult] = useState<TurnResult>();
+  const [runAccess, setRunAccess] = useState(false);
+  const [drawerFor, setDrawerFor] = useState<string>();
+  const [deferred, setDeferred] = useState<readonly ActivationSummary[]>([]);
+  const hooks = {
+    onProvisional: setProvisional,
+    onPhase: setPhase,
+    onTurn: setTurnId,
+    onRecovered: () => setRecovered(true),
+  };
+  const turnState = turnStateLabel({
+    phase,
+    provisional: provisional !== "",
+    inFlight,
+    recovered,
+    result,
+  });
+  const inputIdOf = (messageId: string) =>
+    messageId.endsWith(":reply") ? messageId.slice(0, -6) : messageId;
+  const revokeRuns = useCallback(() => {
+    setRunAccess(false);
+    setDrawerFor(undefined);
+  }, []);
+  const cancelTurn = async () => {
+    if (!current || !turnId) return;
+    const status = await session.cancelTurn(current.sessionId, turnId);
+    if ("refused" in status) return refuse(status);
+    if (status.phase === "cancelled") {
+      setResult("cancelled");
+      setInFlight(false);
+    }
+  };
+
+  // The stream carries tokens and tool frames only; the durable status names every other phase.
+  const statusOf = current?.sessionId;
+  useEffect(() => {
+    if (!inFlight || !turnId || !statusOf) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      const status = await session.turnStatus(statusOf, turnId);
+      if (!live) return;
+      if (!("refused" in status) && !TERMINAL_TURN_PHASES.includes(status.phase))
+        setPhase((shown) =>
+          shown === "tool_using" && status.phase === "tool_waiting" ? shown : status.phase,
+        );
+      // Same one-second cadence as the turn and approval status reads.
+      timer = setTimeout(() => void read(), 1_000);
+    };
+    void read();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [session, inFlight, turnId, statusOf]);
 
   const enabledAction = (kind: InteractionActionKind) =>
     summary?.actions.some((a) => a.kind === kind && a.availability === "enabled") ?? false;
@@ -149,36 +212,69 @@ export function ConversationPanel({
     setMessages([]);
     setNext(null);
     setCurrent(undefined);
+    // A send that created this conversation owns the turn state it already started.
+    if (!sending.current) {
+      setTurnId(undefined);
+      setInFlight(false);
+      setRecovered(false);
+      setResult(undefined);
+      setPhase(undefined);
+    }
+    setDrawerFor(undefined);
+    setRunAccess(false);
+    setDeferred([]);
     if (!selectedId) return;
     let live = true;
+    void session.runAccess(selectedId).then((allowed) => live && setRunAccess(allowed));
+    void session.inspectActivations(actorId).then((found) => {
+      if (live && !("refused" in found))
+        setDeferred(found.filter((a) => a.status === "deferred" && a.sessionId === selectedId));
+    });
     const load = () =>
       session.readConversation(selectedId).then((page) => {
-        if (!live) return;
-        if ("refused" in page) return setRefusal(page.refused);
+        if (!live) return undefined;
+        if ("refused" in page) return void setRefusal(page.refused);
         setCurrent(page.session);
         setTitle(page.session.title);
         setMessages(page.messages);
         setNext(page.nextAfterSequence);
+        return page.messages;
       });
     void load().then(async () => {
       // A turn this browser left in flight is settled from its durable status, then re-read.
       const resumed = await session.resumeTurn(selectedId, {
         onProvisional: (text) => live && setProvisional(text),
         onPhase: (value) => live && setPhase(value),
+        onTurn: (id) => {
+          if (!live) return;
+          setTurnId(id);
+          setInFlight(true);
+        },
+        onRecovered: () => live && setRecovered(true),
       });
       if (!live || !resumed) return;
       setPhase(undefined);
-      if ("refused" in resumed) setRefusal(resumed.refused);
-      else await load();
+      setInFlight(false);
+      if ("refused" in resumed) {
+        if (resumed.refused === "turn_cancelled") setResult("cancelled");
+        else {
+          setResult("failed");
+          setRefusal(resumed.refused);
+        }
+      } else {
+        const loaded = await load();
+        if (live) setResult(loaded?.at(-1)?.serviceOutcome ?? "completed");
+      }
     });
     return () => {
       live = false;
     };
-  }, [session, selectedId]);
+  }, [session, selectedId, actorId]);
 
-  const settled = async (sessionId: string) => {
+  const settled = async (sessionId: string, outcome?: TurnResult) => {
     const page = await session.readConversation(sessionId);
     if ("refused" in page) return refuse(page);
+    setResult(outcome ?? page.messages.at(-1)?.serviceOutcome ?? "completed");
     setCurrent(page.session);
     setMessages(page.messages);
     setNext(page.nextAfterSequence);
@@ -226,10 +322,24 @@ export function ConversationPanel({
     choose(undefined);
     await reload();
   };
-  const send = async () => {
-    const text = draft.trim();
+  const send = async (retryText?: string) => {
+    const text = (retryText ?? draft).trim();
     if (!text) return;
     setRefusal(undefined);
+    setResult(undefined);
+    setRecovered(false);
+    setTurnId(undefined);
+    setPhase(undefined);
+    setInFlight(true);
+    sending.current = true;
+    try {
+      await sendTurn(text, retryText === undefined);
+    } finally {
+      sending.current = false;
+      setInFlight(false);
+    }
+  };
+  const sendTurn = async (text: string, fromDraft: boolean) => {
     // The message goes to the chosen conversation, or to the one being created, even before it has
     // loaded; only with neither is a conversation created for it.
     const started = await creating.current;
@@ -240,14 +350,17 @@ export function ConversationPanel({
       if ("refused" in created) return refuse(created);
       sessionId = created.sessionId;
     }
-    setDraft("");
+    if (fromDraft) setDraft("");
     const receipt = await session.talk(sessionId, text, hooks);
     setPhase(undefined);
     if ("refused" in receipt) {
-      setDraft(text);
+      if (receipt.refused === "turn_cancelled") return settled(sessionId, "cancelled");
+      if (fromDraft) setDraft(text);
+      setResult("failed");
       return refuse(receipt);
     }
     if ("reloaded" in receipt) return settled(sessionId);
+    setResult(receipt.reply.serviceOutcome ?? "completed");
     const command = receipt.command;
     if (command) {
       if (command.commandId !== null) setLastCommand(command.commandId);
@@ -266,6 +379,13 @@ export function ConversationPanel({
   // A reloaded transcript carries each turn's outcome from run evidence; this session's receipts add to it.
   const outcomeOf = (message: ConversationMessage) =>
     outcomes[message.messageId] ?? message.command;
+  const originalText = (reply: ConversationMessage): string | undefined => {
+    const inputId = inputIdOf(reply.messageId);
+    const byId = messages.find((m) => m.messageId === inputId && m.role === "caretaker");
+    if (byId) return byId.text;
+    const index = messages.indexOf(reply);
+    return messages.slice(0, Math.max(index, 0)).findLast((m) => m.role === "caretaker")?.text;
+  };
   const whyCommand =
     lastCommand ?? messages.findLast((m) => m.command?.commandId)?.command?.commandId ?? undefined;
   const shown = RAIL_ACTIONS.filter(([kind]) =>
@@ -382,9 +502,33 @@ export function ConversationPanel({
                       Why? Tool evidence
                     </button>
                   )}
+                  {!mine && runAccess && (
+                    <button
+                      type="button"
+                      onClick={() => setDrawerFor(inputIdOf(message.messageId))}
+                    >
+                      Run details
+                    </button>
+                  )}
                   <time dateTime={message.createdAt} data-wall-clock>
                     {worldTime(message.createdAt)}
                   </time>
+                  {!mine &&
+                    outcome?.status === "refused" &&
+                    outcome.code === "revision_conflict" && (
+                      <>
+                        <p>The world changed while this turn ran, so nothing was changed.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const original = originalText(message);
+                            if (original) void send(original);
+                          }}
+                        >
+                          Retry against the current world
+                        </button>
+                      </>
+                    )}
                   {outcome && (
                     <p className="rw-outcome" data-status={outcome.status}>
                       {outcome.status === "committed"
@@ -407,22 +551,49 @@ export function ConversationPanel({
             );
           })}
         </ol>
+        {deferred.length > 0 && (
+          <div>
+            <strong>Runtime status</strong>
+            <ul aria-label="Deferred activations">
+              {deferred.map((a) => (
+                <li key={a.activationId}>Deferred activation: {a.outcome}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div aria-live="polite">
-          {phase && (
-            <p>
-              {phase === "tool_using"
-                ? "Using tool…"
-                : phase === "tool_waiting"
-                  ? "Waiting for tool…"
-                  : `Reply in progress (${phase.replaceAll("_", " ")})`}
-            </p>
-          )}
+          {turnState && <p data-turn-state={turnState.key}>{turnState.label}</p>}
           {provisional && (
             <p>
               <em>{name} is replying…</em> {provisional}
             </p>
           )}
+          {inFlight && !result && turnId && (
+            <>
+              {(phase === undefined ||
+                phase === "tool_using" ||
+                CANCELLABLE_TURN_PHASES.includes(phase as TurnPhase)) && (
+                <button type="button" onClick={() => void cancelTurn()}>
+                  Cancel turn
+                </button>
+              )}
+              {runAccess && (
+                <button type="button" onClick={() => setDrawerFor(turnId)}>
+                  Run details
+                </button>
+              )}
+            </>
+          )}
         </div>
+        {runAccess && current && drawerFor && (
+          <RunDrawer
+            session={session}
+            sessionId={current.sessionId}
+            inputMessageId={drawerFor}
+            onClose={() => setDrawerFor(undefined)}
+            onRevoked={revokeRuns}
+          />
+        )}
         {toolEvidence && (
           <aside aria-label="Tool evidence">
             <h3>Tool evidence</h3>
