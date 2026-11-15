@@ -471,8 +471,12 @@ export class TurnFibers {
               }
               break;
             }
-            const record = await this.decideCommand(participant, current, proposal);
-            next = await this.store((store) => store.recordCommand(participant, current, record));
+            // Decided while the store holds the turn: a cancel and the submission exclude each other.
+            next = await this.store((store) =>
+              store.recordCommand(participant, current, () =>
+                this.decideCommand(participant, current, proposal),
+              ),
+            );
             break;
           }
           case "approval_waiting":

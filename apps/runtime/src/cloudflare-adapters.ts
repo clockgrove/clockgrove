@@ -2364,13 +2364,27 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       if (!prepared.ready || prepared.input === undefined) throw new Error("world not ready");
       const input = prepared.input;
       const route = await runtimeRouteName("world", input.scope);
-      result = unwrapWorldCommandRpc(
-        await callWorldOwner(() =>
-          this.environment.WORLD_DO.get(
-            this.environment.WORLD_DO.idFromName(route),
-          ).submitWorldCommand(input, context),
-        ),
-      );
+      try {
+        result = unwrapWorldCommandRpc(
+          await callWorldOwner(() =>
+            this.environment.WORLD_DO.get(
+              this.environment.WORLD_DO.idFromName(route),
+            ).submitWorldCommand(input, context),
+          ),
+        );
+      } catch (error) {
+        // The world moved past the revision the turn perceived: nothing was recorded, so the turn
+        // ends with a stale-world refusal the person can retry, instead of abandoning the turn.
+        if (!(error instanceof JournalRevisionConflictError) || error.kind !== "partition")
+          throw error;
+        return {
+          capability: proposal.capability,
+          commandId: null,
+          status: "refused",
+          code: "revision_conflict",
+          summary: "World command refused: revision_conflict",
+        };
+      }
     }
     const value = result.value;
     const committed = value.status === "committed";

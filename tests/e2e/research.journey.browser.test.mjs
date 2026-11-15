@@ -24,7 +24,7 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       runNativeWorldOwnerProcess(FILE, "fixture/reference", {
         vitestConfig: "tests/ci/vitest.browser.config.ts",
         queues: true,
-        timeoutMs: 180000,
+        timeoutMs: 300000,
         inheritOutput: true,
       }),
     );
@@ -253,10 +253,49 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       expect(await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((r) => r.text())).toBe(
         String(Number(calls) + 3),
       );
+
+      // Issue 323's turn-state labels for the waits and service outcomes only research reaches.
+      const turnState = page.locator("[data-turn-state]");
+      const keeper = async (fields) =>
+        expect(
+          (
+            await native.request(
+              "/actor-agent",
+              { scope: native.scope, actorId: ACTOR, ...fields },
+              "local-reader-session",
+            )
+          ).status,
+        ).toBe(200);
+      const say = async (text) => {
+        await page.getByLabel("Message Keeper…", { exact: true }).fill(text);
+        await page.getByRole("button", { name: "Send", exact: true }).click();
+      };
+      await keeper({ op: "fault", phase: "hold:tool_waiting" });
+      await say(`fixture:research 1 ${CAPABILITY} {"q":"delayed-write"}`);
+      await expect.poll(() => turnState.textContent()).toBe("Delayed: waiting for a tool");
+      await keeper({ op: "fault", phase: null });
+      await keeper({ op: "release" });
+      await approvals.getByText("Awaiting approval", { exact: true }).waitFor();
+      await expect.poll(() => turnState.textContent()).toBe("Awaiting approval of a tool call");
+      await approvals.getByRole("button", { name: "Deny call", exact: true }).click();
+      await expect.poll(() => turnState.textContent(), { timeout: 60000 }).toBe("Completed");
+      await say("fixture:model-down");
+      await expect
+        .poll(() => turnState.textContent(), { timeout: 60000 })
+        .toBe("Model unavailable");
+      await native.sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"read"') WHERE installation_id='fixture';
+        UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["read"]') WHERE binding_id='binding';`);
+      await say(`fixture:research 4 ${CAPABILITY} {"q":"bounded"}`);
+      await expect.poll(() => turnState.textContent(), { timeout: 60000 }).toBe("Budget blocked");
+      expect(
+        await native.sql(
+          "SELECT phase||':'||coalesce(outcome_code,'') FROM clockgrove.conversation_turn_fibers ORDER BY updated_at DESC LIMIT 1",
+        ),
+      ).toBe("completed:tool_calls_exhausted");
     } finally {
       releaseList();
       await browser?.close();
       await server.close();
     }
   });
-}, 240000);
+}, 360000);

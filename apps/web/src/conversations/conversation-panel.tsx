@@ -1,4 +1,5 @@
 import {
+  CANCELLABLE_TURN_PHASES,
   type CommandId,
   type ConversationMessage,
   type ConversationSession,
@@ -7,15 +8,19 @@ import {
   type ObjectId,
   type RunWalk,
   type TalkCommandOutcome,
+  TERMINAL_TURN_PHASES,
+  type TurnPhase,
   VOICE_DISCLOSURES,
 } from "@clockgrove/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Portrait } from "../portrait.js";
-import type { SceneSession } from "../scene-api.js";
+import type { ActivationSummary, SceneSession } from "../scene-api.js";
 import { useSelectionQuery } from "../scene-queries.js";
 import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
 import { EffectApprovals } from "./effect-approvals.js";
+import { RunDrawer } from "./run-drawer.js";
+import { settledResult, type TurnResult, turnStateLabel } from "./turn-state.js";
 
 const RAIL_ACTIONS = [
   ["talk", "Talk"],
@@ -36,6 +41,11 @@ function worldTime(createdAt: string): string {
 }
 
 const UNTITLED = "Untitled conversation";
+
+interface TrackedTurn {
+  readonly sessionId: string;
+  readonly messageId?: string;
+}
 
 function sessionLabel(session: ConversationSession): string {
   return `${session.title || UNTITLED}${session.state === "archived" ? " (archived)" : ""}`;
@@ -80,9 +90,112 @@ export function ConversationPanel({
   const [refusal, setRefusal] = useState<string>();
   const [provisional, setProvisional] = useState("");
   const [phase, setPhase] = useState<string>();
+  // Counts the phases the turn itself reported, so an older status read never replaces a newer one.
+  const reported = useRef(0);
+  const reportPhase = useCallback((value: string) => {
+    reported.current += 1;
+    setPhase(value);
+  }, []);
   const [toolEvidence, setToolEvidence] = useState<RunWalk>();
   const evidenceRequest = useRef(0);
-  const hooks = { onProvisional: setProvisional, onPhase: setPhase };
+  // The one turn this panel tracks, with its own conversation: the person may open another one
+  // while it runs, and status and cancel always address the turn's conversation.
+  const [turn, setTurn] = useState<TrackedTurn>();
+  const turnId = turn?.messageId;
+  // A tracked turn has not settled yet; `streaming` while this tab's Talk (or tool wait) is open.
+  // Once the stream ends with the turn still running, the status read below settles it.
+  const running = useRef(false);
+  const streaming = useRef(false);
+  const [inFlight, setInFlight] = useState(false);
+  const [recovered, setRecovered] = useState(false);
+  const [result, setResult] = useState<TurnResult>();
+  const [runAccess, setRunAccess] = useState(false);
+  const [drawerFor, setDrawerFor] = useState<string>();
+  const [deferred, setDeferred] = useState<readonly ActivationSummary[]>([]);
+  const turnState = turnStateLabel({
+    phase,
+    provisional: provisional !== "",
+    inFlight,
+    recovered,
+    result,
+  });
+  // The turn's state and controls show only under the conversation it belongs to.
+  const turnHere = turn === undefined || turn.sessionId === selectedId;
+  const inputIdOf = (messageId: string) =>
+    messageId.endsWith(":reply") ? messageId.slice(0, -6) : messageId;
+  const revokeRuns = useCallback(() => {
+    setRunAccess(false);
+    setDrawerFor(undefined);
+  }, []);
+  const cancelTurn = async () => {
+    const target = turn;
+    if (target?.messageId === undefined) return;
+    const status = await session.cancelTurn(target.sessionId, target.messageId);
+    if ("refused" in status) return refuse(status);
+    if (status.phase === "cancelled") {
+      setResult("cancelled");
+      setInFlight(false);
+      // A turn whose stream already ended has nothing else that settles it.
+      if (!streaming.current) {
+        running.current = false;
+        await settled(target.sessionId, "cancelled");
+      }
+    }
+  };
+
+  // The stream carries tokens and tool frames only; the durable status names every other phase.
+  const statusOf = turn?.sessionId;
+  const settledRef = useRef<(sessionId: string, outcome: TurnResult) => Promise<void>>(
+    async () => undefined,
+  );
+  useEffect(() => {
+    if (!inFlight || !turnId || !statusOf) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      const before = reported.current;
+      const status = await session.turnStatus(statusOf, turnId);
+      if (!live) return;
+      if (!("refused" in status) && TERMINAL_TURN_PHASES.includes(status.phase)) {
+        // The open stream settles its own turn; a turn left running after it ended settles here.
+        if (!streaming.current && running.current) {
+          running.current = false;
+          setPhase(undefined);
+          setInFlight(false);
+          void settledRef.current(statusOf, settledResult(status.phase, status.outcomeCode));
+          return;
+        }
+      } else if (before === reported.current && !("refused" in status))
+        setPhase((shown) =>
+          shown === "tool_using" && status.phase === "tool_waiting" ? shown : status.phase,
+        );
+      // Same one-second cadence as the turn and approval status reads.
+      timer = setTimeout(() => void read(), 1_000);
+    };
+    void read();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [session, inFlight, turnId, statusOf]);
+
+  /**
+   * After a refusal, whether the durable turn is still running (an approval wait past the
+   * browser's tool wait, an interrupted reply that resumes): it then stays tracked and cancellable.
+   */
+  const stillRunning = useCallback(
+    async (sessionId: string, messageId: string | undefined) => {
+      if (messageId === undefined) return undefined;
+      const status = await session.turnStatus(sessionId, messageId);
+      if ("refused" in status) return undefined;
+      if (!TERMINAL_TURN_PHASES.includes(status.phase)) {
+        setPhase(status.phase);
+        return "running" as const;
+      }
+      return settledResult(status.phase, status.outcomeCode);
+    },
+    [session],
+  );
 
   const enabledAction = (kind: InteractionActionKind) =>
     summary?.actions.some((a) => a.kind === kind && a.availability === "enabled") ?? false;
@@ -149,34 +262,77 @@ export function ConversationPanel({
     setMessages([]);
     setNext(null);
     setCurrent(undefined);
+    // A turn still running (including a send that created this conversation) stays tracked under
+    // its own conversation; only a settled one is cleared.
+    if (!running.current) {
+      setTurn(undefined);
+      setInFlight(false);
+      setRecovered(false);
+      setResult(undefined);
+      setPhase(undefined);
+    }
+    setDrawerFor(undefined);
+    setRunAccess(false);
+    setDeferred([]);
     if (!selectedId) return;
     let live = true;
+    void session.runAccess(selectedId).then((allowed) => live && setRunAccess(allowed));
+    void session.inspectActivations(actorId).then((found) => {
+      if (live && !("refused" in found))
+        setDeferred(found.filter((a) => a.status === "deferred" && a.sessionId === selectedId));
+    });
     const load = () =>
       session.readConversation(selectedId).then((page) => {
-        if (!live) return;
-        if ("refused" in page) return setRefusal(page.refused);
+        if (!live) return undefined;
+        if ("refused" in page) return void setRefusal(page.refused);
         setCurrent(page.session);
         setTitle(page.session.title);
         setMessages(page.messages);
         setNext(page.nextAfterSequence);
+        return page.messages;
       });
     void load().then(async () => {
       // A turn this browser left in flight is settled from its durable status, then re-read.
+      let resumedId: string | undefined;
       const resumed = await session.resumeTurn(selectedId, {
         onProvisional: (text) => live && setProvisional(text),
-        onPhase: (value) => live && setPhase(value),
+        onPhase: (value) => live && reportPhase(value),
+        onTurn: (id) => {
+          if (!live) return;
+          resumedId = id;
+          running.current = true;
+          streaming.current = true;
+          setTurn({ sessionId: selectedId, messageId: id });
+          setInFlight(true);
+        },
+        onRecovered: () => live && setRecovered(true),
       });
+      streaming.current = false;
       if (!live || !resumed) return;
+      let outcome: TurnResult | "running" | undefined;
+      if (!("refused" in resumed)) outcome = await stillRunning(selectedId, resumedId);
+      else if (resumed.refused === "turn_cancelled") outcome = "cancelled";
+      else {
+        setRefusal(resumed.refused);
+        outcome = (await stillRunning(selectedId, resumedId)) ?? "failed";
+      }
+      // The durable turn is still running: it stays tracked, cancellable, and the status read settles it.
+      if (!live || outcome === "running") return;
+      running.current = false;
       setPhase(undefined);
-      if ("refused" in resumed) setRefusal(resumed.refused);
-      else await load();
+      setInFlight(false);
+      setResult(outcome ?? "completed");
+      if (!("refused" in resumed)) await load();
     });
     return () => {
       live = false;
     };
-  }, [session, selectedId]);
+  }, [session, selectedId, actorId, reportPhase, stillRunning]);
 
-  const settled = async (sessionId: string) => {
+  /** Shows how the turn settled, then re-reads its conversation if it is still the open one. */
+  const settled = async (sessionId: string, outcome: TurnResult) => {
+    setResult(outcome);
+    if (chosen.current !== sessionId) return void (await reload());
     const page = await session.readConversation(sessionId);
     if ("refused" in page) return refuse(page);
     setCurrent(page.session);
@@ -184,6 +340,7 @@ export function ConversationPanel({
     setNext(page.nextAfterSequence);
     await reload(sessionId);
   };
+  settledRef.current = settled;
 
   const loadMore = async () => {
     if (!current || next === null) return;
@@ -226,28 +383,70 @@ export function ConversationPanel({
     choose(undefined);
     await reload();
   };
-  const send = async () => {
-    const text = draft.trim();
-    if (!text) return;
+  const send = async (retryText?: string) => {
+    const text = (retryText ?? draft).trim();
+    // The panel tracks one turn; the server would refuse a second one as conversation_busy.
+    if (!text || running.current) return;
     setRefusal(undefined);
+    setResult(undefined);
+    setRecovered(false);
+    setTurn(undefined);
+    setPhase(undefined);
+    setInFlight(true);
+    running.current = true;
+    streaming.current = true;
+    let still = false;
+    try {
+      still = (await sendTurn(text, retryText === undefined)) === "running";
+    } finally {
+      streaming.current = false;
+      if (!still) {
+        running.current = false;
+        setInFlight(false);
+      }
+    }
+  };
+  const sendTurn = async (text: string, fromDraft: boolean): Promise<"running" | undefined> => {
     // The message goes to the chosen conversation, or to the one being created, even before it has
     // loaded; only with neither is a conversation created for it.
     const started = await creating.current;
-    if (started !== undefined && "refused" in started) return refuse(started);
+    if (started !== undefined && "refused" in started) return void refuse(started);
     let sessionId = chosen.current;
     if (sessionId === undefined) {
       const created = await startConversation();
-      if ("refused" in created) return refuse(created);
+      if ("refused" in created) return void refuse(created);
       sessionId = created.sessionId;
     }
-    setDraft("");
-    const receipt = await session.talk(sessionId, text, hooks);
+    if (fromDraft) setDraft("");
+    const target = sessionId;
+    setTurn({ sessionId: target });
+    let messageId: string | undefined;
+    const receipt = await session.talk(target, text, {
+      onProvisional: setProvisional,
+      onPhase: reportPhase,
+      onTurn: (id: string) => {
+        messageId = id;
+        setTurn({ sessionId: target, messageId: id });
+      },
+      onRecovered: () => setRecovered(true),
+    });
     setPhase(undefined);
     if ("refused" in receipt) {
-      setDraft(text);
-      return refuse(receipt);
+      if (receipt.refused === "turn_cancelled") return void (await settled(target, "cancelled"));
+      refuse(receipt);
+      // Only a terminal durable phase is a failure; a turn still running stays cancellable.
+      const outcome = await stillRunning(target, messageId);
+      if (outcome === "running") return "running";
+      if (fromDraft && (outcome === undefined || outcome === "failed")) setDraft(text);
+      if (outcome === undefined) return void setResult("failed");
+      return void (await settled(target, outcome));
     }
-    if ("reloaded" in receipt) return settled(sessionId);
+    if ("reloaded" in receipt) {
+      const outcome = await stillRunning(target, messageId);
+      if (outcome === "running") return "running";
+      return void (await settled(target, outcome ?? "completed"));
+    }
+    setResult(receipt.reply.serviceOutcome ?? "completed");
     const command = receipt.command;
     if (command) {
       if (command.commandId !== null) setLastCommand(command.commandId);
@@ -261,11 +460,19 @@ export function ConversationPanel({
       receipt.session,
       ...all.filter((s) => s.sessionId !== receipt.session.sessionId),
     ]);
+    return undefined;
   };
 
   // A reloaded transcript carries each turn's outcome from run evidence; this session's receipts add to it.
   const outcomeOf = (message: ConversationMessage) =>
     outcomes[message.messageId] ?? message.command;
+  const originalText = (reply: ConversationMessage): string | undefined => {
+    const inputId = inputIdOf(reply.messageId);
+    const byId = messages.find((m) => m.messageId === inputId && m.role === "caretaker");
+    if (byId) return byId.text;
+    const index = messages.indexOf(reply);
+    return messages.slice(0, Math.max(index, 0)).findLast((m) => m.role === "caretaker")?.text;
+  };
   const whyCommand =
     lastCommand ?? messages.findLast((m) => m.command?.commandId)?.command?.commandId ?? undefined;
   const shown = RAIL_ACTIONS.filter(([kind]) =>
@@ -382,9 +589,33 @@ export function ConversationPanel({
                       Why? Tool evidence
                     </button>
                   )}
+                  {!mine && runAccess && (
+                    <button
+                      type="button"
+                      onClick={() => setDrawerFor(inputIdOf(message.messageId))}
+                    >
+                      Run details
+                    </button>
+                  )}
                   <time dateTime={message.createdAt} data-wall-clock>
                     {worldTime(message.createdAt)}
                   </time>
+                  {!mine &&
+                    outcome?.status === "refused" &&
+                    outcome.code === "revision_conflict" && (
+                      <>
+                        <p>The world changed while this turn ran, so nothing was changed.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const original = originalText(message);
+                            if (original) void send(original);
+                          }}
+                        >
+                          Retry against the current world
+                        </button>
+                      </>
+                    )}
                   {outcome && (
                     <p className="rw-outcome" data-status={outcome.status}>
                       {outcome.status === "committed"
@@ -407,22 +638,52 @@ export function ConversationPanel({
             );
           })}
         </ol>
+        {deferred.length > 0 && (
+          <div>
+            <strong>Runtime status</strong>
+            <ul aria-label="Deferred activations">
+              {deferred.map((a) => (
+                <li key={a.activationId}>Deferred activation: {a.outcome}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div aria-live="polite">
-          {phase && (
-            <p>
-              {phase === "tool_using"
-                ? "Using tool…"
-                : phase === "tool_waiting"
-                  ? "Waiting for tool…"
-                  : `Reply in progress (${phase.replaceAll("_", " ")})`}
-            </p>
-          )}
-          {provisional && (
+          {turnHere && turnState && <p data-turn-state={turnState.key}>{turnState.label}</p>}
+          {turnHere && provisional && (
             <p>
               <em>{name} is replying…</em> {provisional}
             </p>
           )}
+          {turnHere &&
+            inFlight &&
+            !result &&
+            turnId &&
+            (phase === undefined ||
+              phase === "tool_using" ||
+              CANCELLABLE_TURN_PHASES.includes(phase as TurnPhase)) && (
+              <button type="button" onClick={() => void cancelTurn()}>
+                Cancel turn
+              </button>
+            )}
+          {/* A cancelled, failed or abandoned turn has no reply to carry this control. */}
+          {turnHere && runAccess && turnId && (
+            <button type="button" onClick={() => setDrawerFor(turnId)}>
+              Run details
+            </button>
+          )}
         </div>
+        {runAccess && current && drawerFor && (
+          <RunDrawer
+            key={drawerFor}
+            session={session}
+            sessionId={current.sessionId}
+            inputMessageId={drawerFor}
+            refresh={drawerFor === turnId ? (turnState?.key ?? "") : ""}
+            onClose={() => setDrawerFor(undefined)}
+            onRevoked={revokeRuns}
+          />
+        )}
         {toolEvidence && (
           <aside aria-label="Tool evidence">
             <h3>Tool evidence</h3>
@@ -491,7 +752,8 @@ export function ConversationPanel({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
             />
-            <button type="submit" aria-label="Send">
+            {/* One tracked turn at a time: Send waits until it settles (or is cancelled). */}
+            <button type="submit" aria-label="Send" disabled={inFlight}>
               Send
             </button>
           </form>

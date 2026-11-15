@@ -653,10 +653,20 @@ export class PostgreSqlConversationStore implements ConversationStore {
   async recordCommand(
     participant: ConversationParticipant,
     fiber: TurnFiber,
-    record: TurnCommandRecord,
+    decide: () => Promise<TurnCommandRecord>,
   ): Promise<TurnFiber | undefined> {
     return this.fenced(() =>
       this.transaction(participant, async () => {
+        // The row stays held while the command is decided, so a cancel (which locks it FOR
+        // UPDATE) either lands first and nothing is submitted, or waits for `committing`. NO KEY
+        // keeps rows that only reference this fiber writable meanwhile.
+        const held = await this.client.query(
+          `SELECT 1 FROM clockgrove.conversation_turn_fibers
+            WHERE ${FIBER_KEY} AND lease_epoch = $4 AND phase = $5 FOR NO KEY UPDATE`,
+          [...fiberKey(fiber), fiber.leaseEpoch, fiber.phase],
+        );
+        if (held.rows.length !== 1) return undefined;
+        const record = await decide();
         if (fiber.runId !== null)
           await this.runs.commandProposed(
             fiber.scope.tenantId,

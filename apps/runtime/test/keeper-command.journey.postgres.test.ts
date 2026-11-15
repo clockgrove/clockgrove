@@ -94,6 +94,28 @@ it.skipIf(!isNativeWorldOwnerChild())(
           `SELECT string_agg(DISTINCT persona_id || ' ' || actor_id, ',') FROM clockgrove.agent_runs WHERE session_id = '${sessionId}'`,
         ),
       ).toBe(`persona-caretaker ${KEEPER}`);
+
+      // An offer cancelled while held before validation never reaches the world once released.
+      const keeper = (fields: object) =>
+        owner.request("/actor-agent", { scope: owner.scope, actorId: KEEPER, ...fields }, MEMBER);
+      await keeper({ op: "fault", phase: "hold:proposal_validating" });
+      const held = post("/v1/runtime/talk", {
+        sessionId,
+        messageId: "m5",
+        text: "fixture:offer fixture.water-bowl water",
+      });
+      await expect
+        .poll(
+          async () => (await post("/v1/runtime/turns/status", { sessionId, messageId: "m5" })).body,
+        )
+        .toMatchObject({ phase: "proposal_validating" });
+      await post("/v1/runtime/turns/cancel", { sessionId, messageId: "m5" });
+      await keeper({ op: "fault", phase: null });
+      await keeper({ op: "release" });
+      expect(await held).toEqual({ status: 409, body: { error: "turn_cancelled" } });
+      expect(
+        await rows(`SELECT count(*) FROM clockgrove.command_receipts WHERE command_id LIKE '%:m5'`),
+      ).toBe("0");
     });
   },
   240_000,
