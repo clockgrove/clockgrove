@@ -80,6 +80,17 @@ export function scriptedConversationReply(
         input: { type: call[2], objectId: "any", kind: "any" },
       },
     };
+  // `fixture:use <capability> <json>` proposes any capability with that input (issue 322).
+  const use = /^fixture:use (\S+) (\{[\s\S]*\})$/.exec(input);
+  if (use !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(use[2] as string);
+    } catch {
+      return { text };
+    }
+    return { text, command: { capability: use[1] as string, input: parsed } };
+  }
   const script = /^fixture:propose (\S+)\n([\s\S]*)$/.exec(input);
   const [, path, content] = script ?? [];
   if (path === undefined || content === undefined) return { text };

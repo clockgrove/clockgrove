@@ -958,11 +958,13 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const { runId, replyArtifactId } = fiber;
     const count = Number(stored.row.message_count);
     const proposal =
-      fiber.proposalArtifactId === null || isCommandArtifact(fiber.proposalArtifactId)
+      fiber.proposalArtifactId === null
         ? undefined
-        : (JSON.parse(
-            await this.text(participant, stored, fiber.proposalArtifactId, "private_cognition"),
-          ) as DocumentProposal);
+        : isCommandArtifact(fiber.proposalArtifactId)
+          ? await this.grantedDocumentWrite(participant, fiber, runId)
+          : (JSON.parse(
+              await this.text(participant, stored, fiber.proposalArtifactId, "private_cognition"),
+            ) as DocumentProposal);
     return this.fenced(async () => {
       const written = await this.commitTalk(
         participant,
@@ -980,6 +982,31 @@ export class PostgreSqlConversationStore implements ConversationStore {
       );
       return written;
     });
+  }
+
+  /**
+   * A `document.write` call the grants accepted on this run (issue 322): it commits with the turn as
+   * the model's change set, under the same write classes, limits and provenance as any proposal.
+   */
+  private async grantedDocumentWrite(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    runId: string,
+  ): Promise<DocumentProposal | undefined> {
+    const call = await this.commandProposal(participant, fiber);
+    if (call?.capability !== "document.write") return undefined;
+    const accepted = await this.transaction(participant, async () => {
+      const found = await this.client.query(
+        `SELECT 1 FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2
+          AND kind='world_command_proposal' AND tool='document.write' AND status='succeeded'`,
+        [fiber.scope.tenantId, runId],
+      );
+      return found.rows.length > 0;
+    });
+    const input = call.input as { readonly path?: unknown; readonly content?: unknown };
+    if (!accepted || typeof input.path !== "string" || typeof input.content !== "string")
+      return undefined;
+    return { path: input.path, content: input.content };
   }
 
   async endTurn(
@@ -1514,13 +1541,23 @@ export class PostgreSqlConversationStore implements ConversationStore {
             },
       ],
     });
-    await this.runs.validated(participant.tenantId, request.sessionId, runId, 3, {
-      refused: outcome.status === "refused" ? outcome.code : undefined,
-      summary:
-        outcome.status === "refused"
-          ? `Document proposal refused: ${outcome.code}`
-          : `Document proposal committed: ${outcome.documents.map((d) => `version ${d.version}`).join(", ")}`,
-    });
+    const steps = await this.client.query(
+      `SELECT coalesce(max(step),0)+1 AS next FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,
+      [participant.tenantId, runId],
+    );
+    await this.runs.validated(
+      participant.tenantId,
+      request.sessionId,
+      runId,
+      Number((steps.rows[0] as Row).next),
+      {
+        refused: outcome.status === "refused" ? outcome.code : undefined,
+        summary:
+          outcome.status === "refused"
+            ? `Document proposal refused: ${outcome.code}`
+            : `Document proposal committed: ${outcome.documents.map((d) => `version ${d.version}`).join(", ")}`,
+      },
+    );
   }
 
   /**

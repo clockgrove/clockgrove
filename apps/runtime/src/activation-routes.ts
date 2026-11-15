@@ -7,6 +7,7 @@ import type {
   ActorActivation,
   ConversationParticipant,
 } from "@clockgrove/application";
+import { MAX_REVOKED_CAPABILITIES } from "@clockgrove/application";
 import { type BrowserScope, ContractDecodeError, decodeBrowserScope } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 
@@ -229,10 +230,23 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");
   const policyValue = object(body.policy, "policy");
-  keys(policyValue, ["allowModel", "modelBudget"]);
+  keys(policyValue, ["allowModel", "modelBudget", "revokedCapabilities"]);
+  const revoked = policyValue.revokedCapabilities;
+  if (
+    revoked !== undefined &&
+    (!Array.isArray(revoked) || revoked.length > MAX_REVOKED_CAPABILITIES)
+  )
+    invalid("revokedCapabilities");
   const policy: ActivationPolicy = {
     allowModel: boolean(policyValue.allowModel, "allowModel"),
     modelBudget: integer(policyValue.modelBudget, "modelBudget", 1000),
+    ...(revoked === undefined
+      ? {}
+      : {
+          revokedCapabilities: (revoked as unknown[]).map((name) =>
+            text(name, "revokedCapabilities", 4096),
+          ),
+        }),
   };
   return {
     scope,

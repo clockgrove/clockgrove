@@ -86,6 +86,19 @@ export interface TurnCommandRecord {
   /** A stable `[a-z_]` reason when refused. */
   readonly code: string | null;
   readonly summary: string;
+  /** The grant that decided the call, its arguments and its result, recorded on the run step. */
+  readonly evidence?: CapabilityEvidence;
+}
+
+/** Bounded run evidence of one decided capability call (issue 322). */
+export interface CapabilityEvidence {
+  readonly grant: {
+    readonly capability: string;
+    readonly callsPerTurn: number;
+    readonly requiredRuntimeGrant: string;
+  } | null;
+  readonly arguments: unknown;
+  readonly result: unknown;
 }
 
 export interface TurnToolCall {

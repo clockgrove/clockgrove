@@ -27,13 +27,23 @@ export interface ActivationConfiguration {
   readonly enabled: boolean;
   readonly compiledRoutine: "noop" | "escalate";
   readonly delivery?: ActivationDeliveryIntent;
+  /** Present when the actor made it through its own capability (issue 322); operators keep it. */
+  readonly origin?: "actor";
 }
 
 export interface ActivationPolicy {
   readonly allowModel: boolean;
   /** Lifetime model opportunities, shared by every configuration of this actor. */
   readonly modelBudget: number;
+  /**
+   * Registry capabilities revoked for this actor (issue 322): its proposals of them are refused
+   * `revoked`. Omitted on configure, the stored list is kept.
+   */
+  readonly revokedCapabilities?: readonly string[];
 }
+
+/** Decision (issue 322): at most 32 revoked capability names per actor. */
+export const MAX_REVOKED_CAPABILITIES = 32;
 
 export interface ActorActivation {
   readonly activationId: string;

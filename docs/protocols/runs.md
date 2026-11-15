@@ -155,6 +155,15 @@ A local research run can contain multiple `model_attempt` steps around `tool_pro
 (or null when unknown). These fields are metadata, not tool content. The existing inspector
 privacy and participant checks continue to govern protected input/output payloads.
 
+A `world_command_proposal` step carries optional `capabilityEvidence` (issue 322;
+`run_steps.capability_evidence`, migration 0067): the `grant` that decided the call
+(`capability`, `callsPerTurn`, `requiredRuntimeGrant`, or `null` when none was held), the call's
+`arguments` and its `result`, both bounded JSON. A refusal records `{ refused: <code> }` as its
+result. A `document.write` call records the path, byte length and SHA-256 of its content, never the
+content. Evidence whose stored jsonb text (`capability_evidence::text`, which the column's CHECK
+measures; it adds a space after each `:` and `,`) would exceed 16 KiB keeps its grant and replaces
+arguments and result with `{ truncated: true }`.
+
 A final reply cites recorded calls as `[tool:<callId>]`. The browser's “Why? Tool evidence”
 button enters `/v1/runtime/runs/inspect` by session and canonical input message; it displays the run,
 input message, tool steps and call/grant/effect/result links without displaying raw protected

@@ -195,8 +195,15 @@ it("journals exact-pin scoped MCP policy and rejects self-grants, stale pins and
       const admitted = await resolve();
       expect(admitted.registry.names()).toEqual([
         "delivery.request",
+        "document.write",
         "inspect",
+        "intention.cancel",
+        "intention.schedule",
         remoteName,
+        "perception.list",
+        "self.inspect",
+        "subscription.create",
+        "subscription.revoke",
         "why",
         "world.command",
       ]);

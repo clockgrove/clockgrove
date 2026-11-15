@@ -80,7 +80,17 @@ application does.
   That trigger lives only in the scripted provider fixture (`scriptedConversationReply`); no
   production path parses Caretaker text into a proposal. A proposal reaches the store only as the
   model responder's returned `proposal`.
+  The model can also call the `document.write` capability (issue 322;
+  [capabilities](capabilities.md#self-capabilities)) with `path` and `content`, in the production
+  responder as in the fixture. Its grant, call budget and revocation are decided before anything is
+  written; an accepted call commits with the turn through this same change set and `validation`
+  step, so its write classes, limits and provenance are a model proposal's. A path outside
+  `actor_writable` is refused `write_class_refused` before commit and recorded on the call.
   Wave 6 owns governed adoption of model proposals to `governed` documents.
+  The actor's newest recorded self capability results enter its next prompt outside the manifest,
+  beside the untrusted tool catalog, in an `UNTRUSTED SELF CAPABILITY RESULTS` section
+  ([capabilities](capabilities.md#self-capabilities)); they are run evidence, not a context source,
+  so the manifest hash and replay are unchanged.
 
 `POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (default:
 the head). It answers that version with its text and provenance (`changeSetId`, `proposer`,

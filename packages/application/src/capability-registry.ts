@@ -9,6 +9,8 @@ import type { CapabilityValue } from "./capabilities.js";
 export type CapabilityEffect =
   | "read"
   | "world_command"
+  /** Writes only the actor's own attention or cognition: never the world or an external system. */
+  | "actor-write"
   | "world-write"
   | "external-write"
   | "destructive"
@@ -102,7 +104,30 @@ const DEFAULT_GRANTS: readonly CapabilityGrant[] = [
   { capability: "inspect", callsPerTurn: 1 },
   { capability: "why", callsPerTurn: 1 },
   { capability: "world.command", callsPerTurn: 1, commandTypes: ["resource.offer"] },
+  { capability: "subscription.create", callsPerTurn: 1 },
+  { capability: "subscription.revoke", callsPerTurn: 1 },
+  { capability: "intention.schedule", callsPerTurn: 1 },
+  { capability: "intention.cancel", callsPerTurn: 1 },
+  { capability: "perception.list", callsPerTurn: 1 },
+  { capability: "self.inspect", callsPerTurn: 1 },
+  { capability: "document.write", callsPerTurn: 1 },
 ];
+
+/** The capabilities an actor uses on its own attention (issue 322); the actor owner executes them. */
+export const SELF_CAPABILITIES: ReadonlySet<string> = new Set([
+  "subscription.create",
+  "subscription.revoke",
+  "intention.schedule",
+  "intention.cancel",
+  "perception.list",
+  "self.inspect",
+  "document.write",
+]);
+
+/** Decision (issue 322): an actor holds at most 4 standing subscriptions and intentions of its own. */
+export const MAX_ACTOR_ACTIVATIONS = 4;
+/** Decision (issue 322): an intention is due at most 30 days after the turn that scheduled it. */
+export const MAX_INTENTION_DELAY_SECONDS = 2_592_000;
 
 /** The grants one actor holds for a turn, with the capabilities revoked since. Immutable. */
 export class CapabilityGrants {
@@ -177,6 +202,25 @@ function record(input: unknown, keys: readonly string[]): Record<string, unknown
   return input as Record<string, unknown>;
 }
 
+function bytes(value: unknown, min: number, max: number): string {
+  if (typeof value !== "string") throw new CapabilityInputError("text refused");
+  const length = new TextEncoder().encode(value).length;
+  if (length < min || length > max || (min > 0 && value.trim() === ""))
+    throw new CapabilityInputError("text refused");
+  return value;
+}
+
+const NO_INPUT = { type: "object", properties: {}, additionalProperties: false } as const;
+function exact(properties: Record<string, unknown>): unknown {
+  return {
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}
+const WAKE_INPUT = { type: "string", minLength: 1, maxLength: 1024 } as const;
+
 function identifier(value: unknown): string {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value))
     throw new CapabilityInputError("identifier refused");
@@ -241,6 +285,91 @@ export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
         objectId: identifier(value.objectId),
         kind: identifier(value.kind),
       };
+    },
+  },
+  {
+    name: "subscription.create",
+    inputSchema: exact({ eventType: { type: "string" }, input: WAKE_INPUT }),
+    description: "Follow one journal event type: each such event wakes the actor with the input.",
+    effect: "actor-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => {
+      const value = record(input, ["eventType", "input"]);
+      return { eventType: bytes(value.eventType, 1, 256), input: bytes(value.input, 1, 1024) };
+    },
+  },
+  {
+    name: "subscription.revoke",
+    inputSchema: exact({ subscriptionId: { type: "string" } }),
+    description: "Stop following events through one of the actor's own subscriptions.",
+    effect: "actor-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => ({
+      subscriptionId: identifier(record(input, ["subscriptionId"]).subscriptionId),
+    }),
+  },
+  {
+    name: "intention.schedule",
+    inputSchema: exact({
+      delaySeconds: { type: "integer", minimum: 1, maximum: MAX_INTENTION_DELAY_SECONDS },
+      input: WAKE_INPUT,
+    }),
+    description: "Wake once, delaySeconds after this turn, with the input.",
+    effect: "actor-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => {
+      const value = record(input, ["delaySeconds", "input"]);
+      const delay = value.delaySeconds;
+      if (
+        typeof delay !== "number" ||
+        !Number.isSafeInteger(delay) ||
+        delay < 1 ||
+        delay > MAX_INTENTION_DELAY_SECONDS
+      )
+        throw new CapabilityInputError("delay refused");
+      return { delaySeconds: delay, input: bytes(value.input, 1, 1024) };
+    },
+  },
+  {
+    name: "intention.cancel",
+    inputSchema: exact({ intentionId: { type: "string" } }),
+    description: "Cancel one of the actor's own intentions before it fires.",
+    effect: "actor-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => ({ intentionId: identifier(record(input, ["intentionId"]).intentionId) }),
+  },
+  {
+    name: "perception.list",
+    inputSchema: NO_INPUT,
+    description: "List the entities and routes the actor currently perceives.",
+    effect: "read",
+    requiredRuntimeGrant: "runtime:world-observe",
+    parse: (input) => {
+      record(input, []);
+      return {};
+    },
+  },
+  {
+    name: "self.inspect",
+    inputSchema: NO_INPUT,
+    description: "Read the actor's own goals, remaining budgets and run state.",
+    effect: "read",
+    requiredRuntimeGrant: "runtime:world-observe",
+    parse: (input) => {
+      record(input, []);
+      return {};
+    },
+  },
+  {
+    name: "document.write",
+    inputSchema: exact({ path: { type: "string" }, content: { type: "string" } }),
+    description:
+      "Write the whole content of one of the actor's own actor-writable documents; it commits with the turn.",
+    effect: "actor-write",
+    requiredRuntimeGrant: "runtime:world-command",
+    parse: (input) => {
+      const value = record(input, ["path", "content"]);
+      return { path: bytes(value.path, 1, 256), content: bytes(value.content, 0, 65_536) };
     },
   },
 ];

@@ -8,7 +8,11 @@ import type {
   RuntimeAuthorizationContext,
   TurnFiber,
 } from "@clockgrove/application";
-import { CAPABILITY_REGISTRY } from "@clockgrove/application";
+import {
+  CAPABILITY_REGISTRY,
+  MAX_ACTOR_ACTIVATIONS,
+  MAX_REVOKED_CAPABILITIES,
+} from "@clockgrove/application";
 import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
@@ -74,18 +78,126 @@ export class PostgreSqlActivations {
       );
       const row = await this.policy(a);
       if (row.space_id !== a.scope.spaceId) throw new Error("activation policy not found");
-      const configs = (row.configurations as ActivationConfiguration[]).filter(
-        (c) => c.id !== config.id,
-      );
-      configs.push(config);
+      const stored = row.configurations as ActivationConfiguration[];
+      const prior = stored.find((c) => c.id === config.id);
+      const configs = stored.filter((c) => c.id !== config.id);
+      // An operator sees and may disable an actor's own configuration; it stays the actor's.
+      configs.push(prior?.origin === undefined ? config : { ...config, origin: prior.origin });
       if (configs.length > 64) throw new Error("activation configuration limit reached");
       await this.client.query(
         `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb,
-        allow_model=$6,model_budget=$7 WHERE ${KEY}`,
-        [...values(a), JSON.stringify(configs), policy.allowModel, policy.modelBudget],
+        allow_model=$6,model_budget=$7,revoked_capabilities=coalesce($8::text[],revoked_capabilities)
+        WHERE ${KEY}`,
+        [
+          ...values(a),
+          JSON.stringify(configs),
+          policy.allowModel,
+          policy.modelBudget,
+          policy.revokedCapabilities === undefined ? null : [...policy.revokedCapabilities],
+        ],
       );
       return this.inspectHere(a);
     });
+  }
+
+  /**
+   * Writes one of the actor's own configurations (issue 322) under the turn's participant: the
+   * policy's budget and model permission are the operator's and stay unchanged. A new one beyond
+   * `MAX_ACTOR_ACTIVATIONS` standing actor configurations answers `limit`; a participant who does
+   * not own the actor's policy answers `not_owned`.
+   */
+  actorConfigure(
+    a: ActivationAddress,
+    config: ActivationConfiguration & { readonly origin: "actor" },
+  ): Promise<"configured" | "limit" | "not_owned"> {
+    return this.transaction(a, async () => {
+      validateConfiguration(config, { allowModel: false, modelBudget: 0 });
+      const session = await this.client.query(
+        `SELECT actor_id FROM clockgrove.conversation_sessions
+        WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$5 AND actor_id=$4 AND space_id=$6 AND state='active'`,
+        [...values(a), config.sessionId, a.scope.spaceId],
+      );
+      if (session.rows.length !== 1) throw new Error("activation conversation not found");
+      await this.client.query(
+        `INSERT INTO clockgrove.actor_activation_policies
+        (tenant_id,world_id,timeline_id,actor_id,principal_id,space_id,event_cursor_transaction)
+        VALUES ($1,$2,$3,$4,$5,$6,pg_snapshot_xmax(pg_current_snapshot()))
+        ON CONFLICT DO NOTHING`,
+        [...values(a), a.participant.principalId, a.scope.spaceId],
+      );
+      // Another member's policy for this actor stays invisible here: it is not this one's to change.
+      const visible = await this.client.query(
+        `SELECT 1 FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
+        values(a),
+      );
+      if (visible.rows.length === 0) return "not_owned";
+      const row = await this.policy(a);
+      if (row.space_id !== a.scope.spaceId) return "not_owned";
+      const configs = (row.configurations as ActivationConfiguration[]).filter(
+        (c) => c.id !== config.id,
+      );
+      const replacing = configs.length !== (row.configurations as unknown[]).length;
+      if (!replacing && configs.filter((c) => c.origin === "actor").length >= MAX_ACTOR_ACTIVATIONS)
+        return "limit";
+      configs.push(config);
+      if (configs.length > 64) return "limit";
+      await this.client.query(
+        `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb WHERE ${KEY}`,
+        [...values(a), JSON.stringify(configs)],
+      );
+      return "configured";
+    });
+  }
+
+  /**
+   * Removes one of the actor's own configurations of `kind`. `absent` when the policy holds no
+   * configuration `id` at all, `not_found` when it holds one that is not the actor's own of `kind`,
+   * and `not_owned` when another member owns the actor's policy.
+   */
+  actorRemove(
+    a: ActivationAddress,
+    id: string,
+    kind: "subscription" | "scheduled_intention",
+  ): Promise<"removed" | "absent" | "not_found" | "not_owned"> {
+    return this.transaction(a, async () => {
+      const policy = await this.capabilityPolicy(a);
+      if (policy === undefined) return "absent";
+      if (!policy.owned) return "not_owned";
+      const row = await this.policy(a);
+      const stored = row.configurations as ActivationConfiguration[];
+      if (!stored.some((c) => c.id === id)) return "absent";
+      const configs = stored.filter(
+        (c) => !(c.id === id && c.kind === kind && c.origin === "actor"),
+      );
+      if (configs.length === stored.length) return "not_found";
+      await this.client.query(
+        `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb WHERE ${KEY}`,
+        [...values(a), JSON.stringify(configs)],
+      );
+      return "removed";
+    });
+  }
+
+  /**
+   * The capabilities revoked for this actor, for every live member of its policy's space, whoever
+   * owns the policy (migration 0067); none without a policy.
+   */
+  revokedCapabilities(a: ActivationAddress): Promise<readonly string[]> {
+    return this.transaction(a, async () => (await this.capabilityPolicy(a))?.revoked ?? []);
+  }
+
+  /** The actor's policy as any live member sees it: whether the caller owns it, and revocations. */
+  private async capabilityPolicy(
+    a: ActivationAddress,
+  ): Promise<{ readonly owned: boolean; readonly revoked: readonly string[] } | undefined> {
+    const result = await this.client.query(
+      "SELECT owned, revoked_capabilities FROM clockgrove.actor_capability_policy($1,$2,$3,$4)",
+      values(a),
+    );
+    const row = result.rows[0] as Row | undefined;
+    return row === undefined
+      ? undefined
+      : { owned: row.owned === true, revoked: (row.revoked_capabilities as string[]).map(String) };
   }
 
   inspect(a: ActivationAddress): Promise<ActivationInspection> {
@@ -227,19 +339,29 @@ export class PostgreSqlActivations {
         [...values(a), id],
       );
       const ids = new Set((records.rows as Row[]).map((r) => String(r.configuration_id)));
-      const configs = (row.configurations as ActivationConfiguration[]).map((c) =>
-        ids.has(c.id) && c.nextWakeAt !== null
-          ? {
-              ...c,
-              nextWakeAt:
-                c.intervalMs === null
-                  ? null
-                  : c.nextWakeAt +
-                    Math.max(1, Math.floor((Date.now() - c.nextWakeAt) / c.intervalMs) + 1) *
-                      c.intervalMs,
-            }
-          : c,
-      );
+      // An actor's own one-shot intention retires once it has fired (issue 322): its receipt stays
+      // and a replayed wake answers from it, but it no longer holds a standing place.
+      const retired = (c: ActivationConfiguration) =>
+        ids.has(c.id) &&
+        c.origin === "actor" &&
+        c.kind === "scheduled_intention" &&
+        c.intervalMs === null &&
+        c.nextWakeAt !== null;
+      const configs = (row.configurations as ActivationConfiguration[])
+        .filter((c) => !retired(c))
+        .map((c) =>
+          ids.has(c.id) && c.nextWakeAt !== null
+            ? {
+                ...c,
+                nextWakeAt:
+                  c.intervalMs === null
+                    ? null
+                    : c.nextWakeAt +
+                      Math.max(1, Math.floor((Date.now() - c.nextWakeAt) / c.intervalMs) + 1) *
+                        c.intervalMs,
+              }
+            : c,
+        );
       await this.client.query(
         `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb WHERE ${KEY}`,
         [...values(a), JSON.stringify(configs)],
@@ -333,6 +455,7 @@ export class PostgreSqlActivations {
       policy: {
         allowModel: row?.allow_model === true,
         modelBudget: Number(row?.model_budget ?? 0),
+        revokedCapabilities: ((row?.revoked_capabilities ?? []) as string[]).map(String),
       },
       modelCallsReserved: Number(row?.model_calls_reserved ?? 0),
       nextWakeAt: times.length ? Math.min(...times) : null,
@@ -402,7 +525,12 @@ function validateConfiguration(c: ActivationConfiguration, p: ActivationPolicy):
     typeof p.allowModel !== "boolean" ||
     !Number.isSafeInteger(p.modelBudget) ||
     p.modelBudget < 0 ||
-    p.modelBudget > 1000
+    p.modelBudget > 1000 ||
+    (p.revokedCapabilities !== undefined &&
+      (p.revokedCapabilities.length > MAX_REVOKED_CAPABILITIES ||
+        p.revokedCapabilities.some(
+          (name) => typeof name !== "string" || name.length === 0 || name.length > 4096,
+        )))
   )
     throw new Error("invalid activation configuration");
 }

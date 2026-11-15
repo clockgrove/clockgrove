@@ -26,6 +26,7 @@ import {
   type ProvisionWorldRequest,
   type RuntimeLogger,
   releaseRuntimeLogger,
+  SELF_CAPABILITIES,
   safeMcpNetworkRefusal,
   sweepDispatches,
   WorldMcpAdmission,
@@ -64,6 +65,8 @@ import {
   PostgreSqlWorldOwnerReader,
   PostgreSqlWorldProvisioningStore,
   type R2BucketLike,
+  type SelfCapabilityResult,
+  sessionSelfResults,
   WebCryptoKeyring,
   withClientTransaction,
 } from "@clockgrove/persistence";
@@ -358,6 +361,66 @@ export function perceiveScene(
     ).observeCanonical(scope, context);
     return describeScene(scene, stored.document.state);
   });
+}
+
+/**
+ * What the actor perceives, as a list (issue 322): the entities of the member's authorized scene and
+ * the anchor-graph routes of the spatial frames that scene includes. Nothing else is read out.
+ */
+export function perceiveListing(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  scope: BrowserScope,
+  context: TrustedContext,
+): Promise<PerceptionListing> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
+    const { scene, stored } = await new PostgreSqlLivingSceneReader(
+      new PostgreSqlWorldOwnerReader(client),
+    ).observeCanonical(scope, context);
+    // As `sceneEffects`: a route shows only in a frame the authorized scene projects, at its version.
+    const frames = new Set(scene.frames.map((frame) => `${frame.frameId}@${frame.version}`));
+    return {
+      revision: scene.revision,
+      entities: scene.entities.map((entity) => ({
+        objectId: String(entity.objectId),
+        label: entity.presentation.label,
+        archetypeId: entity.archetypeId,
+      })),
+      routes: (stored.document.state.anchorGraphs ?? [])
+        .filter((graph) => frames.has(`${graph.frameId}@${graph.frameVersion}`))
+        .flatMap((graph) =>
+          graph.edges.map((edge) => ({
+            graphId: graph.graphId,
+            from: String(edge.from),
+            to: String(edge.to),
+          })),
+        ),
+    };
+  });
+}
+
+export interface PerceptionListing {
+  readonly revision: string;
+  readonly entities: readonly {
+    readonly objectId: string;
+    readonly label: string;
+    readonly archetypeId: string;
+  }[];
+  readonly routes: readonly {
+    readonly graphId: string;
+    readonly from: string;
+    readonly to: string;
+  }[];
+}
+
+/** The actor's newest recorded self capability results in its session (issue 322). */
+export function readSelfResults(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  authorization: RuntimeAuthorizationContext,
+  sessionId: string,
+): Promise<readonly SelfCapabilityResult[]> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    sessionSelfResults(client, authorization, sessionId, [...SELF_CAPABILITIES]),
+  );
 }
 
 /** `ActorProcess` state over this invocation's connection (migration 0038). */
