@@ -265,8 +265,15 @@ wakes, so replaying a wake answers the recorded activation; each escalation rese
 permission and budget are never changed by the actor. An actor holds at most 4 standing
 configurations of its own (decision, issue 322); a fifth is refused `budget_exhausted`.
 `subscription.revoke` and `intention.cancel` remove only the actor's own configuration of that
-kind; any other ID is refused `activation_not_found`. A fired one-shot intention stays, with no
-next wake, until it is cancelled.
+kind; any other ID is refused `activation_not_found`. Removing an actor-prefixed ID that is already
+absent commits, so a retry after the removal committed records it rather than a refusal. A fired
+one-shot intention retires when its activation settles: its receipt stays and a replayed wake
+answers from it, but it no longer holds one of the 4 standing places.
+
+The configurations live in the actor's one policy row, owned by the member who first configured it.
+Another member talking with the same actor is bound by the same `revokedCapabilities` and model
+budget, but its calls that would change the configurations are refused `policy_not_owned` and
+recorded.
 
 The policy owner sees the actor's configurations in `/inspect`, with their `origin`, and can disable
 or replace one through `/configure`; the replacement keeps its `origin`. The configure route's policy

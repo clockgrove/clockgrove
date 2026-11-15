@@ -103,6 +103,7 @@ import {
   perceiveListing,
   perceiveScene,
   type RuntimeEnvironment,
+  readSelfResults,
   reconcileWorldCatchUp,
   reconcileWorldProvisioning,
   runtimeLogger,
@@ -2062,6 +2063,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       .join("")
       .slice(0, 24);
     const value = input as Record<string, unknown>;
+    // Hosted execution of the actor's reads stays guarded until issue 3: outside local composition
+    // they are refused and recorded, as `inspect` and `why` are without research composition.
+    const hostedReadsAllowed = this.environment.PROVIDER_ENVIRONMENT === "local";
     switch (definition.name) {
       case "subscription.create":
       case "intention.schedule": {
@@ -2086,6 +2090,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
             origin: "actor",
           }),
         );
+        if (configured === "not_owned") return refused("policy_not_owned");
         if (configured === "limit")
           return refused("budget_exhausted", {
             refused: "budget_exhausted",
@@ -2113,8 +2118,13 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         const removed = await withActivations(this.environment, (store) =>
           store.actorRemove(address, id, subscription ? "subscription" : "scheduled_intention"),
         );
-        if (!removed) return refused("activation_not_found");
-        await this.armActivations(address, { initial: true });
+        if (removed === "not_owned") return refused("policy_not_owned");
+        // Removal is idempotent for the actor's own IDs: a retried turn whose first attempt
+        // removed it before its step was recorded finds it gone, and that is the committed outcome.
+        const own = id.startsWith(subscription ? "self-subscription-" : "self-intention-");
+        if (removed === "not_found" || (removed === "absent" && !own))
+          return refused("activation_not_found");
+        if (removed === "removed") await this.armActivations(address, { initial: true });
         return {
           status: "committed",
           code: null,
@@ -2123,6 +2133,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         };
       }
       case "perception.list": {
+        if (!hostedReadsAllowed) return refused("not_executable");
         const listing = await perceiveListing(this.environment, fiber.scope, context);
         // Decision: 64 entities and 128 routes keep the result inside the evidence bound.
         return {
@@ -2139,6 +2150,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         };
       }
       case "self.inspect": {
+        if (!hostedReadsAllowed) return refused("not_executable");
         const authorization = { ...worldAuthorization(context), personaId: participant.personaId };
         const goals = await withActorCapabilityClient(this.environment, (client) =>
           withClientTransaction(client, { authorization }, async () =>
@@ -2234,6 +2246,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         grants: (participant, session) =>
           this.grants(participant, session.scope, session.actorId, session.sessionId),
         perceive: this.perceive,
+        selfResults: async (participant, session) => {
+          const context = this.#talkContext(participant);
+          if (context === undefined) return [];
+          return readSelfResults(this.environment, worldAuthorization(context), session.sessionId);
+        },
       });
     return async (session, caretakerMessages, input) => {
       const reply = scriptedConversationReply(session, caretakerMessages, input);

@@ -26,6 +26,7 @@ import {
   type ProvisionWorldRequest,
   type RuntimeLogger,
   releaseRuntimeLogger,
+  SELF_CAPABILITIES,
   safeMcpNetworkRefusal,
   sweepDispatches,
   WorldMcpAdmission,
@@ -64,6 +65,8 @@ import {
   PostgreSqlWorldOwnerReader,
   PostgreSqlWorldProvisioningStore,
   type R2BucketLike,
+  type SelfCapabilityResult,
+  sessionSelfResults,
   WebCryptoKeyring,
   withClientTransaction,
 } from "@clockgrove/persistence";
@@ -373,7 +376,8 @@ export function perceiveListing(
     const { scene, stored } = await new PostgreSqlLivingSceneReader(
       new PostgreSqlWorldOwnerReader(client),
     ).observeCanonical(scope, context);
-    const frames = new Set(scene.frames.map((frame) => String(frame.frameId)));
+    // As `sceneEffects`: a route shows only in a frame the authorized scene projects, at its version.
+    const frames = new Set(scene.frames.map((frame) => `${frame.frameId}@${frame.version}`));
     return {
       revision: scene.revision,
       entities: scene.entities.map((entity) => ({
@@ -382,7 +386,7 @@ export function perceiveListing(
         archetypeId: entity.archetypeId,
       })),
       routes: (stored.document.state.anchorGraphs ?? [])
-        .filter((graph) => frames.has(String(graph.frameId)))
+        .filter((graph) => frames.has(`${graph.frameId}@${graph.frameVersion}`))
         .flatMap((graph) =>
           graph.edges.map((edge) => ({
             graphId: graph.graphId,
@@ -406,6 +410,17 @@ export interface PerceptionListing {
     readonly from: string;
     readonly to: string;
   }[];
+}
+
+/** The actor's newest recorded self capability results in its session (issue 322). */
+export function readSelfResults(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  authorization: RuntimeAuthorizationContext,
+  sessionId: string,
+): Promise<readonly SelfCapabilityResult[]> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    sessionSelfResults(client, authorization, sessionId, [...SELF_CAPABILITIES]),
+  );
 }
 
 /** `ActorProcess` state over this invocation's connection (migration 0038). */

@@ -43,7 +43,10 @@ Decisions:
 - Revocation is canonical per actor: the activation policy's `revokedCapabilities`, set by the
   policy owner through `/v1/runtime/activations/configure`
   ([conversation fibers](conversation-fibers.md#the-actors-own-subscriptions-and-intentions-issue-322)),
-  is applied to the actor's grants each time they are resolved.
+  is applied to the actor's grants each time they are resolved, whichever member talks with the
+  actor. Every live member of the policy's space reads it through
+  `clockgrove.actor_capability_policy` (migration 0067), which answers only the list and whether
+  the caller owns the policy.
 
 ## Deciding a proposal
 
@@ -81,24 +84,35 @@ The refusal retains the ordinary command receipt and attribution:
 
 The actor's owner executes the self capabilities (`SELF_CAPABILITIES`, issue 322) once the grants
 accept them, through the turn fiber's `executeSelf` hook, also when the runtime composes research:
-they never enter the read Queue.
+they never enter the read Queue. Their recorded results reach the model on the actor's next turn
+(a later message or one of its own wakes): the production responder adds the session's newest 4
+recorded self results, at most 16 KiB together, from completed runs only, newest first, in an
+`UNTRUSTED SELF CAPABILITY RESULTS` section beside the tool catalog. That is how the actor learns
+the `subscriptionId` or `intentionId` it revokes or cancels, and what it listed or inspected.
 
 - `subscription.create`, `subscription.revoke`, `intention.schedule` and `intention.cancel` write the
   actor's own activation configurations, with the operator's budgets, coalescing and quiet-hours
   rules ([conversation fibers](conversation-fibers.md#the-actors-own-subscriptions-and-intentions-issue-322)).
   The result names `subscriptionId` (and `eventType`) or `intentionId` (and `dueAt`). A fifth
   standing configuration is refused `budget_exhausted`; an ID that is not the actor's own, of that
-  kind, is refused `activation_not_found`.
+  kind, is refused `activation_not_found`. Removing an actor-prefixed ID that is already absent
+  commits, so a retried turn whose first attempt removed it records the removal. The configurations
+  live in the policy of the member who first configured the actor; another member's call that
+  would change them is refused `policy_not_owned`.
 - `perception.list` answers the member's authorized living scene, as for the actor's perception:
   its `revision`, each entity's `objectId`, `label` and `archetypeId`, and the edges (`graphId`,
   `from`, `to`) of the anchor graphs in the scene's spatial frames. Decision: the result lists at
   most 64 entities and 128 routes, with their full counts, to stay within the evidence bound.
-  Nothing outside the authorized scene is read out.
+  A graph is listed only when its `frameId@frameVersion` is a frame the authorized scene projects,
+  as for the scene's effects. Nothing outside the authorized scene is read out.
 - `self.inspect` answers the session's own actor only: its `goals` documents (path, version and
   source hash; document text is private cognition), the activation budget (`allowModel`,
   `modelBudget`, `modelCallsReserved`, `remaining`, standing actor configurations and their limit),
   each available grant's per-turn calls and those remaining, and the turn's run (`runId`,
   `messageId`, `phase`, `attempt`).
+- Hosted execution of these reads stays guarded until issue 3: outside local composition
+  (`PROVIDER_ENVIRONMENT` other than `local`) `perception.list` and `self.inspect` are refused
+  `not_executable` and recorded, as `inspect` and `why` are without research composition.
 - `document.write` is checked with the model rules of `operationRefusal`: only an `actor_writable`
   path, and a session summary only of its own session. An accepted call commits with the turn as the
   model's change set ([context assembly](context-assembly.md#proposers)).

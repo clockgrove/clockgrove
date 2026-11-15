@@ -87,6 +87,10 @@ application does.
   step, so its write classes, limits and provenance are a model proposal's. A path outside
   `actor_writable` is refused `write_class_refused` before commit and recorded on the call.
   Wave 6 owns governed adoption of model proposals to `governed` documents.
+  The actor's newest recorded self capability results enter its next prompt outside the manifest,
+  beside the untrusted tool catalog, in an `UNTRUSTED SELF CAPABILITY RESULTS` section
+  ([capabilities](capabilities.md#self-capabilities)); they are run evidence, not a context source,
+  so the manifest hash and replay are unchanged.
 
 `POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (default:
 the head). It answers that version with its text and provenance (`changeSetId`, `proposer`,

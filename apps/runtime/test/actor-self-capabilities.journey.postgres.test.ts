@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { CAPABILITY_REGISTRY } from "@clockgrove/application";
+import {
+  CAPABILITY_REGISTRY,
+  type RuntimeAuthorizationContext,
+  SELF_CAPABILITIES,
+} from "@clockgrove/application";
 import {
   type ConversationSession,
   type DocumentVersionView,
@@ -12,6 +16,7 @@ import {
   InMemoryModelBudget,
   ScriptedModelProvider,
 } from "@clockgrove/model-gateway";
+import { boundedEvidence, sessionSelfResults } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
 import { actorResponder } from "../src/actor-model.js";
 import { advanceCommand } from "./world-fixture.js";
@@ -52,7 +57,7 @@ it.skipIf(isNativeWorldOwnerChild())(
            ) SELECT tenant_id, world_id, timeline_id, space_id, 'principal-outsider',
                     'membership-outsider', 'persona-outsider', roles,
                     grants || ARRAY['runtime:world-inspect', 'runtime:actor-govern'],
-                    '{"version":1,"allowedCategories":["public_scene","private_cognition","operator_evidence"]}',
+                    '{"version":1,"allowedCategories":["public_scene","conversation","private_cognition","operator_evidence"]}',
                     now()
                FROM clockgrove.world_memberships WHERE principal_id = 'principal-runtime'`,
         );
@@ -116,13 +121,21 @@ it.skipIf(!isNativeWorldOwnerChild())(
         });
       await policy();
       let turn = 0;
-      const use = async (capability: string, input: object) => {
+      const use = async (
+        capability: string,
+        input: object,
+        speaker = { credential: MEMBER, sessionId },
+      ) => {
         const messageId = `self-${++turn}`;
-        const answer = await post("/v1/runtime/talk", {
-          sessionId,
-          messageId,
-          text: `fixture:use ${capability} ${JSON.stringify(input)}`,
-        });
+        const answer = await post(
+          "/v1/runtime/talk",
+          {
+            sessionId: speaker.sessionId,
+            messageId,
+            text: `fixture:use ${capability} ${JSON.stringify(input)}`,
+          },
+          speaker.credential,
+        );
         expect(answer.status).toBe(200);
         return JSON.parse(
           await owner.sql(
@@ -230,6 +243,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
       });
       await expect.poll(() => activationsOf(intentionId)).toBe("scheduled_intention/completed");
       expect(await activationsOf(laterId)).toBe("");
+      // A fired one-shot intention retires: its receipt stays, its standing place does not.
+      expect((await activations("inspect")).configurations.map((c) => c.id)).toEqual(["witness"]);
+      // Cancelling again, as a retried turn would after its first attempt removed it, commits;
+      // an operator's configuration is never the actor's to remove.
+      expect(await use("intention.cancel", { intentionId: laterId })).toMatchObject({
+        status: "succeeded",
+        evidence: { result: { intentionId: laterId } },
+      });
+      expect(await use("subscription.revoke", { subscriptionId: "witness" })).toMatchObject({
+        status: "failed",
+        code: "activation_not_found",
+      });
+      expect((await activations("inspect")).configurations.map((c) => c.id)).toEqual(["witness"]);
       expect(
         await owner.sql(
           `SELECT causal_root FROM clockgrove.actor_activations WHERE configuration_id = '${intentionId}'`,
@@ -248,6 +274,26 @@ it.skipIf(!isNativeWorldOwnerChild())(
         })),
       );
       expect(listed.evidence.result.revision).toBe(scene.revision);
+      // Routes: the edges of the fixture's `fixture.paths` graph (resources/spaces/neighborhood.json)
+      // in `frame-grove` version 1, the one frame the scene projects.
+      expect(scene.frames.map((frame) => `${frame.frameId}@${frame.version}`)).toEqual([
+        "frame-grove@1",
+      ]);
+      expect(listed.evidence.result.routes).toEqual(
+        [
+          ["den-mouth", "porch-step"],
+          ["den-mouth", "tree-base"],
+          ["fence-gap", "garden-edge"],
+          ["fence-gap", "tree-base"],
+          ["garden-edge", "trash-front"],
+          ["garden-edge", "tree-base"],
+          ["porch-step", "trash-front"],
+        ].map(([from, to]) => ({ graphId: "fixture.paths", from, to })),
+      );
+      expect(listed.evidence.result).toMatchObject({
+        entityCount: scene.entities.length,
+        routeCount: 7,
+      });
 
       // Self-inspection: its own goals, budgets and run, nothing else.
       const inspected = await use("self.inspect", {});
@@ -261,7 +307,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             modelBudget: 10,
             modelCallsReserved: 2,
             remaining: 8,
-            standingActorActivations: 1,
+            standingActorActivations: 0,
             standingActorActivationLimit: 4,
           },
         },
@@ -320,6 +366,35 @@ it.skipIf(!isNativeWorldOwnerChild())(
         code: "revoked",
         evidence: { grant: { capability: "perception.list" }, result: { refused: "revoked" } },
       });
+      // A second member talking with the same actor is bound by the same revocation, and cannot
+      // change the attention configured under the policy owner's grant; both are recorded refusals.
+      const second = {
+        credential: OPERATOR,
+        sessionId: decodeConversationSession(
+          (await post("/v1/runtime/conversations/create", { actorId: ACTOR }, OPERATOR)).body,
+        ).sessionId,
+      };
+      expect(await use("perception.list", {}, second)).toMatchObject({
+        status: "failed",
+        code: "revoked",
+        evidence: { result: { refused: "revoked" } },
+      });
+      expect(
+        await use(
+          "subscription.create",
+          { eventType: "ClockPolicyChanged", input: "Mine." },
+          second,
+        ),
+      ).toMatchObject({
+        status: "failed",
+        code: "policy_not_owned",
+        evidence: { result: { refused: "policy_not_owned" } },
+      });
+      expect(await use("intention.cancel", { intentionId: laterId }, second)).toMatchObject({
+        status: "failed",
+        code: "policy_not_owned",
+      });
+      expect((await activations("inspect")).configurations.map((c) => c.id)).toEqual(["witness"]);
       await policy([]);
       await owner.sql(`UPDATE clockgrove.world_memberships
         SET grants = array_remove(grants, 'runtime:world-command') WHERE principal_id = 'principal-runtime'`);
@@ -329,13 +404,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await owner.sql(`UPDATE clockgrove.world_memberships
         SET grants = array_append(grants, 'runtime:world-command') WHERE principal_id = 'principal-runtime'`);
       const held: string[] = [];
-      for (const delaySeconds of [3_600, 3_601, 3_602]) {
+      for (const delaySeconds of [3_600, 3_601, 3_602, 3_603]) {
         const scheduled = await use("intention.schedule", { delaySeconds, input: "Hold." });
         expect(scheduled.status).toBe("succeeded");
         held.push(scheduled.evidence.result.intentionId as string);
       }
       expect(
-        await use("intention.schedule", { delaySeconds: 3_603, input: "Hold." }),
+        await use("intention.schedule", { delaySeconds: 3_604, input: "Hold." }),
       ).toMatchObject({
         status: "failed",
         code: "budget_exhausted",
@@ -363,6 +438,26 @@ it.skipIf(!isNativeWorldOwnerChild())(
       );
       await clock("still-running", "PauseWorld");
       expect(document.content).toBe(NOTE);
+
+      // Evidence is bounded on the jsonb text the column's CHECK measures, not on compact JSON:
+      // 15,000 compact bytes whose stored form passes 16 KiB keep only the grant.
+      const grant = { capability: "perception.list", callsPerTurn: 1, requiredRuntimeGrant: "x" };
+      const routes = Array.from({ length: 780 }, () => ({ a: 1, b: 2, c: 3 }));
+      const wide = { grant, arguments: {}, result: { routes } };
+      expect(JSON.stringify(wide).length).toBeLessThan(16_000);
+      expect(
+        Number(await owner.sql(`SELECT octet_length('${JSON.stringify(wide)}'::jsonb::text)`)),
+      ).toBeGreaterThan(16_384);
+      expect(JSON.parse(boundedEvidence(wide))).toEqual({
+        grant,
+        arguments: { truncated: true },
+        result: { truncated: true },
+      });
+      const narrow = { grant, arguments: {}, result: { routes: routes.slice(0, 500) } };
+      expect(boundedEvidence(narrow)).toBe(JSON.stringify(narrow));
+      expect(
+        Number(await owner.sql(`SELECT octet_length('${JSON.stringify(narrow)}'::jsonb::text)`)),
+      ).toBeLessThanOrEqual(16_384);
 
       // The production responder proposes a document write from the same catalog.
       const scripted = new ScriptedModelProvider({
@@ -410,6 +505,20 @@ it.skipIf(!isNativeWorldOwnerChild())(
         grants: () =>
           CAPABILITY_REGISTRY.grantsFor(["runtime:world-observe", "runtime:world-command"]),
         perceive: async () => undefined,
+        // The canonical read the runtime composes: this session's recorded results, as the member.
+        selfResults: () =>
+          owner.withSqlClient((client) =>
+            sessionSelfResults(
+              client,
+              {
+                tenantId: owner.scope.tenantId,
+                principalId: "principal-runtime",
+                privacyCeiling: { version: 1, allowedCategories: ["conversation"] },
+              } as unknown as RuntimeAuthorizationContext,
+              sessionId,
+              [...SELF_CAPABILITIES],
+            ),
+          ),
       });
       const session = {
         sessionId,
@@ -423,9 +532,30 @@ it.skipIf(!isNativeWorldOwnerChild())(
           input: { path: "working-context.md", content: NOTE },
         },
       });
-      expect(String(scripted.calls[0]?.messages.at(-1)?.text ?? "")).toContain(
-        '"capability":"document.write"',
-      );
+      const prompt = String(scripted.calls[0]?.messages.at(-1)?.text ?? "");
+      expect(prompt).toContain('"capability":"document.write"');
+      // The actor's next prompt carries its newest recorded self results, newest first: here the
+      // spent budget's refusal and the intention IDs it would need to cancel one.
+      const section = prompt
+        .split("UNTRUSTED SELF CAPABILITY RESULTS (")[1]
+        ?.split("\nEND UNTRUSTED SELF CAPABILITY RESULTS")[0];
+      expect(JSON.parse(section?.slice(section.indexOf("\n") + 1) ?? "null")).toEqual([
+        {
+          capability: "intention.schedule",
+          status: "failed",
+          code: "budget_exhausted",
+          result: { refused: "budget_exhausted", standingLimit: 4 },
+        },
+        ...held
+          .slice(1)
+          .reverse()
+          .map((id) => ({
+            capability: "intention.schedule",
+            status: "succeeded",
+            code: null,
+            result: { intentionId: id, dueAt: expect.any(Number) },
+          })),
+      ]);
     });
   },
   300_000,

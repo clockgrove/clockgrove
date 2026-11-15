@@ -579,13 +579,97 @@ function count(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value);
 }
 
-/** Decision (issue 322): evidence over the column's 16 KiB keeps its grant and a bounded marker. */
-function boundedEvidence(evidence: CapabilityEvidence): string {
+/** One of the actor's recorded self capability calls, as its next prompt reads it (issue 322). */
+export interface SelfCapabilityResult {
+  readonly capability: string;
+  readonly status: string;
+  readonly code: string | null;
+  readonly result: unknown;
+}
+
+/** Decision (issue 322): a prompt carries the newest 4 results, at most 16 KiB of them together. */
+const SELF_RESULTS = 4;
+const SELF_RESULT_OCTETS = 16_384;
+
+/**
+ * The newest recorded results of `capabilities` in the participant's session, from completed runs
+ * only, newest first: an abandoned attempt's evidence never reaches a prompt. Run steps are read
+ * under the participant's own authorization (migration 0036's `run_reader`).
+ */
+export function sessionSelfResults(
+  client: PostgreSqlClient,
+  authorization: RuntimeAuthorizationContext,
+  sessionId: string,
+  capabilities: readonly string[],
+): Promise<readonly SelfCapabilityResult[]> {
+  return withClientTransaction(client, { authorization }, async () => {
+    const found = await client.query(
+      `SELECT s.tool, s.status, s.outcome_code, s.capability_evidence->'result' AS result
+         FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r
+           ON r.tenant_id = s.tenant_id AND r.run_id = s.run_id
+        WHERE s.tenant_id = $1 AND s.session_id = $2 AND s.kind = 'world_command_proposal'
+          AND s.capability_evidence IS NOT NULL AND s.tool = ANY($3::text[])
+          AND r.status = 'completed'
+        ORDER BY s.started_at DESC, s.run_id DESC LIMIT ${SELF_RESULTS}`,
+      [authorization.tenantId, sessionId, [...capabilities]],
+    );
+    const results: SelfCapabilityResult[] = [];
+    let octets = 0;
+    for (const row of found.rows as Row[]) {
+      const entry = {
+        capability: String(row.tool),
+        status: String(row.status),
+        code: nullable(row.outcome_code),
+        result: row.result ?? null,
+      };
+      octets += new TextEncoder().encode(JSON.stringify(entry)).length;
+      if (octets > SELF_RESULT_OCTETS) break;
+      results.push(entry);
+    }
+    return results;
+  });
+}
+
+/** The column's CHECK (migration 0067) on the stored jsonb text form. */
+const MAX_EVIDENCE_OCTETS = 16_384;
+
+/**
+ * Decision (issue 322): evidence whose stored form would exceed the column's 16 KiB keeps its
+ * grant and a bounded marker. The bound is on the jsonb text the CHECK measures, not compact JSON.
+ */
+export function boundedEvidence(evidence: CapabilityEvidence): string {
   const text = JSON.stringify(evidence);
-  if (new TextEncoder().encode(text).length <= 16_000) return text;
+  if (storedOctets(JSON.parse(text)) <= MAX_EVIDENCE_OCTETS) return text;
   return JSON.stringify({
     grant: evidence.grant,
     arguments: { truncated: true },
     result: { truncated: true },
   });
+}
+
+/**
+ * The octets of `value`'s jsonb text form (`capability_evidence::text`): a space follows every
+ * `:` and `,`. A number jsonb may print in full decimal (1e21 and beyond, or tiny fractions) is
+ * counted at the most it can print, so the measure never undercounts.
+ */
+function storedOctets(value: unknown): number {
+  if (value === null || typeof value === "boolean") return String(value).length;
+  if (typeof value === "number") {
+    const text = String(value);
+    return /e/iu.test(text) ? 400 : text.length;
+  }
+  if (typeof value === "string") return new TextEncoder().encode(JSON.stringify(value)).length;
+  if (Array.isArray(value))
+    return (
+      2 + value.reduce<number>((sum, item, index) => sum + storedOctets(item) + (index ? 2 : 0), 0)
+    );
+  const entries = Object.entries(value as Record<string, unknown>);
+  return (
+    2 +
+    entries.reduce<number>(
+      (sum, [key, item], index) =>
+        sum + storedOctets(key) + 2 + storedOctets(item) + (index ? 2 : 0),
+      0,
+    )
+  );
 }

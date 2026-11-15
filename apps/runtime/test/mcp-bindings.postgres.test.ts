@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import {
-  CAPABILITY_REGISTRY,
   type McpBinding,
   type McpDiscoverySnapshot,
   type McpRegistryContext,
@@ -194,9 +193,20 @@ it("journals exact-pin scoped MCP policy and rejects self-grants, stale pins and
       ]);
       expect((await installations.read(auth, scope, "installation"))?.revision).toBe("3");
       const admitted = await resolve();
-      expect(admitted.registry.names()).toEqual(
-        [...CAPABILITY_REGISTRY.names(), remoteName].sort(),
-      );
+      expect(admitted.registry.names()).toEqual([
+        "delivery.request",
+        "document.write",
+        "inspect",
+        "intention.cancel",
+        "intention.schedule",
+        remoteName,
+        "perception.list",
+        "self.inspect",
+        "subscription.create",
+        "subscription.revoke",
+        "why",
+        "world.command",
+      ]);
       expect(admitted.grants.available()).toEqual([remoteName]);
       expect(admitted.registry.get(remoteName)?.effect).toBe("read");
       expect(

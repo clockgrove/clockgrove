@@ -1,11 +1,10 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import {
-  CAPABILITY_REGISTRY,
-  type McpBinding,
-  type McpDiscoverySnapshot,
-  type McpNetworkPort,
-  type RuntimeAuthorizationContext,
+import type {
+  McpBinding,
+  McpDiscoverySnapshot,
+  McpNetworkPort,
+  RuntimeAuthorizationContext,
 } from "@clockgrove/application";
 import {
   decodeConversationSession,
@@ -227,7 +226,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         code: "unknown_capability",
       });
       expect(admission.revision).toBe(3);
-      expect(admission.registry.names()).toEqual([...CAPABILITY_REGISTRY.names(), REMOTE].sort());
+      expect(admission.registry.names()).toEqual(
+        `delivery.request document.write inspect intention.cancel intention.schedule ${REMOTE} perception.list self.inspect subscription.create subscription.revoke why world.command`.split(
+          " ",
+        ),
+      );
       expect(admission.grants.available()).toEqual([...OBSERVED, REMOTE]);
       const say = async (messageId: string) => {
         const response = await post("/v1/runtime/talk", {

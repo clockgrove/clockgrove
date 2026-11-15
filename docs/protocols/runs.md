@@ -160,8 +160,9 @@ A `world_command_proposal` step carries optional `capabilityEvidence` (issue 322
 (`capability`, `callsPerTurn`, `requiredRuntimeGrant`, or `null` when none was held), the call's
 `arguments` and its `result`, both bounded JSON. A refusal records `{ refused: <code> }` as its
 result. A `document.write` call records the path, byte length and SHA-256 of its content, never the
-content. Evidence over 16 KiB keeps its grant and replaces arguments and result with
-`{ truncated: true }`.
+content. Evidence whose stored jsonb text (`capability_evidence::text`, which the column's CHECK
+measures; it adds a space after each `:` and `,`) would exceed 16 KiB keeps its grant and replaces
+arguments and result with `{ truncated: true }`.
 
 A final reply cites recorded calls as `[tool:<callId>]`. The browser's “Why? Tool evidence”
 button enters `/v1/runtime/runs/inspect` by session and canonical input message; it displays the run,
