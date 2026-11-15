@@ -1,10 +1,14 @@
 import {
+  CAPABILITY_REGISTRY,
+  type CapabilityDefinition,
+  type CapabilityEvidence,
   type CapabilityGrants,
   type ConversationParticipant,
   ConversationRefusedError,
   type ConversationResponder,
   type ConversationResponse,
   type ConversationStore,
+  SELF_CAPABILITIES,
   type StoredCommandProposal,
   type TurnCommandRecord,
   type TurnFiber,
@@ -120,6 +124,18 @@ export interface TurnFiberHost {
     call: { readonly objectId: string; readonly kind: string },
   ): Promise<TurnCommandRecord>;
   /**
+   * Executes an accepted self capability (issue 322): the actor's own subscriptions, intentions,
+   * perception listing, self-inspection and document write. Answers the record's status, code,
+   * summary and result; the fiber adds the grant and arguments.
+   */
+  executeSelf?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    definition: CapabilityDefinition,
+    input: unknown,
+  ): Promise<SelfOutcome>;
+  /**
    * Called after every durable checkpoint, and inside `model_running` after the first streamed
    * delta, with the phase just reached. The owner records it for recovery; a local fault binding
    * may end the incarnation there.
@@ -131,6 +147,32 @@ export interface TurnFiberHost {
     participant: ConversationParticipant,
     run: () => Promise<T>,
   ): Promise<T>;
+}
+
+/** What a self capability did: the step's outcome and its bounded result. */
+export interface SelfOutcome {
+  readonly status: "committed" | "refused";
+  readonly code: string | null;
+  readonly summary: string;
+  readonly result: unknown;
+}
+
+/** The arguments recorded for a call; document text is private cognition, so only its digest. */
+async function recordedArguments(capability: string, input: unknown): Promise<unknown> {
+  if (capability === "document.write" && typeof input === "object" && input !== null) {
+    const { path, content } = input as { path?: unknown; content?: unknown };
+    if (typeof content === "string") {
+      const bytes = new TextEncoder().encode(content);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return {
+        path: typeof path === "string" ? path : null,
+        octets: bytes.length,
+        sha256: [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join(""),
+      };
+    }
+  }
+  const text = JSON.stringify(input ?? null);
+  return new TextEncoder().encode(text).length <= 4096 ? JSON.parse(text) : { truncated: true };
 }
 
 /**
@@ -383,7 +425,11 @@ export class TurnFibers {
             }
             // Existing world-command behavior stays on its ordinary Journal path. A read gets
             // a durable identity before admission or Queue publication can happen.
-            if (this.host.research !== undefined && proposal.capability !== "world.command") {
+            if (
+              this.host.research !== undefined &&
+              proposal.capability !== "world.command" &&
+              !SELF_CAPABILITIES.has(proposal.capability)
+            ) {
               const state = await this.store((store) => store.researchState!(participant, current));
               if (state.calls.length >= this.host.research.policy.maxCalls) {
                 next = await this.store((store) =>
@@ -556,7 +602,11 @@ export class TurnFibers {
     }
   }
 
-  /** What became of a capability call: refused by the grants, or submitted as an ordinary command. */
+  /**
+   * What became of a capability call: refused by the grants, submitted as an ordinary command, or
+   * executed as one of the actor's self capabilities. The record carries the deciding grant, the
+   * call's arguments and its result as run evidence.
+   */
   private async decideCommand(
     participant: ConversationParticipant,
     fiber: TurnFiber,
@@ -565,6 +615,22 @@ export class TurnFibers {
     const grants = await this.host.grants?.(participant, fiber);
     if (grants === undefined || this.host.submitCommand === undefined)
       throw new Error("capability context unavailable");
+    const held = grants.grants.find((grant) => grant.capability === proposal.capability);
+    const definition =
+      grants.availableDefinitions().find((d) => d.name === proposal.capability) ??
+      CAPABILITY_REGISTRY.get(proposal.capability);
+    const evidence = async (result: unknown): Promise<CapabilityEvidence> => ({
+      grant:
+        held === undefined
+          ? null
+          : {
+              capability: held.capability,
+              callsPerTurn: held.callsPerTurn,
+              requiredRuntimeGrant: definition?.requiredRuntimeGrant ?? "",
+            },
+      arguments: await recordedArguments(proposal.capability, proposal.input),
+      result,
+    });
     const decision = grants.authorize(proposal);
     if (!decision.accepted)
       return {
@@ -573,8 +639,30 @@ export class TurnFibers {
         status: "refused",
         code: decision.code,
         summary: `Refused before the world: ${decision.code}`,
+        evidence: await evidence({ refused: decision.code }),
       };
-    // Read capabilities have no executor in this checkpoint; only a world command acts.
+    if (
+      decision.definition.remoteMcp === undefined &&
+      SELF_CAPABILITIES.has(decision.definition.name) &&
+      this.host.executeSelf !== undefined
+    ) {
+      const outcome = await this.host.executeSelf(
+        participant,
+        fiber,
+        proposal,
+        decision.definition,
+        decision.input,
+      );
+      return {
+        capability: proposal.capability,
+        commandId: null,
+        status: outcome.status,
+        code: outcome.code,
+        summary: outcome.summary,
+        evidence: await evidence(outcome.result),
+      };
+    }
+    // Other reads have no executor on this path; only a world command acts.
     if (
       decision.definition.remoteMcp !== undefined ||
       decision.definition.effect !== "world_command"
@@ -585,9 +673,18 @@ export class TurnFibers {
         status: "refused",
         code: "not_executable",
         summary: "Refused before the world: not_executable",
+        evidence: await evidence({ refused: "not_executable" }),
       };
     const { objectId, kind } = decision.input as { objectId: string; kind: string };
-    return this.host.submitCommand(participant, fiber, proposal, { objectId, kind });
+    const record = await this.host.submitCommand(participant, fiber, proposal, { objectId, kind });
+    return {
+      ...record,
+      evidence: await evidence({
+        commandId: record.commandId,
+        status: record.status,
+        code: record.code,
+      }),
+    };
   }
 
   /** The outcome of a turn this holder no longer moves: finished, or moved on by another. */

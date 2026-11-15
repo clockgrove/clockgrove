@@ -55,6 +55,27 @@ function toolEvidence(value: unknown, path: string): NonNullable<RunStepView["to
     queueLatencyMs: nullable(v.queueLatencyMs, `${path}.queueLatencyMs`, duration),
   };
 }
+function capabilityEvidence(
+  value: unknown,
+  path: string,
+): NonNullable<RunStepView["capabilityEvidence"]> {
+  const v = record(value, path);
+  const grant =
+    v.grant === null
+      ? null
+      : (() => {
+          const g = record(v.grant, `${path}.grant`);
+          return {
+            capability: string(g.capability, `${path}.grant.capability`),
+            callsPerTurn: nonNegativeInteger(g.callsPerTurn, `${path}.grant.callsPerTurn`),
+            requiredRuntimeGrant: string(
+              g.requiredRuntimeGrant,
+              `${path}.grant.requiredRuntimeGrant`,
+            ),
+          };
+        })();
+  return { grant, arguments: v.arguments ?? null, result: v.result ?? null };
+}
 function step(value: unknown, path: string): RunStepView {
   const v = record(value, path);
   return {
@@ -77,6 +98,14 @@ function step(value: unknown, path: string): RunStepView {
     ...(v.toolEvidence === undefined
       ? {}
       : { toolEvidence: toolEvidence(v.toolEvidence, `${path}.toolEvidence`) }),
+    ...(v.capabilityEvidence === undefined
+      ? {}
+      : {
+          capabilityEvidence: capabilityEvidence(
+            v.capabilityEvidence,
+            `${path}.capabilityEvidence`,
+          ),
+        }),
   };
 }
 function run(value: unknown, path: string): RunView {

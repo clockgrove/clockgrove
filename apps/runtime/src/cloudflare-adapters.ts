@@ -10,6 +10,7 @@ import {
   type ActorActivation,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
+  type CapabilityDefinition,
   type CapabilityGrants,
   type CatchUpWorkflowEnvelope,
   type ConversationParticipant,
@@ -22,7 +23,9 @@ import {
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
+  MAX_ACTOR_ACTIVATIONS,
   type ModerationShadowPolicy,
+  operationRefusal,
   ProvisioningCaseConflictError,
   type ProvisioningRefusal,
   ProvisioningStageError,
@@ -66,11 +69,13 @@ import {
   type TrustedExecutionContext,
 } from "@clockgrove/contracts/trusted";
 import {
+  PostgreSqlActorDocuments,
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlModerationShadow,
   PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
+  withClientTransaction,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
@@ -79,6 +84,7 @@ import {
   type ActorAgentRecovery,
   type DirectMessageActivation,
   PerceptionInbox,
+  type SelfOutcome,
   TurnFibers,
   type TurnResearchHost,
 } from "./actor-agent.js";
@@ -94,6 +100,7 @@ import {
   activationHintNotifier,
   composeConversations,
   composeRuntime,
+  perceiveListing,
   perceiveScene,
   type RuntimeEnvironment,
   reconcileWorldCatchUp,
@@ -2007,7 +2014,208 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         ),
     );
     await this.reconcileCapabilities(admitted.revision);
-    return admitted.grants;
+    // Canonical per-actor revocation (issue 322): the operator's policy names them.
+    const revoked = await withActivations(this.environment, (store) =>
+      store.revokedCapabilities({
+        scope: scope as ActivationAddress["scope"],
+        participant: { ...worldAuthorization(context), personaId: participant.personaId },
+        actorId,
+      }),
+    );
+    return revoked.reduce((grants, name) => grants.revoke(name), admitted.grants);
+  }
+
+  /**
+   * Executes one of the actor's accepted self capabilities (issue 322) under the turn's
+   * participant: its own activation configurations (re-arming this owner's alarm), its perception
+   * listing, its self-inspection, or the check of a document write that commits with the turn.
+   */
+  private async executeSelf(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    proposal: StoredCommandProposal,
+    definition: CapabilityDefinition,
+    input: unknown,
+  ): Promise<SelfOutcome> {
+    const context = this.#talkContext(participant);
+    if (context === undefined) throw new Error("capability context unavailable");
+    const address: ActivationAddress = {
+      scope: fiber.scope as ActivationAddress["scope"],
+      participant,
+      actorId: fiber.actorId,
+    };
+    const refused = (code: string, result: unknown = { refused: code }): SelfOutcome => ({
+      status: "refused",
+      code,
+      summary: `Refused: ${code}`,
+      result,
+    });
+    const digest = [
+      ...new Uint8Array(
+        await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(`${fiber.sessionId}\n${fiber.messageId}`),
+        ),
+      ),
+    ]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 24);
+    const value = input as Record<string, unknown>;
+    switch (definition.name) {
+      case "subscription.create":
+      case "intention.schedule": {
+        const subscription = definition.name === "subscription.create";
+        const id = `${subscription ? "self-subscription" : "self-intention"}-${digest}`;
+        // The proposal's checkpointed issue time fixes the due time, so a retry rewrites the same.
+        const dueAt = subscription
+          ? null
+          : Date.parse(proposal.issuedAt) + Number(value.delaySeconds) * 1000;
+        const configured = await withActivations(this.environment, (store) =>
+          store.actorConfigure(address, {
+            id,
+            sessionId: fiber.sessionId,
+            kind: subscription ? "subscription" : "scheduled_intention",
+            nextWakeAt: dueAt,
+            intervalMs: null,
+            ...(subscription ? { eventType: String(value.eventType) } : {}),
+            input: String(value.input),
+            priority: 1,
+            enabled: true,
+            compiledRoutine: "escalate",
+            origin: "actor",
+          }),
+        );
+        if (configured === "limit")
+          return refused("budget_exhausted", {
+            refused: "budget_exhausted",
+            standingLimit: MAX_ACTOR_ACTIVATIONS,
+          });
+        await this.armActivations(address, { initial: true });
+        return subscription
+          ? {
+              status: "committed",
+              code: null,
+              summary: `Subscribed ${id} to ${String(value.eventType)}`,
+              result: { subscriptionId: id, eventType: value.eventType },
+            }
+          : {
+              status: "committed",
+              code: null,
+              summary: `Scheduled ${id} for ${new Date(dueAt as number).toISOString()}`,
+              result: { intentionId: id, dueAt },
+            };
+      }
+      case "subscription.revoke":
+      case "intention.cancel": {
+        const subscription = definition.name === "subscription.revoke";
+        const id = String(subscription ? value.subscriptionId : value.intentionId);
+        const removed = await withActivations(this.environment, (store) =>
+          store.actorRemove(address, id, subscription ? "subscription" : "scheduled_intention"),
+        );
+        if (!removed) return refused("activation_not_found");
+        await this.armActivations(address, { initial: true });
+        return {
+          status: "committed",
+          code: null,
+          summary: `${subscription ? "Revoked" : "Cancelled"} ${id}`,
+          result: subscription ? { subscriptionId: id } : { intentionId: id },
+        };
+      }
+      case "perception.list": {
+        const listing = await perceiveListing(this.environment, fiber.scope, context);
+        // Decision: 64 entities and 128 routes keep the result inside the evidence bound.
+        return {
+          status: "committed",
+          code: null,
+          summary: `Perceived ${listing.entities.length} entities and ${listing.routes.length} routes at revision ${listing.revision}`,
+          result: {
+            revision: listing.revision,
+            entityCount: listing.entities.length,
+            routeCount: listing.routes.length,
+            entities: listing.entities.slice(0, 64),
+            routes: listing.routes.slice(0, 128),
+          },
+        };
+      }
+      case "self.inspect": {
+        const authorization = { ...worldAuthorization(context), personaId: participant.personaId };
+        const goals = await withActorCapabilityClient(this.environment, (client) =>
+          withClientTransaction(client, { authorization }, async () =>
+            (
+              await new PostgreSqlActorDocuments(client).candidates(
+                fiber.scope.tenantId,
+                fiber.sessionId,
+              )
+            )
+              .filter((document) => document.kind === "goals" && document.state === "active")
+              .map((document) => ({
+                path: document.path,
+                version: document.version,
+                sourceHash: document.sourceHash,
+              })),
+          ),
+        );
+        const activation = await withActivations(this.environment, (store) =>
+          store.inspect(address),
+        );
+        const grants = await this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId);
+        const available = new Set(grants?.available() ?? []);
+        return {
+          status: "committed",
+          code: null,
+          summary: `Inspected ${goals.length} goals documents, budgets and run ${fiber.runId ?? "none"}`,
+          result: {
+            actorId: fiber.actorId,
+            sessionId: fiber.sessionId,
+            goals,
+            budgets: {
+              activation: {
+                allowModel: activation.policy.allowModel,
+                modelBudget: activation.policy.modelBudget,
+                modelCallsReserved: activation.modelCallsReserved,
+                remaining: Math.max(
+                  0,
+                  activation.policy.modelBudget - activation.modelCallsReserved,
+                ),
+                standingActorActivations: activation.configurations.filter(
+                  (c) => c.origin === "actor",
+                ).length,
+                standingActorActivationLimit: MAX_ACTOR_ACTIVATIONS,
+              },
+              turn: (grants?.grants ?? [])
+                .filter((grant) => available.has(grant.capability))
+                .map((grant) => ({
+                  capability: grant.capability,
+                  callsPerTurn: grant.callsPerTurn,
+                  remaining: grant.callsPerTurn - (grant.capability === "self.inspect" ? 1 : 0),
+                })),
+            },
+            run: {
+              runId: fiber.runId,
+              messageId: fiber.messageId,
+              phase: fiber.phase,
+              attempt: fiber.attempt,
+            },
+          },
+        };
+      }
+      case "document.write": {
+        const code = operationRefusal(
+          { op: "create", path: String(value.path), content: String(value.content) },
+          { kind: "model", sessionId: fiber.sessionId },
+        );
+        if (code !== undefined) return refused(code);
+        return {
+          status: "committed",
+          code: null,
+          summary: `Document write of ${String(value.path)} accepted; it commits with the turn`,
+          result: { path: value.path, commitsWithTurn: true },
+        };
+      }
+      default:
+        return refused("not_executable");
+    }
   }
 
   private perceive = async (scope: BrowserScope, participant: ConversationSessionParticipant) => {
@@ -2152,6 +2360,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId),
       submitCommand: (participant, fiber, proposal, offer) =>
         this.submitCommand(participant, fiber, proposal, offer),
+      executeSelf: (participant, fiber, proposal, definition, input) =>
+        this.executeSelf(participant, fiber, proposal, definition, input),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       beforeModel: async (participant, fiber, input) => {

@@ -360,6 +360,54 @@ export function perceiveScene(
   });
 }
 
+/**
+ * What the actor perceives, as a list (issue 322): the entities of the member's authorized scene and
+ * the anchor-graph routes of the spatial frames that scene includes. Nothing else is read out.
+ */
+export function perceiveListing(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  scope: BrowserScope,
+  context: TrustedContext,
+): Promise<PerceptionListing> {
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
+    const { scene, stored } = await new PostgreSqlLivingSceneReader(
+      new PostgreSqlWorldOwnerReader(client),
+    ).observeCanonical(scope, context);
+    const frames = new Set(scene.frames.map((frame) => String(frame.frameId)));
+    return {
+      revision: scene.revision,
+      entities: scene.entities.map((entity) => ({
+        objectId: String(entity.objectId),
+        label: entity.presentation.label,
+        archetypeId: entity.archetypeId,
+      })),
+      routes: (stored.document.state.anchorGraphs ?? [])
+        .filter((graph) => frames.has(String(graph.frameId)))
+        .flatMap((graph) =>
+          graph.edges.map((edge) => ({
+            graphId: graph.graphId,
+            from: String(edge.from),
+            to: String(edge.to),
+          })),
+        ),
+    };
+  });
+}
+
+export interface PerceptionListing {
+  readonly revision: string;
+  readonly entities: readonly {
+    readonly objectId: string;
+    readonly label: string;
+    readonly archetypeId: string;
+  }[];
+  readonly routes: readonly {
+    readonly graphId: string;
+    readonly from: string;
+    readonly to: string;
+  }[];
+}
+
 /** `ActorProcess` state over this invocation's connection (migration 0038). */
 export function withActorProcesses<T>(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,

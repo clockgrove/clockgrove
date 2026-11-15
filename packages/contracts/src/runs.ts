@@ -75,6 +75,19 @@ export interface RunStepView {
     readonly status: string;
     readonly queueLatencyMs: number | null;
   };
+  /**
+   * A decided capability call's evidence (issue 322): the grant that decided it (`null` when none
+   * was held), its arguments and its result, both bounded JSON. Private document text never appears.
+   */
+  readonly capabilityEvidence?: {
+    readonly grant: {
+      readonly capability: string;
+      readonly callsPerTurn: number;
+      readonly requiredRuntimeGrant: string;
+    } | null;
+    readonly arguments: unknown;
+    readonly result: unknown;
+  };
   /** What the step led to: a world command (follow it with the causal chain) or a message. */
   readonly commandId: string | null;
   readonly outputMessageId: string | null;

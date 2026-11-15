@@ -1,5 +1,6 @@
 import {
   type ArtifactStore,
+  type CapabilityEvidence,
   CONTEXT_PROMPT_VERSION,
   type ModelUsage,
   type RuntimeAuthorizationContext,
@@ -39,7 +40,7 @@ const RUN_COLUMNS = `run_id, session_id, actor_id, principal_id, persona_id, act
 const STEP_COLUMNS = `run_id, step, kind, status, outcome_code, model, tool, command_id,
   output_message_id, input_artifact_id, input_privacy_class, output_artifact_id, input_tokens,
   output_tokens,
-  cost_microusd, summary, tool_evidence, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
+  cost_microusd, summary, tool_evidence, capability_evidence, ${timestamp("started_at")}, ${timestamp("ended_at")}`;
 /** The caller's whole browser scope: an inspect grant for one space reads only that space's runs. */
 const RUN_SCOPE = "tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4";
 /** Decision: as `guard_agent_run` (0036), four attempts for each of a session's 500 turns. */
@@ -282,8 +283,9 @@ export class PostgreSqlRunRecorder {
     );
     await this.client.query(
       `INSERT INTO clockgrove.run_steps (
-         tenant_id, run_id, session_id, step, kind, status, outcome_code, tool, command_id, summary
-       ) VALUES ($1, $2, $3, $4, 'world_command_proposal', $5, $6, $7, $8, $9)`,
+         tenant_id, run_id, session_id, step, kind, status, outcome_code, tool, command_id, summary,
+         capability_evidence
+       ) VALUES ($1, $2, $3, $4, 'world_command_proposal', $5, $6, $7, $8, $9, $10::jsonb)`,
       [
         tenantId,
         runId,
@@ -294,6 +296,7 @@ export class PostgreSqlRunRecorder {
         record.capability,
         record.commandId,
         record.summary.slice(0, 256),
+        record.evidence === undefined ? null : boundedEvidence(record.evidence),
       ],
     );
   }
@@ -426,6 +429,13 @@ export class PostgreSqlRunReader {
           ...(step.tool_evidence == null
             ? {}
             : { toolEvidence: step.tool_evidence as NonNullable<RunStepView["toolEvidence"]> }),
+          ...(step.capability_evidence == null
+            ? {}
+            : {
+                capabilityEvidence: step.capability_evidence as NonNullable<
+                  RunStepView["capabilityEvidence"]
+                >,
+              }),
           commandId: nullable(step.command_id),
           outputMessageId: nullable(step.output_message_id),
           inputTokens: count(step.input_tokens),
@@ -567,4 +577,15 @@ function nullable(value: unknown): string | null {
 
 function count(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value);
+}
+
+/** Decision (issue 322): evidence over the column's 16 KiB keeps its grant and a bounded marker. */
+function boundedEvidence(evidence: CapabilityEvidence): string {
+  const text = JSON.stringify(evidence);
+  if (new TextEncoder().encode(text).length <= 16_000) return text;
+  return JSON.stringify({
+    grant: evidence.grant,
+    arguments: { truncated: true },
+    result: { truncated: true },
+  });
 }
