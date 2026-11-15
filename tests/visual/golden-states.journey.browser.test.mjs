@@ -326,6 +326,7 @@ const captureGoldenStates = async (backend) => {
         // entries depend on how the run's commits fell into its announcement interval. Scrolling
         // stops on whole pixels, so a fractional offset would move the framed text by a pixel: the
         // scene column's padding first takes the region to a whole pixel, until the capture ends.
+        // Its left edge is already whole: the shell rounds the feed width and the rail track.
         if (region)
           expect(
             await region.evaluate((element) => {
@@ -336,10 +337,11 @@ const captureGoldenStates = async (backend) => {
                 column.style.paddingTop = `calc(${getComputedStyle(column).paddingTop} + ${Math.ceil(top) - top}px)`;
                 element.scrollIntoView({ block: "start" });
               }
-              return element.getBoundingClientRect().top;
+              const box = element.getBoundingClientRect();
+              return [box.top, box.left];
             }),
             `${state}: framed on a whole pixel`,
-          ).toSatisfy(Number.isInteger);
+          ).toSatisfy((edges) => edges.every(Number.isInteger));
         // Two animation frames let the canvas present the committed state before the capture. The
         // window scrolls the narrow layout and the scene column scrolls the desktop frame.
         await page.evaluate((framed) => {

@@ -312,7 +312,11 @@ body {
   .rw-shell {
     display: grid;
     grid-template-rows: var(--cg-v1-hud-height) minmax(0, 1fr);
-    grid-template-columns: 4fr 1fr;
+    /*
+     * #207: the rail token (20%), rounded down to a whole pixel, so the rail's text starts on a
+     * pixel edge too (20% of 1536px is 307.2px).
+     */
+    grid-template-columns: 1fr round(down, var(--cg-v1-rail-width), 1px);
     height: 100vh;
   }
 
