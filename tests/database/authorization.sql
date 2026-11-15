@@ -2081,7 +2081,7 @@ BEGIN
   PERFORM pg_temp.act_as('tenant-a','principal-a',
     '{"version":1,"allowedCategories":["conversation"]}');
   reservation := clockgrove.reserve_wake_triage('tenant-a','session-f','message-f',1000,1000,86400000);
-  IF reservation IS DISTINCT FROM '{"existing":false,"reserved":true,"simulationTime":"0", "reason":"direct_message","partitionId":"partition-a","streamId":"stream-a"}'::jsonb
+  IF reservation IS DISTINCT FROM '{"existing":false,"reserved":true,"simulationTime":"0", "reason":"direct_message","partitionId":"partition-a","streamId":"stream-a","wakes":[],"routines":[]}'::jsonb
      OR (SELECT count(*) FROM clockgrove.wake_triage) <> 0 THEN
     RAISE EXCEPTION 'participant reservation failed or granted operator evidence';
   END IF;
