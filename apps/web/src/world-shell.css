@@ -347,7 +347,11 @@ body {
     grid-column: 1;
     overflow: auto;
     scroll-padding-top: var(--cg-v1-space-2);
-    padding-left: calc(var(--cg-v1-feed-width) + 2 * var(--cg-v1-space-3));
+    /*
+     * #207: whole pixels, so the column's text starts on a pixel edge (24vw is 307.2px at 1280px)
+     * and its antialiasing cannot vary between captures.
+     */
+    padding-left: calc(round(down, var(--cg-v1-feed-width), 1px) + 2 * var(--cg-v1-space-3));
   }
 
   .rw-rail {
@@ -361,7 +365,7 @@ body {
     position: fixed;
     left: 16px;
     bottom: 16px;
-    width: var(--cg-v1-feed-width);
+    width: round(down, var(--cg-v1-feed-width), 1px);
     max-height: 40vh;
     overflow: auto;
     z-index: 10;

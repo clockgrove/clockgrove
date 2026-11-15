@@ -25,7 +25,10 @@ capture paints those as solid magenta boxes; the shell itself still shows the re
 as wide as its text in tabular numerals, so it is the same width on every run only while the value
 keeps one length, as the shell's millisecond UTC timestamps do. A state framed on one region, such
 as the event/Why inspector, places that region on a whole pixel, so content above it whose height
-depends on timing cannot shift its text. The disconnected/recovering state holds the page clock
+depends on timing cannot shift its text. Horizontally, the shell rounds the feed width down to a
+whole pixel, because the scene column's left padding derives from it (`24vw` is 307.2px at 1280
+wide). The column's text therefore starts on a pixel edge, and its antialiased left edge cannot
+differ between runs. The disconnected/recovering state holds the page clock
 from before the socket drops until the shot, and waits on the shell's `data-scene-status`; the
 shell's reconnect, which reports `connecting` and clears the scene, cannot run first.
 
