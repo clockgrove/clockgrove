@@ -312,7 +312,11 @@ body {
   .rw-shell {
     display: grid;
     grid-template-rows: var(--cg-v1-hud-height) minmax(0, 1fr);
-    grid-template-columns: 4fr 1fr;
+    /*
+     * #207: the rail token (20%), rounded down to a whole pixel, so the rail's text starts on a
+     * pixel edge too (20% of 1536px is 307.2px).
+     */
+    grid-template-columns: 1fr round(down, var(--cg-v1-rail-width), 1px);
     height: 100vh;
   }
 
@@ -347,7 +351,11 @@ body {
     grid-column: 1;
     overflow: auto;
     scroll-padding-top: var(--cg-v1-space-2);
-    padding-left: calc(var(--cg-v1-feed-width) + 2 * var(--cg-v1-space-3));
+    /*
+     * #207: whole pixels, so the column's text starts on a pixel edge (24vw is 307.2px at 1280px)
+     * and its antialiasing cannot vary between captures.
+     */
+    padding-left: calc(round(down, var(--cg-v1-feed-width), 1px) + 2 * var(--cg-v1-space-3));
   }
 
   .rw-rail {
@@ -361,7 +369,7 @@ body {
     position: fixed;
     left: 16px;
     bottom: 16px;
-    width: var(--cg-v1-feed-width);
+    width: round(down, var(--cg-v1-feed-width), 1px);
     max-height: 40vh;
     overflow: auto;
     z-index: 10;
