@@ -19,9 +19,10 @@ const CONCURRENCY = 8;
 const live = process.env.CLOCKGROVE_WAKE_TRIAGE_EVAL_LIVE === "1";
 const attribution = { tenantId: "eval", worldId: "wake-triage-eval", actorId: "eval" };
 // Scripted answers repeat each case's label, unless WAKE_TRIAGE_EVAL_SCRIPT names another step.
-const overrides = JSON.parse(process.env.WAKE_TRIAGE_EVAL_SCRIPT ?? "{}");
+// Held in a Map so no override key is looked up on a plain object.
+const overrides = new Map(Object.entries(JSON.parse(process.env.WAKE_TRIAGE_EVAL_SCRIPT ?? "{}")));
 const scripted = (item) =>
-  overrides[item.id] ?? {
+  overrides.get(item.id) ?? {
     kind: "answer",
     answer: { type: "choice", label: item.expected, confidence: 0.9 },
     costUsd: 0.0001,

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WAKE_TRIAGE_CASES, wakeTriageEvaluation } from "@clockgrove/application";
 import { expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -32,6 +33,8 @@ it("reports accuracy and the routine blind-spot rate for labelled wakes from the
             // Below the 0.65 threshold: shows by status, never as an answer or the blind spot.
             "routine_condition_fails-03": answer("compiled_routine", 0.0001, 0.3),
             "nothing_material-01": answer("cant_tell", 0.0001),
+            // A label outside the options fails the call; the report must not grow from it.
+            "nothing_material-02": answer("__proto__", 0.0001),
             "no_routine-01": { kind: "http", status: 503 },
             "routine_holds-01": answer("compiled_routine"),
           }),
@@ -48,14 +51,14 @@ it("reports accuracy and the routine blind-spot rate for labelled wakes from the
     for (const model of report.models) {
       expect(model.statuses).toEqual({
         "cant-tell": 1,
-        failed: 1,
+        failed: 2,
         "low-confidence": 1,
-        picked: 37,
+        picked: 36,
       });
-      // 37 picked answers, two of them the blind-spot error.
-      expect(model.answered).toBe(37);
-      expect(model.correct).toBe(35);
-      expect(model.accuracy).toBe(35 / 37);
+      // 36 picked answers, two of them the blind-spot error.
+      expect(model.answered).toBe(36);
+      expect(model.correct).toBe(34);
+      expect(model.accuracy).toBe(34 / 36);
       expect(model.cohorts.routine_condition_fails).toEqual({
         cases: 8,
         answered: 7,
@@ -69,7 +72,7 @@ it("reports accuracy and the routine blind-spot rate for labelled wakes from the
         failed: 1,
         "low-confidence": 1,
       });
-      expect(model.confusion.suppress).toEqual({ "cant-tell": 1, suppress: 7 });
+      expect(model.confusion.suppress).toEqual({ "cant-tell": 1, failed: 1, suppress: 6 });
       expect(model.knownCostMicrousd).toBe(3800);
       // The 503 and the answer without a cost are both unknown.
       expect(model.unknownCostCalls).toBe(2);
@@ -78,3 +81,32 @@ it("reports accuracy and the routine blind-spot rate for labelled wakes from the
     await rm(directory, { recursive: true, force: true });
   }
 }, 180_000);
+
+it("keeps __proto__ from a model answer or a case label as an ordinary key of the report", () => {
+  const [wake] = WAKE_TRIAGE_CASES.filter((item) => item.id === "nothing_material-01");
+  if (wake === undefined) throw new Error("missing case");
+  // Forged inputs: judgeWake never returns these labels, but the scorer must not trust that.
+  const cases = [wake, { ...wake, id: "forged", expected: "__proto__" }];
+  const record = { costMicrousd: null, latencyMs: null };
+  const report = wakeTriageEvaluation(
+    cases as unknown as typeof WAKE_TRIAGE_CASES,
+    [
+      { ...record, caseId: wake.id, status: "picked", choice: "__proto__" },
+      { ...record, caseId: wake.id, status: "__proto__", choice: null },
+      { ...record, caseId: "forged", status: "failed", choice: null },
+    ] as unknown as Parameters<typeof wakeTriageEvaluation>[1],
+  );
+  expect("failed" in {}).toBe(false);
+  expect(Object.entries(report.statuses)).toEqual([
+    ["picked", 1],
+    ["__proto__", 1],
+    ["failed", 1],
+  ]);
+  expect(Object.entries(report.labels)).toEqual([["__proto__", 1]]);
+  expect(Object.entries(report.confusion)).toEqual([
+    ["suppress", { ["__proto__"]: 2 }],
+    ["__proto__", { failed: 1 }],
+  ]);
+  expect(report.answered).toBe(1);
+  expect(report.correct).toBe(0);
+});

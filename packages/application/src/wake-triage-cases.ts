@@ -199,11 +199,14 @@ export type WakeTriageCaseRecord = Pick<
   "status" | "choice" | "costMicrousd" | "latencyMs"
 > & { readonly caseId: string };
 
-const count = (values: readonly (string | null)[]) =>
-  values.reduce<Record<string, number>>((table, value) => {
-    if (value !== null) table[value] = (table[value] ?? 0) + 1;
-    return table;
-  }, {});
+// Labels and statuses can come from model output, so tallies are kept in a Map and turned into an
+// object only through Object.fromEntries, which defines own properties: an answer such as
+// `__proto__` becomes an ordinary key and never reaches Object.prototype (issue 259, CodeQL 12).
+const count = (values: readonly (string | null)[]) => {
+  const table = new Map<string, number>();
+  for (const value of values) if (value !== null) table.set(value, (table.get(value) ?? 0) + 1);
+  return Object.fromEntries(table);
+};
 const ratio = (part: number, whole: number) => (whole === 0 ? null : part / whole);
 
 /**
@@ -232,12 +235,18 @@ export function wakeTriageEvaluation(
     const correct = subset.filter((row) => row.correct).length;
     return { answered, correct, accuracy: ratio(correct, answered) };
   };
-  const confusion: Record<string, Record<string, number>> = {};
-  for (const { item, record } of rows) {
-    const row = (confusion[item.expected] ??= {});
-    const column = record.status === "picked" ? (record.choice ?? record.status) : record.status;
-    row[column] = (row[column] ?? 0) + 1;
-  }
+  const confusion = Object.fromEntries(
+    [...new Set(rows.map((row) => row.item.expected))].map((expected) => [
+      expected,
+      count(
+        rows
+          .filter((row) => row.item.expected === expected)
+          .map(({ record }) =>
+            record.status === "picked" ? (record.choice ?? record.status) : record.status,
+          ),
+      ),
+    ]),
+  );
   const cohorts = Object.fromEntries(
     COHORTS.map((cohort) => {
       const subset = rows.filter((row) => row.item.cohort === cohort);
