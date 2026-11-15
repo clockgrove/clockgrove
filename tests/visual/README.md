@@ -29,7 +29,13 @@ depends on timing cannot shift its text. Horizontally, the shell rounds the feed
 rail track down to whole pixels, because the scene column's left padding derives from the feed
 width (`24vw` is 307.2px at 1280 wide) and the rail starts where the scene column ends (20% of
 1536 is 307.2px). The text in both columns therefore starts on a pixel edge, and its antialiased
-left edge cannot differ between runs; the capture asserts the framed region's left edge is whole. The disconnected/recovering state holds the page clock
+left edge cannot differ between runs; the capture asserts the framed region's left edge is whole.
+The capture browser runs with `--disable-lcd-text`, so text gets grayscale antialiasing. Subpixel
+(LCD) antialiasing paints a colour fringe one pixel outside a glyph's box. Chromium repaints only
+the text's box when that text moves or goes away, so the fringe pixel kept what an earlier frame
+rastered there, depending on timing. On CI, the column just left of the scene column's text
+varied between runs. Grayscale antialiasing stays inside the glyph's box. The shell users see is
+unchanged. The disconnected/recovering state holds the page clock
 from before the socket drops until the shot, and waits on the shell's `data-scene-status`; the
 shell's reconnect, which reports `connecting` and clears the scene, cannot run first.
 
