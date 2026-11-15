@@ -174,6 +174,8 @@ function tryDecode<T>(decode: (value: unknown) => T, value: unknown): T | undefi
 /** Coordinates authorized transport and transient intents; all read data/status live in Query. */
 export class SceneSession {
   private intent = 0;
+  // The input message IDs of the turns this tab is running now.
+  private readonly runningTurns = new Set<string>();
   private selectionIntent = 0;
   private whyIntent = 0;
   private signInIntent = 0;
@@ -760,7 +762,8 @@ export class SceneSession {
     hooks: TurnHooks = {},
   ): Promise<TurnSettled | { readonly refused: string } | undefined> {
     const pending = readPendingTurn(sessionId);
-    if (!pending) return undefined;
+    // A turn this tab is still running (a send racing its conversation's load) is not recovered.
+    if (!pending || this.runningTurns.has(pending.messageId)) return undefined;
     const status = await this.turnStatus(sessionId, pending.messageId);
     if ("refused" in status) {
       if (status.refused !== "turn_not_found") return status;
@@ -835,6 +838,18 @@ export class SceneSession {
     );
   }
   private async runTurn(
+    turn: PendingTurn,
+    hooks: TurnHooks,
+    recovered: boolean,
+  ): Promise<TalkReceipt | TurnSettled | { readonly refused: string }> {
+    this.runningTurns.add(turn.messageId);
+    try {
+      return await this.settleTurn(turn, hooks, recovered);
+    } finally {
+      this.runningTurns.delete(turn.messageId);
+    }
+  }
+  private async settleTurn(
     turn: PendingTurn,
     hooks: TurnHooks,
     recovered: boolean,
