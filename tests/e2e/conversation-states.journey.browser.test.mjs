@@ -30,7 +30,7 @@ const ARGS = [
 ];
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
 
-it("shows each turn state, cancels, retries a stale offer and opens run details", async () => {
+it("shows each turn state, cancels, retries a stale offer, opens run details and continues across spaces", async () => {
   if (!isNativeWorldOwnerChild()) {
     for (const backend of BACKENDS) {
       process.env.CLOCKGROVE_RENDERER_PROOF = backend;
@@ -265,7 +265,65 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await drawer.getByRole("button", { name: "Close run drawer", exact: true }).click();
       expect(await drawer.count()).toBe(0);
 
-      // 5. The open conversation panel has no accessibility violations.
+      // 5. Cross-space continuation: Keeper walks to snack-house while a reply streams. The person
+      // continues the same session from where they are, then follows him and continues again.
+      const continuity = () =>
+        native.sql(
+          `SELECT (SELECT count(*) FROM clockgrove.conversation_sessions)||'|'||s.actor_id||'|'||
+             (SELECT string_agg(p.principal_id||'/'||p.persona_id, ',') FROM clockgrove.conversation_participants p WHERE p.session_id=s.session_id)
+           FROM clockgrove.conversation_sessions s WHERE s.session_id='${id}'`,
+        );
+      const messageCount = async () =>
+        Number(
+          await native.sql(
+            `SELECT message_count FROM clockgrove.conversation_sessions WHERE session_id='${id}'`,
+          ),
+        );
+      const identity = await continuity();
+      const counted = await messageCount();
+      const places = page.getByRole("navigation", { name: "Places" });
+      await keeper({ op: "fault", phase: "hold:model_running:streaming" });
+      await send("walk with me");
+      await state("Thinking…").waitFor();
+      const before = await native.sql("SELECT revision FROM clockgrove.partition_states");
+      const moved = await native.submit({
+        ...advanceCommand(native.world, `journey-move-${backend}`, 0n, BigInt(before)),
+        type: "movement.start",
+        payload: {
+          schemaVersion: 1,
+          objectId: "fixture.keeper",
+          destination: {
+            kind: "pose",
+            pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [33000n, 13000n] },
+          },
+          unitsPerSecond: 1000n,
+        },
+      });
+      expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+      await page.getByText(/^ Identity: fixture\.keeper;.*position: 33000, 13000$/u).waitFor();
+      await keeper({ op: "release" });
+      await keeper({ op: "fault", phase: null });
+      await expect.poll(messageCount).toBe(counted + 2);
+      await state("Completed").waitFor();
+      // From where they are: the view stayed on the hall, and the same session carries on.
+      await places.getByText(`Viewing: ${native.scope.spaceId}`, { exact: true }).waitFor();
+      await send("are you still there?");
+      await expect.poll(messageCount).toBe(counted + 4);
+      await places.getByRole("button", { name: "View snack-house", exact: true }).click();
+      await places
+        .getByRole("status")
+        .getByText("Followed fixture.keeper to snack-house.", { exact: true })
+        .waitFor();
+      expect(await panel.getByRole("combobox", { name: /^Conversation/u }).inputValue()).toBe(id);
+      for (const line of ["walk with me", "are you still there?"])
+        await history.getByText(line, { exact: true }).waitFor();
+      await send("and here?");
+      await history.getByText("and here?", { exact: true }).waitFor();
+      await expect.poll(messageCount).toBe(counted + 6);
+      await state("Completed").waitFor();
+      expect(await continuity()).toBe(identity);
+
+      // 6. The open conversation panel has no accessibility violations.
       await page.addScriptTag({
         content: await (await import("node:fs/promises")).readFile(
           require.resolve("axe-core/axe.min.js"),
