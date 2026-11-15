@@ -104,8 +104,13 @@ export async function judgeWake(input: {
   readonly decider: ShadowDecider | undefined;
   readonly reserved: boolean;
 }): Promise<WakeTriageRecord> {
-  const { input: _text, prompt: _prompt, wakes: _wakes, routines: _routines, ...subject } =
-    input.subject;
+  const {
+    input: _text,
+    prompt: _prompt,
+    wakes: _wakes,
+    routines: _routines,
+    ...subject
+  } = input.subject;
   const { policy } = input;
   let status: WakeTriageRecord["status"] = "failed";
   let choice: WakeTriageLabel | null = null;

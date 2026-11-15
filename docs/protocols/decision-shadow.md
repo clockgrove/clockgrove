@@ -53,6 +53,18 @@ The optional `WAKE_TRIAGE_CONFIG` binding supplies the policy version, model ali
 confidence threshold and world/day decision budget. Absence disables triage. Configuration and
 report usage are in the [runtime runbook](../runbooks/runtime.md#wake-triage-shadow-report).
 
+The judge sees, as untrusted data, the turn input, the rendered prompt, the activation reason's
+kind, and (issue 259) the wake's evidence and the actor's applicable compiled routines. The
+evidence is each activation joined onto the turn's message, leader first: its stored reason with
+its ids and its evidence text. The routines are the actor's other enabled `noop` configurations of
+the woken configuration's kind (and of its event type when the routine names one), each with its
+id, trigger, input and optional `condition`. Decision: at most 4 wakes and 16 routines, so one
+request stays bounded (32 KiB of evidence at the 8 KiB per-wake limit). A direct message has
+neither. Both are read inside the existing reservation call, with no added round trip. The judge is
+told to choose `compiled_routine` only for a listed routine whose condition the evidence shows
+holds. The exact request is `wakeTriageQuestion(subject)`. Evidence and routines stay out of the
+record, its signature and the report, like the input and prompt.
+
 The bounded choices are `suppress`, `compiled_routine`, `full_turn` and `cant_tell`. The current
 full turn always runs after an admitted model escalation, including when triage is disabled,
 unavailable, over budget, low confidence or abstaining. `cant-tell` and `low-confidence` are
@@ -85,6 +97,16 @@ counterfactual full-turn spend for confident bypass labels, with triage spend su
 savings. Direct-message wakes are excluded from safe bypass/savings while their raw labels and
 misses remain visible. Unknown costs remain counted as unknown, and a savings figure does not establish that
 bypassing the missed work would be acceptable.
+
+The [labelled-wake evaluation](../runbooks/runtime.md#wake-triage-evaluation) asks the same
+question over `WAKE_TRIAGE_CASES`, 40 wakes in five cohorts of eight: a routine whose condition
+holds (`compiled_routine`), a routine whose condition the evidence shows fails (`full_turn`, the
+blind spot of issue 259), no routine for a pressing need (`full_turn`), nothing material
+(`suppress`) and a person's message (`full_turn`). `wakeTriageEvaluation` reports statuses,
+accuracy over answered cases, a confusion table, per-cohort accuracy and `compiled_routine`
+counts, and `blindSpot`: the share of the failing-condition cohort answered `compiled_routine`,
+over every case in it. Scripted answers prove the path; the owner's real-model run measures the
+models and goes on issue 259.
 
 ## Moderation and prompt injection
 
