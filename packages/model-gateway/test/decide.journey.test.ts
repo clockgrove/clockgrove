@@ -110,6 +110,74 @@ describe("decide on the model gateway port", () => {
       );
     }
   });
+  it("asks named questions in the same decisions call and fails a call that leaves one unanswered", async () => {
+    const bodies: unknown[] = [];
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        bodies.push(JSON.parse(body));
+        const choice = {
+          type: "choice",
+          choice: "stay",
+          probabilities: { stay: 0.7, "seek-food:bin": 0.3 },
+        };
+        const named = { type: "boolean", probability: 0.8 };
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            answers: bodies.length === 1 ? { q: choice, minor: named } : { q: choice },
+            usage: { inputTokens: 10, outputTokens: 2 },
+            providerMetadata: { gateway: { cost: "0.000004" } },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const baseURL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const named = decisionAlias({ alias: "named", model: "fixture", baseURL });
+      const models = createModelGateway({
+        aliases: [],
+        adapters: {},
+        decisionAliases: [named],
+        decisionAdapters: {
+          "vercel-ai-gateway": new AiSdkDecisionAdapter(() => "local test credential"),
+        },
+        budget: new InMemoryModelBudget(() => 5000),
+        accounting: { record: () => undefined },
+      });
+      const request = {
+        alias: "named",
+        callId: "n1",
+        attribution,
+        state: "resting",
+        question,
+        questions: { minor: { type: "boolean", instructions: "Is the sender a minor?" } },
+      } as const;
+      const answered = await models.decide(request);
+      expect(answered).toMatchObject({
+        status: "completed",
+        value: { label: "stay", confidence: 0.7 },
+        answers: { minor: { type: "boolean", label: "true", confidence: 0.8 } },
+        record: { costMicrousd: 4 },
+      });
+      expect(JSON.stringify(bodies[0])).toContain("Is the sender a minor?");
+      expect(await models.decide({ ...request, callId: "n2" })).toMatchObject({
+        status: "failed",
+        code: "unavailable",
+        record: { costMicrousd: 4 },
+      });
+      expect(bodies).toHaveLength(2);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
   it("prices or keeps unknown a call the provider answered before it failed, and records zero only for one that provably billed nothing", async () => {
     // One provider response per call, in order, through the real SDK adapter over HTTP.
     const replies: readonly (readonly [number, unknown])[] = [

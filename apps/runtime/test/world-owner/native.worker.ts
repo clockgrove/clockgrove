@@ -1,4 +1,5 @@
 import type {
+  ActorReplyShadowRecord,
   ConversationResponder,
   ModerationShadowPolicy,
   ShadowDecider,
@@ -384,6 +385,54 @@ export class ActorAgentDO extends ProductionActorAgentDO {
         }).pick(request);
       },
     };
+  }
+  /** Actor-reply judging answers by message ID; an unscripted message is judged clean. */
+  protected override actorReplyDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    const source = (
+      this.researchEnvironment as RuntimeEnvironment & { NATIVE_ACTOR_REPLY_SHADOW_SCRIPT?: string }
+    ).NATIVE_ACTOR_REPLY_SHADOW_SCRIPT;
+    if (source === undefined) return super.actorReplyDecider(policy, fiber);
+    const step = (JSON.parse(source) as Record<string, ScriptedDecisionStep>)[fiber.messageId];
+    const alias = decisionAlias({ alias: policy.modelAlias, model: policy.model });
+    return gatewayShadowDecider(
+      createModelGateway({
+        aliases: [],
+        adapters: {},
+        decisionAliases: [alias],
+        decisionAdapters: {
+          "vercel-ai-gateway": new ScriptedDecider({
+            [alias.route.id]: [
+              step ?? {
+                kind: "answer",
+                answer: { type: "choice", label: "clean", confidence: 0.9 },
+                answers: Object.fromEntries(
+                  ["sexual_minors", "self_harm_encouragement", "harmful_instructions"].map(
+                    (code) => [code, { type: "boolean", label: "false", confidence: 0.9 }],
+                  ),
+                ),
+                costUsd: 0.0001,
+              },
+            ],
+          }),
+        },
+        budget: new InMemoryModelBudget(() => policy.maxCostMicrousd),
+        accounting: { record: () => undefined },
+      }),
+      { tenantId: fiber.scope.tenantId, worldId: fiber.scope.worldId, actorId: fiber.actorId },
+    );
+  }
+  /** Keeps each telemetry record, as the production log line carries it, for the test to read. */
+  protected override async recordActorReply(record: ActorReplyShadowRecord): Promise<void> {
+    await super.recordActorReply(record);
+    const records = (await this.objectState.storage.get<string[]>("actor-reply-records")) ?? [];
+    records.push(JSON.stringify(record));
+    await this.objectState.storage.put("actor-reply-records", records);
+  }
+  async actorReplyRecordsTest(): Promise<string[]> {
+    return (await this.objectState.storage.get<string[]>("actor-reply-records")) ?? [];
   }
   async moderationRequestsTest(): Promise<unknown[]> {
     return (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
@@ -1267,6 +1316,8 @@ export default {
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
       if (body.op === "moderation-requests")
         return Response.json(await actor.moderationRequestsTest());
+      if (body.op === "actor-reply-records")
+        return Response.json(await actor.actorReplyRecordsTest());
       if (body.op === "model-calls") return Response.json(await actor.modelCallsTest());
       if (body.op === "capabilities")
         return Response.json(await actor.reconcileCapabilities(Number(body.revision)));

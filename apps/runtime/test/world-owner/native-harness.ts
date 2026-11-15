@@ -421,6 +421,11 @@ export async function withNativeWorldOwner(
           ...(process.env.NATIVE_MODERATION_SHADOW_SCRIPT === undefined
             ? {}
             : { NATIVE_MODERATION_SHADOW_SCRIPT: process.env.NATIVE_MODERATION_SHADOW_SCRIPT }),
+          ...Object.fromEntries(
+            ["ACTOR_REPLY_SHADOW_CONFIG", "NATIVE_ACTOR_REPLY_SHADOW_SCRIPT"].flatMap((key) =>
+              process.env[key] === undefined ? [] : [[key, process.env[key]]],
+            ),
+          ),
           ...(process.env.WAKE_TRIAGE_CONFIG === undefined
             ? {}
             : { WAKE_TRIAGE_CONFIG: process.env.WAKE_TRIAGE_CONFIG }),

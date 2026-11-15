@@ -6,7 +6,10 @@ import {
   runNativeWorldOwnerProcess,
   withNativeWorldOwner,
 } from "../apps/runtime/test/world-owner/native-harness.ts";
-import { MODERATION_LABELLED_CASES } from "../packages/application/src/index.ts";
+import {
+  MODERATION_CATEGORY_CODES,
+  MODERATION_LABELLED_CASES,
+} from "../packages/application/src/index.ts";
 import { decodeConversationSession } from "../packages/contracts/src/index.ts";
 import { withModerationFixture } from "./moderation-shadow-fixture.ts";
 
@@ -26,6 +29,12 @@ it("measures labelled messages through the native actor runtime", async () => {
               label: `${label.disposition}_${label.injection ? "injection" : "clean"}`,
               confidence: 0.9,
             },
+            answers: Object.fromEntries(
+              MODERATION_CATEGORY_CODES.map((code) => [
+                code,
+                { type: "boolean", label: "false", confidence: 0.9 },
+              ]),
+            ),
             costUsd: 0.0001,
           })),
         ),
