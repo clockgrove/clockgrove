@@ -1468,6 +1468,12 @@ if it makes the counterfactual savings look attractive. See the
 
 The same endpoint and policy apply to the fixture world and an external world installed through
 the [pinned-checkout path](../../packages/simulator/docs/conformance.md#external-worlds-from-a-pinned-checkout).
+Select the external world's pack and shell through the existing
+[external local session inputs](../protocols/world-presentation.md#external-local-session); platform
+code does not embed world content. The observation-only local hall credential does not grant
+report access: use the authorized runtime/operator setup above. A maintainer runs each candidate
+against the chosen simulated-day workload with a real gateway key and records its alias, policy,
+world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
 
 ### Wake-triage evaluation
 
@@ -1489,16 +1495,12 @@ shape), put `AI_GATEWAY_API_KEY` in the environment and add `--live`. A shared $
 once and the run stops after thirty minutes. Labels never reach the model.
 
 For each model the report gives statuses, labels, accuracy over answered cases, a confusion table
-(expected label by answer, or by status when there is none), per-cohort accuracy with its
+(expected label by answer for `picked` records, otherwise by status), per-cohort accuracy with its
 `compiled_routine` count, known spend, unknown-cost calls and p50/p95 latency. `blindSpot` is the
 share of `routine_condition_fails` wakes answered `compiled_routine`: whether a model still takes a
-routine whose condition the evidence shows fails. Record the real-model numbers on issue 259.
-Select the external world's pack and shell through the existing
-[external local session inputs](../protocols/world-presentation.md#external-local-session); platform
-code does not embed world content. The observation-only local hall credential does not grant
-report access: use the authorized runtime/operator setup above. A maintainer runs each candidate
-against the chosen simulated-day workload with a real gateway key and records its alias, policy,
-world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
+routine whose condition the evidence shows fails. Only `picked` records count as answers: a
+`cant-tell`, `low-confidence`, `over-budget` or `failed` record never counts as answered, correct
+or as taking the routine. Record the real-model numbers on issue 259.
 
 ## Offline decision shadow day
 

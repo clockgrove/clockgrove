@@ -208,8 +208,9 @@ const ratio = (part: number, whole: number) => (whole === 0 ? null : part / whol
 
 /**
  * Scores a model's records against the labelled cases. Decisions:
- * - Only a non-abstaining choice is an answer; `cant_tell`, failures and low-confidence picks still
- *   carry their status, so they show in `statuses` and `confusion` but never count as correct.
+ * - Only a `picked` record is an answer; `cant_tell`, failures and low-confidence picks show by
+ *   their status in `statuses` and `confusion` and never count as answered, correct or as taking
+ *   the routine in `blindSpot`.
  * - `blindSpot` is the share of `routine_condition_fails` wakes answered `compiled_routine`, over all
  *   cases of the cohort, so an unanswered wake counts as not taking the routine.
  * - Latency percentiles are nearest rank over the measured latencies; cost sums only known costs.
@@ -221,7 +222,7 @@ export function wakeTriageEvaluation(
   const byId = new Map(cases.map((item) => [item.id, item]));
   const rows = records.flatMap((record) => {
     const item = byId.get(record.caseId);
-    const isAnswer = record.choice !== null && record.choice !== "cant_tell";
+    const isAnswer = record.status === "picked" && record.choice !== null;
     return item === undefined
       ? []
       : [{ item, record, isAnswer, correct: isAnswer && record.choice === item.expected }];
@@ -234,7 +235,7 @@ export function wakeTriageEvaluation(
   const confusion: Record<string, Record<string, number>> = {};
   for (const { item, record } of rows) {
     const row = (confusion[item.expected] ??= {});
-    const column = record.choice ?? record.status;
+    const column = record.status === "picked" ? (record.choice ?? record.status) : record.status;
     row[column] = (row[column] ?? 0) + 1;
   }
   const cohorts = Object.fromEntries(
@@ -245,7 +246,9 @@ export function wakeTriageEvaluation(
         {
           cases: cases.filter((item) => item.cohort === cohort).length,
           ...summary(subset),
-          compiledRoutine: subset.filter((row) => row.record.choice === "compiled_routine").length,
+          compiledRoutine: subset.filter(
+            (row) => row.isAnswer && row.record.choice === "compiled_routine",
+          ).length,
         },
       ];
     }),
