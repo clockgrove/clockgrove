@@ -57,7 +57,8 @@ async function pool(items, run) {
 it("measures the labelled category and actor-reply sets on the configured decision models", async () => {
   const policies = JSON.parse(process.env.MODERATION_SHADOW_MODELS);
   const key = process.env.AI_GATEWAY_API_KEY;
-  // Decision: a $2 run cap covers three models at the $0.001 per-call ceiling (about $1.11).
+  // Decision: a $2 run cap covers three models at the $0.001 per-call ceiling: 253 messages plus
+  // 52 replies is 305 calls per model, 915 calls and at most $0.915 for three.
   const capMicrousd = Math.round(Number(process.env.MODERATION_EVAL_MAX_USD ?? "2") * 1e6);
   const budget = new InMemoryModelBudget(() => capMicrousd);
   const models = [];

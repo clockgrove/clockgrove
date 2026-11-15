@@ -67,8 +67,8 @@ const result = spawnSync(
   {
     cwd: root,
     stdio: "inherit",
-    // Decision: thirty minutes bounds about 1,100 calls (three models) at eight in flight, each
-    // under the gateway's 5 s decision timeout.
+    // Decision: thirty minutes bounds 915 calls (305 per model, three models) at eight in flight,
+    // each under the gateway's 5 s decision timeout.
     timeout: 1_800_000,
     env: {
       ...environment,
