@@ -1475,6 +1475,33 @@ report access: use the authorized runtime/operator setup above. A maintainer run
 against the chosen simulated-day workload with a real gateway key and records its alias, policy,
 world revision, counts, misses, latency and costs on issue 76 before considering any enforcement.
 
+### Wake-triage evaluation
+
+Triage sees each wake's evidence and the actor's applicable compiled routines. Give a `noop`
+configuration a `condition` (what must hold for it to handle the wake, at most 1,024 bytes) so
+the judge can check it against the evidence; see the
+[contract](../protocols/decision-shadow.md#wake-triage). To measure triage over the labelled
+wakes (`WAKE_TRIAGE_CASES`, 40 wakes in five cohorts), run:
+
+```sh
+node scripts/wake-triage-eval.mjs --output "$TMPDIR/wake-triage-eval.json"
+```
+
+By default two scripted models repeat each label, which proves the path and the accounting, not
+model quality (`measurement: "scripted"`). For the owner's real-model run, set
+`WAKE_TRIAGE_CONFIG` or `WAKE_TRIAGE_MODELS` (a JSON array of one to three policies of the same
+shape), put `AI_GATEWAY_API_KEY` in the environment and add `--live`. A shared $1 spend cap
+(`WAKE_TRIAGE_EVAL_MAX_USD`) covers three models at the $0.001 per-call ceiling; eight calls run at
+once and the run stops after thirty minutes. Labels never reach the model.
+
+For each model the report gives statuses, labels, accuracy over answered cases, a confusion table
+(expected label by answer for `picked` records, otherwise by status), per-cohort accuracy with its
+`compiled_routine` count, known spend, unknown-cost calls and p50/p95 latency. `blindSpot` is the
+share of `routine_condition_fails` wakes answered `compiled_routine`: whether a model still takes a
+routine whose condition the evidence shows fails. Only `picked` records count as answers: a
+`cant-tell`, `low-confidence`, `over-budget` or `failed` record never counts as answered, correct
+or as taking the routine. Record the real-model numbers on issue 259.
+
 ## Offline decision shadow day
 
 Run this from a Clockgrove checkout pinned to a full commit with its frozen dependencies installed.

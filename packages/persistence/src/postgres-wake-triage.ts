@@ -1,9 +1,11 @@
 import {
   type ConversationParticipant,
   type TurnFiber,
+  type WakeTriageEvidence,
   type WakeTriageObservation,
   type WakeTriagePolicy,
   type WakeTriageRecord,
+  type WakeTriageRoutine,
   wakeTriageReport,
 } from "@clockgrove/application";
 import type { BrowserScope } from "@clockgrove/contracts";
@@ -18,6 +20,10 @@ export interface WakeTriageReservation {
   readonly reason?: string;
   readonly partitionId?: string;
   readonly streamId?: string;
+  /** The activations that caused the wake, leader first (issue 259). */
+  readonly wakes?: readonly WakeTriageEvidence[];
+  /** The actor's compiled routines that apply to the woken configuration (issue 259). */
+  readonly routines?: readonly WakeTriageRoutine[];
 }
 export class PostgreSqlWakeTriage {
   constructor(private readonly client: PostgreSqlClient) {}

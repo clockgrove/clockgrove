@@ -113,6 +113,8 @@ export async function shadowActorWake(
         simulationTime: reservation.simulationTime ?? "0",
         input: input.input,
         prompt: input.prompt,
+        wakes: reservation.wakes ?? [],
+        routines: reservation.routines ?? [],
       },
     }));
   const evidence =

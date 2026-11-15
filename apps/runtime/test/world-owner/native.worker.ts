@@ -321,6 +321,8 @@ export class ActorAgentDO extends ProductionActorAgentDO {
         const steps = JSON.parse(source) as ScriptedDecisionStep[];
         const count = (await this.objectState.storage.get<number>("triage-calls")) ?? 0;
         await this.objectState.storage.put("triage-calls", count + 1);
+        const requests = (await this.objectState.storage.get<unknown[]>("triage-requests")) ?? [];
+        await this.objectState.storage.put("triage-requests", [...requests, request]);
         const alias = decisionAlias({
           alias: policy.modelAlias,
           model: policy.model,
@@ -433,6 +435,9 @@ export class ActorAgentDO extends ProductionActorAgentDO {
   }
   async actorReplyRecordsTest(): Promise<string[]> {
     return (await this.objectState.storage.get<string[]>("actor-reply-records")) ?? [];
+  }
+  async triageRequestsTest(): Promise<unknown[]> {
+    return (await this.objectState.storage.get<unknown[]>("triage-requests")) ?? [];
   }
   async moderationRequestsTest(): Promise<unknown[]> {
     return (await this.objectState.storage.get<unknown[]>("moderation-requests")) ?? [];
@@ -1314,6 +1319,7 @@ export default {
       if (body.op === "arming") return Response.json(await actor.armingTest());
       if (body.op === "alarms") return Response.json(await actor.activationAlarmsTest());
       if (body.op === "inspect") return Response.json(await actor.inspectAgent());
+      if (body.op === "triage-requests") return Response.json(await actor.triageRequestsTest());
       if (body.op === "moderation-requests")
         return Response.json(await actor.moderationRequestsTest());
       if (body.op === "actor-reply-records")

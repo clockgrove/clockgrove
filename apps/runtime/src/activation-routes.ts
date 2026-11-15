@@ -216,6 +216,7 @@ function activationConfiguration(value: unknown): ActivationConfiguration {
     "priority",
     "enabled",
     "compiledRoutine",
+    "condition",
     "delivery",
   ]);
   const compiledRoutine = config.compiledRoutine;
@@ -257,6 +258,9 @@ function activationConfiguration(value: unknown): ActivationConfiguration {
     priority: integer(config.priority, "priority", 100),
     enabled: boolean(config.enabled, "enabled"),
     compiledRoutine,
+    ...(config.condition === undefined
+      ? {}
+      : { condition: text(config.condition, "condition", 1024, true) }),
     ...(delivery === undefined ? {} : { delivery }),
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");

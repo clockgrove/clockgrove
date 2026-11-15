@@ -209,7 +209,7 @@ of that participant and actor.
 A configuration contains `id`, `sessionId`, `kind`, `nextWakeAt` (epoch milliseconds or null),
 `intervalMs` (milliseconds or null, at least 60,000 when set), optional `eventType`, `input`,
 `priority` (0–100), `enabled` and
-`compiledRoutine` (`noop` or `escalate`), plus optional `delivery` with `urgency` (`normal` or `urgent`) and `quietHoursBehavior` (`delay`, `silent` or `reject`). Omitting delivery preserves existing behavior. The policy contains `allowModel` and `modelBudget`, a
+`compiledRoutine` (`noop` or `escalate`), an optional `condition` (text, at most 1,024 bytes: what must hold for a `noop` routine to handle a wake, shown to [wake triage](decision-shadow.md#wake-triage) as data and never evaluated), plus optional `delivery` with `urgency` (`normal` or `urgent`) and `quietHoursBehavior` (`delay`, `silent` or `reject`). Omitting delivery preserves existing behavior. The policy contains `allowModel` and `modelBudget`, a
 lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations, and optional
 `revokedCapabilities` (below).
 An opportunity is reserved before model escalation; interrupted model retries reserve another. A wake

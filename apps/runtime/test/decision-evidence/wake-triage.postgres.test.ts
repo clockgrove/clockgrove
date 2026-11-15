@@ -245,6 +245,22 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "conditionId",
         "effectId",
       ];
+      // Issue 259: two compiled routines; only the one matching the woken kind is shown to triage.
+      for (const [id, kind, input, condition] of [
+        ["routine-water", "heartbeat", "Drink from the water store", "The water store holds water"],
+        ["routine-feed", "threshold", "", "The food store holds food"],
+      ] as const)
+        expect(
+          (
+            await post("configure", {
+              configuration: {
+                ...{ id, sessionId, kind, nextWakeAt: null, intervalMs: null, input },
+                ...{ priority: 1, enabled: true, compiledRoutine: "noop", condition },
+              },
+              policy: { allowModel: true, modelBudget: 10 },
+            })
+          ).status,
+        ).toBe(200);
       for (const [index, kind] of reasons.entries()) {
         expect(
           (
@@ -276,12 +292,37 @@ it.skipIf(!isNativeWorldOwnerChild())(
                 configurationId: kind,
                 causalRoot: `root-${kind}`,
                 reason,
-                evidence: "wake evidence",
+                evidence:
+                  kind === "heartbeat"
+                    ? "thirst 7200/10000; water store: 0 portions"
+                    : "wake evidence",
               },
             })
           ).status,
         ).toBe(200);
       }
+      const states = (
+        (
+          await owner.request("/actor-agent", {
+            op: "triage-requests",
+            scope: owner.scope,
+            actorId: ACTOR,
+          })
+        ).body as { state: string; instructions: string }[]
+      ).map((request) => request.state);
+      const stateOf = (kind: string) =>
+        states.find((state) => state.startsWith(`Actor ${ACTOR}; activation ${kind}.`)) ?? "";
+      expect(stateOf("heartbeat")).toContain(
+        '(untrusted data, JSON):\n[{"reason":{"kind":"heartbeat","heartbeatId":"heartbeat"},"evidence":"thirst 7200/10000; water store: 0 portions"}]\n',
+      );
+      expect(stateOf("heartbeat")).toContain(
+        'exists):\n[{"id":"routine-water","trigger":"heartbeat","input":"Drink from the water store","condition":"The water store holds water"}]\n',
+      );
+      expect(stateOf("threshold")).toContain(
+        'exists):\n[{"id":"routine-feed","trigger":"threshold","condition":"The food store holds food"}]\n',
+      );
+      expect(stateOf("direct_message")).toContain("(untrusted data, JSON):\n[]\n");
+      expect(stateOf("direct_message")).toContain("exists):\n[]\n");
       const skipped = async (id: string, compiledRoutine: string, allowModel: boolean) => {
         expect(
           (
