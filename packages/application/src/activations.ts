@@ -26,6 +26,11 @@ export interface ActivationConfiguration {
   readonly priority: number;
   readonly enabled: boolean;
   readonly compiledRoutine: "noop" | "escalate";
+  /**
+   * What must hold for a `noop` routine to handle a wake (issue 259), shown to wake triage as data.
+   * At most 1,024 bytes.
+   */
+  readonly condition?: string;
   readonly delivery?: ActivationDeliveryIntent;
   /** Present when the actor made it through its own capability (issue 322); operators keep it. */
   readonly origin?: "actor";
