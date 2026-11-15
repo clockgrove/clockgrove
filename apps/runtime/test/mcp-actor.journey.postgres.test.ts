@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type {
-  McpBinding,
-  McpDiscoverySnapshot,
-  McpNetworkPort,
-  RuntimeAuthorizationContext,
+import {
+  CAPABILITY_REGISTRY,
+  type McpBinding,
+  type McpDiscoverySnapshot,
+  type McpNetworkPort,
+  type RuntimeAuthorizationContext,
 } from "@clockgrove/application";
 import {
   decodeConversationSession,
@@ -36,6 +37,7 @@ import {
   withNativeWorldOwner,
 } from "./world-owner/native-harness.js";
 
+const OBSERVED = ["inspect", "why", "perception.list", "self.inspect"];
 const FILE = "apps/runtime/test/mcp-actor.journey.postgres.test.ts";
 const ACTOR = "fixture.keeper";
 const REMOTE = `mcp:fixture:lookup:2025-11-25:${"1".repeat(64)}`;
@@ -215,18 +217,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
         },
       );
       expect(hosted.registry.names()).toEqual(
-        "delivery.request inspect why world.command".split(" "),
+        "delivery.request document.write inspect intention.cancel intention.schedule perception.list self.inspect subscription.create subscription.revoke why world.command".split(
+          " ",
+        ),
       );
-      expect(hosted.grants.available()).toEqual(["inspect", "why"]);
+      expect(hosted.grants.available()).toEqual(OBSERVED);
       expect(hosted.grants.authorize({ capability: REMOTE, input: {} })).toEqual({
         accepted: false,
         code: "unknown_capability",
       });
       expect(admission.revision).toBe(3);
-      expect(admission.registry.names()).toEqual(
-        `delivery.request inspect ${REMOTE} why world.command`.split(" "),
-      );
-      expect(admission.grants.available()).toEqual(["inspect", "why", REMOTE]);
+      expect(admission.registry.names()).toEqual([...CAPABILITY_REGISTRY.names(), REMOTE].sort());
+      expect(admission.grants.available()).toEqual([...OBSERVED, REMOTE]);
       const say = async (messageId: string) => {
         const response = await post("/v1/runtime/talk", {
           sessionId,
@@ -272,7 +274,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect((await agent({ op: "inspect" })).body).toMatchObject({
         recovery: { capabilityRevision: 4 },
       });
-      expect((await read()).grants.available()).toEqual(["inspect", "why"]);
+      expect((await read()).grants.available()).toEqual(OBSERVED);
       await expect(
         owner.withSqlClient((client) =>
           readActorMcpCapabilities(client, authorization, { ...context, actorId: "other-actor" }),
