@@ -59,7 +59,11 @@ Its phase is its checkpoint. The phases do this:
   perceived revision, and is decided here: the actor's grants ([capabilities](capabilities.md))
   refuse it, or the owner submits the ordinary world command. Either way the outcome is recorded as
   the run's `world_command_proposal` step with the move to `committing`, so a recovered attempt does
-  not decide it twice; a retry replays the stored command receipt. A recovered owner without the
+  not decide it twice; a retry replays the stored command receipt. A command whose perceived
+  revision went stale before submission (the world owner's partition revision conflict) records
+  nothing in the world. The turn completes with the command refused `revision_conflict` and a null
+  `commandId`, and the browser offers to retry the message against the current world (issue 323).
+  A recovered owner without the
   member's trusted context abandons the attempt, and the client's retry carries one.
 - `committing`: appends the Caretaker message, the reply, the conversation turn, any document
   change set and the run's commit step, and moves the fiber to `finalizing`, all in one
@@ -131,6 +135,12 @@ finished keeps its phase, and cancel answers its status unchanged.
 Status and cancel use Talk's authority (`runtime:world-observe`, the `conversation` category and a
 persona) and its row policy. Only the session's participant sees or moves its turns. An unknown
 message answers `404 turn_not_found`.
+
+The browser panel (issue 323) reads the durable status once a second while a turn is in flight and
+shows one of Wave 5 §14's user-visible states. It shows "Cancel turn" while the phase is cancellable.
+A deferred activation from `/v1/runtime/activations/inspect` is listed as runtime status, never as
+the actor's words. Its run drawer reads `/v1/runtime/runs/inspect` and appears only when
+`/v1/runtime/runs/search` answers, which needs the inspector's `runtime:world-inspect` grant.
 
 ## ActorProcess
 
