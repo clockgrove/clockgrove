@@ -328,10 +328,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).toMatchObject({ status: "failed", code: "not_granted", evidence: { grant: null } });
       await owner.sql(`UPDATE clockgrove.world_memberships
         SET grants = array_append(grants, 'runtime:world-command') WHERE principal_id = 'principal-runtime'`);
-      for (const delaySeconds of [3_600, 3_601, 3_602])
-        expect((await use("intention.schedule", { delaySeconds, input: "Hold." })).status).toBe(
-          "succeeded",
-        );
+      const held: string[] = [];
+      for (const delaySeconds of [3_600, 3_601, 3_602]) {
+        const scheduled = await use("intention.schedule", { delaySeconds, input: "Hold." });
+        expect(scheduled.status).toBe("succeeded");
+        held.push(scheduled.evidence.result.intentionId as string);
+      }
       expect(
         await use("intention.schedule", { delaySeconds: 3_603, input: "Hold." }),
       ).toMatchObject({
@@ -339,6 +341,26 @@ it.skipIf(!isNativeWorldOwnerChild())(
         code: "budget_exhausted",
         evidence: { result: { refused: "budget_exhausted", standingLimit: 4 } },
       });
+      // The operator disables one of them; it stays the actor's own.
+      const disabled = await activations("configure", {
+        configuration: {
+          id: held[0],
+          sessionId,
+          kind: "scheduled_intention",
+          nextWakeAt: null,
+          intervalMs: null,
+          input: "Hold.",
+          priority: 1,
+          enabled: false,
+          compiledRoutine: "escalate",
+        },
+        policy: { allowModel: true, modelBudget: 10 },
+      });
+      expect(disabled.configurations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: held[0], origin: "actor", enabled: false }),
+        ]),
+      );
       await clock("still-running", "PauseWorld");
       expect(document.content).toBe(NOTE);
 
