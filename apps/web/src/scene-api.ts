@@ -764,6 +764,7 @@ export class SceneSession {
     const pending = readPendingTurn(sessionId);
     // A turn this tab is still running (a send racing its conversation's load) is not recovered.
     if (!pending || this.runningTurns.has(pending.messageId)) return undefined;
+    hooks.onTurn?.(pending.messageId);
     const status = await this.turnStatus(sessionId, pending.messageId);
     if ("refused" in status) {
       if (status.refused !== "turn_not_found") return status;
@@ -785,7 +786,6 @@ export class SceneSession {
         refused: `Reply ${status.phase}${status.outcomeCode ? `: ${status.outcomeCode}` : ""}`,
       };
     }
-    hooks.onTurn?.(pending.messageId);
     hooks.onRecovered?.();
     hooks.onPhase?.(status.phase);
     const result = await this.runTurn(pending, hooks, true);
@@ -886,12 +886,15 @@ export class SceneSession {
       resumed = true;
       // A tool turn's stream ends by design once the tool takes over; that is not a recovery.
       if (usedTool) return this.waitForToolTurn(turn, hooks, startedCallId);
-      hooks.onRecovered?.();
       const status = await this.turnStatus(turn.sessionId, turn.messageId);
+      // A durable approval wait is where the stream hands off too; only another phase recovers.
+      if (!("refused" in status) && status.phase === "approval_waiting") {
+        hooks.onPhase?.(status.phase);
+        return this.waitForToolTurn(turn, hooks, undefined);
+      }
+      hooks.onRecovered?.();
       if (!("refused" in status)) {
         hooks.onPhase?.(status.phase);
-        if (status.phase === "approval_waiting")
-          return this.waitForToolTurn(turn, hooks, undefined);
         if (status.phase === "completed") {
           forgetPendingTurn(turn.sessionId, turn.messageId);
           return { reloaded: true };

@@ -31,6 +31,25 @@ const RESULTS: Readonly<Record<TurnResult, TurnState>> = {
   model_steps_exhausted: { key: "budget-blocked", label: "Budget blocked" },
 };
 
+const SERVICE_OUTCOMES: readonly ServiceOutcome[] = [
+  "model_unavailable",
+  "cost_budget_exhausted",
+  "tool_calls_exhausted",
+  "model_steps_exhausted",
+];
+
+/**
+ * How a turn settled, from its own durable status: a completed turn's outcome code is its reply's
+ * service outcome (the same column the transcript reads), so no transcript page is consulted.
+ */
+export function settledResult(phase: string, outcomeCode: string | null): TurnResult {
+  if (phase === "cancelled") return "cancelled";
+  if (phase !== "completed") return "failed";
+  return SERVICE_OUTCOMES.includes(outcomeCode as ServiceOutcome)
+    ? (outcomeCode as ServiceOutcome)
+    : "completed";
+}
+
 const QUEUED: TurnState = { key: "queued", label: "Queued" };
 const THINKING: TurnState = { key: "thinking", label: "Thinking…" };
 

@@ -132,6 +132,11 @@ of replaying tokens.
 later Talk with that message ID answers `409 turn_cancelled`. A turn that is already committing or
 finished keeps its phase, and cancel answers its status unchanged.
 
+A capability call is decided and submitted inside the transaction that records it and moves the
+turn to `committing`, holding the fiber row (`FOR NO KEY UPDATE`) throughout. Cancel locks the same
+row, so the two exclude each other: a cancel that lands first leaves nothing submitted, and one that
+arrives during submission waits, then finds the turn committing.
+
 Status and cancel use Talk's authority (`runtime:world-observe`, the `conversation` category and a
 persona) and its row policy. Only the session's participant sees or moves its turns. An unknown
 message answers `404 turn_not_found`.

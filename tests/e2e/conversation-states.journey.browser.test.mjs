@@ -36,7 +36,7 @@ it("shows each turn state, cancels, retries a stale offer and opens run details"
       process.env.CLOCKGROVE_RENDERER_PROOF = backend;
       await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
         vitestConfig: "tests/ci/vitest.browser.config.ts",
-        timeoutMs: 240000,
+        timeoutMs: 300000,
         inheritOutput: true,
         prepare: async (fixture) => {
           await truthOf(fixture)(
@@ -139,10 +139,22 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
           `SELECT count(*) FROM clockgrove.${table} WHERE command_id LIKE 'keeper:%:${id}:%'`,
         );
 
-      // 1. A held model turn shows Thinking while the scene stays usable; release completes it.
+      // 1. A sent turn shows Queued until the owner accepts it; a held model turn then shows
+      // Thinking while the scene stays usable, and release completes it.
       await keeper({ op: "fault", phase: "hold:model_running:streaming" });
+      let forwardTalk;
+      const talkHeld = new Promise((resolve) => {
+        forwardTalk = resolve;
+      });
+      await page.route("**/v1/runtime/talk", async (request) => {
+        await talkHeld;
+        await request.continue();
+      });
       await send("hello");
+      await state("Queued").waitFor();
+      forwardTalk();
       await state("Thinking…").waitFor();
+      await page.unroute("**/v1/runtime/talk");
       const actor = page.getByRole("button", { name: "fixture.keeper", exact: true });
       expect(await actor.isEnabled()).toBe(true);
       await actor.focus();
@@ -172,6 +184,12 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
         .toBe("cancelled/cancel_requested");
       expect(await keeperRows("command_receipts", id)).toBe("0");
       expect(await keeperRows("events", id)).toBe("0");
+      // The cancelled turn has no reply, so its settled state line carries its run details.
+      await panel.getByRole("button", { name: "Run details", exact: true }).last().click();
+      const drawer = page.getByRole("complementary", { name: "Run drawer", exact: true });
+      await drawer.getByText("Status: cancelled", { exact: true }).waitFor();
+      await drawer.getByText("Outcome: cancel_requested", { exact: true }).waitFor();
+      await drawer.getByRole("button", { name: "Close run drawer", exact: true }).click();
 
       // 3. A world change during a held offer refuses it as stale; Retry reaches the closed world.
       await keeper({ op: "fault", phase: "hold:proposal_validating" });
@@ -201,24 +219,43 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await state("Completed").waitFor();
       expect(await keeperRows("command_receipts", id)).toBe("1");
 
+      // A turn whose conversation is archived before it commits ends failed, and shows Failed.
+      await keeper({ op: "fault", phase: "hold:proposal_validating" });
+      await send("archived before commit");
+      await expect.poll(() => phase(id)).toBe("proposal_validating");
+      await panel.getByText("Manage conversation", { exact: true }).click();
+      await panel.getByRole("button", { name: "Archive", exact: true }).click();
+      await expect
+        .poll(() =>
+          native.sql(`SELECT state FROM clockgrove.conversation_sessions WHERE session_id='${id}'`),
+        )
+        .toBe("archived");
+      await keeper({ op: "release" });
+      await keeper({ op: "fault", phase: null });
+      await state("Failed").waitFor();
+      expect(await phase(id)).toBe("failed");
+      await panel.getByRole("button", { name: "Unarchive", exact: true }).click();
+      await page.getByLabel("Message Keeper…", { exact: true }).waitFor();
+
       // 4. The run drawer shows SQL-derived run evidence, and vanishes with the grant.
       const run = await native.sql(
         `SELECT r.status||'|'||coalesce(r.outcome_code,'none')||'|'||r.model||'|'||r.input_revision||'|'||
            (SELECT string_agg(kind||' · '||status||coalesce(' · '||model,'')||coalesce(' · '||tool,'')||coalesce(' · '||outcome_code,''), ';' ORDER BY step) FROM clockgrove.run_steps s WHERE s.run_id=r.run_id)||'|'||
            (SELECT count(*) FROM clockgrove.run_steps s WHERE s.run_id=r.run_id AND kind='model_attempt')||'|'||
+           (SELECT CASE WHEN count(*) FILTER (WHERE kind='tool_execution')>0 THEN count(*) FILTER (WHERE kind='tool_execution') ELSE count(*) FILTER (WHERE kind='tool_proposal') END FROM clockgrove.run_steps s WHERE s.run_id=r.run_id)||'|'||
            (SELECT CASE WHEN count(cost_microusd)=0 THEN 'unknown' ELSE '$'||to_char(sum(cost_microusd)/1e6,'FM0.000000') END FROM clockgrove.run_steps s WHERE s.run_id=r.run_id)
          FROM clockgrove.agent_runs r WHERE session_id='${id}' AND input_message_id=(
            SELECT input_message_id FROM clockgrove.agent_runs WHERE session_id='${id}' ORDER BY started_at LIMIT 1)`,
       );
-      const [status, outcome, model, revision, steps, attempts, cost] = run.split("|");
+      const [status, outcome, model, revision, steps, attempts, tools, cost] = run.split("|");
       await history.getByRole("button", { name: "Run details", exact: true }).first().click();
-      const drawer = page.getByRole("complementary", { name: "Run drawer", exact: true });
       await drawer.getByText(`Status: ${status}`, { exact: true }).waitFor();
       for (const line of [
         `Outcome: ${outcome}`,
         `Model: ${model}`,
         `World revision: ${revision}`,
         `Model attempts: ${attempts}`,
+        `Tool calls: ${tools}`,
         `Cost: ${cost}`,
       ])
         await drawer.getByText(line, { exact: true }).waitFor();
@@ -257,4 +294,4 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await server.close();
     }
   });
-}, 540000);
+}, 660000);

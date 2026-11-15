@@ -466,12 +466,12 @@ export class TurnFibers {
               }
               break;
             }
-            // A cancel that landed while this holder was paused stops the turn before the world
-            // sees its command; the fenced record below would only notice after submission.
-            const status = await this.store((store) => store.turnStatus(participant, current));
-            if (status.phase !== current.phase) return this.settled(participant, current);
-            const record = await this.decideCommand(participant, current, proposal);
-            next = await this.store((store) => store.recordCommand(participant, current, record));
+            // Decided while the store holds the turn: a cancel and the submission exclude each other.
+            next = await this.store((store) =>
+              store.recordCommand(participant, current, () =>
+                this.decideCommand(participant, current, proposal),
+              ),
+            );
             break;
           }
           case "approval_waiting":

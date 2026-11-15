@@ -15,17 +15,20 @@ export function RunDrawer({
   inputMessageId,
   onClose,
   onRevoked,
+  refresh = "",
 }: {
   readonly session: SceneSession;
   readonly sessionId: string;
   readonly inputMessageId: string;
   readonly onClose: () => void;
   readonly onRevoked: () => void;
+  /** Changes as the open turn moves, so the drawer re-reads its run while it is shown. */
+  readonly refresh?: string;
 }) {
   const [walk, setWalk] = useState<RunWalk>();
   useEffect(() => {
     let live = true;
-    setWalk(undefined);
+    void refresh;
     void session.inspectConversationRun(sessionId, inputMessageId).then((result) => {
       if (!live) return;
       if ("refused" in result) onRevoked();
@@ -34,7 +37,7 @@ export function RunDrawer({
     return () => {
       live = false;
     };
-  }, [session, sessionId, inputMessageId, onRevoked]);
+  }, [session, sessionId, inputMessageId, onRevoked, refresh]);
   return (
     <aside aria-label="Run drawer">
       <h3>Run drawer</h3>

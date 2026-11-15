@@ -214,11 +214,15 @@ export interface ConversationStore {
     participant: ConversationParticipant,
     fiber: TurnFiber,
   ): Promise<StoredCommandProposal | undefined>;
-  /** Records the command's outcome on the run and checkpoints `committing`, in one transaction. */
+  /**
+   * Decides the command while holding the turn against cancel, then records its outcome on the run
+   * and checkpoints `committing`, in one transaction. Undefined, with `decide` never called, when
+   * the turn was cancelled or claimed by a newer holder first.
+   */
   recordCommand(
     participant: ConversationParticipant,
     fiber: TurnFiber,
-    record: TurnCommandRecord,
+    decide: () => Promise<TurnCommandRecord>,
   ): Promise<TurnFiber | undefined>;
   stopResearch?(
     participant: ConversationParticipant,
