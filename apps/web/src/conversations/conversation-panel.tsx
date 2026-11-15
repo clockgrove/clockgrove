@@ -84,6 +84,18 @@ export function ConversationPanel({
   const chosen = useRef<string>(undefined);
   const creating = useRef<Promise<ConversationSession | { readonly refused: string }>>(undefined);
   const [current, setCurrent] = useState<ConversationSession>();
+  // Counts the person's renames and (un)archives, with the conversation of the latest one. A read
+  // of that conversation sent before it carries the older title or state, so it never replaces
+  // what the change returned.
+  const lifecycle = useRef<{ count: number; sessionId: string | undefined }>({
+    count: 0,
+    sessionId: undefined,
+  });
+  const changedSince = useCallback(
+    (seen: number, sessionId: string) =>
+      lifecycle.current.count !== seen && lifecycle.current.sessionId === sessionId,
+    [],
+  );
   const [messages, setMessages] = useState<readonly ConversationMessage[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -237,8 +249,11 @@ export function ConversationPanel({
 
   const reload = useCallback(
     async (preferred?: string) => {
+      const seen = lifecycle.current.count;
       const list = await session.listConversations(actorId);
       if ("refused" in list) return setRefusal(list.refused);
+      // A later change re-reads the list itself.
+      if (lifecycle.current.count !== seen) return;
       setSessions(list.sessions);
       // On opening, the conversation whose reply this tab left in progress comes first: a turn's
       // acceptance does not make its conversation the most recently updated.
@@ -282,16 +297,20 @@ export function ConversationPanel({
       if (live && !("refused" in found))
         setDeferred(found.filter((a) => a.status === "deferred" && a.sessionId === selectedId));
     });
-    const load = () =>
-      session.readConversation(selectedId).then((page) => {
+    const load = () => {
+      const seen = lifecycle.current.count;
+      return session.readConversation(selectedId).then((page) => {
         if (!live) return undefined;
         if ("refused" in page) return void setRefusal(page.refused);
-        setCurrent(page.session);
-        setTitle(page.session.title);
+        if (!changedSince(seen, selectedId)) {
+          setCurrent(page.session);
+          setTitle(page.session.title);
+        }
         setMessages(page.messages);
         setNext(page.nextAfterSequence);
         return page.messages;
       });
+    };
     void load().then(async () => {
       // A turn this browser left in flight is settled from its durable status, then re-read.
       let resumedId: string | undefined;
@@ -328,15 +347,16 @@ export function ConversationPanel({
     return () => {
       live = false;
     };
-  }, [session, selectedId, actorId, reportPhase, stillRunning]);
+  }, [session, selectedId, actorId, reportPhase, stillRunning, changedSince]);
 
   /** Shows how the turn settled, then re-reads its conversation if it is still the open one. */
   const settled = async (sessionId: string, outcome: TurnResult) => {
     setResult(outcome);
     if (chosen.current !== sessionId) return void (await reload());
+    const seen = lifecycle.current.count;
     const page = await session.readConversation(sessionId);
     if ("refused" in page) return refuse(page);
-    setCurrent(page.session);
+    if (!changedSince(seen, sessionId)) setCurrent(page.session);
     setMessages(page.messages);
     setNext(page.nextAfterSequence);
     await reload(sessionId);
@@ -371,10 +391,15 @@ export function ConversationPanel({
   };
   const update = async (action: Promise<ConversationSession | { readonly refused: string }>) => {
     setRefusal(undefined);
+    const mine = ++lifecycle.current.count;
+    lifecycle.current.sessionId = current?.sessionId;
     const result = await action;
     if ("refused" in result) return refuse(result);
-    setCurrent(result);
-    await reload(result.sessionId);
+    // A later change has the newer state; another conversation opened meanwhile stays open.
+    if (lifecycle.current.count !== mine) return;
+    const open = chosen.current === result.sessionId;
+    if (open) setCurrent(result);
+    await reload(open ? result.sessionId : undefined);
   };
   const remove = async () => {
     if (!current) return;
