@@ -185,6 +185,11 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   `pplx-decider-v1.2`, alternate `gpt-6-luna-decisions`. `google/gemini-decision-1` is also a measured candidate.
   It accepts images, costs about 5 to 10 times `pplx-decider-v1.2` per call, and the decisions endpoint exposes no
   effort setting for it.
+- **Named questions.** A request may add `questions`, further named questions asked against the
+  same state in the same decisions call (issue 271). A name matches `^[a-z][a-z0-9_]{0,63}$` and is
+  never `q`, the primary question's name. A `completed` outcome carries their `answers` by name. A
+  reply that leaves one unanswered fails the call as `unavailable`, priced like any answered call.
+  Their bytes count toward the input bound, and the request hash covers them.
 - **Order of checks.** Input byte bound, cancellation, circuit breaker, then the budget reservation. A timeout
   settles the whole reservation and records a null cost.
 - **Cost of a failed call.** The adapter's `ProviderFailure.billing` says what a failure may have billed. A call
@@ -228,7 +233,9 @@ is not measured spend. See [the runtime procedure](../../../docs/runbooks/runtim
 for configuration, report access and the maintainer's real-model measurement step.
 
 Moderation and prompt-injection judging (issue 162) also uses `decide` through a configured
-alias/model, with one combined judgement for each inbound actor message. The request contains
+alias/model, with one combined judgement for each inbound actor message. Its five route-changing
+harm codes are named questions in that same call (issue 271). Committed actor replies are judged
+the same way for a narrow severe set when `ACTOR_REPLY_SHADOW_CONFIG` is bound. The request contains
 only that message under its own authorization, never the actor's assembled prompt or another
 participant's private content. The disposition and injection classification are shadow evidence:
 messages are delivered and turns run even when the judge says `block`, abstains, fails or is

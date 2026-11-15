@@ -1586,9 +1586,12 @@ prompts never become policy. Local read execution uses RW-0508's governed resear
 ## Moderation shadow report
 
 Moderation and prompt-injection judging is observational (issue 162). The judge allows benign
-messages; flags rude or insulting messages that are not threats, and prompt-injection attempts
-without abusive or threatening content; and blocks threats, harassment, or content that must not
-reach the actor, including abusive or threatening injection attempts. The protocol's
+messages. It flags rude or insulting messages, a person who says they want to harm themselves,
+and prompt-injection attempts without content to block. It blocks threats, harassment, hate,
+self-harm encouragement, sexual content involving minors and requests for help causing serious
+real-world harm, including injection attempts that carry such content (issue 271). In the same
+decisions call it answers five route-changing harm codes yes or no: `sexual_minors`,
+`harm_to_others`, `self_harm_intent`, `self_harm_encouragement` and `stated_minor`. The protocol's
 [moderation section](../protocols/decision-shadow.md#moderation-and-prompt-injection) defines the
 labels. Bind
 `MODERATION_SHADOW_CONFIG` to a JSON policy with an operator-selected `modelAlias` and `model`;
@@ -1597,7 +1600,7 @@ through the existing credential binding. For example (replace the model placehol
 
 ```json
 {
-  "policyVersion": "moderation-shadow@2",
+  "policyVersion": "moderation-shadow@3",
   "modelAlias": "operator.moderation",
   "model": "<operator-selected-decision-model>",
   "confidenceThreshold": 6500,
@@ -1693,6 +1696,52 @@ issue 76. The owner reviews those measurements before any enforcing-mode decisio
 false block must be visible and reversible by an attributed correction or supersession;
 [Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns)
 records that decision. Tool-result screening remains deferred until MCP execution lands.
+
+### Actor-reply judging
+
+Bind `ACTOR_REPLY_SHADOW_CONFIG` to a policy of the same shape (default `policyVersion`
+`actor-reply-shadow@1`) to judge every committed actor reply, in every world, for a narrow severe
+set: `sexual_minors`, `self_harm_encouragement` and `harmful_instructions`. It is one decide call
+per reply. The turn neither waits for it nor changes because of it. Omit the policy, or the
+gateway key, to turn it off. Each judgement is one structured log line,
+`{"event":"actor-reply-shadow", ...}`. The line carries only opaque IDs, the policy, alias and
+model, the status, the severe answer, each code's yes/no answer, confidence, latency and measured
+cost. It never carries the reply's text or a hash of it. Live crisis steering is issue 268; this
+judgement is shadow evidence only.
+
+### Moderation category evaluation
+
+The labelled category set (`MODERATION_CATEGORY_CASES`, 253 messages from templates) has at
+least 25 cases per code. It also has hate, self-harm-encouragement, insult, hyperbole, benign and
+injection cohorts. The labelled actor-reply set (`ACTOR_REPLY_CASES`, 52 replies) covers the
+actor-reply codes and clean replies, supportive replies to distress among them. Both are written
+in code, and their labels never reach the model. To run both judges on them, run:
+
+```sh
+node scripts/moderation-eval.mjs --output "$TMPDIR/moderation-eval.json"
+```
+
+By default two scripted models repeat each label, which proves the path and the accounting, not
+model quality (`measurement: "scripted"`). For the owner's real-model run, set
+`MODERATION_SHADOW_CONFIG` or `MODERATION_SHADOW_MODELS` (one to three policies) as above. Put
+`AI_GATEWAY_API_KEY` in the environment and add `--live`.
+
+The run has three bounds. A shared $2 spend cap (`MODERATION_EVAL_MAX_USD`) covers three models
+at the $0.001 per-call ceiling. Eight calls run at once. The run stops after thirty minutes.
+
+For each model the report gives:
+
+- **Per code:** positives, negatives, misses, false triggers, and the miss and false-trigger rates
+  over answered cases.
+- **Per cohort:** the block rate and disposition accuracy. The `hate` and
+  `self_harm_encouragement` cohorts show whether issue 261's regression is recovered.
+- **Actor replies:** the per-code rates, known spend, unknown-cost calls, p50 and p95 latency, and
+  `costPerThousandUsd`. That last figure is the measured cost per 1,000 replies, over the calls
+  with a known cost.
+
+The exact questions are exported as `MODERATION_DECISION_QUESTION` and
+`ACTOR_REPLY_DECISION_QUESTION`, so an evaluation outside this repository can ask them unchanged.
+Record the real-model rates and cost on issue 271.
 ## Developer conversation CLI
 
 Run `node scripts/runtime-chat.mjs --help` for the command reference. The CLI uses the existing authenticated HTTP API; it grants no membership, opens no listener and stores no credential. Set `CLOCKGROVE_SESSION_TOKEN` in the process environment from your existing signed-in session. Do not put the token in a command argument, a committed file or a transcript.
