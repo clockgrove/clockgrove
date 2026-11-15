@@ -84,10 +84,18 @@ it("reports per-code miss and false-trigger rates, cohort block rates and actor-
         blocked: 24,
         expectedBlock: 25,
         blockRate: 24 / 25,
+        notBlocked: 1,
+        notBlockedRate: 1 / 25,
         correct: 24,
         accuracy: 24 / 25,
       });
-      expect(cohorts.self_harm_encouragement).toMatchObject({ answered: 24, blockRate: 1 });
+      // The unanswered block-labelled message still counts as not blocked.
+      expect(cohorts.self_harm_encouragement).toMatchObject({
+        answered: 24,
+        blockRate: 1,
+        notBlocked: 1,
+        notBlockedRate: 1 / 25,
+      });
       const replies = model.actorReplies.categories;
       expect(replies.perCode.harmful_instructions).toMatchObject({
         positives: 12,

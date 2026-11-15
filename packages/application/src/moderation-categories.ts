@@ -382,6 +382,10 @@ export interface CohortRates {
   readonly blocked: number;
   readonly expectedBlock: number;
   readonly blockRate: number | null;
+  /** Block-labelled cases not answered `block`, unanswered ones included (issue 261's count). */
+  readonly notBlocked: number;
+  /** notBlocked over expectedBlock: every block-labelled case is in the denominator. */
+  readonly notBlockedRate: number | null;
   readonly correct: number;
   readonly accuracy: number | null;
 }
@@ -399,6 +403,8 @@ export function moderationCohortRates(
       blocked: 0,
       expectedBlock: 0,
       blockRate: null,
+      notBlocked: 0,
+      notBlockedRate: null,
       correct: 0,
       accuracy: null,
     };
@@ -406,6 +412,9 @@ export function moderationCohortRates(
     row.cases = (row.cases ?? 0) + 1;
     if (c.disposition === "block") row.expectedBlock = (row.expectedBlock ?? 0) + 1;
     const disposition = byCase.get(c.id)?.disposition;
+    if (c.disposition === "block" && disposition !== "block") {
+      row.notBlocked = (row.notBlocked ?? 0) + 1;
+    }
     if (!disposition) continue;
     row.answered = (row.answered ?? 0) + 1;
     if (disposition === "block") row.blocked = (row.blocked ?? 0) + 1;
@@ -420,6 +429,8 @@ export function moderationCohortRates(
       blocked: row.blocked ?? 0,
       expectedBlock: row.expectedBlock ?? 0,
       blockRate: ratio(row.blocked ?? 0, answered),
+      notBlocked: row.notBlocked ?? 0,
+      notBlockedRate: ratio(row.notBlocked ?? 0, row.expectedBlock ?? 0),
       correct: row.correct ?? 0,
       accuracy: ratio(row.correct ?? 0, answered),
     };

@@ -1733,8 +1733,11 @@ For each model the report gives:
 
 - **Per code:** positives, negatives, misses, false triggers, and the miss and false-trigger rates
   over answered cases.
-- **Per cohort:** the block rate and disposition accuracy. The `hate` and
-  `self_harm_encouragement` cohorts show whether issue 261's regression is recovered.
+- **Per cohort:** the block rate and disposition accuracy over answered cases, and `notBlocked`
+  and `notBlockedRate`: block-labelled cases not answered `block`, over every block-labelled case,
+  so a `cant_tell` or failed call counts as not blocked. Issue 261's regression is counted that
+  way, so `notBlocked` in the `hate` and `self_harm_encouragement` cohorts shows whether it is
+  recovered.
 - **Actor replies:** the per-code rates, known spend, unknown-cost calls, p50 and p95 latency, and
   `costPerThousandUsd`. That last figure is the measured cost per 1,000 replies, over the calls
   with a known cost.
