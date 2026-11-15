@@ -66,6 +66,20 @@ export interface ActivationInspection {
   readonly policy: ActivationPolicy;
   readonly modelCallsReserved: number;
   readonly nextWakeAt: number | null;
+  /**
+   * The internal capability grants the actor holds through the requesting member, each marked when
+   * the actor's canonical policy revokes it (issue 323). Present only for an operator.
+   */
+  readonly grants?: readonly InternalGrantView[];
+}
+
+/** One internal grant as an operator sees it: the registry's definition and the grant's budget. */
+export interface InternalGrantView {
+  readonly capability: string;
+  readonly effect: string;
+  readonly callsPerTurn: number;
+  readonly commandTypes?: readonly string[];
+  readonly revoked: boolean;
 }
 
 export interface ActivationWake {

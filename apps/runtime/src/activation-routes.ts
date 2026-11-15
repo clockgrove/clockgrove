@@ -38,7 +38,8 @@ export interface ActivationOwners {
     context: TrustedExecutionContext,
     participant: ConversationParticipant,
     actorId: string,
-    configuration: ActivationConfiguration,
+    /** Omitted, only the policy changes (issue 323). */
+    configuration: ActivationConfiguration | undefined,
     policy: ActivationPolicy,
   ): Promise<ActivationInspection>;
   wake(
@@ -173,7 +174,37 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
         owners.wake(scope, context, participant, actorId, input),
     };
   }
-  const config = object(body.configuration, "configuration");
+  const configuration =
+    body.configuration === undefined ? undefined : activationConfiguration(body.configuration);
+  const policyValue = object(body.policy, "policy");
+  keys(policyValue, ["allowModel", "modelBudget", "revokedCapabilities"]);
+  const revoked = policyValue.revokedCapabilities;
+  if (
+    revoked !== undefined &&
+    (!Array.isArray(revoked) || revoked.length > MAX_REVOKED_CAPABILITIES)
+  )
+    invalid("revokedCapabilities");
+  const policy: ActivationPolicy = {
+    allowModel: boolean(policyValue.allowModel, "allowModel"),
+    modelBudget: integer(policyValue.modelBudget, "modelBudget", 1000),
+    ...(revoked === undefined
+      ? {}
+      : {
+          revokedCapabilities: (revoked as unknown[]).map((name) =>
+            text(name, "revokedCapabilities", 4096),
+          ),
+        }),
+  };
+  return {
+    scope,
+    actorId,
+    run: (owners, context, participant) =>
+      owners.configure(scope, context, participant, actorId, configuration, policy),
+  };
+}
+
+function activationConfiguration(value: unknown): ActivationConfiguration {
+  const config = object(value, "configuration");
   keys(config, [
     "id",
     "sessionId",
@@ -229,31 +260,7 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
     ...(delivery === undefined ? {} : { delivery }),
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");
-  const policyValue = object(body.policy, "policy");
-  keys(policyValue, ["allowModel", "modelBudget", "revokedCapabilities"]);
-  const revoked = policyValue.revokedCapabilities;
-  if (
-    revoked !== undefined &&
-    (!Array.isArray(revoked) || revoked.length > MAX_REVOKED_CAPABILITIES)
-  )
-    invalid("revokedCapabilities");
-  const policy: ActivationPolicy = {
-    allowModel: boolean(policyValue.allowModel, "allowModel"),
-    modelBudget: integer(policyValue.modelBudget, "modelBudget", 1000),
-    ...(revoked === undefined
-      ? {}
-      : {
-          revokedCapabilities: (revoked as unknown[]).map((name) =>
-            text(name, "revokedCapabilities", 4096),
-          ),
-        }),
-  };
-  return {
-    scope,
-    actorId,
-    run: (owners, context, participant) =>
-      owners.configure(scope, context, participant, actorId, configuration, policy),
-  };
+  return configuration;
 }
 
 const ACTIVATION_REFUSALS: Readonly<

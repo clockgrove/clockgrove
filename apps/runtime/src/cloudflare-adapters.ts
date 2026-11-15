@@ -11,6 +11,7 @@ import {
   type ActorReplyShadowRecord,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
+  CAPABILITY_REGISTRY,
   type CapabilityDefinition,
   type CapabilityGrants,
   type CatchUpWorkflowEnvelope,
@@ -21,6 +22,7 @@ import {
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
+  type InternalGrantView,
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
@@ -125,7 +127,12 @@ import {
   scriptedConversationReply,
   type TurnOwnerAnswer,
 } from "./conversations.js";
-import { INSPECT_GRANT, OBSERVE_GRANT, type OwnerRuntimeState } from "./inspector.js";
+import {
+  INSPECT_GRANT,
+  OBSERVE_GRANT,
+  OPERATE_GRANT,
+  type OwnerRuntimeState,
+} from "./inspector.js";
 import type { RuntimeLocalStorage } from "./local-storage.js";
 import {
   OwnerMailbox,
@@ -1398,7 +1405,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     context: TrustedExecutionContext,
     participant: ConversationParticipant,
     actorId: string,
-    configuration: ActivationConfiguration,
+    configuration: ActivationConfiguration | undefined,
     policy: ActivationPolicy,
   ): Promise<ActivationInspection> {
     assertWorldCommandContext(context, scope);
@@ -1419,7 +1426,28 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<ActivationInspection> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
-    return withActivations(this.environment, (store) => store.inspect(address));
+    const inspection = await withActivations(this.environment, (store) => store.inspect(address));
+    // Only an operator sees the actor's internal grants (issue 323), with its canonical revocations.
+    const memberGrants = context.grants.map(String);
+    if (!memberGrants.includes(OPERATE_GRANT)) return inspection;
+    const revoked = new Set(
+      await withActivations(this.environment, (store) =>
+        store.revokedCapabilities({
+          ...address,
+          participant: { ...worldAuthorization(context), personaId: participant.personaId },
+        }),
+      ),
+    );
+    const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(memberGrants).grants.map(
+      (grant) => ({
+        capability: grant.capability,
+        effect: CAPABILITY_REGISTRY.get(grant.capability)?.effect ?? "read",
+        callsPerTurn: grant.callsPerTurn,
+        ...(grant.commandTypes === undefined ? {} : { commandTypes: grant.commandTypes }),
+        revoked: revoked.has(grant.capability),
+      }),
+    );
+    return { ...inspection, grants };
   }
 
   async wakeActivation(
