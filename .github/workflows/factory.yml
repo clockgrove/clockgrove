@@ -42,6 +42,7 @@ env:
   FACTORY_BUDGET_COMMAND: node scripts/check-test-budget.mjs
   FACTORY_PROTECTED_PATHS: scripts/test-budget.json, scripts/ci/toolchain.sh, scripts/ci/browser-toolchain.mjs
   FACTORY_CI_CHECKS: quality
+  FACTORY_THIRD_PARTY_REVIEWERS: greptile-apps[bot] # its review is part of each Factory PR's review (Factory INSTALL.md, Third-party reviewers)
   FACTORY_NODE_VERSION: 24.21.0 # the Node.js your CI uses
   # Local mode (factory serve): the database, runtime and browser suites start Postgres on a unix socket, which no
   # local sandbox may create, so locally Factory runs these; the required quality check runs the full set.
