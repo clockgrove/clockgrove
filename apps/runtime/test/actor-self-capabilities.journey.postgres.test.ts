@@ -307,11 +307,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
 
       // Refusals are recorded and the world keeps running: a governed document, a revoked
       // capability, a call beyond the member's grants and a spent standing budget.
-      expect(await use("document.write", { path: "goals.md", content: "Mine now." })).toMatchObject({
-        status: "failed",
-        code: "write_class_refused",
-        evidence: { result: { refused: "write_class_refused" } },
-      });
+      expect(await use("document.write", { path: "goals.md", content: "Mine now." })).toMatchObject(
+        {
+          status: "failed",
+          code: "write_class_refused",
+          evidence: { result: { refused: "write_class_refused" } },
+        },
+      );
       await policy(["perception.list"]);
       expect(await use("perception.list", {})).toMatchObject({
         status: "failed",
@@ -327,16 +329,16 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await owner.sql(`UPDATE clockgrove.world_memberships
         SET grants = array_append(grants, 'runtime:world-command') WHERE principal_id = 'principal-runtime'`);
       for (const delaySeconds of [3_600, 3_601, 3_602])
-        expect(
-          (await use("intention.schedule", { delaySeconds, input: "Hold." })).status,
-        ).toBe("succeeded");
-      expect(await use("intention.schedule", { delaySeconds: 3_603, input: "Hold." })).toMatchObject(
-        {
-          status: "failed",
-          code: "budget_exhausted",
-          evidence: { result: { refused: "budget_exhausted", standingLimit: 4 } },
-        },
-      );
+        expect((await use("intention.schedule", { delaySeconds, input: "Hold." })).status).toBe(
+          "succeeded",
+        );
+      expect(
+        await use("intention.schedule", { delaySeconds: 3_603, input: "Hold." }),
+      ).toMatchObject({
+        status: "failed",
+        code: "budget_exhausted",
+        evidence: { result: { refused: "budget_exhausted", standingLimit: 4 } },
+      });
       await clock("still-running", "PauseWorld");
       expect(document.content).toBe(NOTE);
 

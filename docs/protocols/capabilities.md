@@ -1,13 +1,14 @@
 # Capability registry and grants
 
-Contract of RW-0506's first subset (issue 19): the typed registry, per-actor grants and the
-`world.command` path, plus issue 164’s additive MCP admission snapshots. Issue 168 adds an explicitly configured proactive `delivery.request` producer. Subscription, schedule and document-write capabilities remain separate additions to the same registry.
+Contract of RW-0506 (issues 19 and 322): the typed registry, per-actor grants, the
+`world.command` path and the actor's self capabilities, plus issue 164’s additive MCP admission
+snapshots. Issue 168 adds an explicitly configured proactive `delivery.request` producer.
 
 ## Registry
 
 `packages/application/src/capability-registry.ts` holds `CAPABILITY_REGISTRY`. A capability has a
-name, an effect (`read` or `world_command`), the runtime grant its member must hold and a `parse`
-function that accepts one exact input shape and refuses everything else.
+name, an effect class, the runtime grant its member must hold and a `parse` function that accepts
+one exact input shape and refuses everything else.
 
 | Capability      | Effect          | Member must hold         | Input                                |
 | --------------- | --------------- | ------------------------ | ------------------------------------ |
@@ -15,11 +16,20 @@ function that accepts one exact input shape and refuses everything else.
 | `why`           | `read`          | `runtime:world-observe`  | `commandId`                          |
 | `world.command` | `world_command` | `runtime:world-command`  | `type`, `objectId`, `kind`           |
 | `delivery.request` | `external-write` | Authorized proactive activation only; current `runtime:world-command` and delivery authority | `urgency`, `quietHoursBehavior` |
+| `subscription.create` | `actor-write` | `runtime:world-command` | `eventType` (1–256 bytes), `input` (1–1,024 bytes) |
+| `subscription.revoke` | `actor-write` | `runtime:world-command` | `subscriptionId` |
+| `intention.schedule` | `actor-write` | `runtime:world-command` | `delaySeconds` (1–2,592,000), `input` (1–1,024 bytes) |
+| `intention.cancel` | `actor-write` | `runtime:world-command` | `intentionId` |
+| `perception.list` | `read` | `runtime:world-observe` | none |
+| `self.inspect` | `read` | `runtime:world-observe` | none |
+| `document.write` | `actor-write` | `runtime:world-command` | `path`, `content` |
 
-The read capabilities are registered and grantable. With local research composition, `inspect`
-and `why` execute through the same bounded tool loop and external-effects ledger/Queue path as
-remote reads. A runtime without research composition retains its existing `not_executable`
-refusal. A registered capability alone never activates an adapter.
+`actor-write` writes only the actor's own attention or cognition, never the world or an external
+system; like `read`, it needs no per-call approval. The read capabilities are registered and
+grantable. With local research composition, `inspect` and `why` execute through the same bounded
+tool loop and external-effects ledger/Queue path as remote reads. A runtime without research
+composition retains its existing `not_executable` refusal for them. A registered capability alone
+never activates an adapter.
 
 ## Grants, budgets and revocation
 
@@ -30,6 +40,10 @@ Decisions:
 - Internal grants allow one call per capability per turn. World-command turns retain their one-command path; a configured research turn may take up to three read calls and four model steps.
 - `world.command` names the command types it allows. Only `resource.offer` is granted.
 - `grants.revoke(name)` returns grants without that capability; its proposals are refused `revoked`.
+- Revocation is canonical per actor: the activation policy's `revokedCapabilities`, set by the
+  policy owner through `/v1/runtime/activations/configure`
+  ([conversation fibers](conversation-fibers.md#the-actors-own-subscriptions-and-intentions-issue-322)),
+  is applied to the actor's grants each time they are resolved.
 
 ## Deciding a proposal
 
@@ -63,11 +77,39 @@ The refusal retains the ordinary command receipt and attribution:
 - `expected.partitionRevision` is the scene revision the actor perceived when it proposed.
 - The world DO validates and commits it through the Journal. A refusal is a stored receipt.
 
+## Self capabilities
+
+The actor's owner executes the self capabilities (`SELF_CAPABILITIES`, issue 322) once the grants
+accept them, through the turn fiber's `executeSelf` hook, also when the runtime composes research:
+they never enter the read Queue.
+
+- `subscription.create`, `subscription.revoke`, `intention.schedule` and `intention.cancel` write the
+  actor's own activation configurations, with the operator's budgets, coalescing and quiet-hours
+  rules ([conversation fibers](conversation-fibers.md#the-actors-own-subscriptions-and-intentions-issue-322)).
+  The result names `subscriptionId` (and `eventType`) or `intentionId` (and `dueAt`). A fifth
+  standing configuration is refused `budget_exhausted`; an ID that is not the actor's own, of that
+  kind, is refused `activation_not_found`.
+- `perception.list` answers the member's authorized living scene, as for the actor's perception:
+  its `revision`, each entity's `objectId`, `label` and `archetypeId`, and the edges (`graphId`,
+  `from`, `to`) of the anchor graphs in the scene's spatial frames. Decision: the result lists at
+  most 64 entities and 128 routes, with their full counts, to stay within the evidence bound.
+  Nothing outside the authorized scene is read out.
+- `self.inspect` answers the session's own actor only: its `goals` documents (path, version and
+  source hash; document text is private cognition), the activation budget (`allowModel`,
+  `modelBudget`, `modelCallsReserved`, `remaining`, standing actor configurations and their limit),
+  each available grant's per-turn calls and those remaining, and the turn's run (`runId`,
+  `messageId`, `phase`, `attempt`).
+- `document.write` is checked with the model rules of `operationRefusal`: only an `actor_writable`
+  path, and a session summary only of its own session. An accepted call commits with the turn as the
+  model's change set ([context assembly](context-assembly.md#proposers)).
+
 ## Evidence
 
 The turn's run records one `world_command_proposal` step: `tool` is the capability, `command_id` the
-receipt (null when the grants refused it before the world), `status` `succeeded` or `failed` and
-`outcome_code` the refusal code. The Talk receipt's optional `command` carries the same facts
+receipt (null when the grants refused it before the world, and for self capabilities), `status`
+`succeeded` or `failed` and `outcome_code` the refusal code. Its `capabilityEvidence` records the
+deciding grant, the call's arguments and its result ([runs](runs.md)); a refusal is recorded there
+too, and the turn still answers. The Talk receipt's optional `command` carries the same facts
 (`TalkCommandOutcome`, `docs/protocols/conversations.md`). The model step records the model name,
 tokens and cost.
 

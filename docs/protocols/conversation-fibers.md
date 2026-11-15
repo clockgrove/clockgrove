@@ -189,7 +189,8 @@ A configuration contains `id`, `sessionId`, `kind`, `nextWakeAt` (epoch millisec
 `intervalMs` (milliseconds or null, at least 60,000 when set), optional `eventType`, `input`,
 `priority` (0–100), `enabled` and
 `compiledRoutine` (`noop` or `escalate`), plus optional `delivery` with `urgency` (`normal` or `urgent`) and `quietHoursBehavior` (`delay`, `silent` or `reject`). Omitting delivery preserves existing behavior. The policy contains `allowModel` and `modelBudget`, a
-lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations.
+lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations, and optional
+`revokedCapabilities` (below).
 An opportunity is reserved before model escalation; interrupted model retries reserve another. A wake
 contains `configurationId`, `causalRoot`, `reason` and `evidence`. Its discriminated reason is one
 of Wave 5 §5.2's scheduled intention, subscription, perception, threshold, heartbeat, tool
@@ -245,6 +246,33 @@ producing an unbounded catch-up burst.
 The model boundary rechecks the current policy, compiled decision, membership and fiber lease.
 Recovery after the answer checkpoint reuses the answer. Deferred evidence keeps its causal
 identity and can resume when an operator changes the policy or allowance.
+
+### The actor's own subscriptions and intentions (issue 322)
+
+An actor configures its own attention through the capability registry
+([capabilities](capabilities.md#self-capabilities)): `subscription.create` and
+`intention.schedule` write an ordinary configuration into the same policy, marked
+`origin: "actor"`, for the turn's own session and participant. A subscription follows its
+`eventType`; an intention has `nextWakeAt` set to the checkpointed proposal's issue time plus
+`delaySeconds`, with no interval. Both escalate with the actor's `input` at priority 1. Their IDs
+(`self-subscription-…`, `self-intention-…`) are derived from the session and message, so a retried
+turn rewrites the same configuration. After each change the actor's owner re-arms the
+participant's activation alarm.
+
+They are activations like any other: the same causal-root receipts coalesce and deduplicate their
+wakes, so replaying a wake answers the recorded activation; each escalation reserves from the same
+`modelBudget`; the same compiled-routine, policy and delivery rules apply. The operator's model
+permission and budget are never changed by the actor. An actor holds at most 4 standing
+configurations of its own (decision, issue 322); a fifth is refused `budget_exhausted`.
+`subscription.revoke` and `intention.cancel` remove only the actor's own configuration of that
+kind; any other ID is refused `activation_not_found`. A fired one-shot intention stays, with no
+next wake, until it is cancelled.
+
+The policy owner sees the actor's configurations in `/inspect`, with their `origin`, and can disable
+or replace one through `/configure`; the replacement keeps its `origin`. The configure route's policy
+also takes an optional `revokedCapabilities` list (at most 32 registry names). Each named capability
+is revoked from the actor's grants, so its proposals are refused `revoked`. Omitting the field keeps
+the stored list; inspection answers it in `policy.revokedCapabilities`.
 
 These routes provide the local operator and inspector surface. The activation journey is intended
 for native workerd/PostgreSQL local proof; it does not establish hosted delivery. Wave 5
