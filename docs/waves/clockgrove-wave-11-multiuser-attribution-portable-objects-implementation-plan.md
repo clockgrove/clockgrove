@@ -13,6 +13,8 @@
 
 ---
 
+**Parked (owner decision 2026-11-14):** Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Not planned.
+
 ## 1. Outcome
 
 Wave 11 turns a tenant-owned world into a persistent social place. People can invite others into a world without adding them to the owning workspace, participate through durable world personas, appear through ephemeral presences, act concurrently, carry permitted objects among rooms inside that world, and inspect who or what caused a change.

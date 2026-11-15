@@ -14,7 +14,9 @@ The exact deployment authority is [`runtimeBindingManifest`](../../apps/runtime/
 | `staging` | Dedicated `rw-staging-*` resources/project/branch and sanitized data; protected release candidate qualification. |
 | `production` | Dedicated `rw-production-*` resources/project/branch; protected credentials and explicit human approval. |
 
-Each `infra/environments/<environment>.json` permits only resource names, domains, the zone's Cloudflare plan, documented-safe Cloudflare account/zone IDs, retention, budgets, compatibility date and model aliases. Resource names include the public provider region name and canonical database-local role names. Objects reject unknown fields at every level. Zero account/zone IDs and `example.org` domains are publication-safe placeholders; replace them with reviewed non-secret routing metadata for your installation before planning a hosted environment. Use separate account/zone ownership for isolated staging and production; avoid combining zone-wide entrypoint rulesets with unrelated applications. Each hosted environment creates its zone's entry-point rulesets for the `http_ratelimit` and `http_request_firewall_custom` phases, and a zone allows one per phase, so development needs its own zone. Resources use the full canonical environment name. Local/CI cloud resource counts are zero even when a plan is requested; ordinary local use needs no cloud credentials or OpenTofu plan.
+The unit of deployment is a world: a world pack and a pinned Clockgrove, deployed together into the developer's own cloud account. The Clockgrove repository deploys nothing of its own; its hosted proof is the validation deployment (environment `staging`), made the way any developer deploys theirs, and it has no `production` deployment.
+
+Each `infra/environments/<environment>.json` permits only resource names, domains, the zone's Cloudflare plan, documented-safe Cloudflare account/zone IDs, retention, budgets, compatibility date and model aliases. Resource names include the public provider region name and canonical database-local role names. Objects reject unknown fields at every level. Zero account/zone IDs and `example.org` domains are publication-safe placeholders; replace them with reviewed non-secret routing metadata for your installation before planning a hosted environment. Use separate account/zone ownership for isolated `staging` and `production`; avoid combining zone-wide entrypoint rulesets with unrelated applications. Each hosted environment creates its zone's entry-point rulesets for the `http_ratelimit` and `http_request_firewall_custom` phases, and a zone allows one per phase, so development needs its own zone. Resources use the full canonical environment name. Local/CI cloud resource counts are zero even when a plan is requested; ordinary local use needs no cloud credentials or OpenTofu plan.
 
 Each manifest's `cloudflareZonePlan` (`free`, or `paid` for Pro and up) chooses the zone's rate-limiting rule, since Free rules allow only the Path field with 10-second counting periods and mitigation timeouts ([Cloudflare rate limiting](https://developers.cloudflare.com/waf/rate-limiting-rules/#availability)):
 
@@ -25,16 +27,16 @@ Each manifest's `cloudflareZonePlan` (`free`, or `paid` for Pro and up) chooses 
 
 `pnpm infra:validate` has OpenTofu evaluate each hosted environment's rule from its manifest, offline, and fails unless it is the one the zone plan allows. The WAF rule matches the runtime host on every plan.
 
-`retention.databaseSeconds` is the Neon project's `history_retention` (restore window). Staging's Neon organization is on the Free plan, which allows at most 6 hours ([Neon plans](https://neon.com/docs/introduction/plans)), so `staging.json` sets 21600; development and production keep 604800 (7 days, the Launch maximum). Raise staging back to 604800 when it moves to a paid Neon plan (Launch).
+`retention.databaseSeconds` is the Neon project's `history_retention` (restore window). The validation deployment's Neon organization is on the Free plan, which allows at most 6 hours ([Neon plans](https://neon.com/docs/introduction/plans)), so `staging.json` sets 21600; `development` and `production` keep 604800 (7 days, the Launch maximum). Raise `staging.json` back to 604800 when the validation deployment moves to a paid Neon plan (Launch).
 
-Secret names and consumers are declared in `infra/environments/<environment>.secrets.json`. Local/CI declare none. Each hosted environment declares the following, except that production declares neither `INFRA_STATE_*` name:
+Secret names and consumers are declared in `infra/environments/<environment>.secrets.json`. Local/CI declare none. Each hosted environment declares the following, except that `production` declares neither `INFRA_STATE_*` name:
 
 | Name | Consumer / source |
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | OpenTofu Cloudflare provider; narrowly scoped operator credential. |
 | `NEON_API_KEY` | OpenTofu Neon provider; isolated operator credential. |
-| `INFRA_STATE_ACCESS_KEY_ID` | OpenTofu R2 state backend, development and staging only; the bucket-scoped R2 API token's access key ID. |
-| `INFRA_STATE_SECRET_ACCESS_KEY` | OpenTofu R2 state backend, development and staging only; the bucket-scoped R2 API token's secret access key. |
+| `INFRA_STATE_ACCESS_KEY_ID` | OpenTofu R2 state backend, `development` and `staging` only; the bucket-scoped R2 API token's access key ID. |
+| `INFRA_STATE_SECRET_ACCESS_KEY` | OpenTofu R2 state backend, `development` and `staging` only; the bucket-scoped R2 API token's secret access key. |
 | `DATABASE_URL` | Hyperdrive runtime-role connection; constructed securely from provisioned Neon runtime credentials. |
 | `MIGRATION_DATABASE_URL` | Controlled direct database migration connection. |
 | `SUPPORT_DATABASE_URL` | Read-only support connection. |
@@ -51,18 +53,18 @@ Secret names and consumers are declared in `infra/environments/<environment>.sec
 
 The repository root lists these names, without values, in two examples generated from the catalog `requiredSecrets` in [`infra/check-configuration.mjs`](../../infra/check-configuration.mjs) and this table: [`.dev.vars.example`](../../.dev.vars.example) holds the four Worker secret bindings `runtimeBindingManifest` declares, and [`.env.example`](../../.env.example) the other operator and tooling names. Each name's comment gives its catalog consumer and the first clause of its row above. Read them to see which names an environment needs; never write a value into them. A hosted environment receives the four Worker secret bindings as Worker secrets set from the operator's secret manager session (for example `wrangler secret put <NAME> --config infra/wrangler/<environment>.json`), never through a `.dev.vars` file. Wrangler reads `infra/wrangler/.dev.vars` only for local `wrangler dev` and `wrangler types`, and `local` needs none of these names, so never write a hosted value into it. `.env`, `.dev.vars` and their variants are git-ignored everywhere in the checkout. `pnpm check` refuses an example that drifts from the catalog or this table; `node scripts/check-env-examples.mjs --write` regenerates both after a reviewed catalog change.
 
-Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets enter OpenTofu state even when marked sensitive. Development and staging keep state in a Cloudflare R2 bucket, described under [OpenTofu state](#opentofu-state); saved plans live only in a temporary directory that is removed after use. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
+Supply credentials through the operator's external secret manager/session, never shell literals, committed `.env` files, manifest values, logs or plan outputs. Generated role passwords, widget and Access secrets enter OpenTofu state even when marked sensitive. `development` and `staging` keep state in a Cloudflare R2 bucket, described under [OpenTofu state](#opentofu-state); saved plans live only in a temporary directory that is removed after use. Do not reuse production secrets in nonproduction. Rotate through the owning consumer with a reviewed dual-key transition. Subsequent runtime/model/observability composition must consume these names explicitly; declarations do not add undeclared runtime bindings today.
 
 `pnpm infra:plan <environment>` makes a read-only plan of one environment and never applies it. It prints only resource addresses, actions, the planned resource count and a digest of the change set, and fails on a planned deletion or an undeclared resource, as the deploy does (it reviews as the routing stage).
 
 - `local` and `ci` own no cloud resources. Their plan runs in a new temporary directory with the lock-file-verified providers, no credentials and no backend, with HTTP refused while planning, and fails unless it is empty. Quality's `checks` job runs it for `ci`.
-- `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Production planning is disabled, as production deployment is.
+- `development` and `staging` need `CLOUDFLARE_API_TOKEN`, `NEON_API_KEY`, reviewed routing metadata and the environment's [R2 state](#opentofu-state) (`INFRA_STATE_BUCKET`, `INFRA_STATE_ACCESS_KEY_ID`, `INFRA_STATE_SECRET_ACCESS_KEY`) in the shell. Like the deploy, it first refuses a held state lock and state that lost a duplicable resource (see [OpenTofu state](#opentofu-state)). The plan covers the full configuration a completed deploy owns, so an applied environment plans with no pending change. It runs in a new temporary directory, removed afterwards with its saved plans; OpenTofu's own output is withheld. Planning `production` is disabled, as deploying it is.
 
-`pnpm test:cloud [environment]` (default `staging`) runs `tests/cloud`: the environment plans twice with the same change-set digest and no pending change, and a hosted environment's deployed origin serves the web shell over HTTPS and refuses an unauthenticated runtime request with 401. It needs what `infra:plan` needs. Quality runs it for `ci`; the staging pass needs a staging deploy (issue 2).
+`pnpm test:cloud [environment]` (default `staging`) runs `tests/cloud`: the environment plans twice with the same change-set digest and no pending change, and a hosted environment's deployed origin serves the web shell over HTTPS and refuses an unauthenticated runtime request with 401. It needs what `infra:plan` needs. Quality runs it for `ci`; the pass against the validation deployment (environment `staging`) needs that deployment (issue 2).
 
 The Worker route requires the named Worker to exist before route application; coordinate its dependency order with the later release workstream. OpenTofu creates shared resources; Wrangler later owns Worker publication and Queue consumers. Keep queue names, DLQ targets and names in `_QUEUE_NAME` variables identical. The runtime binds the artifacts and assets buckets (`resources.buckets.artifacts`, `resources.buckets.assets`) as `ARTIFACTS_BUCKET` and `ASSETS_BUCKET` in every Wrangler manifest, as `runtimeBindingManifest.r2Buckets` declares and `pnpm check` verifies; the backups bucket and Hyperdrive remain unbound until the runtime exposes their composition contract. Do not add bindings or deploy from this runbook to bypass that missing prerequisite.
 
-Development may deploy a qualified main commit. Staging requires a protected release candidate and production-shaped qualification. Production requires explicit human approval under the release policy in force. A release pins commit/build digest, toolchain/lockfile, compatibility and migration versions, wire/event schemas, future world/policy versions and infrastructure revision. W0-009 owns release automation; this packet creates no workflows or cloud resources. Preserve canonical history: use compatible rollback or forward fixes rather than deletion. Implemented configuration and local validation do not constitute staging acceptance, full Wave 0 qualification or release approval.
+`development` may deploy a qualified main commit. `staging` requires a protected release candidate and production-shaped qualification. `production` requires explicit human approval under the release policy in force. A release pins commit/build digest, toolchain/lockfile, compatibility and migration versions, wire/event schemas, future world/policy versions and infrastructure revision. W0-009 owns release automation; this packet creates no workflows or cloud resources. Preserve canonical history: use compatible rollback or forward fixes rather than deletion. Implemented configuration and local validation do not constitute acceptance of the validation deployment, full Wave 0 qualification or release approval.
 
 ## Setting up a hosted environment
 
@@ -113,7 +115,7 @@ names what the first deploy checks, so a skipped step fails by name instead of h
    `INFRA_STATE_BUCKET`, `OWNER_SETUP_READY=true` and `ACTIVATION_PREREQUISITES_READY=true`. Set
    the repository variable `REPOSITORY_DEPLOYMENT_ENABLED=true` last: it is the switch that lets
    the release selector name an environment.
-8. **First deploy.** A push to main never selects staging. Run the **Guarded release** workflow by
+8. **First deploy.** A push to main never selects `staging`. Run the **Guarded release** workflow by
    hand with `candidate` (a main commit) and `quality_run_id` (that commit's successful main
    Quality run), then approve the waiting `staging` job. The deploy ends by running
    `pnpm infra:plan <environment>` (no pending change) and `pnpm test:cloud <environment>` (the web
@@ -138,16 +140,16 @@ The deploy withholds command output that may hold secrets. What it does print na
 
 The repository-scoped variable `REPOSITORY_DEPLOYMENT_ENABLED` must equal the literal `true`
 before the credential-free release selector emits any deployment outputs. The reusable
-deployment's separate admission job repeats the check before any development/staging
+deployment's separate admission job repeats the check before any `development`/`staging`
 environment-declaring job is admitted; neither admission job declares an environment, so
 environment variables cannot supply this opt-in. Both consumers use the repository-bound
 `GITHUB_TOKEN` with `actions: read` for an authenticated read-only
 [GET of the exact existing environment](https://docs.github.com/en/rest/deployments/environments#get-an-environment).
-Staging must return exactly one required-reviewers protection with valid reviewers. Missing,
+`staging` must return exactly one required-reviewers protection with valid reviewers. Missing,
 inaccessible, malformed or unknown environment/protection configuration fails by name without
 an admitted target. This prevents the [implicit creation of unprotected environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 The deploy then requires the environment variables `OWNER_SETUP_READY` (issue 1) and
-`ACTIVATION_PREREQUISITES_READY` (issue 2) to equal `true`. Production remains disabled.
+`ACTIVATION_PREREQUISITES_READY` (issue 2) to equal `true`. `production` remains disabled.
 The release workflow calls the deployment with `secrets: inherit`: a called workflow otherwise
 gets no secrets, not even its own environment's, and the deploy step sees them as empty. Only
 the provisioning step maps secrets, and only the five declared in
@@ -156,8 +158,8 @@ the provisioning step maps secrets, and only the five declared in
 The release workflow selects an exact successful main-push Quality run and its candidate-bound
 artifact. A main push deploys to development only once `infra/environments/development.json`
 carries development's own routing metadata; until then the selector names no environment and no
-development deploy is queued. Staging is dispatched with the exact candidate and Quality run and
-waits on the protected staging environment, whose approval URL names the candidate. Deployments
+development deploy is queued. `staging` is dispatched with the exact candidate and Quality run and
+waits on the protected `staging` environment, whose approval URL names the candidate. Deployments
 serialize per environment and are never cancelled to supersede persisted-state mutations.
 Pull-request jobs receive no deployment credentials. This workflow creates no environments,
 accounts, secrets or state buckets.
@@ -165,12 +167,12 @@ accounts, secrets or state buckets.
 ### Staging sign-off
 
 The required reviewer's approval of the protected `staging` environment is the only sign-off for a
-staging deploy: approving the waiting job approves that exact candidate, a qualified main commit
+`staging` deploy: approving the waiting job approves that exact candidate, a qualified main commit
 whose Quality evidence the deploy verifies before it changes anything. There is no separate
 independent reviewer, signed review, signed recovery file or acceptance key. Development deploys
 the same way, gated by its own environment's protection rules.
 
-Production keeps a stricter design, to be implemented before it is ever enabled: an independent
+`production` keeps a stricter design, to be implemented before it is ever enabled: an independent
 reviewer's signed review of the exact candidate, verified against an offline Ed25519 acceptance
 key; signed recovery evidence for persisted state; and OpenTofu state and plans encrypted with a
 managed key, pinned by a configuration digest.
@@ -184,7 +186,7 @@ and reads nothing from the runner's disk but the candidate checkout and its Qual
 
 ### OpenTofu state
 
-Development and staging keep OpenTofu state in a Cloudflare R2 bucket through OpenTofu's
+`development` and `staging` keep OpenTofu state in a Cloudflare R2 bucket through OpenTofu's
 S3-compatible backend, one object per environment at `<environment>/terraform.tfstate`. The
 backend's endpoint is `https://<cloudflareAccountId>.r2.cloudflarestorage.com` from the
 environment manifest, and a lock object written with R2's conditional writes stops two runs
@@ -495,12 +497,12 @@ installation/data storage and Wrangler's default private TMPDIR stay separate; s
 failure remove the IPC directory. Signed pinned providers, readonly lock verification, the sole
 public installation network phase and offline schema validation remain unchanged.
 
-No actual CI browser run, hosted deployment, authenticated staging qualification or full Wave 0
+No actual CI browser run, hosted deployment, authenticated qualification on the validation deployment or full Wave 0
 exit is established by this source or locally passing commands; issue 2 owns them.
 
 Enrollment/World-participation handoff and hosted configuration remain pending. Authentication
 verification and read-only authority schema introduce no signup, invitation, enrollment API,
-WorldProvisioningCase or initial grant/privacy policy. Authenticated staging and full Wave 0
-qualification require an authorized bounded enrollment/provisioning path with declared grants/privacy,
+WorldProvisioningCase or initial grant/privacy policy. Authenticated qualification on the validation
+deployment and full Wave 0 qualification require an authorized bounded enrollment/provisioning path with declared grants/privacy,
 or the planned provisioning path, before hosted capability claims. Local controlled rows prove readers
 only.

@@ -474,7 +474,7 @@ authenticated routes, actor revision-hook wiring, capabilities screen and comple
 canary acceptance. The full OAuth decision and all outstanding acceptance remain binding.
 
 Owner amendment (2026-11-10, issue 164): hosted private-egress verification is owned by
-issue 3, on staging after issue 2's first successful deployment. Finish local composition,
+issue 3, on the validation deployment after issue 2's first successful deployment. Finish local composition,
 actor revision integration and the operator/browser/canary path now. Production composition
 stays guarded off until the hosted receipt exists. Local fixtures do not establish hosted
 private-egress protection or waive the original DNS-rebinding requirement.
@@ -675,7 +675,7 @@ Exit: browser, CLI and fake channel threads each have their own session and tran
 
 ### RW-0510 — Conversation, harness, and MCP qualification
 
-Run concurrent sessions, stale revisions, provider/tool interruption, prompt/schema/SSRF attacks, approvals, revocation, heartbeat/coalescing, budgets, delivery replay, and staging provider tests.
+Run concurrent sessions, stale revisions, provider/tool interruption, prompt/schema/SSRF attacks, approvals, revocation, heartbeat/coalescing, budgets, delivery replay, and provider tests on the validation deployment.
 
 Exit: publish Wave 5 qualification manifest and satisfy the outcome.
 
@@ -782,9 +782,9 @@ Wave 5 does not implement:
 - [ ] Browser, CLI, and fake channel address one canonical actor/session model.
 - [ ] Preview/replay cannot produce live external delivery.
 - [ ] World remains active with model/MCP unavailable.
-- [ ] Local and real-provider/staging qualification pass.
+- [ ] Local and real-provider qualification on the validation deployment pass.
 
-The manifest records commit, schema/policy/model/tool versions, provider and scripted eval results, crash matrix, security fixtures, token/cost distributions, effect/delivery evidence, UI/accessibility results, staging qualification, and exit decision.
+The manifest records commit, schema/policy/model/tool versions, provider and scripted eval results, crash matrix, security fixtures, token/cost distributions, effect/delivery evidence, UI/accessibility results, validation-deployment qualification, and exit decision.
 
 `pnpm run qualify:wave5` writes that manifest as `wave5-manifest.json` in a directory the run owns (by default `.qualification/wave5-<ms>/`), read-only, never overwritten, with the comparison domains it declared before the run (`scripts/ci/qualify-wave5-comparison.json`). Each item above carries its disposition there; the boxes above are not a status board. Staging, real-provider and hosted MCP egress items stay pending on issue 3, and the conversation-usefulness rubric pilot stays pending on its owner (issue 19).
 

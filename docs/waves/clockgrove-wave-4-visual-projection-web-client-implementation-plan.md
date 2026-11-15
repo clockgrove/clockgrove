@@ -90,7 +90,7 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - Wave 2 event, decision, command, timeline, and causal-inspection APIs are stable.
 - `green-lake-yard@1` has a minimal deterministic scene fixture with stable object IDs and presentation metadata.
 - Asset provenance, review, content hashing, and R2 bindings exist from Wave 0.
-- Better Auth reference development/staging environments—or the selected conforming provider adapter—have observer and operator fixture users.
+- Better Auth reference `development`/`staging` environments—or the selected conforming provider adapter—have observer and operator fixture users.
 - The attached 16:9 Raccoon World composition is the visual reference, not a shippable runtime asset.
 
 Amended (2026-10-19, 2026-10-31): Wave 2's decisions are authority decisions. Kernel decision traces, with their selection, retention and indexes, and object state and history arrive in this wave's RW-0407, not from Wave 2. The normalized object/component read models Wave 2 deferred are built in Wave 6, rebuilt from replay. Until Wave 6 builds them, RW-0407's object history reads the event journal.
@@ -521,11 +521,11 @@ Exit: every Wave 4 journey is completable without the canvas.
 
 Implement manifests, provenance/review checks, optimization/atlas build, content-addressed R2 upload, world-pack binding, golden camera fixture, the fixture world's placeholder set and license report here, and the reference world's first character/environment set in its own repository.
 
-Exit: staging scene is reproducible from approved source/manifests; no unreviewed asset can deploy.
+Exit: the scene on the validation deployment is reproducible from approved source/manifests; no unreviewed asset can deploy.
 The local pipeline is proven on generated pixel, cartoon and painterly external
 worlds; reviewed output is served by the external local shell. Human approval,
 provider-grant enforcement and scene-diff review remain required for every style.
-Staging upload evidence remains pending on issue 3.
+Upload evidence on the validation deployment remains pending on issue 3.
 
 Amended (2026-10-27): RW-0409 inherits from Wave 1 (Wave 1 §5.2) the registration of the Presentation component, whose first consumer is the world-pack presentation binding.
 

@@ -6,7 +6,7 @@
 **Version:** 0.5.10
 **Date:** October 19, 2026
 **Working name:** Clockgrove
-**Product type:** Open-source persistent artificial-life world and conversational actor platform
+**Product type:** Open-source engine and toolchain for persistent artificial-life worlds with conversational actors, deployed by developers in their own cloud accounts
 **Initial client:** Browser
 **Primary implementation language:** TypeScript
 
@@ -36,20 +36,20 @@ The following decisions resolve earlier open questions and control if later hist
 2. **Shared worlds follow MUD/MOO semantics.** Workspace membership grants administrative ownership; world membership grants participation. A visitor may join a world without joining its owning workspace.
 3. **Authentication is provider-neutral.** Better Auth is the reference open-source adapter. Clerk may be offered as an optional hosted adapter. Neither provider owns Clockgrove tenancy, authorization, world membership, personas, attribution, or billing semantics.
 4. **Every participant has a world persona.** The durable chain is `Principal -> WorldMembership -> WorldPersona -> Presence`. A persona may be unrendered, represented, or embodied, and may optionally control a world actor. Raccoon World begins with a disclosed, unrendered Caretaker persona.
-5. **Attribution is foundational.** Every mutating command and derived event carries an immutable `AttributionEnvelope` that distinguishes initiator, effective actor, authority decision, causal root, immediate cause, session, world, timeline, and correlation identifiers. Billing consumes attribution later; it never defines authorship or causation.
+5. **Attribution is foundational.** Every mutating command and derived event carries an immutable `AttributionEnvelope` that distinguishes initiator, effective actor, authority decision, causal root, immediate cause, session, world, timeline, and correlation identifiers. Cost metering consumes attribution; it never defines authorship or causation.
 6. **Personal inventory is world- and timeline-local.** An item may move among rooms, containers, actors, and a persona inventory inside one world. Runtime object portability between worlds is out of scope. Export/import of world data is a separate administrative concern.
 7. **Object mobility uses sparse inherited policy.** Effective permission is the intersection of world defaults, space restrictions, role/persona restrictions, archetype ceilings, and instance restrictions. Descendants may narrow policy but may not silently widen a parent. Deny wins. Pickup, drop, give, move-within-space, cross-space, place, remove, and object-use capabilities are evaluated separately.
 8. **Scale is activity-driven.** One million logical actors in a world is a qualification target, not a promise of one million simultaneously active or visible actors. The initial 2D/isometric runtime uses a loose quadtree with epoch-scoped opaque cell references, hot/warm/dormant tiers, leaf summaries, scoped event cursors, and measured promotion of hot leaves. An octree or another 3D index is deferred until a world requires authoritative 3D movement; no quadtree code enters durable actor/object identity.
 9. **Canonical truth remains in PostgreSQL.** Durable Objects serialize active work but are reconstructible. Runtime instance identifiers are Clockgrove diagnostic identifiers, not Cloudflare platform identities.
-10. **Commercial hosting is optional.** Waves 0–9 form the technical/open-source track, Waves 10–11 add self-service and shared-world participation, and Wave 12 adds optional metering and billing.
-11. **Hosted variable-cost work is metered against prepaid credits.** One `BillingAccount` owns one authoritative wallet shared across its worlds. Management uses PostgreSQL for immutable accounting and Redis for atomic allocation; worlds receive bounded, expiring credit leases rather than separate Stripe customers, subscriptions, or authoritative wallets.
-12. **Failure is explicit.** Runtime enforces epoch/versioned `active`, `credit_restricted`, `frozen`, `read_only`, or `archived` execution modes. Empty credit normally blocks variable-cost work; nonpayment may freeze a world at a safe journal boundary without accumulating unbounded catch-up debt.
+10. **Clockgrove is an engine, not a hosted service.** The unit of deployment is a world: a world pack plus a pinned Clockgrove, deployed into the developer's own cloud account. No one signs in to Clockgrove itself; players sign in to a world's deployment, and owner tools (approvals, moderation case review, budgets, run inspection) live inside that deployment for its owner role. Waves 0–9 are the delivery plan. Waves 10–12 (self-service signup, shared hosted worlds, metering, prepaid credits and billing) are parked.
+11. **Variable-cost work runs inside the deployment's budgets.** The deployment's owner sets quotas and budgets for simulation, model and tool work. The shared wallet, prepaid credits, credit leases and payment-provider integration are parked with Wave 12.
+12. **Failure is explicit.** Exhausted budgets stop variable-cost work within declared bounds, and the owner may pause a world or make it read-only. The credit-driven execution modes (`credit_restricted`, and `frozen` for nonpayment) are parked with Wave 12.
 13. **A world has an explicit birth.** A validated immutable pack installs through an idempotent `WorldProvisioningCase`; it pins provenance, commits genesis/seed commands, verifies projections, and emits `WorldReady` before ordinary entry or simulation begins.
 14. **Genesis is reproducible.** A pack installation pins the simulation epoch and clock mapping, named random-stream algorithm/state, initial cognitive artifacts and policies, schedules, asset manifest, and expected seed hash.
 15. **Browser arrival is a product contract.** Authorization, presence, snapshot/backfill, critical assets, reducer state, renderer readiness, and text fallback have visible states; a partial or incompatible world never masquerades as ready.
 16. **Caretaker communication is explicit.** Initial `Talk` is a private, attributed Caretaker-to-actor channel rather than spatial sound. Public speech, Influence, gifts, operator inspection, and authoring are separate actions with their own authority and audience semantics.
 17. **Viewing is not embodiment.** Camera movement and authorized observer space changes affect presence/interest only. Moving a controlled actor or world object always uses ordinary physical commands.
-18. **Management and Runtime are separate logical planes.** Management owns identity/tenancy, world catalog and desired lifecycle, pack registry, provisioning cases, quotas, wallets, rating, accounting, money and Stripe. World Runtime owns journals, simulation, actors, cognition, world participation, attribution and projection. They may initially compose inside one modular CLI/process but cannot write through each other's persistence boundary.
+18. **Management and Runtime are separate logical planes.** Inside each world's deployment, Management owns identity/tenancy, world catalog and desired lifecycle, pack registry, provisioning cases and quotas. World Runtime owns journals, simulation, actors, cognition, world participation, attribution and projection. They may initially compose inside one modular CLI/process but cannot write through each other's persistence boundary.
 
 ---
 
@@ -2654,13 +2654,13 @@ Unlike a coding-agent factory, its agents are dynamically compiled from persiste
 
 ### 19.5 Management Plane
 
-The logical Management Plane owns principals and tenant workspaces, billing accounts, world catalog and desired lifecycle, immutable pack registry, provisioning/upgrade/archive/delete cases, quota policy, sponsorship, shared-wallet allocation, rating, accounting, and all Stripe integration. It issues typed requests and bounded execution entitlements; it cannot write world journal or simulation state directly.
+The logical Management Plane of each world's deployment owns principals and tenant workspaces, world catalog and desired lifecycle, immutable pack registry, provisioning/upgrade/archive/delete cases and quota policy, for the deployment's owner role. It issues typed requests; it cannot write world journal or simulation state directly.
 
-One billing-account wallet may fund many worlds. Management atomically leases bounded credits to a world under an entitlement epoch, expiry, rate-card version, and resource ceilings. Runtime spends only inside that lease and returns attributed raw usage plus idempotent capture/release receipts. A modular monolith or `clockgrove` CLI may host both planes in-process initially, but uses the same ports required by later HTTP, Queue, or Workflow deployment.
+Billing accounts, sponsorship, shared-wallet credit leases, rating, accounting and Stripe integration are parked with Wave 12. A modular monolith or `clockgrove` CLI may host both planes in-process initially, but uses the same ports required by later HTTP, Queue, or Workflow deployment.
 
 ### 19.6 Application boundary
 
-Cloudflare Workers provide the public gateway and may initially host both logical planes. Management routes identity, workspace, provisioning, billing and administrative use cases; Runtime routes world commands, conversations, subscriptions, inspection and projection to the appropriate durable owner. Hibernating WebSockets and sequence-aware projections keep browser clients current without a separate multiplayer room authority.
+Cloudflare Workers provide the public gateway and may initially host both logical planes. Management routes identity, workspace, provisioning and administrative use cases; Runtime routes world commands, conversations, subscriptions, inspection and projection to the appropriate durable owner. Hibernating WebSockets and sequence-aware projections keep browser clients current without a separate multiplayer room authority.
 
 ### 19.7 Storage
 
@@ -2770,8 +2770,8 @@ The repository does not need runtime selectors such as `typescript | rust-wasm` 
 | Model/tool loop | Project-owned agent harness over Vercel AI SDK adapters | Clockgrove-owned run semantics with reusable provider transport, structured output, tool calling, and streaming mechanics |
 | Hosted model execution | Cloudflare AI Gateway | Provider access, fallback execution, accounting, and telemetry; Clockgrove owns semantic routing policy and direct/open-weight/local adapters remain supported |
 | Canonical database | Neon Postgres | Journal, projections, snapshots, runs, cognitive documents, rules |
-| Management wallet allocator | Redis-compatible store | Optional Wave 12 atomic shared-wallet allocation and world credit leases; rebuildable from PostgreSQL ledger |
-| World lease enforcement | WorldDO/runtime SQLite behind a port | Atomic local consumption within a bounded Management-issued lease; never a global wallet mirror |
+| Management wallet allocator | Redis-compatible store | Parked with Wave 12: atomic shared-wallet allocation and world credit leases; rebuildable from PostgreSQL ledger |
+| World lease enforcement | WorldDO/runtime SQLite behind a port | Parked with Wave 12: atomic local consumption within a bounded Management-issued lease; never a global wallet mirror |
 | Authentication | Better Auth reference adapter; Clerk optional | Providers prove identity only; Clockgrove owns principals, tenancy, membership, personas, and authorization |
 | SQL and migrations | Drizzle plus reviewed raw SQL | Drizzle for schema/migrations/ordinary queries; raw SQL for append locking, RLS, recursive traversal, vector operators, and critical bulk paths |
 | Vector retrieval | pgvector | Initial semantic retrieval |
@@ -3031,7 +3031,7 @@ World policy selects one of:
 - Deterministically fast-forward a bounded interval
 - Aggregate long elapsed periods into coarse semantic changes
 
-The first hosted world may remain continuously active. Local worlds must handle ordinary shutdown without surprising event storms on restart.
+A deployed world may remain continuously active. Local worlds must handle ordinary shutdown without surprising event storms on restart.
 
 ---
 
@@ -3160,11 +3160,13 @@ The detailed wave documents, not the older product-sequencing sketch retained be
 | 7 | Rules, preview timelines, branch-local persona inventory, and authoring | Technical/OSS |
 | 8 | Complete living neighborhood and demo-quality web application | Technical/OSS |
 | 9 | GA operations and open-source release | Technical/OSS |
-| 10 | Self-service multitenancy, signup, workspaces, and onboarding | Hosted/shared-world |
-| 11 | Multiuser worlds, world personas, action attribution, inventory, and mobility | Hosted/shared-world |
-| 12 | Optional usage metering, Redis-backed prepaid admission, accounting, and billing | Optional commercial hosting |
+| 10 | Self-service multitenancy, signup, workspaces, and onboarding | Parked, not planned |
+| 11 | Multiuser worlds, world personas, action attribution, inventory, and mobility | Parked, not planned |
+| 12 | Optional usage metering, Redis-backed prepaid admission, accounting, and billing | Parked, not planned |
 
-Attribution schema begins in Waves 0–2 even though full multiuser behavior arrives in Wave 11. This avoids a retroactive journal migration and makes human, agent, system, rule, and tool causation inspectable from the first mutation.
+Waves 10–12 are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service.
+
+Attribution schema begins in Waves 0–2 even though full multiuser behavior belongs to the parked Wave 11. This avoids a retroactive journal migration and makes human, agent, system, rule, and tool causation inspectable from the first mutation.
 
 Development automation is external to the product wave sequence. `clockgrove/pendulum` may maintain plans and dispatch bounded coding attempts through ordinary repository interfaces, but Pendulum goals, conversations, approvals, memories, execution state, and audit records never become world-domain state unless they enter through an explicit, authorized Clockgrove product command. Pendulum implementation choices do not pre-decide the Wave 5 actor-harness implementation.
 
@@ -3178,7 +3180,7 @@ Predeclare audience, hypothesis, evaluation rubric, and budget at the first obse
 
 ### 25.3 Historical product-sequencing sketch
 
-The following Wave 0–8 sketch from v0.4 is retained as architectural lineage only. It is superseded for ordering, ownership, and acceptance by the canonical table and the individual Wave 0–12 plans.
+The following Wave 0–8 sketch from v0.4 is retained as architectural lineage only. It is superseded for ordering, ownership, and acceptance by the canonical table and the individual Wave 0–9 plans.
 
 #### Historical Wave 0: Contracts, evaluation fixtures, and repository foundation
 
@@ -3663,7 +3665,7 @@ Cross-world runtime portability would require incompatible-archetype resolution,
 
 Using a payment provider or an eventually consistent database balance lookup in the synchronous command path would make retries and outages unsafe.
 
-**Decision:** optional hosted billing lives in the Management Plane. One billing account owns one PostgreSQL-authoritative wallet shared across worlds; Redis atomically allocates bounded, expiring, epoch-fenced world credit leases. Runtime locally reserves and consumes within a lease, originates attributed raw usage, and returns capture/release receipts. Stripe collects/reconciles money only and is not used to partition worlds or admit work. Deterministic simulation is not coupled to provider availability, while a Management-issued execution mode may explicitly restrict or freeze a world.
+**Decision:** a deployment admits variable-cost work through its owner's quotas and budgets, with no payment provider in the command path. The shared-wallet design is parked with Wave 12: optional hosted billing lives in the Management Plane. One billing account owns one PostgreSQL-authoritative wallet shared across worlds; Redis atomically allocates bounded, expiring, epoch-fenced world credit leases. Runtime locally reserves and consumes within a lease, originates attributed raw usage, and returns capture/release receipts. Stripe collects/reconciles money only and is not used to partition worlds or admit work. Deterministic simulation is not coupled to provider availability, while a Management-issued execution mode may explicitly restrict or freeze a world.
 
 ---
 
@@ -3689,7 +3691,7 @@ Section 30 records resolved pressure-test decisions and explicit initial respons
 - Confirmation/tuning of the current raw model/tool retention default and authorized cognitive-document/policy inspector access
 - Asset-generation and licensing policy for community contributions
 - Objective thresholds for quadtree leaf promotion, SpaceDO sharding, and specialized graph projections
-- Exact Redis-compatible deployment, world-lease sizing/TTL, revocation latency, and reconciliation cadence for the optional hosted wallet
+- Exact Redis-compatible deployment, world-lease sizing/TTL, revocation latency, and reconciliation cadence for the optional hosted wallet (parked with Wave 12)
 
 ---
 
@@ -3764,9 +3766,7 @@ This is a capability sequence, not a live status board or a fixed number of Obje
 8. **Wave 7:** first qualify typed changeset validation, isolated preview, diff, live-head revalidation and promotion; then add one bounded deterministic counterfactual Why capability, natural-language compilation, broader rules and complete scenario coverage.
 9. **Wave 8:** integrate the earlier checkpoints with a provenance-recorded live observation feed, actor-initiated MCP research, the complete learning/policy causal chain, field-guide learning and counterfactual Why journeys, richer ecology/lifecycle and demo art.
 10. **Wave 9:** qualify one stable technical/open-source candidate through security/privacy, clean restore, provenance, supported capacity, runbooks and release evidence. Ordinary acceptance, fault injection and load are distinct scenarios.
-11. **Wave 10:** qualify personal signup and starter-world provisioning before broader shared-workspace administration, reusing Management lifecycle authority.
-12. **Wave 11:** qualify two independently authenticated invited participants with world memberships/personas and attributed inventory/actions, then broader shared-world policy; two browser sessions alone do not prove this.
-13. **Wave 12:** only on the optional commercial track, use measured costs to qualify metering, rating, shared-wallet leases and money collection under the existing financial contracts and applicable authority.
+11. **Waves 10–12:** parked; not planned.
 
 The bounded policy compiler is required cognition, not arbitrary generated executable code. Full 3D engines, broad provider orchestration, approximate vector indexing and extra services wait for a concrete consumer or measurement; their compatibility seams remain protected.
 

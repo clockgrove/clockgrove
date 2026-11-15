@@ -6,7 +6,7 @@
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Development tooling:** `clockgrove/pendulum` may operate this repository but is not a product/runtime dependency
-**Wave:** 0 of 13 — foundation workstream for product implementation waves 1–12
+**Wave:** 0 of 13 — foundation workstream for product implementation waves 1–9
 
 ---
 
@@ -24,13 +24,13 @@ The wave produces:
 - deterministic local test doubles for model, MCP, external data, and authentication dependencies;
 - a renderer-neutral browser diagnostic shell;
 - observability, correlation, evidence, and release-manifest vocabulary;
-- reproducible local, CI, development, staging, and production environment definitions;
+- reproducible `local`, `ci`, `development`, `staging` and `production` environment definitions;
 - supply-chain, security, migration, recovery, and release controls;
 - a green authenticated no-op path through the final production seams without implementing world simulation yet.
 
 Wave 0 exits when:
 
-> A clean supported Linux environment can bootstrap the repository from documented commands; CI proves package boundaries, contracts, migrations, authorization isolation, runtime compatibility, and deterministic fixtures; and an authenticated staging request can traverse the public gateway, runtime composition boundary, PostgreSQL, and observability path with one correlation identity.
+> A clean supported Linux environment can bootstrap the repository from documented commands; CI proves package boundaries, contracts, migrations, authorization isolation, runtime compatibility, and deterministic fixtures; and an authenticated request to the validation deployment can traverse the public gateway, runtime composition boundary, PostgreSQL, and observability path with one correlation identity.
 
 Wave 0 is not throwaway scaffolding. It establishes contracts and boundaries that later waves extend rather than replace.
 
@@ -47,7 +47,7 @@ Reuse the accepted workspace, contracts, pure kernel/testkit seams, and real Pos
 3. Complete model/MCP adapter seams and deterministic fake providers without introducing live cognition as a foundation dependency.
 4. Qualify clean bootstrap, migrations, CI/supply chain, deployment, recovery and portability on the intended stable candidate.
 
-Pure kernel consumers may use accepted local foundation contracts under the ADR's recorded readiness exception while full staging qualification remains pending. The production skeleton and all Section 20 exits still require their own evidence. Use supported isolated PostgreSQL fixtures; the acceptance property is real database semantics and reproducibility, not a mandatory container host.
+Pure kernel consumers may use accepted local foundation contracts under the ADR's recorded readiness exception while full qualification on the validation deployment remains pending. The production skeleton and all Section 20 exits still require their own evidence. Use supported isolated PostgreSQL fixtures; the acceptance property is real database semantics and reproducibility, not a mandatory container host.
 
 ---
 
@@ -241,7 +241,7 @@ All required CI commands are noninteractive and runnable from a clean checkout.
 
 Amended (2026-10-19): the list matches the real root scripts, with their order and coverage in `docs/runbooks/development.md`.
 
-- `pnpm infra:plan <environment>` makes a read-only plan; Quality runs the zero-resource `ci` plan. `pnpm test:cloud [environment]` checks that the plan is reproducible with no pending change and probes a hosted environment's deployed origin. Their staging passes belong to the hosted half (issue 2), since they need a staging deploy. `pnpm infra:validate` runs the backend-free OpenTofu validation and Wrangler dry-runs, with no credentials.
+- `pnpm infra:plan <environment>` makes a read-only plan; Quality runs the zero-resource `ci` plan. `pnpm test:cloud [environment]` checks that the plan is reproducible with no pending change and probes a hosted environment's deployed origin. Their passes against the validation deployment (environment `staging`) belong to the hosted half (issue 2), since they need that deployment. `pnpm infra:validate` runs the backend-free OpenTofu validation and Wrangler dry-runs, with no credentials.
 - `pnpm test:e2e` is the browser journey Quality runs with `tests/ci/vitest.browser.config.ts`. It stays out of offline `pnpm test`, so it has no root script.
 - `pnpm verify` is dropped: the gate is the ordered command list in the development runbook, which Quality records in one evidence manifest.
 - `pnpm dev` is dropped at the root: the shell runs with `pnpm --filter @clockgrove/web dev`, and the runtime runs through `pnpm test:runtime`.
@@ -561,19 +561,19 @@ Wave 0 proves the release path without granting unattended production authority.
 
 A qualified `main` commit may deploy automatically to the development environment.
 
-Amended (2026-11-09): development deploys only once its environment is configured with its own zone; until then a qualified `main` commit deploys nowhere automatically, and staging is the only hosted environment.
+Amended (2026-11-09): development deploys only once its environment is configured with its own zone; until then a qualified `main` commit deploys nowhere automatically, and the validation deployment (environment `staging`) is the only hosted environment.
 
-### Staging
+### Validation deployment (`staging`)
 
 A release candidate deploys through a protected environment and runs production-shaped qualification.
 
-Amended (2026-11-09): the owner's required-reviewer approval on the protected `staging` environment is the only staging sign-off. Staging needs no independent reviewer, signed review or recovery evidence, acceptance key or configuration digest. The deploy runs on a GitHub-hosted runner, a fresh VM per job, and keeps OpenTofu state in a Cloudflare R2 bucket with no OpenTofu state encryption: R2 encrypts at rest and a bucket-scoped token limits access. The zone stays on Cloudflare's Free plan, so its rate-limit rule matches paths with 10-second periods. [Infrastructure](../runbooks/infrastructure.md#w0-009-protected-deployment-and-recovery) has the details.
+Amended (2026-11-09): the owner's required-reviewer approval on the protected `staging` environment is the only sign-off for the validation deployment. It needs no independent reviewer, signed review or recovery evidence, acceptance key or configuration digest. The deploy runs on a GitHub-hosted runner, a fresh VM per job, and keeps OpenTofu state in a Cloudflare R2 bucket with no OpenTofu state encryption: R2 encrypts at rest and a bucket-scoped token limits access. The zone stays on Cloudflare's Free plan, so its rate-limit rule matches paths with 10-second periods. [Infrastructure](../runbooks/infrastructure.md#w0-009-protected-deployment-and-recovery) has the details.
 
 ### Production
 
-Production deployment requires the release policy in force at that time, including explicit human approval until a later accepted ADR narrows that gate.
+The Clockgrove repository has no `production` deployment of its own; the deploy tooling keeps the `production` environment for a developer's world. Deploying to it requires the release policy in force at that time, including explicit human approval until a later accepted ADR narrows that gate.
 
-Amended (2026-11-09): production, still disabled, keeps the stricter design the staging amendment drops: an independent reviewer's signed review of the exact candidate, verified against an offline Ed25519 acceptance key; signed recovery evidence for persisted state; and OpenTofu state and plans encrypted with a managed key, pinned by a configuration digest.
+Amended (2026-11-09): `production`, still disabled, keeps the stricter design the validation-deployment amendment drops: an independent reviewer's signed review of the exact candidate, verified against an offline Ed25519 acceptance key; signed recovery evidence for persisted state; and OpenTofu state and plans encrypted with a managed key, pinned by a configuration digest.
 
 A release manifest pins at least:
 
@@ -651,17 +651,17 @@ Create model, route-policy, tool, MCP, context, checkpoint and evidence ports pl
 
 Create React shell, typed API/WebSocket client, readiness state, renderer-neutral scene adapter, diagnostic projection, reconnect behavior, and accessible text fallback.
 
-**Exit:** authenticated staging browser path reaches the runtime skeleton with correlated evidence.
+**Exit:** authenticated browser path on the validation deployment reaches the runtime skeleton with correlated evidence.
 
 ### W0-008 — Define infrastructure and environments
 
-Create OpenTofu/Wrangler/database environment configuration and safe configuration schemas for local/ci/development/staging/production.
+Create OpenTofu/Wrangler/database environment configuration and safe configuration schemas for `local`/`ci`/`development`/`staging`/`production`.
 
 **Exit:** infrastructure plan is reproducible and no secret values are committed.
 
 ### W0-009 — Integrate CI supply chain and release controls
 
-Create required CI jobs, dependency/license/SBOM/security checks, evidence manifest, development deploy and staging/production gates.
+Create required CI jobs, dependency/license/SBOM/security checks, evidence manifest, development deploy and `staging`/`production` gates.
 
 **Exit:** a deliberately broken boundary, migration, secret fixture, and contract drift each fail visibly.
 
@@ -671,7 +671,7 @@ Bootstrap from a clean Linux environment, recreate databases/fixtures, destroy r
 
 **Exit:** publish Wave 0 evidence manifest and handoff to Wave 1.
 
-Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 and W0-010 moves to Wave 3 entry, owned by issue 2. It covers the real staging deploy, the authenticated staging browser path with enrollment and the world-grant/privacy handoff, Queue and webhook duplicate safety on real infrastructure, a reproducible real infrastructure plan, and acceptance of the Wave 0 evidence manifest. The staging deploy was already deferred until accounts and secrets exist; issue 2 now owns it. Wave 3 is the first wave that runs the real service.
+Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 and W0-010 moves to Wave 3 entry, owned by issue 2. It covers the real validation deployment, the authenticated browser path on it with enrollment and the world-grant/privacy handoff, Queue and webhook duplicate safety on real infrastructure, a reproducible real infrastructure plan, and acceptance of the Wave 0 evidence manifest. The validation deployment was already deferred until accounts and secrets exist; issue 2 now owns it. Wave 3 is the first wave that runs the real service.
 
 ---
 
@@ -691,11 +691,11 @@ Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 
 - [ ] Browser diagnostic shell has readiness, reconnect, renderer-neutral projection and text fallback.
 - [ ] CI checks types, boundaries, contracts, migrations, security, supply chain and browser smoke tests.
 - [ ] No secret/private deployment material exists in repository source.
-- [ ] Development/staging/production environment and release-manifest contracts are defined.
+- [ ] `development`/`staging`/`production` environment and release-manifest contracts are defined.
 - [ ] Clean Linux bootstrap and recovery qualification pass.
 - [ ] Wave 0 evidence manifest is accepted before Wave 1 product work begins.
 
-Amended (2026-10-19): the hosted items ("Worker/DO composition route is deployed", the staging browser path and "Wave 0 evidence manifest is accepted") are Wave 3 entry conditions owned by issue 2, with staging accounts tracked in issue 1. Waves 1 and 2 proceed under the readiness exception.
+Amended (2026-10-19): the hosted items ("Worker/DO composition route is deployed", the browser path on the validation deployment and "Wave 0 evidence manifest is accepted") are Wave 3 entry conditions owned by issue 2, with the validation deployment's accounts tracked in issue 1. Waves 1 and 2 proceed under the readiness exception.
 
 ---
 

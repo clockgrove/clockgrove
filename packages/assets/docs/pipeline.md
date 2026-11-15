@@ -163,7 +163,7 @@ from the store resolves each requested name (`atlases.json`, then every listed p
 `.animations.json` and `.png`) through the directory. The R2 adapter takes a structural bucket
 binding, so no provider type enters the package.
 
-Staging upload and the RW-0409 exit stay pending on issue 3.
+Upload to the validation deployment and the RW-0409 exit stay pending on issue 3.
 
 ## Fixture placeholders
 

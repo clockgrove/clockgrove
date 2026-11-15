@@ -4,7 +4,7 @@
 **Baseline date:** October 01, 2026  
 **Product baseline:** PRD v0.5.10  
 **Architecture baseline:** Cloudflare-native implementation plan v3.12  
-**Delivery baseline:** Product Waves 0–12
+**Delivery baseline:** Product Waves 0–9; Waves 10–12 parked
 
 ---
 
@@ -12,7 +12,7 @@
 
 This index identifies the documents that define the current Clockgrove product/runtime baseline, the order in which to read them, and the status of supporting and historical material.
 
-Clockgrove is the reusable platform/runtime for any world. Raccoon World, the first reference world and demo-quality application, lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) and builds against Clockgrove at a pinned commit. Clockgrove keeps `worlds/fixture` as its own test world, the platform's portability proof.
+Clockgrove is the reusable engine and toolchain for any world. It is not a hosted service: the unit of deployment is a world, a world pack plus a pinned Clockgrove deployed into the developer's own cloud account, and players sign in to that world's deployment. Raccoon World, the first reference world and demo-quality application, lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) and builds against Clockgrove at a pinned commit. Clockgrove keeps `worlds/fixture` as its own test world, the platform's portability proof.
 
 External development tools such as `clockgrove/pendulum` may operate this repository. Their state and implementation are not Clockgrove product/runtime authority.
 
@@ -83,7 +83,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | `docs/clockgrove-prd-v0.5.md` | 0.5.10 | Current | Product thesis, users, shared-world model, scope, acceptance, delivery boundary |
 | `docs/clockgrove-cloudflare-implementation-plan.md` | 3.12 | Current | Cross-wave engineering architecture and fixed product/runtime boundaries |
 | `docs/adr/clockgrove-adr-world-personas-and-object-mobility-policy.md` | Accepted | Current | World personas, world-local inventory and inherited mobility policy |
-| `docs/adr/clockgrove-adr-management-plane-world-runtime-plane-and-shared-wallet.md` | 1.0 | Accepted | Management/Runtime authority, provisioning, shared-wallet leases and Management-only billing-provider boundary |
+| `docs/adr/clockgrove-adr-management-plane-world-runtime-plane-and-shared-wallet.md` | 1.0 | Accepted | Management/Runtime authority and provisioning inside each world's deployment; shared-wallet leases and billing parked |
 | `docs/adr/clockgrove-adr-incremental-wave-delivery-and-evidence.md` | 1.0 | Accepted | Substantial sequential workstreams, Objective checkpoints/readiness, proportionate qualification and comparison rules |
 | `docs/adr/clockgrove-adr-field-guides-and-counterfactual-why.md` | 1.0 | Accepted | Resident-authored evolving knowledge, governed sharing/testimony, and bounded deterministic counterfactual Why |
 | `docs/adr/clockgrove-adr-actor-decision-ladder.md` | 1.0 | Accepted | Actor decision ladder: reflex, utility, compiled policy, bounded decision model, LLM; decision points in actor policy, models propose never commit, journal replay, deterministic fallback, distillation into compiled policy, dreaming steps as decision points |
@@ -106,9 +106,9 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 7 | `clockgrove-wave-7-rules-timelines-authoring-implementation-plan.md` | 1.8 | Rules, preview timelines, bounded counterfactual Why, previewed pack upgrades and reusable exports |
 | 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona, delivered in clockgrove/raccoon-world against the platform |
 | 9 | `clockgrove-wave-9-ga-open-source-release-implementation-plan.md` | 1.9 | Technical/open-source GA of the platform, with Raccoon World as a separate reference world |
-| 10 | `clockgrove-wave-10-self-service-multitenancy-signup-implementation-plan.md` | 1.6 | Provider-neutral Management Plane, workspaces, billing-account seam and starter-world provisioning |
-| 11 | `clockgrove-wave-11-multiuser-attribution-portable-objects-implementation-plan.md` | 2.5 | Multiuser worlds, personas, attribution and world-local inventory |
-| 12 | `clockgrove-wave-12-metering-prepaid-credits-billing-implementation-plan.md` | 1.5 | Shared-wallet leases, Runtime-local admission and Management-only commercial billing |
+| 10 | `clockgrove-wave-10-self-service-multitenancy-signup-implementation-plan.md` | 1.6 | Parked, not planned: provider-neutral Management Plane, workspaces, billing-account seam and starter-world provisioning |
+| 11 | `clockgrove-wave-11-multiuser-attribution-portable-objects-implementation-plan.md` | 2.5 | Parked, not planned: multiuser worlds, personas, attribution and world-local inventory |
+| 12 | `clockgrove-wave-12-metering-prepaid-credits-billing-implementation-plan.md` | 1.5 | Parked, not planned: shared-wallet leases, Runtime-local admission and Management-only commercial billing |
 
 The Wave 11 filename is retained for historical identity. Its current content explicitly rejects cross-world runtime object portability.
 
@@ -122,15 +122,11 @@ GitHub retains current Objective/Work Item status and exact evidence. This index
 
 ### Technical/open-source track: Waves 0–9
 
-Produces a secure, reproducible, demo-quality, open-source Clockgrove platform and a hosted reference world delivered from its own repository. It does not require self-service commercialization, customer billing or public MMO operations.
+Produces a secure, reproducible, demo-quality, open-source Clockgrove engine that developers deploy with their own worlds. The reference world is delivered and deployed from its own repository. It does not require self-service commercialization, customer billing or public MMO operations.
 
-### Shared hosted-world track: Waves 10–11
+### Parked: Waves 10–12
 
-Adds self-service identity/tenancy and shared-world participation. Workspace administration remains distinct from world membership. Attribution exists before billing.
-
-### Optional commercial-hosting track: Wave 12
-
-Adds Management-side usage rating, one authoritative wallet per billing account, bounded world credit leases, Runtime-local enforcement, payment collection and customer billing controls. It does not redefine world truth or put payment-provider state inside Runtime semantics.
+Waves 10–11 (self-service identity/tenancy and shared hosted worlds) and Wave 12 (metering, prepaid credits and billing) are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. They are not planned. Their plan files carry the parked status.
 
 ### Development tooling
 
@@ -142,11 +138,11 @@ External tools such as `clockgrove/pendulum` may plan and deliver work through G
 
 - Clockgrove separates deterministic physical truth from subjective/model-backed cognition.
 - Models and tools propose; typed authorized application paths mutate canonical state.
-- PostgreSQL is canonical world history and canonical Management accounting truth.
-- Durable Objects, Queues, Workflows, Redis, indexes and browser state are serialized execution, delivery or reconstructible projections rather than alternate histories.
-- Clockgrove has a logical Management Plane and World Runtime Plane. They may compose in one deployable initially while preserving the authority boundary.
-- Management owns identity/tenancy, catalog/desired lifecycle, packs/provisioning, quotas, sponsorship, rating/accounting, money and payment-provider integration. Runtime owns world truth, participation, attribution, raw usage origination and projection.
-- One billing account may own one authoritative wallet shared across its worlds. Redis may allocate bounded world credit leases; Runtime consumes only valid local lease authority without a per-turn Management call.
+- PostgreSQL is canonical world history and canonical Management truth.
+- Durable Objects, Queues, Workflows, indexes and browser state are serialized execution, delivery or reconstructible projections rather than alternate histories.
+- Each world's deployment has a logical Management Plane and World Runtime Plane, operated by the deployment's owner role. They may compose in one deployable initially while preserving the authority boundary.
+- Management owns identity/tenancy, catalog/desired lifecycle, packs/provisioning and quotas. Runtime owns world truth, participation, attribution, raw usage origination and projection.
+- Shared wallets, credit leases, sponsorship, rating/accounting, money and payment-provider integration are parked with Waves 10–12.
 - World birth is an explicit idempotent provisioning case over one immutable pack artifact; only runtime-committed `WorldReady` makes the world routable.
 - Genesis pins simulation epoch, clock policy, named random streams, cognition seeds, schedules, seed commands, asset/provenance metadata and expected seed-projection hash.
 - Browser arrival uses one truthful readiness contract with compatibility handling, critical-asset readiness and an accessible text fallback.
@@ -162,7 +158,6 @@ External tools such as `clockgrove/pendulum` may plan and deliver work through G
 - One million logical actors per world is a qualification target; active, visible and cognitive work remains bounded.
 - Initial loose-quadtree indexing, Three.js rendering and bounded reactive runs are implementations behind durable spatial, scene and `ActorProcess` contracts.
 - Future 3D and selectively long-running agent capabilities are protected by conformance seams rather than prebuilt machinery.
-- All payment/customer/invoice/refund/dispute/tax integration is Management-only. Worlds do not require separate payment-provider customers, subscriptions or meters.
 - Pendulum cognition and Clockgrove runtime cognition are separate systems and data planes.
 - Privacy uses five accepted categories and a subset-narrowed set ceiling; scope, audience and authority remain independent. Only `public_scene` enters shared projection.
 - Waves 5–6 own governed cognitive documents, actor-authored SKILL.md and bounded compiled-policy artifacts/bindings/evaluations, adoption, invalidation and fallback; arbitrary generated code remains deferred.
@@ -181,7 +176,7 @@ Historical material never overrides current authority. Private working history, 
 
 ## 9. Terminology guardrails
 
-- **Clockgrove:** reusable platform/runtime for any world; its code names no world's content.
+- **Clockgrove:** reusable engine and toolchain for any world, deployed inside each world's deployment rather than as a hosted service; its code names no world's content.
 - **Raccoon World:** first reference world/world pack and demo application, in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world).
 - **World repository:** a world's own repository, holding its pack, art, style bible, theme, goldens and journeys, and building against Clockgrove at a pinned commit.
 - **Fixture world:** `worlds/fixture`, Clockgrove's own test world: the beacon pack and the neutral reference variant under `worlds/fixture/reference`. It is the platform's portability proof.
@@ -197,9 +192,9 @@ Historical material never overrides current authority. Private working history, 
 - **Attribution:** authorship, agency and causation evidence.
 - **Field guide:** versioned, attributed knowledge prepared for an authorized audience; a presentation of cognitive synthesis, not an omniscient wiki or required guest book.
 - **Counterfactual Why:** a scoped hypothetical decision comparison, not a rewrite of history or a claim to know hidden model reasoning.
-- **Sponsorship:** separate decision about which account funds variable-cost work.
-- **Billing account wallet:** one Management-owned authoritative credit wallet that may sponsor many worlds.
-- **World credit lease:** bounded, expiring, epoch-fenced spend authority allocated from a shared wallet and enforced locally by Runtime.
+- **Sponsorship (parked):** separate decision about which account funds variable-cost work.
+- **Billing account wallet (parked):** one Management-owned authoritative credit wallet that may sponsor many worlds.
+- **World credit lease (parked):** bounded, expiring, epoch-fenced spend authority allocated from a shared wallet and enforced locally by Runtime.
 
 ---
 

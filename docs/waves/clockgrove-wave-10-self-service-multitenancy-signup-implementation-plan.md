@@ -11,6 +11,8 @@
 
 ---
 
+**Parked (owner decision 2026-11-14):** Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Not planned.
+
 ## 1. Outcome
 
 Wave 10 establishes the initial Management Plane and turns the single-owner/invited-tester deployment into a safe self-service hosted platform. It implements public signup, internal principals, personal and shared workspaces, organization membership, invitations, tenant-scoped worlds and resources, onboarding, one billing-account placeholder shared by a workspace's worlds, free promotional credits as an entitlement seam, lifecycle/deletion, and cross-tenant qualification.

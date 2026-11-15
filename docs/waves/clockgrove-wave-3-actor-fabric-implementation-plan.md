@@ -37,7 +37,7 @@ First qualify the ordinary runtime ownership path: authenticated routing, curren
 
 Then deliver cross-space transfer, Queue reconciliation/DLQ, typed Workflow linkage, broader failure scenarios and measured capacity as separate complete capabilities with real dependencies. These remain full-wave obligations. A rare combined outage does not expand the first ownership Objective merely because it was discovered during qualification.
 
-Use one owner for shared runtime/staging resources. Run independent capability work concurrently only when edits and resources are isolated; do not invoke the entire fault/load matrix after each repair.
+Use one owner for shared runtime and validation-deployment resources. Run independent capability work concurrently only when edits and resources are isolated; do not invoke the entire fault/load matrix after each repair.
 
 ---
 
@@ -51,12 +51,12 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - Worker, three DO namespace bindings/classes, Queue/Workflow bindings, Wrangler environments, and authenticated no-op path exist from Wave 0.
 - Cloudflare compatibility date and exact Agents SDK/Wrangler versions are pinned in the release manifest.
 - Authentication-provider verification and internal principal mapping are available at the Worker boundary.
-- Local Wrangler/Miniflare tests and a staging Cloudflare environment are operational.
+- Local Wrangler/Miniflare tests and the validation deployment (environment `staging`) on Cloudflare are operational.
 - OTel/correlation helpers and structured safe logging exist.
 
 Amended (2026-10-19):
 
-- The Wave 0 hosted half is an entry condition: real staging deploy, authenticated staging browser path, Queue/webhook duplicate safety and an accepted Wave 0 manifest. It delivers the staging environment and hosted no-op path listed above.
+- The Wave 0 hosted half is an entry condition: the real validation deployment, an authenticated browser path on it, Queue/webhook duplicate safety and an accepted Wave 0 manifest. It delivers the validation deployment and hosted no-op path listed above.
 - RW-0209 migration and upcaster compatibility is an entry condition, landing before the first deploy. Delivered: `test:db` migrates each prior-release fixture (`db/fixtures/prior`) to head and replays it to its recorded hashes.
 - Wave 2 delivers dispatch intents with a preview gate, not effect intents; those are built in Wave 5.
 - The live metrics exporter deferred from Wave 2 §16 lands in this wave.
@@ -695,7 +695,7 @@ pnpm verify:runtime-scenario-parity
 
 Amended (2026-10-28): `test:runtime:actors` and `test:runtime:transfers` are removed. Their subjects left the wave with the maintainer's 2026-10-19 amendments, the `ActorAgentDO` foundation (RW-0307) to Wave 5 (§9.3) and cross-space transfer (RW-0308) to Wave 11 (§13), so no Wave 3 test has either subject. Each other command is a root script that runs a named set of `apps/runtime` test files, and no file is in two of them; `verify:runtime-scenario-parity` runs the native-owner and autonomous scenario parity long runs that §18.3 relies on ([development runbook](../runbooks/development.md#acceptance-commands)). `pnpm check` refuses a command listed here that has neither a script nor an amendment.
 
-### 18.2 Staging cloud qualification
+### 18.2 Validation-deployment cloud qualification
 
 Real Cloudflare tests verify behavior local emulation cannot prove:
 
@@ -708,7 +708,7 @@ Real Cloudflare tests verify behavior local emulation cannot prove:
 - OTel trace propagation/export;
 - bundle size, CPU, memory, subrequest, and wall-time limits.
 
-Qualification creates isolated tenant/world/timeline IDs and cleans up through audited commands. It never targets production user worlds.
+Qualification creates isolated tenant/world/timeline IDs and cleans up through audited commands. It never targets a world that players use.
 
 ### 18.3 Scenario parity
 

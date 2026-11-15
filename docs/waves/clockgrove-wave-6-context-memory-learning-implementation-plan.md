@@ -45,7 +45,7 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - Sessions, messages, turns, runs, steps, context manifests, actor activation, capability grants, and effect intents are stable.
 - Journal supports access-controlled cognitive streams and atomic event/projection/outbox commits.
 - ActorAgentDO can receive deduplicated perceptions and activate a recoverable run.
-- PostgreSQL has FTS and pgvector enabled with measured local/staging baselines.
+- PostgreSQL has FTS and pgvector enabled with measured baselines locally and on the validation deployment.
 - R2 protected artifact access, IngestionWorkflow skeleton, Queue indexing channel, and retention hooks are available.
 - Decision traces expose candidate features so memory/relationship effects can be measured rather than asserted.
 
@@ -550,9 +550,9 @@ Wave 6 does not implement:
 - [ ] Gracie's versioned field guide preserves attributed sources, uncertainty and revisions; a kit reads testimony, verifies it firsthand and authors its own evidence-backed next edition.
 - [ ] Guide generation never automatically publishes private cognition; sharing, source expansion, revocation and retention/deletion/rebuild or withdrawal pass existing privacy policy.
 - [ ] Physical world continues when indexing/models/consolidation fail.
-- [ ] Local, eval, replay, deletion, and staging qualifications pass.
+- [ ] Local, eval, replay, deletion, and validation-deployment qualifications pass.
 
-The manifest records commit, schema/policy/model/embedding versions, corpus hash, index coverage, eval reports, privacy matrix, replay hashes, behavioral-control comparison, cognitive-document/policy/evaluation versions and hashes, invalidation/fallback/shadow evidence, observation provenance/time policy, cost/latency/storage evidence, staging results, and exit decision.
+The manifest records commit, schema/policy/model/embedding versions, corpus hash, index coverage, eval reports, privacy matrix, replay hashes, behavioral-control comparison, cognitive-document/policy/evaluation versions and hashes, invalidation/fallback/shadow evidence, observation provenance/time policy, cost/latency/storage evidence, results on the validation deployment, and exit decision.
 
 ---
 

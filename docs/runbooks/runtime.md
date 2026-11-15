@@ -4,7 +4,7 @@
 the `WorldDO`, `SpaceDO`, and `ActorAgentDO` ownership shells, and the accepted PostgreSQL journal.
 Tests include portable local/emulated bindings and a genuine pinned Workers journey through
 the production default Worker/authentication composition and native Durable Object adapters over
-an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging qualification.
+an isolated PostgreSQL 18.6 database. This is not a cloud deployment or qualification on the validation deployment.
 
 ## First-party MCP client readiness
 
@@ -681,7 +681,7 @@ workerd/PostgreSQL harness, firing the snapshot Cron Trigger:
   `snapshot_create_ms`; the composed artifact store records a spilled put, another tenant's refused
   read and a corrupt R2 object; every point has the Analytics Engine shape below and a closed label.
 
-The staging round trip stays pending on issue 3.
+The round trip on the validation deployment stays pending on issue 3.
 
 ## Runtime budgets and load curves
 
@@ -800,7 +800,7 @@ connections, 28 of 32 commands at 16 clients were refused `authentication_refuse
 the mailbox. The fixture therefore allows 384 loopback connections (four per client at 96) and
 PostgreSQL 400
 (`runNativeWorldOwnerProcess` `connections`). Hosted CPU, memory, subrequest and wall-time limits,
-Hyperdrive pooling and the hosted connection budget stay with staging.
+Hyperdrive pooling and the hosted connection budget stay with the validation deployment.
 
 **Wall time.** The fixture takes about 2 minutes 20 seconds on the host above with the keepers
 sweep (about two minutes before it). Its bound is `WALL_TIME_BOUND_MS`, 10 minutes, a decision:
@@ -1283,7 +1283,7 @@ deployment, stay pending on issue 3.
 
 ## Remaining qualification
 
-Cloud deployment, staging behavior and human-authentication qualification remain with their owning
+Cloud deployment, validation-deployment behavior and human-authentication qualification remain with their owning
 Objectives. The world-command service above provides bounded local physical execution. The retained
 Wave 0 recovery evidence stays distinct from that capability and from browser/cognition capability,
 hosted production readiness and whole-wave acceptance.
@@ -1343,8 +1343,8 @@ manifest, Wrangler's exact root pin, and the Miniflare and workerd packages Wran
 workerd binary reports the date in its package version), so a dependency update moves it along with
 the lockfile. Recipes require matching candidate/command/log/proof identities and refuse
 unsupported positive claims. The literal runtime-local checklist row can pass from this native
-proof; owner setup, enrollment/grants/privacy handoff, protected staging deployment, authenticated
-staging correlation, successful Queue/webhook effects, independent review and full Wave 0 acceptance
+proof; owner setup, enrollment/grants/privacy handoff, protected validation deployment, authenticated
+correlation on the validation deployment, successful Queue/webhook effects, independent review and full Wave 0 acceptance
 remain separate obligations. Operator-appointed independent exact-candidate review and fresh
 published-head Quality/browser/artifact evidence are still required before integration/acceptance.
 
@@ -1376,7 +1376,7 @@ an upgrade beyond `SCENE_SOCKET_BOUNDS` answers 503 `scene_connections_full`.
 Native qualification lives in `apps/runtime/test/scene-delivery.postgres.test.ts`. It is local
 workerd/PostgreSQL evidence, not hosted eviction or redeploy evidence. The partial
 [Wave 4 manifest](../waves/clockgrove-wave-4-runtime-evidence.json) keeps actual Cloudflare hibernation,
-restart and redeploy pending on issue 3, blocked on issue 1 and issue 2. No staging qualification is claimed.
+restart and redeploy pending on issue 3, blocked on issue 1 and issue 2. No qualification on the validation deployment is claimed.
 
 ## Proactive actor activation
 
@@ -1615,7 +1615,7 @@ answered picks, reports coverage separately, and is null when no case was answer
 
 The [MCP installation protocol](../protocols/mcp.md) separates local acceptance from hosted
 activation. The owner assigned hosted private-egress verification to issue 3 after issue 2's
-first staging deployment. Production remote MCP access stays guarded off until that receipt
+first validation deployment (environment `staging`). Production remote MCP access stays guarded off until that receipt
 exists. A local fixture network port is never a production loopback allowance.
 
 Local composition must retain one installation owner across requests and OAuth callbacks,
