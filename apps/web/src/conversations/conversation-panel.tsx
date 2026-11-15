@@ -19,6 +19,7 @@ import { useSelectionQuery } from "../scene-queries.js";
 import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
 import { EffectApprovals } from "./effect-approvals.js";
+import { InternalGrants } from "./internal-grants.js";
 import { RunDrawer } from "./run-drawer.js";
 import { settledResult, type TurnResult, turnStateLabel } from "./turn-state.js";
 
@@ -759,6 +760,7 @@ export function ConversationPanel({
           </form>
         )}
       </>
+      <InternalGrants key={actorId} session={session} actorId={actorId} />
       {refusal && <p role="status">Conversation refused: {refusal}</p>}
     </section>
   );

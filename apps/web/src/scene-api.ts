@@ -97,7 +97,68 @@ type ConversationEndpoint =
   | "/v1/runtime/runs/inspect"
   | "/v1/runtime/runs/search"
   | "/v1/runtime/turns/cancel"
-  | "/v1/runtime/activations/inspect";
+  | "/v1/runtime/activations/inspect"
+  | "/v1/runtime/activations/configure";
+
+export interface InternalGrant {
+  readonly capability: string;
+  readonly effect: string;
+  readonly callsPerTurn: number;
+  readonly commandTypes?: readonly string[];
+  readonly revoked: boolean;
+}
+export interface ActorGrants {
+  readonly grants: readonly InternalGrant[];
+  readonly policy: {
+    readonly allowModel: boolean;
+    readonly modelBudget: number;
+    readonly revokedCapabilities: readonly string[];
+  };
+  readonly modelCallsReserved: number;
+  /** False when another member owns the actor's policy: no budget shown, no revoke offered. */
+  readonly policyOwned: boolean;
+}
+
+function decodeActorGrants(body: unknown): ActorGrants | undefined {
+  const value = body as Record<string, unknown> | undefined;
+  const list = value?.grants;
+  const policy = value?.policy as Record<string, unknown> | undefined;
+  if (!Array.isArray(list) || !policy) return undefined;
+  const revoked = Array.isArray(policy.revokedCapabilities)
+    ? policy.revokedCapabilities.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    grants: list.flatMap((item: Record<string, unknown>) =>
+      typeof item?.capability === "string" &&
+      typeof item.effect === "string" &&
+      typeof item.callsPerTurn === "number"
+        ? [
+            {
+              capability: item.capability,
+              effect: item.effect,
+              callsPerTurn: item.callsPerTurn,
+              ...(Array.isArray(item.commandTypes)
+                ? {
+                    commandTypes: item.commandTypes.filter(
+                      (type): type is string => typeof type === "string",
+                    ),
+                  }
+                : {}),
+              revoked: item.revoked === true,
+            },
+          ]
+        : [],
+    ),
+    policy: {
+      allowModel: policy.allowModel === true,
+      modelBudget: typeof policy.modelBudget === "number" ? policy.modelBudget : 0,
+      revokedCapabilities: revoked,
+    },
+    modelCallsReserved:
+      typeof value?.modelCallsReserved === "number" ? value.modelCallsReserved : 0,
+    policyOwned: value?.policyOwned === true,
+  };
+}
 
 /**
  * Decision: up to 3 resends (4 attempts) of an interrupted Talk. An interruption means the owner was
@@ -836,6 +897,40 @@ export class SceneSession {
           ]
         : [],
     );
+  }
+  /** Undefined when the server withheld grants: the person is not an operator. */
+  async actorGrants(
+    actorId: ObjectId,
+  ): Promise<ActorGrants | undefined | { readonly refused: string }> {
+    const answer = await this.postInteraction("/v1/runtime/activations/inspect", { actorId }, true);
+    if (answer.status !== 200)
+      return answer.status === 403 ? undefined : { refused: answer.refused };
+    return decodeActorGrants(answer.body);
+  }
+  async revokeCapability(
+    actorId: ObjectId,
+    capability: string,
+  ): Promise<ActorGrants | { readonly refused: string }> {
+    const current = await this.actorGrants(actorId);
+    if (!current) return { refused: "not permitted" };
+    if ("refused" in current) return current;
+    if (!current.policyOwned) return { refused: "activation_not_found" };
+    const { allowModel, modelBudget, revokedCapabilities } = current.policy;
+    const answer = await this.postInteraction(
+      "/v1/runtime/activations/configure",
+      {
+        actorId,
+        policy: {
+          allowModel,
+          modelBudget,
+          revokedCapabilities: [...new Set([...revokedCapabilities, capability])],
+        },
+      },
+      true,
+    );
+    if (answer.status !== 200) return { refused: answer.refused };
+    // Configure answers the policy; the grants and their revocations come from inspect.
+    return (await this.actorGrants(actorId)) ?? { refused: "not permitted" };
   }
   private async runTurn(
     turn: PendingTurn,

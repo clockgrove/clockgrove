@@ -11,6 +11,7 @@ import {
   type ActorReplyShadowRecord,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
+  CAPABILITY_REGISTRY,
   type CapabilityDefinition,
   type CapabilityGrants,
   type CatchUpWorkflowEnvelope,
@@ -21,6 +22,7 @@ import {
   catchUpWorkflowReference,
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
+  type InternalGrantView,
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
@@ -125,7 +127,12 @@ import {
   scriptedConversationReply,
   type TurnOwnerAnswer,
 } from "./conversations.js";
-import { INSPECT_GRANT, OBSERVE_GRANT, type OwnerRuntimeState } from "./inspector.js";
+import {
+  INSPECT_GRANT,
+  OBSERVE_GRANT,
+  OPERATE_GRANT,
+  type OwnerRuntimeState,
+} from "./inspector.js";
 import type { RuntimeLocalStorage } from "./local-storage.js";
 import {
   OwnerMailbox,
@@ -1398,10 +1405,15 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     context: TrustedExecutionContext,
     participant: ConversationParticipant,
     actorId: string,
-    configuration: ActivationConfiguration,
+    configuration: ActivationConfiguration | undefined,
     policy: ActivationPolicy,
   ): Promise<ActivationInspection> {
     assertWorldCommandContext(context, scope);
+    // A policy-only request (issue 323) skips the conversation check a configuration carries, and
+    // its revocations apply to every member: only an operator may make one.
+    // The refusal is an activation message: RPC keeps messages, not error prototypes.
+    if (configuration === undefined && !context.grants.map(String).includes(OPERATE_GRANT))
+      throw new Error("activation operator required");
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
     const result = await withActivations(this.environment, (store) =>
@@ -1419,7 +1431,31 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<ActivationInspection> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
-    return withActivations(this.environment, (store) => store.inspect(address));
+    // Only an operator sees the actor's internal grants (issue 323), with its canonical revocations.
+    const memberGrants = context.grants.map(String);
+    if (!memberGrants.includes(OPERATE_GRANT))
+      return withActivations(this.environment, (store) => store.inspect(address));
+    const [inspection, canonical] = await withActivations(this.environment, async (store) => [
+      await store.inspect(address),
+      await store.capabilityPolicyOf({
+        ...address,
+        participant: { ...worldAuthorization(context), personaId: participant.personaId },
+      }),
+    ]);
+    const revoked = new Set(canonical?.revoked ?? []);
+    const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(memberGrants).grants.map(
+      (grant) => ({
+        capability: grant.capability,
+        effect: CAPABILITY_REGISTRY.get(grant.capability)?.effect ?? "read",
+        callsPerTurn: grant.callsPerTurn,
+        ...(grant.commandTypes === undefined ? {} : { commandTypes: grant.commandTypes }),
+        revoked: revoked.has(grant.capability),
+      }),
+    );
+    // The policy and its budget read under the caller's row security: when another member owns
+    // the actor's policy, they are this caller's defaults, not the actor's, and its configure would
+    // be refused. Without a policy, this caller's configure creates one it owns.
+    return { ...inspection, grants, policyOwned: canonical?.owned ?? true };
   }
 
   async wakeActivation(

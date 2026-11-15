@@ -54,19 +54,26 @@ const activation = (r: Row): ActorActivation => ({
 export class PostgreSqlActivations {
   constructor(private readonly client: PostgreSqlClient) {}
 
+  /**
+   * Writes one configuration and the actor's policy. Without a configuration (issue 323) only the
+   * policy changes: an operator revokes a capability without adding a configuration.
+   */
   configure(
     a: ActivationAddress,
-    config: ActivationConfiguration,
+    config: ActivationConfiguration | undefined,
     policy: ActivationPolicy,
   ): Promise<ActivationInspection> {
     return this.transaction(a, async () => {
-      validateConfiguration(config, policy);
-      const session = await this.client.query(
-        `SELECT actor_id FROM clockgrove.conversation_sessions
+      validatePolicy(policy);
+      if (config !== undefined) {
+        validateConfiguration(config);
+        const session = await this.client.query(
+          `SELECT actor_id FROM clockgrove.conversation_sessions
         WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$5 AND actor_id=$4 AND space_id=$6 AND state='active'`,
-        [...values(a), config.sessionId, a.scope.spaceId],
-      );
-      if (session.rows.length !== 1) throw new Error("activation conversation not found");
+          [...values(a), config.sessionId, a.scope.spaceId],
+        );
+        if (session.rows.length !== 1) throw new Error("activation conversation not found");
+      }
       // The cursor starts after every transaction this snapshot can know of: an event committed
       // before the policy existed is not read, and an append that has not started yet is.
       await this.client.query(
@@ -78,12 +85,14 @@ export class PostgreSqlActivations {
       );
       const row = await this.policy(a);
       if (row.space_id !== a.scope.spaceId) throw new Error("activation policy not found");
-      const stored = row.configurations as ActivationConfiguration[];
-      const prior = stored.find((c) => c.id === config.id);
-      const configs = stored.filter((c) => c.id !== config.id);
-      // An operator sees and may disable an actor's own configuration; it stays the actor's.
-      configs.push(prior?.origin === undefined ? config : { ...config, origin: prior.origin });
-      if (configs.length > 64) throw new Error("activation configuration limit reached");
+      const configs = row.configurations as ActivationConfiguration[];
+      if (config !== undefined) {
+        const prior = configs.find((c) => c.id === config.id);
+        configs.splice(0, configs.length, ...configs.filter((c) => c.id !== config.id));
+        // An operator sees and may disable an actor's own configuration; it stays the actor's.
+        configs.push(prior?.origin === undefined ? config : { ...config, origin: prior.origin });
+        if (configs.length > 64) throw new Error("activation configuration limit reached");
+      }
       await this.client.query(
         `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb,
         allow_model=$6,model_budget=$7,revoked_capabilities=coalesce($8::text[],revoked_capabilities)
@@ -111,7 +120,7 @@ export class PostgreSqlActivations {
     config: ActivationConfiguration & { readonly origin: "actor" },
   ): Promise<"configured" | "limit" | "not_owned"> {
     return this.transaction(a, async () => {
-      validateConfiguration(config, { allowModel: false, modelBudget: 0 });
+      validateConfiguration(config);
       const session = await this.client.query(
         `SELECT actor_id FROM clockgrove.conversation_sessions
         WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$5 AND actor_id=$4 AND space_id=$6 AND state='active'`,
@@ -186,7 +195,16 @@ export class PostgreSqlActivations {
     return this.transaction(a, async () => (await this.capabilityPolicy(a))?.revoked ?? []);
   }
 
-  /** The actor's policy as any live member sees it: whether the caller owns it, and revocations. */
+  /**
+   * The actor's policy as any live member sees it: whether the caller owns it, and its revocations;
+   * undefined without a policy.
+   */
+  capabilityPolicyOf(
+    a: ActivationAddress,
+  ): Promise<{ readonly owned: boolean; readonly revoked: readonly string[] } | undefined> {
+    return this.transaction(a, () => this.capabilityPolicy(a));
+  }
+
   private async capabilityPolicy(
     a: ActivationAddress,
   ): Promise<{ readonly owned: boolean; readonly revoked: readonly string[] } | undefined> {
@@ -489,7 +507,7 @@ export function activationEventSubscribers(
   });
 }
 
-function validateConfiguration(c: ActivationConfiguration, p: ActivationPolicy): void {
+function validateConfiguration(c: ActivationConfiguration): void {
   if (c.delivery !== undefined) {
     try {
       CAPABILITY_REGISTRY.get("delivery.request")!.parse(c.delivery);
@@ -521,7 +539,13 @@ function validateConfiguration(c: ActivationConfiguration, p: ActivationPolicy):
     !["noop", "escalate"].includes(c.compiledRoutine) ||
     (c.nextWakeAt !== null && (!Number.isSafeInteger(c.nextWakeAt) || c.nextWakeAt < 0)) ||
     (c.intervalMs !== null && (!Number.isSafeInteger(c.intervalMs) || c.intervalMs < 60000)) ||
-    (c.eventType !== undefined && (typeof c.eventType !== "string" || c.eventType.length > 256)) ||
+    (c.eventType !== undefined && (typeof c.eventType !== "string" || c.eventType.length > 256))
+  )
+    throw new Error("invalid activation configuration");
+}
+
+function validatePolicy(p: ActivationPolicy): void {
+  if (
     typeof p.allowModel !== "boolean" ||
     !Number.isSafeInteger(p.modelBudget) ||
     p.modelBudget < 0 ||

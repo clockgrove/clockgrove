@@ -47,6 +47,9 @@ Decisions:
   actor. Every live member of the policy's space reads it through
   `clockgrove.actor_capability_policy` (migration 0067), which answers only the list and whether
   the caller owns the policy.
+- An operator (`runtime:world-operate`) sees the actor's internal grants, their calls per turn and
+  which are revoked in `/v1/runtime/activations/inspect`'s `grants`, and revokes one with a
+  policy-only `/configure` (issue 323). The browser's "Internal grants" view reads only these routes.
 
 ## Deciding a proposal
 
