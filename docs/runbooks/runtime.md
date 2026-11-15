@@ -1709,6 +1709,13 @@ model, the status, the severe answer, each code's yes/no answer, confidence, lat
 cost. It never carries the reply's text or a hash of it. Live crisis steering is issue 268; this
 judgement is shadow evidence only.
 
+This line is not a [structured log](#structured-logs) record and sits outside that closed contract:
+the `ActorAgentDO` writes it with `console.log`, like the shadow points' existing
+`*-evidence-failed` warnings. It has no `level`, `timestamp`, `codeVersion` or `environment`, and
+its `schemaVersion` (1) is the actor-reply record's own, not the runtime log's. Its failure
+warnings, `actor-reply-shadow-failed` and `actor-reply-shadow-config-invalid`, are the same kind of
+line. Filter Workers Logs on `event` to find it.
+
 ### Moderation category evaluation
 
 The labelled category set (`MODERATION_CATEGORY_CASES`, 253 messages from templates) has at
