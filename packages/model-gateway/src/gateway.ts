@@ -94,7 +94,13 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     const { route } = alias;
     const started = now();
     const requestSha256 = await sha256(
-      JSON.stringify([alias.alias, alias.policyVersion, request.state, request.question]),
+      JSON.stringify([
+        alias.alias,
+        alias.policyVersion,
+        request.state,
+        request.question,
+        ...(request.questions === undefined ? [] : [request.questions]),
+      ]),
     );
     const recordOf = (
       outcome: DecisionCallRecord["outcome"],
@@ -127,8 +133,14 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     const encoder = new TextEncoder();
     const bytes =
       encoder.encode(request.state).length +
-      encoder.encode(JSON.stringify(request.question)).length;
+      encoder.encode(JSON.stringify(request.question)).length +
+      (request.questions === undefined
+        ? 0
+        : encoder.encode(JSON.stringify(request.questions)).length);
     if (bytes > alias.maxInputBytes) return fail("input_too_large", false);
+    const names = Object.keys(request.questions ?? {});
+    if (names.some((name) => name === "q" || !/^[a-z][a-z0-9_]{0,63}$/u.test(name)))
+      throw new Error("invalid decision question name");
     if (outer?.aborted) return fail("cancelled", true);
     const routeBreaker = breaker(route);
     if (!routeBreaker.admit(started)) return fail("unavailable", true);
@@ -145,6 +157,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
           route,
           state: request.state,
           question: request.question,
+          ...(request.questions === undefined ? {} : { questions: request.questions }),
           signal: controller.signal,
         }),
         alias.timeoutMs,
@@ -158,6 +171,11 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       }
       const cost = decisionCost(alias, reply);
       options.budget.settle(reservation, cost ?? reservation.microusd);
+      // A named question left unanswered is a malformed answer: the call billed, the outcome fails.
+      if (names.some((name) => reply.answers?.[name] === undefined)) {
+        routeBreaker.released();
+        return await fail("unavailable", false, { costMicrousd: cost, ...reserved });
+      }
       routeBreaker.succeeded();
       const record = recordOf("completed", {
         responseModel: reply.responseModel,
@@ -167,7 +185,14 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         ...reserved,
       });
       await options.accounting.recordDecision?.(record);
-      return { status: "completed", value: reply.answer, record };
+      return {
+        status: "completed",
+        value: reply.answer,
+        ...(names.length === 0
+          ? {}
+          : { answers: Object.fromEntries(names.map((name) => [name, reply.answers![name]!])) }),
+        record,
+      };
     } catch (error) {
       // Only a failure that provably billed nothing settles at zero. A model refusal or an answer
       // that failed afterwards is priced from its usage; anything else keeps the reservation spent.

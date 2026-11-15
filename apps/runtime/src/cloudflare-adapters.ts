@@ -8,6 +8,7 @@ import {
   type ActivationPolicy,
   type ActivationWake,
   type ActorActivation,
+  type ActorReplyShadowRecord,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
   type CapabilityDefinition,
@@ -137,9 +138,11 @@ import {
 } from "./mailbox.js";
 import { readActorMcpCapabilities, resolveActorCapabilities } from "./mcp-actor-capabilities.js";
 import {
+  actorReplyShadowPolicy,
   moderationShadowDecider,
   moderationShadowPolicy,
   shadowActorMessage,
+  shadowActorReply,
 } from "./moderation-shadow.js";
 import { PostgreSqlSceneStreamReader } from "./observation.js";
 import {
@@ -1336,6 +1339,41 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): ShadowDecider | undefined {
     return moderationShadowDecider(this.environment, policy, fiber);
   }
+  protected actorReplyDecider(
+    policy: ModerationShadowPolicy,
+    fiber: TurnFiber,
+  ): ShadowDecider | undefined {
+    return moderationShadowDecider(this.environment, policy, fiber);
+  }
+  /** Contentless telemetry: one structured log line per judged reply, never its text. */
+  protected recordActorReply(record: ActorReplyShadowRecord): void | Promise<void> {
+    console.log(JSON.stringify({ event: "actor-reply-shadow", ...record }));
+  }
+  /** Judges a committed reply beside the turn; the platform keeps the object alive for it. */
+  private judgeActorReply(fiber: TurnFiber, reply: string): void {
+    let policy: ModerationShadowPolicy | undefined;
+    try {
+      policy = actorReplyShadowPolicy(this.environment.ACTOR_REPLY_SHADOW_CONFIG);
+    } catch {
+      console.warn(JSON.stringify({ event: "actor-reply-shadow-config-invalid" }));
+      return;
+    }
+    if (policy === undefined) return;
+    this.objectState.waitUntil(
+      shadowActorReply(fiber, reply, policy, this.actorReplyDecider(policy, fiber), (record) =>
+        this.recordActorReply(record),
+      ).catch(() => {
+        console.warn(
+          JSON.stringify({
+            event: "actor-reply-shadow-failed",
+            actorId: fiber.actorId,
+            sessionId: fiber.sessionId,
+            messageId: fiber.messageId,
+          }),
+        );
+      }),
+    );
+  }
 
   async wakeTriageReport(
     scope: RuntimeScope,
@@ -2381,6 +2419,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         this.executeSelf(participant, fiber, proposal, definition, input),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
+      afterReply: (_participant, fiber, reply) => this.judgeActorReply(fiber, reply),
       beforeModel: async (participant, fiber, input) => {
         let autonomous = false;
         if (fiber.messageId.startsWith("activation:")) {

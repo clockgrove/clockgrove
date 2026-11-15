@@ -95,13 +95,26 @@ not the assembled actor prompt, session history, another participant's messages 
 cognition. Message text is untrusted evidence to classify, never an instruction to the judge.
 Tool-result screening waits for MCP execution and is outside this point.
 
-The judgement combines a moderation disposition (`allow`, `flag` or `block`) and a prompt-injection
-classification. `allow` is a benign message. `flag` delivers the message and marks it for review:
-rude, insulting or borderline content that is not a threat, and any prompt-injection attempt
-without abusive or threatening content. `block` is reserved for threats, harassment, or content that
-must not reach the actor, including an injection attempt that also carries abusive or threatening
-content. Actors already treat inbound messages as untrusted data, so an injection attempt alone is
-flagged rather than blocked. `cant_tell` is an explicit abstention, counted separately from a disposition below
+The judgement combines a moderation disposition (`allow`, `flag` or `block`), a prompt-injection
+classification and five route-changing harm codes. `allow` is a benign message. `flag` delivers
+the message and marks it for review. It covers rude, insulting or borderline content, a person
+who says they want to harm themselves, and any prompt-injection attempt without content to
+block. `block` covers threats, harassment, hate against people for who they are, encouragement of
+self-harm or suicide, sexual content involving minors, and requests for help causing serious
+real-world harm (issue 271, recovering issue 261's hate and self-harm-encouragement regression).
+It also covers an injection attempt that carries such content. Actors already treat inbound
+messages as untrusted data, so an injection attempt alone is flagged rather than blocked.
+
+The harm codes come from the MLCommons AILuminate / Llama Guard taxonomy, with OpenAI's split of
+self-harm into intent and encouragement: `sexual_minors`, `harm_to_others` (a credible threat to a
+real person), `self_harm_intent`, `self_harm_encouragement` and `stated_minor`. These are the
+codes that would change a case or crisis route. Each is a named yes/no question in the same
+decisions call as the disposition ([named questions](../../packages/model-gateway/docs/model-gateway.md#decide)),
+never a second call. A code is `true` when the model's probability is at least 0.5. The
+judgement's optional `categories` holds each code's answer, `null` for an unanswered code, and is
+itself `null` without an answered call. Records written before categories (schema 1) have none.
+Categories are recorded only: no route changes on them yet. Live crisis steering is issue 268.
+`cant_tell` is an explicit abstention, counted separately from a disposition below
 the configured confidence threshold or one with absent confidence. Every result is marked as
 shadow evidence. A `block` does not hide the message, cancel its turn, remove context or lock the
 session. Turning the point off, removing its credential or making the model unavailable preserves
@@ -116,6 +129,27 @@ visible; a future enforcing mode must support an attributed correction or supers
 block is reversible, as recorded in [Wave 5 §6.2](../waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md#62-messages-and-turns).
 Retries and replay consume stored evidence rather than asking the model again. Shadow evidence has
 no physical projection delta and grants the model no world authority.
+
+### Actor replies
+
+Every committed actor reply, in every world, is judged asynchronously when
+`ACTOR_REPLY_SHADOW_CONFIG` is bound (`packages/application/src/actor-reply-shadow.ts`, called from
+the turn's `afterReply` hook in `apps/runtime/src/actor-agent.ts`). The set is narrow and severe:
+`sexual_minors`, `self_harm_encouragement` and `harmful_instructions` (seriously harmful
+real-world instructions). One decide call per reply asks a `clean`/`severe`/`cant_tell` choice,
+with the three codes as named questions. The turn does not wait for it, and its result never
+changes the reply, the turn or the world. The record is contentless telemetry, written as one
+structured log line: opaque IDs, the policy, alias and model, the status, the severe answer, each
+code's answer, confidence, latency and measured cost (null when unknown). It holds no reply text
+and no hash of it. It is shadow-only; live crisis steering is issue 268.
+
+### Reports
+
+The [category evaluation](../runbooks/runtime.md#moderation-category-evaluation) runs both judges
+on templated labelled sets. The inbound set has at least 25 cases per code; the actor-reply set
+holds severe and clean replies. It reports per-code miss and false-trigger rates, per-cohort block
+rates and the measured cost per 1,000 actor replies. Scripted results prove the path; the owner's
+real-model run measures the models and goes on issue 271.
 
 Reports give labelled accuracy and cohorts per policy/alias/model, separately from pairwise agreement between models. The six-case reference set is
 written in code and independent of a world: two benign messages (`allow_clean`), one non-threatening
@@ -135,7 +169,10 @@ A miss crosses the block line or the injection marker against the reference labe
 blocks a message the reference delivers (benign, insult or injection without abuse) or marks an
 injection on a message without one. A false negative leaves a labelled threat unblocked or misses a
 labelled injection attempt. Flagging a benign message, or a disposition that differs only between
-`allow` and `flag`, is inaccurate but not a miss. Repeated miss signatures (at least two occurrences, the
+`allow` and `flag`, is inaccurate but not a miss. A moderation record's `signature` hashes the
+policy version, the input hash, the disposition and the injection judgement; the category answers
+stay out of it, so a model that flips one code between two occurrences of the same miss still
+counts as one recurring miss. Repeated miss signatures (at least two occurrences, the
 existing shadow-report convention) are listed for human review rather than disappearing in an
 aggregate rate. The [runtime report procedure](../runbooks/runtime.md#moderation-shadow-report)
 describes configuration and measurement. Scripted-decider results prove the path and report

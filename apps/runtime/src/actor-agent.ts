@@ -136,6 +136,11 @@ export interface TurnFiberHost {
     input: unknown,
   ): Promise<SelfOutcome>;
   /**
+   * Called once a reply has committed, with its text, and never awaited: shadow judging of the
+   * reply (issue 271) runs beside the turn and can neither delay nor change it.
+   */
+  afterReply?(participant: ConversationParticipant, fiber: TurnFiber, reply: string): void;
+  /**
    * Called after every durable checkpoint, and inside `model_running` after the first streamed
    * delta, with the phase just reached. The owner records it for recovery; a local fault binding
    * may end the incarnation there.
@@ -566,6 +571,9 @@ export class TurnFibers {
               const receipt = await this.store((store) =>
                 store.turnReceipt(participant, committed),
               );
+              try {
+                this.host.afterReply?.(participant, committed, receipt.reply.text);
+              } catch {}
               const words = receipt.reply.text.split(/(?<= )/u);
               for (const [index, text] of words.entries()) {
                 emit({ type: "delta", text });

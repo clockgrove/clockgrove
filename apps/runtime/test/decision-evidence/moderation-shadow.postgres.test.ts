@@ -1,4 +1,8 @@
-import { MODERATION_LABELLED_CASES, type moderationShadowReport } from "@clockgrove/application";
+import {
+  MODERATION_CATEGORY_CODES,
+  MODERATION_LABELLED_CASES,
+  type moderationShadowReport,
+} from "@clockgrove/application";
 import { decodeConversationSession, decodeTalkReceipt } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
 import { withModerationFixture } from "../../../../scripts/moderation-shadow-fixture.js";
@@ -13,15 +17,43 @@ const FILE = "apps/runtime/test/decision-evidence/moderation-shadow.postgres.tes
 const MEMBER = "local-reader-session";
 const OUTSIDER = "outsider-session-token";
 const policy = { modelAlias: "moderation.test-a", model: "scripted-moderation-a" };
-const answer = (label: string, confidence = 0.9, costUsd: number | undefined = 0.0001) => ({
+const codes = (all: readonly string[], yes: readonly string[]) =>
+  Object.fromEntries(
+    all.map((code) => [
+      code,
+      { type: "boolean", label: yes.includes(code) ? "true" : "false", confidence: 0.9 },
+    ]),
+  );
+const answer = (
+  label: string,
+  confidence = 0.9,
+  costUsd: number | undefined = 0.0001,
+  yes: readonly string[] = [],
+) => ({
   kind: "answer",
   answer: { type: "choice", label, confidence },
+  answers: codes(MODERATION_CATEGORY_CODES, yes),
   ...(costUsd === undefined ? {} : { costUsd }),
 });
+const REPLY_CODES = ["sexual_minors", "self_harm_encouragement", "harmful_instructions"];
+const replyScript = {
+  "moderation-0": {
+    kind: "answer",
+    answer: { type: "choice", label: "severe", confidence: 0.8 },
+    answers: codes(REPLY_CODES, ["self_harm_encouragement"]),
+    costUsd: 0.0002,
+  },
+  "moderation-2": { kind: "http", status: 503 },
+  "moderation-3": {
+    kind: "answer",
+    answer: { type: "choice", label: "clean", confidence: 0.9 },
+    answers: codes(REPLY_CODES, []),
+  },
+};
 const script = [
-  answer("block_clean"),
-  answer("block_clean"),
-  { kind: "answer", answer: { type: "choice", label: "allow_injection", confidence: 0.9 } },
+  answer("block_clean", 0.9, 0.0001, ["harm_to_others"]),
+  answer("block_clean", 0.9, 0.0001, ["harm_to_others"]),
+  { ...answer("allow_injection"), costUsd: undefined },
   answer("flag_clean", 0.4),
   answer("flag_clean"),
   answer("allow_clean"),
@@ -42,6 +74,11 @@ it("records private reversible shadow judgements and reports independent accurac
     delete process.env.AI_GATEWAY_API_KEY;
     process.env.MODERATION_SHADOW_CONFIG = JSON.stringify(policy);
     process.env.NATIVE_MODERATION_SHADOW_SCRIPT = JSON.stringify(script);
+    process.env.ACTOR_REPLY_SHADOW_CONFIG = JSON.stringify({
+      modelAlias: "actor-reply.test",
+      model: "scripted-reply",
+    });
+    process.env.NATIVE_ACTOR_REPLY_SHADOW_SCRIPT = JSON.stringify(replyScript);
     try {
       await withModerationFixture((pack) =>
         runNativeWorldOwnerProcess(FILE, pack, {
@@ -59,6 +96,8 @@ it("records private reversible shadow judgements and reports independent accurac
     } finally {
       delete process.env.MODERATION_SHADOW_CONFIG;
       delete process.env.NATIVE_MODERATION_SHADOW_SCRIPT;
+      delete process.env.ACTOR_REPLY_SHADOW_CONFIG;
+      delete process.env.NATIVE_ACTOR_REPLY_SHADOW_SCRIPT;
       if (savedKey !== undefined) process.env.AI_GATEWAY_API_KEY = savedKey;
     }
     return;
@@ -105,7 +144,12 @@ it("records private reversible shadow judgements and reports independent accurac
           scope: owner.scope,
           actorId: actor.objectId,
         })
-      ).body as { state: string; instructions: string }[];
+      ).body as {
+        state: string;
+        instructions: string;
+        options: Record<string, string>;
+        questions: Record<string, string>;
+      }[];
     const physical = await owner.sql(
       "SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id",
     );
@@ -139,10 +183,77 @@ it("records private reversible shadow judgements and reports independent accurac
       status: "picked",
       confidenceBp: 9000,
       costMicrousd: 100,
+      categories: {
+        sexual_minors: false,
+        harm_to_others: true,
+        self_harm_intent: false,
+        self_harm_encouragement: false,
+        stated_minor: false,
+      },
     });
+    expect(receipts[7]!.message.moderationShadow?.categories).toBeNull();
     expect((await requests()).map((request) => JSON.parse(request.state))).toEqual(
       texts.map((message) => ({ message })),
     );
+    // One decide call carries the five route-changing codes and the widened block wording.
+    const [first] = await requests();
+    expect(Object.keys(first!.questions)).toEqual([...MODERATION_CATEGORY_CODES]);
+    expect(first!.options.block_clean).toContain(
+      "hate against people for who they are, encouragement of self-harm or suicide",
+    );
+    expect(first!.instructions).toContain("a request for help causing serious real-world harm");
+    // Every committed reply is judged beside its turn, as contentless telemetry.
+    const replyRecords = async () =>
+      (
+        (
+          await owner.request("/actor-agent", {
+            op: "actor-reply-records",
+            scope: owner.scope,
+            actorId: actor.objectId,
+          })
+        ).body as string[]
+      ).map((line) => JSON.parse(line) as Record<string, unknown>);
+    await expect.poll(async () => (await replyRecords()).length).toBe(texts.length);
+    const judged: Record<string, Record<string, unknown>> = Object.fromEntries(
+      (await replyRecords()).map((record) => [String(record.messageId), record]),
+    );
+    expect(judged["moderation-0"]).toEqual({
+      schemaVersion: 1,
+      pointId: "actor-reply-shadow",
+      mode: "shadow",
+      tenantId: owner.scope.tenantId,
+      worldId: owner.scope.worldId,
+      actorId: actor.objectId,
+      sessionId,
+      messageId: "moderation-0",
+      policyVersion: "actor-reply-shadow@1",
+      modelAlias: "actor-reply.test",
+      model: "scripted-reply",
+      status: "judged",
+      severe: true,
+      categories: {
+        sexual_minors: false,
+        self_harm_encouragement: true,
+        harmful_instructions: false,
+      },
+      confidenceBp: 8000,
+      latencyMs: judged["moderation-0"]!.latencyMs,
+      costMicrousd: 200,
+      detail: null,
+    });
+    expect(judged["moderation-2"]).toMatchObject({
+      status: "failed",
+      detail: "unavailable",
+      categories: null,
+    });
+    expect(judged["moderation-3"]).toMatchObject({ status: "judged", costMicrousd: null });
+    expect(
+      Object.values(judged).filter((record) => record.status === "judged" && !record.severe),
+    ).toHaveLength(6);
+    const telemetry = JSON.stringify(await replyRecords());
+    expect(telemetry).not.toContain("Scripted fixture reply");
+    expect(telemetry).not.toContain("private message known");
+    delete process.env.ACTOR_REPLY_SHADOW_CONFIG;
     expect(
       await owner.sql("SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id"),
     ).toBe(physical);

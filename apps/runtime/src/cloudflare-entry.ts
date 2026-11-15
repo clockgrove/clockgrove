@@ -733,6 +733,8 @@ export interface RuntimeEnvironment {
   readonly WORLD_MODEL_CONFIG?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
   readonly MODERATION_SHADOW_CONFIG?: string;
+  /** Optional actor-reply shadow judging (issue 271); absent, replies are not judged. */
+  readonly ACTOR_REPLY_SHADOW_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   /** Dedicated credential writer; omitted means first-party MCP is unavailable. */

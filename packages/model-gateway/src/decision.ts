@@ -20,6 +20,12 @@ export interface DecisionRequest {
   /** The facts the question is decided against, as text. */
   readonly state: string;
   readonly question: DecisionQuestion;
+  /**
+   * Further named questions decided in the same call, against the same state (issue 271). Names
+   * match `^[a-z][a-z0-9_]{0,63}$` and never `q`, the primary question's name. Each is answered in
+   * the outcome's `answers` under its name.
+   */
+  readonly questions?: Readonly<Record<string, DecisionQuestion>>;
 }
 
 /** `confidence` is the model's probability for its answer, or null when it reported none. */
@@ -50,7 +56,13 @@ export interface DecisionCallRecord {
 }
 
 export type DecisionOutcome =
-  | Readonly<{ status: "completed"; value: DecisionAnswer; record: DecisionCallRecord }>
+  | Readonly<{
+      status: "completed";
+      value: DecisionAnswer;
+      /** The answers to the request's named `questions`, by name; absent without them. */
+      answers?: Readonly<Record<string, DecisionAnswer>>;
+      record: DecisionCallRecord;
+    }>
   | Readonly<{
       status: "failed";
       code: ModelFailureCode;
@@ -80,11 +92,14 @@ export interface DecisionCall {
   readonly route: ModelRoute;
   readonly state: string;
   readonly question: DecisionQuestion;
+  readonly questions?: Readonly<Record<string, DecisionQuestion>>;
   readonly signal: AbortSignal;
 }
 
 export interface DecisionAdapterResult {
   readonly answer: DecisionAnswer;
+  /** One answer per named question of the call; a missing one fails the call. */
+  readonly answers?: Readonly<Record<string, DecisionAnswer>>;
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
   /** Cost the gateway itself reported, in USD, when it reported one. */
