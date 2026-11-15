@@ -160,7 +160,7 @@ export async function judgeModeration(input: {
     policyVersion: policy.policyVersion,
     confidenceThreshold: policy.confidenceThreshold,
     inputSha256,
-    signature: `moderation_${sha256Hex(canonicalBytes([policy.policyVersion, inputSha256, disposition, injection, categories])).slice(0, 32)}`,
+    signature: `moderation_${sha256Hex(canonicalBytes([policy.policyVersion, inputSha256, disposition, injection])).slice(0, 32)}`,
     detail,
   };
 }

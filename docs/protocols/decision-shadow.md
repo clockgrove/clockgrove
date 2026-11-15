@@ -169,7 +169,10 @@ A miss crosses the block line or the injection marker against the reference labe
 blocks a message the reference delivers (benign, insult or injection without abuse) or marks an
 injection on a message without one. A false negative leaves a labelled threat unblocked or misses a
 labelled injection attempt. Flagging a benign message, or a disposition that differs only between
-`allow` and `flag`, is inaccurate but not a miss. Repeated miss signatures (at least two occurrences, the
+`allow` and `flag`, is inaccurate but not a miss. A moderation record's `signature` hashes the
+policy version, the input hash, the disposition and the injection judgement; the category answers
+stay out of it, so a model that flips one code between two occurrences of the same miss still
+counts as one recurring miss. Repeated miss signatures (at least two occurrences, the
 existing shadow-report convention) are listed for human review rather than disappearing in an
 aggregate rate. The [runtime report procedure](../runbooks/runtime.md#moderation-shadow-report)
 describes configuration and measurement. Scripted-decider results prove the path and report
