@@ -263,6 +263,55 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)));
       expect(await messageBox.isVisible()).toBe(true);
 
+      // Two changes in quick succession: the server applies a rename, then an archive, but the
+      // rename's answer reaches the panel last. Once both settle, the panel shows the server's
+      // state: the new title, archived, without the message box.
+      let renamed;
+      const renameApplied = new Promise((resolve) => {
+        renamed = resolve;
+      });
+      let archived;
+      const archiveAnswered = new Promise((resolve) => {
+        archived = resolve;
+      });
+      let lateRename;
+      await page.route("**/v1/runtime/conversations/title", async (request) => {
+        lateRename = request.request().response();
+        const response = await request.fetch();
+        renamed();
+        await archiveAnswered;
+        await request.fulfill({ response });
+      });
+      await page.route("**/v1/runtime/conversations/archive", async (request) => {
+        const response = await request.fetch();
+        await request.fulfill({ response });
+        archived();
+      });
+      await panel.getByLabel("Title", { exact: true }).fill("Quick succession");
+      await panel.getByRole("button", { name: "Rename", exact: true }).click();
+      await renameApplied;
+      await panel.getByRole("button", { name: "Archive", exact: true }).click();
+      await lateRename;
+      await page.unroute("**/v1/runtime/conversations/title");
+      await page.unroute("**/v1/runtime/conversations/archive");
+      expect(
+        await native.sql(
+          `SELECT state||'|'||(title_artifact_id IS NOT NULL) FROM clockgrove.conversation_sessions WHERE session_id='${id}'`,
+        ),
+      ).toBe("archived|true");
+      const picker = panel.getByRole("combobox", { name: /^Conversation/u });
+      await panel.getByRole("button", { name: "Unarchive", exact: true }).waitFor();
+      await expect
+        .poll(() => picker.locator("option:checked").textContent())
+        .toBe("Quick succession (archived)");
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)));
+      expect(await messageBox.isVisible()).toBe(false);
+      expect(await panel.getByRole("button", { name: "Unarchive", exact: true }).isVisible()).toBe(
+        true,
+      );
+      await panel.getByRole("button", { name: "Unarchive", exact: true }).click();
+      await messageBox.waitFor();
+
       // 4. The run drawer shows SQL-derived run evidence, and vanishes with the grant.
       const run = await native.sql(
         `SELECT r.status||'|'||coalesce(r.outcome_code,'none')||'|'||r.model||'|'||r.input_revision||'|'||
