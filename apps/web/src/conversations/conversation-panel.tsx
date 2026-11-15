@@ -85,6 +85,12 @@ export function ConversationPanel({
   const [refusal, setRefusal] = useState<string>();
   const [provisional, setProvisional] = useState("");
   const [phase, setPhase] = useState<string>();
+  // Counts the phases the turn itself reported, so an older status read never replaces a newer one.
+  const reported = useRef(0);
+  const reportPhase = useCallback((value: string) => {
+    reported.current += 1;
+    setPhase(value);
+  }, []);
   const [toolEvidence, setToolEvidence] = useState<RunWalk>();
   const evidenceRequest = useRef(0);
   const sending = useRef(false);
@@ -97,7 +103,7 @@ export function ConversationPanel({
   const [deferred, setDeferred] = useState<readonly ActivationSummary[]>([]);
   const hooks = {
     onProvisional: setProvisional,
-    onPhase: setPhase,
+    onPhase: reportPhase,
     onTurn: setTurnId,
     onRecovered: () => setRecovered(true),
   };
@@ -131,9 +137,14 @@ export function ConversationPanel({
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
+      const before = reported.current;
       const status = await session.turnStatus(statusOf, turnId);
       if (!live) return;
-      if (!("refused" in status) && !TERMINAL_TURN_PHASES.includes(status.phase))
+      if (
+        before === reported.current &&
+        !("refused" in status) &&
+        !TERMINAL_TURN_PHASES.includes(status.phase)
+      )
         setPhase((shown) =>
           shown === "tool_using" && status.phase === "tool_waiting" ? shown : status.phase,
         );
@@ -244,7 +255,7 @@ export function ConversationPanel({
       // A turn this browser left in flight is settled from its durable status, then re-read.
       const resumed = await session.resumeTurn(selectedId, {
         onProvisional: (text) => live && setProvisional(text),
-        onPhase: (value) => live && setPhase(value),
+        onPhase: (value) => live && reportPhase(value),
         onTurn: (id) => {
           if (!live) return;
           setTurnId(id);
@@ -269,7 +280,7 @@ export function ConversationPanel({
     return () => {
       live = false;
     };
-  }, [session, selectedId, actorId]);
+  }, [session, selectedId, actorId, reportPhase]);
 
   const settled = async (sessionId: string, outcome?: TurnResult) => {
     const page = await session.readConversation(sessionId);
