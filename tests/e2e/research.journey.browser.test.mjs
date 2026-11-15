@@ -113,6 +113,9 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       );
       releaseList();
       await listResponse;
+      // Only the held read needs the route. Left installed, it would proxy every later list read
+      // through route.fetch, and one still in flight when the browser closes rejects at teardown.
+      await page.unrouteAll({ behavior: "wait" });
       await page.evaluate(
         () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       );
