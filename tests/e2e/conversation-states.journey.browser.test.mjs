@@ -30,7 +30,7 @@ const ARGS = [
 ];
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
 
-it("shows each turn state, cancels, retries a stale offer, opens run details and continues across spaces", async () => {
+it("shows each turn state, cancels, retries a stale offer, opens run details, continues across spaces and revokes an internal grant", async () => {
   if (!isNativeWorldOwnerChild()) {
     for (const backend of BACKENDS) {
       process.env.CLOCKGROVE_RENDERER_PROOF = backend;
@@ -323,7 +323,43 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await state("Completed").waitFor();
       expect(await continuity()).toBe(identity);
 
-      // 6. The open conversation panel has no accessibility violations.
+      // 6. Internal grants: an operator sees the actor's grants with their budgets and revokes one;
+      // the actor's next call to it is refused as revoked.
+      const grantsView = page.getByRole("region", { name: "Internal grants", exact: true });
+      expect(await grantsView.count()).toBe(0);
+      const perceptionSteps = () =>
+        native.sql(
+          `SELECT coalesce(string_agg(s.status||'/'||coalesce(s.outcome_code,'none'), ',' ORDER BY r.started_at), '')
+             FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r
+               ON r.tenant_id=s.tenant_id AND r.run_id=s.run_id
+            WHERE r.session_id='${id}' AND s.kind='world_command_proposal' AND s.tool='perception.list'`,
+        );
+      await grant("grants||ARRAY['runtime:world-operate']");
+      await openTalk();
+      const capabilities = grantsView.getByRole("list", { name: "Internal capabilities" });
+      await capabilities
+        .getByRole("listitem")
+        .filter({ hasText: /^perception\.list · read · 1 call per turnRevoke perception\.list$/u })
+        .waitFor();
+      await grantsView.getByText(/^Model budget: \d+ of \d+ used/u).waitFor();
+      await send("fixture:use perception.list {}");
+      await expect.poll(perceptionSteps).toBe("succeeded/none");
+      await state("Completed").waitFor();
+      await grantsView.getByRole("button", { name: "Revoke perception.list", exact: true }).click();
+      await capabilities
+        .getByRole("listitem")
+        .filter({ hasText: /^perception\.list · read · 1 call per turn · revoked$/u })
+        .waitFor();
+      expect(
+        await native.sql(
+          "SELECT array_to_string(revoked_capabilities, ',') FROM clockgrove.actor_activation_policies WHERE actor_id='fixture.keeper'",
+        ),
+      ).toBe("perception.list");
+      await send("fixture:use perception.list {}");
+      await expect.poll(perceptionSteps).toBe("succeeded/none,failed/revoked");
+      await state("Completed").waitFor();
+
+      // 7. The open conversation panel has no accessibility violations.
       await page.addScriptTag({
         content: await (await import("node:fs/promises")).readFile(
           require.resolve("axe-core/axe.min.js"),
@@ -337,7 +373,14 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       );
       expect(violations).toEqual([]);
 
-      await grant("array_remove(grants,'runtime:world-inspect')");
+      // Without the inspect and operator grants, neither the run drawer nor the grants view shows.
+      await grant(
+        "array_remove(array_remove(grants,'runtime:world-inspect'),'runtime:world-operate')",
+      );
+      let inspected = 0;
+      page.on("response", (response) => {
+        if (response.url().endsWith("/v1/runtime/activations/inspect")) inspected += 1;
+      });
       await openTalk();
       await history
         .getByText(/Scripted fixture reply/u)
@@ -347,6 +390,9 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       expect(
         await page.getByRole("complementary", { name: "Run drawer", exact: true }).count(),
       ).toBe(0);
+      // Both of the panel's activation reads have answered: the grants view stays absent.
+      await expect.poll(() => inspected).toBeGreaterThanOrEqual(2);
+      expect(await grantsView.count()).toBe(0);
     } finally {
       await browser?.close();
       await server.close();

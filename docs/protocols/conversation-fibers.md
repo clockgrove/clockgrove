@@ -146,6 +146,9 @@ shows one of Wave 5 §14's user-visible states. It shows "Cancel turn" while the
 A deferred activation from `/v1/runtime/activations/inspect` is listed as runtime status, never as
 the actor's words. Its run drawer reads `/v1/runtime/runs/inspect` and appears only when
 `/v1/runtime/runs/search` answers, which needs the inspector's `runtime:world-inspect` grant.
+Its "Internal grants" view appears only when `/v1/runtime/activations/inspect` answers `grants`,
+which it does only for an operator (below). Revoke sends a policy-only `/configure` with the
+policy's current `allowModel` and `modelBudget` and the revoked list plus that capability.
 
 ## ActorProcess
 
@@ -189,7 +192,9 @@ PostgreSQL retains its configuration, activation decisions and turn checkpoints.
 The authenticated Runtime HTTP API exposes three POST routes, each with a JSON body containing
 `version: 1`, `scope` (the existing browser scope) and `actorId`:
 
-- `/v1/runtime/activations/configure` additionally takes `configuration` and `policy`.
+- `/v1/runtime/activations/configure` additionally takes `policy` and an optional `configuration`.
+  Without `configuration` (issue 323) only the policy changes: no configuration is added or
+  replaced, and a policy that does not exist yet is created, owned by the caller.
 - `/v1/runtime/activations/wake` additionally takes `wake`.
 - `/v1/runtime/activations/inspect` returns the actor's bounded activation evidence, configuration,
   model reservation count and `nextWakeAt`.
@@ -295,6 +300,12 @@ or replace one through `/configure`; the replacement keeps its `origin`. The con
 also takes an optional `revokedCapabilities` list (at most 32 registry names). Each named capability
 is revoked from the actor's grants, so its proposals are refused `revoked`. Omitting the field keeps
 the stored list; inspection answers it in `policy.revokedCapabilities`.
+
+For a caller holding the operator grant `runtime:world-operate` (issue 323), `/inspect` also answers
+`grants`: each internal grant the actor holds through that member (`CAPABILITY_REGISTRY.grantsFor`,
+remote MCP grants excluded) as `capability`, `effect`, `callsPerTurn`, optional `commandTypes` and
+`revoked`. `revoked` reads the actor's canonical revocations (`actor_capability_policy`), whichever
+member owns the policy. Other callers' answers have no `grants` field.
 
 These routes provide the local operator and inspector surface. The activation journey is intended
 for native workerd/PostgreSQL local proof; it does not establish hosted delivery. Wave 5
