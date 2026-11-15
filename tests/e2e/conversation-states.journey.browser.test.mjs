@@ -230,12 +230,38 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
           native.sql(`SELECT state FROM clockgrove.conversation_sessions WHERE session_id='${id}'`),
         )
         .toBe("archived");
+      // The read the settled turn sends is answered while the conversation is archived, but reaches
+      // the panel only after Unarchive: answering late must not undo the unarchive.
+      let held = 0;
+      let releaseReads;
+      const readsHeld = new Promise((resolve) => {
+        releaseReads = resolve;
+      });
+      const lateReads = [];
+      await page.route("**/v1/runtime/conversations/read", async (request) => {
+        if (releaseReads === undefined) return request.continue();
+        held += 1;
+        lateReads.push(request.request().response());
+        const response = await request.fetch();
+        await readsHeld;
+        await request.fulfill({ response });
+      });
       await keeper({ op: "release" });
       await keeper({ op: "fault", phase: null });
       await state("Failed").waitFor();
       expect(await phase(id)).toBe("failed");
+      await expect.poll(() => held).toBeGreaterThan(0);
+      const release = releaseReads;
+      releaseReads = undefined;
       await panel.getByRole("button", { name: "Unarchive", exact: true }).click();
-      await page.getByLabel("Message Keeper…", { exact: true }).waitFor();
+      const messageBox = page.getByLabel("Message Keeper…", { exact: true });
+      await messageBox.waitFor();
+      release();
+      await Promise.all(lateReads);
+      await page.unroute("**/v1/runtime/conversations/read");
+      // Lets the panel apply the late reads before checking they changed nothing.
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)));
+      expect(await messageBox.isVisible()).toBe(true);
 
       // 4. The run drawer shows SQL-derived run evidence, and vanishes with the grant.
       const run = await native.sql(

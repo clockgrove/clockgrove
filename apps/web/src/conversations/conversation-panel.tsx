@@ -84,9 +84,9 @@ export function ConversationPanel({
   const chosen = useRef<string>(undefined);
   const creating = useRef<Promise<ConversationSession | { readonly refused: string }>>(undefined);
   const [current, setCurrent] = useState<ConversationSession>();
-  // Counts the person's renames and (un)archives, with the conversation of the latest one. A read
-  // of that conversation sent before it carries the older title or state, so it never replaces
-  // what the change returned.
+  // Counts the person's successful renames and (un)archives, with the conversation of the latest
+  // one. A read of that conversation sent before it carries the older title or state, so it never
+  // replaces what the change returned.
   const lifecycle = useRef<{ count: number; sessionId: string | undefined }>({
     count: 0,
     sessionId: undefined,
@@ -252,7 +252,7 @@ export function ConversationPanel({
       const seen = lifecycle.current.count;
       const list = await session.listConversations(actorId);
       if ("refused" in list) return setRefusal(list.refused);
-      // A later change re-reads the list itself.
+      // A change that succeeded since this read was sent re-reads the list itself.
       if (lifecycle.current.count !== seen) return;
       setSessions(list.sessions);
       // On opening, the conversation whose reply this tab left in progress comes first: a turn's
@@ -391,15 +391,12 @@ export function ConversationPanel({
   };
   const update = async (action: Promise<ConversationSession | { readonly refused: string }>) => {
     setRefusal(undefined);
-    const mine = ++lifecycle.current.count;
-    lifecycle.current.sessionId = current?.sessionId;
     const result = await action;
     if ("refused" in result) return refuse(result);
-    // A later change has the newer state; another conversation opened meanwhile stays open.
-    if (lifecycle.current.count !== mine) return;
-    const open = chosen.current === result.sessionId;
-    if (open) setCurrent(result);
-    await reload(open ? result.sessionId : undefined);
+    // Only a change that succeeded counts: reads sent before it are now older than what it returned.
+    lifecycle.current = { count: lifecycle.current.count + 1, sessionId: result.sessionId };
+    setCurrent(result);
+    await reload(result.sessionId);
   };
   const remove = async () => {
     if (!current) return;
