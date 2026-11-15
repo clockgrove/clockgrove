@@ -1,6 +1,6 @@
 # Factory: unattended Objectives. Written by `/factory setup`; edit the env block, not the jobs.
-# Triggers: cron, manual (one issue), a new factory:objective label or its removal, the review job's own last step, and
-# pull_request when the Factory App labels a PR factory:review. Never from a fork: the Objective text (a writer) and the label (a
+# Triggers: cron, manual (one issue), a new factory:objective label or its removal, the review job's own last step,
+# pull_request when the Factory App labels a PR factory:review, and a review submitted on a Factory PR. Never from a fork: the Objective text (a writer) and the label (a
 # maintainer) are the only inputs. FACTORY_AUTO_MERGE is ON: Factory merges the reviewed head with
 # no human read. The gate is your CI workflow's checks on that exact head (and the merge queue's
 # commit), the comment-only reviewer pass, and the queue's own re-run. Set it false for ready PRs.
@@ -17,6 +17,8 @@ on:
     types: [opened, labeled, unlabeled, closed]
   pull_request: # fires because the App (not the job token) applies factory:review, a human marks a Question draft ready (the App's own ready mark starts no job), a Factory PR merged (siblings may be stale now), or the merge queue dropped one (the dispatcher re-enqueues it once, then Blocks)
     types: [labeled, ready_for_review, closed, dequeued]
+  pull_request_review: # an App's review of a Factory PR (a third-party reviewer's): the dispatcher puts back the review label a stage waiting for it took off
+    types: [submitted]
   check_suite: # CI from a GitHub App outside Actions finished on a factory/ branch: a stage waiting on it resumes, or the dispatcher's merge pass runs
     types: [completed]
   workflow_run: # CI on Actions finished (GitHub sends no check_suite event for a suite Actions made)
@@ -42,8 +44,8 @@ env:
   FACTORY_BUDGET_COMMAND: node scripts/check-test-budget.mjs
   FACTORY_PROTECTED_PATHS: scripts/test-budget.json, scripts/ci/toolchain.sh, scripts/ci/browser-toolchain.mjs
   FACTORY_CI_CHECKS: quality
-  FACTORY_THIRD_PARTY_REVIEWERS: greptile-apps[bot] # its review is part of each Factory PR's review (Factory INSTALL.md, Third-party reviewers)
   FACTORY_NODE_VERSION: 24.21.0 # the Node.js your CI uses
+  FACTORY_THIRD_PARTY_REVIEWERS: greptile-apps[bot] # its review is part of each Factory PR's review (Factory INSTALL.md, Third-party reviewers)
   # Local mode (factory serve): the database, runtime and browser suites start Postgres on a unix socket, which no
   # local sandbox may create, so locally Factory runs these; the required quality check runs the full set.
   FACTORY_LOCAL_VALIDATION: 'pnpm check, parallel: pnpm test, parallel: pnpm run verify:docs'
@@ -57,14 +59,16 @@ jobs:
     # Ticks: the */10 cron only (a backstop: GitHub fires schedules late or not at all; other schedules are other
     # jobs'), a manual run, a new Objective's label or its removal (a stop), a restart's label, a draft's label applied or removed (a stop, a start), any issue closing (it may block an Objective), Factory's own jobs'
     # last steps (a slot freed, a failed or requeued start), a merged Factory PR, the merge queue dropping one
-    # (only GitHub and people with write access dequeue), the queue watch, and, without a sandbox, CI finishing on a
+    # (only GitHub and people with write access dequeue), an App's review on a Factory PR that is not Factory's own (a
+    # third-party reviewer's: a review stage may wait for it; a person's review ticks nothing), the queue watch, and, without a sandbox, CI finishing on a
     # factory/ branch (the merge pass merges a PR whose checks just went green; with a sandbox the gate job takes those
     # events and ticks this job itself).
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'factory:objective' || github.event.label.name == 'factory:draft' || (github.event.action == 'labeled' && github.event.label.name == 'factory:restart') || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'factory:objective')))) ||
       (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'factory/')) ||
-      (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_review' && github.event.review.user.type == 'Bot' && startsWith(github.event.pull_request.head.ref, 'factory/') && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.review.body, '<!-- factory:'))
       || (github.event_name == 'check_suite' && startsWith(github.event.check_suite.head_branch, 'factory/')) ||
       (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'factory/') && github.event.workflow_run.head_repository.full_name == github.repository)
     concurrency: { group: factory-dispatch, cancel-in-progress: false } # ticks run one at a time
@@ -77,9 +81,9 @@ jobs:
       wake_at: "${{ steps.f.outputs.wake_at }}"
       wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/factory@v0.9.31
+      - uses: clockgrove/factory@v0.9.32
         id: f
-        with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
+        with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
   queue-watch:
     # The PRs the merge pass left in the merge queue: this job reads each entry every 30 s until it leaves the queue,
     # then ticks the dispatcher, whose merge pass re-enqueues a dropped PR once, then Blocks. The tick is this job's own
@@ -97,9 +101,9 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: factory-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/factory@v0.9.31
+      - uses: clockgrove/factory@v0.9.32
         id: w
-        with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}" }
+        with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.FACTORY_APP_ID }}", app_private_key: "${{ secrets.FACTORY_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
         if: steps.w.outputs.tick == 'true'
         env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" } # no checkout here: gh names the repository from GH_REPO
@@ -137,15 +141,16 @@ jobs:
     if: needs.dispatch.outputs.count != '' && needs.dispatch.outputs.count != '0'
     runs-on: ubuntu-26.04
     timeout-minutes: 300
-    strategy: { max-parallel: 2, fail-fast: false, matrix: { issue: "${{ fromJSON(needs.dispatch.outputs.issues) }}" } }
+    strategy: { fail-fast: false, matrix: { issue: "${{ fromJSON(needs.dispatch.outputs.issues) }}" } } # the dispatcher picks at most max_concurrent less the ones running, a repository variable's included
     permissions: { contents: read, issues: write, actions: write } # actions: write for the tick at the end and triage's rerun of failed CI jobs
     concurrency: { group: "factory-${{ matrix.issue }}", cancel-in-progress: false } # one job per issue; a repeat waits, siblings keep running
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.31
+      - uses: clockgrove/factory@v0.9.32
         id: f
         with:
+          vars: ${{ toJSON(vars) }} # the repository's variables: each FACTORY_<NAME> one sets that setting over the env block (docs/INSTALL.md, Settings in layers)
           mode: work
           issue: ${{ matrix.issue }}
           harness: ${{ inputs.harness }} # empty falls through to FACTORY_HARNESS
@@ -178,9 +183,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/factory@v0.9.31
+      - uses: clockgrove/factory@v0.9.32
         id: f
         with:
+          vars: ${{ toJSON(vars) }}
           mode: review
           pr: ${{ github.event.pull_request.number }}
           harness: ${{ inputs.harness }}
