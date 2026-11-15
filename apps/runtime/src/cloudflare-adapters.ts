@@ -1426,18 +1426,18 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<ActivationInspection> {
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
-    const inspection = await withActivations(this.environment, (store) => store.inspect(address));
     // Only an operator sees the actor's internal grants (issue 323), with its canonical revocations.
     const memberGrants = context.grants.map(String);
-    if (!memberGrants.includes(OPERATE_GRANT)) return inspection;
-    const revoked = new Set(
-      await withActivations(this.environment, (store) =>
-        store.revokedCapabilities({
-          ...address,
-          participant: { ...worldAuthorization(context), personaId: participant.personaId },
-        }),
-      ),
-    );
+    if (!memberGrants.includes(OPERATE_GRANT))
+      return withActivations(this.environment, (store) => store.inspect(address));
+    const [inspection, revokedNames] = await withActivations(this.environment, async (store) => [
+      await store.inspect(address),
+      await store.revokedCapabilities({
+        ...address,
+        participant: { ...worldAuthorization(context), personaId: participant.personaId },
+      }),
+    ]);
+    const revoked = new Set(revokedNames);
     const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(memberGrants).grants.map(
       (grant) => ({
         capability: grant.capability,
