@@ -24,6 +24,16 @@ export function gatewayShadowDecider(
           options: request.options,
           instructions: request.instructions,
         },
+        ...(request.questions === undefined
+          ? {}
+          : {
+              questions: Object.fromEntries(
+                Object.entries(request.questions).map(([name, instructions]) => [
+                  name,
+                  { type: "boolean" as const, instructions },
+                ]),
+              ),
+            }),
       });
       const { record } = outcome;
       const accounting = {
@@ -38,6 +48,16 @@ export function gatewayShadowDecider(
         status: "completed",
         label: outcome.value.label,
         confidence: outcome.value.confidence,
+        ...(outcome.answers === undefined
+          ? {}
+          : {
+              answers: Object.fromEntries(
+                Object.entries(outcome.answers).map(([name, answer]) => [
+                  name,
+                  answer.label === "true",
+                ]),
+              ),
+            }),
         ...accounting,
       };
     },

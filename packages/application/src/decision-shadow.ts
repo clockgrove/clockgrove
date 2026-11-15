@@ -53,6 +53,8 @@ export type ShadowModelOutcome =
       status: "completed";
       label: string;
       confidence: number | null;
+      /** Yes/no answers to the request's named `questions`, by name; absent without them. */
+      answers?: Readonly<Record<string, boolean>>;
       model: string;
       latencyMs: number;
       costMicrousd: number | null;
@@ -79,6 +81,8 @@ export interface ShadowDecider {
       state: string;
       options: Readonly<Record<string, string>>;
       instructions: string;
+      /** Named yes/no questions asked in the same call, name to instructions (issue 271). */
+      questions?: Readonly<Record<string, string>>;
     }>,
   ): Promise<ShadowModelOutcome>;
 }

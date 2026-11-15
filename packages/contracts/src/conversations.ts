@@ -83,7 +83,22 @@ export interface ModerationShadowJudgement {
   readonly model: string | null;
   readonly latencyMs: number | null;
   readonly costMicrousd: number | null;
+  /**
+   * The route-changing harm codes (issue 271), each a yes/no answer or `null` when unanswered; the
+   * whole map `null` without an answered call. Absent on judgements recorded before categories.
+   */
+  readonly categories?: Readonly<Record<ModerationCategoryCode, boolean | null>> | null;
 }
+
+/** The route-changing harm codes the moderation judge answers (issue 271). */
+export const MODERATION_CATEGORY_CODES = [
+  "sexual_minors",
+  "harm_to_others",
+  "self_harm_intent",
+  "self_harm_encouragement",
+  "stated_minor",
+] as const;
+export type ModerationCategoryCode = (typeof MODERATION_CATEGORY_CODES)[number];
 
 export function decodeModerationShadowJudgement(
   value: unknown,
@@ -103,9 +118,23 @@ export function decodeModerationShadowJudgement(
       "latencyMs",
       "costMicrousd",
     ],
-    [],
+    ["categories"],
     path,
   );
+  let categories: Record<ModerationCategoryCode, boolean | null> | null | undefined;
+  if (v.categories === null) categories = null;
+  else if (v.categories !== undefined) {
+    const map = record(v.categories, `${path}.categories`);
+    exactKeys(map, MODERATION_CATEGORY_CODES, [], `${path}.categories`);
+    categories = Object.fromEntries(
+      MODERATION_CATEGORY_CODES.map((code) => {
+        const answer = map[code];
+        if (answer !== null && typeof answer !== "boolean")
+          throw new ContractDecodeError(`${path}.categories.${code}`, "expected nullable boolean");
+        return [code, answer];
+      }),
+    ) as Record<ModerationCategoryCode, boolean | null>;
+  }
   const confidenceBp =
     v.confidenceBp === null ? null : nonNegativeInteger(v.confidenceBp, `${path}.confidenceBp`);
   if (confidenceBp !== null && confidenceBp > 10000)
@@ -130,6 +159,7 @@ export function decodeModerationShadowJudgement(
     latencyMs: v.latencyMs === null ? null : nonNegativeInteger(v.latencyMs, `${path}.latencyMs`),
     costMicrousd:
       v.costMicrousd === null ? null : nonNegativeInteger(v.costMicrousd, `${path}.costMicrousd`),
+    ...(categories === undefined ? {} : { categories: Object.freeze(categories) }),
   });
 }
 

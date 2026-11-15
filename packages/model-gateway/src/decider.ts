@@ -11,6 +11,8 @@ export type ScriptedDecisionStep =
   | Readonly<{
       kind: "answer";
       answer: DecisionAnswer;
+      /** The answers to the call's named questions, by name. */
+      answers?: Readonly<Record<string, DecisionAnswer>>;
       costUsd?: number;
       /** Simulated provider latency, awaited before the answer. */
       delayMs?: number;
@@ -55,6 +57,7 @@ export class ScriptedDecider implements DecisionAdapter {
       await new Promise((resolve) => setTimeout(resolve, step.delayMs));
     return {
       answer: step.answer,
+      ...(step.answers === undefined ? {} : { answers: step.answers }),
       inputTokens: null,
       outputTokens: null,
       reportedCostUsd: step.costUsd ?? null,

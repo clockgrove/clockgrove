@@ -1,6 +1,7 @@
 export { validateWorldBehaviorPack, type WorldBehaviorPack } from "@clockgrove/domain";
 export { canonicalBytes } from "@clockgrove/kernel";
 export * from "./activations.js";
+export * from "./actor-reply-shadow.js";
 export * from "./artifact-keys.js";
 export * from "./artifacts.js";
 export * from "./authentication.js";
@@ -34,6 +35,7 @@ export * from "./mcp-installations.js";
 export * from "./mcp-network.js";
 export * from "./mcp-oauth-http.js";
 export * from "./metrics.js";
+export * from "./moderation-categories.js";
 export * from "./moderation-shadow.js";
 export * from "./partition-replay.js";
 export * from "./partition-state.js";

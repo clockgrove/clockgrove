@@ -1746,6 +1746,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
                     "model",
                     "latencyMs",
                     "costMicrousd",
+                    ...("categories" in record ? ["categories"] : []),
                   ].map((key) => [key, record[key]]),
                 ),
               );

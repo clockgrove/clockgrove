@@ -470,6 +470,13 @@
       "when": 1796162400007,
       "tag": "0067_actor_self_capabilities",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1796162400008,
+      "tag": "0068_moderation_categories",
+      "breakpoints": true
     }
   ]
 }

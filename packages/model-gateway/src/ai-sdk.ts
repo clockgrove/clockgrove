@@ -22,6 +22,7 @@ import type {
   DecisionAdapterResult,
   DecisionAnswer,
   DecisionCall,
+  DecisionQuestion,
 } from "./decision.js";
 import type { CredentialResolver } from "./port.js";
 
@@ -110,16 +111,12 @@ export class AiSdkDecisionAdapter implements DecisionAdapter {
       ...(route.baseURL === undefined ? {} : { baseURL: route.baseURL }),
       ...(this.fetch === undefined ? {} : { fetch: this.fetch }),
     });
-    const instructions =
-      question.instructions === undefined ? {} : { instructions: question.instructions };
-    const questions = {
-      q:
-        question.type === "choice"
-          ? { type: "choice" as const, ...instructions, criteria: { ...question.options } }
-          : question.type === "score"
-            ? { type: "score" as const, ...instructions, criteria: [...question.levels] }
-            : { type: "boolean" as const, instructions: question.instructions },
-    };
+    const questions = Object.fromEntries(
+      Object.entries({ ...call.questions, q: question }).map(([name, item]) => [
+        name,
+        sdkQuestion(item),
+      ]),
+    );
     // The provider's own result, kept as it arrives: when the SDK then refuses it (a model refusal,
     // an answer that fails validation), its usage still says what the call billed.
     const model = provider.decision(route.model);
@@ -162,19 +159,40 @@ export class AiSdkDecisionAdapter implements DecisionAdapter {
       reportedCostUsd: reportedCost(result.providerMetadata),
     };
     let answer: DecisionAnswer;
+    let answers: Record<string, DecisionAnswer> | undefined;
     try {
-      answer = toAnswer(result.answers.q as unknown as Record<string, unknown>);
+      const raw = result.answers as unknown as Record<string, Record<string, unknown>>;
+      answer = toAnswer(raw.q as Record<string, unknown>);
+      if (call.questions !== undefined)
+        answers = Object.fromEntries(
+          Object.keys(call.questions).map((name) => [
+            name,
+            toAnswer(raw[name] as Record<string, unknown>),
+          ]),
+        );
     } catch {
       throw new ProviderFailure("unavailable", null, false, billed);
     }
     return {
       answer,
+      ...(answers === undefined ? {} : { answers }),
       inputTokens: billed.inputTokens,
       outputTokens: billed.outputTokens,
       reportedCostUsd: billed.reportedCostUsd,
       responseModel: result.response.modelId ?? null,
     };
   }
+}
+
+/** One question in the SDK's shape: choices and score levels become its `criteria`. */
+function sdkQuestion(question: DecisionQuestion) {
+  const instructions =
+    question.instructions === undefined ? {} : { instructions: question.instructions };
+  return question.type === "choice"
+    ? { type: "choice" as const, ...instructions, criteria: { ...question.options } }
+    : question.type === "score"
+      ? { type: "score" as const, ...instructions, criteria: [...question.levels] }
+      : { type: "boolean" as const, instructions: question.instructions };
 }
 
 function toAnswer(answer: Record<string, unknown>): DecisionAnswer {

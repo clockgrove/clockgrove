@@ -1,7 +1,9 @@
 import {
+  type ActorReplyShadowRecord,
   type ConversationParticipant,
   JOURNAL_EVENT_REGISTRY,
   journalModerationShadow,
+  judgeActorReply,
   judgeModeration,
   type ModerationShadowPolicy,
   type ShadowDecider,
@@ -26,13 +28,14 @@ import { gatewayShadowDecider } from "./decision-shadow.js";
 
 export function moderationShadowPolicy(
   source: string | undefined,
+  defaultVersion = "moderation-shadow@3",
 ): ModerationShadowPolicy | undefined {
   if (source === undefined) return undefined;
   // Opt-in calibration defaults match wake triage's 65% threshold and the gateway's $0.001
   // call ceiling. Model and alias are always supplied by the operator, never selected in code.
   return z
     .object({
-      policyVersion: z.string().min(1).default("moderation-shadow@2"),
+      policyVersion: z.string().min(1).default(defaultVersion),
       modelAlias: z.string().min(1),
       model: z.string().min(1),
       confidenceThreshold: z.number().int().min(0).max(10000).default(6500),
@@ -40,6 +43,36 @@ export function moderationShadowPolicy(
     })
     .strict()
     .parse(JSON.parse(source));
+}
+/** `ACTOR_REPLY_SHADOW_CONFIG`: the same shape, its own policy version, alias and model. */
+export const actorReplyShadowPolicy = (source: string | undefined) =>
+  moderationShadowPolicy(source, "actor-reply-shadow@1");
+
+/**
+ * Judges one committed actor reply (issue 271) and hands its contentless record to `record`. Every
+ * fault is swallowed into a `failed` record or dropped: the reply was already delivered.
+ */
+export async function shadowActorReply(
+  fiber: TurnFiber,
+  reply: string,
+  policy: ModerationShadowPolicy,
+  decider: ShadowDecider | undefined,
+  record: (record: ActorReplyShadowRecord) => void | Promise<void>,
+): Promise<void> {
+  await record(
+    await judgeActorReply({
+      subject: {
+        tenantId: fiber.scope.tenantId,
+        worldId: fiber.scope.worldId,
+        actorId: fiber.actorId,
+        sessionId: fiber.sessionId,
+        messageId: fiber.messageId,
+        reply,
+      },
+      policy,
+      decider,
+    }),
+  );
 }
 export function moderationShadowDecider(
   environment: { readonly AI_GATEWAY_API_KEY?: string },
