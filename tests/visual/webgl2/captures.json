@@ -21,8 +21,8 @@
         "height": 864
       },
       "file": "daylight-dry@1536x864.png",
-      "sha256": "sha256:94d7e079bf5937dd1243f901416a6ff94c115ea57779f6d0083907c9dcbd90d6",
-      "bytes": 123379,
+      "sha256": "sha256:f6d714d6d195c0ba4aa985a7f132734543a5bc7f0ffa081cf668b6f2e12f4abf",
+      "bytes": 125904,
       "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -32,8 +32,8 @@
         "height": 720
       },
       "file": "daylight-dry@1280x720.png",
-      "sha256": "sha256:367afc2668589610da1aef05b6d4aa90ba1a35868e7007bf02060bf45d93fcfc",
-      "bytes": 91972,
+      "sha256": "sha256:374c24571fa1917f4cbb62fcc377d6a22aa10fc9d774cd043d401a6993603801",
+      "bytes": 92696,
       "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -43,8 +43,8 @@
         "height": 844
       },
       "file": "daylight-dry@390x844.png",
-      "sha256": "sha256:d11fb7baac6fb3f125e93f6839081dd387dbde88b277de878165f58f6b458e86",
-      "bytes": 46626,
+      "sha256": "sha256:e5bcc31adab2d7265fa858e536a938569dc23dcd2d22e63337dcc60b11d868ce",
+      "bytes": 49027,
       "announced": "Observation: ready. Observing revision 25. Canonical time 8683200000. Rain intensity 0. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8500, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -54,8 +54,8 @@
         "height": 864
       },
       "file": "dusk-rain-low@1536x864.png",
-      "sha256": "sha256:7f96a78569176f99e7316e036d704f776fdad60fde3f32bc989747855e8da700",
-      "bytes": 138157,
+      "sha256": "sha256:a085ae9b9883580891e2445c58b5f76103426087a902486f236e3ad626baa4e2",
+      "bytes": 132988,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -65,8 +65,8 @@
         "height": 720
       },
       "file": "dusk-rain-low@1280x720.png",
-      "sha256": "sha256:62cfa7a260ef96022447f8db6458b241ff7cf92aef3a7c1df905ca0ccebdcbc9",
-      "bytes": 99931,
+      "sha256": "sha256:d6f4c4a47d9fee67151af5e4f6d6a0e306d9504da7480391d024daf319901b69",
+      "bytes": 95921,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -76,8 +76,8 @@
         "height": 844
       },
       "file": "dusk-rain-low@390x844.png",
-      "sha256": "sha256:e6e8ae935bf47da35a0b1b88d4dbbcc514ba3e0bcafb962e95e7ddcbee94d0a8",
-      "bytes": 34537,
+      "sha256": "sha256:4010d6846dc45343ede7312d32b9b05d4a3c0ed57fa50d9b9f1a3ca0279addd4",
+      "bytes": 33983,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -87,8 +87,8 @@
         "height": 864
       },
       "file": "dusk-rain-medium@1536x864.png",
-      "sha256": "sha256:d6938c83f533976a9d83f94dfa54ce5b17d7a8983063b41a31d20b8d6c0abbae",
-      "bytes": 97189,
+      "sha256": "sha256:1f8e647a1a7a74ff8240e3abf9501d0384923b1ed4041605fd874219915f0276",
+      "bytes": 91507,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -98,8 +98,8 @@
         "height": 720
       },
       "file": "dusk-rain-medium@1280x720.png",
-      "sha256": "sha256:9d999b213815d2cfb560f99988288c5a32bc23a4778cde5d69cceb8842dcecad",
-      "bytes": 83294,
+      "sha256": "sha256:6659e9bbe714d5051c69c92811a903a78bc8b0502a970260d7e20f47f5a569f5",
+      "bytes": 79435,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -109,8 +109,8 @@
         "height": 844
       },
       "file": "dusk-rain-medium@390x844.png",
-      "sha256": "sha256:3cc483b9bc225ad51d404e9d8bfe476d1cdd5f616ca9b2d39605cd88ceba7adf",
-      "bytes": 33788,
+      "sha256": "sha256:1b802586db83b3ba362ae177f15fac75003c18604a14a9db6a95d32ec208ce68",
+      "bytes": 33268,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -120,8 +120,8 @@
         "height": 864
       },
       "file": "dusk-rain-high@1536x864.png",
-      "sha256": "sha256:85688bf8f9bd965c6a9b3f04ad9e39c0372ebbda2784a56d7cc2bcdbd097fcf0",
-      "bytes": 100352,
+      "sha256": "sha256:d5062b29bebbeb98446a151065cb7e8944b8cb6fc13419a913198ea3df3efe4a",
+      "bytes": 94766,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -131,8 +131,8 @@
         "height": 720
       },
       "file": "dusk-rain-high@1280x720.png",
-      "sha256": "sha256:497abc1477f73de660a889b4a82e1f9139866ff93dc92e501c70d790e94dbee2",
-      "bytes": 85791,
+      "sha256": "sha256:b54508850ff9a8c613ba2908b6a1dabab3c2a1b55e642334d004cd41d911b9e1",
+      "bytes": 81888,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -142,8 +142,8 @@
         "height": 844
       },
       "file": "dusk-rain-high@390x844.png",
-      "sha256": "sha256:65b779238ed3267523697cb079b59ab3e996b6e2b9c1ebc5d08554fa0f8d3b29",
-      "bytes": 34862,
+      "sha256": "sha256:3800e1f2a1031cb171880fe8f4632b9f6cc3a27e29fbe378f9f30a6cdbb7ccbf",
+      "bytes": 34308,
       "announced": "Observation: ready. Observing revision 51. Canonical time 8703900000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -153,8 +153,8 @@
         "height": 864
       },
       "file": "dusk-rain@1536x864.png",
-      "sha256": "sha256:396acbb247e0ed2e7fa293d799cb19226c58f5a52d8e681761e2bbe97256b8e5",
-      "bytes": 99023,
+      "sha256": "sha256:b4438869519c62733356503e0005ce99afbbad19c531ac8f97edb39c665d021c",
+      "bytes": 97329,
       "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -164,8 +164,8 @@
         "height": 720
       },
       "file": "dusk-rain@1280x720.png",
-      "sha256": "sha256:afd71829b891a73c4a1b13cf64c9bf168a4e43762021edac118a446e6f256bea",
-      "bytes": 85035,
+      "sha256": "sha256:b8f3361d9e3b31803c4ddf671c0fb0c83894f9adffc785d6525d9f33562b037b",
+      "bytes": 86435,
       "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -175,8 +175,8 @@
         "height": 844
       },
       "file": "dusk-rain@390x844.png",
-      "sha256": "sha256:9e094a8b039d94a057df486ab7cebcf8904e56f587d04bee9710bad1dab5fdfa",
-      "bytes": 48560,
+      "sha256": "sha256:275932b2429e62e309192396e14745f68465f53d126a474b34e2f16353103e60",
+      "bytes": 50612,
       "announced": "Observation: ready. Observing revision 62. Canonical time 8708400000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -186,8 +186,8 @@
         "height": 864
       },
       "file": "night-rain-low@1536x864.png",
-      "sha256": "sha256:785f60d03007ce5dc2d77243e9f58a9ae4d46392b704a87448b87a17da2f5b7e",
-      "bytes": 131897,
+      "sha256": "sha256:3a28f3b4d10d15f24d642d4602570464f66033640201a5f8c80ce28d91ee3de5",
+      "bytes": 126213,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -197,8 +197,8 @@
         "height": 720
       },
       "file": "night-rain-low@1280x720.png",
-      "sha256": "sha256:2dba45f44d3645f670903c4e5e241dd93af91cf1e69fbef1b9ed434ea05995c4",
-      "bytes": 99764,
+      "sha256": "sha256:5b09494a23ed085956979f3df5838b39fdedc476b97cbd8e9e360952c6e8bbe0",
+      "bytes": 92485,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -208,8 +208,8 @@
         "height": 844
       },
       "file": "night-rain-low@390x844.png",
-      "sha256": "sha256:9877aa8423c103163f3122e0f44c063b1f49ad323a222419e342f59b15b6349e",
-      "bytes": 33473,
+      "sha256": "sha256:24897936a025a776be1948730176253f4da5825a77952cb93cc566c94f0f2747",
+      "bytes": 32679,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -219,8 +219,8 @@
         "height": 864
       },
       "file": "night-rain-medium@1536x864.png",
-      "sha256": "sha256:460130eab39e87a82cdcfd376066ee8ce537f2607585dfbf44c929097ab90b56",
-      "bytes": 99022,
+      "sha256": "sha256:40852502c584af47d6191ccfa8c7f87ae460ff7d63ab74ea069e84fd2bfaf101",
+      "bytes": 92588,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -230,8 +230,8 @@
         "height": 720
       },
       "file": "night-rain-medium@1280x720.png",
-      "sha256": "sha256:a4adcb9b2784a5c5b422b7b3e95d893e2faaca21d575be3da58ba5efb0e0c9a7",
-      "bytes": 86212,
+      "sha256": "sha256:7768e71af2bff222b716e10f486785e0a2c9ed039cab61e62a3adbf4c33675fb",
+      "bytes": 79098,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -241,8 +241,8 @@
         "height": 844
       },
       "file": "night-rain-medium@390x844.png",
-      "sha256": "sha256:00a7747ce5677933ea51fecbb613a32bc0ae33a77fbc193462647b5c07903861",
-      "bytes": 33901,
+      "sha256": "sha256:bf47e8a35180427488afa2ff53cab6d842e99692d80f70bb60b6a463a8998dea",
+      "bytes": 33108,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -252,8 +252,8 @@
         "height": 864
       },
       "file": "night-rain-high@1536x864.png",
-      "sha256": "sha256:ca77ee2d85b0fb6f4d9c1ced580866fad5a0c6ddf8aa64d369dcdc1bff157023",
-      "bytes": 101764,
+      "sha256": "sha256:981334e83f9e6acaf50f1ef24c507a920ab58c4231125b4e32b60d70e0c723c6",
+      "bytes": 95440,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -263,8 +263,8 @@
         "height": 720
       },
       "file": "night-rain-high@1280x720.png",
-      "sha256": "sha256:6203b37d34946db24d4e4231dda3603631ab1de3a6fe7bd1ffa7b566983cfa15",
-      "bytes": 88828,
+      "sha256": "sha256:24bb43fd8fa57afde25ddb4df61a7793a166f01e9d8235ad4ff8f7e7b7f9c281",
+      "bytes": 81612,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -274,8 +274,8 @@
         "height": 844
       },
       "file": "night-rain-high@390x844.png",
-      "sha256": "sha256:ccae40923c9b75639c80ad5781a4d975044bea3fda760f1bcb57b50e753cb371",
-      "bytes": 34995,
+      "sha256": "sha256:68d4ff0598fabd601c921274cd696666cf96afc2c2a62f6dca47e7fd072efdfe",
+      "bytes": 34180,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -285,8 +285,8 @@
         "height": 864
       },
       "file": "selected-actor-rail@1536x864.png",
-      "sha256": "sha256:f78cbf31e90301412d7a8e18506d040f840200314255e98a908ccd5907628225",
-      "bytes": 201430,
+      "sha256": "sha256:a5c44ef0a6847867649f904ccdcde30a3d6874bdecbe2b46490d1b8c6f78e823",
+      "bytes": 195885,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -296,8 +296,8 @@
         "height": 720
       },
       "file": "selected-actor-rail@1280x720.png",
-      "sha256": "sha256:4d212ebbd21cc8e727e7d12ad3a1ac9668f249b542e50a63feea82e8d8b759e0",
-      "bytes": 144646,
+      "sha256": "sha256:6a018d178b96e27fa26a61394d333a562a917f6f9e1e11119d0cba246ae4e5b5",
+      "bytes": 138389,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -307,8 +307,8 @@
         "height": 844
       },
       "file": "selected-actor-rail@390x844.png",
-      "sha256": "sha256:a2b1427556756b887e8b96e666821d1029156371316c285c09e625d66476dc90",
-      "bytes": 59374,
+      "sha256": "sha256:0da3657629d31fb54cdc05b618b58d009ea7792fa2543d4fa7de19f2bec03ea0",
+      "bytes": 62138,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -318,8 +318,8 @@
         "height": 864
       },
       "file": "event-why-inspector@1536x864.png",
-      "sha256": "sha256:362bff8ae2b7ac009f20187c4e13e73283a6b31a5e40fc97c99d413d3d7ce67f",
-      "bytes": 237407,
+      "sha256": "sha256:9eda2c8fbcf28ca69b3bcccf1349ac93009623862e3c6e2f5f7c1d06eb239d35",
+      "bytes": 214578,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -329,8 +329,8 @@
         "height": 720
       },
       "file": "event-why-inspector@1280x720.png",
-      "sha256": "sha256:43882f548c1be5f9a104433a7ffb9b675872e2aee1fe6ea7b62ed3357dd58967",
-      "bytes": 184214,
+      "sha256": "sha256:530970110702cd1de9547d7462a9afaef151275862c011fe83f3f3180b1e31ba",
+      "bytes": 169979,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -340,8 +340,8 @@
         "height": 844
       },
       "file": "event-why-inspector@390x844.png",
-      "sha256": "sha256:2a101e13107f32ceb55e7e0d857da7d1aa55f7cdeea7fd059d02ac732db04caf",
-      "bytes": 71631,
+      "sha256": "sha256:6005af73fd315243695967b1dd62793f6dba9698027f09643c38e63010e46db1",
+      "bytes": 65606,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -351,8 +351,8 @@
         "height": 864
       },
       "file": "selected-inspectable-object@1536x864.png",
-      "sha256": "sha256:e895b6f9e9bf4e02d2af39e0b0c79b410acd40e110b814108e7ff965e1621c7d",
-      "bytes": 193132,
+      "sha256": "sha256:e735b2f28fb4277e3548e8799ef1ef3e926135da26c8c08bf194571f4ef57bcd",
+      "bytes": 195533,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -362,8 +362,8 @@
         "height": 720
       },
       "file": "selected-inspectable-object@1280x720.png",
-      "sha256": "sha256:2c05f7b8e2852890c15d0691a91f70a5062a4341d0281f104d728be7c0e42b6e",
-      "bytes": 140972,
+      "sha256": "sha256:2383fa0548ae824c512e7521b6e5e67e1587ed2ece71dcfa7c4b4a9284334682",
+      "bytes": 134164,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -373,8 +373,8 @@
         "height": 844
       },
       "file": "selected-inspectable-object@390x844.png",
-      "sha256": "sha256:5a6c087483a7b450ad512edd9f66a0c0458d33e74063067b14c6e321d7c94a6f",
-      "bytes": 62664,
+      "sha256": "sha256:d728886cdb019a5595a08f1387d708c752135ff371072d7042dd681a6e007126",
+      "bytes": 58016,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -384,8 +384,8 @@
         "height": 864
       },
       "file": "disconnected-recovering@1536x864.png",
-      "sha256": "sha256:3668147315f2b3b81dbb52b03b6c2b813a03e11999b2cbc4ef19cb1cb89bce0e",
-      "bytes": 196121,
+      "sha256": "sha256:e044327a94a0a2004d6166c9272cf28a184a748f3b0f65e6c8a3ff9b21773513",
+      "bytes": 198151,
       "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -395,8 +395,8 @@
         "height": 720
       },
       "file": "disconnected-recovering@1280x720.png",
-      "sha256": "sha256:812a9f62370caa6adf5ab2e9c299eb0360b67529974cdb8acdd6e4a142fbcf14",
-      "bytes": 144350,
+      "sha256": "sha256:854463c019880ffc7944755f7626a7d091fbd2c005ad23066febacb29d0ee11d",
+      "bytes": 136508,
       "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -406,8 +406,8 @@
         "height": 844
       },
       "file": "disconnected-recovering@390x844.png",
-      "sha256": "sha256:3444529f9d301a85e85298ffb7dae2d0fce43a16ef28aa5111524580a5bc8dbb",
-      "bytes": 65611,
+      "sha256": "sha256:c76af7dae46ec05a31331df0d6763677cee26b6e4a0a3943e825533452216e16",
+      "bytes": 60307,
       "announced": "Observation: degraded. Recovering committed scene. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -417,8 +417,8 @@
         "height": 864
       },
       "file": "text-access@1536x864.png",
-      "sha256": "sha256:3242c5f28ec7c611d364815ac6fca048791230ddc2a25f93047022a0296b6bbe",
-      "bytes": 173046,
+      "sha256": "sha256:04740a67cfb6524a007359c7f36028e09e2273b5ef97131ca0298fbece51fd74",
+      "bytes": 155981,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -428,8 +428,8 @@
         "height": 720
       },
       "file": "text-access@1280x720.png",
-      "sha256": "sha256:fcbbf94b904777193ef1997149fbca2fdacb77af058640bff704e94bafe19d8b",
-      "bytes": 169894,
+      "sha256": "sha256:4116325d4655edeebfae31b8d9ffe5d68c5375b13bf7df3b6c5c81b6bbc02126",
+      "bytes": 154122,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     },
     {
@@ -439,8 +439,8 @@
         "height": 844
       },
       "file": "text-access@390x844.png",
-      "sha256": "sha256:563cf62d6cf71db7d6a546616ea63cf2c1a8da250e710d22099121ac8afb6b4a",
-      "bytes": 92675,
+      "sha256": "sha256:8385e5fef2ef34d043225186c1fdeccbcbfc637c3e038f5251eb3927c6b2480e",
+      "bytes": 85540,
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     }
   ],
@@ -1145,10 +1145,10 @@
         "height": 864
       },
       "text": false,
-      "cls": 0,
-      "ttfbMs": 16.799999998882413,
-      "fcpMs": 268,
-      "lcpMs": 268
+      "cls": 0.001520635176894596,
+      "ttfbMs": 33.59999999997672,
+      "fcpMs": 440,
+      "lcpMs": 440
     },
     {
       "viewport": {
@@ -1156,10 +1156,10 @@
         "height": 720
       },
       "text": false,
-      "cls": 0,
-      "ttfbMs": 3,
-      "fcpMs": 148,
-      "lcpMs": 148
+      "cls": 0.0020162100394566854,
+      "ttfbMs": 6.699999999953434,
+      "fcpMs": 228,
+      "lcpMs": 228
     },
     {
       "viewport": {
@@ -1167,10 +1167,10 @@
         "height": 844
       },
       "text": false,
-      "cls": 0,
-      "ttfbMs": 2.799999998882413,
-      "fcpMs": 140,
-      "lcpMs": 140
+      "cls": 0.016830831983854926,
+      "ttfbMs": 3.699999999953434,
+      "fcpMs": 220,
+      "lcpMs": 220
     },
     {
       "viewport": {
@@ -1178,10 +1178,10 @@
         "height": 720
       },
       "text": false,
-      "cls": 0,
-      "ttfbMs": 5.199999999254942,
-      "fcpMs": 184,
-      "lcpMs": 184
+      "cls": 0.10212348986996544,
+      "ttfbMs": 7.300000000046566,
+      "fcpMs": 260,
+      "lcpMs": 260
     },
     {
       "viewport": {
@@ -1190,9 +1190,9 @@
       },
       "text": true,
       "cls": 0,
-      "ttfbMs": 3.900000000372529,
-      "fcpMs": 192,
-      "lcpMs": 192
+      "ttfbMs": 5.200000000069849,
+      "fcpMs": 260,
+      "lcpMs": 260
     },
     {
       "viewport": {
@@ -1201,9 +1201,9 @@
       },
       "text": true,
       "cls": 0,
-      "ttfbMs": 3.400000000372529,
-      "fcpMs": 176,
-      "lcpMs": 176
+      "ttfbMs": 4.799999999930151,
+      "fcpMs": 248,
+      "lcpMs": 248
     },
     {
       "viewport": {
@@ -1212,9 +1212,9 @@
       },
       "text": true,
       "cls": 0,
-      "ttfbMs": 3.5,
-      "fcpMs": 180,
-      "lcpMs": 180
+      "ttfbMs": 4.5,
+      "fcpMs": 248,
+      "lcpMs": 248
     }
   ]
 }
