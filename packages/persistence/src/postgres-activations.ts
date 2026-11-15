@@ -195,7 +195,16 @@ export class PostgreSqlActivations {
     return this.transaction(a, async () => (await this.capabilityPolicy(a))?.revoked ?? []);
   }
 
-  /** The actor's policy as any live member sees it: whether the caller owns it, and revocations. */
+  /**
+   * The actor's policy as any live member sees it: whether the caller owns it, and its revocations;
+   * undefined without a policy.
+   */
+  capabilityPolicyOf(
+    a: ActivationAddress,
+  ): Promise<{ readonly owned: boolean; readonly revoked: readonly string[] } | undefined> {
+    return this.transaction(a, () => this.capabilityPolicy(a));
+  }
+
   private async capabilityPolicy(
     a: ActivationAddress,
   ): Promise<{ readonly owned: boolean; readonly revoked: readonly string[] } | undefined> {

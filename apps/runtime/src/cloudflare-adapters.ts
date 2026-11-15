@@ -1409,6 +1409,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     policy: ActivationPolicy,
   ): Promise<ActivationInspection> {
     assertWorldCommandContext(context, scope);
+    // A policy-only request (issue 323) skips the conversation check a configuration carries, and
+    // its revocations apply to every member: only an operator may make one.
+    // The refusal is an activation message: RPC keeps messages, not error prototypes.
+    if (configuration === undefined && !context.grants.map(String).includes(OPERATE_GRANT))
+      throw new Error("activation operator required");
     await this.ready(scope, context, actorId);
     const address = { scope: scope as ActivationAddress["scope"], participant, actorId };
     const result = await withActivations(this.environment, (store) =>
@@ -1430,14 +1435,14 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const memberGrants = context.grants.map(String);
     if (!memberGrants.includes(OPERATE_GRANT))
       return withActivations(this.environment, (store) => store.inspect(address));
-    const [inspection, revokedNames] = await withActivations(this.environment, async (store) => [
+    const [inspection, canonical] = await withActivations(this.environment, async (store) => [
       await store.inspect(address),
-      await store.revokedCapabilities({
+      await store.capabilityPolicyOf({
         ...address,
         participant: { ...worldAuthorization(context), personaId: participant.personaId },
       }),
     ]);
-    const revoked = new Set(revokedNames);
+    const revoked = new Set(canonical?.revoked ?? []);
     const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(memberGrants).grants.map(
       (grant) => ({
         capability: grant.capability,
@@ -1447,7 +1452,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         revoked: revoked.has(grant.capability),
       }),
     );
-    return { ...inspection, grants };
+    // The policy and its budget read under the caller's row security: when another member owns
+    // the actor's policy, they are this caller's defaults, not the actor's, and its configure would
+    // be refused. Without a policy, this caller's configure creates one it owns.
+    return { ...inspection, grants, policyOwned: canonical?.owned ?? true };
   }
 
   async wakeActivation(

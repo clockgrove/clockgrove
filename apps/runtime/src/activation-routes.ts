@@ -277,6 +277,8 @@ const ACTIVATION_REFUSALS: Readonly<
   "invalid activation evidence": { error: "invalid_activation_request", status: 400 },
   "invalid activation configuration": { error: "invalid_activation_request", status: 400 },
   "activation reason mismatch": { error: "invalid_activation_reason", status: 400 },
+  // A policy-only configure without the operator grant (issue 323).
+  "activation operator required": { error: "authorization_refused", status: 403 },
 };
 
 /** RPC preserves error messages, but not domain error prototypes. */

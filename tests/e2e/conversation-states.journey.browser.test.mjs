@@ -373,6 +373,23 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       );
       expect(violations).toEqual([]);
 
+      // An operator who does not own the actor's policy sees the canonical revocations, but neither
+      // a budget it cannot read nor a revoke it would be refused.
+      const ownPolicy = (principal) =>
+        native.sql(
+          `UPDATE clockgrove.actor_activation_policies SET principal_id='${principal}' WHERE actor_id='fixture.keeper'`,
+        );
+      await ownPolicy("principal-elsewhere");
+      await openTalk();
+      await grantsView.getByText(/^Another member owns this actor's policy/u).waitFor();
+      await capabilities
+        .getByRole("listitem")
+        .filter({ hasText: /^perception\.list · read · 1 call per turn · revoked$/u })
+        .waitFor();
+      expect(await grantsView.getByText(/^Model budget:/u).count()).toBe(0);
+      expect(await grantsView.getByRole("button").count()).toBe(0);
+      await ownPolicy("principal-runtime");
+
       // Without the inspect and operator grants, neither the run drawer nor the grants view shows.
       await grant(
         "array_remove(array_remove(grants,'runtime:world-inspect'),'runtime:world-operate')",
@@ -393,6 +410,20 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       // Both of the panel's activation reads have answered: the grants view stays absent.
       await expect.poll(() => inspected).toBeGreaterThanOrEqual(2);
       expect(await grantsView.count()).toBe(0);
+      // Nor can a non-operator change the actor's policy without a configuration: refused, and
+      // the canonical revocations stand.
+      const policyOnly = await native.request("/v1/runtime/activations/configure", {
+        version: 1,
+        scope: native.scope,
+        actorId: "fixture.keeper",
+        policy: { allowModel: false, modelBudget: 0, revokedCapabilities: [] },
+      });
+      expect(policyOnly.status).toBe(403);
+      expect(
+        await native.sql(
+          "SELECT array_to_string(revoked_capabilities, ',') FROM clockgrove.actor_activation_policies WHERE actor_id='fixture.keeper'",
+        ),
+      ).toBe("perception.list");
     } finally {
       await browser?.close();
       await server.close();

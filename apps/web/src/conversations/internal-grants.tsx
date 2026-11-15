@@ -33,10 +33,17 @@ export function InternalGrants({
   return (
     <section aria-label="Internal grants">
       <h3>Internal grants</h3>
-      <p>
-        Model budget: {view.modelCallsReserved} of {view.policy.modelBudget} used
-        {view.policy.allowModel ? "" : " (model off)"}
-      </p>
+      {view.policyOwned ? (
+        <p>
+          Model budget: {view.modelCallsReserved} of {view.policy.modelBudget} used
+          {view.policy.allowModel ? "" : " (model off)"}
+        </p>
+      ) : (
+        // The budget reads under the caller's row security; another member's policy is not shown.
+        <p>
+          Another member owns this actor's policy; its budget and revocations are theirs to change.
+        </p>
+      )}
       <ul aria-label="Internal capabilities">
         {view.grants.map((grant) => (
           <li key={grant.capability}>
@@ -47,7 +54,7 @@ export function InternalGrants({
               ...(grant.commandTypes ? [grant.commandTypes.join(", ")] : []),
               ...(grant.revoked ? ["revoked"] : []),
             ].join(" · ")}
-            {!grant.revoked && (
+            {view.policyOwned && !grant.revoked && (
               <button type="button" onClick={() => void revoke(grant.capability)}>
                 Revoke {grant.capability}
               </button>

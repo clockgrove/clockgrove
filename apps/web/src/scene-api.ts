@@ -115,6 +115,8 @@ export interface ActorGrants {
     readonly revokedCapabilities: readonly string[];
   };
   readonly modelCallsReserved: number;
+  /** False when another member owns the actor's policy: no budget shown, no revoke offered. */
+  readonly policyOwned: boolean;
 }
 
 function decodeActorGrants(body: unknown): ActorGrants | undefined {
@@ -154,6 +156,7 @@ function decodeActorGrants(body: unknown): ActorGrants | undefined {
     },
     modelCallsReserved:
       typeof value?.modelCallsReserved === "number" ? value.modelCallsReserved : 0,
+    policyOwned: value?.policyOwned === true,
   };
 }
 
@@ -911,6 +914,7 @@ export class SceneSession {
     const current = await this.actorGrants(actorId);
     if (!current) return { refused: "not permitted" };
     if ("refused" in current) return current;
+    if (!current.policyOwned) return { refused: "activation_not_found" };
     const { allowModel, modelBudget, revokedCapabilities } = current.policy;
     const answer = await this.postInteraction(
       "/v1/runtime/activations/configure",

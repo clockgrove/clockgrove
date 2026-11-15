@@ -194,7 +194,8 @@ The authenticated Runtime HTTP API exposes three POST routes, each with a JSON b
 
 - `/v1/runtime/activations/configure` additionally takes `policy` and an optional `configuration`.
   Without `configuration` (issue 323) only the policy changes: no configuration is added or
-  replaced, and a policy that does not exist yet is created, owned by the caller.
+  replaced, and a policy that does not exist yet is created, owned by the caller. Such a
+  policy-only request also needs the operator grant `runtime:world-operate`; without it, 403.
 - `/v1/runtime/activations/wake` additionally takes `wake`.
 - `/v1/runtime/activations/inspect` returns the actor's bounded activation evidence, configuration,
   model reservation count and `nextWakeAt`.
@@ -305,7 +306,10 @@ For a caller holding the operator grant `runtime:world-operate` (issue 323), `/i
 `grants`: each internal grant the actor holds through that member (`CAPABILITY_REGISTRY.grantsFor`,
 remote MCP grants excluded) as `capability`, `effect`, `callsPerTurn`, optional `commandTypes` and
 `revoked`. `revoked` reads the actor's canonical revocations (`actor_capability_policy`), whichever
-member owns the policy. Other callers' answers have no `grants` field.
+member owns the policy. `policyOwned` says whether the caller owns that policy (true when none
+exists yet); when false, `policy` and `modelCallsReserved` are the caller's defaults, not the
+actor's, and the browser shows neither the budget nor a Revoke control. Other callers' answers
+have no `grants` or `policyOwned` field.
 
 These routes provide the local operator and inspector surface. The activation journey is intended
 for native workerd/PostgreSQL local proof; it does not establish hosted delivery. Wave 5

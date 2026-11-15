@@ -71,6 +71,12 @@ export interface ActivationInspection {
    * the actor's canonical policy revokes it (issue 323). Present only for an operator.
    */
   readonly grants?: readonly InternalGrantView[];
+  /**
+   * Present with `grants`: whether the requesting operator owns the actor's policy (or none exists
+   * yet). When false, `policy` and `modelCallsReserved` are not the actor's and its configure is
+   * refused, so a view shows neither the budget nor a revoke control.
+   */
+  readonly policyOwned?: boolean;
 }
 
 /** One internal grant as an operator sees it: the registry's definition and the grant's budget. */
