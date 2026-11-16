@@ -253,6 +253,20 @@ There are no platform budget defaults, world-specific rig names or character rul
 encode pipeline may supply PNG, JPEG or KTX2 textures and plain or meshopt-compressed geometry;
 these encoding choices do not change the metric field names or impose a hand-off conversion.
 
+Look-dev images may sit beside the `.glb` instead of inside it, with Assetgrove's hand-off
+fields. Optional `output.sideImages` is `"beside"` or `"embedded"`; an embedded model declares no
+side images. Optional `output.groom` (for example one map per season), `output.textures` (base
+colour, tint) and `output.eyes` are each one image `{path, sha256}` or a non-empty map of plain
+names to images, at most two levels deep (`groom.winter`, `groom.winter.density`). Optional
+`output.tiers` maps profile tier names to `{groom?, textures?, eyes?}` of the same shapes: the
+side images that tier draws. A tier without an entry draws the top-level images, so an entry that
+omits `groom` keeps that tier from loading fur maps. Paths are safe world-relative paths; one
+path has one `sha256` wherever it is declared, and no side image is the model itself.
+`modelSideImages(output)` lists every declared image with its field path (`groom.winter`,
+`tiers.low.textures.baseColor`) and tier. The `.glb` refers to each image by a `uri` relative to
+its own directory; validation is described in the asset pipeline's
+[glTF models](../../packages/assets/docs/pipeline.md#gltf-models) section.
+
 ### World asset style profile
 
 `AssetStyleProfile` is standalone presentation data, decoded by `decodeAssetStyleProfile`.

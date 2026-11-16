@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
 import { runAssetsCli } from "../src/cli.js";
 import { inspectModel } from "../src/model.js";
+import { encodePng } from "../src/png.js";
 import { repositoryRoot } from "../src/repository.js";
 import { createRiggedModelFixture, modelWithTriangles, rewriteModelJson } from "./model-fixture.js";
 
@@ -170,6 +179,8 @@ it("accepts PNG and JPEG handoff textures and KTX2 meshopt shipping media throug
         generated: texture === "png",
       });
       writeFileSync(join(world, manifest.output.path), bytes);
+      // Assetgrove's `sideImages: "embedded"` hand-off validates exactly as an embedded model.
+      if (texture === "png") Object.assign(manifest.output, { sideImages: "embedded" });
       writeFileSync(path, JSON.stringify(manifest));
       writeFileSync(join(world, "reference/model-target.json"), JSON.stringify(profile));
       expect(runAssetsCli(["validate", path, "--world", world]), texture).toEqual({
@@ -177,6 +188,31 @@ it("accepts PNG and JPEG handoff textures and KTX2 meshopt shipping media throug
         stdout: '{"status":"ok","command":"validate"}\n',
         stderr: "",
       });
+      if (texture === "png") {
+        // A uri beside an embedded image's bufferView is refused, not skipped.
+        const both = rewriteModelJson(bytes, (json) => {
+          json.images[0].uri = "https://example.com/x.png";
+        });
+        writeFileSync(join(world, manifest.output.path), both);
+        const sha256 = manifest.output.sha256;
+        manifest.output.sha256 = createHash("sha256").update(both).digest("hex");
+        writeFileSync(path, JSON.stringify(manifest));
+        const refusal = runAssetsCli(["validate", path, "--world", world]);
+        expect(refusal.status).toBe(1);
+        expect(refusal.stderr).toContain("MODEL_GLB_INVALID");
+        expect(refusal.stderr).toContain("both bufferView and a non-data: uri");
+        // A data: uri beside the bufferView validated before side images and still does.
+        const dataUri = rewriteModelJson(bytes, (json) => {
+          json.images[0].uri = "data:image/png;base64,AAAA";
+        });
+        writeFileSync(join(world, manifest.output.path), dataUri);
+        manifest.output.sha256 = createHash("sha256").update(dataUri).digest("hex");
+        writeFileSync(path, JSON.stringify(manifest));
+        expect(runAssetsCli(["validate", path, "--world", world]).status).toBe(0);
+        writeFileSync(join(world, manifest.output.path), bytes);
+        manifest.output.sha256 = sha256;
+        writeFileSync(path, JSON.stringify(manifest));
+      }
       if (texture === "ktx2") {
         manifest.output.lods = 1;
         writeFileSync(path, JSON.stringify(manifest));
@@ -380,6 +416,139 @@ it("validates and ships every declared sibling LOD file with tier renditions", a
     ]);
     expect(shipped.renditions).toEqual({ low: [1, 2] });
     expect(runAssetsCli(["check", "--world", world]).status).toBe(0);
+  } finally {
+    rmSync(world, { recursive: true, force: true });
+  }
+});
+
+it("validates, refuses and ships declared side images beside the GLB through CLI", async () => {
+  const world = mkdtempSync(join(tmpdir(), "model-side-"));
+  try {
+    const { bytes, manifest, profile, images } = await createRiggedModelFixture({
+      sideImages: true,
+    });
+    const output = manifest.output as typeof manifest.output & Record<string, unknown>;
+    Object.assign(manifest.review, {
+      status: "approved",
+      reviewer: "fixture-human",
+      reviewedAt: "2026-11-16T00:00:00Z",
+    });
+    const path = join(world, "assets/manifests/model-fixture/model.json");
+    const groom = join(world, "assets/source/model-fixture/groom/winter.png");
+    const sha = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
+    const write = (file: string, data: Uint8Array | string) => {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, data);
+    };
+    const save = () => write(path, JSON.stringify(manifest));
+    const glb = (data: Uint8Array) => {
+      write(join(world, manifest.output.path), data);
+      manifest.output.sha256 = sha(data);
+      save();
+    };
+    const refusal = () => runAssetsCli(["validate", path, "--world", world]).stderr;
+    for (const [file, data] of Object.entries(images)) write(join(world, file), data);
+    write(join(world, "reference/model-target.json"), JSON.stringify(profile));
+    glb(bytes);
+    expect(runAssetsCli(["validate", path, "--world", world])).toEqual({
+      status: 0,
+      stdout: '{"status":"ok","command":"validate"}\n',
+      stderr: "",
+    });
+    expect(runAssetsCli(["build", "--world", world]).status).toBe(0);
+    const base = sha(images["assets/source/model-fixture/textures/base.png"]!);
+    const fur = sha(images["assets/source/model-fixture/groom/winter.png"]!);
+    expect(readdirSync(join(world, "assets/reviewed")).sort()).toEqual(
+      [
+        `model-fixture.${base}.png`,
+        `model-fixture.${fur}.png`,
+        "model-fixture.glb",
+        "models.json",
+      ].sort(),
+    );
+    const shipped = JSON.parse(readFileSync(join(world, "assets/reviewed/models.json"), "utf8"))[
+      "model-fixture"
+    ];
+    expect([shipped.uris, shipped.groom, shipped.tiers]).toEqual([
+      {
+        "textures/base.png": `model-fixture.${base}.png`,
+        "groom/winter.png": `model-fixture.${fur}.png`,
+      },
+      { winter: { path: `model-fixture.${fur}.png`, sha256: fur } },
+      { low: { textures: { baseColor: { path: `model-fixture.${base}.png`, sha256: base } } } },
+    ]);
+    expect(runAssetsCli(["check", "--world", world]).status).toBe(0);
+    const winter = "groom.winter assets/source/model-fixture/groom/winter.png";
+    rmSync(groom);
+    expect(refusal()).toContain(`MODEL_SIDE_IMAGE_REQUIRED: ${winter}: file is missing`);
+    const large = encodePng({ width: 8, height: 2, rgba: new Uint8Array(64).fill(255) });
+    write(groom, large);
+    expect(refusal()).toContain(`MODEL_SIDE_IMAGE_HASH_MISMATCH: ${winter}: sha256 differs`);
+    output.groom = {
+      winter: { path: "assets/source/model-fixture/groom/winter.png", sha256: sha(large) },
+    };
+    save();
+    const budget = refusal();
+    expect(budget).toContain(
+      `MODEL_SIDE_IMAGE_BUDGET_EXCEEDED: ${winter}: default.textureMaxPx: 8 exceeds 4`,
+    );
+    expect(budget).toContain(
+      `MODEL_SIDE_IMAGE_BUDGET_EXCEEDED: ${winter}: high.textureMaxPx: 8 exceeds 4`,
+    );
+    expect(budget).not.toContain("low.textureMaxPx");
+    write(groom, "not an image");
+    output.groom = {
+      winter: {
+        path: "assets/source/model-fixture/groom/winter.png",
+        sha256: sha(Buffer.from("not an image")),
+      },
+    };
+    save();
+    expect(refusal()).toContain(`MODEL_SIDE_IMAGE_TYPE: ${winter}: expected a PNG or JPEG image`);
+    write(groom, images["assets/source/model-fixture/groom/winter.png"]!);
+    output.groom = {
+      winter: { path: "assets/source/model-fixture/groom/winter.png", sha256: fur },
+    };
+    output.eyes = { path: "assets/source/model-fixture/eyes.png", sha256: base };
+    write(
+      join(world, "assets/source/model-fixture/eyes.png"),
+      images["assets/source/model-fixture/textures/base.png"]!,
+    );
+    save();
+    expect(refusal()).toContain(
+      "MODEL_SIDE_IMAGE_UNUSED: eyes assets/source/model-fixture/eyes.png: no .glb image uses it",
+    );
+    delete output.eyes;
+    delete output.groom;
+    save();
+    expect(refusal()).toContain(
+      "MODEL_SIDE_IMAGE_UNDECLARED: groom/winter.png: assets/source/model-fixture/groom/winter.png is not a declared side image",
+    );
+    output.groom = {
+      winter: { path: "assets/source/model-fixture/groom/winter.png", sha256: fur },
+    };
+    for (const [uri, why] of [
+      ["/groom/winter.png", "absolute uri"],
+      ["https://example.com/winter.png", "absolute uri"],
+      [
+        "../model-fixture/groom/../../winter.png",
+        "leaves the model's directory assets/source/model-fixture",
+      ],
+    ]) {
+      glb(
+        rewriteModelJson(bytes, (json) => {
+          json.images[1].uri = uri;
+        }),
+      );
+      expect(refusal()).toContain(`MODEL_SIDE_IMAGE_URI_INVALID: ${uri}: ${why}`);
+    }
+    glb(bytes);
+    Object.assign(output, { tiers: { phone: {} } });
+    save();
+    expect(refusal()).toContain("MODEL_PROFILE_INVALID: output.tiers names unknown tier phone");
+    output.sideImages = "embedded";
+    save();
+    expect(refusal()).toContain("ASSET_MANIFEST_INVALID");
   } finally {
     rmSync(world, { recursive: true, force: true });
   }

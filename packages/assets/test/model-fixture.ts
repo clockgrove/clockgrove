@@ -29,6 +29,8 @@ export async function createRiggedModelFixture(
     lod?: boolean;
     generated?: boolean;
     unusedSampler?: boolean;
+    /** Base colour and a winter groom map (drawn as emission) beside the GLB. */
+    sideImages?: boolean;
   } = {},
 ) {
   const document = new Document();
@@ -75,6 +77,27 @@ export async function createRiggedModelFixture(
     material.setBaseColorTexture(texture);
     if (options.texture === "ktx2") document.createExtension(KHRTextureBasisu).setRequired(true);
   }
+  const side: Record<string, Uint8Array> = {};
+  if (options.sideImages) {
+    const square = (rgba: number[]) =>
+      encodePng({ width: 4, height: 4, rgba: new Uint8Array(Array(16).fill(rgba).flat()) });
+    side["textures/base.png"] = square([255, 255, 255, 255]);
+    side["groom/winter.png"] = square([0, 64, 255, 255]);
+    material
+      .setBaseColorTexture(
+        document
+          .createTexture("textures/base.png")
+          .setImage(side["textures/base.png"])
+          .setMimeType("image/png"),
+      )
+      .setEmissiveTexture(
+        document
+          .createTexture("groom/winter.png")
+          .setImage(side["groom/winter.png"])
+          .setMimeType("image/png"),
+      )
+      .setEmissiveFactor([1, 1, 1]);
+  }
   const primitive = document
     .createPrimitive()
     .setAttribute("POSITION", positions)
@@ -82,7 +105,7 @@ export async function createRiggedModelFixture(
     .setAttribute("JOINTS_0", joints)
     .setAttribute("WEIGHTS_0", weights)
     .setMaterial(material);
-  if (options.texture)
+  if (options.texture || options.sideImages)
     primitive.setAttribute(
       "TEXCOORD_0",
       document
@@ -157,6 +180,21 @@ export async function createRiggedModelFixture(
       actor.extensions = { MSFT_lod: { ids: [json.nodes.length] } };
       json.nodes.push({ name: "lower-detail", mesh: actor.mesh, skin: actor.skin });
     });
+  if (options.sideImages)
+    bytes = rewriteModelJson(bytes, (json) => {
+      for (const image of json.images) {
+        image.uri = image.name;
+        delete image.bufferView;
+      }
+    });
+  const dir = "assets/source/model-fixture";
+  const image = (uri: string) => ({
+    path: `${dir}/${uri}`,
+    sha256: createHash("sha256").update(side[uri]!).digest("hex"),
+  });
+  const images = Object.fromEntries(
+    Object.entries(side).map(([uri, data]) => [`${dir}/${uri}`, data]),
+  );
   const manifest = {
     kind: "model",
     assetManifestVersion: 2,
@@ -195,21 +233,31 @@ export async function createRiggedModelFixture(
       extension: "glb",
       sha256: createHash("sha256").update(bytes).digest("hex"),
       triangles: 1,
-      textureMaxPx: options.texture ? 4 : 0,
+      textureMaxPx: options.texture || options.sideImages ? 4 : 0,
       materials: 1,
       bones: 1,
       lods: options.lod ? 2 : 1,
+      ...(options.sideImages
+        ? {
+            sideImages: "beside",
+            textures: { baseColor: image("textures/base.png") },
+            groom: { winter: image("groom/winter.png") },
+            tiers: { low: { textures: { baseColor: image("textures/base.png") } } },
+          }
+        : {}),
       clips: [
         { name: "idle", durationMs: 1000, loop: true, generated: options.generated ?? false },
       ],
       bounds: { min: [-1, 0, 0], max: [1, 2, 0] },
     },
   };
+  const texturePx = options.texture || options.sideImages ? 4 : 0;
+  const tier = { triangles: 1, textureMaxPx: texturePx, materials: 1, bones: 1, lods: 1 };
   const profile = {
     version: 1,
     limits: {
       triangles: 1,
-      textureMaxPx: options.texture ? 4 : 0,
+      textureMaxPx: texturePx,
       materials: 1,
       bones: 1,
       lods: options.lod ? 2 : 1,
@@ -217,14 +265,15 @@ export async function createRiggedModelFixture(
     tiers: {
       low: {
         triangles: 1,
-        textureMaxPx: options.texture ? 4 : 0,
+        textureMaxPx: texturePx,
         materials: 1,
         bones: 1,
         lods: options.lod ? 2 : 1,
       },
+      ...(options.sideImages ? { high: tier } : {}),
     },
   };
-  return { bytes, manifest, profile };
+  return { bytes, manifest, profile, images };
 }
 
 export function modelWithTriangles(bytes: Uint8Array, triangles: number): Uint8Array {

@@ -17,6 +17,7 @@ import {
   contentDepth,
   contentLoaders,
   disposeContent,
+  loadModel,
   materialTextures,
   type RendererContent,
   type RendererContentInstance,
@@ -597,6 +598,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
           TSL: rendererNodes,
           backend: this.backend as "webgpu" | "webgl2",
           signal: this.contentAbort.signal,
+          qualityTier: this.tier,
+          loadModel: (
+            gltf: Parameters<typeof loadModel>[0],
+            url: string,
+            entry: Parameters<typeof loadModel>[2],
+            tier: string,
+          ) => loadModel(gltf, url, entry, tier, this.contentAbort.signal),
           place: (object: THREE.Object3D, at: { x: number; y: number; elevation?: number }) => {
             const elevation = at.elevation ?? 0;
             object.position.set(

@@ -61,7 +61,45 @@ export interface ModelAssetManifest
       readonly sha256?: string;
     }[];
     readonly renditions?: Readonly<Record<string, readonly number[]>>;
+    /** Assetgrove's hand-off choice; `embedded` declares no side images. */
+    readonly sideImages?: "beside" | "embedded";
+    readonly groom?: ModelImageSet;
+    readonly textures?: ModelImageSet;
+    readonly eyes?: ModelImageSet;
+    /** Per profile tier, the side images that tier draws; unlisted tiers draw the top-level ones. */
+    readonly tiers?: Readonly<Record<string, ModelTierImages>>;
   };
+}
+/** A world-relative image beside the `.glb`, which refers to it by relative `uri`. */
+export interface ModelSideImage {
+  readonly path: string;
+  readonly sha256: string;
+}
+/** One image, or names (seasons, maps) mapped to image sets, at most two levels deep. */
+export type ModelImageSet = ModelSideImage | { readonly [name: string]: ModelImageSet };
+export interface ModelTierImages {
+  readonly groom?: ModelImageSet;
+  readonly textures?: ModelImageSet;
+  readonly eyes?: ModelImageSet;
+}
+export const modelImageFields = ["groom", "textures", "eyes"] as const;
+/** Every declared side image with its manifest field path, e.g. `groom.winter` or `tiers.low.eyes`. */
+export function modelSideImages(
+  output: ModelTierImages & { readonly tiers?: Readonly<Record<string, ModelTierImages>> },
+): readonly { readonly field: string; readonly image: ModelSideImage; readonly tier?: string }[] {
+  const result: { field: string; image: ModelSideImage; tier?: string }[] = [];
+  const walk = (set: ModelImageSet, field: string, tier?: string) => {
+    if (typeof set.path === "string")
+      result.push({ field, image: set as ModelSideImage, ...(tier === undefined ? {} : { tier }) });
+    else
+      for (const [name, child] of Object.entries(set))
+        walk(child as ModelImageSet, `${field}.${name}`, tier);
+  };
+  for (const key of modelImageFields) if (output[key]) walk(output[key], key);
+  for (const [tier, images] of Object.entries(output.tiers ?? {}))
+    for (const key of modelImageFields)
+      if (images[key]) walk(images[key], `tiers.${tier}.${key}`, tier);
+  return result;
 }
 export interface ModelTargetProfile {
   readonly version: 1;
@@ -236,9 +274,55 @@ export function decodeModelAssetManifest(value: unknown, path = "manifest"): Mod
   exactKeys(
     output,
     ["path", "mediaType", "extension", "sha256", ...metrics, "clips", "bounds"],
-    ["rig", "levels", "renditions"],
+    ["rig", "levels", "renditions", "sideImages", ...modelImageFields, "tiers"],
     `${path}.output`,
   );
+  const sideImages = optional(
+    output,
+    "sideImages",
+    (value, p) => literal(value, ["beside", "embedded"] as const, p),
+    `${path}.output`,
+  );
+  const imageFields = (record_: Record<string, unknown>, p: string) =>
+    Object.fromEntries(
+      modelImageFields.flatMap((key) =>
+        record_[key] === undefined ? [] : [[key, decodeImageSet(record_[key], `${p}.${key}`, 0)]],
+      ),
+    ) as ModelTierImages;
+  const images = imageFields(output, `${path}.output`);
+  const tiers = optional(
+    output,
+    "tiers",
+    (value, p) => {
+      const entries = Object.entries(record(value, p));
+      if (!entries.length) throw new ContractDecodeError(p, "expected at least one tier");
+      return Object.freeze(
+        Object.fromEntries(
+          entries.map(([tier, value]) => {
+            const entry = record(value, `${p}.${tier}`);
+            exactKeys(entry, [], modelImageFields, `${p}.${tier}`);
+            return [tier, Object.freeze(imageFields(entry, `${p}.${tier}`))];
+          }),
+        ),
+      );
+    },
+    `${path}.output`,
+  );
+  const declared = modelSideImages({ ...images, ...(tiers === undefined ? {} : { tiers }) });
+  if (sideImages === "embedded" && declared.length)
+    throw new ContractDecodeError(
+      `${path}.output.sideImages`,
+      "an embedded model declares no side images",
+    );
+  const hashes = new Map<string, string>();
+  for (const { field, image } of declared) {
+    if (image.path === sourcePath || (hashes.get(image.path) ?? image.sha256) !== image.sha256)
+      throw new ContractDecodeError(
+        `${path}.output.${field}.path`,
+        "a side image is not the model and one path has one sha256",
+      );
+    hashes.set(image.path, image.sha256);
+  }
   if (output.path !== sourcePath)
     throw new ContractDecodeError(`${path}.output.path`, "must equal source.path");
   const bounds = record(output.bounds, `${path}.output.bounds`);
@@ -395,8 +479,37 @@ export function decodeModelAssetManifest(value: unknown, path = "manifest"): Mod
       ...(rig === undefined ? {} : { rig }),
       ...(levels === undefined ? {} : { levels }),
       ...(renditions === undefined ? {} : { renditions }),
+      ...(sideImages === undefined ? {} : { sideImages }),
+      ...images,
+      ...(tiers === undefined ? {} : { tiers }),
     }),
   });
+}
+const safePath = /^[a-zA-Z0-9_./-]+$/u;
+function decodeImageSet(value: unknown, path: string, depth: number): ModelImageSet {
+  const v = record(value, path);
+  if ("path" in v) {
+    exactKeys(v, ["path", "sha256"], [], path);
+    const imagePath = string(v.path, `${path}.path`);
+    if (
+      !safePath.test(imagePath) ||
+      imagePath.split("/").some((p) => !p || p === "." || p === "..")
+    )
+      throw new ContractDecodeError(`${path}.path`, "expected a safe world-relative path");
+    return Object.freeze({ path: imagePath, sha256: hash(v.sha256, `${path}.sha256`) });
+  }
+  const entries = Object.entries(v);
+  if (!entries.length || depth >= 2)
+    throw new ContractDecodeError(path, "expected an image or at most two levels of named images");
+  return Object.freeze(
+    Object.fromEntries(
+      entries.map(([name, child]) => {
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(name))
+          throw new ContractDecodeError(`${path}.${name}`, "expected a plain image name");
+        return [name, decodeImageSet(child, `${path}.${name}`, depth + 1)];
+      }),
+    ),
+  );
 }
 export function decodeAnyAssetManifest(
   value: unknown,

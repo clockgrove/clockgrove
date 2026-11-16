@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
+import { posix } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ModelAssetManifest, ModelTargetProfile } from "@clockgrove/contracts";
+import {
+  type ModelAssetManifest,
+  type ModelTargetProfile,
+  modelSideImages,
+} from "@clockgrove/contracts";
+import { ImageUtils } from "@gltf-transform/core";
 import { sha256Hex } from "./validate.js";
 
 export interface ModelFacts {
@@ -13,6 +19,8 @@ export interface ModelFacts {
   clips: ModelAssetManifest["output"]["clips"];
   bounds: ModelAssetManifest["output"]["bounds"];
   rig?: ModelAssetManifest["output"]["rig"];
+  /** Image `uri`s that are not data URIs, in `images` order. */
+  imageUris?: readonly string[];
 }
 
 /** A separate process keeps the existing synchronous CLI API while the glTF decoders initialize. */
@@ -70,6 +78,8 @@ export function validateModel(
         const actual = inspectModel(data);
         if (actual.lods !== 1)
           fail("MODEL_METRIC_MISMATCH", `levels[${index}] must be a single-level GLB`);
+        if (actual.imageUris?.length)
+          fail("MODEL_GLB_INVALID", `levels[${index}] images must be embedded`);
         if (manifest.source.kind !== "generated" && actual.clips.some((clip) => clip.generated))
           fail(
             "MODEL_CLIPS_MISMATCH",
@@ -82,13 +92,16 @@ export function validateModel(
     }
   }
   const actualLods = fileLevels ? declared!.length : facts.lods;
+  const sideMaxPx = validateSideImages(manifest, facts, profile, sources, fail);
   const metrics = ["triangles", "textureMaxPx", "materials", "bones", "lods"] as const;
   for (const metric of metrics) {
     const actual = metric === "lods" ? actualLods : facts[metric];
-    if (actual !== manifest.output[metric])
+    // Side images count toward the declared metric; their budgets are checked per image above.
+    const declaredActual = metric === "textureMaxPx" ? Math.max(actual, sideMaxPx) : actual;
+    if (declaredActual !== manifest.output[metric])
       fail(
         "MODEL_METRIC_MISMATCH",
-        `${metric}: declared ${manifest.output[metric]}, actual ${actual}`,
+        `${metric}: declared ${manifest.output[metric]}, actual ${declaredActual}`,
       );
     if (actual > profile.limits[metric])
       fail(
@@ -157,4 +170,115 @@ export function validateModel(
   )
     fail("MODEL_RIG_MISMATCH", "rig must match asset.extras.rig identity");
   return problems;
+}
+
+/**
+ * Checks the images beside the GLB against the manifest's declarations and the profile's texture
+ * budgets, naming each image; returns the greatest side-image dimension.
+ */
+function validateSideImages(
+  manifest: ModelAssetManifest,
+  facts: ModelFacts,
+  profile: ModelTargetProfile,
+  sources: Readonly<Record<string, Uint8Array>>,
+  fail: (code: string, detail: string) => void,
+): number {
+  const declared = modelSideImages(manifest.output);
+  const fields = new Map<string, string>();
+  for (const { field, image } of declared)
+    if (!fields.has(image.path)) fields.set(image.path, field);
+  const directory = posix.dirname(manifest.output.path);
+  const used = new Set<string>();
+  for (const uri of facts.imageUris ?? []) {
+    const resolved = resolveSideImageUri(directory, uri);
+    if (typeof resolved !== "string")
+      fail("MODEL_SIDE_IMAGE_URI_INVALID", `${uri}: ${resolved.why}`);
+    else if (!fields.has(resolved))
+      fail("MODEL_SIDE_IMAGE_UNDECLARED", `${uri}: ${resolved} is not a declared side image`);
+    else used.add(resolved);
+  }
+  const sizes = new Map<string, number>();
+  for (const [path, field] of fields) {
+    const image = `${field} ${path}`;
+    if (!used.has(path)) fail("MODEL_SIDE_IMAGE_UNUSED", `${image}: no .glb image uses it`);
+    const data = sources[path];
+    if (!data) {
+      fail("MODEL_SIDE_IMAGE_REQUIRED", `${image}: file is missing`);
+      continue;
+    }
+    if (sha256Hex(data) !== declared.find((entry) => entry.image.path === path)!.image.sha256)
+      fail("MODEL_SIDE_IMAGE_HASH_MISMATCH", `${image}: sha256 differs from the file`);
+    const type = ImageUtils.getMimeType(data);
+    let size: [number, number] | null = null;
+    try {
+      if (type === "image/png" || type === "image/jpeg") size = ImageUtils.getSize(data, type);
+    } catch {}
+    if (!size?.every((n) => Number.isInteger(n) && n > 0)) {
+      fail("MODEL_SIDE_IMAGE_TYPE", `${image}: expected a PNG or JPEG image`);
+      continue;
+    }
+    const maxPx = Math.max(...size);
+    sizes.set(path, maxPx);
+    if (maxPx > profile.limits.textureMaxPx)
+      fail(
+        "MODEL_SIDE_IMAGE_BUDGET_EXCEEDED",
+        `${image}: default.textureMaxPx: ${maxPx} exceeds ${profile.limits.textureMaxPx}`,
+      );
+  }
+  const imageTiers = manifest.output.tiers ?? {};
+  for (const tier of Object.keys(imageTiers))
+    if (!Object.hasOwn(profile.tiers ?? {}, tier))
+      fail("MODEL_PROFILE_INVALID", `output.tiers names unknown tier ${tier}`);
+  for (const [tier, limits] of Object.entries(profile.tiers ?? {})) {
+    const listed = Object.hasOwn(imageTiers, tier);
+    const drawn = new Set(
+      declared
+        .filter((entry) => entry.tier === (listed ? tier : undefined))
+        .map((e) => e.image.path),
+    );
+    for (const path of drawn) {
+      const maxPx = sizes.get(path);
+      if (maxPx !== undefined && maxPx > limits.textureMaxPx)
+        fail(
+          "MODEL_SIDE_IMAGE_BUDGET_EXCEEDED",
+          `${fields.get(path)} ${path}: ${tier}.textureMaxPx: ${maxPx} exceeds ${limits.textureMaxPx}`,
+        );
+    }
+  }
+  return Math.max(0, ...sizes.values());
+}
+
+/** Resolves a GLB image `uri` against the model's directory to a world-relative path. */
+function resolveSideImageUri(directory: string, uri: string): string | { why: string } {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(uri).replaceAll("\\", "/");
+  } catch {
+    return { why: "not a valid relative uri" };
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(decoded) || decoded.startsWith("/"))
+    return { why: "absolute uri" };
+  const resolved = posix.normalize(posix.join(directory, decoded));
+  return resolved === ".." ||
+    resolved.startsWith("../") ||
+    (directory !== "." && !resolved.startsWith(`${directory}/`))
+    ? { why: `leaves the model's directory ${directory}` }
+    : resolved;
+}
+
+/**
+ * Maps each side-image `uri` of a validated GLB (its inspected `imageUris`) to its declared
+ * world-relative path.
+ */
+export function sideImageUris(
+  manifest: ModelAssetManifest,
+  imageUris: readonly string[],
+): Readonly<Record<string, string>> {
+  const directory = posix.dirname(manifest.output.path);
+  return Object.fromEntries(
+    imageUris.flatMap((uri) => {
+      const resolved = resolveSideImageUri(directory, uri);
+      return typeof resolved === "string" ? [[uri, resolved]] : [];
+    }),
+  );
 }

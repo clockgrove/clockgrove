@@ -862,3 +862,134 @@ export function fixtureContent() {
     await rm(world, { recursive: true, force: true });
   }
 }, 180_000);
+
+// Issue 305: a built model whose groom map and base texture sit beside its GLB. The low tier's
+// models.json entry omits the groom map, so its page must never request it; both tiers draw.
+it("loads a model's side images only on the tiers that draw them", async () => {
+  const { createRiggedModelFixture } = await import("../../packages/assets/test/model-fixture.ts");
+  const { runAssetsCli } = await import("../../packages/assets/src/cli.ts");
+  const { bytes, manifest, profile, images } = await createRiggedModelFixture({ sideImages: true });
+  Object.assign(manifest.review, {
+    status: "approved",
+    reviewer: "fixture-human",
+    reviewedAt: "2026-11-16T00:00:00Z",
+  });
+  const root = path.resolve(".");
+  const world = await mkdtemp(path.join(os.tmpdir(), "clockgrove-side-images-"));
+  let server;
+  let browser;
+  try {
+    const files = {
+      ...images,
+      [manifest.output.path]: bytes,
+      "assets/manifests/model-fixture/model.json": JSON.stringify(manifest),
+      "reference/model-target.json": JSON.stringify(profile),
+    };
+    for (const [file, data] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(world, file)), { recursive: true });
+      await writeFile(path.join(world, file), data);
+    }
+    expect(runAssetsCli(["build", "--world", world])).toMatchObject({ status: 0, stderr: "" });
+    const fur = `model-fixture.${manifest.output.groom.winter.sha256}.png`;
+    const base = `model-fixture.${manifest.output.textures.baseColor.sha256}.png`;
+    const pinned = `${path.relative(world, root).split(path.sep).join("/")}/`;
+    await Promise.all(
+      ["index.html", "main.ts", "snapshot.json"].map(async (file) => {
+        const source = await readFile(path.join(root, "worlds/fixture/renderer", file), "utf8");
+        await writeFile(path.join(world, file), source.replaceAll("../../../", pinned));
+      }),
+    );
+    // World content chooses the tier name it loads; this fixture takes it from the page URL.
+    await writeFile(
+      path.join(world, "content.ts"),
+      `
+export const diagnostics: any = { setAnchor() {}, setModelAnchor() {} };
+export function fixtureContent() {
+  return { version: 1, async create(context: any) {
+    const { THREE } = context;
+    const tier = new URLSearchParams(location.search).get("tier") ?? context.qualityTier;
+    const { gltf } = await context.loaders({ basis: "/decoders/", draco: "/decoders/" });
+    const models = await (await fetch("/assets/reviewed/models.json")).json();
+    const loaded = await context.loadModel(gltf, "/assets/reviewed/model-fixture.glb", models["model-fixture"], tier);
+    const root = new THREE.Group();
+    root.add(loaded.scene);
+    context.place(root, { x: -2, y: -2 });
+    let model: any;
+    loaded.scene.traverse((object: any) => { if (object.isSkinnedMesh) model = object; });
+    Object.assign(diagnostics, { model });
+    return { root, update(frame: any) { diagnostics.lastFrame = frame; } };
+  } };
+}
+`,
+    );
+    server = await createServer({
+      root: world,
+      define: { __WORLD_SHELL__: JSON.stringify(neutralShell) },
+      configFile: path.join(root, "apps/web/vite.config.ts"),
+      server: { host: "127.0.0.1", port: 0, fs: { allow: [root, world] } },
+    });
+    await server.listen();
+    browser = await chromium.launch({ headless: true, args: SWIFTSHADER });
+    const drawn = {};
+    for (const tier of ["high", "low"]) {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      const requested = [];
+      page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+      await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/?tier=${tier}`);
+      await page.waitForFunction(
+        () =>
+          globalThis.fixtureRenderer?.adapter.metrics.contentStatus === "ready" &&
+          globalThis.fixtureRenderer?.adapter.metrics.firstRenderMs !== undefined,
+      );
+      const result = await page.evaluate(async (quality) => {
+        const f = globalThis.fixtureRenderer;
+        f.setQuality(quality);
+        f.setReducedMotion(true);
+        f.setEnvironment(43_200_000, 0);
+        const capture = async () => {
+          await new Promise(requestAnimationFrame);
+          return f.capture();
+        };
+        const model = f.diagnostics.model;
+        const shown = await capture();
+        model.visible = false;
+        const absent = await capture();
+        model.visible = true;
+        return {
+          tier: f.diagnostics.lastFrame.qualityTier,
+          status: f.adapter.metrics.contentStatus,
+          maps: [Boolean(model.material.map), Boolean(model.material.emissiveMap)],
+          draws: shown !== absent,
+        };
+      }, tier);
+      drawn[tier] = {
+        ...result,
+        base: requested.includes(`/assets/reviewed/${base}`),
+        fur: requested.includes(`/assets/reviewed/${fur}`),
+      };
+      await page.close();
+    }
+    expect(drawn).toEqual({
+      high: {
+        tier: "high",
+        status: "ready",
+        maps: [true, true],
+        draws: true,
+        base: true,
+        fur: true,
+      },
+      low: {
+        tier: "low",
+        status: "ready",
+        maps: [true, false],
+        draws: true,
+        base: true,
+        fur: false,
+      },
+    });
+  } finally {
+    await browser?.close();
+    await server?.close();
+    await rm(world, { recursive: true, force: true });
+  }
+}, 180_000);

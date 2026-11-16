@@ -99,7 +99,41 @@ export interface RendererContentFrame {
   /** Absolute visual milliseconds; zero under reduced motion, like atlas frame zero. */
   readonly timeMs: number;
 }
+type GLTFLoader = import("three/addons/loaders/GLTFLoader.js").GLTFLoader;
+type GLTF = import("three/addons/loaders/GLTFLoader.js").GLTF;
+type GLTFParser = import("three/addons/loaders/GLTFLoader.js").GLTFParser;
+type GLTFLoaderPlugin = import("three/addons/loaders/GLTFLoader.js").GLTFLoaderPlugin;
+export type ModelImageSet =
+  | { readonly path: string; readonly sha256?: string }
+  | {
+      readonly [name: string]: ModelImageSet;
+    };
+/** One `models.json` entry of a reviewed model whose look-dev images sit beside its `.glb`. */
+export interface ModelDeliveryEntry {
+  readonly path: string;
+  readonly groom?: ModelImageSet;
+  readonly textures?: ModelImageSet;
+  readonly eyes?: ModelImageSet;
+  readonly tiers?: {
+    readonly [tier: string]: {
+      readonly groom?: ModelImageSet;
+      readonly textures?: ModelImageSet;
+      readonly eyes?: ModelImageSet;
+    };
+  };
+  readonly uris?: { readonly [uri: string]: string };
+  readonly [field: string]: unknown;
+}
 export interface RendererContentContext {
+  /** The renderer's quality tier when `create` is called. */
+  readonly qualityTier: QualityTier;
+  /** Load a reviewed model, requesting only the side images the tier draws. */
+  readonly loadModel: (
+    gltf: GLTFLoader,
+    url: string,
+    entry: ModelDeliveryEntry,
+    tier: string,
+  ) => Promise<GLTF>;
   readonly THREE: typeof rendererLibrary;
   readonly TSL: typeof rendererNodes;
   readonly backend: "webgpu" | "webgl2";
@@ -272,6 +306,83 @@ export function disposeContent(root: THREE.Group, registered: readonly THREE.Tex
   }
 }
 
+function leafPaths(set: ModelImageSet | undefined, into: Set<string>): void {
+  if (!set || typeof set !== "object") return;
+  if (typeof set.path === "string") into.add(set.path);
+  else for (const child of Object.values(set)) leafPaths(child as ModelImageSet, into);
+}
+
+function drawnPaths(entry: ModelDeliveryEntry, tier: string): Set<string> {
+  const source = Object.hasOwn(entry.tiers ?? {}, tier) ? entry.tiers![tier]! : entry;
+  const paths = new Set<string>();
+  leafPaths(source.groom, paths);
+  leafPaths(source.textures, paths);
+  leafPaths(source.eyes, paths);
+  return paths;
+}
+
+interface PendingModel {
+  readonly uris: { readonly [uri: string]: string };
+  readonly drawn: ReadonlySet<string>;
+  readonly base: string;
+}
+let pendingModel: PendingModel | undefined;
+
+/** Fetch a model's `.glb` and parse it so that images the tier does not draw are never requested. */
+export async function loadModel(
+  gltf: GLTFLoader,
+  url: string,
+  entry: ModelDeliveryEntry,
+  tier: string,
+  signal?: AbortSignal,
+): Promise<GLTF> {
+  const response = await fetch(url, signal ? { signal } : {});
+  if (!response.ok) throw new Error(`model ${url} failed with ${response.status}`);
+  const buffer = await response.arrayBuffer();
+  const absolute = new URL(url, globalThis.location?.href).href;
+  const directory = absolute.slice(0, absolute.lastIndexOf("/") + 1);
+  if (!entry.uris) return gltf.parseAsync(buffer, directory);
+  // GLTFLoader creates its plugins synchronously inside parse, so only this parse sees the config.
+  pendingModel = { uris: entry.uris, drawn: drawnPaths(entry, tier), base: absolute };
+  let parsed: Promise<GLTF>;
+  try {
+    parsed = gltf.parseAsync(buffer, directory);
+  } finally {
+    pendingModel = undefined;
+  }
+  return parsed;
+}
+
+/** Rewrites drawn side images to their reviewed files and skips images the tier does not draw. */
+export function sideImagesPlugin(parser: GLTFParser): GLTFLoaderPlugin {
+  const config = pendingModel;
+  if (!config) return { name: "CLOCKGROVE_side_images" };
+  type Json = { images?: { uri?: string }[]; textures?: { source?: number }[] };
+  const original: (string | undefined)[] = [];
+  const reviewed = (uri: string | undefined): string | undefined =>
+    uri !== undefined && Object.hasOwn(config.uris, uri) ? config.uris[uri] : undefined;
+  return {
+    name: "CLOCKGROVE_side_images",
+    beforeRoot: () => {
+      const json = parser.json as Json;
+      json.images?.forEach((image, index) => {
+        original[index] = image.uri;
+        const name = reviewed(image.uri);
+        if (name !== undefined && config.drawn.has(name))
+          image.uri = new URL(name, config.base).href;
+      });
+      return null;
+    },
+    loadTexture: (textureIndex: number) => {
+      const source = (parser.json as Json).textures?.[textureIndex]?.source;
+      const name = source === undefined ? undefined : reviewed(original[source]);
+      return name !== undefined && !config.drawn.has(name)
+        ? (Promise.resolve(null) as unknown as Promise<THREE.Texture>)
+        : null;
+    },
+  };
+}
+
 export async function contentLoaders(
   renderer: THREE.WebGPURenderer,
   paths: { basis: string; draco: string },
@@ -310,6 +421,7 @@ export async function contentLoaders(
       });
     },
   }));
+  gltf.register(sideImagesPlugin);
   return {
     gltf,
     ktx2,

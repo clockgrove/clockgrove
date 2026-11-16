@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Extension, getBounds, Logger, NodeIO } from "@gltf-transform/core";
+import { Extension, GLB_BUFFER, getBounds, Logger, NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import { MeshoptDecoder } from "meshoptimizer";
 
@@ -50,9 +50,22 @@ try {
     ),
   );
   if (json.asset?.version !== "2.0") throw new Error("expected glTF asset version 2.0");
-  for (const resource of [...(json.buffers ?? []), ...(json.images ?? [])])
+  for (const resource of json.buffers ?? [])
     if (resource.uri !== undefined && !resource.uri.startsWith("data:"))
-      throw new Error("GLB resources must be embedded buffer views or data URIs");
+      throw new Error("GLB buffers must be embedded buffer views or data URIs");
+  // Refuse a file uri beside a buffer view so no uri escapes the side-image checks; a data:
+  // uri beside a buffer view was accepted before side images and still is.
+  for (const image of json.images ?? [])
+    if (
+      image.bufferView !== undefined &&
+      typeof image.uri === "string" &&
+      !image.uri.startsWith("data:")
+    )
+      throw new Error("an image must not have both bufferView and a non-data: uri");
+  // Images beside the GLB are checked by the caller against the manifest's declarations.
+  const imageUris = (json.images ?? []).flatMap((image) =>
+    typeof image.uri === "string" && !image.uri.startsWith("data:") ? [image.uri] : [],
+  );
   const reference = (items, index) => Number.isInteger(index) && index >= 0 && items?.[index];
   for (const animation of json.animations ?? []) {
     if (!animation.channels?.length || !animation.samplers?.length)
@@ -88,7 +101,12 @@ try {
     .registerExtensions([...ALL_EXTENSIONS, ModelLod])
     .registerDependencies({ "meshopt.decoder": MeshoptDecoder })
     .setLogger(new Logger(Logger.Verbosity.SILENT));
-  const document = await io.readBinary(bytes);
+  const resources = Object.fromEntries(imageUris.map((uri) => [uri, new Uint8Array(0)]));
+  if (binaryChunks.length) {
+    const bin = binaryChunks[0];
+    resources[GLB_BUFFER] = bytes.slice(bin.start, bin.start + bin.length);
+  }
+  const document = await io.readJSON({ json, resources });
   const root = document.getRoot();
   const scene = root.getDefaultScene() ?? root.listScenes()[0];
   if (!scene) throw new Error("a model requires a scene");
@@ -111,6 +129,7 @@ try {
   });
   let textureMaxPx = 0;
   for (const texture of root.listTextures()) {
+    if (imageUris.includes(texture.getURI())) continue;
     if (!["image/png", "image/jpeg", "image/ktx2"].includes(texture.getMimeType()))
       throw new Error("texture encoding must be PNG, JPEG or KTX2");
     const size = texture.getSize();
@@ -274,6 +293,7 @@ try {
       clips,
       bounds,
       rig: json.asset.extras?.rig,
+      imageUris,
     }),
   );
 } catch (error) {

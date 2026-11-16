@@ -258,6 +258,8 @@ The context supplies these values:
 | `THREE`, `TSL` | Curated constructors, constants and node helpers from the renderer's pinned Three.js installation. The same module also statically exports the full `THREE` and `TSL` namespaces for additional named use. |
 | `backend` | The selected `webgpu` or `webgl2` backend, after initialization. |
 | `signal` | Aborted on content failure or adapter destruction; use it to retire asynchronous work. |
+| `qualityTier` | The renderer's quality tier when `create` is called. |
+| `loadModel(gltf, url, entry, tier)` | Fetch a reviewed `.glb` and parse it with the entry from `models.json`, rewriting side-image uris to their reviewed files and requesting only the images the tier draws. Returns the parsed GLTF. |
 | `place(object, { x, y, elevation? })` | Set a content anchor in the projection frame's metres; elevation defaults to zero. |
 | `loaders({ basis, draco })` | Asynchronously construct a GLTF loader with Meshopt and Draco decoding and the renderer's shared KTX2 loader, detected against the initialized renderer/backend. `draco` is an explicit URL for matching pinned decoder files; KTX2 uses the transcoder built into the app, so `basis` is not read. |
 

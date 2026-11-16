@@ -7,6 +7,7 @@ import {
   decodeModelTargetProfile,
   type ModelAssetManifest,
   type ModelTargetProfile,
+  modelSideImages,
 } from "@clockgrove/contracts";
 import {
   type AssetManifest,
@@ -240,13 +241,18 @@ export function readModelLevelSources(
   root: string,
   manifest: ModelAssetManifest,
 ): Readonly<Record<string, Uint8Array>> {
-  return Object.fromEntries(
+  const sources: Record<string, Uint8Array> = Object.fromEntries(
     (manifest.output.levels ?? []).flatMap((level) =>
       level.path && level.path !== manifest.output.path
         ? [[level.path, readModelSource(root, level.path)]]
         : [],
     ),
   );
+  // Side images: a missing one is left out, so validation names it with MODEL_SIDE_IMAGE_REQUIRED.
+  for (const { image } of modelSideImages(manifest.output))
+    if (existsSync(resolve(root, image.path)))
+      sources[image.path] = readModelSource(root, image.path);
+  return sources;
 }
 export function readModelManifests(root: string, assetRoot = "assets"): ModelManifestFile[] {
   const base = join(root, assetRoot, "manifests");
