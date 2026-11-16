@@ -53,8 +53,7 @@ export const ACTOR_EVIDENCE_INPUT_TOKENS =
  * Decision (issue 349): the allowance for the rest of an actor request beside its assembled context
  * and its tool evidence: the system text and scene digest, the tool catalog, recorded self results,
  * the input's second copy (`MAX_CONVERSATION_TEXT_OCTETS`), the output schema and the sections'
- * framing. 64 KiB; the production request's own parts measure well under it (the long-session
- * journey checks the measured request).
+ * framing: 64 KiB.
  */
 export const ACTOR_INSTRUCTIONS_INPUT_TOKENS = 65_536;
 /** The room an actor request keeps for its fixed parts beside the assembled context (issue 349). */
