@@ -504,6 +504,8 @@ const forbiddenGlobals = new Map(
       "clearImmediate",
       "cancelAnimationFrame",
       "cancelIdleCallback",
+      "MessageChannel",
+      "MessagePort",
     ],
     "input or output": [
       "fetch",
@@ -511,6 +513,9 @@ const forbiddenGlobals = new Map(
       "WebSocketPair",
       "XMLHttpRequest",
       "EventSource",
+      "BroadcastChannel",
+      "Worker",
+      "SharedWorker",
       "localStorage",
       "sessionStorage",
       "indexedDB",
@@ -571,6 +576,20 @@ function referenceRules(program, checker, node) {
   return symbolRules(program, checker, symbol, isMember, node.text);
 }
 
+/** The variable, interface or class a member is declared in (`@types/node` types `AbortSignal` as a variable). */
+function ownerName(declaration) {
+  for (let node = declaration.parent; node; node = node.parent) {
+    if (
+      ts.isVariableDeclaration(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isClassDeclaration(node)
+    ) {
+      return node.name && ts.isIdentifier(node.name) ? node.name.text : undefined;
+    }
+  }
+  return undefined;
+}
+
 function symbolRules(program, checker, symbol, isMember, name) {
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
   // `globalThis` is the one global the compiler resolves to a symbol with no declarations.
@@ -583,7 +602,15 @@ function symbolRules(program, checker, symbol, isMember, name) {
     const rule = forbiddenGlobals.get(name);
     return rule === undefined || symbol !== undefined ? [] : [rule];
   }
-  if (!isPlatformDeclaration(program, symbol)) return [];
+  if (!isPlatformDeclaration(program, symbol)) {
+    // A local ambient declaration (`declare const performance: …`) hides the platform global it
+    // names but reaches the same value at run time, so it is refused by name.
+    const rule = isMember ? undefined : forbiddenGlobals.get(symbol.name);
+    const ambient = symbol.declarations.some(
+      (declaration) => declaration.flags & ts.NodeFlags.Ambient,
+    );
+    return rule !== undefined && ambient ? [rule] : [];
+  }
   const qualified = checker.getFullyQualifiedName(symbol);
   if (/^(?:global\.)?[^.]+$/u.test(qualified) && !isMember) {
     const rule = forbiddenGlobals.get(symbol.name);
@@ -593,6 +620,12 @@ function symbolRules(program, checker, symbol, isMember, name) {
   // `x.constructor.constructor` reaches the Function constructor, which evaluates code.
   if (isMember && symbol.name === "constructor") return ["code evaluation"];
   if (/(?:^|\.)Math\.random$/u.test(qualified)) return ["randomness"];
+  if (
+    symbol.name === "timeout" &&
+    symbol.declarations.some((d) => ownerName(d) === "AbortSignal")
+  ) {
+    return ["timers"];
+  }
   if (/(?:^|\.)Crypto\.(?:getRandomValues|randomUUID)$/u.test(qualified)) return ["entropy"];
   return [];
 }

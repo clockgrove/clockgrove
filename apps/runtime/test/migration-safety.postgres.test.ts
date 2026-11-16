@@ -231,6 +231,9 @@ describe("migration backfills and contract steps", () => {
       // SQL assembled from pieces counts by the piece a destroying statement begins with.
       "0007b_pieces.sql":
         "DO $$ DECLARE t text := 'probe'; BEGIN EXECUTE 'DELETE FROM clockgrove.' || t || ' WHERE id = 7'; END $$;",
+      // A piece that is the destroying word alone, its target appended at run time.
+      "0007c_truncate_piece.sql":
+        "DO $$ DECLARE t text := 'clockgrove.probe'; BEGIN EXECUTE 'TRUNCATE ' || t; END $$;",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe;",
       "0009_merge.sql":
         "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE;",
@@ -248,6 +251,7 @@ describe("migration backfills and contract steps", () => {
       "0007a_procedure.sql":
         "clockgrove.purge_procedure(): DELETE FROM clockgrove.probe WHERE id = 6",
       "0007b_pieces.sql": "DELETE FROM clockgrove. …",
+      "0007c_truncate_piece.sql": "TRUNCATE …",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe",
       "0009_merge.sql":
         "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE",

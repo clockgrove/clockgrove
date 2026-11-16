@@ -225,7 +225,7 @@ const APPEND_ONLY_NAME = `clockgrove \\. (?:${[...APPEND_ONLY].join("|")})\\b`;
  */
 const DESTROYING_FRAGMENTS = [
   /^DELETE FROM\b/u,
-  /^TRUNCATE (?!(?:ON|OR)\b)/u,
+  /^TRUNCATE\b(?! (?:ON|OR)\b)/u,
   /^MERGE\b.*\bDELETE\b/u,
   new RegExp(`^UPDATE (?:ONLY )?${APPEND_ONLY_NAME}`, "u"),
   new RegExp(`^INSERT INTO ${APPEND_ONLY_NAME}.*\\bON CONFLICT\\b.*\\bDO UPDATE\\b`, "u"),

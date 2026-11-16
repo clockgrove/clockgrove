@@ -175,7 +175,7 @@ procedure the migration calls by name (`SELECT`, `PERFORM`, `CALL` or any other 
 or an earlier migration created it, following the routines that body calls. A routine it reaches is
 reported as `<routine>(): <statement>`; a migration that does not parse is refused, as it cannot be
 verified. A string constant that does not parse alone, a piece of SQL assembled at run time
-(`EXECUTE 'DELETE FROM clockgrove.' || t`, `format('TRUNCATE clockgrove.probe %s', …)`), counts when its
+(`EXECUTE 'DELETE FROM clockgrove.' || t`, `EXECUTE 'TRUNCATE ' || t`, `format('TRUNCATE clockgrove.probe %s', …)`), counts when its
 tokens begin as a destroying statement begins (`DELETE FROM`, `TRUNCATE`, a destroying `DROP`, `MERGE …
 DELETE`, a rewrite of an append-only table) or as an `ALTER TABLE` that drops a column or changes its
 type; it is reported as `<piece> …`. SQL split before its leading words (`'DELETE ' || 'FROM …'`) is not

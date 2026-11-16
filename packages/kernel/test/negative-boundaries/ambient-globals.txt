@@ -29,6 +29,12 @@ export const bunFile = Bun.file("state.json");
 export const timer = setTimeout(() => {}, 0);
 export const repeat = setInterval(() => {}, 0);
 queueMicrotask(() => {});
+export const deadline = AbortSignal.timeout(5);
+export const channel = new MessageChannel();
+export const broadcast = new BroadcastChannel("x");
+namespace ShadowClock { declare const performance: { now(): number }; export const t = performance.now(); }
+namespace ShadowDate { declare const Date: { now(): number }; export const t = Date.now(); }
+namespace ShadowDeno { declare const Deno: { env: { get(k: string): string } }; export const v = Deno.env.get("X"); }
 export const response = fetch("https://example.invalid");
 export const socket = new WebSocket("wss://example.invalid");
 export const stored = localStorage.getItem("state");
