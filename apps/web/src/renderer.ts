@@ -11,6 +11,15 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { pass, uniform, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
+  type DeviceProfile,
+  type QualityTier,
+  softwareIdentity,
+  startingTier,
+  TARGET_FLOOR,
+  TierGovernor,
+  tierCeiling,
+} from "./quality-tier.js";
+import {
   type AtlasTextureFormat,
   atlasTextureLoader,
   type ContentFailure,
@@ -143,7 +152,7 @@ export type RendererMeasurement =
       readonly value: number;
     };
 export type RendererReport = (point: RendererMeasurement) => void;
-export type QualityTier = "low" | "medium" | "high";
+export type { QualityTier } from "./quality-tier.js";
 /** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
  * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
@@ -206,6 +215,8 @@ const CUE_KEYS = 64,
   CUE_MS = 2 * INTERPOLATION_MS;
 const FRAME_SAMPLES = 120; // #67 uses 120 measured frames; telemetry stays bounded.
 const FRAME_BUDGET_MS = 33.4; // scene-budgets.json's supported 30 fps floor.
+/** Largest minimum target is medium's 32² pixels; 54 B/px bounds all tier targets. */
+const MIN_TARGET_BYTES = 55_296;
 const ATLAS_REFETCHES = 1; // One cache-bypassing retry, then the text path.
 const SAGE = worldShell.scene.accent,
   PANEL = worldShell.scene.panel,
@@ -349,6 +360,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private previousTime: number | undefined;
   private framesSinceReport = 0;
   private tier: QualityTier = "low";
+  /** #356: the device's reported capabilities and the frame-time judge built from them. */
+  private device: DeviceProfile | undefined;
+  private governor: TierGovernor | undefined;
+  private maxDimension = TARGET_FLOOR;
+  private renderedLastStep = false;
+  private visible = true;
   private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
   private night = false;
   private readonly environmentGrade = uniform(new THREE.Color(0xffffff));
@@ -513,39 +530,50 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (this.destroyed) return;
       this.initialized = true;
       this.observeContentErrors();
-      const context =
-        this.backend === "webgl2"
-          ? (this.renderer.getContext() as WebGL2RenderingContext)
-          : undefined;
-      const enoughTargets = context
-        ? context.getParameter(context.MAX_TEXTURE_SIZE) >= 4096 &&
-          Boolean(context.getExtension("EXT_color_buffer_float"))
-        : true;
-      const rendererInfo = context?.getExtension("WEBGL_debug_renderer_info");
-      const device = (
-        this.renderer.backend as {
-          device?: { adapterInfo?: { architecture?: string; description?: string } };
-        }
-      ).device;
-      const software = /SwiftShader|llvmpipe|software/i.test(
-        context && rendererInfo
-          ? String(context.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL))
-          : `${device?.adapterInfo?.architecture ?? ""} ${device?.adapterInfo?.description ?? ""}`,
-      );
-      const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-      this.setQuality(
-        !enoughTargets || software || (memory !== undefined && memory < 4)
-          ? "low"
-          : memory !== undefined && memory < 8
-            ? "medium"
-            : "high",
-      );
+      this.device = this.readDevice();
+      this.maxDimension = this.device.maxDimension;
+      this.governor = new TierGovernor(tierCeiling(this.device), FRAME_BUDGET_MS);
+      this.setQuality(startingTier(this.device));
       this.frame = requestAnimationFrame(this.step);
       await this.create();
       void this.initializeContent();
     } catch {
       if (!this.destroyed) this.unavailable("renderer_unavailable");
     }
+  }
+  /** #356: what the started backend reports; `navigator.deviceMemory` only where the browser has it. */
+  private readDevice(): DeviceProfile {
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+    const memoryGiB = typeof memory === "number" ? { memoryGiB: memory } : {};
+    if (this.backend === "webgl2") {
+      const gl = this.renderer.getContext() as WebGL2RenderingContext;
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array | null;
+      return {
+        software: softwareIdentity(
+          String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? ""),
+        ),
+        floatTargets: Boolean(gl.getExtension("EXT_color_buffer_float")),
+        maxDimension: Math.min(
+          Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 0,
+          Number(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)) || 0,
+          ...(viewport ? [viewport[0] ?? 0, viewport[1] ?? 0] : [0]),
+        ),
+        ...memoryGiB,
+      };
+    }
+    const device = (this.renderer.backend as { device?: GPUDevice }).device;
+    const info = device?.adapterInfo as
+      | (GPUAdapterInfo & { isFallbackAdapter?: boolean })
+      | undefined;
+    return {
+      software:
+        info?.isFallbackAdapter === true ||
+        softwareIdentity(`${info?.architecture ?? ""} ${info?.description ?? ""}`),
+      floatTargets: true,
+      maxDimension: device?.limits.maxTextureDimension2D ?? 0,
+      ...memoryGiB,
+    };
   }
   private observeContentErrors(): void {
     if (!this.suppliedContent || this.backend !== "webgpu") return;
@@ -760,14 +788,15 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const dpr = globalThis.devicePixelRatio || 1;
     const scale = Math.min(dpr, Math.sqrt(pixelBudget / (width * height)));
     // Keep the low scene target and every bloom mip at least 1×1.
-    // Clamp area and each axis; 4096 is the renderer's existing target capability floor.
+    // Clamp area and each axis to the 4096 target floor and the device's reported maximum side (#356).
+    const maxSide = Math.min(TARGET_FLOOR, this.maxDimension);
     const outputWidth = Math.max(
       minSide,
-      Math.min(4096, Math.floor(width * scale), Math.floor(pixelBudget / minSide)),
+      Math.min(maxSide, Math.floor(width * scale), Math.floor(pixelBudget / minSide)),
     );
     const outputHeight = Math.max(
       minSide,
-      Math.min(4096, Math.floor(height * scale), Math.floor(pixelBudget / outputWidth)),
+      Math.min(maxSide, Math.floor(height * scale), Math.floor(pixelBudget / outputWidth)),
     );
     this.devicePixelRatio = dpr;
     // Contain the original view at every host aspect without distorting isometric proportions.
@@ -1161,6 +1190,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    // Shader compilation and target allocation for the new tier are one-time work.
+    this.governor?.restart();
     this.syncContentLighting();
     this.updateTextureBytes();
     this.resizeViewport();
@@ -2113,15 +2144,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         const sorted = [...this.metrics.frameMs].sort((a, b) => a - b),
           p95 = sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0;
         this.report({ name: "frame_ms", category: "p95", value: p95 });
-        if (
-          p95 > FRAME_BUDGET_MS &&
-          (!this.reducedMotion || this.content !== undefined) &&
-          document.visibilityState === "visible" &&
-          this.tier !== "low"
-        )
-          this.setQuality(this.tier === "high" ? "medium" : "low");
       }
     }
+    this.judgeFrame(delta);
     // rAF timestamps precede callback execution; GPU work can delay them past a motion's start.
     const time = performance.now();
     let changed = this.dirty;
@@ -2190,7 +2215,33 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.dirty = false;
       this.metrics.firstRenderMs ??= performance.now() - this.started;
     }
+    this.renderedLastStep = changed;
   };
+  /**
+   * #356: judge only intervals that span a rendered frame while the page is visible and no content
+   * is loading, restarting after a hidden spell; change tier only to one loaded content fits.
+   */
+  private judgeFrame(delta: number): void {
+    const visible = document.visibilityState === "visible";
+    if (visible && !this.visible) this.governor?.restart();
+    this.visible = visible;
+    if (!visible || !this.renderedLastStep || delta <= 0 || !this.governor) return;
+    // Content sizes its resources for the tier it loads under: hold judging until it is ready,
+    // which restarts the governor, so no step down can retire it before it becomes ready.
+    if (this.metrics.contentStatus === "loading") return;
+    const next = this.governor.sample(delta, this.tier, (tier) => this.contentFits(tier));
+    if (next) this.setQuality(next);
+  }
+  /** Whether loaded content's resources fit a tier's texture ceiling, as updateTextureBytes judges. */
+  private contentFits(tier: QualityTier): boolean {
+    if (!this.content) return true;
+    const quality = SCENE_QUALITY[tier];
+    const resources =
+      this.resourceTextureBytes -
+      this.metrics.shadowTextureBytes +
+      quality.shadowMaps * quality.shadowMapSize ** 2 * 12;
+    return resources + MIN_TARGET_BYTES <= quality.textureBytes;
+  }
   private updateTextureBytes(): void {
     // WebGPURenderer allocates by Texture identity on both backends, not by shared image source.
     const textures = new Set<THREE.Texture>();
@@ -2225,8 +2276,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.metrics.atlasTextureBytes = atlasBytes;
     const changed = this.resourceTextureBytes !== bytes;
     this.resourceTextureBytes = bytes;
-    // Largest minimum target is medium's 32² pixels; 54 B/px bounds all tier targets.
-    if (this.content && bytes + 55_296 > SCENE_QUALITY[this.tier].textureBytes) {
+    if (this.content && bytes + MIN_TARGET_BYTES > SCENE_QUALITY[this.tier].textureBytes) {
       this.failContent("content_contract");
       return;
     }

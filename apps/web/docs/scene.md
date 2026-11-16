@@ -201,12 +201,44 @@ Resource textures reserve their measured bytes before render-target sizing, so a
 reduce effective output scale. Content whose resources leave no room for even the smallest output
 is retired as a content-contract failure; the built-in scene and text path remain available.
 Host sizing uses the content box, excluding padding, including for auto-height compositions.
-These are bounded allocation decisions, not hardware performance claims. Quality selection is conservative: software renderers
-(SwiftShader/llvmpipe), missing floating-point color targets, maximum texture size below 4096,
-or device memory below 4 GiB choose low. WebGPU software detection reads the device adapter
-architecture/description; WebGL2 uses its debug renderer identity. Otherwise memory below 8 GiB
-chooses medium and the remaining capable devices choose high. These thresholds are local decisions to bound target
-allocation and shader work, rather than measured device-class performance promises.
+These are bounded allocation decisions, not hardware performance claims.
+
+Tier selection (#356, `apps/web/src/quality-tier.ts`) starts from what the device reports once the
+backend has started, then moves on sustained frame time:
+
+- **Ceiling.** A software or fallback adapter is capped at low: WebGPU's
+  `adapterInfo.isFallbackAdapter`, or an adapter architecture/description (WebGPU) or renderer
+  identity (WebGL2's debug renderer string, else `RENDERER`) naming SwiftShader, llvmpipe,
+  lavapipe, softpipe, software or Microsoft Basic Render. So is a device without floating-point
+  colour targets (WebGL2 `EXT_color_buffer_float`) or whose reported maximum side is below the
+  4096-pixel target floor: WebGPU `limits.maxTextureDimension2D`; WebGL2 the smallest of
+  `MAX_TEXTURE_SIZE`, `MAX_RENDERBUFFER_SIZE` and `MAX_VIEWPORT_DIMS`. Where the browser reports
+  `navigator.deviceMemory`, below 4 GiB caps at low and below 8 GiB at medium; otherwise high.
+- **Start.** The ceiling, except that a device reporting no memory (Safari, including iOS Safari
+  with WebGPU, and Firefox) starts at medium and earns high from frame time.
+- **Limits.** Every tier also clamps each output side to the device's reported maximum side, so
+  no tier asks for a target beyond the device's limits.
+- **Change.** Only rAF intervals that span a rendered frame on a visible page are judged, so idle
+  frames cannot prove headroom, and none while content is loading: content sizes its resources for
+  the tier it loads under, so judging resumes only once it is ready. The first 30 intervals after
+  start, content becoming ready, any tier change or a return to visible are discarded as one-time
+  work (shader compilation, target allocation). Windows of 30 intervals are judged by p95, which
+  is over budget from 2 slow intervals. Five consecutive windows above the 33.4 ms frame budget
+  (150 intervals, more than #67's 120 measured frames) step down one tier. A contiguous burst can
+  make five consecutive windows over budget only by covering the middle three and 2 intervals on
+  each side, so a burst shorter than 94 intervals, such as shader compilation when later content
+  arrives, never steps down, wherever it falls in the windows. Twenty consecutive windows at or
+  below 60% of the budget (20.04 ms, steady 50 fps or better; 600 intervals, about 10 s at 60 Hz)
+  step up one tier, never above the ceiling. An up-step followed by a down-step doubles the
+  windows the next up-step needs, so a device on the edge does not oscillate.
+- **Content.** A step down goes to the next lower tier whose texture ceiling the loaded content's
+  resources fit (resource textures with that tier's shadow storage, plus the smallest output
+  targets); if none fits, the tier stays. An automatic tier change never retires content that
+  loaded fine. Direct `setQuality` calls keep their behaviour.
+
+The window size and counts, the 30-interval warm-up, 60% headroom and doubling are local decisions with the
+reasons above; they and the thresholds bound target allocation and shader work rather than make
+measured device-class performance promises.
 
 | Tier | Scene target / lighting | Rain particle cap | Bloom | Wind | Puddle reflections |
 | --- | --- | ---: | --- | --- | --- |
@@ -221,9 +253,8 @@ change to the logical camera, picking coordinates or text path. Labels use the e
 high retain full-resolution PBR and wet specular. Tier changes preserve common material state,
 dispose replaced materials and restore puddle roughness when returning to PBR. Bloom radius is 0.2 and threshold 0.8. These tuning values
 are renderer decisions for restrained glow, replacing the bake-off's over-strong bloom. Reflections
-are a bounded visual approximation, not a physically complete reflection pass. After 120 frame
-intervals, p95 above the 33.4 ms frame budget downgrades one tier; there is no automatic upgrade
-loop. Reduced motion freezes animation independently of tier. Tier policy is local presentation
+are a bounded visual approximation, not a physically complete reflection pass. Frame time
+changes tier as described above. Reduced motion freezes animation independently of tier. Tier policy is local presentation
 state and never writes a projection or runtime command.
 
 Bloom and tone grading are separate from source emission. Warm sources use `0xffb966` with
@@ -294,7 +325,7 @@ Each update receives a fresh read-only frame value: `backend`, `qualityTier`, `r
 **zero** under reduced motion, matching atlas frame zero. Set animation mixers from that absolute
 time instead of accumulating independent deltas. Clock and weather remain renderer inputs read
 from the loaded committed projection; content cannot mutate them. The renderer's frame cadence,
-p95 sampling and automatic tier downgrade include content work, including under reduced motion. `metrics.contentUpdateMs` records
+p95 sampling and automatic tier changes include content work, including under reduced motion. `metrics.contentUpdateMs` records
 update cost, while `textureBytes` includes content textures alongside render targets; atlas pages count
 in `atlasTextureBytes`.
 
@@ -362,7 +393,7 @@ target sits at depth -50 between content and ground (-100); the source distance 
 1000 or coverage radius plus 128, with near 0.1 and far distance plus radius plus 128. Bias is -0.0001.
 These are explicit renderer presentation choices for #184, bounding coverage while limiting acne.
 Tier changes, content failure and destruction retire unused light and shadow resources. The
-existing frame-cadence downgrade includes the cost of content lights and shadows. Software
+frame-cadence tier changes include the cost of content lights and shadows. Software
 backend fixtures establish correctness and bounded allocation. Per the owner’s 2026-11-11
 decision in #184, software-GPU traversal plus these tier budgets as policy close this Objective.
 Physical desktop/recent-phone timing comes from the owner’s quality-lab runs in raccoon-world#45
