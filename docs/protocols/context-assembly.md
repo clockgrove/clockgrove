@@ -134,8 +134,10 @@ authorization:
    makes a request, research steps included, that the
    gateway refuses for size. Under the production limit (998,976) the budget stays 4,096. Without
    a model route (the scripted fixture), it is 4,096. A world model configuration whose actor alias
-   leaves no room for one estimated token is refused when it is read, so an actor never answers
-   without its summary and history for want of room. Each research step reserves its own measured
+   leaves no room for one estimated token (a limit below 311,944) is refused when it is read, with
+   the alias, its limit, the fixed parts and the minimum named, so an actor never answers without
+   its summary and history for want of room. `contextTokenBudget` itself refuses such a limit
+   rather than clamping it to a budget of one. Each research step reserves its own measured
    worst case (the gateway's reservation, for every fallback route) against the turn's cost cap.
    The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte

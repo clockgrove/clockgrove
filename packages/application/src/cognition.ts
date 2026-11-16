@@ -41,16 +41,27 @@ export function estimateTokens(text: string): number {
  */
 export const MEASURED_TOKENS_PER_ESTIMATED_TOKEN = 24;
 
+/** The least input limit that leaves room for one estimated token beside the fixed parts. */
+export function minimumInputLimitTokens(fixedInputTokens: number): number {
+  return fixedInputTokens + MEASURED_TOKENS_PER_ESTIMATED_TOKEN;
+}
+
 /**
  * A turn's context budget under a model route's input limit, both in the gateway's measure: the
  * decided budget, lowered to whatever room the limit leaves after the request's fixed parts
- * (instructions, tool catalog, schemas, prompt framing). At least 1, the manifest's floor.
+ * (instructions, tool catalog, schemas, prompt framing). A limit with no room for one estimated
+ * token is refused rather than clamped, so no turn silently assembles without its context.
  */
 export function contextTokenBudget(inputLimitTokens: number, fixedInputTokens: number): number {
+  const minimum = minimumInputLimitTokens(fixedInputTokens);
+  if (!(inputLimitTokens >= minimum))
+    throw new RangeError(
+      `input limit ${inputLimitTokens} leaves no context room beside the request's fixed parts (${fixedInputTokens}); the minimum is ${minimum}`,
+    );
   const room = Math.floor(
     (inputLimitTokens - fixedInputTokens) / MEASURED_TOKENS_PER_ESTIMATED_TOKEN,
   );
-  return Math.max(1, Math.min(CONTEXT_TOKEN_BUDGET, room));
+  return Math.min(CONTEXT_TOKEN_BUDGET, room);
 }
 
 /** The same estimate from a stored byte length, so the budget is decided before any text is read. */

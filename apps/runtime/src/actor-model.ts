@@ -4,8 +4,8 @@ import {
   type ConversationResponder,
   type ConversationResponse,
   contextTokenBudget,
-  MEASURED_TOKENS_PER_ESTIMATED_TOKEN,
   type ModelUsage,
+  minimumInputLimitTokens,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -404,9 +404,10 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
   // An actor whose route cannot hold the request's fixed parts and one estimated token of context
   // would answer without its summary or history; the configuration is refused instead (issue 349).
   const limit = value.aliases.find((alias) => alias.alias === value.alias)?.maxInputTokens ?? 0;
-  if (limit < ACTOR_FIXED_INPUT_TOKENS + MEASURED_TOKENS_PER_ESTIMATED_TOKEN)
+  const minimum = minimumInputLimitTokens(ACTOR_FIXED_INPUT_TOKENS);
+  if (limit < minimum)
     throw new Error(
-      `world model alias maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (${ACTOR_FIXED_INPUT_TOKENS})`,
+      `world model alias ${value.alias} maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (${ACTOR_FIXED_INPUT_TOKENS}); the minimum is ${minimum}`,
     );
   return {
     ...value,

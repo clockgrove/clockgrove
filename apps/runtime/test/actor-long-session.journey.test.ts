@@ -2,6 +2,7 @@ import {
   assembleContext,
   CAPABILITY_REGISTRY,
   type ContextSource,
+  contextTokenBudget,
   renderPrompt,
   sourceHash,
   tokensOfBytes,
@@ -195,8 +196,12 @@ it("a smaller route limit lowers the context budget, and one with no room is ref
   expect(actorContextTokenBudget(actorModelConfiguration(configured(311_944)))).toBe(1);
   for (const limit of [7_000, 16_000, 100_000, 311_943])
     expect(() => actorModelConfiguration(configured(limit))).toThrow(
-      `world model alias maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (311920)`,
+      `world model alias actor.small maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (311920); the minimum is 311944`,
     );
+  // No caller is clamped to a budget of one: the measure itself refuses a limit with no room.
+  expect(() => contextTokenBudget(311_943, 311_920)).toThrow(
+    "input limit 311943 leaves no context room beside the request's fixed parts (311920); the minimum is 311944",
+  );
 
   // Under the lowered budget the 2,048-token summary is left out, the newest 324-byte message (81
   // tokens) still fits, and the turn reaches the route.

@@ -72,6 +72,16 @@ The input bound is the route's limit; the others are decisions:
   is at most 1,024 tokens, one conversational reply (decision). Context assembly, not this bound,
   keeps a turn small (issue 349): its budget is sized from this limit
   ([context assembly](../../../docs/protocols/context-assembly.md#decided-limits-and-retention)).
+  Before issue 349 the production aliases carried 7,000 (`actor.pilot`) and 16,000
+  (`actor.conversation`) under a different measure; those were cost envelopes, not route limits.
+  Clockgrove is before 1.0, so this is a breaking change for a world's configuration: the runtime
+  refuses, when it reads a `WORLD_MODEL_CONFIG` (or a pack's `runtime.json` serialized into it), an
+  actor alias whose `maxInputTokens` is below 311,944, the actor request's fixed parts (311,920)
+  plus room for one estimated token of context. The error names the alias, its limit, the fixed
+  parts and the minimum, for example `world model alias actor.pilot maxInputTokens 7000 leaves no
+  context room beside the actor request's fixed parts (311920); the minimum is 311944`. Raise the
+  limit to the route's real input limit (998,976 for Claude Opus 5.5) to fix it (owner decision,
+  2026-11-15).
 - **Timeouts.** The first text must arrive within 15 s, which leaves room for model thinking. After
   that, 10 s of silence means a stalled stream. A route attempt lasts at most 60 s. The bound is
   per route, so a turn that falls back after a first-byte timeout lasts at most 15 s + 60 s.
