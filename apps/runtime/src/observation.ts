@@ -303,12 +303,14 @@ export class PostgreSqlWorldStatusReader {
       ]),
     );
     const nameOf = (objectId: string): string => labels.get(objectId) ?? objectId;
-    // The feed's bound is the history reader's own 100-sequence window before the covered head:
-    // at most 100 items, newest first, with privacy-hidden sequences absent rather than refused.
-    const recent = await new PostgreSqlObjectHistoryReader(this.client).read(
+    // The feed is the newest 100 material events in the bounded scan below the covered head, so
+    // routine events of many busy actors cannot crowd them out; privacy-hidden ones are absent.
+    const recent = await new PostgreSqlObjectHistoryReader(this.client).readTypes(
       authorization,
       { tenantId: scope.tenantId, timelineId: scope.timelineId, partitionId: stored.partitionId },
       stored.coveredHeadSequence + 1n,
+      [...MATERIAL_EVENTS.keys()],
+      100,
     );
     return {
       version: 1,
@@ -326,7 +328,7 @@ export class PostgreSqlWorldStatusReader {
         day: dayLength === undefined ? null : (time / dayLength + 1n).toString(),
         timeOfDayMs: dayLength === undefined ? null : (time % dayLength).toString(),
       },
-      feed: recent.events.flatMap((event) => {
+      feed: recent.flatMap((event) => {
         const material = MATERIAL_EVENTS.get(event.type);
         if (material === undefined || !isSharedSceneEligible(event.privacyClass)) return [];
         const payload = kernelPayloadOf(event);

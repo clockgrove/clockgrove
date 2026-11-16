@@ -171,6 +171,16 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       await run("status-pause", "PauseWorld", { schemaVersion: 1 });
       const paused = await status();
       expect([paused.clock, paused.feed]).toEqual([clock("paused", 60, 1n), fed.feed]);
+      for (let minute = 2n; minute <= 60n; minute++)
+        await run(`status-tick-${minute}`, "world.advance", {}, 8_640_000_000n + minute * 60_000n);
+      expect(
+        Number(
+          await truth(
+            `SELECT count(*) FROM clockgrove.events WHERE partition_sequence > (SELECT partition_sequence FROM clockgrove.events WHERE event_id = '${rained.feed[0]?.id}')`,
+          ),
+        ),
+      ).toBeGreaterThan(100);
+      expect((await status()).feed.at(-1)?.id).toBe(rained.feed[0]?.id);
       const refused = async (credential?: string, scope = auth.scope) => {
         const response = await read(credential, scope);
         return [response.status, await response.json()];

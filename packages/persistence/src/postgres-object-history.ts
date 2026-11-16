@@ -9,6 +9,12 @@ import {
 import { upcastEventBytes } from "@clockgrove/contracts";
 import { PostgreSqlJournalRangeSource } from "./postgres-journal-range.js";
 import type { PostgreSqlClient } from "./postgres-transaction.js";
+import { withClientTransaction } from "./postgres-transaction.js";
+
+// Decision (issue 354): at most the newest 10,000 sequences below the head are scanned, bounding the
+// work on the unique (tenant, timeline, partition, partition_sequence) index without a migration;
+// that covers 40 ticks of 50 actors writing 5 events each.
+const MATERIAL_SCAN_SEQUENCES = 10_000n;
 
 /** Bounded public windows; privacy-hidden sequence gaps are not fabricated missing events. */
 export class PostgreSqlObjectHistoryReader {
@@ -31,23 +37,77 @@ export class PostgreSqlObjectHistoryReader {
     const events: StoredEvent[] = [];
     let previous = from - 1n;
     for (const bytes of rows.eventBytes) {
-      // Decode only to locate the visible singleton. JournalRangeReader then verifies its scope,
-      // sequence, registry and payload hash before any caller can use it.
-      const sequence = upcastEventBytes(bytes, actorDecodeOptions(bytes)).partitionSequence;
+      const sequence = this.sequenceOf(bytes);
       if (sequence <= previous || sequence < from || sequence > to)
         throw new TypeError("history source returned an invalid sequence");
       previous = sequence;
-      const verified = new JournalRangeReader(
-        {
-          readPartitionRows: async () => ({ head: sequence, eventBytes: [bytes] }),
-          readStreamRows: async () => {
-            throw new TypeError("history reads partition sequences");
-          },
-        },
-        JOURNAL_EVENT_REGISTRY,
-      );
-      events.push(...(await verified.readPartition(scope, { from: sequence, to: sequence })));
+      events.push(...(await this.verify(scope, bytes, sequence)));
     }
     return { events: events.reverse(), beforeSequence: from > 1n ? from : null };
+  }
+
+  /**
+   * The newest visible events of the given types in the bounded scan below `beforeSequence`,
+   * newest first. Privacy-hidden rows are absent.
+   */
+  async readTypes(
+    authorization: RuntimeAuthorizationContext,
+    scope: PartitionScope,
+    beforeSequence: bigint,
+    eventTypes: readonly string[],
+    limit: number,
+  ): Promise<readonly StoredEvent[]> {
+    const floor = beforeSequence - MATERIAL_SCAN_SEQUENCES;
+    const rows = await withClientTransaction(this.client, { authorization }, () =>
+      this.client.query(
+        `SELECT event_bytes FROM clockgrove.events
+          WHERE tenant_id = $1 AND timeline_id = $2 AND partition_id = $3
+            AND partition_sequence < $4::bigint AND partition_sequence >= $5::bigint
+            AND event_type = ANY($6::text[])
+          ORDER BY partition_sequence DESC LIMIT $7`,
+        [
+          scope.tenantId,
+          scope.timelineId,
+          scope.partitionId,
+          String(beforeSequence),
+          String(floor < 1n ? 1n : floor),
+          [...eventTypes],
+          limit,
+        ],
+      ),
+    );
+    const events: StoredEvent[] = [];
+    for (const row of rows.rows) {
+      const bytes = (row as { event_bytes?: unknown }).event_bytes;
+      if (!(bytes instanceof Uint8Array))
+        throw new TypeError("PostgreSQL returned malformed event bytes");
+      const sequence = this.sequenceOf(bytes);
+      if (sequence >= beforeSequence || sequence < floor)
+        throw new TypeError("history source returned an invalid sequence");
+      events.push(...(await this.verify(scope, bytes, sequence)));
+    }
+    return events;
+  }
+
+  private sequenceOf(bytes: Uint8Array): bigint {
+    // Decode only to locate the visible singleton; verify() then checks it before any use.
+    return upcastEventBytes(bytes, actorDecodeOptions(bytes)).partitionSequence;
+  }
+
+  private verify(
+    scope: PartitionScope,
+    bytes: Uint8Array,
+    sequence: bigint,
+  ): Promise<readonly StoredEvent[]> {
+    // JournalRangeReader verifies scope, sequence, registry and payload hash.
+    return new JournalRangeReader(
+      {
+        readPartitionRows: async () => ({ head: sequence, eventBytes: [bytes] }),
+        readStreamRows: async () => {
+          throw new TypeError("history reads partition sequences");
+        },
+      },
+      JOURNAL_EVENT_REGISTRY,
+    ).readPartition(scope, { from: sequence, to: sequence });
   }
 }
