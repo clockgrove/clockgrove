@@ -164,7 +164,11 @@ content. Evidence whose stored jsonb text (`capability_evidence::text`, which th
 measures; it adds a space after each `:` and `,`) would exceed 16 KiB keeps its grant and replaces
 arguments and result with `{ truncated: true }`.
 
-A final reply cites recorded calls as `[tool:<callId>]`. The browser's “Why? Tool evidence”
+A final reply cites recorded calls as `[tool:<callId>]`. A citation of a recorded call stays where
+the model wrote it; any other `[tool:...]` becomes `[unverified tool citation]`. The reply's
+`Research evidence:` line lists only the calls its text cited. When the text cites none, it lists
+the calls that succeeded or were simulated, never a refused, failed or uncertain call. When there
+are none, the reply has no evidence line. The browser's “Why? Tool evidence”
 button enters `/v1/runtime/runs/inspect` by session and canonical input message; it displays the run,
 input message, tool steps and call/grant/effect/result links without displaying raw protected
 payload text. An inspector still needs its ordinary `runtime:world-inspect` grant and

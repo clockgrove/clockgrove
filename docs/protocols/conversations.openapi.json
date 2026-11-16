@@ -1470,6 +1470,11 @@
               "tool_calls_exhausted"
             ],
             "description": "Canonical runtime service disposition; displayed without actor voice attribution."
+          },
+          "toolCallsRecorded": {
+            "type": "boolean",
+            "enum": [true],
+            "description": "Present on an actor reply whose turn recorded at least one tool call."
           }
         }
       },

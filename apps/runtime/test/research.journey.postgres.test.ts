@@ -206,7 +206,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await talk(toolDown, 1, CAPABILITY, { q: "down" });
       const failed = await wait(toolDown, CAPABILITY, { q: "down" });
       expect(failed.reply.text).toContain("Fixture research uncertain: tool_uncertain");
-      expect(failed.reply.text).toContain("Research evidence: [tool:tool:");
+      expect(failed.reply.text).not.toContain("Research evidence");
       expect((await post("/v1/runtime/world-status", {})).status).toBe(200);
       // The world stays active with the model and the MCP tool unavailable: its time advances.
       const clock = () => owner.sql("SELECT max(simulation_time) FROM clockgrove.events");

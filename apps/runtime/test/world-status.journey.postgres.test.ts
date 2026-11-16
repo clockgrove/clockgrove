@@ -72,7 +72,19 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
                   targetTime,
                   revision === undefined ? null : BigInt(revision),
                 ),
-                ...(type === "world.advance" ? {} : { type, payload }),
+                ...(type === "world.advance"
+                  ? key === "status-generation"
+                    ? {
+                        payload: {
+                          schemaVersion: 1,
+                          targetTime,
+                          maxInputs: 1024,
+                          maxEvents: 4096,
+                          lazy: true,
+                        },
+                      }
+                    : {}
+                  : { type, payload }),
               }),
               trustedWallTime: () => 0n,
             },
@@ -116,7 +128,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
         clock("paused", 1, 1n),
         [
           ["movement", "fixture.dependent", "fixture.dependent arrived."],
-          ["routine", "fixture.keeper", "fixture.keeper is staying put."],
+          ["routine", "fixture.keeper", "fixture.keeper chose to stay."],
           [
             "routine",
             "fixture.dependent",
@@ -135,7 +147,7 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
           ["weather", null, "It is raining."],
         ],
       ]);
-      const materialTypes = `('weather.changed','weather.transitioned','environment.phase-changed','routine.selected','needs.threshold-crossed','exposure.threshold-crossed','health.threshold-crossed','growth.stage-changed','movement.portal-crossed','movement.completed','portal.opened','portal.closed','resource.offered','resource.consumed','resource.transferred','resource.spoiled')`;
+      const materialTypes = `('weather.changed','weather.transitioned','environment.phase-changed','routine.selected','needs.threshold-crossed','exposure.threshold-crossed','health.threshold-crossed','growth.stage-changed','movement.portal-crossed','movement.completed','portal.opened','portal.closed','resource.offered','resource.consumed','resource.transferred','resource.spoiled','lifecycle.born','lifecycle.died','lifecycle.conceived','lifecycle.stage-changed','object.created')`;
       const material = JSON.parse(
         await truth(
           `SELECT jsonb_agg(jsonb_build_object('id', event_id, 'simTimeMs', simulation_time::text, 'kind', 'material', 'sourceEventIds', jsonb_build_array(event_id)) ORDER BY partition_sequence DESC)::text
@@ -184,6 +196,21 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
         100,
       );
       expect((await status()).feed.at(-1)?.id).toBe(rained.feed[0]?.id);
+      // A lazy fast-forward over two weeks: the fixture household conceives, matures and bears a
+      // child, and the world's declared lifecycle events reach the feed in the pack's words.
+      await run("status-generation", "world.advance", {}, 9_849_600_000n);
+      expect(
+        (await status()).feed
+          .filter((item) => item.category === "lifecycle" || item.text.endsWith(" is urgent."))
+          .map(({ objectId, text }) => [objectId, text]),
+      ).toEqual([
+        ["fixture.companion", "fixture.companion's hunger is urgent."],
+        ["fixture.companion", "fixture.companion's hunger is urgent."],
+        ["child_f49de9971bf27e7d", "child_f49de9971bf27e7d was born to fixture.companion."],
+        ["fixture.companion", "fixture.companion's hunger is urgent."],
+        ["fixture.keeper", "fixture.keeper reached its elder stage."],
+        ["fixture.dependent", "fixture.dependent reached its juvenile stage."],
+      ]);
       const refused = async (credential?: string, scope = auth.scope) => {
         const response = await read(credential, scope);
         return [response.status, await response.json()];

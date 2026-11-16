@@ -19,11 +19,12 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
     session.explain(undefined);
     const opener = whyOpener.current;
     // A breakpoint change can rebuild the rail while its recorded evidence stays open.
+    const key = opener?.dataset.whyOpener;
     const target = opener?.isConnected
       ? opener
-      : [...document.querySelectorAll<HTMLButtonElement>(".rw-shell button")].find(
-          (button) => button.textContent === opener?.textContent,
-        );
+      : key === undefined
+        ? null
+        : document.querySelector<HTMLElement>(`[data-why-opener="${CSS.escape(key)}"]`);
     target?.focus();
   };
   return (
@@ -179,6 +180,7 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
                   {`${row.kind}; due at ${row.dueAt}; ${row.status}; scheduled by ${row.scheduledBy}; completed by ${row.completedBy ?? "pending"}`}{" "}
                   <button
                     type="button"
+                    data-why-opener={`schedule:${row.scheduleId}:${row.idempotencyKey}`}
                     onClick={(event) => {
                       whyOpener.current = event.currentTarget;
                       session.explainSchedule(row.scheduleId, row.idempotencyKey);

@@ -85,6 +85,8 @@ const ICONS: Readonly<
   portal: { kind: "door", name: "Portal" },
   routine: undefined,
   movement: undefined,
+  lifecycle: undefined,
+  object: undefined,
 };
 
 const GLYPHS: Readonly<Record<Exclude<FeedIconKind, "portrait">, string>> = {
@@ -146,6 +148,7 @@ export function MaterialFeed({
                   type="button"
                   className="rw-feed-item"
                   data-event-id={item.sourceEventIds[0]}
+                  data-why-opener={`feed:${item.sourceEventIds[0]}`}
                   onClick={(event) => {
                     if (inView) {
                       select(objectId);

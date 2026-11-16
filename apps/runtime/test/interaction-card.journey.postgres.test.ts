@@ -274,6 +274,42 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       });
       const decision = keeper.history.actions.find((action) => action.type === "routine.selected");
       expect(decision?.commandId).toBe("storm-decision");
+      expect(decision?.decision).toBe(true);
+      // A command Keeper proposed itself (a model rung) is its newer decision; Why opens it, not
+      // the older routine selection.
+      const own = advanceCommand(
+        world,
+        "keeper-own",
+        0n,
+        (await new PostgreSqlCommandOwner(client).reader.hydrate(authorization, scope)).document
+          .state.revision,
+      );
+      expect(
+        await executeWorldCommand(
+          commandRequest(provisioned, {
+            ...own,
+            type: "movement.start",
+            attribution: { effectiveActorId: "fixture.keeper", causalRootActionId: "action-own" },
+            payload: {
+              schemaVersion: 1,
+              objectId: "fixture.keeper",
+              destination: {
+                kind: "pose",
+                pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [6000n, 6000n] },
+              },
+              unitsPerSecond: 1000n,
+            },
+          } as typeof own),
+          { journal: new PostgreSqlWorldCommandJournal(client), behavior: provisioned.behavior },
+        ),
+      ).toMatchObject({ value: { status: "committed" } });
+      const newest = decodeEntitySelection(
+        (await post("entity", { objectId: "fixture.keeper" }))[1],
+      ).history.actions.filter((action) => action.decision === true);
+      expect([...new Set(newest.map((action) => action.commandId))].slice(0, 2)).toEqual([
+        "keeper-own",
+        "storm-decision",
+      ]);
       const [whyStatus, whyBody] = await post("why", { commandId: "storm-decision" });
       expect(whyStatus).toBe(200);
       const why = decodeRecordedWhy(whyBody);

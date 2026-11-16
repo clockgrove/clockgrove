@@ -166,6 +166,7 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
     await research.consumer.consume(queued[0]!, (v) => v);
     const completed = await owner().activate(participant, await current("first"));
     expect(completed.receipt?.reply.text).toBe("Recorded\n\nResearch evidence: [tool:first]");
+    expect(completed.receipt?.reply.toolCallsRecorded).toBe(true);
     expect(sends).toBe(1);
     fail = true;
     await owner().activate(participant, await prepare("uncertain"));
@@ -349,6 +350,7 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
     ]);
     const within = await measured(250_000).activate(participant, await turn("within-cap"));
     expect([within.receipt?.reply.text, measuredSends]).toEqual(["Measured 1", 1]);
+    expect(within.receipt?.reply.toolCallsRecorded).toBeUndefined();
 
     // Owner decision (issue 349): one route at a time. The primary reserves 200,000; when it fails
     // over, a fallback needing 50,001 passes what is left of the $0.25 and is never tried, and one

@@ -83,15 +83,26 @@ export interface TurnResearchHost {
 }
 
 function citedReply(text: string, calls: readonly TurnToolCall[]): string {
-  const recorded = calls.filter((call) => call.status !== "waiting");
-  const citations = recorded.map((call) => `[tool:${call.callId}]`);
-  const valid = new Set(citations);
+  const recorded = new Set(
+    calls.filter((call) => call.status !== "waiting").map((call) => `[tool:${call.callId}]`),
+  );
+  const cited = new Set<string>();
   const clean = text
-    .replace(/\[tool:[^\]\r\n]*\]/gu, (citation) =>
-      valid.has(citation) ? "" : "[unverified tool citation]",
-    )
+    .replace(/\[tool:[^\]\r\n]*\]/gu, (citation) => {
+      if (!recorded.has(citation)) return "[unverified tool citation]";
+      cited.add(citation);
+      return citation;
+    })
     .trim();
-  return citations.length === 0 ? clean : `${clean}\n\nResearch evidence: ${citations.join(" ")}`;
+  // Evidence is what the reply relied on: the calls it cited, else the usable results only.
+  const evidence = calls
+    .filter((call) =>
+      cited.size > 0
+        ? cited.has(`[tool:${call.callId}]`)
+        : call.status === "succeeded" || call.status === "simulated",
+    )
+    .map((call) => `[tool:${call.callId}]`);
+  return evidence.length === 0 ? clean : `${clean}\n\nResearch evidence: ${evidence.join(" ")}`;
 }
 
 /** The owner-specific edges of a fiber: its lease holder, connection, checkpoint hook and keep-alive. */
