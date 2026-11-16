@@ -516,8 +516,12 @@ Four reuses the existing four-command `OWNER_ACTIVATION_BUDGET` window, allowing
 before coalescing. The 30 s is a decision: the client's own wait for progress on an outstanding
 request (`SCENE_RECOVERY.requestTimeoutMs`, the owner mailbox's request deadline), so a client is
 dropped only after making no progress for as long as it would itself wait. A burst of commits
-therefore never closes a slow client that is still acknowledging; it only coalesces. Explicit resumes carry outstanding-frame debt
-across connection versions, so repeated resumes cannot bypass that bound. Each recipient's delivery work is bounded; socket admission reuses the existing mailbox state
+therefore never closes a slow client that is still acknowledging; it only coalesces. The wait starts
+at the first publication turn that finds the ledger full and is stored as the socket attachment's
+`stalledSince` (epoch milliseconds), so it survives hibernation and other memory loss: the first
+publication after it has elapsed closes the client, even when the rebuilt ledger is not full yet.
+Any acknowledgement on the current connection version clears it. Explicit resumes carry outstanding-frame debt
+and the stall across connection versions, so repeated resumes cannot bypass either bound. Each recipient's delivery work is bounded; socket admission reuses the existing mailbox state
 and depth bound, plus the resident socket caps above. Closed socket metadata is retired through the weak connection index. When the frame ledger fills, new replaceable projection
 fields coalesce into one dirty flag; the next ack reads the latest authorized projection from
 PostgreSQL. No intermediate frame queue is retained. Transient cues for objects outside the current authorized projection and expired cues are dropped and never
