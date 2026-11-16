@@ -1,6 +1,7 @@
 import { decodeConversationSession, decodeTalkReceipt } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
 import { ACTOR, CAPABILITY, seedResearch, withResearchFixture } from "./research-node-fixture.js";
+import { advanceCommand } from "./world-fixture.js";
 import {
   isNativeWorldOwnerChild,
   runNativeWorldOwnerProcess,
@@ -206,6 +207,14 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(failed.reply.text).toContain("Fixture research uncertain: tool_uncertain");
       expect(failed.reply.text).toContain("Research evidence: [tool:tool:");
       expect((await post("/v1/runtime/world-status", {})).status).toBe(200);
+      // The world stays active with the model and the MCP tool unavailable: its time advances.
+      const clock = () => owner.sql("SELECT max(simulation_time) FROM clockgrove.events");
+      const offline = BigInt(await clock());
+      const advanced = await owner.submit(
+        advanceCommand(owner.world, "offline-advance", offline + 60_000n, null),
+      );
+      expect(advanced.status).toBe(200);
+      expect(BigInt(await clock())).toBe(offline + 60_000n);
       // Lose the actual runtime while tools/call is in flight. Reconciliation may record an
       // uncertainty; it must never manufacture success or resend the started attempt.
       const inflight = await open();

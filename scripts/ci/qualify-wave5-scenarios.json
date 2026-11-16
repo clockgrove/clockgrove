@@ -1023,8 +1023,12 @@
     {
       "id": "R-world-active",
       "item": "The world stays active with the model and MCP unavailable",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "// The world stays active with the model and the MCP tool unavailable: its time advances."
+        },
         {
           "file": "apps/runtime/test/decision-evidence/wake-triage.postgres.test.ts",
           "marker": ").toBe(physicalBeforeErrors);"
@@ -1038,7 +1042,7 @@
           "marker": "compares actual alarm delivery, semantic responses and state hashes with headless execution and the pure reference"
         }
       ],
-      "deviation": "Model-unavailable turns answer with a service outcome and leave partition state hashes unchanged, and autonomous alarm runs need no model; no test takes the model provider AND MCP down while the world clock/commands continue, and MCP outage is only covered via kill-switch/refusal paths."
+      "note": "The outage is the fixture's: a model-down turn and a down MCP tool, then a world.advance commits exactly; wake triage keeps physical state unchanged on model errors and autonomous alarms need no model. A provider-wide outage on staging is part of the hosted items on issue 3."
     }
   ],
   "exitItems": [
@@ -1249,8 +1253,12 @@
     {
       "id": "X13",
       "item": "World remains active with model/MCP unavailable.",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "// The world stays active with the model and the MCP tool unavailable: its time advances."
+        },
         {
           "file": "apps/runtime/test/decision-evidence/shadow.postgres.test.ts",
           "marker": "journals shadow picks without changing the world, replays them identically and runs unchanged with models off"
@@ -1264,7 +1272,7 @@
           "marker": "// No revision notification is delivered: the restarted owner's canonical read fences new use."
         }
       ],
-      "deviation": "Model-off world operation (shadow tier) and model-gateway all-routes-down handling are proven, and MCP admission fails closed after restart. No test drives the world clock/commands while a provider outage or an MCP server outage is in effect end to end."
+      "note": "The outage is the fixture's: a model-down turn and a down MCP tool, then a world.advance commits exactly; wake triage keeps physical state unchanged on model errors and autonomous alarms need no model. A provider-wide outage on staging is part of the hosted items on issue 3."
     },
     {
       "id": "X14",
