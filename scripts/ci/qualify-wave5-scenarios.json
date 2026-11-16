@@ -1,0 +1,1299 @@
+{
+  "source": "docs/waves/clockgrove-wave-5-conversations-models-capabilities-mcp-implementation-plan.md §17, §18, §20",
+  "note": "Each row maps one Wave 5 item to the literal markers of the tests that prove it; qualify:wave5 re-checks every marker in its file and takes the row's result from the suites that run that file. coverage is the reviewer's claim: full, partial (deviation names what is not proven) or gap. Eviction at a terminal fiber phase has nothing left to recover, so the crash matrix covers the in-flight phases and lists the terminal ones.",
+  "suites": [
+    {
+      "name": "test:conversations",
+      "files": [
+        "^apps/runtime/test/(conversations|context|runs|keeper-command|interaction-card)\\.journey\\.postgres\\.test\\.ts$"
+      ]
+    },
+    {
+      "name": "test:cognition:fibers",
+      "files": [
+        "^apps/runtime/test/(turn-fibers|activations|approved-write|research)\\.journey\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/(turn-research|activation-cursor|autonomous-parity)\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/decision-evidence/(shadow|wake-triage|wake-triage-material)\\.postgres\\.test\\.ts$"
+      ]
+    },
+    {
+      "name": "test:model-gateway",
+      "files": ["^packages/model-gateway/test/"]
+    },
+    {
+      "name": "test:capabilities",
+      "files": [
+        "^apps/runtime/test/actor-self-capabilities\\.journey\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/(approval-waiting|approved-research|effect-approvals|effect-reservation)\\.postgres\\.test\\.ts$",
+        "^packages/application/test/world-command-authorization\\.test\\.ts$"
+      ]
+    },
+    {
+      "name": "test:mcp",
+      "files": [
+        "^apps/runtime/test/mcp-actor\\.journey\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/(mcp-installations|mcp-installation-service|mcp-secrets|mcp-read-admission|mcp-write-admission|research-composition)\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/world-mcp-(admission|auth|commands|operations|public|reads|server)\\.postgres\\.test\\.ts$",
+        "^packages/application/test/mcp-(execution|credentials)\\.journey\\.test\\.ts$"
+      ]
+    },
+    {
+      "name": "test:channels",
+      "files": [
+        "^apps/runtime/test/(channel-conversations|cli-conversations|governed-delivery|delayed-delivery|delivery-consent|proactive-delivery)\\.journey\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/(external-effects|effects)\\.postgres\\.test\\.ts$"
+      ]
+    },
+    {
+      "name": "test:security:mcp",
+      "files": [
+        "^packages/application/test/mcp-http\\.journey\\.test\\.ts$",
+        "^packages/contracts/test/context-privacy\\.test\\.ts$",
+        "^tests/infra/secrets\\.test\\.mjs$"
+      ]
+    },
+    {
+      "name": "test:e2e:chat",
+      "browser": true,
+      "files": [
+        "^tests/e2e/(conversation-states|living-hall)\\.journey\\.browser\\.test\\.mjs$",
+        "^tests/accessibility/text-path\\.journey\\.browser\\.test\\.mjs$"
+      ]
+    },
+    {
+      "name": "test:e2e:approvals",
+      "browser": true,
+      "files": ["^tests/e2e/(research|mcp-installation)\\.journey\\.browser\\.test\\.mjs$"]
+    },
+    {
+      "name": "test:db",
+      "timeoutMinutes": 60,
+      "files": ["^tests/database/"]
+    }
+  ],
+  "fiberPhases": [
+    "accepted",
+    "context_pending",
+    "context_ready",
+    "model_running",
+    "proposal_validating",
+    "approval_waiting",
+    "tool_waiting",
+    "tool_completed",
+    "committing",
+    "finalizing",
+    "completed",
+    "rejected",
+    "cancelled",
+    "failed",
+    "abandoned"
+  ],
+  "terminalPhases": ["completed", "rejected", "cancelled", "failed", "abandoned"],
+  "scenarios": [
+    {
+      "id": "S1",
+      "scenario": "two independent Stevie sessions with conflicting topics",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// A second member of the same world sees neither conversation."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Two sessions. A model proposal writes its own session's summary; one naming the protected"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// A session's turns are ordered: while one runs, another message of it is refused busy, and"
+        }
+      ]
+    },
+    {
+      "id": "S2",
+      "scenario": "cognitive Stevie versus interpreted tree disclosure",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
+        }
+      ],
+      "deviation": "Only the cognitive (Actor's subjective communication) disclosure on a conversation session is proven. No test opens a session or reply with the interpreted or canonical voice mode, so the interpreted-tree disclosure and its contrast with cognitive Stevie is unproven."
+    },
+    {
+      "id": "S3",
+      "scenario": "world revision changes during a turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// 3. A world change during a held offer refuses it as stale; Retry reaches the closed world."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Later writes and turns change nothing recorded: the same revision assembles the same context."
+        }
+      ]
+    },
+    {
+      "id": "S4",
+      "scenario": "actor moves spaces while streaming",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// 5. Cross-space continuation: Keeper walks to snack-house while a reply streams. The person"
+        }
+      ]
+    },
+    {
+      "id": "S5",
+      "scenario": "private Caretaker Talk is perceived by the selected actor but never projected as public spatial speech",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Talk is never projected: the scene and the journal carry none of its words."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Private cognition never enters scene state or the journal."
+        },
+        {
+          "file": "apps/runtime/test/cli-conversations.journey.postgres.test.ts",
+          "marker": "CLI preserves canonical actor, private Talk, public Say, retries and member isolation"
+        }
+      ]
+    },
+    {
+      "id": "S6",
+      "scenario": "explicit public Say reaches only its authorized spatial audience and remains distinct from Talk",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Public Say is a distinct command with its own receipt; it never enters a session."
+        },
+        {
+          "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
+          "marker": "Chitters aloud (scripted fixture line)."
+        }
+      ],
+      "deviation": "Say being a distinct command with its own attributed receipt, never entering a session, is proven. No test asserts the spatial audience, i.e. which observers in or outside the space receive the Say speech, so 'only its authorized audience' is unproven."
+    },
+    {
+      "id": "S7",
+      "scenario": "Influence, gift/physical command, and operator action each preserve their distinct receipts and authority",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
+          "marker": "SELECT status || ' ' || (attribution->>'personaId') FROM clockgrove.command_receipts WHERE command_id LIKE 'influence:principal-runtime:%'"
+        },
+        {
+          "file": "apps/runtime/test/keeper-command.journey.postgres.test.ts",
+          "marker": "// A granted offer still needs a physical donor; its ordinary refusal is journaled,"
+        },
+        {
+          "file": "apps/runtime/test/world-mcp-operations.postgres.test.ts",
+          "marker": "keeps MCP operator authority canonical and changesets unavailable"
+        }
+      ],
+      "deviation": "Each of Influence (attributed influence: receipt), Keeper's gift/physical command (journaled receipt with initiator/executor attribution) and the operator repair action (runtime_operator_actions audit) is proven separately. No single test contrasts the three receipt kinds or proves one cannot be mistaken for another."
+    },
+    {
+      "id": "S8",
+      "scenario": "provider timeout before/after bytes and structured output",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "falls back after a timeout before first bytes, but not after first bytes"
+        },
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "sends a JSON schema to the provider and validates its structured reply"
+        },
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "validates structured output, refuses over budget and survives a down provider"
+        }
+      ]
+    },
+    {
+      "id": "S9",
+      "scenario": "ActorAgentDO eviction at every fiber phase",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// A crash at each boundary interrupts the request; the same message then resumes or retries."
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// An owner that lost its local storage (and so the SDK's fiber rows) resumes from PostgreSQL."
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "// Eviction after the approved resume checkpoint must retain the protected-call fence."
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "resumes research at both tool boundaries, replays recorded answers and visibly bounds the loop"
+        }
+      ]
+    },
+    {
+      "id": "S10",
+      "scenario": "duplicate direct message, perception, subscription, and heartbeat wake",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// Duplicate activations of one message coalesce into one turn, one run and one inbox entry."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// An exact retry answers the stored message, reply and turn; other words are refused."
+        },
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Replaying the wake reproduces the same activation, never a second turn."
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        }
+      ]
+    },
+    {
+      "id": "S11",
+      "scenario": "no-op heartbeat and budget-deferred background work",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        },
+        {
+          "file": "apps/runtime/test/decision-evidence/wake-triage-material.postgres.test.ts",
+          "marker": "counts suppressing a delivered reminder, a document write or a command as a miss"
+        }
+      ]
+    },
+    {
+      "id": "S12",
+      "scenario": "read-only tool, approval wait, revoke during wait, write uncertainty",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "resumes research at both tool boundaries, replays recorded answers and visibly bounds the loop"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "recovers a durable approval wait without cognition or dispatch and refuses terminal human decisions"
+        },
+        {
+          "file": "apps/runtime/test/approved-research.postgres.test.ts",
+          "marker": "composes exact human approvals with real actor waits, single dispatch, revocation and operator safe retries"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "sends a write once and treats every unusable post-send reply as uncertain"
+        }
+      ]
+    },
+    {
+      "id": "S13",
+      "scenario": "malicious retrieved instruction/tool result cannot expand grants",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/keeper-command.journey.postgres.test.ts",
+          "marker": "// A proposal beyond the grant, as retrieved text could ask for, never reaches the world."
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "governs encrypted queued research against malicious HTTP fixtures and reconciles lost attempts without resend"
+        },
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Refusals are recorded and the world keeps running: a governed document, a revoked"
+        },
+        {
+          "file": "packages/contracts/test/context-privacy.test.ts",
+          "marker": "refuses every authority broadening and accepts a strict trusted-context narrowing"
+        }
+      ]
+    },
+    {
+      "id": "S14",
+      "scenario": "browser reconnect recovers durable status without replaying tokens as truth",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "// issue 18: a reload mid-conversation reconnects to the durable transcript, with no"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// The browser saw a streamed token, then the stream broke: tokens are not the turn."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// The browser closes, the owner is evicted with its local storage, and a fresh client with"
+        }
+      ]
+    },
+    {
+      "id": "S15",
+      "scenario": "replay and preview never dispatch recorded external effects",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/governed-delivery.journey.postgres.test.ts",
+          "marker": "reserves before governed delivery, preserves private provenance and isolates fake/preview replay"
+        },
+        {
+          "file": "apps/runtime/test/external-effects.postgres.test.ts",
+          "marker": "verifies canonical Queue identity, executes once, records uncertainty and replays without resend"
+        },
+        {
+          "file": "apps/runtime/test/effects.postgres.test.ts",
+          "marker": "claims once, preserves encrypted replay and unknown cost, and reconciles crash boundaries without resend"
+        }
+      ]
+    },
+    {
+      "id": "S16",
+      "scenario": "a continuously_eligible actor process survives eviction and deployment through bounded segments, checkpoints, lease epochs, budgets, and one stable process ID without requiring a resident isolate",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// ActorProcess: a stable process ID across bounded segments, checkpoints and lease epochs."
+        }
+      ],
+      "deviation": "Proven: one stable process ID across three segments, checkpoints 4/8/10, lease epochs 1/2/3 with owner replacement between and a stale-lease insert rejected. Not proven: the continuously_eligible eligibility mode by name (appears only in a domain spatial test), process budgets, survival across a deployment (only owner.replace), and absence of a resident isolate."
+    }
+  ],
+  "crashMatrix": [
+    {
+      "id": "F-accepted",
+      "item": "ActorAgentDO crash/eviction after the accepted checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-context_pending",
+      "item": "ActorAgentDO crash/eviction after the context_pending checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-context_ready",
+      "item": "ActorAgentDO crash/eviction after the context_ready checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-proposal_validating",
+      "item": "ActorAgentDO crash/eviction after the proposal_validating checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-committing",
+      "item": "ActorAgentDO crash/eviction after the committing checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-finalizing",
+      "item": "ActorAgentDO crash/eviction after the finalizing checkpoint recovers the turn without duplicating a message, run commit or turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        }
+      ],
+      "note": "Covered only as one element of the BOUNDARIES loop in the turn-fibers journey (BOUNDARIES = accepted, context_pending, context_ready, model_running:streaming, proposal_validating, committing, finalizing); the injected fault ends the ActorAgentDO incarnation right after that phase checkpoint (native.worker.ts 'Turn crash injection')."
+    },
+    {
+      "id": "F-model_running",
+      "item": "ActorAgentDO crash/eviction while the turn is model_running (stream broken after a token) recovers; tokens are not the turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "recovers turns crashed at every phase boundary without duplicating a message, run commit or turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "for (const [index, phase] of BOUNDARIES.entries()) {"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "\"model_running:streaming\","
+        },
+        {
+          "file": "apps/runtime/test/turn-research.postgres.test.ts",
+          "marker": "// A crash before model completion consumes another reservation, never free retry capacity."
+        }
+      ],
+      "note": "Loop entry is the 'model_running:streaming' fault (break:model_running:streaming); the turn-research test additionally covers a pre-completion crash consuming another model reservation."
+    },
+    {
+      "id": "F-approval_waiting",
+      "item": "Owner/ActorAgentDO eviction while the turn sits in approval_waiting recovers without re-deciding or double dispatch, then the human decision completes it",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/approved-write.journey.postgres.test.ts",
+          "marker": "recovers approved writes at the wait, interrupted transport and reply boundaries without resending"
+        },
+        {
+          "file": "apps/runtime/test/approved-write.journey.postgres.test.ts",
+          "marker": "const clicks = await Promise.all([decide(id), decide(id)]);"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "recovers a durable approval wait without cognition or dispatch and refuses terminal human decisions"
+        }
+      ],
+      "note": "approved-write evicts the owner (owner.replace(true)) at the wait; approval-waiting re-activates the fiber under fresh hosts (not a literal DO eviction) and proves zero model calls and zero dispatches while waiting."
+    },
+    {
+      "id": "F-tool_waiting",
+      "item": "ActorAgentDO crash at tool_waiting resumes the research call and completes with one effect",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "resumes research at both tool boundaries, replays recorded answers and visibly bounds the loop"
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "for (const phase of [\"tool_waiting\", \"tool_completed\"]) {"
+        }
+      ],
+      "note": "Covered by the research journey's two-phase fault loop (tool_waiting, tool_completed), not by the BOUNDARIES loop."
+    },
+    {
+      "id": "F-tool_completed",
+      "item": "ActorAgentDO crash at tool_completed resumes and answers from the recorded result without re-calling the tool",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "for (const phase of [\"tool_waiting\", \"tool_completed\"]) {"
+        },
+        {
+          "file": "apps/runtime/test/approved-write.journey.postgres.test.ts",
+          "marker": "await fault(\"tool_completed\");"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "// Eviction after the approved resume checkpoint must retain the protected-call fence."
+        }
+      ],
+      "note": "Research journey loop plus the approved-write journey crash at tool_completed followed by owner replacement; the single write count stays 3."
+    },
+    {
+      "id": "W-direct-message",
+      "item": "Duplicate direct message wake (same message ID, concurrent) yields one turn, one run, one inbox entry",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// Duplicate activations of one message coalesce into one turn, one run and one inbox entry."
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "const [first, second] = await Promise.all([talk(duplicated, \"d1\"), talk(duplicated, \"d1\")]);"
+        }
+      ]
+    },
+    {
+      "id": "W-perception",
+      "item": "Duplicate perception wake coalesces into one activation and one model call",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "expect(rain.activationId).toBe(perceived.activationId);"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "expect(await agent({ op: \"perception\", sessionId: duplicated, messageId: \"d1\" })).toEqual({"
+        }
+      ],
+      "deviation": "Perception is proven to coalesce with a subscription wake sharing the causal root, and a repeated message perception is not admitted; no test submits the same perception wake twice."
+    },
+    {
+      "id": "W-subscription",
+      "item": "Duplicate/replayed subscription wake reproduces the same activation, never a second turn",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "expect(rain.activationId).toBe(perceived.activationId);"
+        },
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Replaying the wake reproduces the same activation, never a second turn."
+        }
+      ]
+    },
+    {
+      "id": "W-heartbeat",
+      "item": "Duplicate and concurrent heartbeat wakes (same and different causal root, plus no-op) coalesce and never double the model call",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "const duplicatePulse = wake(\"pulse\", \"pulse-root\", {"
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "expect([concurrent.activationId, repeated.activationId]).toEqual(["
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "const idleAgain = await wake(\"idle\", \"idle-root\", { kind: \"heartbeat\", heartbeatId: \"idle\" });"
+        }
+      ]
+    },
+    {
+      "id": "W-schedule",
+      "item": "Duplicate scheduled_intention wake never duplicates an activation, message or effect",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "const blocked = await wake(\"blocked\", \"budget-root\", {"
+        }
+      ],
+      "deviation": "Wake dedupe is keyed by causal_root for every kind (migration 0039 primary key) and a scheduled alarm recovers after a crash; no test sends the same scheduled_intention wake twice. The migration line is a structural citation, not a test."
+    }
+  ],
+  "securityFixtures": [
+    {
+      "id": "SEC-malicious-schema",
+      "item": "Malicious tool schema at install/discovery is refused with no candidates",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        },
+        {
+          "file": "apps/runtime/test/mcp-installation-service.postgres.test.ts",
+          "marker": "admits operator discovery into the Journal, pins reviews through refresh and refuses hostile installations"
+        }
+      ]
+    },
+    {
+      "id": "SEC-prompt-injection",
+      "item": "Injected instructions in tool results are labelled untrusted evidence, sanitized, and never obeyed",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "governs encrypted queued research against malicious HTTP fixtures and reconciles lost attempts without resend"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "expect(answered!.text).toContain('\"trust\":\"untrusted_evidence\"');"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "executes one initialized read over real JSON/SSE HTTP and emits only labelled text evidence with unknown cost"
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "assembles each turn's context authorization-first, reproducibly, with governed documents"
+        }
+      ]
+    },
+    {
+      "id": "SEC-oversized-response",
+      "item": "Oversized MCP responses/results are refused before exposure, with uncertainty and no retry",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "refuses unsupported, malformed and oversized results before exposing them, with explicit in-flight uncertainty and no retry"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "for (const q of [\"oversized\", \"malformed\", \"redirect\", \"echo\"]) {"
+        },
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        }
+      ]
+    },
+    {
+      "id": "SEC-redirect",
+      "item": "Unsafe/cross-origin/307/308 redirects are refused on discovery and execution, treated uncertain after send",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "retains redirect, SSRF and DNS-rebinding protections on the execution transport"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "for (const q of [\"oversized\", \"malformed\", \"redirect\", \"echo\"]) {"
+        }
+      ]
+    },
+    {
+      "id": "SEC-ssrf",
+      "item": "Private, loopback, link-local and metadata targets are refused without connecting",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "retains redirect, SSRF and DNS-rebinding protections on the execution transport"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const ssrf = await prepare(\"ssrf\");"
+        }
+      ]
+    },
+    {
+      "id": "SEC-dns-rebinding",
+      "item": "A hostname that re-resolves to a private address after the first lookup is refused",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "retains redirect, SSRF and DNS-rebinding protections on the execution transport"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const rebound = await prepare(\"rebind\");"
+        },
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        }
+      ]
+    },
+    {
+      "id": "SEC-revocation-during-wait",
+      "item": "Revoking membership/grants/approval while a call waits refuses it without sending",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const revoked = await prepare(\"revoked-before-delivery\");"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const denied = await prepare(\"member-denied\");"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "recovers a durable approval wait without cognition or dispatch and refuses terminal human decisions"
+        },
+        {
+          "file": "apps/runtime/test/approved-research.postgres.test.ts",
+          "marker": "await owner().activate(participant, await prepare(\"revoked\"));"
+        }
+      ]
+    },
+    {
+      "id": "SEC-result-widens-grants",
+      "item": "A tool result asking for a grant/new capability cannot widen grants",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const escalation = await prepare(\"injected-grant-request\", \"forbidden.write\");"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "\"SELECT count(*) FROM clockgrove.world_memberships WHERE 'forbidden.write'=ANY(grants)\","
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "\"SELECT count(*) FROM clockgrove.effect_intents WHERE capability_id='forbidden.write'\","
+        }
+      ]
+    },
+    {
+      "id": "SEC-secrets-canary",
+      "item": "A canary credential never reaches prompts, run evidence, R2 keys, effect rows, logs or the repo",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/mcp-actor.journey.postgres.test.ts",
+          "marker": "keeps an owned credential out of actor prompts, populated run evidence, R2 keys and allocated owner names"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "expect(recorded?.text).not.toContain(canary);"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "resolves credentials inside the vault callback and excludes decoded echoes, session echoes and provider exceptions"
+        },
+        {
+          "file": "tests/infra/secrets.test.mjs",
+          "marker": "finds a credential in the committed tree, the index and untracked files"
+        }
+      ]
+    }
+  ],
+  "securityGates": [
+    {
+      "id": "G1",
+      "item": "Protected policy/grants never enter untrusted prompt sections",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "assembles each turn's context authorization-first, reproducibly, with governed documents"
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// in the protected section, untrusted parts labelled."
+        }
+      ],
+      "deviation": "Protected policy.md/identity.md appear only in the protected prompt section and caretaker/actor text is untrusted; no test asserts member grants/capability sets are absent from every prompt section."
+    },
+    {
+      "id": "G2",
+      "item": "Context and result text cannot alter capabilities",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const escalation = await prepare(\"injected-grant-request\", \"forbidden.write\");"
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "assembles each turn's context authorization-first, reproducibly, with governed documents"
+        },
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Refusals are recorded and the world keeps running: a governed document, a revoked"
+        }
+      ]
+    },
+    {
+      "id": "G3",
+      "item": "Tenant/timeline/session privacy in SQL and application paths",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "tests/database/authorization.sql",
+          "marker": "-- Attack suite. Everything below runs as the ordinary runtime login against the seeded tenants"
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "keeps two private Keeper sessions separate across browser restart and owner eviction"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "await expect(store.turnStatus(outsider, request)).rejects.toThrow(\"conversation_not_found\");"
+        }
+      ],
+      "note": "tests/database/authorization.sql runs under pnpm test:db."
+    },
+    {
+      "id": "G4",
+      "item": "Credentials are references, never model-visible or logged",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/mcp-actor.journey.postgres.test.ts",
+          "marker": "keeps an owned credential out of actor prompts, populated run evidence, R2 keys and allocated owner names"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "resolves credentials inside the vault callback and excludes decoded echoes, session echoes and provider exceptions"
+        },
+        {
+          "file": "apps/runtime/test/mcp-secrets.postgres.test.ts",
+          "marker": "isolates encrypted MCP credentials and preserves revocation across provider loss and takeover"
+        },
+        {
+          "file": "tests/infra/secrets.test.mjs",
+          "marker": "finds a credential in the committed tree, the index and untracked files"
+        }
+      ]
+    },
+    {
+      "id": "G5",
+      "item": "Outbound network policy blocks private/link-local/metadata targets and unsafe redirects",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "retains redirect, SSRF and DNS-rebinding protections on the execution transport"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const ssrf = await prepare(\"ssrf\");"
+        }
+      ]
+    },
+    {
+      "id": "G6",
+      "item": "External writes require governed effects and often approval",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/approved-write.journey.postgres.test.ts",
+          "marker": "recovers approved writes at the wait, interrupted transport and reply boundaries without resending"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "await approvals.decide(approval, participant.principalId, \"approved\");"
+        },
+        {
+          "file": "apps/runtime/test/mcp-write-admission.postgres.test.ts",
+          "marker": "admits exact approved writes once under current canonical authority and shared turn fences"
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "\"SELECT count(*) FROM clockgrove.effect_intents WHERE capability_id='forbidden.write'\","
+        }
+      ]
+    },
+    {
+      "id": "G7",
+      "item": "Costly work reserves budget outside prompts",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/turn-research.postgres.test.ts",
+          "marker": "checkpoints encrypted research, fences old owners and reserves all model retries against bounded cost"
+        },
+        {
+          "file": "apps/runtime/test/effect-reservation.postgres.test.ts",
+          "marker": "atomically persists exact admitted intent/outbox pairs and refuses conflicting retries without resend"
+        },
+        {
+          "file": "apps/runtime/test/governed-delivery.journey.postgres.test.ts",
+          "marker": "reserves before governed delivery, preserves private provenance and isolates fake/preview replay"
+        },
+        {
+          "file": "apps/runtime/test/mcp-read-admission.postgres.test.ts",
+          "marker": "reserves canonical read admission once, bounds concurrent turns and rechecks grants and emergency fences"
+        }
+      ]
+    },
+    {
+      "id": "G8",
+      "item": "Mute/revoke/kill switches act without waiting for actor cognition",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/mcp-read-admission.postgres.test.ts",
+          "marker": "reserves canonical read admission once, bounds concurrent turns and rechecks grants and emergency fences"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": ").toMatchObject({ status: \"refused\", code: \"kill_switch\" });"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": "const revoked = await prepare(\"revoked-before-delivery\");"
+        },
+        {
+          "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
+          "marker": "recovers a durable approval wait without cognition or dispatch and refuses terminal human decisions"
+        }
+      ],
+      "deviation": "Kill switch (global/target) and revocation are enforced in admission SQL/executors with no model call; no test exercises an actor/conversation mute switch (grep finds none), and delivery-consent revocation is only covered indirectly."
+    }
+  ],
+  "outcomeRows": [
+    {
+      "id": "R-replay-preview",
+      "item": "Replay and preview never produce a live external effect or delivery",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/database/effect-ledger.sql",
+          "marker": "RAISE EXCEPTION 'preview intent could execute';"
+        },
+        {
+          "file": "tests/database/effect-ledger.sql",
+          "marker": "RAISE EXCEPTION 'preview attempt allowed';"
+        },
+        {
+          "file": "apps/runtime/test/governed-delivery.journey.postgres.test.ts",
+          "marker": "expect(await store((s) => s.replay(authorization, target, \"preview\"))).toEqual(preview.receipt);"
+        },
+        {
+          "file": "apps/runtime/test/external-effects.postgres.test.ts",
+          "marker": "verifies canonical Queue identity, executes once, records uncertainty and replays without resend"
+        }
+      ],
+      "deviation": "Preview is proven at the SQL ledger (tests/database/effect-ledger.sql, run by pnpm test:db) and delivery sink (branch timeline -> preview sink, no real send). Replay is proven only as recorded-receipt/effect replay without resend; no test replays a world/journal history and asserts zero external effects or deliveries."
+    },
+    {
+      "id": "R-world-active",
+      "item": "The world stays active with the model and MCP unavailable",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/decision-evidence/wake-triage.postgres.test.ts",
+          "marker": ").toBe(physicalBeforeErrors);"
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "Model unavailable. The model returned an invalid tool proposal."
+        },
+        {
+          "file": "apps/runtime/test/autonomous-parity.postgres.test.ts",
+          "marker": "compares actual alarm delivery, semantic responses and state hashes with headless execution and the pure reference"
+        }
+      ],
+      "deviation": "Model-unavailable turns answer with a service outcome and leave partition state hashes unchanged, and autonomous alarm runs need no model; no test takes the model provider AND MCP down while the world clock/commands continue, and MCP outage is only covered via kill-switch/refusal paths."
+    }
+  ],
+  "exitItems": [
+    {
+      "id": "X2",
+      "item": "Governed cognitive documents/versioned atomic change sets enforce write classes, authority, limits, provenance, inspector and retention policy.",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// An operator writes Keeper's documents in one change set; each version's hash is its text's."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// All or nothing: a stale expected version refuses the whole set, so identity.md is unchanged."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// The talking member holds no governing grant."
+        },
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Document write: an actor-writable document commits with the turn, with model provenance."
+        }
+      ],
+      "deviation": "Atomic versioned change sets, authority (governing grant), write class (protected policy refused, governed document refused to the actor), provenance and the inspector's manifest are proven. Document size/count limits and a retention policy for cognitive documents are not directly proven (retention is tested only for conversation title/archive/delete)."
+    },
+    {
+      "id": "X3",
+      "item": "Multiple sessions are independent, durable, participant-scoped, and resumable.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// A second member of the same world sees neither conversation."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// The browser closes, the owner is evicted with its local storage, and a fresh client with"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// An owner that lost its local storage (and so the SDK's fiber rows) resumes from PostgreSQL."
+        },
+        {
+          "file": "apps/runtime/test/channel-conversations.journey.postgres.test.ts",
+          "marker": "upgrades existing browser sessions into scoped channel bindings"
+        }
+      ]
+    },
+    {
+      "id": "X4",
+      "item": "Cognitive/interpreted/canonical voice disclosure is visible.",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
+        }
+      ],
+      "deviation": "Cognitive voice-mode disclosure is asserted on the session and reply. Interpreted and canonical voice disclosure, and its visibility in the browser UI, have no conversation-level test (only the Wave 4 scene 'interpreted' mode in contracts)."
+    },
+    {
+      "id": "X6",
+      "item": "Actor activation is triggered, coalesced, budgeted, and no-op suppressible.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// Duplicate activations of one message coalesce into one turn, one run and one inbox entry."
+        },
+        {
+          "file": "apps/runtime/test/activation-cursor.postgres.test.ts",
+          "marker": "// Issue 128: two partitions of one timeline commit in parallel under separate head locks, so a"
+        }
+      ]
+    },
+    {
+      "id": "X7",
+      "item": "Model aliases, attempts, fallback, usage, and cost are inspectable.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "falls back after a timeout before first bytes, but not after first bytes"
+        },
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "opens the breaker after three overloads and routes around it visibly"
+        },
+        {
+          "file": "apps/runtime/test/runs.journey.postgres.test.ts",
+          "marker": "// Every attempt reached exactly one terminal disposition, its steps with it."
+        }
+      ]
+    },
+    {
+      "id": "X8",
+      "item": "Context assembly is authorization-first and revision-grounded.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Only a participant who may read the session's text gets the context assembled again."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Later writes and turns change nothing recorded: the same revision assembles the same context."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Redacted: session B's ID, hash and size never reach session A's manifest."
+        },
+        {
+          "file": "apps/runtime/test/runs.journey.postgres.test.ts",
+          "marker": "// The exact model input: the session's history and the input, every part labelled untrusted."
+        }
+      ]
+    },
+    {
+      "id": "X9",
+      "item": "Capabilities, grants, approvals, revocation, and world-command validation pass.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
+          "marker": "// Refusals are recorded and the world keeps running: a governed document, a revoked"
+        },
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// 6. Internal grants: an operator sees the actor's grants with their budgets and revokes one;"
+        },
+        {
+          "file": "apps/runtime/test/effect-approvals.postgres.test.ts",
+          "marker": "binds durable approvals exactly, preserves human attribution, expires after lock waits and consumes once"
+        },
+        {
+          "file": "packages/application/test/world-command-authorization.test.ts",
+          "marker": "accepts only committed participation's world-command authority"
+        }
+      ]
+    },
+    {
+      "id": "X10",
+      "item": "MCP lifecycle, network safety, schema drift, result sanitization, and effect idempotency pass.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/mcp-installations.postgres.test.ts",
+          "marker": "journals scoped operator MCP review, schema and protocol drift, and irreversible revocation"
+        },
+        {
+          "file": "packages/application/test/mcp-http.journey.test.ts",
+          "marker": "refuses malicious-schema, unsafe-redirect, SSRF and DNS-rebinding fixture installations with no candidates"
+        },
+        {
+          "file": "packages/application/test/mcp-execution.journey.test.ts",
+          "marker": "refuses unsupported, malformed and oversized results before exposing them, with explicit in-flight uncertainty and no retry"
+        },
+        {
+          "file": "apps/runtime/test/external-effects.postgres.test.ts",
+          "marker": "verifies canonical Queue identity, executes once, records uncertainty and replays without resend"
+        }
+      ]
+    },
+    {
+      "id": "X11",
+      "item": "Browser, CLI, and fake channel address one canonical actor/session model.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/channel-conversations.journey.postgres.test.ts",
+          "marker": "normalizes verified channel threads, preserves actions and collapses exact retries"
+        },
+        {
+          "file": "apps/runtime/test/cli-conversations.journey.postgres.test.ts",
+          "marker": "CLI preserves canonical actor, private Talk, public Say, retries and member isolation"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "marker": "        expect(new Set([pendingSession, cliSession.sessionId, fakeSession.sessionId]).size).toBe(3);"
+        }
+      ]
+    },
+    {
+      "id": "X12",
+      "item": "Preview/replay cannot produce live external delivery.",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/governed-delivery.journey.postgres.test.ts",
+          "marker": "reserves before governed delivery, preserves private provenance and isolates fake/preview replay"
+        },
+        {
+          "file": "apps/runtime/test/external-effects.postgres.test.ts",
+          "marker": "verifies canonical Queue identity, executes once, records uncertainty and replays without resend"
+        },
+        {
+          "file": "apps/runtime/test/effects.postgres.test.ts",
+          "marker": "claims once, preserves encrypted replay and unknown cost, and reconciles crash boundaries without resend"
+        }
+      ]
+    },
+    {
+      "id": "X13",
+      "item": "World remains active with model/MCP unavailable.",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/decision-evidence/shadow.postgres.test.ts",
+          "marker": "journals shadow picks without changing the world, replays them identically and runs unchanged with models off"
+        },
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "reports every route down as a recoverable state without calling out"
+        },
+        {
+          "file": "apps/runtime/test/mcp-actor.journey.postgres.test.ts",
+          "marker": "// No revision notification is delivered: the restarted owner's canonical read fences new use."
+        }
+      ],
+      "deviation": "Model-off world operation (shadow tier) and model-gateway all-routes-down handling are proven, and MCP admission fails closed after restart. No test drives the world clock/commands while a provider outage or an MCP server outage is in effect end to end."
+    },
+    {
+      "id": "X14",
+      "item": "(UI/accessibility) the conversation, approval and capability UI journeys and their accessibility checks.",
+      "coverage": "partial",
+      "evidence": [
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "shows each turn state, cancels, retries a stale offer, opens run details, continues across spaces and revokes an internal grant"
+        },
+        {
+          "file": "tests/e2e/research.journey.browser.test.mjs",
+          "marker": "shows queued research, the cited answer and its canonical tool evidence"
+        },
+        {
+          "file": "tests/e2e/mcp-installation.journey.browser.test.mjs",
+          "marker": "connects, inspects, reviews, binds, detects drift and revokes through the operator screen"
+        },
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// 7. The open conversation panel has no accessibility violations."
+        }
+      ],
+      "deviation": "Journeys exist for conversation, approval (Call approvals) and MCP/capability UI. Accessibility checks cover only the conversation panel (axe); the approval panel, MCP operator screen and grants view have no axe or keyboard check, and tests/accessibility text-path covers Wave 4 journeys only."
+    }
+  ]
+}
