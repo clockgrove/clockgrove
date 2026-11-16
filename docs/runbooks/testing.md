@@ -32,6 +32,10 @@ The only way over the line budget is a recorded exception, never a larger `testL
 
 Test code is anything under a `test/` or `tests/` directory or in a `*.test.*` file. Migrations and `db/` are production code.
 
+## Wave qualification
+
+A wave's qualification command runs its suites once on a frozen candidate and writes a read-only manifest to a directory it owns; the manifest, not a plan checklist, is the record. For Wave 5, commit or stash every change first, so the manifest records a clean candidate, then run `pnpm run qualify:wave5 [--out <dir>]` on a host with the PostgreSQL toolchain and the pinned Playwright Chromium of [development.md](development.md#tools). It takes as long as the nine §17 suites and `test:db` together. The manifest is `<dir>/wave5-manifest.json`, by default under `.qualification/wave5-<ms>/`, with the suite logs, the scripted eval reports and the §18 samples in `<dir>/evidence/`. A second run needs a new directory: the command refuses one that exists and is not empty, an aborted run's included. Hosted, real-provider and human-owned items stay `pending` with their owner; never edit a manifest to mark them otherwise.
+
 ## Pruning
 
 Shipped unit tests outside `unitTestAreas` are removed over time. A recurring maintenance task ranks the remaining unit-test files by how often their subject code changed recently and by CI time, and deletes the ones guarding stable code whose behaviour an integration test already covers.

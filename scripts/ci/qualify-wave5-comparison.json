@@ -1,0 +1,60 @@
+{
+  "note": "Comparison domains of the Wave 5 manifest, declared before the run (incremental-delivery ADR §5). qualify:wave5 records this file and its digest in the manifest before it runs any suite; a change to it is a reviewed change, never a step of a run.",
+  "domains": [
+    {
+      "evidence": "candidate",
+      "fields": ["candidate.commit", "candidate.clean"],
+      "comparison": "exact",
+      "rule": "The commit identity is compared exactly; a dirty tree is a deviation of the candidate."
+    },
+    {
+      "evidence": "versions",
+      "fields": ["versions.schema", "versions.policy", "versions.model", "versions.tools"],
+      "comparison": "exact",
+      "rule": "Each version is a sha256 over its tracked source files' paths and bytes, in path order, plus the literal version strings read from them."
+    },
+    {
+      "evidence": "suites",
+      "fields": ["suites[].status", "suites[].logDigest"],
+      "comparison": "semantic",
+      "rule": "A suite passes when its command exits 0. The log digest identifies the log retained beside the manifest; its text is not compared across runs."
+    },
+    {
+      "evidence": "scenario markers",
+      "fields": [
+        "scenarios",
+        "crashMatrix",
+        "securityFixtures",
+        "securityGates",
+        "outcomeRows",
+        "exitItems"
+      ],
+      "comparison": "literal",
+      "rule": "Each cited marker is a literal span of its file on the candidate, found unchanged; the row's result is its suites' result."
+    },
+    {
+      "evidence": "scripted evals",
+      "fields": ["scriptedEvals[].report"],
+      "comparison": "semantic",
+      "rule": "The scripted reports' accuracy and counts are recorded as they are; scripted models are deterministic fixtures and never stand for a real provider."
+    },
+    {
+      "evidence": "observability",
+      "fields": ["observability"],
+      "comparison": "semantic",
+      "rule": "Counts and distributions are measured on this candidate and host only. Unknown cost and tokens stay unknown and are counted, never read as zero."
+    },
+    {
+      "evidence": "incidental",
+      "fields": [
+        "generatedAt",
+        "suites[].durationMs",
+        "observability.*.durationMs",
+        "execution",
+        "evidence file paths"
+      ],
+      "comparison": "excluded",
+      "rule": "Wall-clock times, durations, host paths and the run directory are incidental and excluded from comparison."
+    }
+  ]
+}

@@ -27,6 +27,7 @@ import {
   truthOf,
   withClient,
 } from "../world-fixture.js";
+import { recordWave5Observability } from "./wave5-observability.js";
 
 const require = createRequire(import.meta.url);
 const wranglerPackage = require.resolve("wrangler/package.json");
@@ -566,6 +567,7 @@ export async function withNativeWorldOwner(
         start();
       },
       reset: async () => {
+        await recordWave5Observability(sql);
         await stop();
         provisioningFaultsDisabled = false;
         provisioningLaunchDisabled = false;
@@ -580,7 +582,7 @@ export async function withNativeWorldOwner(
         ),
     });
   } finally {
-    await stop();
+    await recordWave5Observability(sql).finally(stop);
   }
 }
 

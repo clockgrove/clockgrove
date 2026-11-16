@@ -40,6 +40,7 @@ export default defineConfig({
             "tests/ci/qualify-wave1.test.mjs",
             "tests/ci/qualify-wave2.test.mjs",
             "tests/ci/qualify-wave3.test.mjs",
+            "tests/ci/qualify-wave5.test.mjs",
           ],
         },
       },

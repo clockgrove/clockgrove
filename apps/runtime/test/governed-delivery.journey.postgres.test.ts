@@ -8,7 +8,8 @@ import {
 } from "@clockgrove/contracts";
 import { PostgreSqlGovernedDelivery, withClientTransaction } from "@clockgrove/persistence";
 import { expect, it } from "vitest";
-import { truthOf } from "./world-fixture.js";
+import { advanceCommand, truthOf } from "./world-fixture.js";
+import { expectHistoryReplayInert } from "./world-owner/history-replay.js";
 import {
   isNativeWorldOwnerChild,
   runNativeWorldOwnerProcess,
@@ -227,6 +228,14 @@ it("reserves before governed delivery, preserves private provenance and isolates
         "SELECT sink||':'||count(*) FROM clockgrove.delivery_sink_receipts WHERE dedupe_key NOT LIKE 'response:%' GROUP BY sink ORDER BY sink",
       ),
     ).toBe("fake:3\npreview:1");
+    // Replaying the world's history after live, delayed and preview deliveries reproduces the live
+    // state and adds no delivery, sink receipt, effect attempt or dispatch.
+    const now = BigInt(await owner.sql("SELECT max(simulation_time) FROM clockgrove.events"));
+    expect(
+      (await owner.submit(advanceCommand(owner.world, "replay-advance", now + 60_000n, null)))
+        .status,
+    ).toBe(200);
+    expect((await expectHistoryReplayInert(owner)).eventsApplied).toBeGreaterThan(0);
     expect(await owner.sql("SELECT reserved_units FROM clockgrove.delivery_consent")).toBe("8");
     expect(
       await owner.sql(
