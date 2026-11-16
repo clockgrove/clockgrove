@@ -418,7 +418,17 @@ export class PostgreSqlActivations {
       const policy = await this.policy(a);
       const result = await this.client.query(
         `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,
-          coalesce(payload->>'objectId' = $7 AND space_id = $8, false) AS own,
+          coalesce(space_id = $8 AND coalesce(payload->>'objectId', (
+            -- A kernel event is journaled as {kernelEvent: canonical record}: its subject is the
+            -- objectId field of the record's payload field.
+            SELECT field->1->>1
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(payload #> '{kernelEvent,1}') = 'array'
+                THEN payload #> '{kernelEvent,1}' ELSE '[]'::jsonb END) AS part,
+              jsonb_array_elements(CASE WHEN part->>0 = 'payload'
+                AND jsonb_typeof(part #> '{1,1}') = 'array' THEN part #> '{1,1}' ELSE '[]'::jsonb END)
+                AS field
+            WHERE field->>0 = 'objectId'
+          )) = $7, false) AS own,
           transaction_id < settled.horizon AS settled
         FROM clockgrove.events
         CROSS JOIN (SELECT pg_snapshot_xmin(pg_current_snapshot()) AS horizon) settled

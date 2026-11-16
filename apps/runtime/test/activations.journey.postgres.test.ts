@@ -513,6 +513,51 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ]),
       );
       expect(await agent({ op: "model-calls" })).toBe(3);
+
+      // The companion's movement, in the same space, does not wake Keeper's threshold; Keeper's own
+      // does, once.
+      await configure("own-move", "threshold", {
+        eventType: "movement.started",
+        compiledRoutine: "noop",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      for (const [key, objectId] of [
+        ["companion-moves", "fixture.companion"],
+        ["keeper-moves", "fixture.keeper"],
+      ] as const) {
+        const revision = BigInt(
+          await owner.sql("SELECT revision::text FROM clockgrove.partition_states"),
+        );
+        expect(
+          (
+            await owner.submit({
+              ...advanceCommand(owner.world, key, 0n, revision),
+              type: "movement.start",
+              payload: {
+                schemaVersion: 1,
+                objectId,
+                destination: {
+                  kind: "pose",
+                  pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [9000n, 9000n] },
+                },
+                unitsPerSecond: 1000n,
+              },
+            })
+          ).status,
+        ).toBe(200);
+      }
+      await expect
+        .poll(() =>
+          owner.sql(
+            `SELECT string_agg(evidence || '/' || status, ' ')
+             FROM clockgrove.actor_activations WHERE configuration_id = 'own-move'`,
+          ),
+        )
+        .toBe(
+          `journal:${await owner.sql(
+            "SELECT event_id FROM clockgrove.events WHERE command_id = 'keeper-moves' AND event_type = 'movement.started'",
+          )}/noop`,
+        );
     });
   },
   240_000,
