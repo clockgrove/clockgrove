@@ -8,7 +8,7 @@ import { connect, holdCluster, truthOf } from "./world-fixture.js";
 
 // Issue 358: wakes and model opportunities are limited per wall-clock period, not per lifetime.
 const BASE = { tenantId: "tenant-p", principalId: "principal-p", worldId: "world-p" };
-const ACTORS = ["beat", "hourly", "capped", "budgeted"];
+const ACTORS = ["beat", "hourly", "capped", "budgeted", "inspected"];
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const START = 1_924_992_000_000; // 2031-01-01T00:00:00Z, an hour boundary
@@ -172,4 +172,34 @@ it("defers a wake past the period's model budget and renews it in the next perio
     outcome: "admitted",
   });
   expect((await activations.inspect(at("budgeted"))).modelCallsReserved).toBe(0);
+});
+
+it("still inspects, and so retries, a budget-exhausted wake behind many wakes that cannot be retried", async () => {
+  vi.setSystemTime(START + 300 * HOUR);
+  const off = { ...config("inspected", MINUTE), id: "wake-off", enabled: false };
+  await activations.configure(at("inspected"), off, {
+    allowModel: true,
+    modelBudget: 0,
+    wakeLimit: 100,
+  });
+  await activations.configure(at("inspected"), config("inspected", MINUTE), {
+    allowModel: true,
+    modelBudget: 0,
+  });
+  for (let n = 0; n < 70; n++)
+    expect(
+      await activations.admit(at("inspected"), {
+        ...wake("inspected", `denied-${n}`),
+        configurationId: "wake-off",
+      }),
+    ).toMatchObject({ status: "deferred", outcome: "policy_denied" });
+  expect(await activations.admit(at("inspected"), wake("inspected", "exhausted"))).toMatchObject({
+    status: "deferred",
+    outcome: "budget_exhausted",
+  });
+  const listed = (await activations.inspect(at("inspected"))).activations;
+  expect(listed.filter((r) => r.outcome === "policy_denied")).toHaveLength(64);
+  expect(listed.filter((r) => r.outcome === "budget_exhausted").map((r) => r.causalRoot)).toEqual([
+    "exhausted",
+  ]);
 });

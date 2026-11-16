@@ -10,12 +10,27 @@ ALTER TABLE clockgrove.actor_activation_policies
   ADD CONSTRAINT actor_activation_policies_receipt_count_check CHECK (receipt_count >= 0);
 ALTER TABLE clockgrove.actor_activations
   ADD COLUMN admitted_at timestamptz NOT NULL DEFAULT statement_timestamp();
-CREATE INDEX actor_activations_admitted ON clockgrove.actor_activations
-  (tenant_id, world_id, timeline_id, actor_id, admitted_at);
+-- Inspection reads each bucket in index order with a LIMIT, so its cost does not grow with an
+-- actor's receipt history: the deferred scheduled wakes, the oldest deferred event wakes
+-- (budget-exhausted ones apart, since only they renew with a period) and the newest settled ones.
+CREATE INDEX actor_activations_deferred_schedule ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, actor_id) WHERE status = 'deferred' AND left(causal_root, 9) = 'schedule:';
+CREATE INDEX actor_activations_exhausted ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, actor_id, admitted_at)
+  WHERE status = 'deferred' AND outcome = 'budget_exhausted' AND left(causal_root, 9) <> 'schedule:';
+CREATE INDEX actor_activations_deferred ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, actor_id, admitted_at)
+  WHERE status = 'deferred' AND outcome <> 'budget_exhausted' AND left(causal_root, 9) <> 'schedule:';
+CREATE INDEX actor_activations_settled ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, actor_id, admitted_at) WHERE status IN ('completed', 'noop');
 GRANT UPDATE (budget_period_ms, wake_limit, period_index, period_wakes)
   ON clockgrove.actor_activation_policies TO clockgrove_runtime;
 
--- The database-side counter now also bounds the wakes of the current period.
+-- The database-side counter now also bounds the wakes of the current period. The trigger starts a
+-- new period itself from the database clock when the stored one has passed, so a runtime from
+-- before 0072 (which never rolls a period) keeps admitting wakes at the per-period rate instead of
+-- stopping for good. A runtime that rolled the period already, on its own clock, is left alone:
+-- the period index only moves forward.
 CREATE OR REPLACE FUNCTION clockgrove.guard_actor_activation() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 BEGIN
@@ -28,11 +43,18 @@ BEGIN
       AND s.actor_id=NEW.actor_id AND s.session_id=NEW.session_id
       AND cp.principal_id=NEW.principal_id
   ) THEN RAISE EXCEPTION 'activation conversation not found'; END IF;
-  UPDATE clockgrove.actor_activation_policies
-    SET receipt_count = receipt_count + 1, period_wakes = period_wakes + 1
-    WHERE tenant_id = NEW.tenant_id AND world_id = NEW.world_id AND timeline_id = NEW.timeline_id
-      AND actor_id = NEW.actor_id AND principal_id = NEW.principal_id AND space_id=NEW.space_id
-      AND period_wakes < wake_limit;
+  UPDATE clockgrove.actor_activation_policies p
+    SET receipt_count = p.receipt_count + 1,
+      period_index = greatest(p.period_index, n.current),
+      period_wakes = CASE WHEN p.period_index < n.current THEN 0 ELSE p.period_wakes END + 1,
+      model_calls_reserved = CASE WHEN p.period_index < n.current THEN 0 ELSE p.model_calls_reserved END
+    FROM (SELECT floor(extract(epoch FROM clock_timestamp()) * 1000 / q.budget_period_ms)::bigint AS current
+      FROM clockgrove.actor_activation_policies q
+      WHERE q.tenant_id = NEW.tenant_id AND q.world_id = NEW.world_id AND q.timeline_id = NEW.timeline_id
+        AND q.actor_id = NEW.actor_id) n
+    WHERE p.tenant_id = NEW.tenant_id AND p.world_id = NEW.world_id AND p.timeline_id = NEW.timeline_id
+      AND p.actor_id = NEW.actor_id AND p.principal_id = NEW.principal_id AND p.space_id=NEW.space_id
+      AND (p.period_index < n.current OR p.period_wakes < p.wake_limit);
   IF NOT FOUND THEN
     IF EXISTS (SELECT 1 FROM clockgrove.actor_activation_policies
       WHERE tenant_id = NEW.tenant_id AND world_id = NEW.world_id AND timeline_id = NEW.timeline_id

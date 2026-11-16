@@ -525,19 +525,27 @@ export class PostgreSqlActivations {
     );
     const row = result.rows[0] as Row | undefined;
     const configs = (row?.configurations ?? []) as ActivationConfiguration[];
+    // Each bucket is one index-ordered read with a LIMIT (migration 0072's partial indexes), so an
+    // inspection does not read the actor's whole receipt history: every pending wake (at most one
+    // turn joins them), every deferred scheduled wake (at most one per configuration's next wake,
+    // which the planner must see to hold that wake back), the oldest budget-exhausted event
+    // deferrals (the ones a period renews), the oldest other deferrals and the newest settled.
     const records = await this.client.query(
       `SELECT * FROM (
-        SELECT *, row_number() OVER (PARTITION BY (CASE WHEN status='pending' THEN 0
-            WHEN status='deferred' AND left(causal_root,9)='schedule:' THEN 0
-            WHEN status='deferred' THEN 1 ELSE 2 END) ORDER BY
-            (CASE WHEN status='deferred' THEN admitted_at END) ASC NULLS LAST,
-            (CASE WHEN status='deferred' THEN NULL ELSE admitted_at END) DESC NULLS LAST,
-            causal_root) AS rank,
-          (CASE WHEN status='pending' OR (status='deferred' AND left(causal_root,9)='schedule:') THEN 0
-            WHEN status='deferred' THEN 1 ELSE 2 END) AS bucket
-        FROM clockgrove.actor_activations WHERE ${KEY}) ranked
-      WHERE bucket=0 OR (bucket=1 AND rank<=64) OR (bucket=2 AND rank<=256)
-      ORDER BY activation_id,causal_root`,
+        (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='pending')
+        UNION ALL
+        (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='deferred'
+          AND left(causal_root,9)='schedule:')
+        UNION ALL
+        (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='deferred'
+          AND left(causal_root,9)<>'schedule:' AND outcome='budget_exhausted' ORDER BY admitted_at, causal_root LIMIT 64)
+        UNION ALL
+        (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='deferred'
+          AND left(causal_root,9)<>'schedule:' AND outcome<>'budget_exhausted' ORDER BY admitted_at, causal_root LIMIT 64)
+        UNION ALL
+        (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status IN ('completed','noop')
+          ORDER BY admitted_at DESC, causal_root LIMIT 256)
+      ) inspected ORDER BY activation_id, causal_root`,
       values(a),
     );
     const times = configs
