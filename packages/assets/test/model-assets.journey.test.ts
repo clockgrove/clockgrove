@@ -188,6 +188,21 @@ it("accepts PNG and JPEG handoff textures and KTX2 meshopt shipping media throug
         stdout: '{"status":"ok","command":"validate"}\n',
         stderr: "",
       });
+      if (texture === "png") {
+        // A uri beside an embedded image's bufferView is refused, not skipped.
+        const both = rewriteModelJson(bytes, (json) => {
+          json.images[0].uri = "https://example.com/x.png";
+        });
+        writeFileSync(join(world, manifest.output.path), both);
+        const sha256 = manifest.output.sha256;
+        manifest.output.sha256 = createHash("sha256").update(both).digest("hex");
+        writeFileSync(path, JSON.stringify(manifest));
+        const refusal = runAssetsCli(["validate", path, "--world", world]);
+        expect(refusal.status).toBe(1);
+        expect(refusal.stderr).toContain("MODEL_GLB_INVALID");
+        expect(refusal.stderr).toContain("both bufferView and uri");
+        manifest.output.sha256 = sha256;
+      }
       if (texture === "ktx2") {
         manifest.output.lods = 1;
         writeFileSync(path, JSON.stringify(manifest));

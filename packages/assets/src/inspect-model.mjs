@@ -53,13 +53,13 @@ try {
   for (const resource of json.buffers ?? [])
     if (resource.uri !== undefined && !resource.uri.startsWith("data:"))
       throw new Error("GLB buffers must be embedded buffer views or data URIs");
+  // glTF 2.0 forbids an image with both a buffer view and a uri; refuse it so no uri escapes checks.
+  for (const image of json.images ?? [])
+    if (image.bufferView !== undefined && image.uri !== undefined)
+      throw new Error("an image must not have both bufferView and uri");
   // Images beside the GLB are checked by the caller against the manifest's declarations.
   const imageUris = (json.images ?? []).flatMap((image) =>
-    typeof image.uri === "string" &&
-    !image.uri.startsWith("data:") &&
-    image.bufferView === undefined
-      ? [image.uri]
-      : [],
+    typeof image.uri === "string" && !image.uri.startsWith("data:") ? [image.uri] : [],
   );
   const reference = (items, index) => Number.isInteger(index) && index >= 0 && items?.[index];
   for (const animation of json.animations ?? []) {

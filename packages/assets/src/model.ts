@@ -19,7 +19,7 @@ export interface ModelFacts {
   clips: ModelAssetManifest["output"]["clips"];
   bounds: ModelAssetManifest["output"]["bounds"];
   rig?: ModelAssetManifest["output"]["rig"];
-  /** Image `uri`s that are neither data URIs nor buffer views, in `images` order. */
+  /** Image `uri`s that are not data URIs, in `images` order. */
   imageUris?: readonly string[];
 }
 
@@ -266,19 +266,17 @@ function resolveSideImageUri(directory: string, uri: string): string | { why: st
     : resolved;
 }
 
-/** Maps each side-image `uri` of a validated GLB to its declared world-relative path. */
+/**
+ * Maps each side-image `uri` of a validated GLB (its inspected `imageUris`) to its declared
+ * world-relative path.
+ */
 export function sideImageUris(
   manifest: ModelAssetManifest,
-  bytes: Uint8Array,
+  imageUris: readonly string[],
 ): Readonly<Record<string, string>> {
-  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const json = JSON.parse(view.subarray(20, 20 + view.readUInt32LE(12)).toString("utf8")) as {
-    images?: { uri?: string }[];
-  };
   const directory = posix.dirname(manifest.output.path);
   return Object.fromEntries(
-    (json.images ?? []).flatMap(({ uri }) => {
-      if (typeof uri !== "string" || uri.startsWith("data:")) return [];
+    imageUris.flatMap((uri) => {
       const resolved = resolveSideImageUri(directory, uri);
       return typeof resolved === "string" ? [[uri, resolved]] : [];
     }),

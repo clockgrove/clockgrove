@@ -19,7 +19,7 @@ import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/
 import { ImageUtils } from "@gltf-transform/core";
 import { atlasLocationProblems, buildAtlases, packAtlas, reviewedFiles } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
-import { sideImageUris, validateModel } from "./model.js";
+import { inspectModel, sideImageUris, validateModel } from "./model.js";
 import {
   decodeAs,
   type GoldenRecord,
@@ -163,7 +163,9 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
             modelImageFields.flatMap((key) => (record[key] ? [[key, rename(record[key])]] : [])),
           );
         const { tiers } = f.manifest.output;
-        const uris = Object.entries(sideImageUris(f.manifest, f.bytes));
+        const uris = Object.entries(
+          sideImageUris(f.manifest, inspectModel(f.bytes).imageUris ?? []),
+        );
         index[f.manifest.assetId] = {
           ...f.manifest.output,
           path: name,

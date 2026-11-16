@@ -399,7 +399,7 @@ fields: `output.groom`, `output.textures`, `output.eyes` and, per profile tier,
 "sideImages": "beside",
 "textures": {"baseColor": {"path": "assets/source/fox/textures/base.png", "sha256": "…"}},
 "groom": {"winter": {"path": "assets/source/fox/groom/winter.png", "sha256": "…"}},
-"tiers": {"phone": {"textures": {"baseColor": {"path": "assets/source/fox/textures/base.png", "sha256": "…"}}}}
+"tiers": {"low": {"textures": {"baseColor": {"path": "assets/source/fox/textures/base.png", "sha256": "…"}}}}
 ```
 
 The `.glb`'s `images[].uri` names each image relative to the `.glb`'s directory
@@ -421,7 +421,11 @@ and path, or by its `uri`:
 
 `output.tiers` names must exist in the profile's tiers, else `MODEL_PROFILE_INVALID`.
 A tier listed there draws exactly the images its entry declares; any other tier draws
-the top-level images. `output.textureMaxPx` is the greatest dimension of the embedded and
+the top-level images. The browser matches the tier name the world passes to `loadModel`
+by equality, so `output.tiers` keys (and the profile's tier names) must be those names:
+a world that passes `context.qualityTier` names its tiers `low`, `medium` and `high`. A
+name the world never passes, such as `phone`, is never drawn, and that device silently
+downloads the top-level images. `output.textureMaxPx` is the greatest dimension of the embedded and
 all side images; the default and tier budgets of the embedded images are checked as
 before. Separate LOD files must keep their images embedded (`MODEL_GLB_INVALID`).
 
