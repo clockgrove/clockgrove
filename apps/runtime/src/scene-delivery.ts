@@ -23,11 +23,16 @@ import {
 import { OwnerMailboxError } from "./mailbox.js";
 import type { SceneAudienceDecision } from "./scene-audience.js";
 
-/** Engineering budgets: one existing four-command owner activation's worth of outstanding frames
- * and lag turns (`OWNER_ACTIVATION_BUDGET` in owner-activation.ts).
+/** Engineering budgets.
+ * `unacknowledged` is one existing four-command owner activation's worth of outstanding frames
+ * (`OWNER_ACTIVATION_BUDGET` in owner-activation.ts).
+ * `stalledMs` is a decision: 30 s, the client's own wait for progress on an outstanding request
+ * (`SCENE_RECOVERY.requestTimeoutMs` in apps/web/src/projection.ts, the owner mailbox's
+ * `SPACE_MAILBOX_BOUNDS.requestDeadlineMs`), so a client is dropped only after it has made no
+ * progress for as long as it would itself wait. A burst of commits never counts, only silence.
  * Each connection retains one replaceable projection; the PostgreSQL reader bounds history separately.
  */
-export const SCENE_DELIVERY_BOUNDS = { unacknowledged: 4, lagTurns: 4 } as const;
+export const SCENE_DELIVERY_BOUNDS = { unacknowledged: 4, stalledMs: 30_000 } as const;
 
 /**
  * Resident scene sockets one SpaceDO admits. Decisions:
@@ -115,6 +120,15 @@ export function scenePatchOperations(
         ? []
         : [{ op: "set_lighting", lighting: null } satisfies ScenePatchOperation]
       : [{ op: "set_lighting", lighting: projection.lighting } satisfies ScenePatchOperation]),
+    // Like lighting: only a projection that has, or had, movements carries the operation.
+    ...(projection.movements === undefined && previous?.movements === undefined
+      ? []
+      : [
+          {
+            op: "set_movements",
+            movements: projection.movements ?? [],
+          } satisfies ScenePatchOperation,
+        ]),
     { op: "set_feed_cursor", feedCursor: projection.feedCursor },
     { op: "set_compatibility", compatibility: projection.compatibility },
     ...(projection.privateCognition === undefined
@@ -169,7 +183,8 @@ interface DeliveryIntent {
   projection: SceneProjection | undefined;
   pending: boolean;
   dirty: boolean;
-  lagTurns: number;
+  /** When a publication turn first found the frame ledger full; any acknowledgement clears it. */
+  stalledSince: number | undefined;
   /** The fanout turn whose read last decided an audience including the operator interest. */
   operator: SceneReads | undefined;
   /** Each unacknowledged sent revision's audience hash, and the acknowledged revision's. */
@@ -195,6 +210,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     ) => Promise<SceneReadResult>,
     private readonly obsoleteError: (error: unknown) => void,
     private readonly metrics: () => RuntimeMetrics = () => NO_METRICS,
+    private readonly now: () => number = Date.now,
   ) {}
 
   /** Admission times of sockets that have not yet been sent their first projection frame. */
@@ -320,7 +336,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       projection: undefined,
       pending: false,
       dirty: false,
-      lagTurns: 0,
+      stalledSince: undefined,
       operator: undefined,
       audiences: new Map(),
       // After memory loss the attachment alone knows which audience the client acknowledged.
@@ -395,7 +411,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     intent.acknowledgedAudience = audience;
     for (const revision of intent.audiences.keys())
       if (revision <= control.revision) intent.audiences.delete(revision);
-    intent.lagTurns = 0;
+    intent.stalledSince = undefined;
     intent.debt = 0;
     await this.flush(socket, intent);
   }
@@ -447,8 +463,11 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       // No audience is decided for this socket this turn, so the operator lane skips it.
       intent.dirty = true;
       // Only a full frame ledger is the client's lag; a pending read is the server's own latency.
-      if (full) intent.lagTurns += 1;
-      if (intent.lagTurns >= SCENE_DELIVERY_BOUNDS.lagTurns) this.backpressure(socket);
+      if (full) {
+        const now = this.now();
+        intent.stalledSince ??= now;
+        if (now - intent.stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs) this.backpressure(socket);
+      }
       return;
     }
     await this.deliver(socket, intent, intent.lastSent, false, reads);
