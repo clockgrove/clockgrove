@@ -222,6 +222,18 @@ export class PostgreSqlActivations {
     return this.transaction(a, () => this.inspectHere(a));
   }
 
+  /** The actor's configurations alone, the policy row's one column (empty with no policy). */
+  configurations(a: ActivationAddress): Promise<readonly ActivationConfiguration[]> {
+    return this.transaction(a, async () => {
+      const result = await this.client.query(
+        `SELECT configurations FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
+        values(a),
+      );
+      const row = result.rows[0] as Row | undefined;
+      return (row?.configurations ?? []) as ActivationConfiguration[];
+    });
+  }
+
   admit(a: ActivationAddress, wake: ActivationWake): Promise<ActorActivation> {
     return this.transaction(a, async () => {
       if (

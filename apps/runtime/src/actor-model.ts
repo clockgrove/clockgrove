@@ -89,7 +89,10 @@ export interface PerceptionFocus {
 /**
  * The entities the actor perceives (issue 354), by the kernel resolver's location rule
  * (`space-contents`, `packages/kernel/docs/perception.md`): the active entities of the actor's own
- * space. The member's authorized scene bounds them, so nothing outside it is ever shown; an actor
+ * space. The resolver's modality-range rule is not applied: a runtime world declares no perception
+ * policy (`scene-audience.ts` passes no modalities), and with no declared range that rule would leave
+ * the actor perceiving nothing by location, so the actor's space is its range until a world can
+ * declare one. The member's authorized scene bounds them, so nothing outside it is ever shown; an actor
  * that is not an entity of the state has no space, and perceives that scene. Entities the message
  * names (by object id or label) come first, then the nearest to the actor in its frame, then by
  * object id: a pure order of the state, so replay reproduces it.

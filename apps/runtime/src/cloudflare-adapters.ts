@@ -2343,7 +2343,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         this.grants(participant, session.scope, session.actorId, session.sessionId),
       perceive: this.perceive,
       // Issue 354: the actor's own standing subscriptions and intentions, read from its activation
-      // policy under the member's authorization, whichever turn or session made them.
+      // policy's configurations under the member's authorization, whichever turn or session made
+      // them. One read of the policy row's configurations column per model step.
       standing: async (participant, session) => {
         const context = this.#talkContext(participant);
         if (context === undefined) return [];
@@ -2352,9 +2353,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           participant: { ...worldAuthorization(context), personaId: participant.personaId },
           actorId: session.actorId,
         };
-        return withActivations(this.environment, (store) => store.inspect(address)).then(
-          (inspection) => standingOf(inspection.configurations),
-          () => [],
+        // A failed read fails the step, as selfResults does: the prompt never omits the section
+        // for an actor whose configurations could not be read.
+        return standingOf(
+          await withActivations(this.environment, (store) => store.configurations(address)),
         );
       },
       selfResults: async (participant, session) => {

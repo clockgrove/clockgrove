@@ -92,7 +92,8 @@ they never enter the read Queue. Their recorded results reach the model on the a
 recorded self results, at most 16 KiB together, from completed runs only, newest first, in an
 `UNTRUSTED SELF CAPABILITY RESULTS` section beside the tool catalog. That is how the actor learns
 what it listed or inspected. Every prompt also carries the actor's own standing configurations
-(issue 354), read from its activation policy under the member's authorization, in an
+(issue 354), read from its activation policy's configurations under the member's authorization
+on every model step (a failed read fails the step), in an
 `UNTRUSTED STANDING CONFIGURATIONS` section: each subscription and intention it made
 (`origin: "actor"`), in id order, as `{kind: "subscription", id, eventType, input, enabled}` or
 `{kind: "intention", id, dueAt, input, enabled}`, whichever turn or session made it. That is how

@@ -537,15 +537,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         // The actor's standing configurations, read from its policy as the member (issue 354).
         standing: async () =>
           standingOf(
-            (
-              await owner.withSqlClient((client) =>
-                new PostgreSqlActivations(client).inspect({
-                  scope: owner.scope,
-                  actorId: ACTOR,
-                  participant: { ...member, personaId: "persona-runtime" },
-                } as unknown as ActivationAddress),
-              )
-            ).configurations,
+            await owner.withSqlClient((client) =>
+              new PostgreSqlActivations(client).configurations({
+                scope: owner.scope,
+                actorId: ACTOR,
+                participant: { ...member, personaId: "persona-runtime" },
+              } as unknown as ActivationAddress),
+            ),
           ),
         // The canonical read the runtime composes: this session's recorded results, as the member.
         selfResults: () =>
