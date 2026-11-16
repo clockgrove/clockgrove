@@ -101,6 +101,8 @@ export interface RendererContentFrame {
 }
 type GLTFLoader = import("three/addons/loaders/GLTFLoader.js").GLTFLoader;
 type GLTF = import("three/addons/loaders/GLTFLoader.js").GLTF;
+type GLTFParser = import("three/addons/loaders/GLTFLoader.js").GLTFParser;
+type GLTFLoaderPlugin = import("three/addons/loaders/GLTFLoader.js").GLTFLoaderPlugin;
 export type ModelImageSet =
   | { readonly path: string; readonly sha256?: string }
   | {
@@ -351,6 +353,36 @@ export async function loadModel(
   return parsed;
 }
 
+/** Rewrites drawn side images to their reviewed files and skips images the tier does not draw. */
+export function sideImagesPlugin(parser: GLTFParser): GLTFLoaderPlugin {
+  const config = pendingModel;
+  if (!config) return { name: "CLOCKGROVE_side_images" };
+  type Json = { images?: { uri?: string }[]; textures?: { source?: number }[] };
+  const original: (string | undefined)[] = [];
+  const reviewed = (uri: string | undefined): string | undefined =>
+    uri !== undefined && Object.hasOwn(config.uris, uri) ? config.uris[uri] : undefined;
+  return {
+    name: "CLOCKGROVE_side_images",
+    beforeRoot: () => {
+      const json = parser.json as Json;
+      json.images?.forEach((image, index) => {
+        original[index] = image.uri;
+        const name = reviewed(image.uri);
+        if (name !== undefined && config.drawn.has(name))
+          image.uri = new URL(name, config.base).href;
+      });
+      return null;
+    },
+    loadTexture: (textureIndex: number) => {
+      const source = (parser.json as Json).textures?.[textureIndex]?.source;
+      const name = source === undefined ? undefined : reviewed(original[source]);
+      return name !== undefined && !config.drawn.has(name)
+        ? (Promise.resolve(null) as unknown as Promise<THREE.Texture>)
+        : null;
+    },
+  };
+}
+
 export async function contentLoaders(
   renderer: THREE.WebGPURenderer,
   paths: { basis: string; draco: string },
@@ -389,34 +421,7 @@ export async function contentLoaders(
       });
     },
   }));
-  gltf.register((parser) => {
-    const config = pendingModel;
-    if (!config) return { name: "CLOCKGROVE_side_images" };
-    type Json = { images?: { uri?: string }[]; textures?: { source?: number }[] };
-    const original: (string | undefined)[] = [];
-    const reviewed = (uri: string | undefined): string | undefined =>
-      uri !== undefined && Object.hasOwn(config.uris, uri) ? config.uris[uri] : undefined;
-    return {
-      name: "CLOCKGROVE_side_images",
-      beforeRoot: () => {
-        const json = parser.json as Json;
-        json.images?.forEach((image, index) => {
-          original[index] = image.uri;
-          const name = reviewed(image.uri);
-          if (name !== undefined && config.drawn.has(name))
-            image.uri = new URL(name, config.base).href;
-        });
-        return null;
-      },
-      loadTexture: (textureIndex: number) => {
-        const source = (parser.json as Json).textures?.[textureIndex]?.source;
-        const name = source === undefined ? undefined : reviewed(original[source]);
-        return name !== undefined && !config.drawn.has(name)
-          ? (Promise.resolve(null) as unknown as Promise<THREE.Texture>)
-          : null;
-      },
-    };
-  });
+  gltf.register(sideImagesPlugin);
   return {
     gltf,
     ktx2,
