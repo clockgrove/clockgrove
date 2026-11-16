@@ -722,7 +722,9 @@ it.each(["webgpu", "webgl2"])(
       // #381: SwiftShader starts at low since #356, so wait for a frame drawn at high before
       // judging the step down; otherwise the earlier low frame passes it unexamined. The step
       // down takes 180 rendered intervals whatever their length (TierGovernor), and software frames
-      // here run 50-170 ms, so the bound is 90 s. A small canvas keeps those frames short.
+      // here run 50-170 ms, so the bound is 90 s. The 320x240 viewport narrows #scene (640x400,
+      // max-width 100%, inside the body's 2rem margins) to a canvas of about 256x400 CSS px, and
+      // the 50-170 ms range was measured at that size: the width shrinks, the height does not.
       const heavy = await open("?workMs=40", { width: 320, height: 240 });
       const heavyTier = () =>
         heavy.evaluate(() => globalThis.fixtureRenderer.diagnostics.lastFrame.qualityTier);
