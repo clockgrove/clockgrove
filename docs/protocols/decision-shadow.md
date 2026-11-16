@@ -85,9 +85,16 @@ actors in the same world, timeline and simulated day, using the pack's environme
 including when the model reports a lower or unknown cost. The budget therefore bounds reserved
 opportunities conservatively; measured report spend remains separate from that ledger.
 
-`wakeTriageReport` compares the decision with the turn's stored final disposition, command proposal
-and output message. A proposed command is material even if refused; a reply to a person is
-material. Autonomous text alone is not a reply to a person. Unfinished turns are counted apart.
+`wakeTriageReport` compares the decision with what the turn's journaled facts show it produced
+(issue 350). A woken turn is material (`wakeTriageMaterial`) when it delivered a message to a
+person (an `approved` or `downgraded` delivery keyed `activation:<id>` by one of its activations),
+committed a change to one of the actor's documents (a committed document change set on one of its
+runs), proposed a world command (a recorded `world_command_proposal` run step, even if refused), or
+replied in a direct-message turn. Any person-visible output counts; filler is not told apart from
+real messages. Autonomous text that no delivery carried is not material. Agreement, misses and
+savings all follow this definition: a `suppress` or `compiled_routine` answer on a turn that
+delivered a reminder, wrote the working note or proposed a command is a miss, never agreement or
+savings. Unfinished turns are counted apart.
 The report is scoped to the operator's authorized space and returns classifications and cognitive
 evidence, without disclosing private input, prompt or output artifact contents. It provides
 per-reason labels, confidence, latency, costs, agreement and bypass share,

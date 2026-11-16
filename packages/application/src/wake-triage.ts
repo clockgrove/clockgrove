@@ -53,11 +53,30 @@ export interface WakeTriageRecord
 }
 export interface WakeTriageTruth {
   readonly disposition: string;
+  /** The turn recorded a world command proposal (a run step of that kind), refused or not. */
   readonly proposedCommand: boolean;
+  /** An approved or downgraded delivery carried the turn's output to a person (issue 350). */
+  readonly deliveredMessage: boolean;
+  /** The turn committed a change to one of the actor's documents (issue 350). */
+  readonly documentChanged: boolean;
   readonly outputMessage: boolean;
   readonly replyToPerson: boolean;
   readonly material: boolean;
   readonly costMicrousd: number | null;
+}
+/**
+ * Whether a woken turn produced material output, from its journaled facts (issue 350): a message
+ * delivered to a person, a document change, a world command proposal, or a direct-message reply.
+ */
+export function wakeTriageMaterial(
+  truth: Pick<
+    WakeTriageTruth,
+    "proposedCommand" | "deliveredMessage" | "documentChanged" | "replyToPerson"
+  >,
+): boolean {
+  return (
+    truth.proposedCommand || truth.deliveredMessage || truth.documentChanged || truth.replyToPerson
+  );
 }
 export interface WakeTriageObservation {
   readonly decision: WakeTriageRecord;
@@ -226,6 +245,8 @@ function summarize(rows: readonly WakeTriageObservation[]) {
     missCount: rows.filter(miss).length,
     rawBypassLabels: rows.filter(bypass).length,
     proposedCommands: rows.filter((row) => row.truth.proposedCommand).length,
+    deliveredMessages: rows.filter((row) => row.truth.deliveredMessage).length,
+    documentChanges: rows.filter((row) => row.truth.documentChanged).length,
     repliesToPeople: rows.filter((row) => row.truth.replyToPerson).length,
     nothingMaterial: rows.filter((row) => terminal(row) && !row.truth.material).length,
     unfinished: rows.filter((row) => !terminal(row)).length,

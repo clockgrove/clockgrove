@@ -2144,7 +2144,8 @@ BEGIN
      OR (SELECT record FROM clockgrove.wake_triage) IS DISTINCT FROM evidence
      OR (SELECT jsonb_agg(report) FROM clockgrove.read_wake_triage_report('tenant-a','world-a','timeline-a','space-a') report)
           IS DISTINCT FROM jsonb_build_array(jsonb_build_object('record',evidence,'phase','accepted',
-            'proposedCommand',false,'outputMessage',false,'costMicrousd',NULL)) THEN
+            'proposedCommand',false,'deliveredMessage',false,'documentChanged',false,
+            'outputMessage',false,'costMicrousd',NULL)) THEN
     RAISE EXCEPTION 'operator report or immutable wake evidence differs';
   END IF;
   FOREACH statement IN ARRAY ARRAY[

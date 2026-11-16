@@ -1457,7 +1457,9 @@ Use a principal authorized by the existing world-command grant and both `convers
 `operator_evidence` privacy ceilings. The actor identifies the authorized route; the report covers evidence in the authorized
 space of that world and timeline.
 Read counts, labels, confidence, mean/p95 latency and measured cost by activation reason, followed
-by each turn's final disposition, proposed command, output message and reply-to-person classification.
+by each turn's final disposition, proposed command, delivered message, document change, output
+message, reply-to-person classification and whether it was material: a delivered message, a
+committed document change, a proposed command or a direct-message reply makes a turn material.
 Abstentions, low confidence, failures, budget refusals and unfinished turns have separate counts.
 The report includes agreement, confident bypass share, counterfactual gross/net savings, miss
 examples and recurring miss/low-confidence signatures for human review. Nullable cost means unknown;
