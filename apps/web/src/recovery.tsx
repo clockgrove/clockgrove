@@ -1,36 +1,18 @@
 import type { SceneCompatibilityCode } from "@clockgrove/contracts";
 import { Component, type ReactNode, useEffect, useId, useRef } from "react";
 import { measure } from "./measurements.js";
-import { SCENE_SNAPSHOT_RETRY } from "./projection.js";
 import { incompatibilityNames } from "./scene-projection.js";
 import type { ReadinessProjection } from "./scene-queries.js";
 import { worldShell } from "./shell.js";
 
 const deployment = "Refresh to load the current deployment.";
-// Only a refreshed client can match a client, asset-manifest or material version; the others were retried.
-const recoveries: Readonly<
-  Record<SceneCompatibilityCode, { readonly explanation: string; readonly refresh: boolean }>
-> = {
-  unsupported_client_version: {
-    explanation: `This client version is not supported by the world, so no scene is shown. ${deployment}`,
-    refresh: true,
-  },
-  unsupported_asset_manifest_version: {
-    explanation: `The world's asset-manifest version is not supported by this client, so no scene is shown. ${deployment}`,
-    refresh: true,
-  },
-  unsupported_material_version: {
-    explanation: `The world's material delivery version is not supported by this client, so no scene is shown. ${deployment}`,
-    refresh: true,
-  },
-  unsupported_protocol_version: {
-    explanation: `The world's scene protocol version stayed unsupported after ${SCENE_SNAPSHOT_RETRY.attempts} snapshot retries, so no scene is shown.`,
-    refresh: false,
-  },
-  unsupported_projection_version: {
-    explanation: `The world's projection version stayed unsupported after ${SCENE_SNAPSHOT_RETRY.attempts} snapshot retries, so no scene is shown.`,
-    refresh: false,
-  },
+// Only a refreshed client can match a newer server; an older one is waited out, never a final screen.
+const recoveries: Readonly<Record<SceneCompatibilityCode, string>> = {
+  unsupported_client_version: `This client version is not supported by the world, so no scene is shown. ${deployment}`,
+  unsupported_asset_manifest_version: `The world's asset-manifest version is not supported by this client, so no scene is shown. ${deployment}`,
+  unsupported_material_version: `The world's material delivery version is not supported by this client, so no scene is shown. ${deployment}`,
+  unsupported_protocol_version: `The world's scene protocol version is newer than this client supports, so no scene is shown. ${deployment}`,
+  unsupported_projection_version: `The world's projection version is newer than this client supports, so no scene is shown. ${deployment}`,
 };
 
 /** The stable screen of a final incompatibility; it takes focus and announces its explanation. */
@@ -40,16 +22,13 @@ export function CompatibilityRecovery({ code }: { readonly code: SceneCompatibil
   useEffect(() => {
     screen.current?.focus();
   }, []);
-  const { explanation, refresh } = recoveries[code];
   return (
     <section ref={screen} tabIndex={-1} aria-labelledby={heading}>
       <h2 id={heading}>Unsupported {incompatibilityNames[code]} version</h2>
-      <p role="alert">{explanation}</p>
-      {refresh && (
-        <button type="button" onClick={() => location.reload()}>
-          Refresh
-        </button>
-      )}
+      <p role="alert">{recoveries[code]}</p>
+      <button type="button" onClick={() => location.reload()}>
+        Refresh
+      </button>
     </section>
   );
 }

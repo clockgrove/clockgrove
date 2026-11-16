@@ -2041,30 +2041,27 @@ const observeHall = async (backend) => {
             .filter((message) => message.type === "resume")
             .map((message) => message.lastAppliedRevision);
         const refreshText = "Refresh to load the current deployment.";
-        for (const [field, name, explanation, retried] of [
+        // A newer server version is final at once: every screen offers Refresh.
+        for (const [field, name, explanation] of [
           [
             "protocolVersion",
             "scene protocol",
-            "The world's scene protocol version stayed unsupported after 2 snapshot retries, so no scene is shown.",
-            true,
+            `The world's scene protocol version is newer than this client supports, so no scene is shown. ${refreshText}`,
           ],
           [
             "projectionVersion",
             "projection",
-            "The world's projection version stayed unsupported after 2 snapshot retries, so no scene is shown.",
-            true,
+            `The world's projection version is newer than this client supports, so no scene is shown. ${refreshText}`,
           ],
           [
             "assetManifestVersion",
             "asset-manifest",
             `The world's asset-manifest version is not supported by this client, so no scene is shown. ${refreshText}`,
-            false,
           ],
           [
             "clientVersion",
             "client",
             `This client version is not supported by the world, so no scene is shown. ${refreshText}`,
-            false,
           ],
         ]) {
           const resumed = resumes().length;
@@ -2081,8 +2078,6 @@ const observeHall = async (backend) => {
             { message: destinationSnapshot, field },
           );
           await unsupported(name).waitFor();
-          // Retries end at the bound: nothing is requested or opened one retry interval later.
-          if (retried) await new Promise((resolve) => setTimeout(resolve, 1_500));
           expect([
             await scene.count(),
             await page.locator("#rw-observation-status, #rw-arrival-status").allTextContents(),
@@ -2106,34 +2101,22 @@ const observeHall = async (backend) => {
             0,
             [`Observation: unsupported ${name} version. `, ""],
             explanation,
-            retried ? [] : ["Refresh"],
+            ["Refresh"],
             true,
             [undefined, ...emptyDetails],
             0,
-            retried
-              ? [
-                  ["degraded", null],
-                  ["unsupported version", null],
-                ]
-              : [["unsupported version", null]],
-            retried ? [null, null] : [],
+            [["unsupported version", null]],
+            [],
             [0, undefined],
             [],
           ]);
           // The retired socket finishes closing before another opens.
           await expect.poll(() => sockets.at(-1).isClosed()).toBe(true);
-          if (retried) {
-            await page.evaluate(() => {
-              globalThis.hallSkew = undefined;
-            });
-            await page.getByRole("button", { name: "Sign out", exact: true }).click();
-          } else {
-            // Refresh reloads the current deployment at the same route, which signs the page out.
-            const before = navigations;
-            await unsupported(name).getByRole("button", { name: "Refresh", exact: true }).click();
-            await page.getByLabel("Local session credential").waitFor();
-            expect([navigations - before, page.url()]).toEqual([1, `${origin}${switched}`]);
-          }
+          // Refresh reloads the current deployment at the same route, which signs the page out.
+          const before = navigations;
+          await unsupported(name).getByRole("button", { name: "Refresh", exact: true }).click();
+          await page.getByLabel("Local session credential").waitFor();
+          expect([navigations - before, page.url()]).toEqual([1, `${origin}${switched}`]);
           await page.getByLabel("Local session credential").fill("hall-inspect");
           await page.getByRole("button", { name: "Sign in", exact: true }).click();
           await scene
