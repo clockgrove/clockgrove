@@ -902,6 +902,21 @@ export default {
       ]);
       return;
     }
+    // A refused message marked `dlqSendFails` meets a dead-letter queue whose send fails, so the
+    // production consumer must keep it on the native retries and dead-letter it at attempt 31.
+    const dlqSendFails = batch.messages.some(
+      ({ body }) => typeof body === "object" && body !== null && "dlqSendFails" in body,
+    );
+    const consumerEnv = dlqSendFails
+      ? {
+          ...env,
+          WORLD_REACTIONS_DLQ: {
+            send: async () => {
+              throw new Error("native dead-letter send failure");
+            },
+          },
+        }
+      : env;
     const records: unknown[] = [];
     if (
       batch.messages.length === 3 &&
@@ -951,7 +966,7 @@ export default {
           },
         })),
       },
-      env,
+      consumerEnv as NativeEnvironment,
     );
     if (records.length > 0) {
       const observer = env.WORLD_DO.get(env.WORLD_DO.idFromName("native-dlq-observer"));

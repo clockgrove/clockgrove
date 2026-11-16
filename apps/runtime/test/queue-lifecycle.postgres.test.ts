@@ -346,6 +346,30 @@ describe("production world-reactions native Queue lifecycle", () => {
         expect(owner.logs().join("\n")).not.toContain("must-never-be-logged");
         expect(owner.logs().join("\n")).not.toContain("private operational failure");
         expect(owner.logs().join("\n")).not.toContain("private internal defect");
+        // A refused message whose dead-letter send fails is not lost: it stays on the retries, and
+        // its last attempt the consumer allows records the dead letter with its class.
+        await owner.enqueue({ dlqSendFails: "must-never-be-logged" });
+        const refusedDeadLetters = () =>
+          owner
+            .logs()
+            .filter(
+              (log) => log.includes("world_reactions_dead_lettered") && log.includes("attempt: 31"),
+            )
+            .map((log) => log.match(/failureClass: '([^']+)'/u)?.[1]);
+        for (let attempt = 0; attempt < 600 && refusedDeadLetters().length < 3; attempt++)
+          await sql("SELECT pg_sleep(0.1)");
+        expect(refusedDeadLetters().sort()).toEqual(["internal", "malformed", "transient"]);
+        const dlqBodies = () =>
+          (Array.isArray(dlq.body) ? (dlq.body as { body: unknown }[]) : [])
+            .map(({ body }) => body)
+            .filter((body) => typeof body === "object" && body !== null && "dlqSendFails" in body);
+        // Past `max_retries`, the native Queue itself moves it to the dead-letter queue.
+        for (let attempt = 0; attempt < 100 && dlqBodies().length < 1; attempt++) {
+          dlq = await owner.request("/dispatches/dlq", {});
+          await sql("SELECT pg_sleep(0.1)");
+        }
+        expect(dlqBodies()).toEqual([{ dlqSendFails: "must-never-be-logged" }]);
+        expect(owner.logs().join("\n")).not.toContain("must-never-be-logged");
         await sql(
           "DROP TRIGGER queue_exhaust ON clockgrove.event_dispatches; DROP FUNCTION clockgrove.queue_exhaust(); DROP SEQUENCE clockgrove.queue_exhausted, clockgrove.queue_internal",
         );
