@@ -86,3 +86,44 @@ it("commits before notification and fences retired transport work", async () => 
     "unavailable. Authorization lost",
   );
 });
+
+it("waits out an older server with delay-capped reconnects and fails a newer one at once", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sockets: ReturnType<typeof sceneSocket>[] = [];
+  const statuses: string[] = [];
+  const client = new SceneProjectionClient(
+    scope,
+    () => {
+      sockets.push(sceneSocket());
+      return sockets.at(-1)!.socket;
+    },
+    (status) => statuses.push(status),
+  );
+  const versioned = (projectionVersion: number) =>
+    JSON.stringify({
+      ...JSON.parse(scene.encodeObserverSceneMessage(snapshot)),
+      payload: {
+        ...JSON.parse(scene.encodeObserverSceneMessage(snapshot)).payload,
+        compatibility: { ...snapshot.payload.compatibility, projectionVersion },
+      },
+    });
+  await client.connect();
+  for (const [index, delay] of [1000, 2000, 4000, 8000, 16000, 16000, 16000, 16000].entries()) {
+    sockets[index]?.socket.onopen?.();
+    sockets[index]?.deliver(versioned(0));
+    await vi.advanceTimersByTimeAsync(delay - 1);
+    expect(sockets.length).toBe(index + 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sockets.length).toBe(index + 2);
+  }
+  expect(new Set(statuses.slice(1))).toEqual(new Set(["connecting", "recovering"]));
+  sockets.at(-1)?.socket.onopen?.();
+  sockets.at(-1)?.deliver(scene.encodeObserverSceneMessage(snapshot));
+  expect(statuses.at(-1)).toBe("ready");
+  sockets.at(-1)?.deliver(versioned(3));
+  expect(statuses.at(-1)).toBe("unsupported_projection_version");
+  await vi.advanceTimersByTimeAsync(32000);
+  expect(sockets.length).toBe(9);
+  await client.disconnect();
+});

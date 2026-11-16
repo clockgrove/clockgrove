@@ -9,6 +9,7 @@ import {
   type LivingScene,
   type ProjectionConnect,
   SCENE_ASSET_MANIFEST_VERSION,
+  SCENE_PRIOR_PROJECTION_VERSION,
   SCENE_PROTOCOL,
   SCENE_PROTOCOL_VERSION,
   type SceneCompatibilityCode,
@@ -154,13 +155,14 @@ export const SCENE_RECOVERY: RecoveryBudget = {
 };
 
 /**
- * Snapshot retries after a protocol or projection version mismatch, which a deployment swap can
- * cause transiently. Decision: two retries, one runtime retry hint (`SCENE_RECONNECT.firstDelayMs`)
- * apart. Each rejected snapshot stays unacknowledged, so the retries stay below the runtime's four
- * unacknowledged frames (`SCENE_DELIVERY_BOUNDS.unacknowledged`). The next mismatch is final.
- * Client and asset-manifest mismatches are never retried: only a refreshed client can match them.
+ * The longest wait between reconnects to a server older than this client, as during a deployment
+ * swap. Decision: the last step of `SCENE_RECONNECT` (16 s), so the wait has no attempt cap, only
+ * a delay cap: the swap ends when the deployment does, which this client cannot know, and a person
+ * never faces a final screen without a control. A newer server is final at once: only a refreshed
+ * client can match it. Each retry is a fresh connection, so rejected snapshots never count toward
+ * the runtime's unacknowledged frames (`SCENE_DELIVERY_BOUNDS.unacknowledged`).
  */
-export const SCENE_SNAPSHOT_RETRY = { attempts: 2, delayMs: SCENE_RECONNECT.firstDelayMs } as const;
+export const SCENE_OLDER_SERVER_MAX_DELAY_MS = SCENE_RECONNECT.firstDelayMs * 2 ** 4;
 
 /** One current transport, with a retained successfully applied recovery cursor. */
 export class SceneProjectionClient {
@@ -172,9 +174,8 @@ export class SceneProjectionClient {
   private retiring: Promise<void> = Promise.resolve();
   private attempts = 0;
   private retry: ReturnType<typeof setTimeout> | undefined;
-  // Snapshot retries spent since the last compatible delivery, across reconnects.
-  private snapshotRetries = 0;
-  private snapshotRetry: ReturnType<typeof setTimeout> | undefined;
+  // The server is older than this client: reconnecting without an attempt cap until it matches.
+  private olderServer = false;
   constructor(
     private readonly scope: BrowserScope,
     private readonly open: () => ProjectionSocket,
@@ -301,7 +302,7 @@ export class SceneProjectionClient {
       if (publishProjection) {
         delivered = true;
         this.attempts = 0;
-        this.snapshotRetries = 0;
+        this.olderServer = false;
       }
       if (publishProjection || status === "recovering" || status !== notifiedStatus) {
         notifiedStatus = status;
@@ -333,31 +334,20 @@ export class SceneProjectionClient {
       arm();
     };
     // A mismatched scene never stays live: the committed projection is discarded first.
-    const incompatible = (code: SceneCompatibilityCode) => {
-      if (
-        (code !== "unsupported_protocol_version" && code !== "unsupported_projection_version") ||
-        this.snapshotRetries >= SCENE_SNAPSHOT_RETRY.attempts
-      ) {
+    const incompatible = (code: SceneCompatibilityCode, actual: unknown) => {
+      const lowest =
+        code === "unsupported_protocol_version"
+          ? SCENE_PROTOCOL_VERSION
+          : code === "unsupported_projection_version"
+            ? SCENE_PRIOR_PROJECTION_VERSION
+            : undefined;
+      if (lowest === undefined || typeof actual !== "number" || actual >= lowest) {
         this.fail(code);
         return;
       }
-      this.snapshotRetries += 1;
-      clearTimeout(this.gapTimer);
+      this.olderServer = true;
       this.convergence = initialConvergence(this.scope);
-      delivered = false;
-      awaitingDelivery = true;
-      this.changed(reachedReady ? "recovering" : "connecting", undefined);
-      if (generation !== this.generation) return;
-      this.snapshotRetry = setTimeout(() => {
-        if (generation !== this.generation) return;
-        try {
-          resume(null);
-          resumedAt = performance.now();
-          arm();
-        } catch {
-          if (generation === this.generation) this.fail("unavailable");
-        }
-      }, SCENE_SNAPSHOT_RETRY.delayMs);
+      this.recover();
     };
     socket.onopen = () => {
       if (generation !== this.generation) return;
@@ -448,7 +438,7 @@ export class SceneProjectionClient {
       } catch (error) {
         if (generation !== this.generation) return;
         // Only the compatibility code leaves; other decoder diagnostics stay at their boundary.
-        if (error instanceof SceneCompatibilityError) incompatible(error.code);
+        if (error instanceof SceneCompatibilityError) incompatible(error.code, error.actual);
         else this.fail("unavailable");
       }
     };
@@ -460,14 +450,16 @@ export class SceneProjectionClient {
       if (generation === this.generation) this.recover();
     };
   }
-  /** Reconnects with jittered exponential backoff (`SCENE_RECONNECT`), keeping the applied cursor. */
+  /** Reconnects with jittered exponential backoff (`SCENE_RECONNECT`; uncapped while the server is older), keeping the applied cursor. */
   private recover(): void {
-    if (this.attempts >= SCENE_RECONNECT.attempts) {
+    if (!this.olderServer && this.attempts >= SCENE_RECONNECT.attempts) {
       this.fail("unavailable");
       return;
     }
     measure("scene_recovery", "reconnect");
-    const delay = SCENE_RECONNECT.firstDelayMs * 2 ** this.attempts * (1 - Math.random() / 2);
+    const delay =
+      Math.min(SCENE_RECONNECT.firstDelayMs * 2 ** this.attempts, SCENE_OLDER_SERVER_MAX_DELAY_MS) *
+      (1 - Math.random() / 2);
     this.attempts += 1;
     void this.retire();
     const generation = this.generation;
@@ -489,13 +481,12 @@ export class SceneProjectionClient {
   disconnect(): Promise<void> {
     this.convergence = initialConvergence(this.scope);
     this.attempts = 0;
-    this.snapshotRetries = 0;
+    this.olderServer = false;
     return this.retire();
   }
   private retire(): Promise<void> {
     clearTimeout(this.retry);
     clearTimeout(this.gapTimer);
-    clearTimeout(this.snapshotRetry);
     this.generation++;
     const generation = this.generation;
     const socket = this.socket;

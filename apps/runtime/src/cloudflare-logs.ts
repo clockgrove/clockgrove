@@ -68,14 +68,14 @@ export function logQueueDeadLetter(
 }
 
 /**
- * Alert: a world-reactions publication used its whole attempt budget and stays `failed` until an
- * operator repairs it. Its IDs are canonical (the dispatch row), so its message ID is logged.
+ * Alert: a world-reactions publication failed permanently (`too_large`: the Queue can never accept
+ * it) and stays `failed` until an operator repairs it. Its IDs are canonical (the dispatch row), so its message ID is logged.
  */
 export function logPublicationFailure(
   logger: RuntimeLogger,
   ids: Pick<RuntimeLogFields, "tenantId" | "worldId" | "timelineId" | "messageId">,
   attempt: number,
-  failureClass: QueueFailureClass,
+  failureClass: QueueFailureClass | "too_large",
 ): void {
   logger.log(
     runtimeLogRecord("error", "world_reactions_publication_failed", {

@@ -62,49 +62,40 @@ describe("runtime-state inspector and operator actions", () => {
           500,
         );
         // A poison message: every consumption of this batch fails as an internal defect, so the
-        // native Queue dead-letters it after its four delivery attempts.
+        // native Queue dead-letters it after its 31 delivery attempts.
         await sql(
           `CREATE FUNCTION clockgrove.op_poison() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.dispatch_id='${id("op-poison")}' AND NEW.consumed_at IS NOT NULL AND OLD.consumed_at IS NULL THEN RAISE EXCEPTION USING ERRCODE='XX000'; END IF; RETURN NEW; END $$; CREATE TRIGGER op_poison BEFORE UPDATE ON clockgrove.event_dispatches FOR EACH ROW EXECUTE FUNCTION clockgrove.op_poison()`,
         );
         await advance("op-poison", 240_000n);
-        // A failed publication: a payload over the Queue's 128 KB message limit makes every send fail.
+        // A failed publication: a message over the Queue's 128 KB limit fails permanently at once.
         await sql(
           `CREATE FUNCTION clockgrove.op_oversize() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.dispatch_id='${id("op-failed")}' THEN NEW.payload := NEW.payload || jsonb_build_object('pad', repeat('x', 130000)); END IF; RETURN NEW; END $$; CREATE TRIGGER op_oversize BEFORE INSERT ON clockgrove.event_dispatches FOR EACH ROW EXECUTE FUNCTION clockgrove.op_oversize()`,
         );
         await advance("op-failed", 360_000n);
         await waitForOwnerSql(
           sql,
-          `SELECT status || '|' || attempts FROM clockgrove.event_dispatches WHERE dispatch_id='${id("op-failed")}'`,
-          "pending|1",
+          `SELECT status || '|' || attempts || '|' || last_error_class FROM clockgrove.event_dispatches WHERE dispatch_id='${id("op-failed")}'`,
+          "failed|1|permanent",
           500,
         );
-        for (let attempt = 2; attempt <= 4; attempt++) {
-          await sql(
-            `UPDATE clockgrove.event_dispatches SET next_attempt_at = now() - interval '1 second' WHERE dispatch_id='${id("op-failed")}'`,
-          );
-          await owner.reconcileDispatches();
-        }
-        expect(
-          await dispatch("op-failed", "status || '|' || attempts || '|' || last_error_class"),
-        ).toBe("failed|4|retryable");
         await waitForOwnerSql(
           sql,
           `SELECT dead_letter_class FROM clockgrove.event_dispatches WHERE dispatch_id='${id("op-poison")}'`,
           "internal",
-          1_000,
+          3_000,
         );
 
         // Alert signals: one closed-name record per terminal failure.
         const publication = await logged("world_reactions_publication_failed");
         expect(publication.length).toBe(1);
         expect(publication[0]).toContain(`messageId: '${id("op-failed")}'`);
-        expect(publication[0]).toContain("attempt: 4");
-        expect(publication[0]).toContain("failureClass: 'internal'");
+        expect(publication[0]).toContain("attempt: 1");
+        expect(publication[0]).toContain("failureClass: 'too_large'");
         expect(publication[0]).toContain("disposition: 'awaiting-repair'");
         const deadLetter = await logged("world_reactions_dead_lettered");
         expect(deadLetter.length).toBe(1);
         expect(deadLetter[0]).toContain("failureClass: 'internal'");
-        expect(deadLetter[0]).toContain("attempt: 4");
+        expect(deadLetter[0]).toContain("attempt: 31");
         expect(deadLetter[0]).toContain("disposition: 'awaiting-replay'");
 
         // Diagnosis: the inspector's grant, refusal codes and audit; canonical and operational labels.
@@ -138,7 +129,7 @@ describe("runtime-state inspector and operator actions", () => {
           ]),
         ).toEqual([
           [id("op-poison"), "delivered", 1, null, "internal"],
-          [id("op-failed"), "failed", 4, "retryable", null],
+          [id("op-failed"), "failed", 1, "permanent", null],
         ]);
         for (const value of [view.runtime, view.owner, view.catchUpWorkflow]) {
           expect(value.evidence).toBe("operational");
@@ -204,16 +195,16 @@ describe("runtime-state inspector and operator actions", () => {
           status: 200,
           body: { action: "repair-publication", messageId: id("op-failed"), outcome: "repaired" },
         });
-        expect(await dispatch("op-failed", "status || '|' || attempts")).toBe("pending|4");
+        expect(await dispatch("op-failed", "status || '|' || attempts")).toBe("pending|1");
         await owner.reconcileDispatches();
         await waitForOwnerSql(
           sql,
           `SELECT status || '|' || attempts || '|' || (consumed_at IS NOT NULL) FROM clockgrove.event_dispatches WHERE dispatch_id='${id("op-failed")}'`,
-          "delivered|5|true",
+          "delivered|2|true",
           500,
         );
         await owner.reconcileDispatches();
-        expect(await dispatch("op-failed", "status || '|' || attempts")).toBe("delivered|5");
+        expect(await dispatch("op-failed", "status || '|' || attempts")).toBe("delivered|2");
         // Replay the dead-lettered message through its source Queue under its message ID, after the
         // cause is fixed; a second replay finds the successful disposition and leaves it unchanged.
         const dlq = await owner.request("/dispatches/dlq", {});

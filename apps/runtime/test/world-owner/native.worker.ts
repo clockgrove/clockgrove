@@ -505,6 +505,9 @@ export class ActorAgentDO extends ProductionActorAgentDO {
       });
       return;
     }
+    // `poison:<phase>` fails every attempt of a turn whose message id starts `poison`.
+    if (fault === `poison:${phase}` && fiber.messageId.startsWith("poison"))
+      throw new Error(`injected poison at ${phase}`);
     // `break:<phase>` faults like `<phase>` but holds until released before it aborts.
     const breaking = fault === `break:${phase}`;
     if (fault !== phase && !breaking) return;
@@ -899,6 +902,21 @@ export default {
       ]);
       return;
     }
+    // A refused message marked `dlqSendFails` meets a dead-letter queue whose send fails, so the
+    // production consumer must keep it on the native retries and dead-letter it at attempt 31.
+    const dlqSendFails = batch.messages.some(
+      ({ body }) => typeof body === "object" && body !== null && "dlqSendFails" in body,
+    );
+    const consumerEnv = dlqSendFails
+      ? {
+          ...env,
+          WORLD_REACTIONS_DLQ: {
+            send: async () => {
+              throw new Error("native dead-letter send failure");
+            },
+          },
+        }
+      : env;
     const records: unknown[] = [];
     if (
       batch.messages.length === 3 &&
@@ -930,29 +948,25 @@ export default {
             message.ack();
           },
           retry: (options: { readonly delaySeconds: number }) => {
-            if (
-              typeof message.body === "object" &&
-              message.body !== null &&
-              "privatePayload" in message.body
-            )
-              records.push({ attempt: message.attempts, delaySeconds: options.delaySeconds });
-            if (
-              [
-                "queue-exhausted:dispatch:world-reactions",
-                "queue-internal:dispatch:world-reactions",
-              ].includes(String(observedMessageId(message.body)))
-            )
+            const exhausting = [
+              "queue-exhausted:dispatch:world-reactions",
+              "queue-internal:dispatch:world-reactions",
+            ].includes(String(observedMessageId(message.body)));
+            if (exhausting)
               records.push({
                 transportMessageId: message.id,
                 attempt: message.attempts,
                 delaySeconds: options.delaySeconds,
                 source: observedMessageId(message.body),
               });
-            message.retry(options);
+            // The first retry keeps the delay the consumer asked for, so a test can observe a message
+            // between its failed first attempt and its retry. Later retries run at once (the delay is
+            // recorded above), so a message's 31 attempts take seconds, not the production 25 minutes.
+            message.retry(message.attempts > 1 ? { delaySeconds: 0 } : options);
           },
         })),
       },
-      env,
+      consumerEnv as NativeEnvironment,
     );
     if (records.length > 0) {
       const observer = env.WORLD_DO.get(env.WORLD_DO.idFromName("native-dlq-observer"));

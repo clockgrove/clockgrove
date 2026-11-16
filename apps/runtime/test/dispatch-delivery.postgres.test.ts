@@ -3,6 +3,8 @@ import type { QueueEnvelope } from "@clockgrove/contracts";
 import { PostgreSqlDispatchStore, PostgreSqlJournal } from "@clockgrove/persistence";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { type RuntimeEnvironment, sweepWorldReactions } from "../src/cloudflare-entry.js";
+
 import {
   authorization,
   type JournalDatabase,
@@ -83,6 +85,30 @@ describe("committed events dispatch exactly once", () => {
     expect(await statuses("flaky", "last_error_class")).toBe("failed:3:retryable");
   });
 
+  it("a Queues send outage leaves the row retrying, past any attempt bound, until the Queue answers", async () => {
+    await run(journal(), command("outage"));
+    for (let sweeps = 0; sweeps < 6; sweeps += 1) {
+      publisher.failing = true;
+      expect(await worldReactionSweep()).toEqual({ delivered: 0, retried: 1, failed: 0, stale: 0 });
+      await db.truth(
+        `UPDATE clockgrove.event_dispatches SET next_attempt_at=now() WHERE tenant_id='tenant-j-a'`,
+      );
+    }
+    publisher.failing = false;
+    expect(await worldReactionSweep()).toEqual({ delivered: 1, retried: 0, failed: 0, stale: 0 });
+    expect(await statuses("outage", "last_error_class")).toBe("delivered:7:retryable");
+  });
+
+  it("a message over the Queues 128 KB limit fails at once as permanent", async () => {
+    await run(journal(), command("big"));
+    await db.truth(
+      `UPDATE clockgrove.event_dispatches SET payload=jsonb_build_object('x', repeat('x', 131072)) WHERE tenant_id='tenant-j-a'`,
+    );
+    expect(await worldReactionSweep()).toEqual({ delivered: 0, retried: 0, failed: 1, stale: 0 });
+    expect(await statuses("big", "last_error_class")).toBe("failed:1:permanent");
+    expect(published).toEqual([]);
+  });
+
   it("publication retry delays double to the store ceiling before an operator-visible failure", async () => {
     await run(journal(), command("bounded-backoff"));
     const delays: number[] = [];
@@ -125,6 +151,14 @@ function sweepRequest(leaseMs = 3_600_000) {
     retryAfterMs: 0,
   } as const;
   return { ...request, leaseMs, authorization: authorization("a", ["public_scene"]) as never };
+}
+
+function worldReactionSweep() {
+  const queue = {
+    send: (message: unknown) => publisher.publish(message as QueueEnvelope<unknown>),
+  };
+  const env = { WORLD_REACTIONS_QUEUE: queue } as unknown as RuntimeEnvironment;
+  return sweepWorldReactions(env, stores[0]!, sweepRequest().authorization, 2);
 }
 
 function sweep(store = stores[0]!, leaseMs?: number) {

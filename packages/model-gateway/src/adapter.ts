@@ -56,10 +56,24 @@ export function httpFailureBilling(status: number): ProviderBilling {
     : BILLING_UNKNOWN;
 }
 
+/**
+ * A 4xx the provider gave to the request itself (a refused schema, an over-long prompt) says
+ * nothing about the route's health, so it is not a route fault. 401, 402 and 403 are the route's
+ * credential or account, and 408 and 429 are transient: those stay route faults.
+ */
+export function isRequestRejection(status: number): boolean {
+  return status >= 400 && status < 500 && ![401, 402, 403, 408, 429].includes(status);
+}
+
 /** A provider fault, already classified. Its message never carries provider text or secrets. */
 export class ProviderFailure extends Error {
   constructor(
-    readonly kind: "credential_missing" | "rate_limited" | "unavailable" | "refused",
+    readonly kind:
+      | "credential_missing"
+      | "rate_limited"
+      | "unavailable"
+      | "request_rejected"
+      | "refused",
     readonly httpStatus: number | null,
     readonly retryable: boolean,
     /** Read by the decision path; unknown unless the adapter knows better. */

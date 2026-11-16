@@ -354,14 +354,18 @@ export async function withNativeWorldOwner(
           ? {
               queueProducers: {
                 WORLD_REACTIONS_QUEUE: "rw-production-world-reactions",
+                WORLD_REACTIONS_DLQ: "rw-production-world-reactions-dlq",
                 ...(process.env.NATIVE_RESEARCH_ORIGIN
-                  ? { EXTERNAL_EFFECTS_QUEUE: "rw-production-external-effects" }
+                  ? {
+                      EXTERNAL_EFFECTS_QUEUE: "rw-production-external-effects",
+                      EXTERNAL_EFFECTS_DLQ: "rw-production-external-effects-dlq",
+                    }
                   : {}),
               },
               queueConsumers: {
                 "rw-production-world-reactions": {
                   maxBatchTimeout: 0,
-                  maxRetries: 3,
+                  maxRetries: 30,
                   deadLetterQueue: "rw-production-world-reactions-dlq",
                 },
                 "rw-production-world-reactions-dlq": { maxBatchTimeout: 0 },
@@ -369,7 +373,7 @@ export async function withNativeWorldOwner(
                   ? {
                       "rw-production-external-effects": {
                         maxBatchTimeout: 0,
-                        maxRetries: 3,
+                        maxRetries: 30,
                         deadLetterQueue: "rw-production-external-effects-dlq",
                       },
                       "rw-production-external-effects-dlq": { maxBatchTimeout: 0 },

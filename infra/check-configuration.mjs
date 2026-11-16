@@ -73,7 +73,7 @@ export function verifyWrangler(config, manifest, surface, root, configPath) {
   assert.deepEqual(Object.keys(config.vars).sort(), [...surface.manifest.variables].sort());
   assert.deepEqual(
     config.queues.producers.map(({ binding }) => binding).sort(),
-    [...surface.manifest.queues].sort(),
+    [...surface.manifest.queues, ...surface.manifest.deadLetterQueues].sort(),
   );
   assert.deepEqual(
     config.analytics_engine_datasets,
@@ -100,19 +100,23 @@ export function verifyWrangler(config, manifest, surface, root, configPath) {
   assert.equal(config.vars.AUTH_ORIGIN, manifest.authentication.origin);
   assert.equal(config.vars.PROVIDER_ENVIRONMENT, manifest.authentication.providerEnvironment);
   const queues = Object.values(manifest.resources.queues);
-  assert.equal(new Set(config.queues.producers.map(({ queue }) => queue)).size, queues.length);
+  assert.equal(new Set(config.queues.producers.map(({ queue }) => queue)).size, queues.length * 2);
   assert.equal(config.queues.consumers.length, queues.length);
   for (const [index, binding] of surface.manifest.queues.entries()) {
     const producer = config.queues.producers.find((producer) => producer.binding === binding);
     assert.equal(producer.queue, queues[index].name);
     assert.equal(config.vars[`${binding}_NAME`], producer.queue);
     assert.deepEqual(
+      config.queues.producers.find(({ binding }) => binding === surface.manifest.deadLetterQueues[index]),
+      { binding: surface.manifest.deadLetterQueues[index], queue: queues[index].deadLetter },
+    );
+    assert.deepEqual(
       config.queues.consumers.filter(({ queue }) => queue === producer.queue),
       [
         {
           queue: producer.queue,
           dead_letter_queue: queues[index].deadLetter,
-          max_retries: 3,
+          max_retries: 30,
         },
       ],
     );

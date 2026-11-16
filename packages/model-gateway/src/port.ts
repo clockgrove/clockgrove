@@ -69,6 +69,7 @@ export type ModelFailureCode =
   | "timeout"
   | "rate_limited"
   | "refused"
+  | "request_rejected"
   | "invalid_output"
   | "budget_exceeded"
   | "input_too_large"
@@ -95,6 +96,7 @@ export type RouteAttemptOutcome =
   | "timeout_after_first_byte"
   | "rate_limited"
   | "unavailable"
+  | "request_rejected"
   | "refused"
   | "invalid_output"
   | "cancelled";

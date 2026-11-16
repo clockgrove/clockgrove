@@ -801,6 +801,10 @@ export interface RuntimeEnvironment {
   readonly WORLD_REACTIONS_QUEUE: QueueBinding;
   readonly COGNITIVE_INDEXING_QUEUE: QueueBinding;
   readonly EXTERNAL_EFFECTS_QUEUE: QueueBinding;
+  /** Producers onto each channel's dead-letter queue: where the consumer sends a refused message at once. */
+  readonly WORLD_REACTIONS_DLQ?: QueueBinding;
+  readonly COGNITIVE_INDEXING_DLQ?: QueueBinding;
+  readonly EXTERNAL_EFFECTS_DLQ?: QueueBinding;
   readonly WORLD_PROVISIONING_WORKFLOW: LifecycleWorkflowBinding;
   readonly WORLD_READINESS_WORKFLOW: LifecycleWorkflowBinding;
   readonly WORLD_CATCH_UP_WORKFLOW?: CatchUpWorkflowBinding;
@@ -835,6 +839,7 @@ export const runtimeBindingManifest = {
   },
   localDurableObjects: { MCP_OPERATOR_DO: "McpOperatorDO" },
   queues: ["WORLD_REACTIONS_QUEUE", "COGNITIVE_INDEXING_QUEUE", "EXTERNAL_EFFECTS_QUEUE"],
+  deadLetterQueues: ["WORLD_REACTIONS_DLQ", "COGNITIVE_INDEXING_DLQ", "EXTERNAL_EFFECTS_DLQ"],
   workflows: {
     WORLD_PROVISIONING_WORKFLOW: "WorldProvisioningWorkflow",
     WORLD_READINESS_WORKFLOW: "WorldReadinessWorkflow",
@@ -1639,12 +1644,18 @@ export default {
     if (new Set(names).size !== names.length) throw new Error("queue names must be distinct");
     const { consumers, logger, research } = composeRuntime(env);
     const queue = new Map([
-      [names[0], ["world-reactions", consumers.worldReactions] as const],
-      [names[1], ["cognitive-indexing", consumers.cognitiveIndexing] as const],
-      [names[2], ["external-effects", consumers.externalEffects] as const],
+      [names[0], ["world-reactions", consumers.worldReactions, env.WORLD_REACTIONS_DLQ] as const],
+      [
+        names[1],
+        ["cognitive-indexing", consumers.cognitiveIndexing, env.COGNITIVE_INDEXING_DLQ] as const,
+      ],
+      [
+        names[2],
+        ["external-effects", consumers.externalEffects, env.EXTERNAL_EFFECTS_DLQ] as const,
+      ],
     ]).get(batch.queue);
     if (queue === undefined) throw new Error("unknown runtime queue");
-    const [channel, consumer] = queue;
+    const [channel, consumer, dlq] = queue;
     for (const message of batch.messages) {
       try {
         await consumer.consume(message.body, (value) => value);
@@ -1655,8 +1666,7 @@ export default {
         // the access-controlled physical DLQ. No exception text or connection details are logged.
         const failureClass = queueFailureClass(error);
         logQueueDeliveryFailure(logger, channel, message.id, message.attempts, failureClass);
-        // The last attempt the consumer's `max_retries` allows: this retry dead-letters it.
-        if (message.attempts > QUEUE_MAX_RETRIES) {
+        const deadLetter = async () => {
           logQueueDeadLetter(logger, channel, message.id, message.attempts, failureClass);
           if (channel === "world-reactions")
             await recordDeadLetter(env, message.body, failureClass);
@@ -1670,7 +1680,24 @@ export default {
               /* Malformed data has no canonical source row. */
             }
           }
+        };
+        // A refused message never becomes valid: it goes to the channel's dead-letter queue on its
+        // first attempt. If that send fails, the retry below keeps the message.
+        if (failureClass === "malformed" || failureClass === "inconsistent") {
+          try {
+            if (dlq === undefined) throw new Error("dead-letter queue required");
+            await dlq.send(message.body);
+            await deadLetter();
+            message.ack();
+            continue;
+          } catch {
+            /* Retried below: nothing is lost. */
+          }
         }
+        // The last attempt the consumer's `max_retries` allows, for every class (a refused message
+        // whose DLQ send failed or whose `*_DLQ` binding is absent included): this retry
+        // dead-letters it, so the record says why.
+        if (message.attempts > QUEUE_MAX_RETRIES) await deadLetter();
         message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
       }
     }
@@ -1699,17 +1726,22 @@ export default {
   },
 };
 
-/** Existing native owner recovery delay (1 s), with the dispatch store's one-day ceiling. */
+/**
+ * Consumer retry delay: 1 s doubling per attempt, capped at 60 s. Decision: 60 s because the
+ * database then answers within a minute of recovering, while a failover of minutes costs few retries.
+ */
 export function queueRetryDelaySeconds(attempt: number): number {
-  return Math.min(86_400, 2 ** (attempt - 1));
+  return Math.min(60, 2 ** (attempt - 1));
 }
 
 /**
  * Every runtime Queue consumer's `max_retries` in `infra/wrangler/*.json`, which
- * `infra/check-configuration.mjs` pins to 3: a message's delivery attempts are 1 to 4, and a failure
- * of the fourth sends it to the dead-letter queue.
+ * `infra/check-configuration.mjs` pins to 30. Decision: 30 because the delays after attempts 1 to 30
+ * total 1+2+4+8+16+32 = 63 s, then 24 x 60 s, 1503 s (about 25 minutes), which outlasts a
+ * database or Hyperdrive failover of minutes. A failure of attempt 31 sends the message to the
+ * dead-letter queue and records why. Malformed and inconsistent messages skip the retries.
  */
-const QUEUE_MAX_RETRIES = 3;
+const QUEUE_MAX_RETRIES = 30;
 
 /**
  * Records a dead-lettered world-reactions message's failure class on its source dispatch, where the
@@ -1761,7 +1793,7 @@ function runtimeStatePorts(env: RuntimeEnvironment): RuntimeStatePorts {
 }
 
 /** Shared world-reactions publication settings; only the claim page size differs per caller. */
-function sweepWorldReactions(
+export function sweepWorldReactions(
   env: RuntimeEnvironment,
   store: PostgreSqlDispatchStore,
   authorization: RuntimeAuthorizationContext,
@@ -1777,15 +1809,25 @@ function sweepWorldReactions(
       leaseOwner: `world-reactions:${crypto.randomUUID()}`,
       // Existing reconciliation cadence: */5 cron in every environment manifest.
       leaseMs: 300_000,
-      // Publication attempts recorded on the dispatch row: one send plus three retries, matching
-      // the Queue's `max_retries: 3` for symmetry. Queue consumer retries are counted separately.
-      maxAttempts: 4,
+      // No attempt bound: a Queues send outage leaves the row retrying until the Queue answers.
+      // Decision: delays cap at the */5 reconciliation cadence, so a row publishes within one
+      // cron after the Queue recovers.
       retryAfterMs: 1_000,
+      maxRetryAfterMs: 300_000,
     },
     {
       store,
-      publisher: { publish: (message) => queue.send(message) },
-      // Alert: the attempt budget is spent; the row stays `failed` until an operator repairs it.
+      publisher: {
+        publish: (message) => {
+          if (
+            new TextEncoder().encode(JSON.stringify(message)).byteLength > QUEUE_MESSAGE_MAX_BYTES
+          )
+            return Promise.reject(new MessageTooLargeError());
+          return queue.send(message);
+        },
+      },
+      classify: (error) => (error instanceof MessageTooLargeError ? "permanent" : "retryable"),
+      // Alert: a permanent failure; the row stays `failed` until an operator repairs it.
       failed: (dispatch, cause) =>
         logPublicationFailure(
           runtimeLogger(env),
@@ -1796,11 +1838,19 @@ function sweepWorldReactions(
             messageId: dispatch.dispatchId,
           },
           dispatch.attempt,
-          queueFailureClass(cause),
+          cause instanceof MessageTooLargeError ? "too_large" : queueFailureClass(cause),
         ),
     },
   );
 }
+
+/**
+ * Cloudflare Queues' per-message limit, 128 KB (https://developers.cloudflare.com/queues/platform/limits/),
+ * counted in decimal kilobytes as the local Queue counts it (Miniflare's `MAX_MESSAGE_SIZE_BYTES`).
+ */
+const QUEUE_MESSAGE_MAX_BYTES = 128_000;
+
+class MessageTooLargeError extends Error {}
 
 /**
  * Scheduled recovery: each sweep owns its client and drains every due principal. One principal's
