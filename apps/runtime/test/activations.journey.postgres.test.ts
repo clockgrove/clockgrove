@@ -15,6 +15,9 @@ it.skipIf(isNativeWorldOwnerChild())(
   "owns proactive PostgreSQL and native runtime",
   async () => {
     await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
+      // The needs-crossing run below advances the world seventy days, and each actor's cursor pages
+      // through its few thousand events: more than the harness's default two minutes on CI.
+      timeoutMs: 240_000,
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -25,7 +28,7 @@ it.skipIf(isNativeWorldOwnerChild())(
       },
     });
   },
-  240_000,
+  300_000,
 );
 
 it.skipIf(!isNativeWorldOwnerChild())(
@@ -575,8 +578,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ),
       ).toBe("0");
 
-      // A threshold naming a need wakes only for its own actor's crossing of that need. Eighty
-      // simulated days of the fixture world bring three crossings in one space: the companion's and
+      // A threshold naming a need wakes only for its own actor's crossing of that need. Advancing
+      // the fixture world to just past the dependent's thirst crossing brings three crossings in one space: the companion's and
       // a newborn child's hunger and the dependent's thirst. The dependent's hunger threshold sees
       // its own thirst crossing and others' hunger crossings, and is woken by none of them.
       const threshold = async (actorId: string, id: string, need: string) => {
@@ -601,13 +604,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
       await threshold("fixture.dependent", "dependent-thirst", "thirst");
       await threshold("fixture.dependent", "dependent-hunger", "hunger");
       await new Promise((resolve) => setTimeout(resolve, 1_100));
-      const before = BigInt(
-        await owner.sql("SELECT max(simulation_time)::text FROM clockgrove.events"),
-      );
       expect(
         (
           await owner.submit(
-            advanceCommand(owner.world, "crossings", before + 80n * 86_400_000n, null, {
+            advanceCommand(owner.world, "crossings", 14_700_000_000n, null, {
               maxInputs: 1024,
               maxEvents: 4096,
             }),
