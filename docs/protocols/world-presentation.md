@@ -282,7 +282,9 @@ publication and access to these static assets.
 A reviewed model whose look-dev images (groom maps, textures, eyes) sit beside its `.glb` is loaded
 with `context.loadModel(gltf, url, models[assetId], context.qualityTier)`, where `models[assetId]` is
 that model's `models.json` entry. The tier name is matched by equality against the entry's `tiers`
-keys; a tier without an entry draws the top-level `groom`, `textures` and `eyes`. Images the tier does
+keys, so those keys must be the names the world passes: `low`, `medium` and `high` when it passes
+`context.qualityTier`. A tier without an entry, including a free-form profile name such as `phone`
+that the world never passes, draws the top-level `groom`, `textures` and `eyes`. Images the tier does
 not draw are never requested, so a phone that never draws fur never downloads fur maps. Models with
 embedded images load unchanged.
 
