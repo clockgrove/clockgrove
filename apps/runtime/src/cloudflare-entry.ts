@@ -328,6 +328,7 @@ export function composeConversations(
   env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
   model?: string,
   contextTokenBudget?: number,
+  historyWindow?: number,
 ): ConversationStores | undefined {
   const secret = env.ARTIFACT_KEYRING;
   if (secret === undefined) return undefined;
@@ -346,7 +347,14 @@ export function composeConversations(
         ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
       });
       return operation(
-        new PostgreSqlConversationStore(client, artifacts, undefined, model, contextTokenBudget),
+        new PostgreSqlConversationStore(
+          client,
+          artifacts,
+          undefined,
+          model,
+          contextTokenBudget,
+          historyWindow,
+        ),
       );
     });
   };

@@ -28,6 +28,7 @@ import {
   ACTOR_FIXED_INPUT_TOKENS,
   ACTOR_INSTRUCTIONS_INPUT_TOKENS,
   ACTOR_PROMPT_FRAMING_TOKENS,
+  actorContextSettings,
   actorContextTokenBudget,
   actorModelConfiguration,
   actorPreparedResponder,
@@ -533,4 +534,76 @@ it("an actor's prompt lists what it perceives, named and nearest first, in a cro
   ]);
   // Replay reads the same state and message, and perceives the same order.
   expect(describeScene(scene, state, { actorId: "keeper", message }).digest).toBe(digest);
+});
+
+it("a world's context settings and reserved shares keep history and the summary beside a full working document", async () => {
+  const world = (context: object) =>
+    actorModelConfiguration(JSON.stringify({ ...JSON.parse(configured(998_976)), context }));
+  const configuration = world({ tokenBudget: 2_560, historyWindow: 4 });
+  // The scripted path assembles under the world's budget; a route with room leaves it whole.
+  expect(actorContextSettings(configuration, false)).toEqual({
+    tokenBudget: 2_560,
+    historyWindow: 4,
+  });
+  expect(actorContextSettings(configuration, true).tokenBudget).toBe(2_560);
+  expect(actorContextSettings(actorModelConfiguration(undefined), false)).toEqual({
+    tokenBudget: 4_096,
+    historyWindow: 16,
+  });
+  for (const context of [{ tokenBudget: 255 }, { historyWindow: 65 }, { extra: 1 }])
+    expect(() => world(context)).toThrow();
+
+  const working = "w".repeat(MAX_DOCUMENT_OCTETS); // 2,048 tokens
+  const summary = "s".repeat(1_600); // 400 tokens
+  const document = (path: string, kind: "working_context" | "session_summary", text: string) => ({
+    documentId: `document-${kind}`,
+    path,
+    kind,
+    writeClass: "actor_writable" as const,
+    sessionId: kind === "session_summary" ? SESSION : null,
+    foreignSession: false,
+    state: "active" as const,
+    version: 1,
+    sourceHash: sourceHash(text),
+    tokens: tokensOfBytes(text.length),
+  });
+  const context = await assembleContext(
+    {
+      sessionId: SESSION,
+      inputMessageId: "message-11",
+      inputRevision: 10,
+      ...actorContextSettings(configuration, false),
+      documents: [
+        document("working-context.md", "working_context", working),
+        document(`sessions/${SESSION}/summary.md`, "session_summary", summary),
+      ],
+      messages: Array.from({ length: 10 }, (_, index) => ({
+        messageId: `message-${index + 1}`,
+        sequence: index + 1,
+        role: index % 2 === 0 ? ("caretaker" as const) : ("actor" as const),
+      })),
+    },
+    async (source: ContextSource) =>
+      source.source === "input"
+        ? "Hi."
+        : source.source === "message"
+          ? said(source.sequence)
+          : source.documentId === "document-working_context"
+            ? working
+            : summary,
+  );
+  // History keeps 640 and the summary its 400, so the 2,048-token working document (which left
+  // the summary one message of history before) is what gives way: 1 + 400 + 71 × 3 + 72 = 686.
+  expect(context.tokensUsed).toBe(686);
+  expect(
+    context.entries.map((entry) => `${entry.label}@${entry.version}:${entry.rule ?? "included"}`),
+  ).toEqual([
+    "working-context.md@1:token_budget",
+    `sessions/${SESSION}/summary.md@1:included`,
+    "actor@10:included",
+    "caretaker@9:included",
+    "actor@8:included",
+    "caretaker@7:included",
+    "caretaker@11:included",
+  ]);
 });

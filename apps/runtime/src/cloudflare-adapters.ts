@@ -95,7 +95,7 @@ import {
 import {
   type ActorModelDeps,
   actorCommandId,
-  actorContextTokenBudget,
+  actorContextSettings,
   actorGateway,
   actorModelConfiguration,
   actorOfferCommand,
@@ -2067,14 +2067,15 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   private stores(): ConversationStores {
-    const configuration =
-      actorGateway(this.environment) === undefined
-        ? undefined
-        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG);
+    // The world's context settings apply on the scripted path too; only a route lowers the budget.
+    const routed = actorGateway(this.environment) !== undefined;
+    const configuration = actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG);
+    const context = actorContextSettings(configuration, routed);
     const stores = composeConversations(
       this.environment,
-      configuration?.modelName,
-      configuration === undefined ? undefined : actorContextTokenBudget(configuration),
+      routed ? configuration.modelName : undefined,
+      context.tokenBudget,
+      context.historyWindow,
     );
     if (stores === undefined) throw new Error("conversation keyring required");
     return stores;

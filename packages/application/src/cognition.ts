@@ -25,6 +25,14 @@ export const CONTEXT_TOKEN_BUDGET = 4096;
  * reads a bounded number of protected messages however long its session grows.
  */
 export const CONTEXT_HISTORY_WINDOW = 16;
+/**
+ * Decision (issue 359): recent history keeps a quarter of the budget whenever the session has
+ * history, and the session's own summary keeps up to a quarter (its own size, if less), so documents
+ * earlier in kind order, a large working document among them, cannot crowd either out. A reserve
+ * nothing uses goes to history, which is decided last.
+ */
+export const CONTEXT_HISTORY_SHARE = 0.25;
+export const CONTEXT_SUMMARY_SHARE = 0.25;
 export const CONTEXT_PROMPT_VERSION = "context-prompt-v1";
 
 const encoder = new TextEncoder();
@@ -52,7 +60,11 @@ export function minimumInputLimitTokens(fixedInputTokens: number): number {
  * (instructions, tool catalog, schemas, prompt framing). A limit with no room for one estimated
  * token is refused rather than clamped, so no turn silently assembles without its context.
  */
-export function contextTokenBudget(inputLimitTokens: number, fixedInputTokens: number): number {
+export function contextTokenBudget(
+  inputLimitTokens: number,
+  fixedInputTokens: number,
+  budget: number = CONTEXT_TOKEN_BUDGET,
+): number {
   const minimum = minimumInputLimitTokens(fixedInputTokens);
   if (!(inputLimitTokens >= minimum))
     throw new RangeError(
@@ -61,7 +73,7 @@ export function contextTokenBudget(inputLimitTokens: number, fixedInputTokens: n
   const room = Math.floor(
     (inputLimitTokens - fixedInputTokens) / MEASURED_TOKENS_PER_ESTIMATED_TOKEN,
   );
-  return Math.min(CONTEXT_TOKEN_BUDGET, room);
+  return Math.min(budget, room);
 }
 
 /** The same estimate from a stored byte length, so the budget is decided before any text is read. */
@@ -108,6 +120,8 @@ export interface ContextInputs {
   readonly documents: readonly DocumentCandidate[];
   /** The session's messages up to the input revision, any order. */
   readonly messages: readonly MessageCandidate[];
+  /** The newest messages that are history candidates; `CONTEXT_HISTORY_WINDOW` by default. */
+  readonly historyWindow?: number;
 }
 
 export type ContextSource =
@@ -175,22 +189,52 @@ export interface DocumentDecision {
 
 /**
  * Decides every document from metadata alone, after the input's tokens are reserved: the
- * authorization rules first, then the budget from the stored length. A caller can therefore fetch
+ * authorization rules first, then the budget from the stored length, less the history and summary
+ * reserves (`CONTEXT_HISTORY_SHARE`, `CONTEXT_SUMMARY_SHARE`). A caller can therefore fetch
  * exactly the admitted texts at once before assembling.
  */
 export function documentDecisions(
   inputs: ContextInputs,
   inputTokens: number,
 ): readonly DocumentDecision[] {
+  const budget = inputs.tokenBudget;
+  const historyReserve = historyCandidates(inputs).length
+    ? Math.floor(budget * CONTEXT_HISTORY_SHARE)
+    : 0;
+  const summary = inputs.documents.find(
+    (document) =>
+      ownSummary(document, inputs.sessionId) &&
+      documentExclusion(document, inputs.sessionId) === null,
+  );
+  const summaryReserve = Math.min(Math.floor(budget * CONTEXT_SUMMARY_SHARE), summary?.tokens ?? 0);
   let used = inputTokens;
   return ordered(inputs.documents).map((document) => {
     const rule = documentExclusion(document, inputs.sessionId);
     if (rule !== null) return { document, rule };
     const tokens = document.tokens ?? 0;
-    if (used + tokens > inputs.tokenBudget) return { document, rule: "token_budget" as const };
+    // The summary may use its own reserve; every other document leaves both reserves free.
+    const limit = budget - historyReserve - (document === summary ? 0 : summaryReserve);
+    if (used + tokens > limit) return { document, rule: "token_budget" as const };
     used += tokens;
     return { document, rule: null };
   });
+}
+
+/** The session's own summary, the one document the summary share is kept for. */
+function ownSummary(document: DocumentCandidate, sessionId: string): boolean {
+  return (
+    document.kind === "session_summary" &&
+    !document.foreignSession &&
+    document.sessionId === sessionId
+  );
+}
+
+/** The history candidates, newest first: the window's newest messages at or before the input. */
+function historyCandidates(inputs: ContextInputs): MessageCandidate[] {
+  return inputs.messages
+    .filter((message) => message.sequence <= inputs.inputRevision)
+    .sort((a, b) => b.sequence - a.sequence)
+    .slice(0, inputs.historyWindow ?? CONTEXT_HISTORY_WINDOW);
 }
 
 interface Draft {
@@ -268,10 +312,7 @@ export async function assembleContext(
       order: 1 + ["protected", "governed", "untrusted"].indexOf(section),
     });
   }
-  const history = inputs.messages
-    .filter((message) => message.sequence <= inputs.inputRevision)
-    .sort((a, b) => b.sequence - a.sequence)
-    .slice(0, CONTEXT_HISTORY_WINDOW);
+  const history = historyCandidates(inputs);
   let truncated = false;
   for (const message of history) {
     const text = await read({ source: "message", sequence: message.sequence });
@@ -403,6 +444,8 @@ export function recordedInputs(
     tokenBudget: manifest.tokenBudget,
     documents,
     messages,
+    // The recorded history entries are the turn's window, whatever the world's window was.
+    historyWindow: messages.length,
   };
 }
 

@@ -133,6 +133,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     private readonly model: string = SCRIPTED_MODEL,
     /** A turn's context budget: the decided default, or one sized to the model route's input limit. */
     private readonly contextTokenBudget: number = CONTEXT_TOKEN_BUDGET,
+    /** The newest messages a turn reads as history: the decided default, or the world's window. */
+    private readonly historyWindow: number = CONTEXT_HISTORY_WINDOW,
   ) {
     this.runs = new PostgreSqlRunRecorder(client);
     this.documents = new PostgreSqlActorDocuments(client);
@@ -1259,12 +1261,18 @@ export class PostgreSqlConversationStore implements ConversationStore {
   ): Promise<AssembledContext> {
     const { tenantId } = request.scope;
     const { inputs, messages, texts } = await this.transaction(participant, async () => {
-      const messages = await this.historyRows(tenantId, request.sessionId, count);
+      const messages = await this.historyRows(
+        tenantId,
+        request.sessionId,
+        count,
+        this.historyWindow,
+      );
       const inputs: ContextInputs = {
         sessionId: request.sessionId,
         inputMessageId: request.messageId,
         inputRevision: count,
         tokenBudget: this.contextTokenBudget,
+        historyWindow: this.historyWindow,
         documents: await this.documents.candidates(tenantId, request.sessionId),
         messages: messages.map((row) => ({
           messageId: String(row.message_id),
@@ -1300,7 +1308,12 @@ export class PostgreSqlConversationStore implements ConversationStore {
     );
     const inputs = recordedInputs(manifest);
     const { messages, texts } = await this.transaction(reader, async () => ({
-      messages: await this.historyRows(scope.tenantId, manifest.sessionId, manifest.inputRevision),
+      messages: await this.historyRows(
+        scope.tenantId,
+        manifest.sessionId,
+        manifest.inputRevision,
+        inputs.historyWindow ?? CONTEXT_HISTORY_WINDOW,
+      ),
       texts: await this.admittedTexts(scope.tenantId, inputs, estimateTokens(input)),
     }));
     const context = await assembleContext(inputs, (source) =>
@@ -1319,14 +1332,14 @@ export class PostgreSqlConversationStore implements ConversationStore {
     );
   }
 
-  /** The newest history-window messages at or before a revision. */
-  private async historyRows(tenantId: string, sessionId: string, revision: number) {
+  /** The newest `window` messages at or before a revision. */
+  private async historyRows(tenantId: string, sessionId: string, revision: number, window: number) {
     const found = await this.client.query(
       `SELECT sequence, message_id, role, content_artifact_id FROM clockgrove.conversation_messages
         WHERE tenant_id = $1 AND session_id = $2 AND sequence > $3::integer - $4::integer
           AND sequence <= $3::integer
         ORDER BY sequence`,
-      [tenantId, sessionId, revision, CONTEXT_HISTORY_WINDOW],
+      [tenantId, sessionId, revision, window],
     );
     return found.rows as Row[];
   }
