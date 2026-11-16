@@ -48,8 +48,10 @@ export interface ModelRequest {
   readonly messages: readonly ModelMessage[];
   /**
    * Asked before each fallback route is tried, with that route's worst case for this request
-   * (`routeCostCeilingMicrousd`). Resolving false (or rejecting) ends the call `budget_exceeded`
-   * without trying it; the routes already tried keep their cost. Absent, every fallback is tried.
+   * (`routeCostCeilingMicrousd`). Resolving false ends the call `budget_exceeded` without trying
+   * it; the routes already tried keep their cost. Rejecting also skips the route: the attempts
+   * already made are settled and recorded (`exhausted`), then the rejection propagates from the
+   * call. Absent, every fallback is tried.
    */
   readonly admitFallback?: (route: {
     readonly routeId: string;

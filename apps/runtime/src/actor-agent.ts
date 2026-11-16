@@ -416,7 +416,11 @@ export class TurnFibers {
                             reserveMicrousd,
                           }),
                         );
-                        return decision === "reserved";
+                        if (decision === "reserved") return true;
+                        if (decision === "cost_budget_exhausted") return false;
+                        // A fenced turn is not a spent budget: the step fails as unavailable and
+                        // the fenced answer is refused where it commits.
+                        throw new Error(`model_route_${decision}`);
                       });
               } catch (error) {
                 if (this.host.research === undefined) throw error;

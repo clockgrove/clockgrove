@@ -296,13 +296,21 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
 
     const results: RouteResult[] = [];
     // A fallback route the caller did not admit for its own worst case is not tried (issue 349).
+    // A caller that could not decide (its admission rejected) ends the call too: the routes
+    // already tried are settled and recorded, then the rejection propagates, so a store error is
+    // never reported as a spent budget.
     let fallbackRefused = false;
+    let admissionFailed: { readonly error: unknown } | undefined;
     for (const route of alias.routes) {
       if (results.length > 0 && request.admitFallback !== undefined) {
         const reserveMicrousd = routeCostCeilingMicrousd(alias, route, inputTokens);
-        const admitted = await request
-          .admitFallback({ routeId: route.id, reserveMicrousd })
-          .catch(() => false);
+        let admitted: boolean;
+        try {
+          admitted = await request.admitFallback({ routeId: route.id, reserveMicrousd });
+        } catch (error) {
+          admissionFailed = { error };
+          break;
+        }
         if (!admitted) {
           fallbackRefused = true;
           break;
@@ -348,6 +356,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       outputSha256: last.text === "" ? null : await sha256(last.text),
     };
     await options.accounting.record(record);
+    if (admissionFailed !== undefined) throw admissionFailed.error;
     if (outcome === "completed") return { status: "completed", value: value as T, record };
     if (fallbackRefused)
       return { status: "failed", code: "budget_exceeded", retryable: false, record };

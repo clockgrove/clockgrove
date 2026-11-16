@@ -18,6 +18,7 @@ import {
   createModelGateway,
   InMemoryModelBudget,
   inputTokenBound,
+  type ModelCallRecord,
   PRODUCTION_ALIASES,
   ScriptedModelProvider,
 } from "@clockgrove/model-gateway";
@@ -170,7 +171,8 @@ it("a long session with a full summary and history keeps getting answers on the 
   // 16,400 and the second's primary holding 124,532, a fallback of 124,532 would pass $0.25, so it
   // is never called and the step ends cost_budget_exhausted, with the primary's cost recorded. A
   // second step carrying a 4 KiB result leaves room for its fallback, which answers.
-  const fallbackCase = async (octets: number) => {
+  const fallbackCase = async (octets: number, storeDown?: Error) => {
+    const records: ModelCallRecord[] = [];
     const routes = new ScriptedModelProvider({
       [route]: [{ kind: "http", status: 503 }],
       "anthropic/claude-opus-5-5": [
@@ -187,7 +189,7 @@ it("a long session with a full summary and history keeps getting answers on the 
         aliases: PRODUCTION_ALIASES,
         adapters: { "vercel-ai-gateway": routes, anthropic: routes },
         budget: new InMemoryModelBudget(() => 5_000_000),
-        accounting: { record: () => undefined },
+        accounting: { record: (record) => void records.push(record) },
       }),
       grants: () => CAPABILITY_REGISTRY.grantsFor(["runtime:world-observe"]),
       perceive: async () => undefined,
@@ -195,14 +197,27 @@ it("a long session with a full summary and history keeps getting answers on the 
     const step = await withEvidence(octets, responder);
     let turnHeld = cost + step.reserveMicrousd;
     const asked: number[] = [];
-    const answer = await step.send(async (microusd) => {
-      asked.push(microusd);
-      if (turnHeld + microusd > 250_000) return false;
-      turnHeld += microusd;
-      return true;
-    });
+    const answer = await step
+      .send(async (microusd) => {
+        asked.push(microusd);
+        if (storeDown !== undefined) throw storeDown;
+        if (turnHeld + microusd > 250_000) return false;
+        turnHeld += microusd;
+        return true;
+      })
+      .catch((error: unknown) => ({ rejected: error }));
     expect(turnHeld).toBeLessThanOrEqual(250_000);
-    return { answer, asked, routes: routes.calls.map((call) => call.route.id), turnHeld };
+    const record = records.at(-1);
+    return {
+      answer,
+      asked,
+      routes: routes.calls.map((call) => call.route.id),
+      turnHeld,
+      record: {
+        decision: record?.decision,
+        attempts: record?.attempts.map((attempt) => [attempt.routeId, attempt.outcome]),
+      },
+    };
   };
   expect(await fallbackCase(8_192)).toMatchObject({
     answer: {
@@ -213,6 +228,17 @@ it("a long session with a full summary and history keeps getting answers on the 
     asked: [124_532],
     routes: [route],
     turnHeld: 140_932,
+    record: { decision: "budget_refused", attempts: [[route, "unavailable"]] },
+  });
+  // A store that cannot answer the fallback's reservation is not a spent budget: the step rejects
+  // (the turn fiber answers model_unavailable), the fallback is never called, and the primary's
+  // attempt is still recorded.
+  const storeDown = new Error("store unavailable");
+  expect(await fallbackCase(4_096, storeDown)).toMatchObject({
+    answer: { rejected: storeDown },
+    asked: [108_148],
+    routes: [route],
+    record: { decision: "exhausted", attempts: [[route, "unavailable"]] },
   });
   // 16,400 settled + 108,148 for the primary + 108,148 for the fallback = 232,696.
   expect(await fallbackCase(4_096)).toMatchObject({
@@ -220,6 +246,13 @@ it("a long session with a full summary and history keeps getting answers on the 
     asked: [108_148],
     routes: [route, "anthropic/claude-opus-5-5"],
     turnHeld: 232_696,
+    record: {
+      decision: "fallback",
+      attempts: [
+        [route, "unavailable"],
+        ["anthropic/claude-opus-5-5", "completed"],
+      ],
+    },
   });
 
   // A research step adds four calls of evidence, each at the 8 KiB cut and at its worst escaping

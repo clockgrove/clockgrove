@@ -116,8 +116,11 @@ A caller that holds its own spending cap can pass `admitFallback` on the request
 fallback route, the gateway asks it with that route's own worst case for the measured request
 (`routeCostCeilingMicrousd`: measured input × input price + `maxOutputTokens` × output price). If
 it answers false, the route is not tried and the call ends `budget_exceeded` (not retryable),
-decision `budget_refused`, with the attempts already made and their cost. The actor's research
-turn uses this to reserve one route at a time against its turn cap (issue 349).
+decision `budget_refused`, with the attempts already made and their cost. If `admitFallback`
+rejects (the caller could not decide, for example its store failed), the route is not tried
+either: the gateway settles and records the attempts already made (decision `exhausted`) and
+then rethrows that rejection, so a caller's error is never reported as a spent budget. The
+actor's research turn uses this to reserve one route at a time against its turn cap (issue 349).
 
 Each route has a breaker (`src/breaker.ts`). These outcomes count against it:
 
