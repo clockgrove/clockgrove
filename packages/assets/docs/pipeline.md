@@ -410,8 +410,11 @@ and path, or by its `uri`:
 
 - `MODEL_SIDE_IMAGE_URI_INVALID`: a `uri` is absolute (a scheme or a leading `/`) or
   leaves the model's directory.
-- `MODEL_SIDE_IMAGE_UNDECLARED`: a `uri` names an image the manifest does not declare
-  (including any `uri` of an embedded model).
+- `MODEL_SIDE_IMAGE_UNDECLARED`: an image's file `uri` (one with no `bufferView`) names
+  an image the manifest does not declare, including such a `uri` in a model that declares
+  no side images.
+- `MODEL_GLB_INVALID`: an image has both a `bufferView` and a non-`data:` `uri`. A `data:`
+  `uri` beside a `bufferView` is accepted, as before.
 - `MODEL_SIDE_IMAGE_UNUSED`: a declared image is not used by any `.glb` image `uri`.
 - `MODEL_SIDE_IMAGE_REQUIRED`: a declared image's file is missing.
 - `MODEL_SIDE_IMAGE_HASH_MISMATCH`: its bytes do not match its `sha256`.

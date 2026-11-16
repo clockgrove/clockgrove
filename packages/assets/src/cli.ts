@@ -163,9 +163,10 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
             modelImageFields.flatMap((key) => (record[key] ? [[key, rename(record[key])]] : [])),
           );
         const { tiers } = f.manifest.output;
-        const uris = Object.entries(
-          sideImageUris(f.manifest, inspectModel(f.bytes).imageUris ?? []),
-        );
+        // Only a model with side images has uris to map; skip a second parse of the rest.
+        const uris = shipped.size
+          ? Object.entries(sideImageUris(f.manifest, inspectModel(f.bytes).imageUris ?? []))
+          : [];
         index[f.manifest.assetId] = {
           ...f.manifest.output,
           path: name,
