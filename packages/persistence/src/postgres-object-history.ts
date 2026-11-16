@@ -15,6 +15,10 @@ import { withClientTransaction } from "./postgres-transaction.js";
 // work on the unique (tenant, timeline, partition, partition_sequence) index without a migration;
 // that covers 40 ticks of 50 actors writing 5 events each.
 const MATERIAL_SCAN_SEQUENCES = 10_000n;
+// Each further page doubles, up to this cap, so a read that keeps little reaches the floor in a
+// bounded number of round trips: 100, 200, 400, 800, 1,600 then 2,000-row pages, at most 9 queries
+// for the 10,000-sequence window.
+const MATERIAL_PAGE_CAP = 2_000;
 
 /** Bounded public windows; privacy-hidden sequence gaps are not fabricated missing events. */
 export class PostgreSqlObjectHistoryReader {
@@ -64,6 +68,7 @@ export class PostgreSqlObjectHistoryReader {
     const events: StoredEvent[] = [];
     await withClientTransaction(this.client, { authorization }, async () => {
       let cursor = beforeSequence;
+      let page = limit;
       while (events.length < limit && cursor > lowest) {
         const rows = await this.client.query(
           `SELECT event_bytes FROM clockgrove.events
@@ -78,7 +83,7 @@ export class PostgreSqlObjectHistoryReader {
             String(cursor),
             String(lowest),
             [...eventTypes],
-            limit,
+            page,
           ],
         );
         for (const row of rows.rows) {
@@ -92,7 +97,8 @@ export class PostgreSqlObjectHistoryReader {
           for (const event of await this.verify(scope, bytes, sequence))
             if (events.length < limit && keep(event)) events.push(event);
         }
-        if (rows.rows.length < limit) break;
+        if (rows.rows.length < page) break;
+        page = Math.min(page * 2, Math.max(MATERIAL_PAGE_CAP, limit));
       }
     });
     return events;

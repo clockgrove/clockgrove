@@ -157,7 +157,10 @@ PostgreSQL (`PostgreSqlObjectHistoryReader.readTypes`, issue 354) and keeps read
 every event it does not show until it holds 100 or reaches the scan floor. So a space whose 30 to 50
 busy actors journal routine events every tick, or whose water holders integrate a dry spell every
 tick, still shows its latest material ones. Decision: the read scans at most the newest 10,000
-partition sequences, bounding its work on the partition-sequence index. Each event is verified as the
+partition sequences, bounding its work on the partition-sequence index. Each further page doubles
+in size up to 2,000 rows (100, 200, 400, 800, 1,600, then 2,000), so a read that keeps few events,
+as when zero-change weather rows fill the window, costs at most 9 queries in one transaction and
+decodes and verifies at most the 10,000 scanned events. Each event is verified as the
 history reader verifies it. Events outside the caller's privacy ceiling are absent and never appear.
 
 ## Authorized scene stream
