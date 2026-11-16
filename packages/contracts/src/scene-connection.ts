@@ -72,6 +72,11 @@ export interface SceneConnectionAttachment extends SceneConnectionMetadata {
    * memory loss it alone tells a restored cursor's audience from the current one.
    */
   readonly acknowledgedAudienceHash?: string;
+  /**
+   * Epoch milliseconds since a publication turn first found this connection's frame ledger full
+   * without an acknowledgement since. Kept here so a stall outlives the owner's memory loss.
+   */
+  readonly stalledSince?: number;
 }
 
 export function decodeSceneConnectionAudience(
@@ -105,10 +110,15 @@ export function decodeSceneConnectionAttachment(
   exactKeys(
     v,
     ["principalId", "audience", "acknowledgedRevision", "connectionVersion"],
-    ["acknowledgedAudienceHash"],
+    ["acknowledgedAudienceHash", "stalledSince"],
     path,
   );
-  const { audience, acknowledgedAudienceHash, ...metadata } = v;
+  const { audience, acknowledgedAudienceHash, stalledSince, ...metadata } = v;
+  if (
+    stalledSince !== undefined &&
+    (typeof stalledSince !== "number" || !Number.isSafeInteger(stalledSince) || stalledSince < 0)
+  )
+    throw new ContractDecodeError(`${path}.stalledSince`, "expected non-negative safe integer");
   return {
     ...decodeSceneConnectionMetadata(metadata, path),
     audience: decodeSceneConnectionAudience(audience, `${path}.audience`),
@@ -120,6 +130,7 @@ export function decodeSceneConnectionAttachment(
             `${path}.acknowledgedAudienceHash`,
           ),
         }),
+    ...(stalledSince === undefined ? {} : { stalledSince }),
   };
 }
 

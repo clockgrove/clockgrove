@@ -336,7 +336,8 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       projection: undefined,
       pending: false,
       dirty: false,
-      stalledSince: undefined,
+      // After memory loss the attachment alone knows when the ledger first stalled.
+      stalledSince: attachment.stalledSince,
       operator: undefined,
       audiences: new Map(),
       // After memory loss the attachment alone knows which audience the client acknowledged.
@@ -352,7 +353,11 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
     const previous = this.intents.get(socket);
     const debt = previous === undefined ? 0 : previous.debt + previous.delivered.length;
-    if (debt >= SCENE_DELIVERY_BOUNDS.unacknowledged) {
+    const stalledSince = previous?.stalledSince ?? stored.stalledSince;
+    if (
+      debt >= SCENE_DELIVERY_BOUNDS.unacknowledged ||
+      (stalledSince !== undefined && this.now() - stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs)
+    ) {
       this.backpressure(socket);
       return;
     }
@@ -362,6 +367,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       connectionVersion: stored.connectionVersion + (replacing ? 1 : 0),
     };
     const intent = this.intend(socket, attachment, debt);
+    intent.stalledSince = stalledSince;
     if (previous !== undefined) intent.acknowledgedAudience = previous.acknowledgedAudience;
     socket.serializeAttachment(attachment);
     // A client sent a changed audience has discarded its acknowledged state: only a snapshot helps.
@@ -385,7 +391,10 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       ) {
         // Memory loss dropped the delivery ledger, not the delivery: the PostgreSQL read bounds
         // the acknowledged revision instead, then delivery continues from it.
-        await this.deliver(socket, this.intend(socket, stored, 0), control.revision, true);
+        const restored = this.intend(socket, stored, 0);
+        // An acknowledgement is progress: the stall `record` clears from the attachment ends here too.
+        restored.stalledSince = undefined;
+        await this.deliver(socket, restored, control.revision, true);
         return;
       }
     }
@@ -419,6 +428,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
   /**
    * Stores an acknowledgement on its own connection version, never moving the cursor back, with
    * the acknowledged frame's audience hash when known; an unknown one keeps the stored hash.
+   * Any acknowledgement on the current connection version clears a stored stall.
    */
   private record(
     socket: SceneSocket,
@@ -427,12 +437,14 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
   ) {
     const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
     if (stored.connectionVersion !== control.connectionVersion) return false;
+    const { stalledSince, ...unstalled } = stored;
     if (stored.acknowledgedRevision === null || control.revision > stored.acknowledgedRevision)
       socket.serializeAttachment({
-        ...stored,
+        ...unstalled,
         acknowledgedRevision: control.revision,
         ...(audience === undefined ? {} : { acknowledgedAudienceHash: audience }),
       });
+    else if (stalledSince !== undefined) socket.serializeAttachment(unstalled);
     return true;
   }
 
@@ -459,15 +471,25 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       return;
     }
     const full = intent.debt + intent.delivered.length >= SCENE_DELIVERY_BOUNDS.unacknowledged;
+    // Only a full frame ledger is the client's lag; a pending read is the server's own latency.
+    const now = this.now();
+    if (full && intent.stalledSince === undefined) {
+      intent.stalledSince = now;
+      // The attachment outlives hibernation, so a silent client's wait survives the owner idling.
+      const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
+      socket.serializeAttachment({ ...stored, stalledSince: now });
+    }
+    // A stall ends only with an acknowledgement, even when memory loss emptied the ledger since.
+    if (
+      intent.stalledSince !== undefined &&
+      now - intent.stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs
+    ) {
+      this.backpressure(socket);
+      return;
+    }
     if (intent.pending || full) {
       // No audience is decided for this socket this turn, so the operator lane skips it.
       intent.dirty = true;
-      // Only a full frame ledger is the client's lag; a pending read is the server's own latency.
-      if (full) {
-        const now = this.now();
-        intent.stalledSince ??= now;
-        if (now - intent.stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs) this.backpressure(socket);
-      }
       return;
     }
     await this.deliver(socket, intent, intent.lastSent, false, reads);

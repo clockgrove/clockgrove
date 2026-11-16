@@ -666,12 +666,24 @@ describe("native recoverable bounded scene delivery", () => {
         expect(lagging.received.frames.map((wire) => JSON.parse(wire).type)).not.toContain(
           "recovery",
         );
-        // Commit through the wait: an idle native owner hibernates and forgets the ledger.
-        for (let wait = 0; Date.now() < burstBegan + SCENE_DELIVERY_BOUNDS.stalledMs; wait++) {
-          await new Promise((resolve) => setTimeout(resolve, 5_000));
-          expect(await Promise.race([closed, "open"])).toBe("open");
-          await commit(`scene-silent-${wait}`);
-        }
+        // The server's stall clock is in the attachment, so it outlives the owner's memory loss.
+        const stalledSince = (await attachments()).find(
+          ({ stalledSince: since }) => since !== undefined,
+        )?.stalledSince;
+        if (stalledSince === undefined) throw new Error("expected a stored stall");
+        expect(stalledSince).toBeGreaterThanOrEqual(burstBegan);
+        // Drop the delivery ledger as hibernation does: the restored socket is still stalled.
+        expect(await owner.request(`/scene/reset?${query}`, null)).toEqual({
+          status: 200,
+          body: { reset: true },
+        });
+        await commit("scene-silent");
+        expect(await Promise.race([closed, "open"])).toBe("open");
+        // Wait out the bound from the server's own clock, with no commit keeping the owner awake.
+        await new Promise((resolve) =>
+          setTimeout(resolve, stalledSince + SCENE_DELIVERY_BOUNDS.stalledMs + 1_000 - Date.now()),
+        );
+        expect(await Promise.race([closed, "open"])).toBe("open");
         await commit("scene-stalled");
         expect(await closed).toEqual({ code: 1013, reason: "backpressure" });
         expect(lagging.received.frames.map((wire) => JSON.parse(wire))).toContainEqual({
