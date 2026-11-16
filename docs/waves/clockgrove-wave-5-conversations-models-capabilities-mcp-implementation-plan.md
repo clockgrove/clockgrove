@@ -731,6 +731,8 @@ Qualification scenarios:
 - replay and preview never dispatch recorded external effects;
 - a `continuously_eligible` actor process survives eviction and deployment through bounded segments, checkpoints, lease epochs, budgets, and one stable process ID without requiring a resident isolate.
 
+Qualification command (issue 169): `pnpm run qualify:wave5 [--out <dir>]` runs the nine local suites above and `test:db` once on a frozen candidate and maps each scenario, the crash matrix (eviction at every in-flight fiber phase, the tool and approval waits included, and duplicate wakes of every kind) and the security fixtures to the literal tests that prove them, in `scripts/ci/qualify-wave5-scenarios.json`. `qualify:wave5:staging` does not exist yet; it stays pending on issue 3. The [development runbook](../runbooks/development.md#acceptance-commands) describes the suites and the manifest, and the [testing runbook](../runbooks/testing.md#wave-qualification) says how to run it.
+
 ---
 
 ## 18. Budgets, observability, and security
@@ -783,6 +785,8 @@ Wave 5 does not implement:
 - [ ] Local and real-provider/staging qualification pass.
 
 The manifest records commit, schema/policy/model/tool versions, provider and scripted eval results, crash matrix, security fixtures, token/cost distributions, effect/delivery evidence, UI/accessibility results, staging qualification, and exit decision.
+
+`pnpm run qualify:wave5` writes that manifest as `wave5-manifest.json` in a directory the run owns (by default `.qualification/wave5-<ms>/`), read-only, never overwritten, with the comparison domains it declared before the run (`scripts/ci/qualify-wave5-comparison.json`). Each item above carries its disposition there; the boxes above are not a status board. Staging, real-provider and hosted MCP egress items stay pending on issue 3, and the conversation-usefulness rubric pilot stays pending on its owner (issue 19).
 
 ---
 
