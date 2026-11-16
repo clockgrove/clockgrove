@@ -582,7 +582,7 @@ settle a started intent from its previously recorded terminal attempt, preservin
 outcome and timestamp. An uncertain outcome stays terminal. An operator's retry of an uncertain
 effect opens a new session in the voice of the session the effect came from, which opened in the
 voice its actor declares (`clockgrove.conversation-mode`, issue 354); an effect whose run has no
-session for its actor cannot be retried. Scoped reads return encrypted
+session for its actor (its run is optional) is retried in the `cognitive` voice, as before. Scoped reads return encrypted
 result references for future replay consumers; they never contact a server. Accounting keeps
 known cost and the number of terminal attempts with unknown cost separate.
 

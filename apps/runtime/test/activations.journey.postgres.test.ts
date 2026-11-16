@@ -66,6 +66,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
       );
       expect(created.status).toBe(200);
       const sessionId = decodeConversationSession(created.body).sessionId;
+      const configuration = (id: string, kind: string, fields: object = {}) => ({
+        id,
+        sessionId,
+        kind,
+        nextWakeAt: null,
+        intervalMs: null,
+        input: "Consider the changed world",
+        priority: 1,
+        enabled: true,
+        compiledRoutine: "escalate",
+        ...fields,
+      });
       const configure = (
         id: string,
         kind: string,
@@ -74,20 +86,17 @@ it.skipIf(!isNativeWorldOwnerChild())(
         allowModel = true,
       ) =>
         post("configure", {
-          configuration: {
-            id,
-            sessionId,
-            kind,
-            nextWakeAt: null,
-            intervalMs: null,
-            input: "Consider the changed world",
-            priority: 1,
-            enabled: true,
-            compiledRoutine: "escalate",
-            ...fields,
-          },
+          configuration: configuration(id, kind, fields),
           policy: { allowModel, modelBudget },
         });
+      const refusal = async (fields: object, token = MEMBER) =>
+        (
+          await owner.request(
+            "/v1/runtime/activations/configure",
+            { version: 1, scope: owner.scope, actorId: ACTOR, ...fields },
+            token,
+          )
+        ).body;
       const wake = (configurationId: string, causalRoot: string, reason: object) =>
         post("wake", {
           wake: { configurationId, causalRoot, reason, evidence: `evidence:${causalRoot}` },
@@ -98,61 +107,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
           || '/' || (SELECT count(*) FROM clockgrove.conversation_turn_fibers)
           || '/' || (SELECT count(*) FROM clockgrove.conversation_messages)`,
         );
-      const denied = await owner.request(
-        "/v1/runtime/activations/configure",
-        {
-          version: 1,
-          scope: owner.scope,
-          actorId: ACTOR,
-          configuration: {
-            id: "outsider",
-            sessionId,
-            kind: "heartbeat",
-            nextWakeAt: null,
-            intervalMs: null,
-            input: "unauthorized",
-            priority: 1,
-            enabled: true,
-            compiledRoutine: "escalate",
+      const policy = { allowModel: true, modelBudget: 10 };
+      expect(
+        await refusal(
+          {
+            configuration: configuration("outsider", "heartbeat", { input: "unauthorized" }),
+            policy,
           },
-          policy: { allowModel: true, modelBudget: 10 },
-        },
-        "outsider-session-token",
-      );
-      expect(denied.status).toBe(403);
+          "outsider-session-token",
+        ),
+      ).toEqual({ error: "authorization_refused" });
       // A need is named only on a threshold, and only as hunger or thirst.
       for (const [kind, need] of [
         ["subscription", "hunger"],
         ["threshold", "sleep"],
-      ])
+      ] as const)
         expect(
-          await owner.request(
-            "/v1/runtime/activations/configure",
-            {
-              version: 1,
-              scope: owner.scope,
-              actorId: ACTOR,
-              configuration: {
-                id: `need-${kind}`,
-                sessionId,
-                kind,
-                nextWakeAt: null,
-                intervalMs: null,
-                eventType: "needs.threshold-crossed",
-                need,
-                input: "",
-                priority: 1,
-                enabled: true,
-                compiledRoutine: "noop",
-              },
-              policy: { allowModel: true, modelBudget: 10 },
-            },
-            MEMBER,
-          ),
-        ).toMatchObject({
-          status: 400,
-          body: { error: "invalid_inspection_request" },
-        });
+          await refusal({ configuration: configuration(`need-${kind}`, kind, { need }), policy }),
+        ).toEqual({ error: "invalid_inspection_request" });
       expect(await counts()).toBe("0/0/0");
       await configure("rain", "subscription", { eventType: "rain.started" });
       await configure("perceived-rain", "perception");
@@ -616,20 +588,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         expect(opened.status).toBe(200);
         await post("configure", {
           actorId,
-          configuration: {
-            id,
+          configuration: configuration(id, "threshold", {
             sessionId: decodeConversationSession(opened.body).sessionId,
-            kind: "threshold",
-            nextWakeAt: null,
-            intervalMs: null,
             eventType: "needs.threshold-crossed",
             need,
-            input: "",
-            priority: 1,
-            enabled: true,
             compiledRoutine: "noop",
-          },
-          policy: { allowModel: true, modelBudget: 10 },
+          }),
+          policy,
         });
       };
       await threshold("fixture.companion", "companion-hunger", "hunger");

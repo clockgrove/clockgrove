@@ -330,34 +330,18 @@ it("stores a need only on a threshold, and only hunger or thirst", async () => {
   const client = connect(cluster.fixture.environment);
   try {
     const activations = new PostgreSqlActivations(client);
-    const configuration = (id: string, kind: string, need: string) =>
-      activations.configure(
-        address,
-        {
-          id,
-          sessionId: "session-keeper",
-          kind,
-          nextWakeAt: null,
-          intervalMs: null,
-          eventType: "needs.threshold-crossed",
-          need,
-          input: "",
-          priority: 1,
-          enabled: true,
-          compiledRoutine: "noop",
-        } as never,
-        { allowModel: false, modelBudget: 0 },
-      );
-    await expect(configuration("need-subscription", "subscription", "hunger")).rejects.toThrow(
-      "invalid activation configuration",
+    const policy = { allowModel: false, modelBudget: 0 };
+    const threshold = { id: "need", sessionId: "session-keeper", kind: "threshold" } as const;
+    const base = { nextWakeAt: null, intervalMs: null, input: "", priority: 1, enabled: true };
+    const stored = { ...threshold, ...base, compiledRoutine: "noop", need: "hunger" } as const;
+    for (const refused of [{ kind: "subscription" }, { need: "sleep" }])
+      await expect(
+        activations.configure(address, { ...stored, ...refused } as never, policy),
+      ).rejects.toThrow("invalid activation configuration");
+    await activations.configure(address, stored, policy);
+    expect((await activations.inspect(address)).configurations).toContainEqual(
+      expect.objectContaining({ id: "need", kind: "threshold", need: "hunger" }),
     );
-    await expect(configuration("need-sleep", "threshold", "sleep")).rejects.toThrow(
-      "invalid activation configuration",
-    );
-    await configuration("need-hunger", "threshold", "hunger");
-    expect(
-      (await activations.inspect(address)).configurations.find((c) => c.id === "need-hunger"),
-    ).toMatchObject({ kind: "threshold", need: "hunger" });
   } finally {
     await client.close();
   }
