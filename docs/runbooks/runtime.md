@@ -1386,6 +1386,22 @@ The activation inspector reports each causal reason and the next scheduled wake,
 budget-deferred evidence. The existing native owner executes admitted work through its recoverable
 turn fiber, retaining PostgreSQL as authority. No continuous per-actor process is required.
 
+Long-lived worlds keep waking (issue 358): each actor's wakes and model spend are limited per
+period of wall-clock time on the runtime's clock, never over its lifetime. The operator sets them
+in the configure route's `policy`; omitting a field keeps the stored value:
+
+| Setting | Default | Range | Limits |
+| --- | --- | --- | --- |
+| `budgetPeriodMs` | 3,600,000 (one hour) | 60,000 to 2,592,000,000 | the length of one period; periods are fixed windows from the Unix epoch |
+| `wakeLimit` | 120 | 1 to 10,000 | new causal receipts (wakes) admitted per period; at the limit a wake is refused `activation_wake_limit` (429) and a scheduled wake or unread event waits for the next period |
+| `modelBudget` | required | 0 to 1,000 | model opportunities reserved per period; past it a wake is deferred `budget_exhausted` and resumes when the next period starts |
+
+Decision: the one-hour period follows the hourly intention, and 120 wakes are twice what one
+minimum-interval (60 s) heartbeat produces in it. Inspection answers the current `period`
+(`periodMs`, `wakeLimit`, `wakes`, `endsAt`) and `modelCallsReserved` for this period, and the
+owner logs `activation_limit_reached` when a scheduled check stops at the wake limit. Every causal
+receipt is kept, so a causal root that recurs is still refused.
+
 ## Wake-triage shadow report
 
 Bind `WAKE_TRIAGE_CONFIG` to a JSON object to enable wake triage. Omit the binding to disable it;
@@ -1402,11 +1418,14 @@ Bind `WAKE_TRIAGE_CONFIG` to a JSON object to enable wake triage. Omit the bindi
 }
 ```
 
-The threshold is 65% in basis points. The budget is $0.10 per world per simulated day and reserves
+The threshold is 65% in basis points. The budget is $0.10 per world per wall-clock day and reserves
 $0.001 for each decision opportunity. Full reservations remain spent, including lower measured
 cost, unknown cost and interrupted calls; the default admits at most 100 reserved opportunities
-in a day. All actors in the world and timeline share the durable budget. Day boundaries follow
-the pack's declared environment day length, with an 86,400,000 ms fallback when absent.
+in a day. All actors in the world and timeline share the durable budget. The day is the calendar
+day of the runtime's clock in `dailyBudgetZone` (an IANA time zone, default `"UTC"`), whatever the
+pack's environment day length (issue 358): a world with one-hour days still spends at most one
+`dailyBudgetMicrousd` per real day. Reservations made before migration 0073 carry no wall-clock day
+and are not counted against one.
 These are conservative operator policy choices,
 not measured model prices. Change the configured model to `openai/gpt-6-luna-decisions`,
 `baseten/mammoth-1` or `google/gemini-decision-1` to measure the owner's other candidates through the same alias. Bind

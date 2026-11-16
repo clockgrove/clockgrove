@@ -202,7 +202,7 @@ The authenticated Runtime HTTP API exposes three POST routes, each with a JSON b
   policy-only request also needs the operator grant `runtime:world-operate`; without it, 403.
 - `/v1/runtime/activations/wake` additionally takes `wake`.
 - `/v1/runtime/activations/inspect` returns the actor's bounded activation evidence, configuration,
-  model reservation count and `nextWakeAt`.
+  this period's model reservation count, its `period` and `nextWakeAt`.
 
 Configuration and explicit wakes require `runtime:world-command`. Inspection requires
 `runtime:world-observe`. All three require the caller's world persona, the `conversation` privacy
@@ -214,8 +214,11 @@ A configuration contains `id`, `sessionId`, `kind`, `nextWakeAt` (epoch millisec
 `intervalMs` (milliseconds or null, at least 60,000 when set), optional `eventType`, `input`,
 `priority` (0–100), `enabled` and
 `compiledRoutine` (`noop` or `escalate`), an optional `condition` (text, at most 1,024 bytes: what must hold for a `noop` routine to handle a wake, shown to [wake triage](decision-shadow.md#wake-triage) as data and never evaluated), plus optional `delivery` with `urgency` (`normal` or `urgent`) and `quietHoursBehavior` (`delay`, `silent` or `reject`). Omitting delivery preserves existing behavior. The policy contains `allowModel` and `modelBudget`, a
-lifetime model-opportunity allowance (0–1,000) shared across the actor's configurations, and optional
-`revokedCapabilities` (below).
+model-opportunity allowance per budget period (0–1,000) shared across the actor's configurations,
+optional `budgetPeriodMs` (60,000 to 2,592,000,000; default 3,600,000) and `wakeLimit` (new causal
+receipts per period, 1 to 10,000; default 120), both kept when omitted, and optional
+`revokedCapabilities` (below). Periods are fixed wall-clock windows from the Unix epoch on the
+runtime's clock (issue 358); a new period renews both the wakes and the model allowance.
 An opportunity is reserved before model escalation; interrupted model retries reserve another. A wake
 contains `configurationId`, `causalRoot`, `reason` and `evidence`. Its discriminated reason is one
 of Wave 5 §5.2's scheduled intention, subscription, perception, threshold, heartbeat, tool
@@ -226,9 +229,13 @@ compiled routines and policy run before a model opportunity is reserved; a no-op
 activation records its outcome without opening a model turn. An admitted model activation uses a
 stable message ID in the existing recoverable turn fiber. Inspection preserves its reason, causal
 root, participant attribution, decision and next wake. Configurations and durable deduplication
-receipts are bounded to 64 configurations and 1,000 causal receipts per actor; exhausted
-capacity refuses additional admission rather
-than forgetting an old receipt and risking duplicate execution.
+receipts are bounded to 64 configurations and `wakeLimit` new causal receipts per period; a wake
+past the limit is refused `activation_wake_limit` (429) rather than forgetting an old receipt and
+risking duplicate execution. Receipts are never forgotten, so a causal root that recurs is still
+refused. A scheduled wake refused at the limit waits for the period's end, and an event stays
+unread until then. Inspection answers `period` (`periodMs`, `wakeLimit`, `wakes`, `endsAt`) and
+a bounded `activations` list: every pending and every deferred scheduled receipt, the 64 oldest
+other deferred ones and the 256 newest settled ones.
 
 A compiled `noop` decision disables that configuration and clears its next wake, suppressing
 repeated empty opportunities until an operator reconfigures it. Subscriptions and thresholds wake on
