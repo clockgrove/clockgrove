@@ -137,6 +137,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(rain.activationId).toBe(perceived.activationId);
       expect(rain.causalRoot).toBe("rain-root");
       expect(await counts()).toBe("1/1/2");
+      // A duplicate perception wake is the same activation, never a second turn or model call.
+      const perceivedAgain = await wake("perceived-rain", "rain-root", {
+        kind: "perception",
+        perceptionId: "rain-perception",
+      });
+      expect(perceivedAgain.activationId).toBe(perceived.activationId);
+      expect(await counts()).toBe("1/1/2");
       expect(await agent({ op: "model-calls" })).toBe(1);
       expect(
         await owner.sql(

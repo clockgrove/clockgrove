@@ -578,22 +578,17 @@
     {
       "id": "W-perception",
       "item": "Duplicate perception wake coalesces into one activation and one model call",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/activations.journey.postgres.test.ts",
-          "marker": "coalesces causal and heartbeat wakes, suppresses no-ops, defers budgets and recovers an alarm turn"
+          "marker": "// A duplicate perception wake is the same activation, never a second turn or model call."
         },
         {
           "file": "apps/runtime/test/activations.journey.postgres.test.ts",
           "marker": "expect(rain.activationId).toBe(perceived.activationId);"
-        },
-        {
-          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
-          "marker": "expect(await agent({ op: \"perception\", sessionId: duplicated, messageId: \"d1\" })).toEqual({"
         }
-      ],
-      "deviation": "Perception is proven to coalesce with a subscription wake sharing the causal root, and a repeated message perception is not admitted; no test submits the same perception wake twice."
+      ]
     },
     {
       "id": "W-subscription",
