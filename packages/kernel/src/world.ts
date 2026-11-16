@@ -30,6 +30,7 @@ import {
   expectedCrossings,
   isRegionCrossing,
   lifecycleDisagreement,
+  lifecycleForKind,
   MOVEMENT_COMMAND_TYPES,
   type MovementCommand,
   type MovementCommandType,
@@ -1018,6 +1019,16 @@ function runWorld(
   /** Simulation time each lifecycle draft/draw belongs to, for rollback to the final time. */
   const draftTimes: bigint[] = [];
   const lifecyclePolicy = policy.lifecycle;
+  const archetypesNow = (): Map<string, string> =>
+    new Map(current().entities.map((entity) => [entity.objectId, entity.archetypeId]));
+  const kindOfActor = (objectId: string) => {
+    const archetypeId = current().entities.find(
+      (entity) => entity.objectId === objectId,
+    )?.archetypeId;
+    return lifecyclePolicy === undefined || archetypeId === undefined
+      ? undefined
+      : lifecycleForKind(lifecyclePolicy, archetypeId);
+  };
   /** The `lifecycle` stream state after each emitted lifecycle group (rolled back to the final time). */
   let lifecycleRandom: NamedRandomState = input.randomState;
   const randomLog: { time: bigint; random: NamedRandomState }[] = [];
@@ -1878,7 +1889,7 @@ function runWorld(
               decisionIntervalMs: policy.decisionIntervalMs,
               ...(lifecyclePolicy === undefined
                 ? {}
-                : { deathHealth: lifecyclePolicy.deathHealth }),
+                : { deathHealth: (objectId: string) => kindOfActor(objectId)?.deathHealth }),
             },
           }),
       actors:
@@ -1919,7 +1930,7 @@ function runWorld(
     for (const action of plan.actions) {
       total += 1;
       if (action.kind !== "died") continue;
-      if (lifecyclePolicy !== undefined && lifecyclePolicy.successorRule !== null) total += 1;
+      if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
       if (movement !== undefined && movement.status === "active")
         // Terminal interruptions do not reconcile shelter arrivals before the following death.
@@ -1941,6 +1952,7 @@ function runWorld(
         : planLifecycleAt(
             lifecyclePolicy,
             lifecycleNow,
+            archetypesNow(),
             at,
             new Set(group.deaths),
             lifecycleRandom,
@@ -2251,7 +2263,9 @@ function runWorld(
             (candidate) => candidate.objectId === action.objectId,
           );
           if (entry === undefined) throw new RangeError("dying actor has no wellbeing entry");
-          if (action.cause === "health" && entry.health > lifecyclePolicy.deathHealth)
+          const kind = kindOfActor(action.objectId);
+          if (kind === undefined) throw new RangeError("dying actor has no lifecycle kind");
+          if (action.cause === "health" && entry.health > kind.deathHealth)
             throw new RangeError("health death disagrees with the integrator");
           emit(
             event("lifecycle.died", at, {
@@ -2267,12 +2281,12 @@ function runWorld(
             schedules = cancelSchedule(schedules, queued.id);
             scheduleMutations.push(Object.freeze({ kind: "cancel", scheduleId: queued.id }));
           }
-          if (lifecyclePolicy.successorRule !== null)
+          if (kind.successorRule !== null)
             emit(
               event("lifecycle.successor-intended", at, {
                 objectId: action.objectId,
-                successorId: lifecycleSuccessorId(action.objectId, lifecyclePolicy.successorRule),
-                rule: lifecyclePolicy.successorRule,
+                successorId: lifecycleSuccessorId(action.objectId, kind.successorRule),
+                rule: kind.successorRule,
               }),
             );
         } else if (action.kind === "stage") {
@@ -2410,7 +2424,12 @@ function runWorld(
       const lifeTime =
         lifecyclePolicy === undefined
           ? undefined
-          : nextLifecycleTime(lifecyclePolicy, current().lifecycle as never, cursor);
+          : nextLifecycleTime(
+              lifecyclePolicy,
+              current().lifecycle as never,
+              archetypesNow(),
+              cursor,
+            );
       const processTime = current().processes?.reduce<SimTimeMs | undefined>(
         (earliest, entry) =>
           entry.nextAt !== null &&

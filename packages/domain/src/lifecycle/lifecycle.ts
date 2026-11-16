@@ -46,9 +46,8 @@ export interface LifecycleSeasonalHook {
   readonly conceptionSeasons: readonly string[];
 }
 
-/** Versioned, optional world-behavior policy record; it requires a `wellbeing` record. */
-export interface LifecyclePolicy {
-  readonly schemaVersion: 1;
+/** What one kind of actor follows: its stages, lifespan, death, reproduction and successor rule. */
+export interface LifecycleKind {
   /** 2..16 stages. */
   readonly stages: readonly LifecycleStage[];
   /** Age at which an actor dies of old age; greater than the last stage start, at most 2^53. */
@@ -60,6 +59,26 @@ export interface LifecyclePolicy {
   readonly successorRule: string | null;
   readonly seasonal?: LifecycleSeasonalHook;
 }
+
+/** The original single-kind form: its one lifecycle applies to every needs actor. */
+export interface LifecyclePolicyV1 extends LifecycleKind {
+  readonly schemaVersion: 1;
+}
+
+/** A lifecycle shared by the listed pinned archetypes (`id@version`), each in at most one kind. */
+export interface LifecycleKindPolicy extends LifecycleKind {
+  readonly archetypes: readonly string[];
+}
+
+/** Per-kind form: an actor whose archetype is in no kind has no lifecycle. */
+export interface LifecyclePolicyV2 {
+  readonly schemaVersion: 2;
+  /** 1..16 kinds. */
+  readonly kinds: readonly LifecycleKindPolicy[];
+}
+
+/** Versioned, optional world-behavior policy record; it requires a `wellbeing` record. */
+export type LifecyclePolicy = LifecyclePolicyV1 | LifecyclePolicyV2;
 
 export interface LifecycleGestation {
   readonly conceivedAt: SimTimeMs;
@@ -138,6 +157,7 @@ export type LifecycleEventData =
 
 export const LIFECYCLE_POLICY_VERSION = 1;
 export const LIFECYCLE_MAX_STAGES = 16;
+export const LIFECYCLE_MAX_KINDS = 16;
 export const LIFECYCLE_MAX_ENTRIES = 128;
 const MAX_SIM_TIME = (1n << 63n) - 1n;
 const MIN_SIM_TIME = -(1n << 63n);
@@ -224,20 +244,52 @@ function time(value: unknown, path: string): bigint {
   return value;
 }
 
+const KIND_KEYS = ["stages", "lifespanMs", "deathHealth", "reproduction", "successorRule"];
+
 /** Validates an untrusted lifecycle policy record; throws `LifecycleValidationError`. */
 export function validateLifecyclePolicy(
   value: unknown,
   wellbeing: WellbeingPolicy | undefined,
   path = "policy.lifecycle",
 ): asserts value is LifecyclePolicy {
-  const root = exactObject(
-    value,
-    ["schemaVersion", "stages", "lifespanMs", "deathHealth", "reproduction", "successorRule"],
-    path,
-    ["seasonal"],
-  );
-  if (root.schemaVersion !== LIFECYCLE_POLICY_VERSION)
-    fail(`${path}.schemaVersion`, "unsupported lifecycle schema version");
+  const declared =
+    value !== null && typeof value === "object"
+      ? (value as { schemaVersion?: unknown }).schemaVersion
+      : undefined;
+  if (declared !== 2) {
+    const root = exactObject(value, ["schemaVersion", ...KIND_KEYS], path, ["seasonal"]);
+    if (root.schemaVersion !== LIFECYCLE_POLICY_VERSION)
+      fail(`${path}.schemaVersion`, "unsupported lifecycle schema version");
+    validateKind(root, wellbeing, path);
+    return;
+  }
+  const root = exactObject(value, ["schemaVersion", "kinds"], path);
+  if (wellbeing === undefined) fail(path, "lifecycle requires a wellbeing record");
+  const kinds = array(root.kinds, `${path}.kinds`, 1, LIFECYCLE_MAX_KINDS);
+  const claimed = new Set<string>();
+  for (const [index, kind] of kinds.entries()) {
+    const at = `${path}.kinds[${index}]`;
+    const record = exactObject(kind, [...KIND_KEYS, "archetypes"], at, ["seasonal"]);
+    for (const [position, archetype] of array(
+      record.archetypes,
+      `${at}.archetypes`,
+      1,
+      LIFECYCLE_MAX_ENTRIES,
+    ).entries()) {
+      const id = name(archetype, `${at}.archetypes[${position}]`);
+      if (claimed.has(id))
+        fail(`${at}.archetypes[${position}]`, "an archetype is in one kind only");
+      claimed.add(id);
+    }
+    validateKind(record, wellbeing, at);
+  }
+}
+
+function validateKind(
+  root: Record<string, unknown>,
+  wellbeing: WellbeingPolicy | undefined,
+  path: string,
+): void {
   if (wellbeing === undefined) fail(path, "lifecycle requires a wellbeing record");
   const stageList = array(root.stages, `${path}.stages`, 2, LIFECYCLE_MAX_STAGES);
   const stageNames = new Set<string>();
@@ -262,6 +314,15 @@ export function validateLifecyclePolicy(
   validateReproduction(root.reproduction, stageNames, `${path}.reproduction`);
   if (root.successorRule !== null) name(root.successorRule, `${path}.successorRule`);
   if (Object.hasOwn(root, "seasonal")) validateSeasonal(root.seasonal, `${path}.seasonal`);
+}
+
+/** The lifecycle an actor of this pinned archetype follows; `undefined` when its kind declares none. */
+export function lifecycleForKind(
+  policy: LifecyclePolicy,
+  archetypeId: string,
+): LifecycleKind | undefined {
+  if (policy.schemaVersion === 1) return policy;
+  return policy.kinds.find((kind) => kind.archetypes.includes(archetypeId));
 }
 
 function validateReproduction(value: unknown, stageNames: ReadonlySet<string>, path: string): void {
@@ -431,7 +492,7 @@ export function validateLifecycleState(
 
 /** The index of the stage reached at `atTime` for an actor born at `bornAt`; stage 0 before birth. */
 export function deriveLifecycleStage(
-  policy: Pick<LifecyclePolicy, "stages">,
+  policy: Pick<LifecycleKind, "stages">,
   bornAt: bigint,
   atTime: bigint,
 ): number {
@@ -491,27 +552,35 @@ export function lifecycleDisagreement(
     const actor = actors[index]!;
     const dead = actor.lifecycle?.status === "dead";
     if ((entry.death !== null) !== dead) return `${at}.death`;
+    const kind = lifecycleForKind(declared, actor.archetypeId);
     // The dead are frozen at the millisecond before they died: a death precedes a same-time stage change.
     const stageTime =
       entry.death === null || entry.death.diedAt > now ? now : entry.death.diedAt - 1n;
-    if (entry.stageIndex !== deriveLifecycleStage(declared, entry.bornAt, stageTime))
+    if (
+      entry.stageIndex !==
+      (kind === undefined ? 0 : deriveLifecycleStage(kind, entry.bornAt, stageTime))
+    )
       return `${at}.stageIndex`;
     if (entry.parentIds.some((parentId) => !known.has(parentId))) return `${at}.parentIds`;
     if (!households.has(entry.householdId)) return `${at}.householdId`;
+    if (kind === undefined) {
+      if (entry.death !== null || entry.gestation !== null) return `${at}.death`;
+      continue;
+    }
     if (entry.death !== null) {
       if (entry.gestation !== null) return `${at}.gestation`;
       continue;
     }
-    if (entry.bornAt + declared.lifespanMs <= now) return `${at}.death`;
+    if (entry.bornAt + kind.lifespanMs <= now) return `${at}.death`;
     const health =
       policy.wellbeing === undefined
         ? undefined
         : state.wellbeing?.entries.find((candidate) => candidate.objectId === entry.objectId)
             ?.health;
-    if (health !== undefined && health <= declared.deathHealth) return `${at}.death`;
+    if (health !== undefined && health <= kind.deathHealth) return `${at}.death`;
     const gestation = entry.gestation;
     if (gestation !== null) {
-      const reproduction = declared.reproduction;
+      const reproduction = kind.reproduction;
       if (gestation.dueAt !== gestation.conceivedAt + reproduction.gestationMs)
         return `${at}.gestation.dueAt`;
       if (gestation.dueAt <= now || gestation.conceivedAt > now) return `${at}.gestation.dueAt`;

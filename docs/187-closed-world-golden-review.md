@@ -84,3 +84,7 @@ schedule ids for reference 1.2.0. Its actor due times and priority ordering rema
 unchanged; the pending-work assertion now includes the earlier household-process deadline,
 8661600000 ms. Autonomous parity's first-consume identity changes to the committed 1.2.0
 golden's `commandid_bab21cdd64156bbc`. Neither assertion is widened.
+
+## Lifecycle per kind (issue 355)
+
+The reference policy declares its lifecycle in the per-kind form (`schemaVersion` 2): one kind listing `fixture.resident-kind@1` and `fixture.dependent-kind@1` with the former values. Only the artifact content hash, resource manifest hash and bundle hashes of the 14 goldens changed; no run, event, state or assertion differs, and the seed projection hash is unchanged. The long-run goldens are unchanged. The mate rule (a co-parent is never the actor's parent, child or sibling) changed no reference run.

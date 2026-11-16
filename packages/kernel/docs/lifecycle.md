@@ -4,12 +4,18 @@ An optional, versioned lifecycle layer on top of needs, comfort and health. It i
 `policy.lifecycle` is present, which also requires `policy.wellbeing`. The domain types and validators live
 in `packages/domain/src/lifecycle/` (see [the domain README](../../domain/docs/lifecycle.md)); the kernel owns the systems, events and checks.
 
-**Policy and state.** `LifecyclePolicy` (`schemaVersion` 1) holds `stages` (2 to 16 named stages whose
+**Policy and state.** `LifecyclePolicy` is either `schemaVersion` 1, one lifecycle for every Needs actor, or
+`schemaVersion` 2, `kinds`: each kind lists the pinned archetype ids (`id@version`) that follow it. A kind
+(`LifecycleKind`) holds `stages` (2 to 16 named stages whose
 `startsAtAgeMs` start at `0n` and strictly increase), `lifespanMs` (above the last stage start, at most 2^53),
 `deathHealth` (0 to 10000 and below `wellbeing.criticalHealth`), `reproduction` (`fertileStages`,
 `conceptionIntervalMs`, `conceptionChance` in basis points, `coParent` `required` or `none`, `gestationMs`,
 `gestationMilestones` strictly between 0 and `gestationMs`, `cooldownMs`, `maxPopulation` 1 to 128), an optional
 `seasonal` hook (`yearLengthMs`, `seasons`, `conceptionSeasons`) and `successorRule` (`null` or a name).
+Stage, lifespan and health death, gestation, conception, the seasonal gate and the successor intent all read the
+kind of the actor's own archetype. An actor whose archetype is in no kind has a lifecycle entry (one per Needs actor
+still holds) but is frozen at stage 0: it never dies through the lifecycle, never gestates or conceives, is never a
+co-parent and emits no lifecycle event. A child takes its gestating parent's archetype, so its kind.
 `LifecycleState` is `state.lifecycle`: `households` and one `entries[i]` per Needs actor (sorted by object id),
 each with `bornAt`, `stageIndex`, `householdId`, `parentIds`, `generation`, `gestation`, `conceptions`,
 `lastBirthAt` and `death`. All times are bigint `SimTimeMs`; there is no floating-point arithmetic. The input
@@ -29,7 +35,11 @@ order of entities, entries and households does not matter: they are sorted on de
 
 **Systems.** Conception is attempted at every positive multiple of `conceptionIntervalMs` (anchored at time 0)
 for each living actor in object-id order. The first applicable exclusion wins, in this order:
-`not-fertile-stage`, `gestating`, `cooldown`, `out-of-season`, `no-co-parent`, `population-cap`. An excluded
+`not-fertile-stage`, `gestating`, `cooldown`, `out-of-season`, `no-co-parent`, `population-cap`. A required
+co-parent is the first living actor in object-id order, other than the actor, of the same household and archetype,
+fertile under its kind, that is not the actor's parent or child and shares no parent with it (a sibling); a founder
+has no siblings. `maxPopulation` counts the living and the gestating of the actor's own kind (the 128-entry cap
+stays global), and the conception interval is the actor's kind's. An excluded
 candidate draws nothing; every other candidate draws exactly one value from the `lifecycle` stream and conceives
 exactly when `BigInt.asUintN(32, rawValue) % 10000n < BigInt(conceptionChance)`. Every attempt is a
 `lifecycle.conception` decision draft recording the candidate, its exclusion or draw and the outcome. Health

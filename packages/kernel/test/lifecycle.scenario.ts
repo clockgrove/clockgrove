@@ -3,6 +3,7 @@ import {
   createWorldState,
   decodeWorldScenario,
   deriveEnvironmentState,
+  type LifecyclePolicyV1,
   type NamedRandomState,
   replayWorldEvents,
   type WorldState,
@@ -966,7 +967,7 @@ export interface LongRun {
 /** Advances the long-run fixture through `days` environment days in calls of `stepDays` days. */
 export async function lifeLongRun(name: string, days: number, stepDays: number): Promise<LongRun> {
   const start = await lifeWorld(LONG_SPEC);
-  const lifecycle = start.template.pack.pack.policy.lifecycle!;
+  const lifecycle = start.template.pack.pack.policy.lifecycle as LifecyclePolicyV1;
   const maxPopulation = lifecycle.reproduction.maxPopulation;
   const problems = new Set<string>();
   const flag = (what: string, bad: boolean): void => {
