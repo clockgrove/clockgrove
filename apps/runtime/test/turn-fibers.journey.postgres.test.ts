@@ -207,6 +207,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
         (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "o3" })).body,
       ).toMatchObject({ phase: "completed", attempt: 2 });
 
+      // A turn whose resumptions fail the same way ends failed, and the next message is accepted.
+      await agent({ op: "fault", phase: "poison:context_ready" });
+      expect((await talk(ordered, "poison1")).status).toBe(503);
+      expect((await talk(ordered, "after-poison")).status).toBe(200);
+      await agent({ op: "fault", phase: null });
+      expect(
+        (await post("/v1/runtime/turns/status", { sessionId: ordered, messageId: "poison1" })).body,
+      ).toMatchObject({ phase: "failed", attempt: 4, outcomeCode: "turn_resume_failed" });
+
       // Cancel stops a running turn before it commits; a committed turn's status does not change.
       const cancelled = await open();
       await agent({ op: "fault", phase: "hold:proposal_validating" });

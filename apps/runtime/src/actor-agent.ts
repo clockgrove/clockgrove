@@ -194,11 +194,16 @@ async function recordedArguments(capability: string, input: unknown): Promise<un
 export const PERCEPTION_INBOX_LIMIT = 256;
 
 /**
- * Decision: a new message resumes and waits for its session's abandoned turn at most 3 times
- * before answering busy. Each round claims the turn under a new attempt; one normally settles it,
- * and a turn that fails three resumptions in a row is not one a waiting message should hide.
+ * Decision: a new message resumes and waits for its session's abandoned turn at most 3 times.
+ * Each round claims the turn under a new attempt; one normally settles it. A turn whose three
+ * resumptions fail the same way is poison: it ends failed with `turn_resume_failed`, which the run
+ * records and the person sees, and the message is accepted. Resumptions that fail differently
+ * (still changing, so possibly transient) leave the turn open and the message answered busy.
  */
 const RESUME_ROUNDS = 3;
+
+/** The outcome code of a turn ended because every resumption failed the same way. */
+export const TURN_RESUME_FAILED = "turn_resume_failed";
 
 /** Bounded, insertion-ordered dedupe of activation keys. */
 export class PerceptionInbox {
@@ -276,6 +281,7 @@ export class TurnFibers {
     emit: (frame: TalkStreamFrame) => void,
   ): Promise<TurnOutcome> {
     let accepted: Awaited<ReturnType<ConversationStore["acceptTurn"]>> | undefined;
+    const failures: string[] = [];
     for (let round = 0; accepted === undefined; ++round) {
       try {
         accepted = await this.store((store) => store.acceptTurn(participant, request));
@@ -290,10 +296,30 @@ export class TurnFibers {
             store.openTurns(participant, request.scope, this.host.actorId),
           )
         ).find((fiber) => fiber.sessionId === request.sessionId);
-        if (round >= RESUME_ROUNDS) throw error;
+        if (round >= RESUME_ROUNDS) {
+          const poisoned =
+            open !== undefined &&
+            failures.length === RESUME_ROUNDS &&
+            failures.every((failure) => failure === failures[0]);
+          if (!poisoned) throw error;
+          const ended = await this.store((store) =>
+            store.endTurn(participant, open, "failed", TURN_RESUME_FAILED),
+          );
+          if (ended === undefined) throw error;
+          failures.length = 0;
+          continue;
+        }
         if (open === undefined) continue;
         if (this.live.has(activationKey({ kind: "direct_message", ...open }))) throw error;
-        await this.activate(participant, open).catch(() => undefined);
+        await this.activate(participant, open).then(
+          () => (failures.length = 0),
+          (failure: unknown) => {
+            // Compared only to see whether the failure repeats; the text never leaves.
+            failures.push(
+              failure instanceof Error ? `${failure.name}:${failure.message}` : String(failure),
+            );
+          },
+        );
       }
     }
     if (accepted.receipt !== undefined) return { receipt: accepted.receipt };

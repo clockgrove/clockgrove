@@ -110,8 +110,12 @@ another. A new message of a session with an open turn reads that turn from Postg
 Talk request is running it in this owner, the message answers `409 conversation_busy`. Otherwise
 its request died with a lost owner: the message resumes (or joins) that turn, waits for it to
 settle, then takes its turn, so a member's next message after a dead request is not refused.
-Decision: at most 3 resumptions before answering busy, since each one claims the turn under a new
-attempt and one normally settles it. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
+Decision: at most 3 resumptions (`RESUME_ROUNDS`), since each one claims the turn under a new
+attempt and one normally settles it. A turn whose 3 resumptions all fail the same way is poison:
+it ends `failed` with outcome code `turn_resume_failed`, which its run records and turn status
+shows the person, and the waiting message is accepted. Resumptions that fail differently (the
+cause still changing, so possibly transient) leave the turn open, and the message answers
+`409 conversation_busy`. The fiber row's key decides between incarnations. Recovery acts as the stored participant,
 whose accepted message started the turn.
 
 ## Streaming, status and cancel
