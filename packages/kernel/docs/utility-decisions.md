@@ -148,7 +148,9 @@ water change, after a process fires, after a decision, and in `object.retire`, `
 `resource.transfer`. A decision already due, or one that a move would never drain (the mover's own), is not moved
 further; a move's mover falls due at its end as before. `portal.close` needs no hook: it is refused while an active
 movement still has to cross the portal, so a route never closes under a walker. Two hungry actors
-heading for one unit of food: the second re-decides at the instant the first eats it.
+heading for one unit of food: the second re-decides at the instant the first eats it. The decision that has just run is never
+brought back to its own instant, and the rule-based `chooseRoutine` (a policy without `utility`) offers only active
+shelters, as the scorer does, so a retired shelter is never selected again.
 
 **`maxEvents`.** The exact minimum is unchanged by utility: `perActor*actors + plants + 1`, with `perActor` 2
 (`needs.changed` and `wellbeing.integrated` per actor, utility requires wellbeing); a smaller value is
