@@ -553,6 +553,13 @@ export function ConversationPanel({
             <button
               key={kind}
               type="button"
+              data-why-opener={
+                kind === "why"
+                  ? whyCommand !== undefined
+                    ? `receipt:${whyCommand}`
+                    : `card:${actorId}`
+                  : undefined
+              }
               onClick={(event) => railAction(kind, event.currentTarget)}
             >
               {text}
@@ -632,7 +639,7 @@ export function ConversationPanel({
                     <em> ({VOICE_DISCLOSURES[message.voiceMode]})</em>
                   )}
                   <p>{message.text}</p>
-                  {!mine && message.text.includes("[tool:") && (
+                  {!mine && message.toolCallsRecorded === true && (
                     <button type="button" onClick={() => void inspectTools(message.messageId)}>
                       Why? Tool evidence
                     </button>
@@ -672,6 +679,7 @@ export function ConversationPanel({
                       {outcome.commandId !== null && (
                         <button
                           type="button"
+                          data-why-opener={`receipt:${outcome.commandId}`}
                           onClick={(event) =>
                             openWhy(outcome.commandId as string, event.currentTarget)
                           }

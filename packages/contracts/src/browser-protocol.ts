@@ -586,7 +586,9 @@ export type WorldFeedCategory =
   | "growth"
   | "movement"
   | "portal"
-  | "resource";
+  | "resource"
+  | "lifecycle"
+  | "object";
 const WORLD_FEED_CATEGORIES: readonly WorldFeedCategory[] = [
   "weather",
   "routine",
@@ -595,6 +597,8 @@ const WORLD_FEED_CATEGORIES: readonly WorldFeedCategory[] = [
   "movement",
   "portal",
   "resource",
+  "lifecycle",
+  "object",
 ];
 /**
  * The canonical timeline clock. `speed` is simulation ms per wall ms. `dayLengthMs` is the installed
@@ -780,6 +784,10 @@ export interface SelectionDerived {
   readonly canonical: false;
   readonly simulationTime: string;
 }
+function decisionFlag(value: unknown, path: string): true {
+  if (value !== true) throw new ContractDecodeError(path, "expected true");
+  return true;
+}
 export interface PublicActionSummary {
   readonly eventId: EventId;
   readonly actionId: ActionId;
@@ -788,6 +796,11 @@ export interface PublicActionSummary {
   readonly partitionSequence: string;
   readonly simulationTime: string;
   readonly recordedAt: string;
+  /**
+   * Present when the action records the entity's own decision: a type the world declares as a
+   * decision record, or an event of a command whose effective actor is the entity.
+   */
+  readonly decision?: true;
 }
 export interface SelectionHistory {
   readonly observedRevision: string;
@@ -1056,7 +1069,7 @@ export function decodeEntitySelection(value: unknown): EntitySelection {
           "simulationTime",
           "recordedAt",
         ],
-        [],
+        ["decision"],
         path,
       );
       return {
@@ -1067,6 +1080,9 @@ export function decodeEntitySelection(value: unknown): EntitySelection {
         partitionSequence: observationUnsigned(a.partitionSequence, `${path}.partitionSequence`),
         simulationTime: observationUnsigned(a.simulationTime, `${path}.simulationTime`),
         recordedAt: string(a.recordedAt, `${path}.recordedAt`),
+        ...(a.decision === undefined
+          ? {}
+          : { decision: decisionFlag(a.decision, `${path}.decision`) }),
       };
     },
   );

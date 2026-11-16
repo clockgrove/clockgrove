@@ -100,6 +100,7 @@ export function InteractionCard({
                 type="button"
                 disabled={action.availability === "disabled"}
                 aria-describedby={action.availability === "disabled" ? reasonId : undefined}
+                data-why-opener={action.kind === "why" ? `card:${entityId}` : undefined}
                 onClick={(event) => void run(action.kind, event.currentTarget)}
               >
                 {ACTION_LABELS[action.kind]}

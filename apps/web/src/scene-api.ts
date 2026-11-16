@@ -1296,8 +1296,9 @@ export class SceneSession {
     });
   }
   /**
-   * Opens Why on the entity's newest recorded `routine.selected`, paging back through its history
-   * from the loaded page until one is found or the history ends. Answers whether one was found.
+   * Opens Why on the entity's newest recorded decision (an action flagged `decision`), paging back
+   * through its history from the loaded page until one is found or the history ends. Answers
+   * whether one was found.
    */
   async explainNewestDecision(selection: EntitySelection): Promise<boolean> {
     const scope = this.getSnapshot().scope;
@@ -1306,7 +1307,7 @@ export class SceneSession {
     const selectionIntent = this.selectionIntent;
     let page = selection;
     for (;;) {
-      const decision = page.history.actions.find((action) => action.type === "routine.selected");
+      const decision = page.history.actions.find((action) => action.decision === true);
       if (decision) {
         // A superseded selection or world opens nothing.
         if (intent !== this.intent || selectionIntent !== this.selectionIntent) return false;

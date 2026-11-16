@@ -1244,7 +1244,8 @@ const observeHall = async (backend) => {
             AND event_type IN ('weather.changed','weather.transitioned','environment.phase-changed','routine.selected',
             'needs.threshold-crossed','exposure.threshold-crossed','health.threshold-crossed','growth.stage-changed',
             'movement.portal-crossed','movement.completed','portal.opened','portal.closed','resource.offered',
-            'resource.consumed','resource.transferred','resource.spoiled')`)
+            'resource.consumed','resource.transferred','resource.spoiled','lifecycle.born','lifecycle.died',
+            'lifecycle.conceived','lifecycle.stage-changed','object.created')`)
         ).split("|");
         await expect
           .poll(() => feed.locator("time").allTextContents())

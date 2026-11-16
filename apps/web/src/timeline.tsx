@@ -109,6 +109,7 @@ export function Timeline({
           {eventId !== undefined && (
             <button
               type="button"
+              data-why-opener={`timeline:${eventId}`}
               onClick={(event) => {
                 whyOpener.current = event.currentTarget;
                 session.explainEvent(eventId);
