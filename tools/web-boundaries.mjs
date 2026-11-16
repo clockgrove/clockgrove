@@ -56,7 +56,9 @@ export function assertBrowserSource(source, file) {
             target === "three/addons/tsl/display/BloomNode.js" ||
             local === `${bridge}.js` ||
             local === path.join(web, "shell.js") ||
-            local === path.join(web, "renderer-content.js")
+            local === path.join(web, "renderer-content.js") ||
+            // #356: the renderer's own tier policy, free of imports.
+            local === path.join(web, "quality-tier.js")
           : path.resolve(file) === content
             ? target === "three/webgpu" || target === "three/tsl" ||
               /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js|libs\/basis\/basis_transcoder\.(?:js|wasm)\?url)$/u.test(target) ||
