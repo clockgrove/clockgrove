@@ -123,13 +123,20 @@ authorization:
    route's input limit leaves less room (`contextTokenBudget`, issue 349). That room is the alias's
    `maxInputTokens`, less the request's fixed parts, divided by 24. The limit and the fixed parts are
    both in the [model gateway's](../../packages/model-gateway/docs/model-gateway.md#budget) input
-   measure, UTF-8 bytes, which is never below the real token count. The runtime keeps 131,072 for
-   the fixed parts (`ACTOR_FIXED_INPUT_TOKENS`): the system text, the tool catalog, recorded self
-   results and tool evidence, the input's second copy, the output schema and the prompt's JSON
-   framing. An estimated token renders to at most 24 measured tokens: at most 4 bytes, each
-   escaped by JSON to at most 6. A context within the budget therefore never makes a request the
+   measure, UTF-8 bytes, which is never below the real token count. The runtime keeps 311,920 for
+   the fixed parts (`ACTOR_FIXED_INPUT_TOKENS`), from the repository's own bounds: the turn's tool
+   evidence (at most one call per model step, four; each call's text cut to 8 KiB before it enters
+   model context, escaped by JSON to at most 6 bytes a byte, plus 12,288 of the call's framing),
+   and 65,536 for the rest:
+   the system text, the tool catalog, recorded self results, the input's second copy, the output
+   schema and the sections' framing. An estimated token renders to at most 24 measured tokens: at
+   most 4 bytes, each escaped by JSON to at most 6. A context within the budget therefore never
+   makes a request, research steps included, that the
    gateway refuses for size. Under the production limit (998,976) the budget stays 4,096. Without
-   a model route (the scripted fixture), it is 4,096.
+   a model route (the scripted fixture), it is 4,096. A world model configuration whose actor alias
+   leaves no room for one estimated token is refused when it is read, so an actor never answers
+   without its summary and history for want of room. Each research step reserves its own measured
+   worst case (the gateway's reservation, for every fallback route) against the turn's cost cap.
    The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
    length, then history newest first. A source that would pass the budget is excluded

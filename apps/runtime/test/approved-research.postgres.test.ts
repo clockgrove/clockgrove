@@ -280,5 +280,37 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
         "SELECT count(*) FROM clockgrove.event_dispatches WHERE channel='external-effects'",
       ),
     ).toBe("5\n");
+
+    // Issue 349: a research step reserves its own measured worst case, so a step that could cost
+    // more than the turn's $0.25 is never sent, and one within it is.
+    let measuredSends = 0;
+    const measured = (reserveMicrousd: number) =>
+      new TurnFibers({
+        holder: crypto.randomUUID(),
+        actorId: "actor",
+        stores,
+        respond: async () => ({ text: "Unmeasured" }),
+        prepare: async () => ({
+          reserveMicrousd,
+          send: async () => ({ text: `Measured ${++measuredSends}` }),
+        }),
+        research,
+        capabilityRevision: () => 1,
+        checkpointed: async () => {},
+        durable: async (_f, _p, run) => run(),
+      });
+    const turn = async (messageId: string) =>
+      (
+        await stores((store) =>
+          store.acceptTurn(participant, { scope, sessionId: "session", messageId, text: "look" }),
+        )
+      ).fiber!;
+    const over = await measured(250_001).activate(participant, await turn("over-cap"));
+    expect([over.receipt?.reply.text, measuredSends]).toEqual([
+      "Research stopped: cost_budget_exhausted. No further action was taken.",
+      0,
+    ]);
+    const within = await measured(250_000).activate(participant, await turn("within-cap"));
+    expect([within.receipt?.reply.text, measuredSends]).toEqual(["Measured 1", 1]);
   });
 });
