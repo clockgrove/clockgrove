@@ -567,11 +567,20 @@ function referenceRules(program, checker, node) {
   } else {
     symbol = checker.getSymbolAtLocation(node);
   }
-  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
   const isMember = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
+  return symbolRules(program, checker, symbol, isMember, node.text);
+}
+
+function symbolRules(program, checker, symbol, isMember, name) {
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  // `globalThis` is the one global the compiler resolves to a symbol with no declarations.
+  if (!isMember && symbol?.escapedName === "globalThis" && !symbol.declarations?.length) {
+    return ["ambient global"];
+  }
   if (!symbol || symbol.declarations === undefined) {
+    if (isMember) return [];
     // An unresolved bare name is a global the compiler has no declaration for (Deno, window, ...).
-    const rule = isMember ? undefined : forbiddenGlobals.get(node.text);
+    const rule = forbiddenGlobals.get(name);
     return rule === undefined || symbol !== undefined ? [] : [rule];
   }
   if (!isPlatformDeclaration(program, symbol)) return [];
@@ -585,6 +594,54 @@ function referenceRules(program, checker, node) {
   if (isMember && symbol.name === "constructor") return ["code evaluation"];
   if (/(?:^|\.)Math\.random$/u.test(qualified)) return ["randomness"];
   if (/(?:^|\.)Crypto\.(?:getRandomValues|randomUUID)$/u.test(qualified)) return ["entropy"];
+  return [];
+}
+
+/** Literal text of a property key: `"random"`, `random`, `["random"]`, `` `random` ``. */
+function literalKey(node) {
+  if (node === undefined) return undefined;
+  if (ts.isComputedPropertyName(node)) return literalKey(node.expression);
+  if (ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) {
+    return node.text;
+  }
+  return undefined;
+}
+
+/** The rules a member read by its key's text off `target`'s type would break. */
+function keyedMemberRules(program, checker, target, key) {
+  if (key === undefined) return [];
+  const type = checker.getTypeAtLocation(target);
+  const property = checker.getPropertyOfType(checker.getApparentType(type), key);
+  return symbolRules(program, checker, property, true, key);
+}
+
+const reflectiveReaders =
+  /^(?:Reflect\.(?:get|getOwnPropertyDescriptor)|ObjectConstructor\.getOwnPropertyDescriptor)$/u;
+
+/**
+ * Members reached by a key rather than a `.name`: `Math["random"]`, `const { random } = Math`,
+ * `Reflect.get(Math, "random")`. Each key is resolved on the type it is read from.
+ */
+function keyedRules(program, checker, node) {
+  if (ts.isElementAccessExpression(node)) {
+    return keyedMemberRules(program, checker, node.expression, literalKey(node.argumentExpression));
+  }
+  if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent) && !node.dotDotDotToken) {
+    return keyedMemberRules(
+      program,
+      checker,
+      node.parent,
+      literalKey(node.propertyName ?? node.name),
+    );
+  }
+  if (ts.isCallExpression(node) && node.arguments.length >= 2) {
+    const callee = checker.getSymbolAtLocation(
+      ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression,
+    );
+    if (!callee || !isPlatformDeclaration(program, callee)) return [];
+    if (!reflectiveReaders.test(checker.getFullyQualifiedName(callee))) return [];
+    return keyedMemberRules(program, checker, node.arguments[0], literalKey(node.arguments[1]));
+  }
   return [];
 }
 
@@ -647,6 +704,8 @@ function ambientViolations(program, sourceFile) {
       report(node, "import.meta");
     } else if (ts.isIdentifier(node) && isValueIdentifier(node)) {
       for (const rule of referenceRules(program, checker, node)) report(node, rule);
+    } else {
+      for (const rule of keyedRules(program, checker, node)) report(node, rule);
     }
     ts.forEachChild(node, visit);
   }

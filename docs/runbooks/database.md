@@ -174,8 +174,12 @@ read; every SQL statement and expression in a PL/pgSQL body; and the body of eve
 procedure the migration calls by name (`SELECT`, `PERFORM`, `CALL` or any other expression), when this
 or an earlier migration created it, following the routines that body calls. A routine it reaches is
 reported as `<routine>(): <statement>`; a migration that does not parse is refused, as it cannot be
-verified. It does not read SQL assembled at run time from separate pieces (`'DELETE ' || 'FROM …'`), or the body of a trigger function, which runs on
-a later write, even one the same migration makes. The retention functions of 0023, 0027 and 0028
+verified. A string constant that does not parse alone, a piece of SQL assembled at run time
+(`EXECUTE 'DELETE FROM clockgrove.' || t`, `format('TRUNCATE clockgrove.probe %s', …)`), counts when its
+tokens begin as a destroying statement begins (`DELETE FROM`, `TRUNCATE`, a destroying `DROP`, `MERGE …
+DELETE`, a rewrite of an append-only table) or as an `ALTER TABLE` that drops a column or changes its
+type; it is reported as `<piece> …`. SQL split before its leading words (`'DELETE ' || 'FROM …'`) is not
+read, nor is the body of a trigger function, which runs on a later write, even one the same migration makes. The retention functions of 0023, 0027 and 0028
 delete rows, but no migration calls them: the runtime or a trigger runs them later, and they are
 reviewed as code and listed in `db/retention.json`. Two applied migrations are
 declared as reviewed contract steps, their bytes unchanged: `0019_clock_owner_claim_in_place.sql` and `0029_drop_incompatible_snapshots.sql`. Neither ran in a tagged release: the

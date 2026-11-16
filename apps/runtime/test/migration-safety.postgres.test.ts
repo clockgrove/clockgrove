@@ -224,6 +224,13 @@ describe("migration backfills and contract steps", () => {
         AS $$ DELETE FROM clockgrove.probe WHERE id = 5 $$; SELECT clockgrove.purge_probe();`,
       // A routine an earlier migration created, called again.
       "0007_call.sql": "SELECT clockgrove.purge_probe();",
+      // CALL holds its routine as a CallStmt, not a FuncCall.
+      "0007a_procedure.sql": `CREATE PROCEDURE clockgrove.purge_procedure() LANGUAGE plpgsql
+        AS $$ BEGIN DELETE FROM clockgrove.probe WHERE id = 6; END $$;
+        CALL clockgrove.purge_procedure();`,
+      // SQL assembled from pieces counts by the piece a destroying statement begins with.
+      "0007b_pieces.sql":
+        "DO $$ DECLARE t text := 'probe'; BEGIN EXECUTE 'DELETE FROM clockgrove.' || t || ' WHERE id = 7'; END $$;",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe;",
       "0009_merge.sql":
         "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE;",
@@ -238,6 +245,9 @@ describe("migration backfills and contract steps", () => {
       "0005_execute.sql": "DELETE FROM clockgrove.%I WHERE id = 4",
       "0006_function.sql": purge,
       "0007_call.sql": purge,
+      "0007a_procedure.sql":
+        "clockgrove.purge_procedure(): DELETE FROM clockgrove.probe WHERE id = 6",
+      "0007b_pieces.sql": "DELETE FROM clockgrove. …",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe",
       "0009_merge.sql":
         "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE",

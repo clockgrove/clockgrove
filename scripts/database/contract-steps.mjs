@@ -13,9 +13,11 @@ import path from "node:path";
 // body of each DO block; every string constant that parses as SQL (format placeholders filled in
 // first), so SQL handed to EXECUTE is read, nested ones included; every SQL or PL/pgSQL expression in
 // a PL/pgSQL body; and the body of each function or procedure the migration calls by name, when this
-// or an earlier migration created it (followed through the routines that body calls). It does not read
-// SQL assembled at run time from pieces, or a trigger function, which runs on a later write and is
-// reviewed as code. A migration that does not parse cannot be verified and is refused.
+// or an earlier migration created it (followed through the routines that body calls, by any
+// expression or `CALL`). A constant that does not parse alone, a piece of SQL assembled at run time,
+// counts when its tokens begin as a destroying statement does. It does not read SQL split before its
+// leading words, or a trigger function, which runs on a later write and is reviewed as code. A
+// migration that does not parse cannot be verified and is refused.
 
 export const CONTRACT_STEPS_FILE = "contract-steps.json";
 
@@ -178,6 +180,8 @@ function visit(node, text, ctx) {
   for (const [key, value] of Object.entries(node)) {
     if (DESTROYS[key]?.(value)) ctx.found.push(readable(text));
     if (key === "FuncCall") ctx.called.add(lastName(value.funcname));
+    // `CALL` holds its call directly, not under a `FuncCall` key.
+    else if (key === "CallStmt") ctx.called.add(lastName(value.funccall?.funcname));
     else if (key === "A_Const" && typeof value.sval?.sval === "string")
       analyzeString(value.sval.sval, { ...ctx, strict: false });
     else if (key === "DoStmt") analyzePlpgsql(text, ctx);
@@ -208,7 +212,45 @@ function analyzeString(value, ctx) {
       ? "$1".padEnd(placeholder.length)
       : "z".repeat(placeholder.length);
   });
-  analyzeSql(sql, ctx, value);
+  if (!analyzeSql(sql, ctx, value) && destroyingFragment(value))
+    ctx.found.push(`${value.replace(/\s+/gu, " ").trim()} …`);
+}
+
+const APPEND_ONLY_NAME = `clockgrove \\. (?:${[...APPEND_ONLY].join("|")})\\b`;
+
+/**
+ * A piece of SQL assembled at run time (`'DELETE FROM clockgrove.' || t`) does not parse alone; it
+ * counts when its tokens begin as a statement that destroys data begins, or continue an `ALTER TABLE`
+ * with an action that does.
+ */
+const DESTROYING_FRAGMENTS = [
+  /^DELETE FROM\b/u,
+  /^TRUNCATE (?!(?:ON|OR)\b)/u,
+  /^MERGE\b.*\bDELETE\b/u,
+  new RegExp(`^UPDATE (?:ONLY )?${APPEND_ONLY_NAME}`, "u"),
+  new RegExp(`^INSERT INTO ${APPEND_ONLY_NAME}.*\\bON CONFLICT\\b.*\\bDO UPDATE\\b`, "u"),
+  /^DROP (?:TABLE|SCHEMA|DATABASE|OWNED|MATERIALIZED VIEW|FOREIGN TABLE|COLUMN)\b/u,
+  /^DROP\b.*\bCASCADE\b/u,
+  /^ALTER TABLE\b.*\bDROP (?!(?:CONSTRAINT|DEFAULT|NOT|EXPRESSION|IDENTITY)\b)/u,
+  /^(?:ALTER TABLE\b.*\b)?ALTER (?:COLUMN )?(?!TYPE\b)\S+ (?:SET DATA )?TYPE\b/u,
+];
+
+function destroyingFragment(value) {
+  let tokens;
+  try {
+    tokens = pg.scanSync(value).tokens ?? [];
+  } catch {
+    return false;
+  }
+  const bytes = Buffer.from(value);
+  const words = tokens
+    .filter((token) => !token.tokenName.endsWith("COMMENT"))
+    .map((token) => {
+      const word = bytes.subarray(token.start, token.end).toString();
+      return token.keywordKind ? word.toUpperCase() : word.toLowerCase();
+    })
+    .join(" ");
+  return DESTROYING_FRAGMENTS.some((pattern) => pattern.test(words));
 }
 
 /** The SQL and expressions of a PL/pgSQL body: a DO statement or a CREATE FUNCTION or PROCEDURE. */
