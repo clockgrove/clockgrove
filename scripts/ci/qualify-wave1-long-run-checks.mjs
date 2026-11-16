@@ -280,7 +280,11 @@ const CHECKS = [
             if (action && action.last > diedAt)
               problems.push(`${objectId} emitted ${type} after its death`);
           }
-        // Any event the dead actor caused, including pack-declared verbs attributed to it.
+        // Any event the dead actor caused, including pack-declared verbs attributed to it. The engine
+        // records a cause under an actor's id when a command is spoken through it (a `via` step);
+        // autonomous events are attributed to the scenario envelope or their process. Proven
+        // through the engine in tests/ci/qualify-wave1-long-runs.test.mjs ("dead-actors-inactive
+        // refuses an event the engine attributes to an actor after its death").
         for (const { actorId, events } of run.summary.causes)
           for (const { type, last } of events) {
             const diedAt = deaths.get(actorId);
