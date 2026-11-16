@@ -153,10 +153,6 @@ describe("production world-reactions native Queue lifecycle", () => {
               "queue-second:dispatch:world-reactions",
             ],
           },
-          { attempt: 1, delaySeconds: 1 },
-          { attempt: 2, delaySeconds: 2 },
-          { attempt: 3, delaySeconds: 4 },
-          { attempt: 4, delaySeconds: 8 },
         ];
         expect(await owner.request("/dispatches/transport", {})).toEqual({
           status: 200,
@@ -282,7 +278,7 @@ describe("production world-reactions native Queue lifecycle", () => {
         );
         const exhausted = await carrier("queue-exhausted");
         const internal = await carrier("queue-internal");
-        for (let attempt = 0; attempt < 100; attempt++) {
+        for (let attempt = 0; attempt < 600; attempt++) {
           dlq = await owner.request("/dispatches/dlq", {});
           if (Array.isArray(dlq.body) && dlq.body.length === 2) break;
           await sql("SELECT pg_sleep(0.1)");
@@ -297,7 +293,8 @@ describe("production world-reactions native Queue lifecycle", () => {
           await sql(
             "SELECT (SELECT last_value FROM clockgrove.queue_exhausted) || '|' || (SELECT last_value FROM clockgrove.queue_internal) || '|' || count(*) FILTER (WHERE consumed_at IS NULL) FROM clockgrove.event_dispatches WHERE dispatch_id IN ('queue-exhausted:dispatch:world-reactions','queue-internal:dispatch:world-reactions')",
           ),
-        ).toBe("4|4|2");
+        ).toBe("31|31|2");
+        const attempts = Array.from({ length: 31 }, (_, index) => index + 1);
         const failures = owner
           .logs()
           .filter((log) => log.includes("world_reactions_delivery_failed"));
@@ -310,23 +307,33 @@ describe("production world-reactions native Queue lifecycle", () => {
             .sort(),
         ).toEqual(
           [
-            "malformed:1,malformed:2,malformed:3,malformed:4",
-            "inconsistent:1,inconsistent:2,inconsistent:3,inconsistent:4",
-            "transient:1,transient:1,transient:2,transient:3,transient:4",
-            "internal:1,internal:1,internal:2,internal:3,internal:4",
-          ]
-            .flatMap((group) => group.split(","))
-            .sort(),
+            "malformed:1",
+            "inconsistent:1",
+            "transient:1",
+            "internal:1", // the acknowledgement interrupted after consumption
+            ...attempts.flatMap((attempt) => [`transient:${attempt}`, `internal:${attempt}`]),
+          ].sort(),
         );
+        // Dead-lettered: a refused message at its first attempt, the others only after attempt 31.
+        expect(
+          owner
+            .logs()
+            .filter((log) => log.includes("world_reactions_dead_lettered"))
+            .map(
+              (log) =>
+                `${log.match(/failureClass: '([^']+)'/u)?.[1]}:${log.match(/attempt: (\d+)/u)?.[1]}`,
+            )
+            .sort(),
+        ).toEqual(["inconsistent:1", "internal:31", "malformed:1", "transient:31"]);
         const identities = await owner.request("/dispatches/transport", {});
         expect(unordered(identities.body)).toEqual(
           failures
-            .slice(-8)
+            .slice(-62)
             .map((log) =>
               JSON.stringify({
                 transportMessageId: log.match(/transportMessageId: '([^']+)'/u)?.[1],
                 attempt: Number(log.match(/attempt: (\d+)/u)?.[1]),
-                delaySeconds: [1, 2, 4, 8][Number(log.match(/attempt: (\d+)/u)?.[1]) - 1],
+                delaySeconds: Math.min(60, 2 ** (Number(log.match(/attempt: (\d+)/u)?.[1]) - 1)),
                 source: log.includes("failureClass: 'transient'")
                   ? "queue-exhausted:dispatch:world-reactions"
                   : "queue-internal:dispatch:world-reactions",

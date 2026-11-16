@@ -146,7 +146,8 @@ export type RuntimeFailureClass =
   | "internal"
   | "malformed"
   | "inconsistent"
-  | "transient";
+  | "transient"
+  | "too_large";
 
 /**
  * Whether a later attempt of the same work may succeed. Conflicts, timeouts and unavailability
@@ -171,6 +172,7 @@ export const RUNTIME_FAILURE_RETRYABLE: Readonly<Record<RuntimeFailureClass, boo
   malformed: false,
   inconsistent: false,
   transient: true,
+  too_large: false,
 };
 
 /**

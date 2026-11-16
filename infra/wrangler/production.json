@@ -88,23 +88,35 @@
       {
         "binding": "EXTERNAL_EFFECTS_QUEUE",
         "queue": "rw-production-external-effects"
+      },
+      {
+        "binding": "WORLD_REACTIONS_DLQ",
+        "queue": "rw-production-world-reactions-dlq"
+      },
+      {
+        "binding": "COGNITIVE_INDEXING_DLQ",
+        "queue": "rw-production-cognitive-indexing-dlq"
+      },
+      {
+        "binding": "EXTERNAL_EFFECTS_DLQ",
+        "queue": "rw-production-external-effects-dlq"
       }
     ],
     "consumers": [
       {
         "queue": "rw-production-world-reactions",
         "dead_letter_queue": "rw-production-world-reactions-dlq",
-        "max_retries": 3
+        "max_retries": 30
       },
       {
         "queue": "rw-production-cognitive-indexing",
         "dead_letter_queue": "rw-production-cognitive-indexing-dlq",
-        "max_retries": 3
+        "max_retries": 30
       },
       {
         "queue": "rw-production-external-effects",
         "dead_letter_queue": "rw-production-external-effects-dlq",
-        "max_retries": 3
+        "max_retries": 30
       }
     ]
   },

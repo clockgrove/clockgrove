@@ -96,23 +96,35 @@
       {
         "binding": "EXTERNAL_EFFECTS_QUEUE",
         "queue": "rw-local-external-effects"
+      },
+      {
+        "binding": "WORLD_REACTIONS_DLQ",
+        "queue": "rw-local-world-reactions-dlq"
+      },
+      {
+        "binding": "COGNITIVE_INDEXING_DLQ",
+        "queue": "rw-local-cognitive-indexing-dlq"
+      },
+      {
+        "binding": "EXTERNAL_EFFECTS_DLQ",
+        "queue": "rw-local-external-effects-dlq"
       }
     ],
     "consumers": [
       {
         "queue": "rw-local-world-reactions",
         "dead_letter_queue": "rw-local-world-reactions-dlq",
-        "max_retries": 3
+        "max_retries": 30
       },
       {
         "queue": "rw-local-cognitive-indexing",
         "dead_letter_queue": "rw-local-cognitive-indexing-dlq",
-        "max_retries": 3
+        "max_retries": 30
       },
       {
         "queue": "rw-local-external-effects",
         "dead_letter_queue": "rw-local-external-effects-dlq",
-        "max_retries": 3
+        "max_retries": 30
       }
     ]
   },

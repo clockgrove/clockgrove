@@ -505,6 +505,9 @@ export class ActorAgentDO extends ProductionActorAgentDO {
       });
       return;
     }
+    // `poison:<phase>` fails every attempt of a turn whose message id starts `poison`.
+    if (fault === `poison:${phase}` && fiber.messageId.startsWith("poison"))
+      throw new Error(`injected poison at ${phase}`);
     // `break:<phase>` faults like `<phase>` but holds until released before it aborts.
     const breaking = fault === `break:${phase}`;
     if (fault !== phase && !breaking) return;
@@ -931,12 +934,6 @@ export default {
           },
           retry: (options: { readonly delaySeconds: number }) => {
             if (
-              typeof message.body === "object" &&
-              message.body !== null &&
-              "privatePayload" in message.body
-            )
-              records.push({ attempt: message.attempts, delaySeconds: options.delaySeconds });
-            if (
               [
                 "queue-exhausted:dispatch:world-reactions",
                 "queue-internal:dispatch:world-reactions",
@@ -948,7 +945,9 @@ export default {
                 delaySeconds: options.delaySeconds,
                 source: observedMessageId(message.body),
               });
-            message.retry(options);
+            // The requested delay is recorded above; the native Queue retries at once, so the
+            // 31 attempts of an exhausted message run in seconds, not in the production 25 minutes.
+            message.retry({ delaySeconds: 0 });
           },
         })),
       },

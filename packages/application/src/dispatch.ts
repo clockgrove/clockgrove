@@ -82,15 +82,19 @@ export interface DispatchPublisher {
 }
 
 export interface DispatchSweepRequest extends DispatchClaimRequest {
-  /** A publish failure on this attempt or later settles the dispatch as failed. */
-  readonly maxAttempts: number;
-  /** A failed publish below `maxAttempts` makes the dispatch due again after this initial delay, doubled per attempt and capped at one day. */
+  /** A retryable publish failure on this attempt or later settles the dispatch as failed. Absent: no bound. */
+  readonly maxAttempts?: number;
+  /** A failed publish below `maxAttempts` makes the dispatch due again after this initial delay, doubled per attempt and capped at `maxRetryAfterMs`. */
   readonly retryAfterMs: number;
+  /** The delay ceiling; default one day. */
+  readonly maxRetryAfterMs?: number;
 }
 
 export interface DispatchSweepPorts {
   readonly store: DispatchStore;
   readonly publisher: DispatchPublisher;
+  /** Classifies a publish error; absent, every error is retryable. A permanent one settles `failed` at once. */
+  readonly classify?: (error: unknown) => DispatchErrorClass;
   /**
    * Told of each dispatch this sweep settled `failed`, with the publish error: the terminal failure
    * an operator recovers. Never throws into the sweep.
@@ -129,7 +133,7 @@ export function dispatchMessage(dispatch: ClaimedDispatch): QueueEnvelope<unknow
  */
 export async function sweepDispatches(
   request: DispatchSweepRequest,
-  { store, publisher, failed }: DispatchSweepPorts,
+  { store, publisher, classify, failed }: DispatchSweepPorts,
 ): Promise<DispatchSweepResult> {
   const counts = { delivered: 0, retried: 0, failed: 0, stale: 0 };
   for (;;) {
@@ -144,18 +148,21 @@ export async function sweepDispatches(
         settlement = { ...base, outcome: "delivered" };
       } catch (error) {
         cause = error;
+        const permanent = classify?.(error) === "permanent";
         settlement =
-          dispatch.attempt >= request.maxAttempts
-            ? { ...base, outcome: "failed", errorClass: "retryable" }
+          permanent || dispatch.attempt >= (request.maxAttempts ?? Infinity)
+            ? { ...base, outcome: "failed", errorClass: permanent ? "permanent" : "retryable" }
             : {
                 ...base,
                 outcome: "retry",
                 errorClass: "retryable",
-                // Same one-day ceiling as the persistence lease/retry boundary.
                 retryAfterMs:
                   request.retryAfterMs === 0
                     ? 0
-                    : Math.min(86_400_000, request.retryAfterMs * 2 ** (dispatch.attempt - 1)),
+                    : Math.min(
+                        request.maxRetryAfterMs ?? 86_400_000,
+                        request.retryAfterMs * 2 ** Math.min(dispatch.attempt - 1, 40),
+                      ),
               };
       }
       if (!(await store.settle(request.authorization, settlement))) counts.stale += 1;

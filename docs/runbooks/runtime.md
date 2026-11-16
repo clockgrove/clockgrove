@@ -329,8 +329,9 @@ defines no other operator grant.
 
 `apps/runtime/test/operator-inspector.postgres.test.ts` (`test:runtime`) proves the inspector and both
 actions in the native workerd/PostgreSQL harness: it injects a failed publication (a payload over the
-Queue's 128 KB message limit, so every send fails) and a poison message (a consumption that fails as
-an internal defect on every delivery, so the native Queue dead-letters it), diagnoses both through
+Queue's 128 KB message limit, so it fails permanently on its first attempt) and a poison message (a
+consumption that fails as an internal defect on every delivery, so the native Queue dead-letters it
+after its 31st attempt), diagnoses both through
 the endpoint, repairs the publication and replays the message, and asserts the alert records, the
 refusals, the redaction and every audit row.
 
@@ -977,8 +978,8 @@ removed or changes meaning, so queries can tell record shapes apart. Filter Work
 | `runtime_action_answered` | the Worker, once per answered operator action | scope, `messageId`; correlation once authorized; authorization, outcome (`committed` for a repair or replay done), code, status, failure class |
 | `runtime_action_failed` | the Worker, for an operator action server failure | as `runtime_action_answered`; failure class, error |
 | `world_reactions_delivery_failed` | the Queue consumer, per failed delivery | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: retry-or-dlq` |
-| `world_reactions_dead_lettered` | the Queue consumer, per failed last delivery attempt (`attempt` above the consumer's `max_retries`, 3), which sends the message to the DLQ: an alert | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: awaiting-replay` |
-| `world_reactions_publication_failed` | the hint or cron publication sweep, per publication it settles `failed` after its attempt budget: an alert | `tenantId`, `worldId`, `timelineId`, `messageId`, `channel`, `attempt`, failure class, `disposition: awaiting-repair` |
+| `world_reactions_dead_lettered` | the Queue consumer, per failed last delivery attempt (`attempt` above the consumer's `max_retries`, 30) or refused message (attempt 1), which sends the message to the DLQ: an alert | `channel`, `transportMessageId`, `attempt`, failure class, `disposition: awaiting-replay` |
+| `world_reactions_publication_failed` | the hint or cron publication sweep, per publication it settles `failed` permanently (`too_large`): an alert | `tenantId`, `worldId`, `timelineId`, `messageId`, `channel`, `attempt`, failure class, `disposition: awaiting-repair` |
 | `world_reactions_sweep_failed` | the hint or cron publication sweep, per failed principal | `channel`, `trigger`, failure class, `disposition: recovered-by-cron` |
 | `activation_hint_failed` | the post-commit activation hint, per failed pass over a world timeline | `tenantId`, `worldId`, `timelineId`, failure class, `disposition: recovered-by-poll` |
 | `world_provisioning_reconcile_failed` | the cron provisioning reconcile, per failed case | `tenantId`, `runId`, failure class, `disposition: retried-by-cron` |
@@ -1074,23 +1075,34 @@ batch before writing its one successful disposition. It performs no simulation, 
 cognition or external effects. Independent commands need no FIFO ordering.
 
 Publication claims use the existing store maximum of 1000 rows and a lease matching the existing
-five-minute reconciliation cadence. Publication permits an initial attempt plus three retries,
-aligned with the unchanged physical Queue `max_retries: 3`. Retry delay starts at the existing
-native owner's one-second recovery delay and doubles per publication attempt, capped at the
-store's existing one-day delay ceiling. A terminal publication failure stays `failed` with
-`last_error_class` for operator recovery and writes the `world_reactions_publication_failed` alert
-record. Attempts fence settlement: an expired holder cannot settle a newer claim.
+five-minute reconciliation cadence. Publication has no attempt bound: a failed send is retried
+until the Queue answers, so rows committed during a Queues send outage wait and publish after it.
+Retry delay starts at the existing native owner's one-second recovery delay and doubles per
+publication attempt, capped at 300 seconds. Decision: 300 s because it is the `*/5` reconciliation
+cadence, so a row publishes within one cron after the Queue recovers. A message the Queue can never
+accept fails at once: one whose JSON encoding exceeds 128 KB (128,000 bytes), Cloudflare Queues' per-message limit
+(https://developers.cloudflare.com/queues/platform/limits/), is `failed` with `last_error_class`
+`permanent` on its first attempt. The row stays `failed` for operator recovery and the
+`world_reactions_publication_failed` alert record names the failure class `too_large`. Attempts fence settlement: an expired holder cannot settle a newer claim.
 
-Consumption retries each failed message independently, with delays 1, 2 and 4 seconds under the
-same configured Queue retry budget. Malformed envelopes, canonical inconsistencies, transient
+Consumption retries each failed transient or internal message independently, with delay
+`min(2^(attempt-1), 60)` seconds. Decision: 60 s because the database then answers within a minute
+of recovering. Every runtime consumer has `max_retries: 30` (`QUEUE_MAX_RETRIES`, pinned by
+`infra/check-configuration.mjs`). Decision: 30 because the delays after attempts 1 to 30 total
+1+2+4+8+16+32 = 63 s plus 24 x 60 s, 1503 s (about 25 minutes), which outlasts a database or
+Hyperdrive failover of minutes. Malformed envelopes and canonical inconsistencies never become
+valid, so they skip the retries: the consumer sends the raw body to the channel's dead-letter queue
+(the `*_DLQ` producer bindings) on the first attempt, writes the alert and records the class as
+below, then acknowledges. If that DLQ send fails the message is retried, so nothing is lost.
+Malformed envelopes, canonical inconsistencies, transient
 storage failures and internal defects have distinct classifications. Decoding failures are
 classified only at the envelope boundary; a handler exception keeps its operational/internal
 classification. Success is acknowledged after the durable transaction and client cleanup; a failed
 sibling is retried without discarding successful messages.
 
 After exhaustion, Cloudflare routes the original message to the configured physical
-`rw-<environment>-world-reactions-dlq`. The failure of the last attempt (the fourth: `max_retries`
-3, `QUEUE_MAX_RETRIES` in `cloudflare-entry.ts`) writes the `world_reactions_dead_lettered` alert
+`rw-<environment>-world-reactions-dlq`. The failure of the last attempt (the 31st: `max_retries`
+30, `QUEUE_MAX_RETRIES` in `cloudflare-entry.ts`), or a refused message's first, writes the `world_reactions_dead_lettered` alert
 record beside its `world_reactions_delivery_failed` record (`channel`, `transportMessageId`,
 `failureClass`, `attempt`). Logs contain no envelope, payload, error message or connection
 information. Where the body names a world-reactions dispatch, the consumer also records the failure
