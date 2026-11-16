@@ -209,7 +209,9 @@ function summarize(rows: readonly WakeTriageObservation[]) {
     .flatMap((row) => (row.decision.latencyMs === null ? [] : [row.decision.latencyMs]))
     .sort((a, b) => a - b);
   const costs = rows.map((row) => row.decision.costMicrousd);
-  const knownSavings = eligible.filter((row) => terminal(row) && row.truth.costMicrousd !== null);
+  // A bypass of material work saves nothing: it is a miss (issue 350).
+  const saving = eligible.filter((row) => !(terminal(row) && row.truth.material));
+  const knownSavings = saving.filter((row) => terminal(row) && row.truth.costMicrousd !== null);
   const grossSavedMicrousd = knownSavings.reduce(
     (sum, row) => sum + (row.truth.costMicrousd ?? 0),
     0,
@@ -241,7 +243,7 @@ function summarize(rows: readonly WakeTriageObservation[]) {
     wouldBypassShare: rows.length === 0 ? null : eligible.length / rows.length,
     grossSavedMicrousd,
     netSavedMicrousd: grossSavedMicrousd - triageCostMicrousd,
-    unknownSavings: eligible.filter((row) => row.truth.costMicrousd === null).length,
+    unknownSavings: saving.filter((row) => row.truth.costMicrousd === null).length,
     missCount: rows.filter(miss).length,
     rawBypassLabels: rows.filter(bypass).length,
     proposedCommands: rows.filter((row) => row.truth.proposedCommand).length,

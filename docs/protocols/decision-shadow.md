@@ -100,8 +100,8 @@ evidence, without disclosing private input, prompt or output artifact contents. 
 per-reason labels, confidence, latency, costs, agreement and bypass share,
 with abstentions separate from low-confidence answers. A `suppress` or `compiled_routine` answer
 on a material turn is a miss; examples and recurring signatures remain visible. Savings are
-counterfactual full-turn spend for confident bypass labels, with triage spend subtracted for net
-savings. Direct-message wakes are excluded from safe bypass/savings while their raw labels and
+counterfactual full-turn spend for confident bypass labels on turns that were not material, with
+triage spend subtracted for net savings; a miss adds nothing to savings. Direct-message wakes are excluded from safe bypass/savings while their raw labels and
 misses remain visible. Unknown costs remain counted as unknown, and a savings figure does not establish that
 bypassing the missed work would be acceptable.
 

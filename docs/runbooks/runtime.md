@@ -1464,8 +1464,8 @@ Abstentions, low confidence, failures, budget refusals and unfinished turns have
 The report includes agreement, confident bypass share, counterfactual gross/net savings, miss
 examples and recurring miss/low-confidence signatures for human review. Nullable cost means unknown;
 reserved budget is not measured spend. Safe bypass/savings exclude direct-message wakes; their
-raw bypass labels and misses remain visible. Proposed suppression of material work remains a miss even
-if it makes the counterfactual savings look attractive. See the
+raw bypass labels and misses remain visible. Proposed suppression of material work is a miss and
+adds nothing to the counterfactual savings. See the
 [ground-truth and signature contract](../protocols/decision-shadow.md#wake-triage).
 
 The same endpoint and policy apply to the fixture world and an external world installed through
