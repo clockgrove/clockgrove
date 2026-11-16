@@ -52,7 +52,8 @@ it("runs exactly the files each suite's package.json command names", () => {
     const filters = [];
     for (let index = 0; index < words.length; index += 1) {
       if (words[index] === "--root") base = `${words[++index]}/`;
-      else if (words[index].startsWith("--")) index += 1;
+      else if (["--config", "--project"].includes(words[index])) index += 1;
+      else if (words[index].startsWith("--")) continue;
       else filters.push(words[index]);
     }
     return tracked.filter(
