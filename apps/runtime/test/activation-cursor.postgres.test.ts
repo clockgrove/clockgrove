@@ -325,3 +325,40 @@ it("marks only the actor's own crossing in its policy's space as its own", async
     await client.close();
   }
 });
+
+it("stores a need only on a threshold, and only hunger or thirst", async () => {
+  const client = connect(cluster.fixture.environment);
+  try {
+    const activations = new PostgreSqlActivations(client);
+    const configuration = (id: string, kind: string, need: string) =>
+      activations.configure(
+        address,
+        {
+          id,
+          sessionId: "session-keeper",
+          kind,
+          nextWakeAt: null,
+          intervalMs: null,
+          eventType: "needs.threshold-crossed",
+          need,
+          input: "",
+          priority: 1,
+          enabled: true,
+          compiledRoutine: "noop",
+        } as never,
+        { allowModel: false, modelBudget: 0 },
+      );
+    await expect(configuration("need-subscription", "subscription", "hunger")).rejects.toThrow(
+      "invalid activation configuration",
+    );
+    await expect(configuration("need-sleep", "threshold", "sleep")).rejects.toThrow(
+      "invalid activation configuration",
+    );
+    await configuration("need-hunger", "threshold", "hunger");
+    expect(
+      (await activations.inspect(address)).configurations.find((c) => c.id === "need-hunger"),
+    ).toMatchObject({ kind: "threshold", need: "hunger" });
+  } finally {
+    await client.close();
+  }
+});

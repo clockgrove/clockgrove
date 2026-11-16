@@ -120,6 +120,39 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "outsider-session-token",
       );
       expect(denied.status).toBe(403);
+      // A need is named only on a threshold, and only as hunger or thirst.
+      for (const [kind, need] of [
+        ["subscription", "hunger"],
+        ["threshold", "sleep"],
+      ])
+        expect(
+          await owner.request(
+            "/v1/runtime/activations/configure",
+            {
+              version: 1,
+              scope: owner.scope,
+              actorId: ACTOR,
+              configuration: {
+                id: `need-${kind}`,
+                sessionId,
+                kind,
+                nextWakeAt: null,
+                intervalMs: null,
+                eventType: "needs.threshold-crossed",
+                need,
+                input: "",
+                priority: 1,
+                enabled: true,
+                compiledRoutine: "noop",
+              },
+              policy: { allowModel: true, modelBudget: 10 },
+            },
+            MEMBER,
+          ),
+        ).toMatchObject({
+          status: 400,
+          body: { error: "invalid_inspection_request" },
+        });
       expect(await counts()).toBe("0/0/0");
       await configure("rain", "subscription", { eventType: "rain.started" });
       await configure("perceived-rain", "perception");
@@ -567,6 +600,80 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(
         await owner.sql(
           "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'own-move-hunger'",
+        ),
+      ).toBe("0");
+
+      // A threshold naming a need wakes only for its own actor's crossing of that need. Eighty
+      // simulated days of the fixture world bring three crossings in one space: the companion's and
+      // a newborn child's hunger and the dependent's thirst. The dependent's hunger threshold sees
+      // its own thirst crossing and others' hunger crossings, and is woken by none of them.
+      const threshold = async (actorId: string, id: string, need: string) => {
+        const opened = await owner.request(
+          "/v1/runtime/conversations/create",
+          { version: 1, ...owner.scope, actorId },
+          MEMBER,
+        );
+        expect(opened.status).toBe(200);
+        await post("configure", {
+          actorId,
+          configuration: {
+            id,
+            sessionId: decodeConversationSession(opened.body).sessionId,
+            kind: "threshold",
+            nextWakeAt: null,
+            intervalMs: null,
+            eventType: "needs.threshold-crossed",
+            need,
+            input: "",
+            priority: 1,
+            enabled: true,
+            compiledRoutine: "noop",
+          },
+          policy: { allowModel: true, modelBudget: 10 },
+        });
+      };
+      await threshold("fixture.companion", "companion-hunger", "hunger");
+      await threshold("fixture.dependent", "dependent-thirst", "thirst");
+      await threshold("fixture.dependent", "dependent-hunger", "hunger");
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      const before = BigInt(
+        await owner.sql("SELECT max(simulation_time)::text FROM clockgrove.events"),
+      );
+      expect(
+        (
+          await owner.submit(
+            advanceCommand(owner.world, "crossings", before + 80n * 86_400_000n, null, {
+              maxInputs: 1024,
+              maxEvents: 4096,
+            }),
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        await owner.sql(
+          `SELECT string_agg(event_id || '=' || m[2] || ':' || m[1], ' ' ORDER BY journal_position)
+           FROM clockgrove.events, regexp_match(payload::text,
+             '\\["need", \\["string", "(\\w+)"\\]\\], \\["objectId", \\["string", "([^"]+)"') AS m
+           WHERE event_type = 'needs.threshold-crossed'`,
+        ),
+      ).toBe(
+        "crossings:event:289=fixture.companion:hunger crossings:event:1047=child_f49de9971bf27e7d:hunger crossings:event:3040=fixture.dependent:thirst",
+      );
+      await expect
+        .poll(
+          () =>
+            owner.sql(
+              `SELECT string_agg(configuration_id || '=' || evidence || '/' || status, ' ' ORDER BY configuration_id)
+             FROM clockgrove.actor_activations WHERE configuration_id IN ('companion-hunger', 'dependent-thirst')`,
+            ),
+          { timeout: 120_000, interval: 500 },
+        )
+        .toBe(
+          "companion-hunger=journal:crossings:event:289/noop dependent-thirst=journal:crossings:event:3040/noop",
+        );
+      expect(
+        await owner.sql(
+          "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'dependent-hunger'",
         ),
       ).toBe("0");
     });

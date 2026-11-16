@@ -581,6 +581,8 @@ function validateConfiguration(c: ActivationConfiguration): void {
     (c.nextWakeAt !== null && (!Number.isSafeInteger(c.nextWakeAt) || c.nextWakeAt < 0)) ||
     (c.intervalMs !== null && (!Number.isSafeInteger(c.intervalMs) || c.intervalMs < 60000)) ||
     (c.eventType !== undefined && (typeof c.eventType !== "string" || c.eventType.length > 256)) ||
+    (c.need !== undefined &&
+      (c.kind !== "threshold" || (c.need !== "hunger" && c.need !== "thirst"))) ||
     (c.condition !== undefined &&
       (typeof c.condition !== "string" || new TextEncoder().encode(c.condition).length > 1024))
   )
