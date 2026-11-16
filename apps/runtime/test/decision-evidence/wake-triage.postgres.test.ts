@@ -211,6 +211,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT record->>'status' FROM clockgrove.wake_triage WHERE message_id='shared-budget'",
         ),
       ).toBe("over-budget");
+      // The budget renews with the wall-clock day, not the world's (issue 358): what was spent so
+      // far moves to yesterday, and a new world day alone renews nothing.
+      await owner.sql("UPDATE clockgrove.wake_triage SET wall_day=wall_day-1");
       expect(
         (
           await owner.submit(
@@ -367,7 +370,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
         grossSavedMicrousd: 320000,
         netSavedMicrousd: 318900,
       });
-      expect(await owner.sql("SELECT count(DISTINCT day) FROM clockgrove.wake_triage")).toBe("2");
+      expect(await owner.sql("SELECT count(DISTINCT wall_day) FROM clockgrove.wake_triage")).toBe(
+        "2",
+      );
       const rows = (
         proactive.body as {
           observations: {
@@ -386,6 +391,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         proposedCommand: false,
         replyToPerson: false,
       });
+      await owner.sql("UPDATE clockgrove.wake_triage SET wall_day=wall_day-1");
       expect(
         (
           await owner.submit(
