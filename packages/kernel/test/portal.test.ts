@@ -179,6 +179,37 @@ describe("portal navigation (graph 3)", () => {
     expect(run(onAnchor, "movement.start", intoGarden, "m4").refusal).toEqual(UNREACHABLE);
   });
 
+  it("keeps a point in the yard by a closed gate on the yard side, not the nearest anchor's across the fence", async () => {
+    const base = await spatialFixture([gate({}, "closed"), mover("mover", [3500n, 4000n])]);
+    const f = fixedPoint;
+    const edges = [
+      { from: "den-mouth", to: "porch-step", cost: f(4000n) },
+      { from: "fence-gap", to: "garden-edge", cost: f(4000n) },
+    ];
+    const yard = {
+      regionId: "yard",
+      version: 1,
+      frameId: anchorGraph().frameId,
+      frameVersion: 1,
+      shape: { kind: "rectangle", min: [f(-1000n), f(-1000n)], max: [f(5000n), f(4500n)] },
+    };
+    const state = createWorldState({
+      ...base.partition.state,
+      spatialRegions: [...(base.partition.state.spatialRegions ?? []), yard],
+      anchorGraphs: [parseAnchorGraph({ ...anchorGraph(), edges })],
+    } as never);
+    const walk = run(
+      withState(base, state),
+      "movement.start",
+      startPayload("mover", toPose(1000n, 2000n)),
+      "m1",
+    );
+    expect(walk.refusal).toBeUndefined();
+    const record = walk.state.entities.find((entity) => entity.objectId === "mover")!.movement!;
+    expect(record.anchorPath).toEqual([]);
+    expect(record.portalSteps).toBeUndefined();
+  });
+
   it("passes an actor through with portal.use and refuses with stable codes", async () => {
     const base = await spatialFixture([gate(), mover("mover", [0n, 0n])]);
     const use = {

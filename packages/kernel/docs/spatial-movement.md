@@ -97,8 +97,13 @@ exists, and otherwise the existing `unreachable` refusal (`precondition-failed` 
 Portals also bound moves that do not start on an anchor or that end at a pose, which otherwise
 travel straight. `portalSides` splits a graph into its anchor-edge components ("sides"); a side
 is guarded when a portal, open or closed, joins it to another side. A point attaches to the
-anchor at its coordinates; else, inside portal-endpoint regions, to the nearest of their anchors;
-else to the nearest anchor outside those regions (ties by ascending id). When a move's start and
+anchor at its coordinates; else, for a mover, to the last anchor its recorded movement had reached
+(the far anchor of a portal it crossed); else, inside portal-endpoint regions, to the nearest of
+their anchors; else to the nearest anchor outside those
+regions (ties by ascending id), unless that anchor lies on another side than the anchor of the
+place the point is in (the deepest region of its frame that contains it and holds an anchor
+outside the portal regions, climbing `parent` links while a region holds none), which then wins; with no such region the
+nearest anchor stands. A point in the yard by a closed gate so stays on the yard side. When a move's start and
 destination attach to different sides and either side is guarded, the move goes straight to the
 start's anchor, then over the anchor and open-portal graph to the destination's anchor (and
 straight on to a pose destination), or is refused as unreachable as above. A move between points

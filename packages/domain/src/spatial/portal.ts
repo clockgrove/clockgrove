@@ -103,14 +103,18 @@ export function portalEdges(
  * anchor-edge graph (its smallest anchor id); a side is `guarded` when some portal, open or
  * closed and whatever its object's lifecycle, joins it to another side, so the portal graph is
  * the only way between them. `attach` is the anchor a point stands for: the anchor at its
- * coordinates; else, inside regions that are portal endpoints, the nearest of their anchors;
- * else the nearest anchor outside those regions (ties by ascending id). A point inside a portal's
- * region so stands for that region's anchors, and a point outside it for the ground around it.
+ * coordinates; else the recorded anchor of a mover (the last anchor its movement reached, which
+ * is the far anchor of a portal it crossed); else, inside regions that are portal endpoints, the
+ * nearest of their anchors; else the nearest anchor outside those regions (ties by ascending id),
+ * unless that anchor lies on another side than the anchor of the point's place, which then wins.
+ * The place is the deepest region of the point's frame that contains it and holds an anchor
+ * outside the portal regions, climbing `parent` links when a region holds none; with no such region the nearest anchor stands.
+ * A point so keeps the side of its own place, not of the nearest anchor across a fence.
  */
 export interface PortalSides {
   readonly side: (anchorId: string) => string;
   readonly guarded: ReadonlySet<string>;
-  readonly attach: (point: readonly bigint[]) => Anchor;
+  readonly attach: (point: readonly bigint[], recordedAnchorId?: string) => Anchor;
 }
 
 /** The sides portals separate in `graph`, or undefined when no portal separates any. */
@@ -163,9 +167,51 @@ export function portalSides(
   };
   const enclosed = new Set([...portalRegions.values()].flat().map((anchor) => anchor.anchorId));
   const open = graph.anchors.filter((anchor) => !enclosed.has(anchor.anchorId));
-  const attach = (point: readonly bigint[]): Anchor => {
+  const places = (point: readonly bigint[]): readonly SpatialRegion[] => {
+    const containing = regions.filter(
+      (region) =>
+        region.frameId === graph.frameId &&
+        region.frameVersion === graph.frameVersion &&
+        shapeDimensions(region.shape) === point.length &&
+        regionContains(region, point),
+    );
+    const depth = (region: SpatialRegion): number => {
+      let count = 0;
+      for (let at: SpatialRegion | undefined = region; at?.parent !== undefined && count < 64; ) {
+        const parentId: string = at.parent.regionId;
+        at = regions.find((candidate) => candidate.regionId === parentId);
+        count += 1;
+      }
+      return count;
+    };
+    return containing.sort(
+      (left, right) => depth(right) - depth(left) || compareText(left.regionId, right.regionId),
+    );
+  };
+  const placeAnchor = (point: readonly bigint[]): Anchor | undefined => {
+    for (const place of places(point)) {
+      for (let at: SpatialRegion | undefined = place, count = 0; at !== undefined && count < 64; ) {
+        const region: SpatialRegion = at;
+        const held = graph.anchors.filter(
+          (anchor) =>
+            !enclosed.has(anchor.anchorId) &&
+            shapeDimensions(region.shape) === anchor.coordinates.length &&
+            regionContains(region, anchor.coordinates),
+        );
+        const found = nearest(point, held);
+        if (found !== undefined) return found;
+        const parentId = region.parent?.regionId;
+        at = parentId === undefined ? undefined : regions.find((c) => c.regionId === parentId);
+        count += 1;
+      }
+    }
+    return undefined;
+  };
+  const attach = (point: readonly bigint[], recordedAnchorId?: string): Anchor => {
     const exact = graph.anchors.find((anchor) => sameCoordinates(anchor.coordinates, point));
     if (exact !== undefined) return exact;
+    const recorded = graph.anchors.find((anchor) => anchor.anchorId === recordedAnchorId);
+    if (recorded !== undefined) return recorded;
     const inside = regions
       .filter(
         (region) =>
@@ -174,7 +220,11 @@ export function portalSides(
           regionContains(region, point),
       )
       .flatMap((region) => portalRegions.get(region.regionId)!);
-    return nearest(point, inside) ?? nearest(point, open) ?? nearest(point, graph.anchors)!;
+    const near = nearest(point, inside);
+    if (near !== undefined) return near;
+    const nearby = nearest(point, open) ?? nearest(point, graph.anchors)!;
+    const home = placeAnchor(point);
+    return home === undefined || side(home.anchorId) === side(nearby.anchorId) ? nearby : home;
   };
   return { side, guarded, attach };
 }

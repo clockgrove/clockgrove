@@ -51,7 +51,8 @@ command execution live in the kernel. All data is fixed-point `bigint`:
 - A Portal (`entity.portal`, the `clockgrove.portal` component) joins two anchors or regions of
   the partition; `portalEdges` gives the open portals' links over one anchor graph,
   `portalSides` the anchor-edge components that portals separate and the anchor a point attaches
-  to, and `validatePortals` refuses unknown places, self-links and other worlds or partitions (see
+  to (a mover's recorded last anchor, else the place the point is in; see
+  [portals](../../kernel/docs/spatial-movement.md#portals-graph-3)), and `validatePortals` refuses unknown places, self-links and other worlds or partitions (see
   the [component catalog](component-catalog.md#portal-component-rw-0104)).
 - Eight `movement.*` events and `portal.opened`/`portal.closed` (version 1) are applied by
   `reduceWorldEvent`; each movement reducer refuses an event that is not the next expected
