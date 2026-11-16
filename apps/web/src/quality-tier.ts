@@ -36,14 +36,23 @@ export function startingTier(device: DeviceProfile): QualityTier {
   return device.memoryGiB === undefined && ceiling === "high" ? "medium" : ceiling;
 }
 
-/** Rendered-frame intervals per judged window (#67's 120 measured frames). */
-export const WINDOW_FRAMES = 120;
+/**
+ * Decision: rendered-frame intervals per judged window. A quarter of #67's 120 measured frames, so
+ * a sustained step down needs more than #67's 120 intervals while a short window keeps a burst from
+ * overlapping the whole run of windows a step down needs. p95 of 30 is over budget from 2 slow.
+ */
+export const WINDOW_FRAMES = 30;
 /** Decision: intervals discarded after start, content ready, a tier change or a return to view. */
 export const WARMUP_FRAMES = 30;
-/** Decision: consecutive over-budget windows before stepping down; one window can be a burst. */
-export const DOWN_WINDOWS = 2;
-/** Decision: consecutive windows of headroom before stepping up, about 10 s at 60 Hz. */
-export const UP_WINDOWS = 5;
+/**
+ * Decision: consecutive over-budget windows before stepping down (150 intervals). A contiguous
+ * burst can make five consecutive windows over budget only by covering the middle three and 2
+ * intervals on each side: so any burst shorter than 94 intervals never steps down, wherever it
+ * falls in the windows and whether or not a restart came before it.
+ */
+export const DOWN_WINDOWS = 5;
+/** Decision: consecutive windows of headroom before stepping up (600 intervals, 10 s at 60 Hz). */
+export const UP_WINDOWS = 20;
 /** Decision: headroom means p95 at or below 60% of the frame budget (steady 50 fps or better). */
 export const HEADROOM = 0.6;
 

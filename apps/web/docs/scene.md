@@ -219,20 +219,24 @@ backend has started, then moves on sustained frame time:
 - **Limits.** Every tier also clamps each output side to the device's reported maximum side, so
   no tier asks for a target beyond the device's limits.
 - **Change.** Only rAF intervals that span a rendered frame on a visible page are judged, so idle
-  frames cannot prove headroom. The first 30 intervals after start, content becoming ready, any
-  tier change or a return to visible are discarded as one-time work (shader compilation, target
-  allocation). Windows of 120 intervals (#67's measured frames) are judged by p95. Two
-  consecutive windows above the 33.4 ms frame budget step down one tier; a single window, such as
-  a compilation burst, does not. Five consecutive windows at or below 60% of the budget
-  (20.04 ms, steady 50 fps or better; about 10 s at 60 Hz) step up one tier, never above the
-  ceiling. An up-step followed by a down-step doubles the windows the next up-step needs, so a
-  device on the edge does not oscillate.
+  frames cannot prove headroom, and none while content is loading: content sizes its resources for
+  the tier it loads under, so judging resumes only once it is ready. The first 30 intervals after
+  start, content becoming ready, any tier change or a return to visible are discarded as one-time
+  work (shader compilation, target allocation). Windows of 30 intervals are judged by p95, which
+  is over budget from 2 slow intervals. Five consecutive windows above the 33.4 ms frame budget
+  (150 intervals, more than #67's 120 measured frames) step down one tier. A contiguous burst can
+  make five consecutive windows over budget only by covering the middle three and 2 intervals on
+  each side, so a burst shorter than 94 intervals, such as shader compilation when later content
+  arrives, never steps down, wherever it falls in the windows. Twenty consecutive windows at or
+  below 60% of the budget (20.04 ms, steady 50 fps or better; 600 intervals, about 10 s at 60 Hz)
+  step up one tier, never above the ceiling. An up-step followed by a down-step doubles the
+  windows the next up-step needs, so a device on the edge does not oscillate.
 - **Content.** A step down goes to the next lower tier whose texture ceiling the loaded content's
   resources fit (resource textures with that tier's shadow storage, plus the smallest output
   targets); if none fits, the tier stays. An automatic tier change never retires content that
   loaded fine. Direct `setQuality` calls keep their behaviour.
 
-The window counts, 60% headroom, five up-step windows and doubling are local decisions with the
+The window size and counts, the 30-interval warm-up, 60% headroom and doubling are local decisions with the
 reasons above; they and the thresholds bound target allocation and shader work rather than make
 measured device-class performance promises.
 

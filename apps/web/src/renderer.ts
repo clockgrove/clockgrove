@@ -2218,14 +2218,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.renderedLastStep = changed;
   };
   /**
-   * #356: judge only intervals that span a rendered frame while the page is visible, restarting
-   * after a hidden spell; change tier only to one whose texture ceiling loaded content fits.
+   * #356: judge only intervals that span a rendered frame while the page is visible and no content
+   * is loading, restarting after a hidden spell; change tier only to one loaded content fits.
    */
   private judgeFrame(delta: number): void {
     const visible = document.visibilityState === "visible";
     if (visible && !this.visible) this.governor?.restart();
     this.visible = visible;
     if (!visible || !this.renderedLastStep || delta <= 0 || !this.governor) return;
+    // Content sizes its resources for the tier it loads under: hold judging until it is ready,
+    // which restarts the governor, so no step down can retire it before it becomes ready.
+    if (this.metrics.contentStatus === "loading") return;
     const next = this.governor.sample(delta, this.tier, (tier) => this.contentFits(tier));
     if (next) this.setQuality(next);
   }

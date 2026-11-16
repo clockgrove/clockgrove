@@ -1962,11 +1962,15 @@ it("chooses the starting tier from device limits and changes it on sustained fra
           async ([wire, bytes]) => {
             const content = bytes && {
               version: 1,
-              create: ({ THREE }) => ({
-                root: new THREE.Group(),
-                textures: [new THREE.DataTexture(new Uint8Array(bytes), 4096, bytes / 16384)],
-                update() {},
-              }),
+              // Content stays loading until the proof opens `gate`.
+              create: async ({ THREE }) => {
+                await new Promise((resolve) => (globalThis.gate = resolve));
+                return {
+                  root: new THREE.Group(),
+                  textures: [new THREE.DataTexture(new Uint8Array(bytes), 4096, bytes / 16384)],
+                  update() {},
+                };
+              },
             };
             globalThis.tierProof = await proofAdapter(wire, content);
             globalThis.tiers = [];
@@ -2006,22 +2010,39 @@ it("chooses the starting tier from device limits and changes it on sustained fra
       }
       // 24 MiB of content fits medium and high, not low's 16 MiB.
       const page = await start(apple, undefined, 24 * 1024 * 1024);
-      await expect.poll(() => state(page)).toMatchObject({ tier: "high", content: "ready" });
-      // A burst of one-time work (60 frames at 120 ms) after content loads keeps the tier.
+      // While content loads, sustained slow rendered frames change nothing.
       await page.evaluate(async () => {
-        await runTrace(120, 60);
-        await runTrace(16.7, 400);
+        while (!globalThis.gate) await proofFrame();
+        // Redraw every frame while loading, as an animated scene would.
+        const raf = globalThis.requestAnimationFrame;
+        globalThis.requestAnimationFrame = (callback) =>
+          raf((time) => {
+            tierProof.dirty = tierProof.metrics.contentStatus === "loading";
+            callback(time);
+          });
+        await runTrace(50, 400);
+        gate();
+      });
+      await expect.poll(() => state(page)).toMatchObject({ tier: "high", content: "ready" });
+      expect((await state(page)).tiers).toEqual([]);
+      // Bursts of one-time work (90 frames at 120 ms) keep the tier wherever they fall in the
+      // judged windows: right after content is ready, and 47 frames off that alignment.
+      await page.evaluate(async () => {
+        await runTrace(120, 90);
+        await runTrace(16.7, 347);
+        await runTrace(120, 90);
+        await runTrace(16.7, 300);
       });
       expect(await state(page)).toMatchObject({ tier: "high", tiers: [] });
-      // Sustained 50 ms frames step down once; low would retire the loaded content, so it stays.
+      // Sustained 50 ms frames step down once (within 180 frames); low would retire the loaded content, so it stays.
       await page.evaluate(() => runTrace(50, 600));
       expect(await state(page)).toMatchObject({
         tier: "medium",
         tiers: ["medium"],
         content: "ready",
       });
-      // Sustained 10 ms frames step back up.
-      await page.evaluate(() => runTrace(10, 700));
+      // Sustained 10 ms frames step back up (within 628 frames, plus a margin).
+      await page.evaluate(() => runTrace(10, 900));
       expect(await state(page)).toMatchObject({
         tier: "high",
         tiers: ["medium", "high"],
