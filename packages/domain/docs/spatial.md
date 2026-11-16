@@ -7,7 +7,7 @@ axes, a fixed-point origin, an optional parent transform, and a gravity conventi
 prescribe the concrete field encodings. This package therefore makes these implementation choices:
 
 - coordinates and transform coefficients are signed `bigint` values branded as `FixedPoint`;
-- a unit declares a non-empty semantic name and a decimal `fractionalDigits` scale;
+- a unit declares a semantic name the engine knows (`SPATIAL_UNITS` in `@clockgrove/contracts`; an unknown name such as `cm` is refused, never read as one metre) and a decimal `fractionalDigits` scale;
 - vectors are dimension-specific tuples, and transforms use a translation tuple plus a square
   row-major basis matrix;
 - axes are ordered, named positive directions with unique semantic names;
@@ -27,7 +27,7 @@ command execution live in the kernel. All data is fixed-point `bigint`:
   axes {axes[]}, origin, gravity {kind: "constant-vector", vector}, parentFrameId?,
   parentTransform? {version, translation, basis}}`. `validateSpatialFrame` throws
   `DomainValidationError` unless: the version is a positive safe integer; the unit name is
-  non-empty and `fractionalDigits` is an integer from 0 through 18; origin, gravity vector and
+  one the engine knows (`metre`, `meter`, `millimetre`, `millimeter`) and `fractionalDigits` is an integer from 0 through 18; origin, gravity vector and
   axes each have exactly `dimensions` entries; axis names and positive directions are non-empty
   and axis names are unique; `parentFrameId` and `parentTransform` are declared together; a
   frame is never its own parent; and the transform has a positive safe-integer version, a

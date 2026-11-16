@@ -110,8 +110,8 @@ committed data. Legacy projections without lighting retain their existing enviro
 
 - **Camera.** The camera is fixed at 2:1 isometric, with east running down-right and north running
   up-right. The scale is 12.5 px per metre, which is the issue 813 golden's 80 mm per pixel, so reviewed
-  sprites draw 1:1. Frame units become metres by unit name (metre, millimetre); an unknown unit counts
-  as metres. On each scope's first snapshot the camera is centred on the projected entities. Panning
+  sprites draw 1:1. Frame units become metres by unit name through `SPATIAL_UNITS` in `@clockgrove/contracts` (metre, meter,
+  millimetre, millimeter); decoding refuses any other unit name. On each scope's first snapshot the camera is centred on the projected entities. Panning
   (by drag) is bounded to 160 px beyond them, and never less than the view at the smallest zoom. Zoom
   (by wheel) is clamped to `scene.camera.minZoom`–`maxZoom` from the browser shell presentation.
   Omitted camera input retains 0.75–2. Limits must be finite, positive and include initial zoom 1;

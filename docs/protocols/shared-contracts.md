@@ -12,6 +12,10 @@
 
 All Clockgrove IDs are opaque branded strings. Callers may compare or transport them but must not infer scope or provider placement from their bytes. Externally initiated IDs are UUIDv7 and are validated with `decodeExternallyInitiatedId`. IDs created within deterministic execution come from an injected `DeterministicIdSource` whose declared seed is the command ID, event index, and named random stream. The contracts package defines that seam and does not choose randomness, read a clock, or generate an ID itself.
 
+## Spatial units
+
+`SPATIAL_UNITS` (`packages/contracts/src/spatial-units.ts`) lists the units the engine knows with metres per unit: `metre`, `meter`, `millimetre`, `millimeter`. `metresPerUnit(name)` returns undefined for any other name. The browser frame decoder, domain frame validation and so pack decoding refuse an unknown unit name; the web adapter reads metres from this table.
+
 ## Contract inventory version
 
 `scripts/contracts.generated.json` records one digest per `packages/contracts/src` file, taken from

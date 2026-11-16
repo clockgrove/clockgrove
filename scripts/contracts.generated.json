@@ -6,7 +6,7 @@
 
     "asset-style-profile.ts": "a46acfbe662b7c21474f42e452a24f36681000746339e39c3afc4a903dc6f61e",
 
-    "browser-protocol.ts": "e6875425cf41c1e96c7d4098d8d75e258d4e35a1b09e9aa9b29de13c2e6e57b6",
+    "browser-protocol.ts": "7f9a21748be72898d5863abce72d52cfa7825ccaa04843c67793661fc53794fa",
 
     "channels.ts": "8606814b06b231f896a88935b3070a0d5abf2bb4b713dacb2bfb06f630e1a9d6",
 
@@ -22,7 +22,7 @@
 
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
 
-    "index.ts": "a40dc548155bc6cb5baf62f30c100287bad0568b6f19d3f1ae9ebe8967ebbc05",
+    "index.ts": "97b089f8ccf75fd2d11f2e2ba039bc09ce10e28d303d3c1f7626afa54668933c",
 
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
 
@@ -45,6 +45,8 @@
     "scene-interactions.ts": "bb9cf0e4811c6ccdfd7bda76932f89f1167652f0865b1deab8a1ef30ee761dbc",
 
     "scene-protocol.ts": "0cfd6c8c72927e3dd3a8c2139078b6434b7a1ba958b8b8ecf650b96ab16cf67c",
+
+    "spatial-units.ts": "b9b93e61de86d434b6fd4f8da35164d29125362504880ad5ab3998e543e90a0f",
 
     "trusted.ts": "38f849d80ab17c736df5e93dddd309d0e81261a84307825c72cd928208b73eaa",
 

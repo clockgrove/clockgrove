@@ -3,6 +3,7 @@ import {
   type LivingPose,
   type LivingSpatialFrame,
   type MaterialChannel,
+  metresPerUnit,
   type ObjectId,
   type SceneEffect,
   type SceneMaterialDelivery,
@@ -47,13 +48,6 @@ export function framePosition(frame: LivingSpatialFrame, coordinates: readonly s
   const scale = 10 ** frame.unit.fractionalDigits;
   return coordinates.map((value) => Number(value) / scale);
 }
-/** Metres per frame unit by unit name; an unnamed unit counts as one metre. */
-const METRES_PER_UNIT: Readonly<Record<string, number>> = {
-  meter: 1,
-  metre: 1,
-  millimeter: 0.001,
-  millimetre: 0.001,
-};
 /** Movement within this many metres interpolates; beyond it the sprite snaps (see docs/scene.md). */
 export const SNAP_THRESHOLD_METRES = 16;
 /** How long one committed move is interpolated, in milliseconds (decision, docs/scene.md). */
@@ -107,7 +101,8 @@ export function poseMetres(
 ): { frame: string; x: number; y: number; z: number; elevation: number } | undefined {
   const frame = frames.get(pose.frameId);
   if (!frame || frame.version !== pose.frameVersion) return undefined;
-  const metres = METRES_PER_UNIT[frame.unit.name] ?? 1;
+  const metres = metresPerUnit(frame.unit.name);
+  if (metres === undefined) return undefined;
   const [x = 0, y = 0, z = 0] = framePosition(frame, pose.coordinates).map(
     (value) => value * metres,
   );
