@@ -33,10 +33,11 @@ export class PostgreSqlWakeTriage {
     fiber: TurnFiber,
     policy: WakeTriagePolicy,
     dayLengthMs: bigint,
+    wallDay: string,
   ): Promise<WakeTriageReservation> {
     return withClientTransaction(this.client, { authorization: participant }, async () => {
       const result = await this.client.query(
-        "SELECT clockgrove.reserve_wake_triage($1,$2,$3,$4,$5,$6) AS reservation",
+        "SELECT clockgrove.reserve_wake_triage($1,$2,$3,$4,$5,$6,$7::date) AS reservation",
         [
           fiber.scope.tenantId,
           fiber.sessionId,
@@ -44,6 +45,7 @@ export class PostgreSqlWakeTriage {
           policy.maxCostMicrousd,
           policy.dailyBudgetMicrousd,
           dayLengthMs.toString(),
+          wallDay,
         ],
       );
       return (result.rows[0] as Row).reservation as WakeTriageReservation;
