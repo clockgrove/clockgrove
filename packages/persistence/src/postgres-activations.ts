@@ -353,7 +353,8 @@ export class PostgreSqlActivations {
 
   beforeModel(a: ActivationAddress, fiber: TurnFiber): Promise<string | undefined> {
     return this.transaction(a, async () => {
-      await this.roll(a);
+      // A turn with no activation policy (plain talk) has no period to roll.
+      await this.rollPeriod(a);
       const result = await this.client.query(
         `SELECT clockgrove.activation_model_gate($1,$2,$3,$4,$5,$6,$7,$8) AS status`,
         [
@@ -504,20 +505,20 @@ export class PostgreSqlActivations {
   }
   /** Starts the current wall-clock period when the stored one has passed; answers the locked row. */
   private async roll(a: ActivationAddress): Promise<Row> {
+    return (await this.rollPeriod(a)) ?? this.policy(a);
+  }
+  /** Starts the current wall-clock period when the stored one has passed; answers the row it rolled. */
+  private async rollPeriod(a: ActivationAddress): Promise<Row | undefined> {
     const result = await this.client.query(
       `UPDATE clockgrove.actor_activation_policies SET period_index=floor($5::bigint / budget_period_ms),
         period_wakes=0, model_calls_reserved=0
       WHERE ${KEY} AND period_index < floor($5::bigint / budget_period_ms) RETURNING *`,
       [...values(a), Date.now()],
     );
-    return result.rows[0] ? (result.rows[0] as Row) : this.policy(a);
+    return result.rows[0] as Row | undefined;
   }
   private async inspectHere(a: ActivationAddress): Promise<ActivationInspection> {
-    const visible = await this.client.query(
-      `SELECT 1 FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
-      values(a),
-    );
-    if (visible.rows.length > 0) await this.roll(a);
+    await this.rollPeriod(a);
     const result = await this.client.query(
       `SELECT * FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
       values(a),

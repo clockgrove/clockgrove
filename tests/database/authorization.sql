@@ -2429,7 +2429,8 @@ BEGIN
   IF (SELECT status || '/' || outcome FROM clockgrove.actor_activations) <> 'completed/completed' THEN
     RAISE EXCEPTION 'activation owner did not settle evidence';
   END IF;
-  UPDATE clockgrove.actor_activation_policies SET receipt_count=1000;
+  -- Issue 358: the lifetime tally no longer stops wakes; the wall-clock period's wake limit does.
+  UPDATE clockgrove.actor_activation_policies SET receipt_count=1000, period_wakes=wake_limit;
   BEGIN
     INSERT INTO clockgrove.actor_activations (
       tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
