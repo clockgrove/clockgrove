@@ -405,7 +405,19 @@ export class TurnFibers {
                 response =
                   prepared === undefined
                     ? await this.host.respond(session, caretakerMessages, input, prompt)
-                    : await prepared.send();
+                    : await prepared.send(async (reserveMicrousd) => {
+                        // A fallback route reserves its own worst case against what is left of
+                        // the turn's cap before it is tried (issue 349).
+                        const policy = this.host.research?.policy;
+                        if (policy === undefined) return true;
+                        const decision = await this.store((store) =>
+                          store.reserveModelRoute!(participant, current, {
+                            maxCostMicrousd: policy.maxCostMicrousd,
+                            reserveMicrousd,
+                          }),
+                        );
+                        return decision === "reserved";
+                      });
               } catch (error) {
                 if (this.host.research === undefined) throw error;
                 // Provider exception text can contain prompts or credentials; only a fixed state leaves.

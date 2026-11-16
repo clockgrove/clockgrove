@@ -10,6 +10,7 @@ import {
   type ModelAliasDefinition,
   type ModelRoute,
   requestCostCeilingMicrousd,
+  routeCostCeilingMicrousd,
 } from "./aliases.js";
 import { RouteBreaker } from "./breaker.js";
 import type {
@@ -294,7 +295,19 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
 
     const results: RouteResult[] = [];
+    // A fallback route the caller did not admit for its own worst case is not tried (issue 349).
+    let fallbackRefused = false;
     for (const route of alias.routes) {
+      if (results.length > 0 && request.admitFallback !== undefined) {
+        const reserveMicrousd = routeCostCeilingMicrousd(alias, route, inputTokens);
+        const admitted = await request
+          .admitFallback({ routeId: route.id, reserveMicrousd })
+          .catch(() => false);
+        if (!admitted) {
+          fallbackRefused = true;
+          break;
+        }
+      }
       const result = await attemptRoute(alias, route, request, signal, onText, jsonSchema);
       results.push(result);
       if (!fallsBack(result.attempt)) break;
@@ -319,11 +332,13 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
     const record: ModelCallRecord = {
       ...base,
-      decision: fallsBack(last.attempt)
-        ? "exhausted"
-        : results.length === 1
-          ? "primary"
-          : "fallback",
+      decision: fallbackRefused
+        ? "budget_refused"
+        : fallsBack(last.attempt)
+          ? "exhausted"
+          : results.length === 1
+            ? "primary"
+            : "fallback",
       attempts:
         outcome === last.attempt.outcome
           ? attempts
@@ -334,6 +349,8 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     };
     await options.accounting.record(record);
     if (outcome === "completed") return { status: "completed", value: value as T, record };
+    if (fallbackRefused)
+      return { status: "failed", code: "budget_exceeded", retryable: false, record };
     return {
       status: "failed",
       code: failureCode(outcome),

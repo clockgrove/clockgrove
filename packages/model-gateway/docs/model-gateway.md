@@ -31,7 +31,7 @@ provider has no adapter is refused when the gateway is created, before any call.
 | `refused` | the model declined (`content-filter` finish) |
 | `invalid_output` | structured output was not JSON or failed the schema |
 | `input_too_large` | the request's measured input exceeds the alias's `maxInputTokens`; no route was called. The outcome names both (`inputTokens`, `maxInputTokens`) |
-| `budget_exceeded` | the reservation was refused; no route was called |
+| `budget_exceeded` | the reservation was refused and no route was called, or the caller's `admitFallback` did not admit the next route |
 | `cancelled` | the caller's signal aborted the call |
 
 ## Aliases and routes
@@ -112,6 +112,13 @@ The gateway does not fall back after any other outcome:
 The SDK makes no retries of its own (`maxRetries: 0`). Every retry or fallback is the gateway's,
 and it is recorded.
 
+A caller that holds its own spending cap can pass `admitFallback` on the request. Before each
+fallback route, the gateway asks it with that route's own worst case for the measured request
+(`routeCostCeilingMicrousd`: measured input × input price + `maxOutputTokens` × output price). If
+it answers false, the route is not tried and the call ends `budget_exceeded` (not retryable),
+decision `budget_refused`, with the attempts already made and their cost. The actor's research
+turn uses this to reserve one route at a time against its turn cap (issue 349).
+
 Each route has a breaker (`src/breaker.ts`). These outcomes count against it:
 
 - timeouts before or after first bytes;
@@ -162,7 +169,8 @@ Every call, whether completed, failed or refused, writes one `ModelCallRecord` t
   - `fallback`: a later route ended it;
   - `exhausted`: every route failed in a way that falls back;
   - `input_refused`: the request exceeds the input bound; no route was called;
-  - `budget_refused`: no route was called;
+  - `budget_refused`: the reservation was refused and no route was called, or `admitFallback`
+    refused the next route after the attempts listed;
 - one attempt per route tried. Each attempt has the route, provider and pinned model, the model the
   provider reported serving (`responseModel`), its outcome, its
   HTTP status, latency and time to first text, its input and output tokens, and its cost in

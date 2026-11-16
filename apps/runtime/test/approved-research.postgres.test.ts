@@ -284,7 +284,10 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
     // Issue 349: a research step reserves its own measured worst case, so a step that could cost
     // more than the turn's $0.25 is never sent, and one within it is.
     let measuredSends = 0;
-    const measured = (reserveMicrousd: number) =>
+    // The stand-in step's primary route reserves `reserveMicrousd`; when `fallbackMicrousd` is
+    // given, the primary fails over and the fallback route asks to reserve that before it is tried.
+    let fallbackSends = 0;
+    const measured = (reserveMicrousd: number, fallbackMicrousd?: number) =>
       new TurnFibers({
         holder: crypto.randomUUID(),
         actorId: "actor",
@@ -292,7 +295,18 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
         respond: async () => ({ text: "Unmeasured" }),
         prepare: async () => ({
           reserveMicrousd,
-          send: async () => ({ text: `Measured ${++measuredSends}` }),
+          send: async (reserveFallback) => {
+            ++measuredSends;
+            if (fallbackMicrousd === undefined) return { text: `Measured ${measuredSends}` };
+            const usage = { inputTokens: null, outputTokens: null, costMicrousd: 0 };
+            if (!(await reserveFallback!(fallbackMicrousd)))
+              return {
+                text: "Research stopped: cost_budget_exhausted. No further action was taken.",
+                outcomeCode: "cost_budget_exhausted",
+                usage,
+              };
+            return { text: `Fallback ${++fallbackSends}`, usage };
+          },
         }),
         research,
         capabilityRevision: () => 1,
@@ -312,5 +326,32 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
     ]);
     const within = await measured(250_000).activate(participant, await turn("within-cap"));
     expect([within.receipt?.reply.text, measuredSends]).toEqual(["Measured 1", 1]);
+
+    // Owner decision (issue 349): one route at a time. The primary reserves 200,000; when it fails
+    // over, a fallback needing 50,001 passes what is left of the $0.25 and is never tried, and one
+    // needing 50,000 fits and answers. The turn never holds more than its cap.
+    const refused = await measured(200_000, 50_001).activate(
+      participant,
+      await turn("fallback-over"),
+    );
+    expect([refused.receipt?.reply.text, measuredSends, fallbackSends]).toEqual([
+      "Research stopped: cost_budget_exhausted. No further action was taken.",
+      2,
+      0,
+    ]);
+    const fallback = await measured(200_000, 50_000).activate(
+      participant,
+      await turn("fallback-within"),
+    );
+    expect([fallback.receipt?.reply.text, measuredSends, fallbackSends]).toEqual([
+      "Fallback 1",
+      3,
+      1,
+    ]);
+    expect(
+      await sql(
+        "SELECT message_id,research_reserved_microusd FROM clockgrove.conversation_turn_fibers WHERE message_id LIKE 'fallback-%' ORDER BY message_id",
+      ),
+    ).toBe("fallback-over|200000\nfallback-within|250000\n");
   });
 });

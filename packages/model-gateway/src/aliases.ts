@@ -41,11 +41,18 @@ export function requestCostCeilingMicrousd(
   inputTokens: number,
 ): number {
   return Math.max(
-    ...alias.routes.map(
-      (route) =>
-        inputTokens * route.priceUsdPerMTok.input +
-        alias.maxOutputTokens * route.priceUsdPerMTok.output,
-    ),
+    ...alias.routes.map((route) => routeCostCeilingMicrousd(alias, route, inputTokens)),
+  );
+}
+
+/** The most one route of the alias can charge for input measuring `inputTokens` and a full reply. */
+export function routeCostCeilingMicrousd(
+  alias: ModelAliasDefinition,
+  route: ModelRoute,
+  inputTokens: number,
+): number {
+  return (
+    inputTokens * route.priceUsdPerMTok.input + alias.maxOutputTokens * route.priceUsdPerMTok.output
   );
 }
 

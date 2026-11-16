@@ -142,8 +142,11 @@ authorization:
    leaves no room for one estimated token (a limit below 311,944) is refused when it is read, with
    the alias, its limit, the fixed parts and the minimum named, so an actor never answers without
    its summary and history for want of room. `contextTokenBudget` itself refuses such a limit
-   rather than clamping it to a budget of one. Each research step reserves its own measured
-   worst case (the gateway's reservation, for every fallback route) against the turn's cost cap.
+   rather than clamping it to a budget of one. Each research step reserves one route at a time
+   (owner decision): before it is sent, its primary route's worst case for the exact request;
+   if that route fails over, the fallback route's own worst case against what is left of the
+   turn's cost cap (`reserve_turn_model_route`, through the gateway's `admitFallback`). A fallback
+   that does not fit is never called, and the step ends `cost_budget_exhausted`.
    Once the step's answer is recorded with a known cost, the rest of its reservation is released
    (`settle_turn_model_step`, migration 0071); a step whose cost is unknown keeps all of it.
    The input is reserved first. Then documents in kind order (identity, policy, goals,

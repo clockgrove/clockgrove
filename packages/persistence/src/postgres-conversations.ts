@@ -626,7 +626,10 @@ export class PostgreSqlConversationStore implements ConversationStore {
             (response.outcomeCode === "model_unavailable" && response.usage === undefined)
               ? 1
               : 0,
-            response.outcomeCode === undefined || response.outcomeCode === "model_unavailable"
+            // A step that was sent answered, even when its fallback route was refused for cost.
+            response.outcomeCode === undefined ||
+            response.outcomeCode === "model_unavailable" ||
+            response.usage !== undefined
               ? 1
               : 0,
           ],
@@ -797,6 +800,25 @@ export class PostgreSqlConversationStore implements ConversationStore {
           promptArtifact,
         );
       return decision;
+    });
+  }
+
+  async reserveModelRoute(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    limits: Omit<TurnModelStepLimits, "maxModelSteps">,
+  ): Promise<Exclude<TurnModelStepReservation, "model_steps_exhausted">> {
+    if (!Object.values(limits).every((value) => Number.isSafeInteger(value) && value > 0))
+      throw new Error("Invalid model route limits");
+    return this.transaction(participant, async () => {
+      const result = await this.client.query(
+        `SELECT clockgrove.reserve_turn_model_route($1,$2,$3,$4,$5,$6) AS decision`,
+        [...fiberKey(fiber), fiber.leaseEpoch, limits.maxCostMicrousd, limits.reserveMicrousd],
+      );
+      return String((result.rows[0] as Row).decision) as Exclude<
+        TurnModelStepReservation,
+        "model_steps_exhausted"
+      >;
     });
   }
 

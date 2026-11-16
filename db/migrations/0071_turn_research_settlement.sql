@@ -61,6 +61,41 @@ BEGIN
   RETURN 'reserved';
 END $$;
 
+-- Owner decision (issue 349): a step reserves one route at a time. When its primary route fails
+-- over, the fallback route reserves its own worst case against what is left of the turn's cap
+-- before it is tried, without counting another step; the step's settlement covers both.
+CREATE FUNCTION clockgrove.reserve_turn_model_route(
+  t text, s text, m text, epoch bigint, max_cost bigint, reserve_cost bigint)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,clockgrove AS $$
+DECLARE f clockgrove.conversation_turn_fibers%ROWTYPE; tool_cost bigint;
+BEGIN
+  IF NOT clockgrove.runtime_can_access(t,'conversation')
+     OR NOT clockgrove.runtime_conversation_participant(t,s)
+     OR max_cost<=0 OR reserve_cost<=0 THEN
+    RAISE EXCEPTION 'model reservation refused' USING ERRCODE='42501';
+  END IF;
+  SELECT * INTO f FROM clockgrove.conversation_turn_fibers
+    WHERE tenant_id=t AND session_id=s AND message_id=m AND principal_id=clockgrove.runtime_principal_id() FOR UPDATE;
+  IF NOT FOUND OR f.lease_epoch<>epoch OR f.phase<>'model_running'
+     OR f.research_step_reserved_microusd=0 THEN RETURN 'fenced'; END IF;
+  max_cost:=least(max_cost,coalesce(f.research_max_cost_microusd,max_cost));
+  SELECT coalesce(sum(i.reserved_microusd),0) INTO tool_cost
+    FROM clockgrove.mcp_read_admissions a JOIN clockgrove.effect_intents i
+      USING(tenant_id,world_id,timeline_id,effect_id)
+    WHERE a.tenant_id=t AND a.world_id=f.world_id AND a.timeline_id=f.timeline_id
+      AND a.identity->>'sessionId'=s AND a.identity->>'turnId'=m AND a.admitted;
+  IF reserve_cost>max_cost-(f.research_reserved_microusd-f.research_released_microusd)-tool_cost THEN
+    RETURN 'cost_budget_exhausted';
+  END IF;
+  UPDATE clockgrove.conversation_turn_fibers
+    SET research_reserved_microusd=research_reserved_microusd+reserve_cost,
+        research_step_reserved_microusd=research_step_reserved_microusd+reserve_cost
+    WHERE tenant_id=t AND session_id=s AND message_id=m;
+  RETURN 'reserved';
+END $$;
+REVOKE ALL ON FUNCTION clockgrove.reserve_turn_model_route(text,text,text,bigint,bigint,bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clockgrove.reserve_turn_model_route(text,text,text,bigint,bigint,bigint) TO clockgrove_runtime;
+
 -- Settles the step in flight once its answer is recorded: a known cost releases the rest of the
 -- step's reservation; an unknown one (null) releases nothing. A second call releases nothing more.
 CREATE FUNCTION clockgrove.settle_turn_model_step(

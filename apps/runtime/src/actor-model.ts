@@ -26,7 +26,7 @@ import {
   type ModelGateway,
   type ModelRequest,
   PRODUCTION_ALIASES,
-  requestCostCeilingMicrousd,
+  routeCostCeilingMicrousd,
   z,
 } from "@clockgrove/model-gateway";
 import { MCP_READ_TURN_DEFAULTS } from "@clockgrove/persistence";
@@ -168,9 +168,14 @@ function usageOf(record: ModelCallRecord): ModelUsage {
 
 /** A model step built and measured before it is sent, so the turn can reserve its worst case. */
 export interface PreparedModelStep {
-  /** Every fallback route's worst case for this request's measured input and a full reply. */
+  /** The primary route's worst case for this request's measured input and a full reply. */
   readonly reserveMicrousd: number;
-  send(): Promise<ConversationResponse>;
+  /**
+   * Sends the step. If the primary route fails over, `reserveFallback` is asked to reserve each
+   * fallback route's own worst case (at least 1) before that route is tried; when it declines, the
+   * step ends `cost_budget_exhausted` (issue 349). Without it, every fallback route is tried.
+   */
+  send(reserveFallback?: (microusd: number) => Promise<boolean>): Promise<ConversationResponse>;
 }
 export type PreparedResponder = (
   ...args: Parameters<ConversationResponder>
@@ -231,22 +236,22 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
         system,
         messages: [{ role: "user", text: `${prompt}${withCatalog(catalog)}` }],
       };
-    // The gateway reserves the same worst case for each route it tries; a timed-out route may still
-    // incur cost, so the step reserves it for every fallback route. At least 1: a free route still
+    // Owner decision (issue 349): the step reserves its primary route's worst case for this exact
+    // request; a fallback route reserves its own before it is tried. At least 1: a free route still
     // counts as a model step.
-    const reserveMicrousd = Math.max(
-      1,
-      Math.ceil(
-        requestCostCeilingMicrousd(alias, inputTokenBound(request, jsonSchema)) *
-          alias.routes.length,
-      ),
+    const primary = alias.routes[0];
+    if (primary === undefined) throw new Error("world model alias has no route");
+    const reserveMicrousd = routeReserve(
+      routeCostCeilingMicrousd(alias, primary, inputTokenBound(request, jsonSchema)),
     );
     return {
       reserveMicrousd,
-      send: () => sendActorStep(deps, scene, request),
+      send: (reserveFallback) => sendActorStep(deps, scene, request, reserveFallback),
     };
   };
 }
+
+const routeReserve = (microusd: number) => Math.max(1, Math.ceil(microusd));
 
 const encoder = new TextEncoder();
 function octets(text: string): number {
@@ -279,9 +284,29 @@ async function sendActorStep(
   deps: ActorModelDeps,
   scene: ActorScene | undefined,
   request: Pick<ModelRequest, "alias" | "callId" | "attribution" | "system" | "messages">,
+  reserveFallback?: (microusd: number) => Promise<boolean>,
 ): Promise<ConversationResponse> {
-  const outcome = await deps.gateway.generateObject({ ...request, schema: OUTPUT });
+  let fallbackRefused = false;
+  const outcome = await deps.gateway.generateObject({
+    ...request,
+    schema: OUTPUT,
+    ...(reserveFallback === undefined
+      ? {}
+      : {
+          admitFallback: async ({ reserveMicrousd }) => {
+            const admitted = await reserveFallback(routeReserve(reserveMicrousd));
+            fallbackRefused = !admitted;
+            return admitted;
+          },
+        }),
+  });
   if (outcome.status === "failed") {
+    if (fallbackRefused)
+      return {
+        text: "Research stopped: cost_budget_exhausted. No further action was taken.",
+        outcomeCode: "cost_budget_exhausted",
+        usage: usageOf(outcome.record),
+      };
     if (!deps.researchEnabled) {
       if (outcome.retryable) throw new Error(`model_${outcome.code}`);
       return {

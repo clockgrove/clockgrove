@@ -130,8 +130,9 @@ it("a long session with a full summary and history keeps getting answers on the 
     const answered = await step.send();
     expect(answered).toMatchObject({ text: `Answer ${turn}.` });
     lastStep = { reserve: step.reserveMicrousd, cost: answered.usage?.costMicrousd ?? null };
-    // The step reserves the gateway's own worst case for this request on each of the two routes.
-    expect(step.reserveMicrousd).toBe(2 * (reserved.at(-1) ?? 0));
+    // The step reserves its primary route's worst case for this request, which on the default
+    // alias (both routes priced alike) is the gateway's own reservation.
+    expect(step.reserveMicrousd).toBe(reserved.at(-1));
   }
   // Every turn reached the route with the whole summary and, once the session is long, the full
   // 16-message window: over 15 KB, which the old 7,000 bound refused from the first turn.
@@ -141,13 +142,12 @@ it("a long session with a full summary and history keeps getting answers on the 
   expect(last).toContain(JSON.stringify(said(2 * TURNS - 17)));
   expect(new TextEncoder().encode(last).length).toBeGreaterThan(15_000);
 
-  // A research turn in this session: its first step is the last turn's request; its second adds
-  // one tool result. Both worst-case reserves together pass the turn's $0.25, but the first step's
-  // known cost settles its reservation (migration 0071, turn-research test), so a second step with
-  // a 4 KiB result fits beside what the first spent. One with a whole 8 KiB result does not: its
-  // own worst case on both routes is 249,064 (the question in the PR).
-  const withEvidence = (octets: number) =>
-    prepare(
+  // A research turn in this session (owner decision, issue 349: one route at a time). Its first
+  // step is the last turn's request; its second adds one whole 8 KiB tool result. Each step
+  // reserves only its primary route's worst case, so both fit the turn's $0.25 even before the
+  // first step's known cost settles its reservation (migration 0071, turn-research test).
+  const withEvidence = (octets: number, responder = prepare) =>
+    responder(
       session,
       TURNS + 1,
       "Look it up.",
@@ -161,12 +161,66 @@ it("a long session with a full summary and history keeps getting answers on the 
       )}`,
     );
   const cost = lastStep.cost ?? Number.NaN;
-  const moderate = (await withEvidence(4_096)).reserveMicrousd;
-  expect(lastStep.reserve + moderate).toBeGreaterThan(250_000);
-  expect(cost + moderate).toBeLessThanOrEqual(250_000);
-  expect([lastStep.reserve, cost, (await withEvidence(8_192)).reserveMicrousd]).toEqual([
-    184_656, 16_400, 249_064,
-  ]);
+  const second = (await withEvidence(8_192)).reserveMicrousd;
+  expect([lastStep.reserve, cost, second]).toEqual([92_328, 16_400, 124_532]);
+  expect(lastStep.reserve + second).toBeLessThanOrEqual(250_000);
+
+  // The same second step when its primary route fails: the fallback reserves its own worst case
+  // against what is left of the turn's cap before it is tried. With the first step settled to
+  // 16,400 and the second's primary holding 124,532, a fallback of 124,532 would pass $0.25, so it
+  // is never called and the step ends cost_budget_exhausted, with the primary's cost recorded. A
+  // second step carrying a 4 KiB result leaves room for its fallback, which answers.
+  const fallbackCase = async (octets: number) => {
+    const routes = new ScriptedModelProvider({
+      [route]: [{ kind: "http", status: 503 }],
+      "anthropic/claude-opus-5-5": [
+        {
+          kind: "reply",
+          chunks: ['{"reply":"From the fallback.","command":null}'],
+          inputTokens: 4_000,
+          outputTokens: 20,
+        },
+      ],
+    });
+    const responder = actorPreparedResponder({
+      gateway: createModelGateway({
+        aliases: PRODUCTION_ALIASES,
+        adapters: { "vercel-ai-gateway": routes, anthropic: routes },
+        budget: new InMemoryModelBudget(() => 5_000_000),
+        accounting: { record: () => undefined },
+      }),
+      grants: () => CAPABILITY_REGISTRY.grantsFor(["runtime:world-observe"]),
+      perceive: async () => undefined,
+    });
+    const step = await withEvidence(octets, responder);
+    let turnHeld = cost + step.reserveMicrousd;
+    const asked: number[] = [];
+    const answer = await step.send(async (microusd) => {
+      asked.push(microusd);
+      if (turnHeld + microusd > 250_000) return false;
+      turnHeld += microusd;
+      return true;
+    });
+    expect(turnHeld).toBeLessThanOrEqual(250_000);
+    return { answer, asked, routes: routes.calls.map((call) => call.route.id), turnHeld };
+  };
+  expect(await fallbackCase(8_192)).toMatchObject({
+    answer: {
+      text: "Research stopped: cost_budget_exhausted. No further action was taken.",
+      outcomeCode: "cost_budget_exhausted",
+      usage: { costMicrousd: 0 },
+    },
+    asked: [124_532],
+    routes: [route],
+    turnHeld: 140_932,
+  });
+  // 16,400 settled + 108,148 for the primary + 108,148 for the fallback = 232,696.
+  expect(await fallbackCase(4_096)).toMatchObject({
+    answer: { text: "From the fallback.", usage: { costMicrousd: 16_400 } },
+    asked: [108_148],
+    routes: [route, "anthropic/claude-opus-5-5"],
+    turnHeld: 232_696,
+  });
 
   // A research step adds four calls of evidence, each at the 8 KiB cut and at its worst escaping
   // (a control character becomes 6 bytes), to the full prompt: it still fits and reaches the route,
