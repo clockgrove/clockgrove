@@ -164,6 +164,14 @@ The run also carries `recording: "summarised"` and `summary`:
 
 - `subjects`: per object id (the event payload's `objectId`, else `childId`, else `fromObjectId`, else
   `object.objectId`) and event type, `{ type, count, first, last }` with the first and last simulation time.
+- `causes`: per acting object id and event type, `{ actorId, events: [{ type, count, first, last }] }`, keyed by
+  the event's `attribution.effectiveActorId` and, when different, the payload's `actorId`. Pack-declared verbs
+  appear here under the actor that issued them.
+- `resources`: per resource kind, `{ kind, initial, causes: [{ type, quantity }] }`: `initial` is the kind's total
+  over the seed state, and each cause the net signed bigint quantity of one journaled event type (created,
+  retired, offered, consumed, appeared, spoiled, weather-integrated, a growth yield, boundary exchange).
+  Transfers net zero and are not recorded. The simulator keeps this ledger itself, independent of the kernel's
+  `resource.quantity-conservation` invariant: `initial` plus the causes equals the kind's final total.
 - `schedulePeak`: the largest schedule queue after any kernel call; `scheduleDuplicateIds`: schedule entries
   sharing an id, summed over calls.
 - `undispatchedDecisions`: consumed `world.decision` schedule entries that could not be dispatched.
@@ -179,14 +187,14 @@ What the §9.3 long-run invariants read in a summarised run:
 
 | Invariant | Summarised evidence |
 | --- | --- |
-| No negative or conjured resources | `finalState`, `eventCounts`, `eventCount` assertions on resource events |
+| No negative or conjured resources | `finalState`, `eventCounts`, `summary.resources`: each kind's `initial` plus its causes equals its final total |
 | No orphan active objects or containment cycles | `finalState` |
 | No duplicate births, deaths or schedules | `summary.subjects` counts per object, `scheduleDuplicateIds` |
 | Event volume bounded relative to semantic transitions | `eventCounts`, per-chunk `commands` (calls and events) |
 | Scheduler queue bounded under world policy | `schedulePeak`, `schedule.remaining` |
 | Deterministic population, resource and lifecycle summaries | `finalStateHash`, `subjects`, the stream digests |
 | Decision and action references resolve | `undispatchedDecisions`, `scriptedInputsUsed`, `replay` |
-| No inactive or dead actor acts autonomously | `subjects`: no action event `last` after the actor's death `first` |
+| No inactive or dead actor acts autonomously | `subjects`: no action event `last` after the actor's death `first`; `summary.causes`: no event of any type caused by the dead actor after its death |
 | No private perception in public client-view input | `perception` count and digest only; the record contents need a full recording |
 
 Small-step versus aggregate equivalence uses `equivalenceViews`, as above.

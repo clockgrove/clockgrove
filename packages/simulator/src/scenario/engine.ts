@@ -37,7 +37,7 @@ import type { RandomStreamRecord, RecordList, ScenarioRun } from "./bundle.js";
 import { eventMatches, materialEvent } from "./compare.js";
 import type { CapabilityVia, ScenarioDocument, ScenarioStep } from "./document.js";
 import { SCENARIO_LIMITS } from "./document.js";
-import { DigestStream, SubjectTable } from "./summary.js";
+import { DigestStream, ResourceLedger, SubjectTable } from "./summary.js";
 import { clonePlain, compareText, isOneOf, isRecord, plain, type Rec, refuse } from "./support.js";
 
 export type Sha256 = (bytes: Uint8Array) => Promise<string>;
@@ -242,6 +242,8 @@ export async function executePlan(
   // Summarised recording only: what the §9.3 long-run invariants and declared equivalences need,
   // in memory that does not grow with the horizon.
   const subjects = new SubjectTable();
+  const causes = new SubjectTable();
+  const ledger = new ResourceLedger(seed.state);
   let replayState: WorldState | undefined = seed.state;
   let replayFailure: string | null = null;
   let schedulePeak = scheduleItems(schedules).length;
@@ -577,6 +579,15 @@ export async function executePlan(
       if (!summarised) continue;
       const subject = subjectOf(event);
       if (subject !== null) subjects.add(subject, type, event.simulationTime);
+      ledger.add(event);
+      const acting = new Set<string>();
+      const effective = (event as { attribution?: { effectiveActorId?: unknown } }).attribution
+        ?.effectiveActorId;
+      if (typeof effective === "string") acting.add(effective);
+      const payload: unknown = event.payload;
+      const named = isRecord(payload) ? payload.actorId : undefined;
+      if (typeof named === "string") acting.add(named);
+      for (const actorId of acting) causes.add(actorId, type, event.simulationTime);
       for (const entry of counted) if (eventMatches(entry.assertion, record)) entry.observed += 1;
       for (const view of views) {
         const { eventTypes, ignoreEventTypes } = view.declared;
@@ -897,6 +908,8 @@ export async function executePlan(
   const summary = summarised
     ? {
         subjects: subjects.toRecords(),
+        causes: causes.toRecords("actorId"),
+        resources: ledger.toRecords(),
         schedulePeak,
         scheduleDuplicateIds,
         undispatchedDecisions,

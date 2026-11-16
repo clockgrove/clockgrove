@@ -1,3 +1,4 @@
+import { RESOURCE_KINDS, type WorldState } from "@clockgrove/domain";
 import { canonicalBytes } from "@clockgrove/kernel";
 import type { StreamSummary } from "./bundle.js";
 import { compareText, plain, type Rec } from "./support.js";
@@ -73,16 +74,101 @@ export class SubjectTable {
     }
   }
 
-  toRecords(): readonly Rec[] {
+  toRecords(idKey = "objectId"): readonly Rec[] {
     return [...this.subjects]
       .sort(([left], [right]) => compareText(left, right))
-      .map(([objectId, byType]) =>
+      .map(([id, byType]) =>
         plain({
-          objectId,
+          [idKey]: id,
           events: [...byType]
             .sort(([left], [right]) => compareText(left, right))
             .map(([type, entry]) => ({ type, ...entry })),
         }),
       );
+  }
+}
+
+const RESOURCE_TYPES = new Set([
+  "object.created",
+  "object.retired",
+  "resource.offered",
+  "resource.consumed",
+  "resource.appeared",
+  "resource.spoiled",
+  "resource.weather-integrated",
+  "growth.stage-changed",
+  "resource.boundary-exchanged",
+]);
+
+const big = (value: unknown): bigint => BigInt(value as number | bigint | string);
+
+/**
+ * The simulator's own ledger of resource quantity, kept apart from the kernel's conservation
+ * invariant: per event type, the net signed quantity it added to the world's total of each resource
+ * kind. Transfers move quantity between holders and net zero, so they are not recorded.
+ */
+export class ResourceLedger {
+  private readonly causes = new Map<string, Map<string, bigint>>();
+  private readonly initial: Record<string, bigint>;
+
+  constructor(seed: WorldState) {
+    this.initial = Object.fromEntries(RESOURCE_KINDS.map((kind) => [kind, 0n]));
+    for (const entity of seed.entities)
+      if (entity.resource !== undefined)
+        this.initial[entity.resource.kind] =
+          (this.initial[entity.resource.kind] ?? 0n) + big(entity.resource.quantity);
+  }
+
+  add(event: { readonly type: string; readonly payload: unknown }): void {
+    if (!RESOURCE_TYPES.has(event.type)) return;
+    const payload = event.payload as Rec;
+    let kind = payload.kind as string | null | undefined;
+    let delta: bigint;
+    switch (event.type) {
+      case "object.created": {
+        const resource = (payload.object as Rec).resource as Rec | undefined;
+        if (resource === undefined) return;
+        kind = resource.kind as string;
+        delta = big(payload.quantityAdded);
+        break;
+      }
+      case "object.retired":
+        delta = -big(payload.quantityRemoved);
+        break;
+      case "resource.consumed":
+      case "resource.spoiled":
+        delta = -big(payload.quantity);
+        break;
+      case "resource.weather-integrated":
+        kind = "water";
+        delta = big(payload.collected) - big(payload.evaporated);
+        break;
+      case "growth.stage-changed": {
+        const produced = payload.yield as Rec | undefined;
+        if (produced === undefined) return;
+        kind = "food";
+        delta = big(produced.quantity);
+        break;
+      }
+      case "resource.boundary-exchanged":
+        delta = big(payload.quantity) * (payload.direction === "import" ? 1n : -1n);
+        break;
+      default:
+        delta = big(payload.quantity);
+    }
+    if (kind === undefined || kind === null) return;
+    const byType = this.causes.get(kind) ?? new Map<string, bigint>();
+    byType.set(event.type, (byType.get(event.type) ?? 0n) + delta);
+    this.causes.set(kind, byType);
+  }
+
+  toRecords(): readonly Rec[] {
+    return RESOURCE_KINDS.map((kind) => ({
+      kind,
+      initial: this.initial[kind] ?? 0n,
+      causes: [...(this.causes.get(kind) ?? [])]
+        .sort(([left], [right]) => compareText(left, right))
+        .map(([type, quantity]) => ({ type, quantity })),
+    }));
   }
 }

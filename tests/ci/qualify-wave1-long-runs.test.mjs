@@ -113,6 +113,11 @@ it.each([
     (_bundle, run) => (run.eventCounts["resource.appeared"] = 1),
   ],
   [
+    "no-negative-or-conjured-resources",
+    (_bundle, run) => (resourceObject(run).resource.quantity += 1),
+  ],
+  ["no-negative-or-conjured-resources", (_bundle, run) => delete run.summary.resources],
+  [
     "no-orphans-or-containment-cycles",
     (_bundle, run) => (run.finalState.entities[0].locationId = "missing"),
   ],
@@ -128,6 +133,17 @@ it.each([
     "dead-actors-inactive",
     (_bundle, run) =>
       actor(run).events.push({ type: "lifecycle.died", count: 1, first: 0n, last: 0n }),
+  ],
+  [
+    "dead-actors-inactive",
+    // Dies after its last autonomous action, so only the later pack verb it causes breaks the rule.
+    (_bundle, run) => {
+      const { objectId, events } = actor(run);
+      const end = events.reduce((last, event) => (event.last > last ? event.last : last), 0n);
+      events.push({ type: "lifecycle.died", count: 1, first: end, last: end });
+      const verb = { type: "pack.verb-used", count: 1, first: end + 1n, last: end + 1n };
+      run.summary.causes.push({ actorId: objectId, events: [verb] });
+    },
   ],
   ["declared-equivalence", (copy) => (copy.equivalences[0].equivalent = false)],
   ["scenario-assertions", (copy) => (copy.assertions[0].passed = false)],
