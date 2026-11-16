@@ -47,8 +47,9 @@ export class PostgreSqlObjectHistoryReader {
   }
 
   /**
-   * The newest visible events of the given types in the bounded scan below `beforeSequence`,
-   * newest first. Privacy-hidden rows are absent.
+   * The newest visible events of the given types that `keep` accepts, in the bounded scan below
+   * `beforeSequence`, newest first. Privacy-hidden rows are absent. Rows `keep` refuses do not
+   * count toward `limit`: the read continues down to the scan floor until `limit` are kept.
    */
   async readTypes(
     authorization: RuntimeAuthorizationContext,
@@ -56,36 +57,44 @@ export class PostgreSqlObjectHistoryReader {
     beforeSequence: bigint,
     eventTypes: readonly string[],
     limit: number,
+    keep: (event: StoredEvent) => boolean = () => true,
   ): Promise<readonly StoredEvent[]> {
     const floor = beforeSequence - MATERIAL_SCAN_SEQUENCES;
-    const rows = await withClientTransaction(this.client, { authorization }, () =>
-      this.client.query(
-        `SELECT event_bytes FROM clockgrove.events
-          WHERE tenant_id = $1 AND timeline_id = $2 AND partition_id = $3
-            AND partition_sequence < $4::bigint AND partition_sequence >= $5::bigint
-            AND event_type = ANY($6::text[])
-          ORDER BY partition_sequence DESC LIMIT $7`,
-        [
-          scope.tenantId,
-          scope.timelineId,
-          scope.partitionId,
-          String(beforeSequence),
-          String(floor < 1n ? 1n : floor),
-          [...eventTypes],
-          limit,
-        ],
-      ),
-    );
+    const lowest = floor < 1n ? 1n : floor;
     const events: StoredEvent[] = [];
-    for (const row of rows.rows) {
-      const bytes = (row as { event_bytes?: unknown }).event_bytes;
-      if (!(bytes instanceof Uint8Array))
-        throw new TypeError("PostgreSQL returned malformed event bytes");
-      const sequence = this.sequenceOf(bytes);
-      if (sequence >= beforeSequence || sequence < floor)
-        throw new TypeError("history source returned an invalid sequence");
-      events.push(...(await this.verify(scope, bytes, sequence)));
-    }
+    await withClientTransaction(this.client, { authorization }, async () => {
+      let cursor = beforeSequence;
+      while (events.length < limit && cursor > lowest) {
+        const rows = await this.client.query(
+          `SELECT event_bytes FROM clockgrove.events
+            WHERE tenant_id = $1 AND timeline_id = $2 AND partition_id = $3
+              AND partition_sequence < $4::bigint AND partition_sequence >= $5::bigint
+              AND event_type = ANY($6::text[])
+            ORDER BY partition_sequence DESC LIMIT $7`,
+          [
+            scope.tenantId,
+            scope.timelineId,
+            scope.partitionId,
+            String(cursor),
+            String(lowest),
+            [...eventTypes],
+            limit,
+          ],
+        );
+        for (const row of rows.rows) {
+          const bytes = (row as { event_bytes?: unknown }).event_bytes;
+          if (!(bytes instanceof Uint8Array))
+            throw new TypeError("PostgreSQL returned malformed event bytes");
+          const sequence = this.sequenceOf(bytes);
+          if (sequence >= cursor || sequence < lowest)
+            throw new TypeError("history source returned an invalid sequence");
+          cursor = sequence;
+          for (const event of await this.verify(scope, bytes, sequence))
+            if (events.length < limit && keep(event)) events.push(event);
+        }
+        if (rows.rows.length < limit) break;
+      }
+    });
     return events;
   }
 

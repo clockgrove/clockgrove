@@ -303,14 +303,29 @@ export class PostgreSqlWorldStatusReader {
       ]),
     );
     const nameOf = (objectId: string): string => labels.get(objectId) ?? objectId;
-    // The feed is the newest 100 material events in the bounded scan below the covered head, so
-    // routine events of many busy actors cannot crowd them out; privacy-hidden ones are absent.
+    // The feed is the newest 100 shown material events in the bounded scan below the covered head,
+    // so routine events of many busy actors, and weather integrations that moved no water, cannot
+    // crowd them out: the read continues past every refused event. Privacy-hidden ones are absent.
+    const shown = (event: StoredEvent): boolean => {
+      if (!MATERIAL_EVENTS.has(event.type) || !isSharedSceneEligible(event.privacyClass))
+        return false;
+      const payload = kernelPayloadOf(event);
+      return !(
+        event.type === "resource.weather-integrated" &&
+        payload !== undefined &&
+        "collected" in payload &&
+        "evaporated" in payload &&
+        payload.collected === 0 &&
+        payload.evaporated === 0
+      );
+    };
     const recent = await new PostgreSqlObjectHistoryReader(this.client).readTypes(
       authorization,
       { tenantId: scope.tenantId, timelineId: scope.timelineId, partitionId: stored.partitionId },
       stored.coveredHeadSequence + 1n,
       [...MATERIAL_EVENTS.keys()],
       100,
+      shown,
     );
     return {
       version: 1,
@@ -330,17 +345,7 @@ export class PostgreSqlWorldStatusReader {
       },
       feed: recent.flatMap((event) => {
         const material = MATERIAL_EVENTS.get(event.type);
-        if (material === undefined || !isSharedSceneEligible(event.privacyClass)) return [];
-        const payload = kernelPayloadOf(event);
-        if (
-          event.type === "resource.weather-integrated" &&
-          payload !== undefined &&
-          "collected" in payload &&
-          "evaporated" in payload &&
-          payload.collected === 0 &&
-          payload.evaporated === 0
-        )
-          return [];
+        if (material === undefined) return [];
         return [
           {
             id: event.eventId,
