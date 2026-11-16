@@ -71,6 +71,9 @@ export type ModelOutcome<T> =
       /** True when the same request may succeed later; cognition degrades, the world continues. */
       retryable: boolean;
       record: ModelCallRecord;
+      /** On `input_too_large`: the request's measured input (`inputTokenBound`) and the limit it passed. */
+      inputTokens?: number;
+      maxInputTokens?: number;
     }>;
 
 export type RouteAttemptOutcome =

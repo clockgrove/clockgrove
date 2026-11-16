@@ -6,7 +6,11 @@ import {
   type RouteAdapter,
   type RouteCall,
 } from "./adapter.js";
-import { costCeilingMicrousd, type ModelAliasDefinition, type ModelRoute } from "./aliases.js";
+import {
+  type ModelAliasDefinition,
+  type ModelRoute,
+  requestCostCeilingMicrousd,
+} from "./aliases.js";
 import { RouteBreaker } from "./breaker.js";
 import type {
   DecisionAdapter,
@@ -251,7 +255,8 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       attribution: request.attribution,
       requestSha256,
     };
-    if (inputTokenBound(request, jsonSchema) > alias.maxInputTokens) {
+    const inputTokens = inputTokenBound(request, jsonSchema);
+    if (inputTokens > alias.maxInputTokens) {
       const record: ModelCallRecord = {
         ...base,
         decision: "input_refused",
@@ -261,10 +266,20 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         outputSha256: null,
       };
       await options.accounting.record(record);
-      return { status: "failed", code: "input_too_large", retryable: false, record };
+      return {
+        status: "failed",
+        code: "input_too_large",
+        retryable: false,
+        record,
+        inputTokens,
+        maxInputTokens: alias.maxInputTokens,
+      };
     }
     const scope = `${request.attribution.tenantId}/${request.attribution.worldId}`;
-    const reservation = options.budget.reserve(scope, costCeilingMicrousd(alias));
+    const reservation = options.budget.reserve(
+      scope,
+      requestCostCeilingMicrousd(alias, inputTokens),
+    );
     if (reservation === undefined) {
       const record: ModelCallRecord = {
         ...base,
@@ -514,12 +529,14 @@ function fallsBack(attempt: RouteAttempt): boolean {
 }
 
 /**
- * An upper bound on the request's input tokens, checked before any reservation: one token is at
- * least one UTF-8 byte, plus a margin for message framing.
+ * The gateway's measure of a request's input: an upper bound on its tokens, since one token is at
+ * least one UTF-8 byte, plus 8 per message and 16 for framing. The gateway refuses above the
+ * alias's `maxInputTokens` and reserves the call's cost from it; context assembly sizes its budget
+ * from the same measure (`docs/protocols/context-assembly.md`).
  */
-function inputTokenBound(
-  request: ModelRequest,
-  jsonSchema: Readonly<Record<string, unknown>> | undefined,
+export function inputTokenBound(
+  request: Pick<ModelRequest, "system" | "messages">,
+  jsonSchema?: Readonly<Record<string, unknown>>,
 ): number {
   const encoder = new TextEncoder();
   const bytes = (text: string) => encoder.encode(text).length;

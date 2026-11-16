@@ -155,7 +155,7 @@ describe("model gateway through the AI SDK adapter", () => {
       policyVersion: "resident.local@1",
       attribution,
       decision: "primary",
-      reservedMicrousd: 6_000, // 1,000 × 4 + 100 × 20
+      reservedMicrousd: 2_172, // measured input (17 + 2 + 8 + 16 = 43) × 4 + 100 × 20
       costMicrousd: 188, // 12 × 4 + 7 × 20
       outputSha256: "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
     });
@@ -212,7 +212,7 @@ describe("model gateway through the AI SDK adapter", () => {
     ]);
     // Tokens streamed without usage are billed but unknown, so the reservation stays spent.
     expect(after.record.costMicrousd).toBeNull();
-    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 6_000);
+    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 2_172);
     const overloaded = await gateway.stream(
       { alias: "resident.local", callId: "c-3", attribution, ...ask },
       undefined,
@@ -234,7 +234,14 @@ describe("model gateway through the AI SDK adapter", () => {
     expect(received[0]?.body).toContain('"required":["mood"]');
     const huge = { ...request, callId: "o-2", system: "é".repeat(500) };
     const refused = await localGateway([]).generateObject(huge);
-    expect(refused).toMatchObject({ status: "failed", code: "input_too_large", retryable: false });
+    // 500 two-byte characters, "Hi" and the schema, with framing: refused with its measured size.
+    expect(refused).toMatchObject({
+      status: "failed",
+      code: "input_too_large",
+      retryable: false,
+      inputTokens: 1_000 + 2 + 8 + 16 + JSON.stringify(z.toJSONSchema(mood)).length,
+      maxInputTokens: 1_000,
+    });
     expect(refused.record).toMatchObject({ decision: "input_refused", attempts: [] });
     expect(received).toHaveLength(1);
   });

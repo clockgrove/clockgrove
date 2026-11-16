@@ -182,7 +182,7 @@
             }
           }
         ],
-        "maxInputTokens": 16000,
+        "maxInputTokens": 998976,
         "maxOutputTokens": 1024,
         "timeouts": {
           "firstByteMs": 15000,
@@ -215,7 +215,7 @@
             }
           }
         ],
-        "maxInputTokens": 7000,
+        "maxInputTokens": 998976,
         "maxOutputTokens": 1024,
         "timeouts": {
           "firstByteMs": 15000,

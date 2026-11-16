@@ -30,7 +30,7 @@ provider has no adapter is refused when the gateway is created, before any call.
 | `rate_limited` | the last route tried answered 429 |
 | `refused` | the model declined (`content-filter` finish) |
 | `invalid_output` | structured output was not JSON or failed the schema |
-| `input_too_large` | the request exceeds the alias's input bound; no route was called |
+| `input_too_large` | the request's measured input exceeds the alias's `maxInputTokens`; no route was called. The outcome names both (`inputTokens`, `maxInputTokens`) |
 | `budget_exceeded` | the reservation was refused; no route was called |
 | `cancelled` | the caller's signal aborted the call |
 
@@ -40,7 +40,7 @@ An alias (`ModelAliasDefinition`, `src/aliases.ts`) pins:
 
 - `policyVersion`;
 - its ordered routes;
-- `maxInputTokens` and `maxOutputTokens`;
+- `maxInputTokens`, the most input every route accepts, and `maxOutputTokens`;
 - three timeouts: `firstByteMs` until the first text, `idleMs` between text after that, and
   `totalMs` for the whole route attempt.
 
@@ -65,10 +65,13 @@ Both routes serve Claude Opus 5.5 at $4 input and $20 output per million tokens 
 2026-10-06). A fallback therefore never changes policy or eval identity. Cloudflare AI Gateway is not
 used.
 
-These bounds are decisions, not provider limits:
+The input bound is the route's limit; the others are decisions:
 
-- **Tokens.** Input is at most 16,000 tokens, the context-assembly budget. Output is at most
-  1,024 tokens, one conversational reply.
+- **Tokens.** Input is at most 998,976 tokens: Claude Opus 5.5 accepts a 1M-token context
+  (Anthropic's model notes for Opus 5.5), and input plus the requested output must fit in it. Output
+  is at most 1,024 tokens, one conversational reply (decision). Context assembly, not this bound,
+  keeps a turn small (issue 349): its budget is sized from this limit
+  ([context assembly](../../../docs/protocols/context-assembly.md#decided-limits-and-retention)).
 - **Timeouts.** The first text must arrive within 15 s, which leaves room for model thinking. After
   that, 10 s of silence means a stalled stream. A route attempt lasts at most 60 s. The bound is
   per route, so a turn that falls back after a first-byte timeout lasts at most 15 s + 60 s.
@@ -113,17 +116,21 @@ in-memory execution state, one entry per route.
 
 ## Budget
 
-Before any reservation, the gateway bounds the request's input: one token is at least one UTF-8
-byte, so the UTF-8 length of the system text, the messages and the JSON schema, plus 8 tokens per
-message and 16 for framing, is an upper bound on its input tokens. A request whose bound exceeds
-`maxInputTokens` ends as `input_too_large`, decision `input_refused`, before any reservation or
-provider call. The bound is conservative: English text runs about four bytes per token, so it
-admits about a quarter of the token budget in English.
+Before any reservation, the gateway measures the request's input (`inputTokenBound`, exported):
+one token is at least one UTF-8 byte, so the UTF-8 length of the system text, the messages and the
+JSON schema, plus 8 tokens per message and 16 for framing, is never below its real input tokens. A
+request whose measure exceeds `maxInputTokens` ends as `input_too_large`, decision `input_refused`,
+before any reservation or provider call; the outcome carries the measure as `inputTokens` and the
+limit as `maxInputTokens`. Since the limit is the route's own, a request is refused only when it may
+really not fit. Context assembly sizes its budget from the same measure and limit, so the prompt it
+builds is never refused.
 
-The gateway then reserves the alias's cost ceiling against the scope
-`<tenantId>/<worldId>` through `ModelBudgetPort`. The ceiling is the highest, over the alias's
-routes, of `maxInputTokens × input price + maxOutputTokens × output price`. For
-`resident.conversation` that is 84,480 microdollars.
+The gateway then reserves the call's cost ceiling against the scope `<tenantId>/<worldId>`
+through `ModelBudgetPort` (`requestCostCeilingMicrousd`). The ceiling is the highest, over the
+alias's routes, of `measured input × input price + maxOutputTokens × output price`: the most the
+call can cost, since its real input tokens never exceed the measure. A 20,000-token measure on a
+production alias reserves 100,480 microdollars. `costCeilingMicrousd(alias)` is the same at the
+limit.
 
 A refused reservation ends the call as `budget_exceeded` before any provider is contacted. After
 the call, the reservation is settled with the summed cost of its attempts. A route that streamed
