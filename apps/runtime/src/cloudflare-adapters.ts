@@ -93,6 +93,7 @@ import {
 } from "./actor-agent.js";
 import {
   actorCommandId,
+  actorContextTokenBudget,
   actorGateway,
   actorModelConfiguration,
   actorModelStepReserveMicrousd,
@@ -2054,11 +2055,14 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   private stores(): ConversationStores {
-    const stores = composeConversations(
-      this.environment,
+    const configuration =
       actorGateway(this.environment) === undefined
         ? undefined
-        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG).modelName,
+        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG);
+    const stores = composeConversations(
+      this.environment,
+      configuration?.modelName,
+      configuration === undefined ? undefined : actorContextTokenBudget(configuration),
     );
     if (stores === undefined) throw new Error("conversation keyring required");
     return stores;

@@ -131,6 +131,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     private readonly newSessionId: () => string = () => `conversation-${crypto.randomUUID()}`,
     /** The model name turns and runs record: the fixture's, or the route alias answering. */
     private readonly model: string = SCRIPTED_MODEL,
+    /** A turn's context budget: the decided default, or one sized to the model route's input limit. */
+    private readonly contextTokenBudget: number = CONTEXT_TOKEN_BUDGET,
   ) {
     this.runs = new PostgreSqlRunRecorder(client);
     this.documents = new PostgreSqlActorDocuments(client);
@@ -1234,7 +1236,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
         sessionId: request.sessionId,
         inputMessageId: request.messageId,
         inputRevision: count,
-        tokenBudget: CONTEXT_TOKEN_BUDGET,
+        tokenBudget: this.contextTokenBudget,
         documents: await this.documents.candidates(tenantId, request.sessionId),
         messages: messages.map((row) => ({
           messageId: String(row.message_id),

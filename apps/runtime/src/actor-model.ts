@@ -1,9 +1,10 @@
-import type {
-  CapabilityCall,
-  CapabilityGrants,
-  ConversationResponder,
-  ConversationResponse,
-  ModelUsage,
+import {
+  type CapabilityCall,
+  type CapabilityGrants,
+  type ConversationResponder,
+  type ConversationResponse,
+  contextTokenBudget,
+  type ModelUsage,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -16,24 +17,38 @@ import {
 import type { WorldState } from "@clockgrove/domain";
 import {
   AiSdkRouteAdapter,
-  costCeilingMicrousd,
   createModelGateway,
   InMemoryModelBudget,
   type ModelAliasDefinition,
   type ModelCallRecord,
   type ModelGateway,
   PRODUCTION_ALIASES,
+  requestCostCeilingMicrousd,
   z,
 } from "@clockgrove/model-gateway";
 
 import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js";
 
-/** The alias that bounds one actor turn to the pilot's $0.05 (`packages/model-gateway/src/aliases.ts`). */
+/** The actor's default alias (`packages/model-gateway/src/aliases.ts`). */
 export const ACTOR_ALIAS = "actor.pilot";
 /** Recorded on a turn answered by the production route; the fixture records its own name. */
 export const ACTOR_MODEL_NAME = "claude-opus-5.5";
 /** Decision (issue 19 rubric): the pilot's $5 cap. The ledger is in memory, so this guards one isolate only; the runbook tracks the true total by hand. */
 const PILOT_BUDGET_MICROUSD = 5_000_000;
+/**
+ * Decision (issue 349): the room, in the gateway's input measure, kept for an actor request's fixed
+ * parts beside its assembled context: the system text, the tool catalog, recorded self results and
+ * tool evidence, the input's second copy, the output schema and the prompt's JSON framing. 128 KiB
+ * is several times the largest of these together; under the production input limit it leaves the
+ * decided 4,096-token context budget whole.
+ */
+export const ACTOR_FIXED_INPUT_TOKENS = 131_072;
+/**
+ * Decision (issue 19, the pilot rubric): a turn's input is expected within 7,000 tokens, so $0.05 a
+ * turn. A research step reserves that envelope; the gateway's own reservation caps the call's worst
+ * case from its measured input.
+ */
+const ACTOR_TURN_INPUT_TOKENS = 7_000;
 /** At most this many entities are described to the model, so the perception digest stays bounded. */
 const SCENE_DIGEST_ENTITIES = 24;
 
@@ -347,9 +362,20 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
   };
 }
 
-/** Reserve every fallback route's declared maximum; a timed-out route may still incur cost. */
-export function actorModelStepReserveMicrousd(configuration: ActorModelConfiguration): number {
+function actorAlias(configuration: ActorModelConfiguration): ModelAliasDefinition {
   const alias = configuration.aliases.find((candidate) => candidate.alias === configuration.alias);
   if (alias === undefined) throw new Error("world model alias unavailable");
-  return Math.ceil(costCeilingMicrousd(alias) * alias.routes.length);
+  return alias;
+}
+
+/** Reserve every fallback route's turn envelope; a timed-out route may still incur cost. */
+export function actorModelStepReserveMicrousd(configuration: ActorModelConfiguration): number {
+  const alias = actorAlias(configuration);
+  const input = Math.min(ACTOR_TURN_INPUT_TOKENS, alias.maxInputTokens);
+  return Math.ceil(requestCostCeilingMicrousd(alias, input) * alias.routes.length);
+}
+
+/** The context budget an actor turn assembles under: its alias's input limit less the fixed parts. */
+export function actorContextTokenBudget(configuration: ActorModelConfiguration): number {
+  return contextTokenBudget(actorAlias(configuration).maxInputTokens, ACTOR_FIXED_INPUT_TOKENS);
 }

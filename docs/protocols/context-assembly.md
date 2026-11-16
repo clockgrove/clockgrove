@@ -119,7 +119,18 @@ authorization:
 2. **Authorization, before any text is read.** A document is excluded `other_session_private` when
    it is another session's summary, or `document_archived` when it is archived. Its hash in the
    manifest is the metadata's (`null` for another session's summary), and its text is never read.
-3. **Budget.** The input is reserved first. Then documents in kind order (identity, policy, goals,
+3. **Budget.** The turn's budget is the decided 4,096 estimated tokens, lowered when the model
+   route's input limit leaves less room (`contextTokenBudget`, issue 349). That room is the alias's
+   `maxInputTokens`, less the request's fixed parts, divided by 24. The limit and the fixed parts are
+   both in the [model gateway's](../../packages/model-gateway/docs/model-gateway.md#budget) input
+   measure, UTF-8 bytes, which is never below the real token count. The runtime keeps 131,072 for
+   the fixed parts (`ACTOR_FIXED_INPUT_TOKENS`): the system text, the tool catalog, recorded self
+   results and tool evidence, the input's second copy, the output schema and the prompt's JSON
+   framing. An estimated token renders to at most 24 measured tokens: at most 4 bytes, each
+   escaped by JSON to at most 6. A context within the budget therefore never makes a request the
+   gateway refuses for size. Under the production limit (998,976) the budget stays 4,096. Without
+   a model route (the scripted fixture), it is 4,096.
+   The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
    length, then history newest first. A source that would pass the budget is excluded
    `token_budget`, and a document so excluded is never read. History keeps a contiguous newest
@@ -194,7 +205,7 @@ These are the defaults chosen for the human-owned policy (ADR §6, issue 17):
 | Operations per change set | 8 | One actor's working set in one atomic step |
 | Documents per actor | 256 | Bounds candidate metadata read every turn |
 | Versions per document | 1,000 | Bounds a document that changes every turn for two sessions' lives |
-| Context budget | 4,096 estimated tokens | A small fixed model window for the local path |
+| Context budget | 4,096 estimated tokens, or less if the route's input limit leaves less room | A small fixed model window for the local path; never a prompt the gateway refuses |
 | Token estimate | ceil(UTF-8 bytes / 4) | Common English estimate; no tokenizer is bound |
 | History window | 16 messages | Bounds the messages decrypted per turn |
 

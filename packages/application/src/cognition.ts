@@ -34,6 +34,25 @@ export function estimateTokens(text: string): number {
   return Math.ceil(encoder.encode(text).length / 4);
 }
 
+/**
+ * The most the model gateway's input measure (UTF-8 bytes, `inputTokenBound`) can charge for one
+ * estimated token once rendered: an estimated token is at most 4 bytes, and JSON string escaping
+ * turns one byte into at most 6 (`\u0000`).
+ */
+export const MEASURED_TOKENS_PER_ESTIMATED_TOKEN = 24;
+
+/**
+ * A turn's context budget under a model route's input limit, both in the gateway's measure: the
+ * decided budget, lowered to whatever room the limit leaves after the request's fixed parts
+ * (instructions, tool catalog, schemas, prompt framing). At least 1, the manifest's floor.
+ */
+export function contextTokenBudget(inputLimitTokens: number, fixedInputTokens: number): number {
+  const room = Math.floor(
+    (inputLimitTokens - fixedInputTokens) / MEASURED_TOKENS_PER_ESTIMATED_TOKEN,
+  );
+  return Math.max(1, Math.min(CONTEXT_TOKEN_BUDGET, room));
+}
+
 /** The same estimate from a stored byte length, so the budget is decided before any text is read. */
 export function tokensOfBytes(byteLength: number): number {
   return Math.ceil(byteLength / 4);
