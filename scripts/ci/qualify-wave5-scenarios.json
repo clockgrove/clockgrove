@@ -999,7 +999,7 @@
     {
       "id": "R-replay-preview",
       "item": "Replay and preview never produce a live external effect or delivery",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/database/effect-ledger.sql",
@@ -1016,9 +1016,17 @@
         {
           "file": "apps/runtime/test/external-effects.postgres.test.ts",
           "marker": "verifies canonical Queue identity, executes once, records uncertainty and replays without resend"
+        },
+        {
+          "file": "apps/runtime/test/governed-delivery.journey.postgres.test.ts",
+          "marker": "expect((await expectHistoryReplayInert(owner)).eventsApplied).toBeGreaterThan(0);"
+        },
+        {
+          "file": "apps/runtime/test/research.journey.postgres.test.ts",
+          "marker": "const replayed = await expectHistoryReplayInert(owner, async () =>"
         }
       ],
-      "deviation": "Preview is proven at the SQL ledger (tests/database/effect-ledger.sql, run by pnpm test:db) and delivery sink (branch timeline -> preview sink, no real send). Replay is proven only as recorded-receipt/effect replay without resend; no test replays a world/journal history and asserts zero external effects or deliveries."
+      "note": "History replay: every partition of the world replays from its stored birth through the live head, reproduces the live state, and leaves the effect intents, effect attempts, deliveries, sink receipts and dispatches unchanged, after live, delayed and preview deliveries (test:channels) and after succeeded, failed and uncertain MCP calls, whose fixture server receives no call (test:cognition:fibers)."
     },
     {
       "id": "R-world-active",

@@ -41,8 +41,12 @@ const SAMPLE_SQL = `SELECT jsonb_build_object(
     'ageMs', (extract(epoch FROM coalesce(ended_at, statement_timestamp()) - created_at) * 1000)::bigint)), '[]')
     FROM clockgrove.effect_intents),
   'effectAttempts', (SELECT coalesce(jsonb_agg(jsonb_build_object(
-    'disposition', disposition, 'outcome', outcome_code, 'costMicrousd', cost_microusd)), '[]')
-    FROM clockgrove.effect_attempts),
+    'disposition', a.disposition, 'outcome', a.outcome_code, 'costMicrousd', a.cost_microusd,
+    'tenant', a.tenant_id, 'world', a.world_id, 'timeline', a.timeline_id, 'actor', i.actor_id,
+    'session', r.session_id)), '[]')
+    FROM clockgrove.effect_attempts a
+    JOIN clockgrove.effect_intents i USING (tenant_id, world_id, timeline_id, effect_id)
+    LEFT JOIN clockgrove.agent_runs r ON r.tenant_id = i.tenant_id AND r.run_id = i.run_id),
   'approvals', (SELECT coalesce(jsonb_agg(jsonb_build_object('state', state, 'decision', decision)), '[]')
     FROM clockgrove.effect_approvals),
   'deliveries', (SELECT coalesce(jsonb_agg(jsonb_build_object('status', status)), '[]')

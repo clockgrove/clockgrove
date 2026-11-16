@@ -2,6 +2,7 @@ import { decodeConversationSession, decodeTalkReceipt } from "@clockgrove/contra
 import { expect, it } from "vitest";
 import { ACTOR, CAPABILITY, seedResearch, withResearchFixture } from "./research-node-fixture.js";
 import { advanceCommand } from "./world-fixture.js";
+import { expectHistoryReplayInert } from "./world-owner/history-replay.js";
 import {
   isNativeWorldOwnerChild,
   runNativeWorldOwnerProcess,
@@ -280,6 +281,16 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*) FROM clockgrove.event_dispatches WHERE channel='external-effects' AND status='delivered'",
         ),
       ).toBe("12");
+      // Replaying the world's history after succeeded, failed and uncertain MCP calls reproduces the
+      // live state, adds no effect attempt or dispatch, and the fixture server receives no call.
+      const replayed = await expectHistoryReplayInert(owner, async () =>
+        Number(
+          await fetch(`${process.env.NATIVE_RESEARCH_ORIGIN}/count`).then((response) =>
+            response.text(),
+          ),
+        ),
+      );
+      expect(replayed.eventsApplied).toBeGreaterThan(0);
     });
   },
   240000,

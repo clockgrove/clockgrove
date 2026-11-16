@@ -47,9 +47,23 @@ assert(
   "usage: qualify:wave5 [--out <dir>]",
 );
 const out = path.resolve(argv[1] ?? path.join(root, ".qualification", `wave5-${Date.now()}`));
+// The run owns its directory: an existing one, even an aborted run's without a manifest, is refused,
+// so no earlier attempt's evidence or samples are counted into this candidate.
 await access(path.join(out, MANIFEST_FILE)).then(
   () => {
     throw new Error("refuse overwriting a prior Wave 5 manifest; use a separately owned directory");
+  },
+  (error) => {
+    if (error.code !== "ENOENT") throw error;
+  },
+);
+await readdir(out).then(
+  (entries) => {
+    if (entries.length > 0) {
+      throw new Error(
+        `refuse a non-empty output directory ${out}; use a separately owned directory`,
+      );
+    }
   },
   (error) => {
     if (error.code !== "ENOENT") throw error;
@@ -157,6 +171,11 @@ const versions = {
   },
 };
 
+// Local evidence only: a shell that still has CLOCKGROVE_MODEL_LIVE set would let the model
+// gateway's production-route journey call the real provider inside a local suite. Real-provider runs
+// are the manual step pending on issue 3, so the suites and evals never see it.
+const { CLOCKGROVE_MODEL_LIVE: _live, ...localEnv } = process.env;
+
 // Each suite runs once on this candidate; its log is evidence beside the manifest.
 const suites = [];
 for (const suite of SUITES) {
@@ -164,7 +183,7 @@ for (const suite of SUITES) {
   const result = await ownedSubprocess("pnpm", ["run", suite.name], {
     cwd: root,
     env: {
-      ...process.env,
+      ...localEnv,
       CLOCKGROVE_WAVE5_EVIDENCE: evidence,
       ...(suite.browser ? { CI: "true" } : {}),
     },
@@ -192,7 +211,7 @@ for (const { name, script } of EVALS) {
   const report = path.join(evidence, `${name}-eval.json`);
   const result = await ownedSubprocess(process.execPath, [script, "--output", report], {
     cwd: root,
-    env: { ...process.env, CLOCKGROVE_WAVE5_EVIDENCE: evidence },
+    env: { ...localEnv, CLOCKGROVE_WAVE5_EVIDENCE: evidence },
     timeoutMs: SUITE_TIMEOUT_MS,
   });
   const log = `${result.stdout}${result.stderr}`;
@@ -315,14 +334,19 @@ const fibers = rows("fibers");
 const activations = rows("activations");
 const effects = rows("effects");
 const effectAttempts = rows("effectAttempts");
-/** Known spend and unknown-cost count per scope: model attempts plus effect attempts. */
-const spendBy = (key) =>
-  Object.fromEntries(
-    [...new Set(attempts.map((step) => step[key]))].sort().map((scope) => {
-      const mine = attempts.filter((step) => step[key] === scope);
+/**
+ * Known spend and unknown-cost count per scope: model attempts plus effect attempts. An effect
+ * attempt outside a run has no session; it is counted under the scope `null`.
+ */
+const spendBy = (key) => {
+  const charged = [...attempts, ...effectAttempts];
+  return Object.fromEntries(
+    [...new Set(charged.map((entry) => String(entry[key] ?? null)))].sort().map((scope) => {
+      const mine = charged.filter((entry) => String(entry[key] ?? null) === scope);
       return [scope, distribution(mine.map(({ costMicrousd }) => costMicrousd))];
     }),
   );
+};
 const observability = {
   samples: {
     count: samples.length,
@@ -383,28 +407,38 @@ const observability = {
       effectAttempts: effectAttempts.filter(({ costMicrousd }) => costMicrousd === null).length,
     },
   },
-  // §18 metrics the durable schema does not record: named, never invented.
+  // §18 metrics the durable schema does not record: named, never invented, and each a deviation.
   notObservable: [
-    { metric: "actor/session queue depth", reason: "no durable record; queues are runtime state" },
     {
+      id: "O-queue-depth",
+      metric: "actor/session queue depth",
+      reason: "no durable record; queues are runtime state",
+    },
+    {
+      id: "O-phase-time",
       metric: "phase time per fiber phase",
       reason:
         "a fiber keeps its created and last-updated time only; fiberAttempts and turnDurationMs are recorded instead",
     },
     {
+      id: "O-context",
       metric: "context tokens, sources and exclusions",
       reason:
         "the context manifest is an encrypted conversation-class artifact the sample does not decrypt",
     },
     {
+      id: "O-breaker",
       metric: "provider breaker state",
       reason: "the breaker is gateway memory; test:model-gateway asserts its opening and routing",
     },
   ],
 };
+// `measured` only when every §18 metric is; samples with metrics unmeasured are `partial`.
 const observabilityStatus =
   samples.length > 0 && observability.samples.errors.length === 0 && attempts.length > 0
-    ? "measured"
+    ? observability.notObservable.length === 0
+      ? "measured"
+      : "partial"
     : "missing";
 
 // Hosted and real-provider items stay pending on issue 3 and are never relabelled by local runs.
@@ -505,6 +539,12 @@ const deviations = [
       status,
       reason: deviation ?? "cited evidence failed or is missing",
     })),
+  ...observability.notObservable.map(({ id, metric, reason }) => ({
+    id,
+    item: `§18 ${metric}`,
+    status: "deviation",
+    reason: `not measured: ${reason}`,
+  })),
   ...(candidate.clean
     ? []
     : [
@@ -521,7 +561,7 @@ const blockers = [
   ...scriptedEvals
     .filter(({ status }) => status !== "passed")
     .map(({ name }) => `scripted eval ${name} failed`),
-  ...(observabilityStatus === "measured" ? [] : ["§18 observability samples missing or failed"]),
+  ...(observabilityStatus === "missing" ? ["§18 observability samples missing or failed"] : []),
   ...deviations.map(({ id, reason }) => `${id}: ${reason}`),
   ...hostedQualification.map(({ item }) => `${item}: pending on issue 3`),
   ...humanItems.map(({ item, owner }) => `${item}: pending on ${owner}`),
