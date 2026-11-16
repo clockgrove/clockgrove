@@ -43,8 +43,12 @@ export interface ActivationConfiguration {
 
 export interface ActivationPolicy {
   readonly allowModel: boolean;
-  /** Lifetime model opportunities, shared by every configuration of this actor. */
+  /** Model opportunities per budget period, shared by every configuration of this actor. */
   readonly modelBudget: number;
+  /** Most new wakes per budget period (1 to 10,000). Omitted on configure, the stored value is kept. */
+  readonly wakeLimit?: number;
+  /** Length of the budget period in ms (one minute to 30 days). Omitted on configure, the stored value is kept. */
+  readonly budgetPeriodMs?: number;
   /**
    * Registry capabilities revoked for this actor (issue 322): its proposals of them are refused
    * `revoked`. Omitted on configure, the stored list is kept.
@@ -75,6 +79,13 @@ export interface ActivationInspection {
   readonly activations: readonly ActorActivation[];
   readonly policy: ActivationPolicy;
   readonly modelCallsReserved: number;
+  /** The current wall-clock budget period: `wakes` new receipts so far, renewing at `endsAt` (epoch ms). */
+  readonly period: {
+    readonly periodMs: number;
+    readonly wakeLimit: number;
+    readonly wakes: number;
+    readonly endsAt: number;
+  };
   readonly nextWakeAt: number | null;
   /**
    * The internal capability grants the actor holds through the requesting member, each marked when

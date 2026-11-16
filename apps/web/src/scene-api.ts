@@ -115,8 +115,25 @@ export interface ActorGrants {
     readonly revokedCapabilities: readonly string[];
   };
   readonly modelCallsReserved: number;
+  /** The current budget period; absent from an older runtime. */
+  readonly period?: {
+    readonly periodMs: number;
+    readonly wakeLimit: number;
+    readonly wakes: number;
+    readonly endsAt: number;
+  };
   /** False when another member owns the actor's policy: no budget shown, no revoke offered. */
   readonly policyOwned: boolean;
+}
+
+function decodePeriod(value: unknown): Pick<ActorGrants, "period"> {
+  const p = value as Record<string, unknown> | undefined;
+  return typeof p?.periodMs === "number" &&
+    typeof p.wakeLimit === "number" &&
+    typeof p.wakes === "number" &&
+    typeof p.endsAt === "number"
+    ? { period: { periodMs: p.periodMs, wakeLimit: p.wakeLimit, wakes: p.wakes, endsAt: p.endsAt } }
+    : {};
 }
 
 function decodeActorGrants(body: unknown): ActorGrants | undefined {
@@ -157,6 +174,7 @@ function decodeActorGrants(body: unknown): ActorGrants | undefined {
     modelCallsReserved:
       typeof value?.modelCallsReserved === "number" ? value.modelCallsReserved : 0,
     policyOwned: value?.policyOwned === true,
+    ...decodePeriod(value?.period),
   };
 }
 
