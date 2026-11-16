@@ -1,9 +1,40 @@
-Date.now()
-new Date()
-Math.random()
-process.env.SECRET
-fetch("https://example.invalid")
-new WebSocket("wss://example.invalid")
-globalThis.crypto
-localStorage.getItem("state")
-Deno.readTextFile("state.json")
+import { readFileSync } from "node:fs";
+import * as os from "os";
+
+type OnlyAType = Date; // allowed
+export const onlyAnAnnotation: Date | undefined = undefined; // allowed
+export interface OnlyAnInterface extends Promise<Date> { when: Date } // allowed
+
+export const text = String(Date());
+const Clock = Date; export const aliased = new Clock(); // the alias itself is refused
+export const now = Date.now();
+export const fresh = new Date();
+export const tick = performance.now();
+export const formatted = new Intl.DateTimeFormat().format();
+export const localised = (1).toLocaleString();
+export const ordered = "a".localeCompare("b");
+export const random = Math.random();
+export const bytes = crypto.getRandomValues(new Uint8Array(1));
+export const id = globalThis.crypto.randomUUID();
+export const secret = process.env.SECRET;
+export const agent = navigator.userAgent;
+export const denoFile = Deno.readTextFile("state.json");
+export const bunFile = Bun.file("state.json");
+export const timer = setTimeout(() => {}, 0);
+export const repeat = setInterval(() => {}, 0);
+queueMicrotask(() => {});
+export const response = fetch("https://example.invalid");
+export const socket = new WebSocket("wss://example.invalid");
+export const stored = localStorage.getItem("state");
+export const logger = console.log;
+export const loaded = require("x");
+export const here = __dirname;
+export const root = window;
+export const evaluated = eval("1");
+export const made = new Function("return 1");
+export const smuggled = [].constructor.constructor("return Date")();
+export const weak = new WeakRef({});
+export const registry = new FinalizationRegistry(() => {});
+export const lazy = import("x");
+export const location = import.meta.url;
+export { readFileSync, os };

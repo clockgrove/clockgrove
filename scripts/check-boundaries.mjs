@@ -476,33 +476,6 @@ async function assertRendererLibrariesStayInWeb() {
   );
 }
 
-const ambientNondeterminism = [
-  {
-    name: "wall clock",
-    pattern: /\b(?:Date\s*\.\s*now|new\s+Date\s*\(|performance\s*\.\s*now\s*\()/u,
-  },
-  {
-    name: "process-global randomness",
-    pattern: /\b(?:Math\s*\.\s*random|crypto\s*\.\s*(?:getRandomValues|randomUUID))\s*\(/u,
-  },
-  {
-    name: "environment variables",
-    pattern: /\b(?:process|Deno|Bun)\s*\.\s*env\b/u,
-  },
-  { name: "network fetch", pattern: /\bfetch\s*\(/u },
-  {
-    name: "network socket",
-    pattern: /\b(?:WebSocket|WebSocketPair|XMLHttpRequest|EventSource)\s*\(/u,
-  },
-  {
-    name: "ambient storage or filesystem",
-    pattern:
-      /\b(?:(?:localStorage|sessionStorage|indexedDB|caches)\s*\.|(?:Deno|Bun)\s*\.\s*(?:file|readFile|readTextFile|writeFile|writeTextFile)\s*\()/u,
-  },
-  { name: "ambient global", pattern: /\bglobalThis\s*\./u },
-  { name: "dynamic import", pattern: /\bimport\s*\(/u },
-];
-
 async function sourceFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -514,32 +487,242 @@ async function sourceFiles(directory) {
   return files;
 }
 
-function detectedAmbientRules(source) {
-  return ambientNondeterminism.filter(({ pattern }) => pattern.test(source));
+const forbiddenGlobals = new Map(
+  Object.entries({
+    "wall clock": ["Date", "performance"],
+    entropy: ["crypto", "Crypto", "SubtleCrypto"],
+    environment: ["process", "Deno", "Bun", "navigator", "Intl"],
+    timers: [
+      "setTimeout",
+      "setInterval",
+      "setImmediate",
+      "queueMicrotask",
+      "requestAnimationFrame",
+      "requestIdleCallback",
+      "clearTimeout",
+      "clearInterval",
+      "clearImmediate",
+      "cancelAnimationFrame",
+      "cancelIdleCallback",
+    ],
+    "input or output": [
+      "fetch",
+      "WebSocket",
+      "WebSocketPair",
+      "XMLHttpRequest",
+      "EventSource",
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "caches",
+      "console",
+      "require",
+      "module",
+      "__dirname",
+      "__filename",
+    ],
+    "ambient global": ["globalThis", "window", "self", "global"],
+    "code evaluation": ["eval", "Function"],
+    "garbage collection observation": ["WeakRef", "FinalizationRegistry"],
+  }).flatMap(([rule, names]) => names.map((name) => [name, rule])),
+);
+const forbiddenLocaleMembers = new Set([
+  "toLocaleString",
+  "toLocaleDateString",
+  "toLocaleTimeString",
+  "toLocaleUpperCase",
+  "toLocaleLowerCase",
+  "localeCompare",
+]);
+const ambientRuleNames = [
+  ...new Set([
+    ...forbiddenGlobals.values(),
+    "randomness",
+    "locale",
+    "node built-in module",
+    "dynamic import",
+    "import.meta",
+  ]),
+];
+const deterministicPackages = ["domain", "kernel", "world-pack-sdk", "simulator"];
+const nodeBuiltinModules = new Set(createRequire(import.meta.url)("node:module").builtinModules);
+
+function isNodeBuiltinSpecifier(specifier) {
+  return specifier.startsWith("node:") || nodeBuiltinModules.has(specifier);
+}
+
+function isPlatformDeclaration(program, symbol) {
+  return (symbol.declarations ?? []).some((declaration) => {
+    const file = declaration.getSourceFile();
+    return (
+      program.isSourceFileDefaultLibrary(file) || /[\\/]@types[\\/]node[\\/]/u.test(file.fileName)
+    );
+  });
+}
+
+function referenceRules(program, checker, node) {
+  let symbol;
+  if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
+    symbol = checker.getShorthandAssignmentValueSymbol(node.parent);
+  } else {
+    symbol = checker.getSymbolAtLocation(node);
+  }
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  const isMember = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
+  if (!symbol || symbol.declarations === undefined) {
+    // An unresolved bare name is a global the compiler has no declaration for (Deno, window, ...).
+    const rule = isMember ? undefined : forbiddenGlobals.get(node.text);
+    return rule === undefined || symbol !== undefined ? [] : [rule];
+  }
+  if (!isPlatformDeclaration(program, symbol)) return [];
+  const qualified = checker.getFullyQualifiedName(symbol);
+  if (/^(?:global\.)?[^.]+$/u.test(qualified) && !isMember) {
+    const rule = forbiddenGlobals.get(symbol.name);
+    return rule === undefined ? [] : [rule];
+  }
+  if (forbiddenLocaleMembers.has(symbol.name)) return ["locale"];
+  // `x.constructor.constructor` reaches the Function constructor, which evaluates code.
+  if (isMember && symbol.name === "constructor") return ["code evaluation"];
+  if (/(?:^|\.)Math\.random$/u.test(qualified)) return ["randomness"];
+  if (/(?:^|\.)Crypto\.(?:getRandomValues|randomUUID)$/u.test(qualified)) return ["entropy"];
+  return [];
+}
+
+function isValueIdentifier(node) {
+  const parent = node.parent;
+  if (ts.isPropertyAccessExpression(parent)) return true;
+  if (
+    (ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent) ||
+      ts.isPropertyAccessEntityNameExpression(parent) ||
+      ts.isBindingElement(parent) ||
+      ts.isLabeledStatement(parent) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isExportSpecifier(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isImportClause(parent)) &&
+    (parent.name === node || parent.propertyName === node)
+  ) {
+    return false;
+  }
+  if (ts.isQualifiedName(parent) || ts.isJsxAttribute(parent)) return false;
+  return !(ts.isDeclaration(parent) && parent.name === node);
+}
+
+function ambientViolations(program, sourceFile) {
+  const checker = program.getTypeChecker();
+  const found = [];
+  function report(node, rule) {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    found.push({ rule, line: line + 1, column: character + 1 });
+  }
+  function checkSpecifier(node, specifier) {
+    if (specifier && ts.isStringLiteralLike(specifier) && isNodeBuiltinSpecifier(specifier.text)) {
+      report(node, "node built-in module");
+    }
+  }
+  function visit(node) {
+    // Type positions never execute; `implements`/interface `extends` heritage is type-only too.
+    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (
+      ts.isExpressionWithTypeArguments(node) &&
+      (ts.isInterfaceDeclaration(node.parent.parent) ||
+        node.parent.token === ts.SyntaxKind.ImplementsKeyword)
+    ) {
+      return;
+    }
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      checkSpecifier(node, node.moduleSpecifier);
+    } else if (ts.isExternalModuleReference(node)) {
+      checkSpecifier(node, node.expression);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      report(node, "dynamic import");
+    } else if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword) {
+      report(node, "import.meta");
+    } else if (ts.isIdentifier(node) && isValueIdentifier(node)) {
+      for (const rule of referenceRules(program, checker, node)) report(node, rule);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return found;
+}
+
+function createAmbientProgram(rootNames, virtualFiles = new Map()) {
+  const configPath = path.join(repositoryRoot, "tsconfig.base.json");
+  const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
+  const { options } = ts.parseJsonConfigFileContent(
+    { compilerOptions: { ...config.compilerOptions, types: ["node"], noEmit: true } },
+    ts.sys,
+    repositoryRoot,
+    undefined,
+    configPath,
+  );
+  const host = ts.createCompilerHost(options, true);
+  const { fileExists, readFile, getSourceFile } = host;
+  host.fileExists = (fileName) => virtualFiles.has(fileName) || fileExists(fileName);
+  host.readFile = (fileName) => virtualFiles.get(fileName) ?? readFile(fileName);
+  host.getSourceFile = (fileName, languageVersion, ...rest) => {
+    const text = virtualFiles.get(fileName);
+    return text === undefined
+      ? getSourceFile(fileName, languageVersion, ...rest)
+      : ts.createSourceFile(fileName, text, languageVersion, true);
+  };
+  return ts.createProgram({ rootNames, options, host });
 }
 
 async function assertPureSourcesHaveNoAmbientNondeterminism() {
-  for (const packageName of ["domain", "kernel", "world-pack-sdk", "simulator"]) {
+  const files = [];
+  for (const packageName of deterministicPackages) {
     const directory = path.join(repositoryRoot, "packages", packageName, "src");
-    for (const sourcePath of await sourceFiles(directory)) {
-      const source = await readFile(sourcePath, "utf8");
-      const detections = detectedAmbientRules(source);
-      if (detections.length > 0) {
-        throw new Error(
-          `${path.relative(repositoryRoot, sourcePath)}: forbidden ${detections
-            .map(({ name }) => name)
-            .join(", ")}`,
-        );
-      }
+    files.push(...(await sourceFiles(directory)).filter((file) => /\.[cm]?tsx?$/u.test(file)));
+  }
+  const program = createAmbientProgram(files);
+  for (const file of files) {
+    const sourceFile = program.getSourceFile(file);
+    assert.ok(sourceFile, `${path.relative(repositoryRoot, file)}: not part of the program`);
+    const violations = ambientViolations(program, sourceFile);
+    if (violations.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, file)}: forbidden ${violations
+          .map(({ rule, line, column }) => `${rule} (${line}:${column})`)
+          .join(", ")}`,
+      );
     }
   }
 }
 
 async function assertAmbientNegativeFixtureIsRejected() {
   const source = await readFile(path.join(repositoryRoot, ambientFixture), "utf8");
-  const detected = new Set(detectedAmbientRules(source).map(({ name }) => name));
-  for (const { name } of ambientNondeterminism.filter(({ name }) => name !== "dynamic import")) {
-    if (!detected.has(name)) throw new Error(`${ambientFixture}: detector did not reject ${name}`);
+  const virtualPath = path.join(repositoryRoot, `${ambientFixture}.ts`);
+  const program = createAmbientProgram([virtualPath], new Map([[virtualPath, source]]));
+  const sourceFile = program.getSourceFile(virtualPath);
+  assert.ok(sourceFile, `${ambientFixture}: not part of the program`);
+  const violations = ambientViolations(program, sourceFile);
+  const detected = new Set(violations.map(({ rule }) => rule));
+  for (const rule of ambientRuleNames) {
+    if (!detected.has(rule)) throw new Error(`${ambientFixture}: detector did not reject ${rule}`);
+  }
+  const lines = source.split("\n");
+  // Every line that reaches ambient state is refused, not only one line per rule.
+  const refused = new Set(violations.map(({ line }) => line));
+  lines.forEach((text, index) => {
+    if (text.trim() && !/\/\/ allowed|^export \{/u.test(text) && !refused.has(index + 1))
+      throw new Error(`${ambientFixture}:${index + 1}: detector accepted ${text.trim()}`);
+  });
+  for (const { rule, line } of violations) {
+    if (lines[line - 1]?.includes("// allowed")) {
+      throw new Error(`${ambientFixture}:${line}: detector rejected type-only use as ${rule}`);
+    }
+  }
+  if (!lines.some((text) => text.includes("// allowed"))) {
+    throw new Error(`${ambientFixture}: no type-only use to prove acceptance`);
   }
 }
 
