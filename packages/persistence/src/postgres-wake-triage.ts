@@ -6,6 +6,7 @@ import {
   type WakeTriagePolicy,
   type WakeTriageRecord,
   type WakeTriageRoutine,
+  wakeTriageMaterial,
   wakeTriageReport,
 } from "@clockgrove/application";
 import type { BrowserScope } from "@clockgrove/contracts";
@@ -74,16 +75,21 @@ export class PostgreSqlWakeTriage {
         const decision = row.record as WakeTriageRecord;
         const proposedCommand = row.proposedCommand === true;
         const outputMessage = row.outputMessage === true;
+        const deliveredMessage = row.deliveredMessage === true;
+        const documentChanged = row.documentChanged === true;
         const replyToPerson = outputMessage && decision.reason === "direct_message";
+        const facts = { proposedCommand, deliveredMessage, documentChanged, replyToPerson };
         return [
           {
             decision,
             truth: {
               disposition: String(row.phase),
               proposedCommand,
+              deliveredMessage,
+              documentChanged,
               outputMessage,
               replyToPerson,
-              material: proposedCommand || replyToPerson,
+              material: wakeTriageMaterial(facts),
               costMicrousd: row.costMicrousd === null ? null : Number(row.costMicrousd),
             },
           },
