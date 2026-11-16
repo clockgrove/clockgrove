@@ -280,5 +280,114 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
         "SELECT count(*) FROM clockgrove.event_dispatches WHERE channel='external-effects'",
       ),
     ).toBe("5\n");
+
+    // Issue 349: a research step reserves its own measured worst case, so a step that could cost
+    // more than the turn's $0.25 is never sent, and one within it is.
+    let measuredSends = 0;
+    // The stand-in step's primary route reserves `reserveMicrousd`; when `fallbackMicrousd` is
+    // given, the primary fails over and the fallback route asks to reserve that before it is tried.
+    let fallbackSends = 0;
+    // Each answer the fiber offers its store, so a refused one is still seen.
+    const answered: string[] = [];
+    const measured = (
+      reserveMicrousd: number,
+      fallbackMicrousd?: number,
+      beforeFallback?: () => Promise<unknown>,
+    ) =>
+      new TurnFibers({
+        holder: crypto.randomUUID(),
+        actorId: "actor",
+        stores: (operation) =>
+          stores((store) => {
+            const answerTurn = store.answerTurn.bind(store);
+            store.answerTurn = (participant, fiber, response) => {
+              answered.push(response.outcomeCode ?? response.text);
+              return answerTurn(participant, fiber, response);
+            };
+            return operation(store);
+          }),
+        respond: async () => ({ text: "Unmeasured" }),
+        prepare: async () => ({
+          reserveMicrousd,
+          send: async (reserveFallback) => {
+            ++measuredSends;
+            if (fallbackMicrousd === undefined) return { text: `Measured ${measuredSends}` };
+            const usage = { inputTokens: null, outputTokens: null, costMicrousd: 0 };
+            await beforeFallback?.();
+            if (!(await reserveFallback!(fallbackMicrousd)))
+              return {
+                text: "Research stopped: cost_budget_exhausted. No further action was taken.",
+                outcomeCode: "cost_budget_exhausted",
+                usage,
+              };
+            return { text: `Fallback ${++fallbackSends}`, usage };
+          },
+        }),
+        research,
+        capabilityRevision: () => 1,
+        checkpointed: async () => {},
+        durable: async (_f, _p, run) => run(),
+      });
+    const turn = async (messageId: string) =>
+      (
+        await stores((store) =>
+          store.acceptTurn(participant, { scope, sessionId: "session", messageId, text: "look" }),
+        )
+      ).fiber!;
+    const over = await measured(250_001).activate(participant, await turn("over-cap"));
+    expect([over.receipt?.reply.text, measuredSends]).toEqual([
+      "Research stopped: cost_budget_exhausted. No further action was taken.",
+      0,
+    ]);
+    const within = await measured(250_000).activate(participant, await turn("within-cap"));
+    expect([within.receipt?.reply.text, measuredSends]).toEqual(["Measured 1", 1]);
+
+    // Owner decision (issue 349): one route at a time. The primary reserves 200,000; when it fails
+    // over, a fallback needing 50,001 passes what is left of the $0.25 and is never tried, and one
+    // needing 50,000 fits and answers. The turn never holds more than its cap.
+    const refused = await measured(200_000, 50_001).activate(
+      participant,
+      await turn("fallback-over"),
+    );
+    expect([refused.receipt?.reply.text, measuredSends, fallbackSends]).toEqual([
+      "Research stopped: cost_budget_exhausted. No further action was taken.",
+      2,
+      0,
+    ]);
+    const fallback = await measured(200_000, 50_000).activate(
+      participant,
+      await turn("fallback-within"),
+    );
+    expect([fallback.receipt?.reply.text, measuredSends, fallbackSends]).toEqual([
+      "Fallback 1",
+      3,
+      1,
+    ]);
+    expect(
+      await sql(
+        "SELECT message_id,research_reserved_microusd FROM clockgrove.conversation_turn_fibers WHERE message_id LIKE 'fallback-%' ORDER BY message_id",
+      ),
+    ).toBe("fallback-over|200000\nfallback-within|250000\n");
+
+    // A fallback whose turn was overtaken (another holder took the lease) is not a spent budget:
+    // the step answers model_unavailable, the fenced answer is refused where it commits, and the
+    // fallback is neither reserved nor tried.
+    answered.length = 0;
+    const fenced = await measured(200_000, 1, () =>
+      sql(
+        "UPDATE clockgrove.conversation_turn_fibers SET lease_epoch=lease_epoch+1 WHERE message_id='fallback-fenced'",
+      ),
+    ).activate(participant, await turn("fallback-fenced"));
+    expect([fenced, answered, measuredSends, fallbackSends]).toEqual([
+      { refused: "conversation_busy" },
+      ["model_unavailable"],
+      4,
+      1,
+    ]);
+    expect(
+      await sql(
+        "SELECT phase,research_reserved_microusd,reply_artifact_id IS NULL FROM clockgrove.conversation_turn_fibers WHERE message_id='fallback-fenced'",
+      ),
+    ).toBe("model_running|200000|t\n");
   });
 });

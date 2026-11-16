@@ -239,6 +239,15 @@ export interface ConversationStore {
     fiber: TurnFiber,
     limits: TurnModelStepLimits,
   ): Promise<TurnModelStepReservation>;
+  /**
+   * Reserves a fallback route's worst case for the model step in flight against what is left of
+   * the turn's cost cap, without counting another step (issue 349).
+   */
+  reserveModelRoute?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    limits: Omit<TurnModelStepLimits, "maxModelSteps">,
+  ): Promise<Exclude<TurnModelStepReservation, "model_steps_exhausted">>;
   waitForTool?(
     participant: ConversationParticipant,
     fiber: TurnFiber,

@@ -155,7 +155,7 @@ describe("model gateway through the AI SDK adapter", () => {
       policyVersion: "resident.local@1",
       attribution,
       decision: "primary",
-      reservedMicrousd: 6_000, // 1,000 × 4 + 100 × 20
+      reservedMicrousd: 2_172, // measured input (17 + 2 + 8 + 16 = 43) × 4 + 100 × 20
       costMicrousd: 188, // 12 × 4 + 7 × 20
       outputSha256: "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
     });
@@ -212,7 +212,7 @@ describe("model gateway through the AI SDK adapter", () => {
     ]);
     // Tokens streamed without usage are billed but unknown, so the reservation stays spent.
     expect(after.record.costMicrousd).toBeNull();
-    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 6_000);
+    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(60 + 2_172);
     const overloaded = await gateway.stream(
       { alias: "resident.local", callId: "c-3", attribution, ...ask },
       undefined,
@@ -234,7 +234,14 @@ describe("model gateway through the AI SDK adapter", () => {
     expect(received[0]?.body).toContain('"required":["mood"]');
     const huge = { ...request, callId: "o-2", system: "é".repeat(500) };
     const refused = await localGateway([]).generateObject(huge);
-    expect(refused).toMatchObject({ status: "failed", code: "input_too_large", retryable: false });
+    // 500 two-byte characters, "Hi" and the schema, with framing: refused with its measured size.
+    expect(refused).toMatchObject({
+      status: "failed",
+      code: "input_too_large",
+      retryable: false,
+      inputTokens: 1_000 + 2 + 8 + 16 + JSON.stringify(z.toJSONSchema(mood)).length,
+      maxInputTokens: 1_000,
+    });
     expect(refused.record).toMatchObject({ decision: "input_refused", attempts: [] });
     expect(received).toHaveLength(1);
   });
@@ -337,5 +344,59 @@ describe("model gateway with the scripted provider", () => {
     expect(records.map((record) => record.callId)).toEqual(["s-1", "s-2", "s-3", "s-4"]);
     const unwired = { aliases: [alias], adapters: {}, budget, accounting: { record: () => {} } };
     expect(() => createModelGateway(unwired)).toThrow(/no adapter/u);
+  });
+
+  it("ends a call whose fallback the caller refuses or cannot decide, keeping the evidence", async () => {
+    const records: ModelCallRecord[] = [];
+    const scripted = new ScriptedModelProvider({
+      "scripted/a": [
+        { kind: "http", status: 503 },
+        { kind: "http", status: 503 },
+      ],
+      "scripted/b": [],
+    });
+    const budget = new InMemoryModelBudget(() => 1_000_000);
+    const twoRoutes: ModelAliasDefinition = {
+      ...alias,
+      routes: [alias.routes[0]!, { ...alias.routes[0]!, id: "scripted/b" }],
+    };
+    const gateway = createModelGateway({
+      aliases: [twoRoutes],
+      adapters: { scripted },
+      budget,
+      accounting: { record: (record) => void records.push(record) },
+    });
+    const request = { alias: "resident.scripted", attribution, ...ask, schema: mood };
+    const asked: { routeId: string; reserveMicrousd: number }[] = [];
+    const refused = await gateway.generateObject({
+      ...request,
+      callId: "f-1",
+      admitFallback: async (route) => {
+        asked.push(route);
+        return false;
+      },
+    });
+    expect(refused).toMatchObject({ status: "failed", code: "budget_exceeded", retryable: false });
+    expect(refused.record.decision).toBe("budget_refused");
+    expect(refused.record.attempts.map((attempt) => [attempt.routeId, attempt.outcome])).toEqual([
+      ["scripted/a", "unavailable"],
+    ]);
+    expect(asked).toEqual([{ routeId: "scripted/b", reserveMicrousd: expect.any(Number) }]);
+    expect(asked[0]!.reserveMicrousd).toBeGreaterThan(0);
+
+    const storeDown = new Error("store unavailable");
+    await expect(
+      gateway.generateObject({
+        ...request,
+        callId: "f-2",
+        admitFallback: () => Promise.reject(storeDown),
+      }),
+    ).rejects.toBe(storeDown);
+    expect(records.map((record) => record.callId)).toEqual(["f-1", "f-2"]);
+    expect(records[1]).toMatchObject({ decision: "exhausted", costMicrousd: 0 });
+    expect(records[1]!.attempts.map((attempt) => attempt.routeId)).toEqual(["scripted/a"]);
+    // The second route was never called, and both reservations were settled to their real cost.
+    expect(scripted.calls.map((call) => call.route.id)).toEqual(["scripted/a", "scripted/a"]);
+    expect(budget.spentMicrousd("tenant-a/world-a")).toBe(0);
   });
 });

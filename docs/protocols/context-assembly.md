@@ -119,7 +119,37 @@ authorization:
 2. **Authorization, before any text is read.** A document is excluded `other_session_private` when
    it is another session's summary, or `document_archived` when it is archived. Its hash in the
    manifest is the metadata's (`null` for another session's summary), and its text is never read.
-3. **Budget.** The input is reserved first. Then documents in kind order (identity, policy, goals,
+3. **Budget.** The turn's budget is the decided 4,096 estimated tokens, lowered when the model
+   route's input limit leaves less room (`contextTokenBudget`, issue 349). That room is the alias's
+   `maxInputTokens`, less the request's fixed parts, divided by 24. The limit and the fixed parts are
+   both in the [model gateway's](../../packages/model-gateway/docs/model-gateway.md#budget) input
+   measure, UTF-8 bytes, which is never below the real token count. The runtime keeps 311,920 for
+   the fixed parts (`ACTOR_FIXED_INPUT_TOKENS`), from the repository's own bounds: the turn's tool
+   evidence (at most one call per model step, four; each call's text cut to 8 KiB before it enters
+   model context, escaped by JSON to at most 6 bytes a byte, plus 12,288 of the call's framing),
+   and 65,536 for the rest:
+   the system text, the tool catalog, recorded self results, the input's second copy, the output
+   schema and the sections' framing. Where the request is built, the tool catalog gets only what
+   that 65,536 has left once the rest is measured and 8,192 is kept for the prompt's own framing:
+   entries that do not fit are left out and counted in a closing note (`fittedCatalog`), so a
+   catalog of any size never overruns it. The other parts are bounded where they are made: a
+   configured identity at 4 KiB and scene label at 256 bytes, the scene digest at 8 KiB, self
+   results at 16 KiB and the input at 1 KiB. An estimated token renders to at most 24 measured tokens: at
+   most 4 bytes, each escaped by JSON to at most 6. A context within the budget therefore never
+   makes a request, research steps included, that the
+   gateway refuses for size. Under the production limit (998,976) the budget stays 4,096. Without
+   a model route (the scripted fixture), it is 4,096. A world model configuration whose actor alias
+   leaves no room for one estimated token (a limit below 311,944) is refused when it is read, with
+   the alias, its limit, the fixed parts and the minimum named, so an actor never answers without
+   its summary and history for want of room. `contextTokenBudget` itself refuses such a limit
+   rather than clamping it to a budget of one. Each research step reserves one route at a time
+   (owner decision): before it is sent, its primary route's worst case for the exact request;
+   if that route fails over, the fallback route's own worst case against what is left of the
+   turn's cost cap (`reserve_turn_model_route`, through the gateway's `admitFallback`). A fallback
+   that does not fit is never called, and the step ends `cost_budget_exhausted`.
+   Once the step's answer is recorded with a known cost, the rest of its reservation is released
+   (`settle_turn_model_step`, migration 0071); a step whose cost is unknown keeps all of it.
+   The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
    length, then history newest first. A source that would pass the budget is excluded
    `token_budget`, and a document so excluded is never read. History keeps a contiguous newest
@@ -194,7 +224,7 @@ These are the defaults chosen for the human-owned policy (ADR §6, issue 17):
 | Operations per change set | 8 | One actor's working set in one atomic step |
 | Documents per actor | 256 | Bounds candidate metadata read every turn |
 | Versions per document | 1,000 | Bounds a document that changes every turn for two sessions' lives |
-| Context budget | 4,096 estimated tokens | A small fixed model window for the local path |
+| Context budget | 4,096 estimated tokens, or less if the route's input limit leaves less room | A small fixed model window for the local path; never a prompt the gateway refuses |
 | Token estimate | ceil(UTF-8 bytes / 4) | Common English estimate; no tokenizer is bound |
 | History window | 16 messages | Bounds the messages decrypted per turn |
 

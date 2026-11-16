@@ -327,6 +327,7 @@ const keyrings = new Map<string, Promise<WebCryptoKeyring>>();
 export function composeConversations(
   env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
   model?: string,
+  contextTokenBudget?: number,
 ): ConversationStores | undefined {
   const secret = env.ARTIFACT_KEYRING;
   if (secret === undefined) return undefined;
@@ -344,7 +345,9 @@ export function composeConversations(
         metrics: analyticsEngineMetrics(env.METRICS),
         ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
       });
-      return operation(new PostgreSqlConversationStore(client, artifacts, undefined, model));
+      return operation(
+        new PostgreSqlConversationStore(client, artifacts, undefined, model, contextTokenBudget),
+      );
     });
   };
 }

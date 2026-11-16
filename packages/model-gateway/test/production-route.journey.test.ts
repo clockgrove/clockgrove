@@ -20,7 +20,7 @@ describe.skipIf(!live)("production model route (live)", () => {
     const gateway = createModelGateway({
       aliases: productionAliases("resident.conversation", "resident.pilot"),
       adapters: { "vercel-ai-gateway": adapter, anthropic: adapter },
-      // One call's ceiling: 16,000 × 4 + 1,024 × 20 microdollars, about $0.08.
+      // More than one call reserves: its measured input × 4 + 1,024 × 20 microdollars, under $0.03.
       budget: new InMemoryModelBudget(() => 84_480),
       accounting: { record: (record) => console.log(JSON.stringify(record, null, 2)) },
     });

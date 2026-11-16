@@ -16,6 +16,7 @@ import {
   type TurnToolCall,
 } from "@clockgrove/application";
 import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
+import type { PreparedModelStep, PreparedResponder } from "./actor-model.js";
 import { CONVERSATION_REFUSAL_STATUS, type ConversationStores } from "./conversations.js";
 
 /**
@@ -100,6 +101,11 @@ export interface TurnFiberHost {
   readonly actorId: string;
   readonly stores: ConversationStores;
   readonly respond: ConversationResponder;
+  /**
+   * The same model step, built and measured before it is sent: a research turn reserves the step's
+   * measured worst case instead of the policy's fixed reserve (issue 349).
+   */
+  readonly prepare?: PreparedResponder | undefined;
   readonly research?: TurnResearchHost | undefined;
   capabilityRevision(): number;
   beforeModel?(
@@ -371,13 +377,19 @@ export class TurnFibers {
               prompt,
             });
             let response: ConversationResponse | undefined;
+            let prepared: PreparedModelStep | undefined;
             if (this.host.research !== undefined) {
               const policy = this.host.research.policy;
+              // A step that cannot be built falls back to `respond`, which fails the same way.
+              prepared = await this.host
+                .prepare?.(session, caretakerMessages, input, prompt)
+                .catch(() => undefined);
+              const reserveMicrousd = prepared?.reserveMicrousd ?? policy.modelStepReserveMicrousd;
               const reserved = await this.store((store) =>
                 store.reserveModelStep!(participant, current, {
                   maxModelSteps: policy.maxModelSteps,
                   maxCostMicrousd: policy.maxCostMicrousd,
-                  reserveMicrousd: policy.modelStepReserveMicrousd,
+                  reserveMicrousd,
                 }),
               );
               if (reserved === "fenced") return this.settled(participant, current);
@@ -390,7 +402,26 @@ export class TurnFibers {
             }
             if (response === undefined) {
               try {
-                response = await this.host.respond(session, caretakerMessages, input, prompt);
+                response =
+                  prepared === undefined
+                    ? await this.host.respond(session, caretakerMessages, input, prompt)
+                    : await prepared.send(async (reserveMicrousd) => {
+                        // A fallback route reserves its own worst case against what is left of
+                        // the turn's cap before it is tried (issue 349).
+                        const policy = this.host.research?.policy;
+                        if (policy === undefined) return true;
+                        const decision = await this.store((store) =>
+                          store.reserveModelRoute!(participant, current, {
+                            maxCostMicrousd: policy.maxCostMicrousd,
+                            reserveMicrousd,
+                          }),
+                        );
+                        if (decision === "reserved") return true;
+                        if (decision === "cost_budget_exhausted") return false;
+                        // A fenced turn is not a spent budget: the step fails as unavailable and
+                        // the fenced answer is refused where it commits.
+                        throw new Error(`model_route_${decision}`);
+                      });
               } catch (error) {
                 if (this.host.research === undefined) throw error;
                 // Provider exception text can contain prompts or credentials; only a fixed state leaves.

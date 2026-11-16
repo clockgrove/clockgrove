@@ -6,7 +6,12 @@ import {
   type RouteAdapter,
   type RouteCall,
 } from "./adapter.js";
-import { costCeilingMicrousd, type ModelAliasDefinition, type ModelRoute } from "./aliases.js";
+import {
+  type ModelAliasDefinition,
+  type ModelRoute,
+  requestCostCeilingMicrousd,
+  routeCostCeilingMicrousd,
+} from "./aliases.js";
 import { RouteBreaker } from "./breaker.js";
 import type {
   DecisionAdapter,
@@ -251,7 +256,8 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       attribution: request.attribution,
       requestSha256,
     };
-    if (inputTokenBound(request, jsonSchema) > alias.maxInputTokens) {
+    const inputTokens = inputTokenBound(request, jsonSchema);
+    if (inputTokens > alias.maxInputTokens) {
       const record: ModelCallRecord = {
         ...base,
         decision: "input_refused",
@@ -261,10 +267,20 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         outputSha256: null,
       };
       await options.accounting.record(record);
-      return { status: "failed", code: "input_too_large", retryable: false, record };
+      return {
+        status: "failed",
+        code: "input_too_large",
+        retryable: false,
+        record,
+        inputTokens,
+        maxInputTokens: alias.maxInputTokens,
+      };
     }
     const scope = `${request.attribution.tenantId}/${request.attribution.worldId}`;
-    const reservation = options.budget.reserve(scope, costCeilingMicrousd(alias));
+    const reservation = options.budget.reserve(
+      scope,
+      requestCostCeilingMicrousd(alias, inputTokens),
+    );
     if (reservation === undefined) {
       const record: ModelCallRecord = {
         ...base,
@@ -279,7 +295,27 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
 
     const results: RouteResult[] = [];
+    // A fallback route the caller did not admit for its own worst case is not tried (issue 349).
+    // A caller that could not decide (its admission rejected) ends the call too: the routes
+    // already tried are settled and recorded, then the rejection propagates, so a store error is
+    // never reported as a spent budget.
+    let fallbackRefused = false;
+    let admissionFailed: { readonly error: unknown } | undefined;
     for (const route of alias.routes) {
+      if (results.length > 0 && request.admitFallback !== undefined) {
+        const reserveMicrousd = routeCostCeilingMicrousd(alias, route, inputTokens);
+        let admitted: boolean;
+        try {
+          admitted = await request.admitFallback({ routeId: route.id, reserveMicrousd });
+        } catch (error) {
+          admissionFailed = { error };
+          break;
+        }
+        if (!admitted) {
+          fallbackRefused = true;
+          break;
+        }
+      }
       const result = await attemptRoute(alias, route, request, signal, onText, jsonSchema);
       results.push(result);
       if (!fallsBack(result.attempt)) break;
@@ -304,11 +340,13 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
     const record: ModelCallRecord = {
       ...base,
-      decision: fallsBack(last.attempt)
-        ? "exhausted"
-        : results.length === 1
-          ? "primary"
-          : "fallback",
+      decision: fallbackRefused
+        ? "budget_refused"
+        : fallsBack(last.attempt)
+          ? "exhausted"
+          : results.length === 1
+            ? "primary"
+            : "fallback",
       attempts:
         outcome === last.attempt.outcome
           ? attempts
@@ -318,7 +356,10 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       outputSha256: last.text === "" ? null : await sha256(last.text),
     };
     await options.accounting.record(record);
+    if (admissionFailed !== undefined) throw admissionFailed.error;
     if (outcome === "completed") return { status: "completed", value: value as T, record };
+    if (fallbackRefused)
+      return { status: "failed", code: "budget_exceeded", retryable: false, record };
     return {
       status: "failed",
       code: failureCode(outcome),
@@ -514,12 +555,14 @@ function fallsBack(attempt: RouteAttempt): boolean {
 }
 
 /**
- * An upper bound on the request's input tokens, checked before any reservation: one token is at
- * least one UTF-8 byte, plus a margin for message framing.
+ * The gateway's measure of a request's input: an upper bound on its tokens, since one token is at
+ * least one UTF-8 byte, plus 8 per message and 16 for framing. The gateway refuses above the
+ * alias's `maxInputTokens` and reserves the call's cost from it; context assembly sizes its budget
+ * from the same measure (`docs/protocols/context-assembly.md`).
  */
-function inputTokenBound(
-  request: ModelRequest,
-  jsonSchema: Readonly<Record<string, unknown>> | undefined,
+export function inputTokenBound(
+  request: Pick<ModelRequest, "system" | "messages">,
+  jsonSchema?: Readonly<Record<string, unknown>>,
 ): number {
   const encoder = new TextEncoder();
   const bytes = (text: string) => encoder.encode(text).length;

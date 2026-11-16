@@ -46,6 +46,17 @@ export interface ModelRequest {
   readonly attribution: ModelAttribution;
   readonly system: string;
   readonly messages: readonly ModelMessage[];
+  /**
+   * Asked before each fallback route is tried, with that route's worst case for this request
+   * (`routeCostCeilingMicrousd`). Resolving false ends the call `budget_exceeded` without trying
+   * it; the routes already tried keep their cost. Rejecting also skips the route: the attempts
+   * already made are settled and recorded (`exhausted`), then the rejection propagates from the
+   * call. Absent, every fallback is tried.
+   */
+  readonly admitFallback?: (route: {
+    readonly routeId: string;
+    readonly reserveMicrousd: number;
+  }) => Promise<boolean>;
 }
 
 export interface StructuredModelRequest<T> extends ModelRequest {
@@ -71,6 +82,9 @@ export type ModelOutcome<T> =
       /** True when the same request may succeed later; cognition degrades, the world continues. */
       retryable: boolean;
       record: ModelCallRecord;
+      /** On `input_too_large`: the request's measured input (`inputTokenBound`) and the limit it passed. */
+      inputTokens?: number;
+      maxInputTokens?: number;
     }>;
 
 export type RouteAttemptOutcome =
@@ -114,7 +128,8 @@ export interface ModelCallRecord {
   readonly attribution: ModelAttribution;
   /**
    * `primary`, `fallback` (a later route ended the call), `input_refused` (the request exceeds the
-   * alias's input bound), `budget_refused` or `exhausted`.
+   * alias's input bound), `budget_refused` (the ledger refused the call, with no attempts, or the
+   * caller did not admit a fallback route, after the attempts listed) or `exhausted`.
    */
   readonly decision: "primary" | "fallback" | "input_refused" | "budget_refused" | "exhausted";
   readonly attempts: readonly RouteAttempt[];

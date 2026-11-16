@@ -34,6 +34,36 @@ export function estimateTokens(text: string): number {
   return Math.ceil(encoder.encode(text).length / 4);
 }
 
+/**
+ * The most the model gateway's input measure (UTF-8 bytes, `inputTokenBound`) can charge for one
+ * estimated token once rendered: an estimated token is at most 4 bytes, and JSON string escaping
+ * turns one byte into at most 6 (`\u0000`).
+ */
+export const MEASURED_TOKENS_PER_ESTIMATED_TOKEN = 24;
+
+/** The least input limit that leaves room for one estimated token beside the fixed parts. */
+export function minimumInputLimitTokens(fixedInputTokens: number): number {
+  return fixedInputTokens + MEASURED_TOKENS_PER_ESTIMATED_TOKEN;
+}
+
+/**
+ * A turn's context budget under a model route's input limit, both in the gateway's measure: the
+ * decided budget, lowered to whatever room the limit leaves after the request's fixed parts
+ * (instructions, tool catalog, schemas, prompt framing). A limit with no room for one estimated
+ * token is refused rather than clamped, so no turn silently assembles without its context.
+ */
+export function contextTokenBudget(inputLimitTokens: number, fixedInputTokens: number): number {
+  const minimum = minimumInputLimitTokens(fixedInputTokens);
+  if (!(inputLimitTokens >= minimum))
+    throw new RangeError(
+      `input limit ${inputLimitTokens} leaves no context room beside the request's fixed parts (${fixedInputTokens}); the minimum is ${minimum}`,
+    );
+  const room = Math.floor(
+    (inputLimitTokens - fixedInputTokens) / MEASURED_TOKENS_PER_ESTIMATED_TOKEN,
+  );
+  return Math.min(CONTEXT_TOKEN_BUDGET, room);
+}
+
 /** The same estimate from a stored byte length, so the budget is decided before any text is read. */
 export function tokensOfBytes(byteLength: number): number {
   return Math.ceil(byteLength / 4);

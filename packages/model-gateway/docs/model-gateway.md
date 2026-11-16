@@ -30,8 +30,8 @@ provider has no adapter is refused when the gateway is created, before any call.
 | `rate_limited` | the last route tried answered 429 |
 | `refused` | the model declined (`content-filter` finish) |
 | `invalid_output` | structured output was not JSON or failed the schema |
-| `input_too_large` | the request exceeds the alias's input bound; no route was called |
-| `budget_exceeded` | the reservation was refused; no route was called |
+| `input_too_large` | the request's measured input exceeds the alias's `maxInputTokens`; no route was called. The outcome names both (`inputTokens`, `maxInputTokens`) |
+| `budget_exceeded` | the reservation was refused and no route was called, or the caller's `admitFallback` did not admit the next route |
 | `cancelled` | the caller's signal aborted the call |
 
 ## Aliases and routes
@@ -40,7 +40,7 @@ An alias (`ModelAliasDefinition`, `src/aliases.ts`) pins:
 
 - `policyVersion`;
 - its ordered routes;
-- `maxInputTokens` and `maxOutputTokens`;
+- `maxInputTokens`, the most input every route accepts, and `maxOutputTokens`;
 - three timeouts: `firstByteMs` until the first text, `idleMs` between text after that, and
   `totalMs` for the whole route attempt.
 
@@ -65,10 +65,23 @@ Both routes serve Claude Opus 5.5 at $4 input and $20 output per million tokens 
 2026-10-06). A fallback therefore never changes policy or eval identity. Cloudflare AI Gateway is not
 used.
 
-These bounds are decisions, not provider limits:
+The input bound is the route's limit; the others are decisions:
 
-- **Tokens.** Input is at most 16,000 tokens, the context-assembly budget. Output is at most
-  1,024 tokens, one conversational reply.
+- **Tokens.** Input is at most 998,976 tokens: Claude Opus 5.5 accepts a 1M-token context
+  (Anthropic's model notes for Opus 5.5), and input plus the requested output must fit in it. Output
+  is at most 1,024 tokens, one conversational reply (decision). Context assembly, not this bound,
+  keeps a turn small (issue 349): its budget is sized from this limit
+  ([context assembly](../../../docs/protocols/context-assembly.md#decided-limits-and-retention)).
+  Before issue 349 the production aliases carried 7,000 (`actor.pilot`) and 16,000
+  (`actor.conversation`) under a different measure; those were cost envelopes, not route limits.
+  Clockgrove is before 1.0, so this is a breaking change for a world's configuration: the runtime
+  refuses, when it reads a `WORLD_MODEL_CONFIG` (or a pack's `runtime.json` serialized into it), an
+  actor alias whose `maxInputTokens` is below 311,944, the actor request's fixed parts (311,920)
+  plus room for one estimated token of context. The error names the alias, its limit, the fixed
+  parts and the minimum, for example `world model alias actor.pilot maxInputTokens 7000 leaves no
+  context room beside the actor request's fixed parts (311920); the minimum is 311944`. Raise the
+  limit to the route's real input limit (998,976 for Claude Opus 5.5) to fix it (owner decision,
+  2026-11-15).
 - **Timeouts.** The first text must arrive within 15 s, which leaves room for model thinking. After
   that, 10 s of silence means a stalled stream. A route attempt lasts at most 60 s. The bound is
   per route, so a turn that falls back after a first-byte timeout lasts at most 15 s + 60 s.
@@ -99,6 +112,16 @@ The gateway does not fall back after any other outcome:
 The SDK makes no retries of its own (`maxRetries: 0`). Every retry or fallback is the gateway's,
 and it is recorded.
 
+A caller that holds its own spending cap can pass `admitFallback` on the request. Before each
+fallback route, the gateway asks it with that route's own worst case for the measured request
+(`routeCostCeilingMicrousd`: measured input × input price + `maxOutputTokens` × output price). If
+it answers false, the route is not tried and the call ends `budget_exceeded` (not retryable),
+decision `budget_refused`, with the attempts already made and their cost. If `admitFallback`
+rejects (the caller could not decide, for example its store failed), the route is not tried
+either: the gateway settles and records the attempts already made (decision `exhausted`) and
+then rethrows that rejection, so a caller's error is never reported as a spent budget. The
+actor's research turn uses this to reserve one route at a time against its turn cap (issue 349).
+
 Each route has a breaker (`src/breaker.ts`). These outcomes count against it:
 
 - timeouts before or after first bytes;
@@ -113,17 +136,21 @@ in-memory execution state, one entry per route.
 
 ## Budget
 
-Before any reservation, the gateway bounds the request's input: one token is at least one UTF-8
-byte, so the UTF-8 length of the system text, the messages and the JSON schema, plus 8 tokens per
-message and 16 for framing, is an upper bound on its input tokens. A request whose bound exceeds
-`maxInputTokens` ends as `input_too_large`, decision `input_refused`, before any reservation or
-provider call. The bound is conservative: English text runs about four bytes per token, so it
-admits about a quarter of the token budget in English.
+Before any reservation, the gateway measures the request's input (`inputTokenBound`, exported):
+one token is at least one UTF-8 byte, so the UTF-8 length of the system text, the messages and the
+JSON schema, plus 8 tokens per message and 16 for framing, is never below its real input tokens. A
+request whose measure exceeds `maxInputTokens` ends as `input_too_large`, decision `input_refused`,
+before any reservation or provider call; the outcome carries the measure as `inputTokens` and the
+limit as `maxInputTokens`. Since the limit is the route's own, a request is refused only when it may
+really not fit. Context assembly sizes its budget from the same measure and limit, so the prompt it
+builds is never refused.
 
-The gateway then reserves the alias's cost ceiling against the scope
-`<tenantId>/<worldId>` through `ModelBudgetPort`. The ceiling is the highest, over the alias's
-routes, of `maxInputTokens × input price + maxOutputTokens × output price`. For
-`resident.conversation` that is 84,480 microdollars.
+The gateway then reserves the call's cost ceiling against the scope `<tenantId>/<worldId>`
+through `ModelBudgetPort` (`requestCostCeilingMicrousd`). The ceiling is the highest, over the
+alias's routes, of `measured input × input price + maxOutputTokens × output price`: the most the
+call can cost, since its real input tokens never exceed the measure. A 20,000-token measure on a
+production alias reserves 100,480 microdollars. `costCeilingMicrousd(alias)` is the same at the
+limit.
 
 A refused reservation ends the call as `budget_exceeded` before any provider is contacted. After
 the call, the reservation is settled with the summed cost of its attempts. A route that streamed
@@ -145,7 +172,8 @@ Every call, whether completed, failed or refused, writes one `ModelCallRecord` t
   - `fallback`: a later route ended it;
   - `exhausted`: every route failed in a way that falls back;
   - `input_refused`: the request exceeds the input bound; no route was called;
-  - `budget_refused`: no route was called;
+  - `budget_refused`: the reservation was refused and no route was called, or `admitFallback`
+    refused the next route after the attempts listed;
 - one attempt per route tried. Each attempt has the route, provider and pinned model, the model the
   provider reported serving (`responseModel`), its outcome, its
   HTTP status, latency and time to first text, its input and output tokens, and its cost in

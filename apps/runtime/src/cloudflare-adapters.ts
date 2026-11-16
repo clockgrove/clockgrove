@@ -92,12 +92,15 @@ import {
   type TurnResearchHost,
 } from "./actor-agent.js";
 import {
+  type ActorModelDeps,
   actorCommandId,
+  actorContextTokenBudget,
   actorGateway,
   actorModelConfiguration,
-  actorModelStepReserveMicrousd,
   actorOfferCommand,
+  actorPreparedResponder,
   actorResponder,
+  type PreparedResponder,
 } from "./actor-model.js";
 import {
   activationHintNotifier,
@@ -2054,11 +2057,14 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   private stores(): ConversationStores {
-    const stores = composeConversations(
-      this.environment,
+    const configuration =
       actorGateway(this.environment) === undefined
         ? undefined
-        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG).modelName,
+        : actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG);
+    const stores = composeConversations(
+      this.environment,
+      configuration?.modelName,
+      configuration === undefined ? undefined : actorContextTokenBudget(configuration),
     );
     if (stores === undefined) throw new Error("conversation keyring required");
     return stores;
@@ -2310,22 +2316,33 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   };
 
   /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
-  protected responder(): ConversationResponder {
+  private actorModelDeps(): ActorModelDeps | undefined {
     const gateway = actorGateway(this.environment);
-    if (gateway !== undefined)
-      return actorResponder({
-        researchEnabled: this.research() !== undefined,
-        configuration: actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
-        gateway,
-        grants: (participant, session) =>
-          this.grants(participant, session.scope, session.actorId, session.sessionId),
-        perceive: this.perceive,
-        selfResults: async (participant, session) => {
-          const context = this.#talkContext(participant);
-          if (context === undefined) return [];
-          return readSelfResults(this.environment, worldAuthorization(context), session.sessionId);
-        },
-      });
+    if (gateway === undefined) return undefined;
+    return {
+      researchEnabled: this.research() !== undefined,
+      configuration: actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
+      gateway,
+      grants: (participant, session) =>
+        this.grants(participant, session.scope, session.actorId, session.sessionId),
+      perceive: this.perceive,
+      selfResults: async (participant, session) => {
+        const context = this.#talkContext(participant);
+        if (context === undefined) return [];
+        return readSelfResults(this.environment, worldAuthorization(context), session.sessionId);
+      },
+    };
+  }
+
+  /** The production actor's step, measured before it is sent; undefined on the scripted fixture. */
+  protected preparer(): PreparedResponder | undefined {
+    const deps = this.actorModelDeps();
+    return deps === undefined ? undefined : actorPreparedResponder(deps);
+  }
+
+  protected responder(): ConversationResponder {
+    const deps = this.actorModelDeps();
+    if (deps !== undefined) return actorResponder(deps);
     return async (session, caretakerMessages, input) => {
       const reply = scriptedConversationReply(session, caretakerMessages, input);
       if (reply.command === undefined) return reply;
@@ -2440,18 +2457,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   protected research(): TurnResearchHost | undefined {
-    const research = composeRuntime(this.environment).research;
-    if (research === undefined || actorGateway(this.environment) === undefined) return research;
-    const reserve = actorModelStepReserveMicrousd(
-      actorModelConfiguration(this.environment.WORLD_MODEL_CONFIG),
-    );
-    return {
-      ...research,
-      policy: {
-        ...research.policy,
-        modelStepReserveMicrousd: Math.max(research.policy.modelStepReserveMicrousd, reserve),
-      },
-    };
+    // A production actor step reserves its own measured worst case (`preparer`); the policy's
+    // fixed reserve covers the scripted fixture.
+    return composeRuntime(this.environment).research;
   }
 
   private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
@@ -2460,6 +2468,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       actorId,
       stores: this.stores(),
       respond: this.responder(),
+      prepare: this.preparer(),
       research: this.research(),
       grants: (participant, fiber) =>
         this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId),
