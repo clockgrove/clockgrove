@@ -50,7 +50,7 @@ Wake triage is a separate shadow decision point at the actor's model-escalation 
 (issue 111). Application code is `packages/application/src/wake-triage.ts`; it reuses
 `ShadowDecider` and the runtime gateway adapter rather than asking a generation model to judge.
 The optional `WAKE_TRIAGE_CONFIG` binding supplies the policy version, model alias/model,
-confidence threshold and world/day decision budget. Absence disables triage. Configuration and
+confidence threshold, world/day decision budget and the budget day's time zone. Absence disables triage. Configuration and
 report usage are in the [runtime runbook](../runbooks/runtime.md#wake-triage-shadow-report).
 
 The judge sees, as untrusted data, the turn input, the rendered prompt, the activation reason's
@@ -80,8 +80,9 @@ A repeated miss or a repeated low-confidence signature (at least two occurrences
 Journaled cognitive evidence has no physical projection delta; replay reads history without a model.
 
 The durable budget reserves the configured per-call ceiling before the decision call, shared by
-actors in the same world, timeline and simulated day, using the pack's environment day length
-(or 86,400,000 ms when absent). Reservations survive recovery and are not refunded,
+actors in the same world, timeline and wall-clock day: the calendar day of the runtime's clock in
+the policy's `dailyBudgetZone` (default `"UTC"`), whatever the pack's environment day length
+(issue 358, migration 0073). Reservations survive recovery and are not refunded,
 including when the model reports a lower or unknown cost. The budget therefore bounds reserved
 opportunities conservatively; measured report spend remains separate from that ledger.
 
