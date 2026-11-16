@@ -1,7 +1,6 @@
 // Per-PR proof of the Wave 1 long-run qualifier on short horizons: the same documents, cut to hours
 // and days, run on Node and workerd through the qualifier, and each invariant check refuses a bundle
 // that breaks it. The 30-day and one-year runs themselves belong to the qualification workflow.
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -169,37 +168,38 @@ it("never passes the perception check it cannot observe, and refuses full record
 });
 
 it("dead-actors-inactive refuses an event the engine attributes to an actor after its death", async () => {
-  // fixture-hall's keeper dies of old age at 10_800_000_000 (death-and-successor). Given a capability
-  // with a command, it speaks through it a day after its death: the engine attributes the event to
-  // the keeper (`summary.causes`), and the check refuses exactly that event.
+  // fixture-hall's companion (born at 432_000_000, lifespan 10_800_000_000) dies of old age at
+  // 11_232_000_000 and holds fixture.influence in the committed pack. A day after its death the
+  // scenario speaks through it (a `via` command step): the engine attributes the transfer to the
+  // companion (`summary.causes`), and the check refuses exactly that event.
   const files = await readPackDirectory(path.join(root, "worlds/fixture/reference"));
-  const json = (bytes) => JSON.parse(new TextDecoder().decode(bytes));
-  const keeper = json(files.resources["actors/keeper.json"]);
-  keeper.capabilities.push({ id: "fixture.perspective", version: 1 });
-  files.resources["actors/keeper.json"] = new TextEncoder().encode(JSON.stringify(keeper));
-  const manifest = json(files.manifest);
-  manifest.actors.find((actor) => actor.id === "fixture.keeper").sha256 = createHash("sha256")
-    .update(files.resources["actors/keeper.json"])
-    .digest("hex");
-  const document = json(
-    await readFile(path.join(root, "worlds/fixture/reference/long-runs/long-run-30-days.json")),
+  const document = JSON.parse(
+    await readFile(
+      path.join(root, "worlds/fixture/reference/long-runs/long-run-30-days.json"),
+      "utf8",
+    ),
   );
-  const at = (ms) => ({ $bigint: String(10_800_000_000n + ms) });
+  const at = { $bigint: String(11_232_000_000n + 24n * HOUR) };
   document.steps = [
-    { ...document.steps[0], to: at(24n * HOUR), stepMs: { $bigint: String(24n * HOUR) } },
+    { ...document.steps[0], to: at, stepMs: { $bigint: String(24n * HOUR) } },
     {
-      key: "dead-keeper-speaks",
+      key: "dead-companion-transfers",
       kind: "command",
-      type: "world.weather.set",
-      version: 2,
-      payload: { rainIntensity: 0 },
-      via: { actor: "fixture.keeper", capability: "fixture.perspective@1" },
+      type: "resource.transfer",
+      version: 1,
+      payload: {
+        fromObjectId: "fixture.water-bowl",
+        toObjectId: "fixture.household-water",
+        kind: "water",
+        quantity: 1,
+      },
+      via: { actor: "fixture.companion", capability: "fixture.influence@1" },
     },
   ];
-  document.variants[0].steps[0].to = at(24n * HOUR);
+  document.variants[0].steps[0].to = at;
   const run = await runInNode(
     toWireRequest({
-      manifestBytes: new TextEncoder().encode(JSON.stringify(manifest)),
+      manifestBytes: files.manifest,
       resourceBytes: files.resources,
       scenarioBytes: new TextEncoder().encode(JSON.stringify(document)),
     }),
@@ -211,6 +211,6 @@ it("dead-actors-inactive refuses an event the engine attributes to an actor afte
   );
   expect([check.status, check.problems]).toEqual([
     "failed",
-    ["main: fixture.keeper caused weather.changed after its death"],
+    ["main: fixture.companion caused resource.transferred after its death"],
   ]);
 }, 60_000);
