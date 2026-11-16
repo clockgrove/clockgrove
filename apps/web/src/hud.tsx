@@ -64,6 +64,8 @@ export const CATEGORY_LABELS: Readonly<Record<WorldFeedCategory, string>> = {
   movement: "Movement",
   portal: "Portal",
   resource: "Resource",
+  lifecycle: "Lifecycle",
+  object: "New object",
 };
 
 /** The time an event happened, as the HUD shows the clock. */

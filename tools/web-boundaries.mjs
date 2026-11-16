@@ -209,6 +209,7 @@ export function assertProjectionContracts(sources) {
       partitionSequence: "string",
       simulationTime: "string",
       recordedAt: "string",
+      "decision?": "true",
     },
     SelectionHistory: {
       observedRevision: "string",
@@ -253,7 +254,17 @@ export function assertProjectionContracts(sources) {
   const literals = {
     PublicRoutineFeatureName: ["hunger", "wetness", "rain", "protection", "thirst", "health", "uncomfortable", "U", "travelMs", "perceived", "expectation", "freshness"],
     PublicRoutineExclusion: ["outside-current-space-or-frame", "no-rain-protection", "not-perceived", "unavailable", "unreachable"],
-    WorldFeedCategory: ["weather", "routine", "wellbeing", "growth", "movement", "portal", "resource"],
+    WorldFeedCategory: [
+      "weather",
+      "routine",
+      "wellbeing",
+      "growth",
+      "movement",
+      "portal",
+      "resource",
+      "lifecycle",
+      "object",
+    ],
   };
   // Closed entry unions: each alias's exact text, whitespace-normalized.
   const aliases = {
