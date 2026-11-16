@@ -334,6 +334,46 @@ it.skipIf(!isNativeWorldOwnerChild())(
         journal.trim(),
       ]).toEqual([200, false, false, "0"]);
     });
+
+    // A world that sets its own budget and a four-message window (issue 359): a fourth turn reads
+    // only the newest four messages before its input, and is assembled again, through the
+    // PostgreSQL history query, under the window it recorded.
+    await withNativeWorldOwner(
+      async (owner) => {
+        const post = (path: string, fields: object) =>
+          owner.request(path, { version: 1, ...owner.scope, ...fields }, MEMBER);
+        const c = decodeConversationSession(
+          (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper" })).body,
+        ).sessionId;
+        for (const [id, text] of [
+          ["c1", "One."],
+          ["c2", "Two."],
+          ["c3", "Three."],
+          ["c4", "Four."],
+        ])
+          expect(
+            (await post("/v1/runtime/talk", { sessionId: c, messageId: id, text })).status,
+          ).toBe(200);
+        const answer = await post("/v1/runtime/context/inspect", { sessionId: c, turn: 4 });
+        expect(answer.status).toBe(200);
+        const { manifest, reassembledHash } = answer.body as ContextInspection;
+        // Six messages precede the input; the window keeps the newest four (16 would keep all six).
+        expect([manifest.inputRevision, manifest.tokenBudget]).toEqual([6, 3_000]);
+        expect(
+          manifest.entries
+            .filter((entry) => entry.source !== "document")
+            .map((entry) => [entry.sourceId, entry.version, entry.decision]),
+        ).toEqual([
+          ["c3:reply", 6, "included"],
+          ["c3", 5, "included"],
+          ["c2:reply", 4, "included"],
+          ["c2", 3, "included"],
+          ["c4", 7, "included"],
+        ]);
+        expect(reassembledHash).toBe(manifest.manifestHash);
+      },
+      { context: { tokenBudget: 3_000, historyWindow: 4 } },
+    );
   },
   180_000,
 );

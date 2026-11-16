@@ -72,7 +72,14 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { ActivationOwners } from "./activation-routes.js";
-import { type ActorScene, describeScene, type PerceptionFocus } from "./actor-model.js";
+import {
+  type ActorScene,
+  actorContextSettings,
+  actorGateway,
+  actorModelConfiguration,
+  describeScene,
+  type PerceptionFocus,
+} from "./actor-model.js";
 import {
   composeReferenceAuthentication,
   composeWorldMcpAuthentication,
@@ -1091,6 +1098,12 @@ function composeGuardedResearch(
     },
     adapter: { execute, executeWrite: execute },
     internalRead: composeResearchInternalRead(env, supplied.authentication),
+    // The retry's turn assembles under the world's context settings, as the actor's own turns do.
+    context: () =>
+      actorContextSettings(
+        actorModelConfiguration(env.WORLD_MODEL_CONFIG),
+        actorGateway(env) !== undefined,
+      ),
   });
 }
 

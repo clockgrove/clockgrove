@@ -90,6 +90,11 @@ export interface ResearchConfiguration {
   readonly policy?: ResearchPolicy;
   readonly toolCallReserveMicrousd?: number;
   readonly approvalExpirySeconds?: number;
+  /**
+   * The world's context budget and history window for the operator retry's turn (issue 359), read
+   * when the retry runs; omitted, the decided defaults.
+   */
+  readonly context?: () => { readonly tokenBudget: number; readonly historyWindow: number };
 }
 
 interface Context extends ResearchResumeTarget {
@@ -954,10 +959,14 @@ export function composeResearch(configuration: ResearchConfiguration) {
             )
           ).rows[0] as { voice_mode: VoiceMode } | undefined
         )?.voice_mode ?? "cognitive";
+      const context = configuration.context?.();
       const store = new PostgreSqlConversationStore(
         client,
         configuration.artifacts(client),
         () => sessionId,
+        undefined,
+        context?.tokenBudget,
+        context?.historyWindow,
       );
       const session = await store.open(participant, {
         scope,

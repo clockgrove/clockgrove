@@ -26,13 +26,13 @@ export const CONTEXT_TOKEN_BUDGET = 4096;
  */
 export const CONTEXT_HISTORY_WINDOW = 16;
 /**
- * Decision (issue 359): recent history keeps a quarter of the budget whenever the session has
- * history, and the session's own summary keeps up to a quarter (its own size, if less), so documents
- * earlier in kind order, a large working document among them, cannot crowd either out. A reserve
- * nothing uses goes to history, which is decided last.
+ * Decision (issue 359): whenever the session has history, actor-writable documents leave a quarter
+ * of the budget to recent history, and every actor-writable document but the session's own summary
+ * also leaves the summary's whole size (up to what the history reserve leaves), so a large working
+ * document cannot crowd either out. Protected and governed documents are decided against the whole
+ * budget. A reserve nothing uses goes to history, which is decided last.
  */
 export const CONTEXT_HISTORY_SHARE = 0.25;
-export const CONTEXT_SUMMARY_SHARE = 0.25;
 export const CONTEXT_PROMPT_VERSION = "context-prompt-v1";
 
 const encoder = new TextEncoder();
@@ -189,9 +189,12 @@ export interface DocumentDecision {
 
 /**
  * Decides every document from metadata alone, after the input's tokens are reserved: the
- * authorization rules first, then the budget from the stored length, less the history and summary
- * reserves (`CONTEXT_HISTORY_SHARE`, `CONTEXT_SUMMARY_SHARE`). A caller can therefore fetch
- * exactly the admitted texts at once before assembling.
+ * authorization rules first, then the budget from the stored length. Protected and governed
+ * documents are decided against the whole budget, as before the shares. Actor-writable documents
+ * leave the history reserve (`CONTEXT_HISTORY_SHARE`) free, and every one but the session's own
+ * summary also leaves the summary's whole size free while it still fits, so the summary is decided
+ * as if ahead of them. A caller can therefore fetch exactly the admitted texts at once before
+ * assembling.
  */
 export function documentDecisions(
   inputs: ContextInputs,
@@ -206,14 +209,18 @@ export function documentDecisions(
       ownSummary(document, inputs.sessionId) &&
       documentExclusion(document, inputs.sessionId) === null,
   );
-  const summaryReserve = Math.min(Math.floor(budget * CONTEXT_SUMMARY_SHARE), summary?.tokens ?? 0);
+  const summaryTokens = summary?.tokens ?? 0;
   let used = inputTokens;
   return ordered(inputs.documents).map((document) => {
     const rule = documentExclusion(document, inputs.sessionId);
     if (rule !== null) return { document, rule };
     const tokens = document.tokens ?? 0;
-    // The summary may use its own reserve; every other document leaves both reserves free.
-    const limit = budget - historyReserve - (document === summary ? 0 : summaryReserve);
+    let limit = budget;
+    if (document.writeClass === "actor_writable") {
+      limit -= historyReserve;
+      // The summary's room is kept only while the summary itself would still be admitted.
+      if (document !== summary && used + summaryTokens <= limit) limit -= summaryTokens;
+    }
     if (used + tokens > limit) return { document, rule: "token_budget" as const };
     used += tokens;
     return { document, rule: null };

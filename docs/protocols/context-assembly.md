@@ -167,15 +167,16 @@ authorization:
    (`settle_turn_model_step`, migration 0071); a step whose cost is unknown keeps all of it.
    The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
-   length, then history newest first. Two shares of the budget are reserved (issue 359): recent
-   history keeps a quarter whenever the session has history, and the session's own summary keeps
-   up to a quarter, its own size if that is less (`CONTEXT_HISTORY_SHARE`,
-   `CONTEXT_SUMMARY_SHARE`). Every other document is decided against the budget less both
-   reserves, the summary against the budget less the history reserve, and history against the
-   whole budget. A large working document therefore gives way before the summary and recent
-   history do; when everything fits, nothing changes. The history reserve is not sized to the
-   history, because a message's size is known only once its encrypted text is read, after the
-   documents are decided. A source that would pass its limit is excluded `token_budget`, and a
+   length, then history newest first. Room is reserved for history and the summary (issue 359):
+   whenever the session has history, actor-writable documents leave a quarter of the budget to it
+   (`CONTEXT_HISTORY_SHARE`), and every actor-writable document but the session's own summary also
+   leaves the summary's whole size free, as long as the summary itself would still fit. The summary
+   is therefore decided as if ahead of the other actor-writable documents, against the budget less
+   the history reserve. Protected and governed documents are decided against the whole budget, as
+   before, and history against the whole budget. A large working document therefore gives way
+   before the summary and recent history do; when the documents fit beside both reserves, nothing
+   changes. The history reserve is not sized to the history, because a message's size is known
+   only once its encrypted text is read, after the documents are decided. A source that would pass its limit is excluded `token_budget`, and a
    document so excluded is never read. History keeps a contiguous newest suffix: after one message
    is excluded, all older ones are too.
 4. **Read.** Only the admitted sources' text is read: the admitted documents in one query, in the
@@ -251,7 +252,7 @@ These are the defaults chosen for the human-owned policy (ADR §6, issue 17):
 | Context budget | 4,096 estimated tokens, or less if the route's input limit leaves less room | A small fixed model window for the local path; never a prompt the gateway refuses |
 | Token estimate | ceil(UTF-8 bytes / 4) | Common English estimate; no tokenizer is bound |
 | History window | 16 messages | Bounds the messages decrypted per turn |
-| Reserved shares | a quarter of the budget for history, up to a quarter for the session's own summary | A large working document cannot crowd out recent history or the summary (issue 359) |
+| Reserved shares | actor-writable documents leave a quarter of the budget for history and the session's own summary's size for it | A large working document cannot crowd out recent history or the summary (issue 359) |
 
 Versions are kept for the world's life, because manifests cite exact versions. Refused change sets
 are kept 90 days, then retired on insert. Manifests follow their run. See `db/retention.json`.
@@ -269,5 +270,6 @@ A world sets its own context budget and history window in the `context` object o
 
 A value outside its range, or any other field, refuses the whole configuration when it is read,
 so no turn runs under a setting the world did not choose. The settings apply on the scripted path
-too. A manifest records the budget its turn ran under, and its history entries are that turn's
+too, and to the turn an operator's retry of an uncertain effect records (`composeResearch`'s
+`context`). A manifest records the budget its turn ran under, and its history entries are that turn's
 window, so a reassembly uses neither the current settings nor the defaults.
