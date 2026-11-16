@@ -181,6 +181,7 @@ export function assertProjectionContracts(sources) {
       locationId: "ObjectId | null",
       selectedAction: "SelectionAction | null",
       lifecycle: '"active" | "retired" | "dead" | null',
+      "conversationMode?": "VoiceMode",
     },
     SelectionCurrentWellbeing: {
       thirst: "number",
