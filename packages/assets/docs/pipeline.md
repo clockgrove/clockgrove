@@ -298,10 +298,11 @@ atlas output are unchanged. Model manifests use the same source attribution,
 provenance, licence, review, semantic role and accessibility fields, plus the
 [model output contract](../../../docs/protocols/shared-contracts.md#3d-model-assets).
 Models have no strip frame grid, palette or atlas placement. `output.path` names
-a self-contained `.glb`, relative to the world; `source.path` names that same file.
-The CLI refuses files outside the world, including symlink escapes. Embedded
-buffer views and data URIs are supported; remote and separate resource files are
-refused, so validation never downloads resources.
+a `.glb`, relative to the world; `source.path` names that same file.
+The CLI refuses files outside the world, including symlink escapes. Buffers must be
+embedded buffer views or data URIs. Images may be embedded too, or sit beside the
+`.glb` as declared side images (below); remote resources are refused, so validation
+never downloads anything.
 
 Declare `reference/model-target.json`, for example:
 
@@ -338,7 +339,7 @@ The inspected metrics have explicit meanings:
   Nested alternate chains expand depth-first in declared order, counting each node
   once in a chain. Triangle lists, strips and fans
   are supported. Models without LODs retain the existing sum over all mesh definitions.
-- `textureMaxPx` is the greatest width or height of the embedded images, or zero
+- `textureMaxPx` is the greatest width or height of the embedded and side images, or zero
   with no images. `materials` counts declared material records.
 - `bones` counts distinct joint nodes across every skin. `lods` is one base level
   plus the largest expanded `MSFT_lod` alternate-node chain (one when no LODs are declared).
@@ -363,7 +364,8 @@ The inspected metrics have explicit meanings:
 Stable refusals include `MODEL_GLB_INVALID`, `MODEL_HASH_MISMATCH`,
 `MODEL_METRIC_MISMATCH`, `MODEL_BUDGET_EXCEEDED`, `MODEL_CLIPS_MISMATCH`,
 `MODEL_BOUNDS_MISMATCH`, `MODEL_RIG_MISMATCH`, `MODEL_PROFILE_REQUIRED`,
-`MODEL_PROFILE_INVALID`, `MODEL_SOURCE_REQUIRED` and `MODEL_MANIFEST_PATH`.
+`MODEL_PROFILE_INVALID`, `MODEL_SOURCE_REQUIRED`, `MODEL_MANIFEST_PATH` and the
+`MODEL_SIDE_IMAGE_*` codes of [side images](#side-images).
 Manifest decoder failures retain `ASSET_MANIFEST_INVALID`. Licence and provider
 output-grant refusals retain the existing deploy codes. Pending human review is
 accepted by `validate`; `check` and shipping retain the human approval gate.
@@ -385,6 +387,51 @@ checked against each `lods` budget. Separate files use their own measured resour
 metrics; embedded levels conservatively share texture/material/bone counts. A lower
 file containing generated clips still requires generated provenance on the manifest.
 These optional additions require no changes to a single-level manifest.
+
+### Side images
+
+A model may ship its look-dev maps beside its `.glb` with Assetgrove's hand-off
+fields: `output.groom`, `output.textures`, `output.eyes` and, per profile tier,
+`output.tiers.<tier>.<field>` (shapes in the
+[shared contract](../../../docs/protocols/shared-contracts.md#3d-model-assets)), for example:
+
+```json
+"sideImages": "beside",
+"textures": {"baseColor": {"path": "assets/source/fox/textures/base.png", "sha256": "…"}},
+"groom": {"winter": {"path": "assets/source/fox/groom/winter.png", "sha256": "…"}},
+"tiers": {"phone": {"textures": {"baseColor": {"path": "assets/source/fox/textures/base.png", "sha256": "…"}}}}
+```
+
+The `.glb`'s `images[].uri` names each image relative to the `.glb`'s directory
+(`textures/base.png`); `uri`s are percent-decoded. The same validator checks both
+shapes, and `sideImages: "embedded"` (no side images declared, every image inside the
+`.glb`) validates exactly as before. Each failure names the image by its manifest field
+and path, or by its `uri`:
+
+- `MODEL_SIDE_IMAGE_URI_INVALID`: a `uri` is absolute (a scheme or a leading `/`) or
+  leaves the model's directory.
+- `MODEL_SIDE_IMAGE_UNDECLARED`: a `uri` names an image the manifest does not declare
+  (including any `uri` of an embedded model).
+- `MODEL_SIDE_IMAGE_UNUSED`: a declared image is not used by any `.glb` image `uri`.
+- `MODEL_SIDE_IMAGE_REQUIRED`: a declared image's file is missing.
+- `MODEL_SIDE_IMAGE_HASH_MISMATCH`: its bytes do not match its `sha256`.
+- `MODEL_SIDE_IMAGE_TYPE`: it is not a PNG or JPEG image (decided from its bytes).
+- `MODEL_SIDE_IMAGE_BUDGET_EXCEEDED`: its larger dimension exceeds `limits.textureMaxPx`,
+  or the `textureMaxPx` of a profile tier that draws it.
+
+`output.tiers` names must exist in the profile's tiers, else `MODEL_PROFILE_INVALID`.
+A tier listed there draws exactly the images its entry declares; any other tier draws
+the top-level images. `output.textureMaxPx` is the greatest dimension of the embedded and
+all side images; the default and tier budgets of the embedded images are checked as
+before. Separate LOD files must keep their images embedded (`MODEL_GLB_INVALID`).
+
+Side images go through the same delivery and integrity checks as the `.glb`: `build`
+copies each one into `reviewed/` as `<assetId>.<sha256>.<png|jpg>`, `check` compares
+those bytes, and the `models.json` entry rewrites every declared path to its reviewed
+name, keeps its `sha256`, and adds `uris`, mapping each `.glb` image `uri` to its reviewed
+file. World content loads the entry with `context.loadModel(gltf, url, entry, tier)`
+([scene contract](../../../apps/web/docs/scene.md)), which requests only the images that
+tier draws.
 
 Mixed-world `build` validates both kinds, packs only strips, and copies approved
 models into reviewed `<assetId>.glb` files with a `models.json` delivery index.

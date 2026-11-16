@@ -8,11 +8,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { decodeModelAssetManifest } from "@clockgrove/contracts";
+import {
+  decodeModelAssetManifest,
+  type ModelImageSet,
+  type ModelTierImages,
+  modelImageFields,
+  modelSideImages,
+} from "@clockgrove/contracts";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
+import { ImageUtils } from "@gltf-transform/core";
 import { atlasLocationProblems, buildAtlases, packAtlas, reviewedFiles } from "./atlas.js";
 import { licenseReport } from "./license-report.js";
-import { validateModel } from "./model.js";
+import { sideImageUris, validateModel } from "./model.js";
 import {
   decodeAs,
   type GoldenRecord,
@@ -135,10 +142,43 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
           }
           return { ...level, path };
         });
+        // Side images ship content-named beside the GLB; the index maps each GLB uri to its file.
+        const shipped = new Map<string, string>();
+        for (const { image } of modelSideImages(f.manifest.output)) {
+          const bytes = f.levelSources?.[image.path];
+          if (!bytes) throw new Error(`MODEL_SIDE_IMAGE_REQUIRED: ${image.path}`);
+          const extension = ImageUtils.getMimeType(bytes) === "image/jpeg" ? "jpg" : "png";
+          const file = `${f.manifest.assetId}.${image.sha256}.${extension}`;
+          result.set(file, bytes);
+          shipped.set(image.path, file);
+        }
+        const rename = (set: ModelImageSet): ModelImageSet =>
+          typeof set.path === "string"
+            ? { path: shipped.get(set.path as string)!, sha256: set.sha256 as string }
+            : Object.fromEntries(
+                Object.entries(set).map(([key, child]) => [key, rename(child as ModelImageSet)]),
+              );
+        const images = (record: ModelTierImages) =>
+          Object.fromEntries(
+            modelImageFields.flatMap((key) => (record[key] ? [[key, rename(record[key])]] : [])),
+          );
+        const { tiers } = f.manifest.output;
+        const uris = Object.entries(sideImageUris(f.manifest, f.bytes));
         index[f.manifest.assetId] = {
           ...f.manifest.output,
           path: name,
           ...(levels === undefined ? {} : { levels }),
+          ...images(f.manifest.output),
+          ...(tiers === undefined
+            ? {}
+            : {
+                tiers: Object.fromEntries(
+                  Object.entries(tiers).map(([tier, record]) => [tier, images(record)]),
+                ),
+              }),
+          ...(uris.length
+            ? { uris: Object.fromEntries(uris.map(([uri, path]) => [uri, shipped.get(path)])) }
+            : {}),
         };
       }
       result.set("models.json", Buffer.from(`${JSON.stringify(index)}\n`));

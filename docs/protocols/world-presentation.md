@@ -279,6 +279,13 @@ detected against whichever backend Clockgrove selected; the GLTF loader is wired
 the same pinned Meshopt decoder. No external decoder CDN or second rendering library is needed. The composition root owns
 publication and access to these static assets.
 
+A reviewed model whose look-dev images (groom maps, textures, eyes) sit beside its `.glb` is loaded
+with `context.loadModel(gltf, url, models[assetId], context.qualityTier)`, where `models[assetId]` is
+that model's `models.json` entry. The tier name is matched by equality against the entry's `tiers`
+keys; a tier without an entry draws the top-level `groom`, `textures` and `eyes`. Images the tier does
+not draw are never requested, so a phone that never draws fur never downloads fur maps. Models with
+embedded images load unchanged.
+
 A browser automation tool can wait for both the page's ready marker and `data-content="ready"`,
 wait for a rendered canvas, and
 capture `page.locator("canvas").screenshot({ path: "frame.png" })`. Choose environment before
