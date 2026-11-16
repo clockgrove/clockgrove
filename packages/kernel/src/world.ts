@@ -27,6 +27,7 @@ import {
   EnvironmentValidationError,
   ecologyDisagreement,
   environmentDisagreement,
+  entityIsActive,
   expectedCrossings,
   isRegionCrossing,
   lifecycleDisagreement,
@@ -1585,13 +1586,15 @@ function runWorld(
    * (`impossibleSelections`). True when a decision other than the mover's moved: the drain over the
    * old queue must then run again.
    */
-  function redecideImpossible(at: SimTimeMs): boolean {
+  function redecideImpossible(at: SimTimeMs, justDecided: ReadonlySet<string> = new Set()): boolean {
     let again = false;
     for (const objectId of impossibleSelections(current(), unserved)) {
       const queued = decisionsOf(schedules).find(
         (candidate) => candidate.payload.objectId === objectId,
       );
-      if (queued === undefined || queued.dueAt <= at) continue;
+      // A decision that has just been dispatched at `at` is never brought back to `at`: it decided
+      // from this very state, so deciding again would only repeat it.
+      if (queued === undefined || queued.dueAt <= at || justDecided.has(objectId)) continue;
       reschedule(queued, at);
       if (objectId !== mover) again = true;
     }
@@ -2742,7 +2745,7 @@ function runWorld(
       if (nextDueAt > MAX_TIME) throw new RangeError("next decision exceeds simulation-time range");
       reschedule(item, nextDueAt as SimTimeMs);
       unserved.clear();
-      redecideImpossible(item.dueAt);
+      redecideImpossible(item.dueAt, new Set([actor.objectId]));
       dispatched += 1;
       if (spec.scheduled !== undefined) {
         // A scheduled decision stops once it has been dispatched; it never advances time further.
@@ -3846,7 +3849,11 @@ function chooseRoutine(
       score: hunger * BigInt(policy.hungerWeight),
     }),
   ];
-  for (const shelter of state.entities.filter((entity) => entity.shelter !== undefined)) {
+  // A retired shelter is no candidate, as in `scoreUtility`: `impossibleSelections` calls it gone,
+  // so selecting it again would bring the decision straight back.
+  for (const shelter of state.entities.filter(
+    (entity) => entity.shelter !== undefined && entityIsActive(entity),
+  )) {
     const compatible =
       shelter.spaceId === actor.spaceId &&
       shelter.pose.frameId === actor.pose.frameId &&

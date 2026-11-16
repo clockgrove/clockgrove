@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import { food, utilityWorld, WITH } from "./decisions.scenario.js";
-import { runChain } from "./environment.scenario.js";
+import {
+  applyCommand,
+  commandInput,
+  environmentWorld,
+  GOLDEN_SPEC,
+  runChain,
+} from "./environment.scenario.js";
 
 it("re-decides at the instant the food its actor walks toward is eaten, not a decision interval later", async () => {
   const world = await utilityWorld(
@@ -41,4 +47,21 @@ it("re-decides at the instant the food its actor walks toward is eaten, not a de
     [500n, "routine.selected", "a-weather", "stay"],
     [500n, "movement.interrupted", "a-weather", undefined],
   ]);
+});
+
+it("keeps advancing a rule-based policy once a shelter an actor selected is retired", async () => {
+  const before = runChain(await environmentWorld(GOLDEN_SPEC), "to-9500", 9500n).world;
+  const retire = commandInput(before, "object.retire" as "world.advance", "retire-shelter", {
+    objectId: "shelter-10000",
+    disposition: "discard",
+  });
+  const retired = applyCommand(before, retire);
+  expect(retired.events.map((event) => event.type)).toContain("object.retired");
+  const run = runChain(retired.world, "after-retire", 12000n);
+  expect(run.world.state.simulationTime).toBe(12000n);
+  const sheltered = run.events
+    .filter((event) => event.type === "routine.selected")
+    .map((event) => (event.payload as { action: { targetObjectId?: string } }).action)
+    .filter((action) => action.targetObjectId === "shelter-10000");
+  expect(sheltered).toEqual([]);
 });
