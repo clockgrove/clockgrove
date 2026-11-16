@@ -171,10 +171,21 @@ const versions = {
   },
 };
 
-// Local evidence only: a shell that still has CLOCKGROVE_MODEL_LIVE set would let the model
-// gateway's production-route journey call the real provider inside a local suite. Real-provider runs
-// are the manual step pending on issue 3, so the suites and evals never see it.
-const { CLOCKGROVE_MODEL_LIVE: _live, ...localEnv } = process.env;
+// Local evidence only: a shell left over from a live run (CLOCKGROVE_MODEL_LIVE, the wake-triage
+// and moderation-shadow live switches, a provider key, a live model config) would let a local suite
+// or eval build the real gateway adapter. Real-provider runs are the manual step pending on issue 3,
+// so the suites and evals never see any of it; tests that need a scripted config set their own.
+const LIVE_ENV = new Set([
+  "AI_GATEWAY_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "WAKE_TRIAGE_CONFIG",
+  "WAKE_TRIAGE_MODELS",
+  "MODERATION_SHADOW_CONFIG",
+  "MODERATION_SHADOW_MODELS",
+  "ACTOR_REPLY_SHADOW_CONFIG",
+]);
+const isLiveEnv = (key) => LIVE_ENV.has(key) || /^CLOCKGROVE_\w*LIVE$/.test(key);
+const localEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !isLiveEnv(key)));
 
 // Each suite runs once on this candidate; its log is evidence beside the manifest.
 const suites = [];
@@ -347,6 +358,49 @@ const spendBy = (key) => {
     }),
   );
 };
+/**
+ * Queue depth: the most turns of one session, or of one actor, open at the same instant. A turn is
+ * open from its fiber's creation until it reached a terminal phase (its last update), or until the
+ * sample was taken when it never did. Samples are separate databases, so each is its own timeline.
+ */
+const peakDepth = (key) =>
+  Object.fromEntries(
+    samples.flatMap((sample) => {
+      const open = (sample.rows?.fibers ?? []).map((fiber) => ({
+        ...fiber,
+        closedMs: fiber.closedMs ?? sample.rows.sampledMs,
+      }));
+      const groups = Map.groupBy(open, (fiber) => `${sample.file}|${fiber.tenant}|${fiber[key]}`);
+      return [...groups].map(([group, fibers]) => {
+        const edges = fibers
+          .flatMap(({ openedMs, closedMs }) => [
+            [openedMs, 1],
+            [closedMs, -1],
+          ])
+          .sort(([a, da], [b, db]) => a - b || da - db);
+        let depth = 0;
+        let peak = 0;
+        for (const [, delta] of edges) peak = Math.max(peak, (depth += delta));
+        return [group, peak];
+      });
+    }),
+  );
+const sessionDepth = Object.values(peakDepth("session"));
+const actorDepth = Object.values(peakDepth("actor"));
+/**
+ * Phase time: each in-flight fiber phase is the run step that does its work, timed from the step's
+ * start to its end. `accepted` and `finalizing` run no step of their own; they are inside
+ * turnDurationMs, which spans the run.
+ */
+const PHASE_STEPS = {
+  context_pending: "context_retrieval",
+  model_running: "model_attempt",
+  proposal_validating: "validation",
+  approval_waiting: "approval",
+  tool_waiting: "tool_execution",
+  committing: "commit",
+};
+const manifests = rows("contextManifests");
 const observability = {
   samples: {
     count: samples.length,
@@ -367,6 +421,41 @@ const observability = {
     budgetDeferred: activations.filter(({ status }) => status === "deferred").length,
     runStatuses: count(runs.map(({ status }) => status)),
     turnDurationMs: distribution(runs.map(({ durationMs }) => durationMs)),
+    queueDepth: {
+      session: { groups: sessionDepth.length, peak: distribution(sessionDepth) },
+      actor: { groups: actorDepth.length, peak: distribution(actorDepth) },
+    },
+    phaseTimeMs: Object.fromEntries(
+      Object.entries(PHASE_STEPS).map(([phase, kind]) => [
+        phase,
+        {
+          step: kind,
+          ...distribution(
+            steps.filter((step) => step.kind === kind).map(({ durationMs }) => durationMs),
+          ),
+        },
+      ]),
+    ),
+    context: {
+      manifests: manifests.length,
+      tokensUsed: distribution(manifests.map(({ tokensUsed }) => tokensUsed)),
+      tokenBudget: distribution(manifests.map(({ tokenBudget }) => tokenBudget)),
+      included: distribution(manifests.map(({ included }) => included)),
+      sources: Object.fromEntries(
+        ["document", "message", "input"].map((source) => [
+          source,
+          distribution(manifests.map(({ sources }) => sources?.[source] ?? 0)),
+        ]),
+      ),
+      exclusions: Object.fromEntries(
+        [...new Set(manifests.flatMap(({ exclusions }) => Object.keys(exclusions ?? {})))]
+          .sort()
+          .map((rule) => [
+            rule,
+            manifests.reduce((sum, { exclusions }) => sum + (exclusions?.[rule] ?? 0), 0),
+          ]),
+      ),
+    },
     fiberPhases: count(fibers.map(({ phase }) => phase)),
     fiberAttempts: distribution(fibers.map(({ attempt }) => attempt)),
     recoveredFibers: fibers.filter(({ attempt }) => attempt > 1).length,
@@ -407,29 +496,13 @@ const observability = {
       effectAttempts: effectAttempts.filter(({ costMicrousd }) => costMicrousd === null).length,
     },
   },
-  // §18 metrics the durable schema does not record: named, never invented, and each a deviation.
+  // §18 metrics no durable record or sample carries: named, never invented, and each a deviation.
   notObservable: [
-    {
-      id: "O-queue-depth",
-      metric: "actor/session queue depth",
-      reason: "no durable record; queues are runtime state",
-    },
-    {
-      id: "O-phase-time",
-      metric: "phase time per fiber phase",
-      reason:
-        "a fiber keeps its created and last-updated time only; fiberAttempts and turnDurationMs are recorded instead",
-    },
-    {
-      id: "O-context",
-      metric: "context tokens, sources and exclusions",
-      reason:
-        "the context manifest is an encrypted conversation-class artifact the sample does not decrypt",
-    },
     {
       id: "O-breaker",
       metric: "provider breaker state",
-      reason: "the breaker is gateway memory; test:model-gateway asserts its opening and routing",
+      reason:
+        "the route breaker lives in the model gateway's memory, and a run step records a breaker-skipped attempt as model_unavailable, so no durable row names the breaker; test:model-gateway asserts its opening and routing",
     },
   ],
 };

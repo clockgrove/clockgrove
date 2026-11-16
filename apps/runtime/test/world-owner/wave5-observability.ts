@@ -7,7 +7,7 @@ import { REPO_ROOT } from "../../../../packages/simulator/cli/repo.js";
  * Wave 5 §18 measurement (issue 169). When CLOCKGROVE_WAVE5_EVIDENCE names a directory, which only
  * `pnpm run qualify:wave5` sets, a native world-owner journey writes its database's cognition rows
  * as one sample before the database is reset or the owner stops. Rows carry safe metadata only:
- * statuses, phases, counts, tokens, cost and durations, never message or model text. A NULL cost or
+ * statuses, phases, counts, tokens, cost, timestamps and durations, never message or model text. A NULL cost or
  * token count stays null: unknown, not zero. scripts/ci/qualify-wave5.mjs aggregates the samples.
  */
 const SAMPLE_SQL = `SELECT jsonb_build_object(
@@ -26,8 +26,24 @@ const SAMPLE_SQL = `SELECT jsonb_build_object(
     FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r USING (tenant_id, run_id)),
   'fibers', (SELECT coalesce(jsonb_agg(jsonb_build_object(
     'phase', phase, 'attempt', attempt, 'leaseEpoch', lease_epoch, 'outcome', outcome_code,
+    'tenant', tenant_id, 'session', session_id, 'actor', actor_id,
+    'openedMs', (extract(epoch FROM created_at) * 1000)::bigint,
+    'closedMs', CASE WHEN phase IN ('completed', 'rejected', 'cancelled', 'failed', 'abandoned')
+      THEN (extract(epoch FROM updated_at) * 1000)::bigint END,
     'durationMs', (extract(epoch FROM updated_at - created_at) * 1000)::bigint)), '[]')
     FROM clockgrove.conversation_turn_fibers),
+  'contextManifests', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'tokensUsed', m.tokens_used, 'tokenBudget', m.token_budget,
+    'sources', (SELECT jsonb_object_agg(source, n) FROM (SELECT e->>'source' AS source, count(*) AS n
+      FROM jsonb_array_elements(m.entries) e GROUP BY 1) bySource),
+    'included', (SELECT count(*) FROM jsonb_array_elements(m.entries) e
+      WHERE e->>'decision' = 'included'),
+    'exclusions', (SELECT coalesce(jsonb_object_agg(rule, n), '{}') FROM (
+      SELECT coalesce(e->>'rule', 'unnamed') AS rule, count(*) AS n
+        FROM jsonb_array_elements(m.entries) e WHERE e->>'decision' = 'excluded' GROUP BY 1) byRule)
+    )), '[]')
+    FROM clockgrove.context_manifests m),
+  'sampledMs', (extract(epoch FROM clock_timestamp()) * 1000)::bigint,
   'activations', (SELECT coalesce(jsonb_agg(jsonb_build_object(
     'reason', coalesce(reason->>'kind', reason->>'type'), 'status', status, 'leader', leader,
     'reserved', has_reservation)), '[]')
