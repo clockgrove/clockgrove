@@ -47,7 +47,8 @@ exercises this.
   (`clockgrove.conversation-mode`, [component catalog](../../packages/domain/docs/component-catalog.md)).
   A new session opens in the voice its addressed entity declares, read from the entity selection's
   `physical.conversationMode`. In the fixture world (`worlds/fixture/reference`) the keeper, the
-  companion and the dependent declare `cognitive` and the cedar `interpreted`.
+  companion and the dependent declare `cognitive` and the cedar `interpreted`; in the beacon fixture
+  (`worlds/fixture`) `beacon.master` declares `cognitive`.
 - **Messages** are immutable and ordered by `sequence` from 1. A Caretaker message is authored by
   the persona and has no voice mode. An actor message is authored by the actor and carries the
   session's voice mode.
