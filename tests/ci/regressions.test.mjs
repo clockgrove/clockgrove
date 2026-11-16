@@ -3,7 +3,7 @@
 // a complete set, Quality measures a pull request against the main it merges into, and deadlines
 // settle termination-resistant descendants; the license check reads SPDX expressions, npm's legacy
 // licenses array and exact-version verified records.
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +16,10 @@ import {
   recordCommand,
   validateEvidence,
 } from "../../scripts/ci/evidence.mjs";
+import {
+  installedNativeTools,
+  validateNativeRecoveryProof,
+} from "../../scripts/ci/native-recovery.mjs";
 import {
   assertRuntimePartition,
   partitionRuntimeFiles,
@@ -419,4 +423,61 @@ it("license check reads npm's legacy licenses array and verified records for the
     "missing",
     "refused",
   ]);
+});
+
+// #381: a dependency update left the recovery check expecting the previous Wrangler, Miniflare and
+// workerd. The expectation is what the lockfile installs, and the workerd binary's own report.
+it("native recovery expects the runtime tools the lockfile installs, not an earlier pin", async () => {
+  const lock = await readFile(path.join(root, "pnpm-lock.yaml"), "utf8");
+  const locked = (name) => new RegExp(`^  ${name}@([^:(]+)[:(]`, "mu").exec(lock)?.[1];
+  const pins = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const workerd = locked("workerd");
+  const binary = `node_modules/.pnpm/workerd@${workerd}/node_modules/workerd/bin/workerd`;
+  const installed = {
+    node: pins.engines.node,
+    pnpm: pins.packageManager.slice("pnpm@".length),
+    wrangler: locked("wrangler"),
+    miniflare: locked("miniflare"),
+    workerdPackage: workerd,
+    workerd: execFileSync(path.join(root, binary), ["--version"], { encoding: "utf8" }).trim(),
+  };
+  expect(installedNativeTools()).toEqual(installed);
+  const candidate = { clean: true, commit: "a".repeat(40), tree: "b".repeat(40) };
+  const hash = `sha256:${"c".repeat(64)}`;
+  const proof = (tools) => ({
+    commit: candidate.commit,
+    tree: candidate.tree,
+    surface: "native-local",
+    lockfileDigest: hash,
+    bundleDigest: hash,
+    schemas: ["clockgrove", "clockgrove_auth", "clockgrove_management"],
+    tools: { ...tools, postgres: "postgres (PostgreSQL) 18.6", pgvector: "0.8.7" },
+    storageLoss: {
+      persistedOwners: ["world", "space", "actor-agent"],
+      persistedFiles: 3,
+      removedFiles: 3,
+      absentBeforeRestart: true,
+    },
+    comparison: "exact-all-world-auth-management-rows",
+    beforeDigest: hash,
+    afterDigest: hash,
+    canonicalPreserved: true,
+    duplicateCounts: "1|1|1|correlation-runtime",
+    staleLocalReconciled: true,
+    missingReadyRouteRefused: true,
+    staleRequestEpochsRefused: true,
+    pending: [
+      "Actual missed/duplicate/reordered Queue or webhook effects",
+      "Hosted qualification",
+      "Independent exact-candidate review",
+      "Full Wave 0 acceptance",
+    ],
+  });
+  expect(validateNativeRecoveryProof(proof(installed), candidate, hash).tools.wrangler).toBe(
+    installed.wrangler,
+  );
+  const earlier = { ...installed, wrangler: "4.156.2", miniflare: "5.20261102.0-beta" };
+  expect(() => validateNativeRecoveryProof(proof(earlier), candidate, hash)).toThrow(
+    "native recovery unsupported runtime/tool identity",
+  );
 });

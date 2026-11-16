@@ -382,12 +382,19 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     await readFile(path.join(root, "scripts/contracts.generated.json"), "utf8"),
   );
   const contracts = { version: contractVersion(inventory.files), files: inventory.files };
+  // #381: the toolchain the repository pins, not a copy that a dependency update leaves stale.
+  const pins = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   const manifest = {
     manifestVersion: 1,
     candidate,
     execution,
     versions: {
-      toolchain: { node: "24.21.0", pnpm: "12.9.1", opentofu: "1.13.1", wrangler: "4.156.2" },
+      toolchain: {
+        node: pins.engines.node,
+        pnpm: pins.packageManager.replace(/^pnpm@/u, ""),
+        opentofu: "1.13.1",
+        wrangler: pins.devDependencies.wrangler,
+      },
       lockfileDigest: digest(await readFile(path.join(root, "pnpm-lock.yaml"))),
       contracts,
       databaseMigrations: await fileInventory(path.join(root, "db/migrations")),

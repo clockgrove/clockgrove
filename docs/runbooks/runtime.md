@@ -1298,8 +1298,8 @@ missed/duplicate/reordered Queue or webhook effects and hosted qualification rem
 ## Native local recovery qualification
 
 Existing `test:runtime` discovery runs `test/native.postgres.test.ts`; offline runtime tests
-exclude PostgreSQL journeys. Wrangler 4.156.2 bundles the production entry and adapters into
-lockfile-selected Miniflare 5.20261102.0-beta / workerd 1.20261102.1 with `nodejs_compat`.
+exclude PostgreSQL journeys. The root-pinned Wrangler bundles the production entry and adapters into
+the Miniflare and workerd it resolves from the lockfile, with `nodejs_compat`.
 The host Vitest alias is never passed to Wrangler. The test-only inspection entry delegates
 ordinary no-op requests directly to the production Worker; inspection authenticates through the
 same default stored-session and least-privilege authority readers before initializing the three
@@ -1338,7 +1338,10 @@ At a clean frozen candidate `qualify:wave0` additionally records `native-recover
 command receipt and `native-recovery.json`. The proof binds commit/tree, lockfile and bundle hashes,
 actual tool/runtime versions, storage removal, comparison identities and duplicate counts. The
 manifest's optional `nativeRecovery` summary stays distinct from portable `recovery` and hosted
-`cloudQualification`. Recipes require matching candidate/command/log/proof identities and refuse
+`cloudQualification`. The expected tool identity is read, never copied: Node and pnpm from the root
+manifest, Wrangler's exact root pin, and the Miniflare and workerd packages Wrangler resolves (the
+workerd binary reports the date in its package version), so a dependency update moves it along with
+the lockfile. Recipes require matching candidate/command/log/proof identities and refuse
 unsupported positive claims. The literal runtime-local checklist row can pass from this native
 proof; owner setup, enrollment/grants/privacy handoff, protected staging deployment, authenticated
 staging correlation, successful Queue/webhook effects, independent review and full Wave 0 acceptance

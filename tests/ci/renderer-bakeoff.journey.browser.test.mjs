@@ -194,7 +194,7 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
 }, 900_000);
 
 // Product content uses the actual adapter, with no world runtime, database or authentication.
-// Decision: 180 s per backend bounds software shader compilation and two 120-frame tier windows
+// Decision: 360 s per backend bounds software shader compilation and two 90 s tier step downs
 // inside the existing browser job; these are correctness checks, never hardware timing claims.
 it.each(["webgpu", "webgl2"])(
   "world content shares the product look, content lights and shadows, and contains failures (%s)",
@@ -338,8 +338,8 @@ it.each(["webgpu", "webgl2"])(
           "--use-vulkan=swiftshader",
         ],
       });
-      const open = async (query = "") => {
-        const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      const open = async (query = "", viewport = { width: 800, height: 600 }) => {
+        const page = await browser.newPage({ viewport });
 
         await page.goto(`http://127.0.0.1:${port}/${query}`);
         await page.waitForFunction(
@@ -719,19 +719,20 @@ it.each(["webgpu", "webgl2"])(
         ).toEqual([{ name: "renderer_content", category: `content_${failure}`, value: 1 }]);
         await failed.close();
       }
-      const heavy = await open("?workMs=40");
+      // #381: SwiftShader starts at low since #356, so wait for a frame drawn at high before
+      // judging the step down; otherwise the earlier low frame passes it unexamined. The step
+      // down takes 180 rendered intervals whatever their length (TierGovernor), and software frames
+      // here run 50-170 ms, so the bound is 90 s. A small canvas keeps those frames short.
+      const heavy = await open("?workMs=40", { width: 320, height: 240 });
+      const heavyTier = () =>
+        heavy.evaluate(() => globalThis.fixtureRenderer.diagnostics.lastFrame.qualityTier);
       for (const reduced of [false, true]) {
         await heavy.evaluate((value) => {
           globalThis.fixtureRenderer.setReducedMotion(value);
           globalThis.fixtureRenderer.setQuality("high");
         }, reduced);
-        await expect
-          .poll(
-            () =>
-              heavy.evaluate(() => globalThis.fixtureRenderer.diagnostics.lastFrame.qualityTier),
-            { timeout: 30_000 },
-          )
-          .not.toBe("high");
+        await expect.poll(heavyTier).toBe("high");
+        await expect.poll(heavyTier, { timeout: 90_000 }).not.toBe("high");
         expect(
           await heavy.evaluate(() => globalThis.fixtureRenderer.adapter.metrics.contentUpdateMs),
         ).toBeGreaterThanOrEqual(40);
@@ -743,11 +744,11 @@ it.each(["webgpu", "webgl2"])(
       await rm(world, { recursive: true, force: true });
     }
   },
-  180_000,
+  360_000,
 );
 
 // Issue 281: generate, validate and render the same rigged GLB; no binary fixture is retained.
-// Reuse the 180 s software shader-compilation bound of the product-content journey above.
+// 180 s bounds software shader compilation; this journey has no tier step down.
 it("loads a validated rigged GLB and renders its idle clip through world content", async () => {
   const { createRiggedModelFixture } = await import("../../packages/assets/test/model-fixture.ts");
   const { runAssetsCli } = await import("../../packages/assets/src/cli.ts");

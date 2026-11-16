@@ -7,7 +7,7 @@ Stable repository facts for contributors, human or agent. Each rule has its reas
 - Node 24.21.0 and pnpm 12.9.1 on `PATH`. They are pinned in `mise.toml` and `package.json`.
 - PostgreSQL 18.6 with pgvector 0.8.7 on `PATH`, for `test:db`, `test:runtime` and `db:verify`. See [database.md](database.md) for the exact supported set; no other version is compatible.
 - Python 3, for `verify:docs`.
-- OpenTofu 1.13.1 on `PATH`, required by `scripts/infra-validate.mjs` for the configuration in `infra/`. Wrangler 4.156.2 is pinned in the root development dependencies.
+- OpenTofu 1.13.1 on `PATH`, required by `scripts/infra-validate.mjs` for the configuration in `infra/`. Wrangler 4.158.0 is pinned in the root development dependencies.
 - On Ubuntu 26.04, `scripts/ci/toolchain.sh` installs or verifies the pinned PostgreSQL, pgvector, OpenTofu, OpenTofu provider mirror and Playwright Chromium. It installs only a component that is missing or not the exact pinned version, and `--check` only verifies. Quality's toolchain action uses it, so CI and developer machines share one set of pins. The action caches the staged pgvector build per pinned pgvector and PostgreSQL version and runner image (`PGVECTOR_STAGE`); the script reuses it only when its library digest matches its stamp.
 - Run `pnpm install --frozen-lockfile --ignore-scripts` before any check. The lockfile is the dependency contract. Dependency lifecycle scripts must remain disabled for adapter work; if an install script that is not approved under `allowBuilds` runs, stop and report to the maintainer (approved builds are listed in [Dependency install scripts](#dependency-install-scripts)). Work in the checkout you were given: don't create extra git worktrees, because pnpm installs in each one.
 

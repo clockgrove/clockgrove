@@ -1,11 +1,46 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   assertPassingReceiptFacts,
   nativeRecoveryCommand,
   sameCommand,
 } from "./canonical-commands.mjs";
 
-export function validateNativeRecoveryProof(proof, candidate, lockfileDigest) {
+const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+/**
+ * #381: the runtime/tool identity the repository installs, as the native journey resolves it: Node
+ * and pnpm from the root manifest, Wrangler's exact root pin, and the Miniflare and workerd that
+ * Wrangler resolves from the frozen lockfile. A dependency update moves the expectation with it.
+ */
+export function installedNativeTools(root = repository) {
+  const read = (file) => JSON.parse(readFileSync(file, "utf8"));
+  const manifest = read(path.join(root, "package.json"));
+  const wrangler = createRequire(path.join(root, "package.json")).resolve("wrangler/package.json");
+  const miniflare = createRequire(wrangler).resolve("miniflare/package.json");
+  const workerd = read(createRequire(miniflare).resolve("workerd/package.json")).version;
+  // workerd 1.YYYYMMDD.n reports its compatibility date as `workerd YYYY-MM-DD`.
+  const date = /^1\.(\d{4})(\d{2})(\d{2})\./u.exec(workerd);
+  assert(date, `native recovery unrecognised workerd version ${workerd}`);
+  return {
+    node: manifest.engines.node,
+    pnpm: manifest.packageManager.replace(/^pnpm@/u, ""),
+    wrangler: manifest.devDependencies.wrangler,
+    miniflare: read(miniflare).version,
+    workerdPackage: workerd,
+    workerd: `workerd ${date[1]}-${date[2]}-${date[3]}`,
+  };
+}
+
+export function validateNativeRecoveryProof(
+  proof,
+  candidate,
+  lockfileDigest,
+  tools = installedNativeTools(),
+) {
   assert(proof && typeof proof === "object", "native recovery proof missing");
   assert(candidate.clean, "native recovery requires frozen clean candidate");
   assert.equal(proof.commit, candidate.commit, "native recovery candidate mismatch");
@@ -35,12 +70,7 @@ export function validateNativeRecoveryProof(proof, candidate, lockfileDigest) {
   assert.deepEqual(
     proof.tools,
     {
-      node: "24.21.0",
-      pnpm: "12.9.1",
-      wrangler: "4.156.2",
-      miniflare: "5.20261102.0-beta",
-      workerdPackage: "1.20261102.1",
-      workerd: "workerd 2026-11-02",
+      ...tools,
       postgres: proof.tools.postgres,
       pgvector: "0.8.7",
     },
