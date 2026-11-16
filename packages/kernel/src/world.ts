@@ -26,8 +26,8 @@ import {
   type EcologyPolicy,
   EnvironmentValidationError,
   ecologyDisagreement,
-  environmentDisagreement,
   entityIsActive,
+  environmentDisagreement,
   expectedCrossings,
   isRegionCrossing,
   lifecycleDisagreement,
@@ -1586,7 +1586,10 @@ function runWorld(
    * (`impossibleSelections`). True when a decision other than the mover's moved: the drain over the
    * old queue must then run again.
    */
-  function redecideImpossible(at: SimTimeMs, justDecided: ReadonlySet<string> = new Set()): boolean {
+  function redecideImpossible(
+    at: SimTimeMs,
+    justDecided: ReadonlySet<string> = new Set(),
+  ): boolean {
     let again = false;
     for (const objectId of impossibleSelections(current(), unserved)) {
       const queued = decisionsOf(schedules).find(
