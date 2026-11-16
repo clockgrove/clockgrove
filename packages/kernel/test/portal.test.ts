@@ -210,6 +210,36 @@ describe("portal navigation (graph 3)", () => {
     expect(record.portalSteps).toBeUndefined();
   });
 
+  it("keeps a mover stopped off-anchor past a portal on the side of the anchor it crossed to", async () => {
+    const base = await separated("open", [0n, 0n]);
+    const t0 = base.simulationTime;
+    const start = startPayload("mover", toAnchor("garden-edge"), {
+      observeUntil: t0,
+    });
+    const moving = run(base, "movement.start", start, "m1");
+    const stop = { schemaVersion: 1, objectId: "mover", at: t0 + 2000n };
+    const stopped = run(withState(base, moving.state), "movement.interrupt", stop, "i1");
+    expect(stopped.events).toEqual([
+      ["movement.portal-crossed", 1n, "gate"],
+      ["movement.interrupted", 2000n, null],
+    ]);
+    const pose = stopped.state.entities.find((entity) => entity.objectId === "mover")!.pose;
+    // Stopped at (3200, 2400): off every anchor, outside every region, nearest to porch-step.
+    expect(pose.coordinates).toEqual([fixedPoint(3200n), fixedPoint(2400n)]);
+    const back = run(
+      withState(base, stopped.state),
+      "movement.start",
+      startPayload("mover", toAnchor("den-mouth")),
+      "m2",
+    );
+    expect(back.refusal).toBeUndefined();
+    const record = back.state.entities.find((entity) => entity.objectId === "mover")!.movement!;
+    expect(record.anchorPath).toEqual(["garden-edge", "den-mouth"]);
+    expect(record.portalSteps).toEqual([
+      { portalId: "gate", from: "garden-edge", to: "den-mouth", waypoint: 2 },
+    ]);
+  });
+
   it("passes an actor through with portal.use and refuses with stable codes", async () => {
     const base = await spatialFixture([gate(), mover("mover", [0n, 0n])]);
     const use = {

@@ -83,8 +83,9 @@ function separatedRoute(
 }
 
 /**
- * The last anchor of the recorded anchor path a movement had reached by `time` (for a portal
- * crossing, the anchor it crossed to), or undefined when it reached none.
+ * The last anchor of the recorded anchor path a movement had reached by `time`, or, once it has
+ * crossed a portal on a hop it has not finished, the anchor it crossed to; undefined when it
+ * reached none.
  */
 function lastAnchorReached(
   graph: AnchorGraph,
@@ -93,9 +94,15 @@ function lastAnchorReached(
 ): string | undefined {
   if (movement === undefined) return undefined;
   const until = movement.endedAt !== undefined && movement.endedAt < time ? movement.endedAt : time;
+  const steps = movement.portalSteps ?? [];
+  const crossed = expectedCrossings({ ...movement, portalSteps: steps }, []);
   let reached: string | undefined;
-  for (const leg of movementLegs(movement.segment)) {
-    if (leg.end > until) break;
+  for (const [index, leg] of movementLegs(movement.segment).entries()) {
+    if (leg.end > until) {
+      const hop = steps.findIndex((step) => step.waypoint === index + 1);
+      if (hop >= 0 && crossed[hop]!.time <= until) reached = steps[hop]!.to;
+      break;
+    }
     reached =
       movement.anchorPath.find((id) =>
         graph.anchors.some(
