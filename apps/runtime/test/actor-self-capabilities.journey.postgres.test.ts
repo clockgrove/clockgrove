@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
+  type ActivationAddress,
   CAPABILITY_REGISTRY,
+  JOURNAL_EVENT_TYPES,
   type RuntimeAuthorizationContext,
   SELF_CAPABILITIES,
 } from "@clockgrove/application";
@@ -16,9 +18,13 @@ import {
   InMemoryModelBudget,
   ScriptedModelProvider,
 } from "@clockgrove/model-gateway";
-import { boundedEvidence, sessionSelfResults } from "@clockgrove/persistence";
+import {
+  boundedEvidence,
+  PostgreSqlActivations,
+  sessionSelfResults,
+} from "@clockgrove/persistence";
 import { expect, it } from "vitest";
-import { actorResponder } from "../src/actor-model.js";
+import { actorResponder, standingOf } from "../src/actor-model.js";
 import { advanceCommand } from "./world-fixture.js";
 import {
   isNativeWorldOwnerChild,
@@ -193,6 +199,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
         expect.arrayContaining([
           expect.objectContaining({ id: subscriptionId, origin: "actor", enabled: true }),
         ]),
+      );
+      // An event type the journal cannot hold is refused with the valid types; nothing is made.
+      expect(await use("subscription.create", { eventType: "dog.barked", input: "Woof." })).toEqual(
+        expect.objectContaining({
+          status: "failed",
+          code: "unknown_event_type",
+          evidence: expect.objectContaining({
+            result: {
+              refused: "unknown_event_type",
+              eventType: "dog.barked",
+              validEventTypes: [...JOURNAL_EVENT_TYPES],
+            },
+          }),
+        }),
+      );
+      expect(JOURNAL_EVENT_TYPES).toContain("ClockPolicyChanged");
+      expect((await activations("inspect")).configurations.map((c) => c.id).sort()).toEqual(
+        [subscriptionId, "witness"].sort(),
       );
       // The event wakes the actor through its subscription, as an ordinary escalated activation.
       await new Promise((resolve) => setTimeout(resolve, 1_100));
@@ -478,6 +502,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           },
         ],
       });
+      const member = {
+        tenantId: owner.scope.tenantId,
+        principalId: "principal-runtime",
+        privacyCeiling: { version: 1, allowedCategories: ["conversation"] },
+      } as unknown as RuntimeAuthorizationContext;
       const respond = actorResponder({
         gateway: createModelGateway({
           aliases: [
@@ -505,19 +534,21 @@ it.skipIf(!isNativeWorldOwnerChild())(
         grants: () =>
           CAPABILITY_REGISTRY.grantsFor(["runtime:world-observe", "runtime:world-command"]),
         perceive: async () => undefined,
+        // The actor's standing configurations, read from its policy as the member (issue 354).
+        standing: async () =>
+          standingOf(
+            await owner.withSqlClient((client) =>
+              new PostgreSqlActivations(client).configurations({
+                scope: owner.scope,
+                actorId: ACTOR,
+                participant: { ...member, personaId: "persona-runtime" },
+              } as unknown as ActivationAddress),
+            ),
+          ),
         // The canonical read the runtime composes: this session's recorded results, as the member.
         selfResults: () =>
           owner.withSqlClient((client) =>
-            sessionSelfResults(
-              client,
-              {
-                tenantId: owner.scope.tenantId,
-                principalId: "principal-runtime",
-                privacyCeiling: { version: 1, allowedCategories: ["conversation"] },
-              } as unknown as RuntimeAuthorizationContext,
-              sessionId,
-              [...SELF_CAPABILITIES],
-            ),
+            sessionSelfResults(client, member, sessionId, [...SELF_CAPABILITIES]),
           ),
       });
       const session = {
@@ -556,6 +587,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
             result: { intentionId: id, dueAt: expect.any(Number) },
           })),
       ]);
+      // Its standing configurations show every intention it holds, the oldest too, with its id.
+      const standing = prompt
+        .split("UNTRUSTED STANDING CONFIGURATIONS (")[1]
+        ?.split("\nEND UNTRUSTED STANDING CONFIGURATIONS")[0];
+      expect(JSON.parse(standing?.slice(standing.indexOf("\n") + 1) ?? "null")).toEqual(
+        [...held].sort().map((id) => ({
+          kind: "intention",
+          id,
+          dueAt: id === held[0] ? null : expect.any(Number),
+          input: "Hold.",
+          enabled: id !== held[0],
+        })),
+      );
     });
   },
   300_000,

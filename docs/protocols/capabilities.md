@@ -91,12 +91,23 @@ they never enter the read Queue. Their recorded results reach the model on the a
 (a later message or one of its own wakes): the production responder adds the session's newest 4
 recorded self results, at most 16 KiB together, from completed runs only, newest first, in an
 `UNTRUSTED SELF CAPABILITY RESULTS` section beside the tool catalog. That is how the actor learns
-the `subscriptionId` or `intentionId` it revokes or cancels, and what it listed or inspected.
+what it listed or inspected. Every prompt also carries the actor's own standing configurations
+(issue 354), read from its activation policy's configurations under the member's authorization
+on every model step (a failed read fails the step), in an
+`UNTRUSTED STANDING CONFIGURATIONS` section: each subscription and intention it made
+(`origin: "actor"`), in id order, as `{kind: "subscription", id, eventType, input, enabled}` or
+`{kind: "intention", id, dueAt, input, enabled}`, whichever turn or session made it. That is how
+the actor learns the `subscriptionId` or `intentionId` it revokes or cancels. Operator
+configurations are not the actor's to remove and are not listed; at most `MAX_ACTOR_ACTIVATIONS`
+(4) are.
 
 - `subscription.create`, `subscription.revoke`, `intention.schedule` and `intention.cancel` write the
   actor's own activation configurations, with the operator's budgets, coalescing and quiet-hours
   rules ([conversation fibers](conversation-fibers.md#the-actors-own-subscriptions-and-intentions-issue-322)).
-  The result names `subscriptionId` (and `eventType`) or `intentionId` (and `dueAt`). A fifth
+  The result names `subscriptionId` (and `eventType`) or `intentionId` (and `dueAt`). An
+  `eventType` the journal registry does not hold (`JOURNAL_EVENT_TYPES`, such as `dog.barked`) is
+  refused `unknown_event_type` with the result `{refused, eventType, validEventTypes}`, the
+  registry's types in UTF-16 order, and nothing is configured (issue 354). A fifth
   standing configuration is refused `budget_exhausted`; an ID that is not the actor's own, of that
   kind, is refused `activation_not_found`. Removing an actor-prefixed ID that is already absent
   commits, so a retried turn whose first attempt removed it records the removal. The configurations

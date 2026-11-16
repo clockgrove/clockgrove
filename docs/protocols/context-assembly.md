@@ -90,7 +90,22 @@ application does.
   The actor's newest recorded self capability results enter its next prompt outside the manifest,
   beside the untrusted tool catalog, in an `UNTRUSTED SELF CAPABILITY RESULTS` section
   ([capabilities](capabilities.md#self-capabilities)); they are run evidence, not a context source,
-  so the manifest hash and replay are unchanged.
+  so the manifest hash and replay are unchanged. Its own standing subscriptions and intentions, with
+  their ids, enter beside them in an `UNTRUSTED STANDING CONFIGURATIONS` section, read from its
+  activation policy's configurations (issue 354), also outside the manifest. A failed read fails
+  the step, as a failed self-results read does, so the section is never silently missing.
+  The prompt's `You perceive:` digest lists what the actor itself perceives (issue 354), by the
+  kernel resolver's location rule (`space-contents`, [perception](../../packages/kernel/docs/perception.md)):
+  the active entities of the actor's own space, within the member's authorized scene, so privacy
+  never widens. The resolver's modality-range rule is not applied: it excludes a `space-contents`
+  observer when no range is declared, and a runtime world declares no perception policy (its scene
+  audience passes no modalities), so the rule would leave every actor perceiving nothing by
+  location. Until a world can declare ranges, the actor's space is its range. An actor that is not an entity of the world state perceives that scene. Entities
+  the message names, by object id or scene label (case-insensitive), come first, then the nearest
+  to the actor by squared distance in its own frame, then those in another frame, ties by object
+  id in UTF-16 order. The order reads only the state at the perceived revision and the message, so
+  replay perceives the same. At most 24 entities and 8 KiB are listed (issue 349), and a final line
+  counts the perceived entities left out.
 
 `POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (default:
 the head). It answers that version with its text and provenance (`changeSetId`, `proposer`,

@@ -1348,8 +1348,9 @@ published-head Quality/browser/artifact evidence are still required before integ
 ## Stevie's model route and commands
 
 `ActorAgentDO` answers Talk through the `stevie.pilot` model alias when `ANTHROPIC_API_KEY` or
-`AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives the
-member's authorized public scene, asks for a structured `{reply, command}`, and the turn's
+`AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives what the
+actor perceives within the member's authorized public scene
+([context assembly](../protocols/context-assembly.md)), asks for a structured `{reply, command}`, and the turn's
 `proposal_validating` phase decides the command against the member-bounded grants and submits a
 proposed `resource.offer` to the world owner, where the closed-world kernel refuses unbacked
 creation ([capabilities](../protocols/capabilities.md)). The

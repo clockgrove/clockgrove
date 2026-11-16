@@ -171,6 +171,19 @@ it("feed is derived from authorized semantic events, not raw logs, beside the ca
       await run("status-pause", "PauseWorld", { schemaVersion: 1 });
       const paused = await status();
       expect([paused.clock, paused.feed]).toEqual([clock("paused", 60, 1n), fed.feed]);
+      // Two simulated hours: well over 100 routine events, and over 100 weather integrations
+      // (one per water holder per tick) of a material type that moved no water and are not shown.
+      for (let minute = 2n; minute <= 120n; minute++)
+        await run(`status-tick-${minute}`, "world.advance", {}, 8_640_000_000n + minute * 60_000n);
+      const after = (types: string) =>
+        truth(
+          `SELECT count(*) FROM clockgrove.events WHERE event_type IN ${types} AND partition_sequence > (SELECT partition_sequence FROM clockgrove.events WHERE event_id = '${rained.feed[0]?.id}')`,
+        ).then(Number);
+      expect(await after(`('resource.weather-integrated')`)).toBeGreaterThan(100);
+      expect(await after(`(SELECT DISTINCT event_type FROM clockgrove.events)`)).toBeGreaterThan(
+        100,
+      );
+      expect((await status()).feed.at(-1)?.id).toBe(rained.feed[0]?.id);
       const refused = async (credential?: string, scope = auth.scope) => {
         const response = await read(credential, scope);
         return [response.status, await response.json()];

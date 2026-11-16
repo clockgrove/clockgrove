@@ -150,9 +150,18 @@ at A."; `resource.consumed` "K at A was used."; `resource.transferred` "K moved 
 Every other type, including `time.advanced`, `needs.changed`, `comfort.changed`, `needs.relieved`,
 `wellbeing.integrated`, `growth.integrated`, `location.changed`, `movement.started`,
 `movement.region-*`, `movement.interrupted`, `movement.replanned` and clock and lifecycle records, is
-never a feed item. The feed reads the space partition's 100 latest sequences up to the covered head,
-the bounded public window of the existing object-history reader, so it holds at most 100 items. Events
-outside the caller's privacy ceiling are absent from that window and never appear.
+never a feed item. Neither is a `resource.weather-integrated` event that collected and evaporated
+nothing, or an event the shared scene may not show. The feed holds the space partition's newest 100
+shown events of the material types above, up to the covered head: it reads them filtered by type in
+PostgreSQL (`PostgreSqlObjectHistoryReader.readTypes`, issue 354) and keeps reading older pages past
+every event it does not show until it holds 100 or reaches the scan floor. So a space whose 30 to 50
+busy actors journal routine events every tick, or whose water holders integrate a dry spell every
+tick, still shows its latest material ones. Decision: the read scans at most the newest 10,000
+partition sequences, bounding its work on the partition-sequence index. Each further page doubles
+in size up to 2,000 rows (100, 200, 400, 800, 1,600, then 2,000), so a read that keeps few events,
+as when zero-change weather rows fill the window, costs at most 9 queries in one transaction and
+decodes and verifies at most the 10,000 scanned events. Each event is verified as the
+history reader verifies it. Events outside the caller's privacy ceiling are absent and never appear.
 
 ## Authorized scene stream
 
