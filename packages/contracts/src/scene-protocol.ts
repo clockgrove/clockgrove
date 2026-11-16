@@ -522,6 +522,8 @@ export interface ScenePresentationBinding {
   readonly animationFamily: string;
   readonly accessibilityLabel: string;
   readonly material?: SceneMaterialDelivery;
+  /** The pack declares that this object sways in the wind; absent, it stands still. */
+  readonly sway?: true;
 }
 export type SceneProjectedEntity = LivingEntity;
 /** The placed presentation effects the live scene may show; the client decides from weather and clock. */
@@ -541,6 +543,25 @@ export function decodeSceneEffect(value: unknown, path = "effect"): SceneEffect 
     assetId: string(v.assetId, `${path}.assetId`),
     animationFamily: string(v.animationFamily, `${path}.animationFamily`),
     pose: decodeLivingPose(v.pose, `${path}.pose`),
+  };
+}
+/**
+ * A projected entity's committed movement record: when its current route segment started and,
+ * once the movement completed or was interrupted, when it ended. A pose change the entity's
+ * movement carried is drawn walking; any other pose change is a cut.
+ */
+export interface SceneMovement {
+  readonly objectId: ObjectId;
+  readonly startedAt: bigint;
+  readonly endedAt?: bigint;
+}
+export function decodeSceneMovement(value: unknown, path = "movement"): SceneMovement {
+  const v = record(value, path);
+  exactKeys(v, ["objectId", "startedAt"], ["endedAt"], path);
+  return {
+    objectId: decodeOpaqueId(v.objectId, "ObjectId", `${path}.objectId`),
+    startedAt: unsignedDecimal(v.startedAt, `${path}.startedAt`),
+    ...(v.endedAt === undefined ? {} : { endedAt: unsignedDecimal(v.endedAt, `${path}.endedAt`) }),
   };
 }
 /**
@@ -603,6 +624,8 @@ export interface SceneProjection extends BrowserScope {
   /** Absent when the installed pack places no effect in this scene. */
   readonly effects?: readonly SceneEffect[];
   readonly lighting?: SceneLighting;
+  /** Absent when no projected entity has a movement record. */
+  readonly movements?: readonly SceneMovement[];
 }
 export function decodeVisibleSpace(value: unknown, path = "space"): VisibleSpace {
   const v = record(value, path);
@@ -664,9 +687,11 @@ export function decodeScenePresentationBinding(
   exactKeys(
     v,
     ["objectId", "assetId", "animationFamily", "accessibilityLabel"],
-    ["material"],
+    ["material", "sway"],
     path,
   );
+  if (v.sway !== undefined && v.sway !== true)
+    throw new ContractDecodeError(`${path}.sway`, "expected true when present");
   return {
     objectId: decodeOpaqueId(v.objectId, "ObjectId", `${path}.objectId`),
     assetId: string(v.assetId, `${path}.assetId`),
@@ -675,6 +700,7 @@ export function decodeScenePresentationBinding(
     ...(v.material === undefined
       ? {}
       : { material: decodeSceneMaterialDelivery(v.material, `${path}.material`) }),
+    ...(v.sway === true ? { sway: true as const } : {}),
   };
 }
 export function decodeSceneProjection(value: unknown, path = "projection"): SceneProjection {
@@ -700,7 +726,7 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
       "feedCursor",
       "audienceHash",
     ],
-    ["privateCognition", "effects", "lighting"],
+    ["privateCognition", "effects", "lighting", "movements"],
     path,
   );
   if (compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION && v.effects !== undefined)
@@ -710,6 +736,11 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
     v.lighting !== undefined
   )
     throw new ContractDecodeError(`${path}.lighting`, "absent from projection version 1");
+  if (
+    compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION &&
+    v.movements !== undefined
+  )
+    throw new ContractDecodeError(`${path}.movements`, "absent from projection version 1");
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
   const simulationTime = unsignedDecimal(v.simulationTime, `${path}.simulationTime`);
   const living = decodeLivingScene({
@@ -767,6 +798,16 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
     ...(v.effects === undefined
       ? {}
       : { effects: array(v.effects, `${path}.effects`, decodeSceneEffect) }),
+    ...(v.movements === undefined
+      ? {}
+      : {
+          movements: projectedOnce(
+            array(v.movements, `${path}.movements`, decodeSceneMovement),
+            (movement) => movement.objectId,
+            living.entities,
+            `${path}.movements`,
+          ),
+        }),
   };
 }
 export type ScenePatchOperation =
@@ -789,6 +830,7 @@ export type ScenePatchOperation =
       readonly entries: readonly ScenePrivateCognition[];
     }
   | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] }
+  | { readonly op: "set_movements"; readonly movements: readonly SceneMovement[] }
   | { readonly op: "set_lighting"; readonly lighting: SceneLighting | null };
 export interface ScenePatch {
   readonly fromRevision: bigint;
@@ -862,6 +904,12 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
     case "set_effects":
       exactKeys(v, ["op", "effects"], [], path);
       return { op: v.op, effects: array(v.effects, `${path}.effects`, decodeSceneEffect) };
+    case "set_movements":
+      exactKeys(v, ["op", "movements"], [], path);
+      return {
+        op: v.op,
+        movements: array(v.movements, `${path}.movements`, decodeSceneMovement),
+      };
     default:
       throw new ContractDecodeError(`${path}.op`, "unknown operation");
   }
@@ -904,7 +952,11 @@ export function decodeScenePatch(value: unknown, path = "patch"): ScenePatch {
     )
   )
     operations.forEach((operation, index) => {
-      if (operation.op === "set_effects" || operation.op === "set_lighting")
+      if (
+        operation.op === "set_effects" ||
+        operation.op === "set_lighting" ||
+        operation.op === "set_movements"
+      )
         throw new ContractDecodeError(
           `${path}.operations[${index}].op`,
           "absent from projection version 1",

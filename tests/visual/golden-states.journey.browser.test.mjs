@@ -2052,3 +2052,132 @@ it("chooses the starting tier from device limits and changes it on sustained fra
     });
   }
 }, 240_000);
+
+it("sways, darkens and walks by the pack's declarations and the world's facts on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  // #363: the fixture world's shell and reviewed atlas, with a scripted projection.
+  const shell = JSON.parse(
+    await readFile(path.join(root, "worlds/fixture/reference/shell.json"), "utf8"),
+  );
+  const wire = JSON.parse(
+    await readFile(
+      path.join(root, "packages/contracts/test/fixtures/realtime-projection/snapshot.golden.json"),
+      "utf8",
+    ),
+  ).payload;
+  const at = (x) => ({ ...wire.entities[0].pose, coordinates: [String(x), "0"] });
+  const entity = (objectId, x) => ({ ...wire.entities[0], objectId, pose: at(x) });
+  const bind = (objectId, assetId, animationFamily, sway) => ({
+    objectId,
+    assetId,
+    animationFamily,
+    accessibilityLabel: objectId,
+    ...(sway && { sway: true }),
+  });
+  wire.entities = [
+    entity("herb", 0),
+    entity("cedar", 2000),
+    entity("street-lamp", -2000),
+    entity("walker", 4000),
+  ];
+  // Only the herb's binding declares sway: a `tree` without it and a lamp stand still.
+  wire.presentationBindings = [
+    bind("herb", "plant", "static", true),
+    bind("cedar", "tree", "static"),
+    bind("street-lamp", "lantern", "loop"),
+    bind("walker", "keeper", "idle"),
+  ];
+  wire.interactions = [];
+  wire.weather.rainIntensity = 0;
+  wire.effects = [
+    { role: "lantern", assetId: "lantern", animationFamily: "loop", pose: at(-2000) },
+  ];
+  wire.revision = "10";
+  wire.simulationTime = "1800000";
+  for (const backend of ["webgpu", "webgl2"])
+    await withRendererProof(
+      backend,
+      shell,
+      async (browser, origin) => {
+        const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
+        await prepareRendererProof(
+          page,
+          origin,
+          shell,
+          "declared-facts-proof",
+          "<div id='scene' style='width:640px;height:400px'></div>",
+        );
+        const result = await page.evaluate(async (wire) => {
+          const adapter = await proofAdapter(wire);
+          const { effectsText } = await proofLoad("world-scene-adapter");
+          adapter.setQuality("medium");
+          // Reduced motion draws the held frame at once: sway at time 0.
+          adapter.setReducedMotion(true);
+          await proofFrame();
+          const swayed = Object.fromEntries(
+            [...adapter.drawn].map(([id, drawn]) => [id, drawn.body.userData.swayed === true]),
+          );
+          // Night: the canonical day without a declared length, then a one-hour pack day.
+          const night = (time, dayLength) => {
+            adapter.setDayLength(dayLength);
+            adapter.loadSnapshot({ ...adapter.projection, simulationTime: time });
+            return [adapter.night, effectsText(adapter.projection, dayLength).lights];
+          };
+          const nights = [
+            night(1_800_000n, undefined),
+            night(1_800_000n, 3_600_000n),
+            night(3_300_000n, 3_600_000n),
+          ];
+          // Walk or cut: committed patches move `walker`; its movement record decides.
+          adapter.setReducedMotion(false);
+          const body = () => adapter.drawn.get("walker").body;
+          const move = (x, movements) => {
+            const fromRevision = adapter.projection.revision;
+            adapter.applyPatch({
+              fromRevision,
+              toRevision: fromRevision + 1n,
+              sourceEventIds: [],
+              audienceHash: adapter.projection.audienceHash,
+              operations: [
+                {
+                  op: "upsert_entity",
+                  entity: {
+                    ...adapter.projection.entities.find(({ objectId }) => objectId === "walker"),
+                    pose: { ...adapter.projection.entities[0].pose, coordinates: [String(x), "0"] },
+                  },
+                },
+                { op: "set_movements", movements },
+              ],
+            });
+            return adapter.motions.has(body()) ? "walk" : "cut";
+          };
+          const moves = [
+            // 40 m along an active movement, then its completing step: both walk.
+            move(44_000, [{ objectId: "walker", startedAt: 100n }]),
+            move(45_000, [{ objectId: "walker", startedAt: 100n, endedAt: 200n }]),
+            // A 1 m teleport the ended movement did not carry, then a respawn without one: cuts.
+            move(46_000, [{ objectId: "walker", startedAt: 100n, endedAt: 200n }]),
+            move(46_500, []),
+          ];
+          const api = adapter.backend;
+          adapter.destroy();
+          return { swayed, nights, moves, api };
+        }, wire);
+        expect(result.api).toBe(backend);
+        expect(result.swayed).toEqual({
+          herb: true,
+          cedar: false,
+          "street-lamp": false,
+          walker: false,
+        });
+        expect(result.nights).toEqual([
+          [true, "lantern lit"],
+          [false, "off"],
+          [true, "lantern lit"],
+        ]);
+        expect(result.moves).toEqual(["walk", "walk", "cut", "cut"]);
+        await page.close();
+      },
+      path.join(root, "worlds/fixture/assets/reviewed"),
+    );
+}, 120_000);

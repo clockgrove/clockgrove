@@ -46,13 +46,15 @@
       "objectId": "fixture.cedar",
       "assetId": "tree",
       "animationFamily": "static",
-      "accessibilityLabel": "The cedar tree"
+      "accessibilityLabel": "The cedar tree",
+      "sway": true
     },
     {
       "objectId": "fixture.herb",
       "assetId": "plant",
       "animationFamily": "static",
-      "accessibilityLabel": "The herb patch"
+      "accessibilityLabel": "The herb patch",
+      "sway": true
     }
   ],
   "effects": [
