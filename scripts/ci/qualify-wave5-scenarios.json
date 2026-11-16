@@ -92,7 +92,7 @@
   "scenarios": [
     {
       "id": "S1",
-      "scenario": "two independent Stevie sessions with conflicting topics",
+      "scenario": "two independent sessions with one cognitive actor with conflicting topics",
       "coverage": "full",
       "evidence": [
         {
@@ -115,7 +115,7 @@
     },
     {
       "id": "S2",
-      "scenario": "cognitive Stevie versus interpreted tree disclosure",
+      "scenario": "cognitive actor versus interpreted tree disclosure",
       "coverage": "partial",
       "evidence": [
         {
@@ -123,7 +123,7 @@
           "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
         }
       ],
-      "deviation": "Only the cognitive (Actor's subjective communication) disclosure on a conversation session is proven. No test opens a session or reply with the interpreted or canonical voice mode, so the interpreted-tree disclosure and its contrast with cognitive Stevie is unproven."
+      "deviation": "Only the cognitive (Actor's subjective communication) disclosure on a conversation session is proven. No test opens a session or reply with the interpreted or canonical voice mode, so the interpreted-tree disclosure and its contrast with the cognitive actor is unproven."
     },
     {
       "id": "S3",
