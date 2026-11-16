@@ -127,6 +127,13 @@ export function dispatchMessage(dispatch: ClaimedDispatch): QueueEnvelope<unknow
 }
 
 /**
+ * Decision: the backoff doubling stops at 2^40. With no attempt bound the attempt count grows
+ * without limit and `2 ** attempt` would overflow to Infinity; 2^40 x any `retryAfterMs` of 1 ms or more
+ * already exceeds every delay ceiling, so the cap never shortens a delay.
+ */
+const MAX_BACKOFF_EXPONENT = 40;
+
+/**
  * Claims, publishes and settles due dispatches of one tenant's channel until none is due. A crash
  * between publish and settle leaves the claim to expire; the next sweep republishes it under the
  * same `messageId`. A store failure ends the sweep and is thrown.
@@ -161,7 +168,8 @@ export async function sweepDispatches(
                     ? 0
                     : Math.min(
                         request.maxRetryAfterMs ?? 86_400_000,
-                        request.retryAfterMs * 2 ** Math.min(dispatch.attempt - 1, 40),
+                        request.retryAfterMs *
+                          2 ** Math.min(dispatch.attempt - 1, MAX_BACKOFF_EXPONENT),
                       ),
               };
       }

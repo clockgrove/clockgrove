@@ -1694,8 +1694,10 @@ export default {
             /* Retried below: nothing is lost. */
           }
         }
-        // The last attempt the consumer's `max_retries` allows: this retry dead-letters it.
-        else if (message.attempts > QUEUE_MAX_RETRIES) await deadLetter();
+        // The last attempt the consumer's `max_retries` allows, for every class (a refused message
+        // whose DLQ send failed or whose `*_DLQ` binding is absent included): this retry
+        // dead-letters it, so the record says why.
+        if (message.attempts > QUEUE_MAX_RETRIES) await deadLetter();
         message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
       }
     }

@@ -105,23 +105,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         );
         expect(advance.status, JSON.stringify(advance.body)).toBe(200);
         // The post-commit hint uses waitUntil; the command response does not settle attempt one.
+        // A message the Queue can never accept (too big) fails at once, with no retries.
         await waitForOwnerSql(
           owner.sql,
-          `SELECT status || '|' || attempts FROM clockgrove.event_dispatches WHERE dispatch_id='${action.messageId}'`,
-          "pending|1",
+          `SELECT status || '|' || attempts || '|' || last_error_class FROM clockgrove.event_dispatches WHERE dispatch_id='${action.messageId}'`,
+          "failed|1|permanent",
           500,
         );
-        for (let attempt = 2; attempt <= 4; attempt++) {
-          await owner.sql(
-            `UPDATE clockgrove.event_dispatches SET next_attempt_at=now()-interval '1 second' WHERE dispatch_id='${action.messageId}'`,
-          );
-          await owner.reconcileDispatches();
-        }
-        expect(
-          await owner.sql(
-            `SELECT status || '|' || attempts FROM clockgrove.event_dispatches WHERE dispatch_id='${action.messageId}'`,
-          ),
-        ).toBe("failed|4");
         await owner.sql(
           "DROP TRIGGER mcp_oversize ON clockgrove.event_dispatches; DROP FUNCTION clockgrove.mcp_oversize(); UPDATE clockgrove.event_dispatches SET payload=payload-'pad'",
         );
@@ -141,7 +131,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           await owner.sql(
             `SELECT status || '|' || attempts FROM clockgrove.event_dispatches WHERE dispatch_id='${action.messageId}'`,
           ),
-        ).toBe("pending|4");
+        ).toBe("pending|1");
         expect(
           await owner.sql(
             "SELECT principal_id || '|' || action || '|' || decision || '|' || reason_code FROM clockgrove.runtime_operator_actions WHERE reason_code='repaired'",

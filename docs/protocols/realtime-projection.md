@@ -222,9 +222,11 @@ so a patch from a newer projection version is refused with its stable code inste
 as if compatible. A connection control's resume declares no projection version, so this assertion
 is how a patch-only stream reaches an older client. The patch decoder checks every
 `set_compatibility` version before the patch's or any operation's shape, so a newer patch
-that also adds operations or fields still receives its stable code. A consumer can show refresh/deploy mismatch, bounded snapshot retry, text
-fallback or an unsupported-version surface; it must not display a successfully decoded semantically
-mismatched scene as live. This vocabulary does not prescribe a new retry count or timeout.
+that also adds operations or fields still receives its stable code. A consumer acts on the direction of a mismatch: a
+peer newer than the client offers Refresh at once, while a peer older than the client (as during a
+deployment swap) keeps reconnecting with backoff until the versions agree, never a final surface
+without a control. It can also show text fallback or an unsupported-version surface; it must not
+display a successfully decoded semantically mismatched scene as live.
 
 ## Navigation and interaction boundaries
 

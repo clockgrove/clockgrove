@@ -295,6 +295,8 @@ describe("production world-reactions native Queue lifecycle", () => {
           ),
         ).toBe("31|31|2");
         const attempts = Array.from({ length: 31 }, (_, index) => index + 1);
+        // Consumer retry delays by attempt, written out: 1 s doubling, then the 60 s cap from attempt 7.
+        const expectedDelaySeconds = [1, 2, 4, 8, 16, 32, ...Array.from({ length: 25 }, () => 60)];
         const failures = owner
           .logs()
           .filter((log) => log.includes("world_reactions_delivery_failed"));
@@ -333,7 +335,7 @@ describe("production world-reactions native Queue lifecycle", () => {
               JSON.stringify({
                 transportMessageId: log.match(/transportMessageId: '([^']+)'/u)?.[1],
                 attempt: Number(log.match(/attempt: (\d+)/u)?.[1]),
-                delaySeconds: Math.min(60, 2 ** (Number(log.match(/attempt: (\d+)/u)?.[1]) - 1)),
+                delaySeconds: expectedDelaySeconds[Number(log.match(/attempt: (\d+)/u)?.[1]) - 1],
                 source: log.includes("failureClass: 'transient'")
                   ? "queue-exhausted:dispatch:world-reactions"
                   : "queue-internal:dispatch:world-reactions",

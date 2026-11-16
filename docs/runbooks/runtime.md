@@ -1093,7 +1093,8 @@ of recovering. Every runtime consumer has `max_retries: 30` (`QUEUE_MAX_RETRIES`
 Hyperdrive failover of minutes. Malformed envelopes and canonical inconsistencies never become
 valid, so they skip the retries: the consumer sends the raw body to the channel's dead-letter queue
 (the `*_DLQ` producer bindings) on the first attempt, writes the alert and records the class as
-below, then acknowledges. If that DLQ send fails the message is retried, so nothing is lost.
+below, then acknowledges. If that DLQ send fails, or the `*_DLQ` binding is absent, the message is retried like any
+other, so nothing is lost, and its 31st attempt writes the dead-letter record below.
 Malformed envelopes, canonical inconsistencies, transient
 storage failures and internal defects have distinct classifications. Decoding failures are
 classified only at the envelope boundary; a handler exception keeps its operational/internal

@@ -933,21 +933,21 @@ export default {
             message.ack();
           },
           retry: (options: { readonly delaySeconds: number }) => {
-            if (
-              [
-                "queue-exhausted:dispatch:world-reactions",
-                "queue-internal:dispatch:world-reactions",
-              ].includes(String(observedMessageId(message.body)))
-            )
+            const exhausting = [
+              "queue-exhausted:dispatch:world-reactions",
+              "queue-internal:dispatch:world-reactions",
+            ].includes(String(observedMessageId(message.body)));
+            if (exhausting)
               records.push({
                 transportMessageId: message.id,
                 attempt: message.attempts,
                 delaySeconds: options.delaySeconds,
                 source: observedMessageId(message.body),
               });
-            // The requested delay is recorded above; the native Queue retries at once, so the
-            // 31 attempts of an exhausted message run in seconds, not in the production 25 minutes.
-            message.retry({ delaySeconds: 0 });
+            // The first retry keeps the delay the consumer asked for, so a test can observe a message
+            // between its failed first attempt and its retry. Later retries run at once (the delay is
+            // recorded above), so a message's 31 attempts take seconds, not the production 25 minutes.
+            message.retry(message.attempts > 1 ? { delaySeconds: 0 } : options);
           },
         })),
       },
