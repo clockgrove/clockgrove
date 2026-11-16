@@ -284,7 +284,7 @@ it("uses durable schedule boundaries independently of caps, admission grouping a
   }
   expect(outcomes.slice(1)).toEqual([outcomes[0], outcomes[0], outcomes[0]]);
   expect(outcomes[0]).toEqual({
-    hash: "0a5de7be844bfeae6b0b59f1d7a781d3732db5dc0208688d7de14ac50930bc80",
+    hash: "93faca26317161ba398d1bf480877c16c024728eaeae86cebd81c7626355c202",
     revision: 25n,
     simulationTime: 220000n,
     targets: [100000n, 160000n, 220000n],

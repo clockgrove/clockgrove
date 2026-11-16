@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { ActivationAddress } from "@clockgrove/application";
+import { type ActivationAddress, encodeCanonicalNode } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
 import {
   executeJournalStatement,
@@ -294,20 +294,32 @@ it("marks only the actor's own crossing in its policy's space as its own", async
     const journal = new PostgreSqlJournal(client);
     await subscribe(activations, address, "watch-own");
     await check(activations);
-    const crossing = (s: FixtureScope, id: string, objectId: string) =>
+    // Journaled as the world owner journals a kernel event: {kernelEvent: canonical record}.
+    const crossing = (s: FixtureScope, id: string, objectId: string, need: string) =>
       journal.execute(
         fixtureRequest(s, `command-${id}`, [
-          fixtureDraft(s, id, { type: "needs.threshold-crossed", payload: { objectId } }),
+          fixtureDraft(s, id, {
+            type: "needs.threshold-crossed",
+            payload: {
+              kernelEvent: encodeCanonicalNode({
+                type: "needs.threshold-crossed",
+                simulationTime: 1n,
+                payload: { objectId, need, value: 80 },
+              }),
+            },
+          }),
         ]),
       );
-    await crossing(A, "own-keeper-a", "keeper");
-    await crossing(A, "own-warden-a", "warden");
-    await crossing(B, "own-keeper-b", "keeper");
+    await crossing(A, "own-keeper-a", "keeper", "hunger");
+    await crossing(A, "own-keeper-thirst-a", "keeper", "thirst");
+    await crossing(A, "own-warden-a", "warden", "hunger");
+    await crossing(B, "own-keeper-b", "keeper", "hunger");
     const { events } = await activations.events(address);
-    expect(events.map((e) => [e.eventId, e.own])).toEqual([
-      ["own-keeper-a", true],
-      ["own-warden-a", false],
-      ["own-keeper-b", false],
+    expect(events.map((e) => [e.eventId, e.own, e.need])).toEqual([
+      ["own-keeper-a", true, "hunger"],
+      ["own-keeper-thirst-a", true, "thirst"],
+      ["own-warden-a", false, "hunger"],
+      ["own-keeper-b", false, "hunger"],
     ]);
   } finally {
     await client.close();

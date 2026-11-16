@@ -46,6 +46,7 @@ import {
   PostgreSqlJournal,
   PostgreSqlMcpReadAdmission,
   PostgreSqlMcpWriteAdmission,
+  PostgreSqlWorldOwnerReader,
   type RecordedEffect,
   withClientTransaction,
 } from "@clockgrove/persistence";
@@ -938,6 +939,14 @@ export function composeResearch(configuration: ResearchConfiguration) {
         (await killed(client, c))
       )
         throw new Error("Effect retry unavailable");
+      // The session opens in the actor's declared voice (issue 354), read from the world state the
+      // operator's membership authorizes; an actor that declares none is not addressable.
+      const voiceMode = (
+        await new PostgreSqlWorldOwnerReader(client).hydrate(auth, scope)
+      ).document.state.entities.find(
+        (entity) => entity.objectId === original.actorId && entity.spaceId === scope.spaceId,
+      )?.conversationMode;
+      if (voiceMode === undefined) throw new Error("Effect retry unavailable");
       const store = new PostgreSqlConversationStore(
         client,
         configuration.artifacts(client),
@@ -946,7 +955,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
       const session = await store.open(participant, {
         scope,
         actorId: decodeOpaqueId(original.actorId, "ObjectId"),
-        voiceMode: "cognitive",
+        voiceMode,
       });
       const accepted = await store.acceptTurn(participant, {
         scope,

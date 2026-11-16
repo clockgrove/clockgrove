@@ -515,9 +515,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(await agent({ op: "model-calls" })).toBe(3);
 
       // The companion's movement, in the same space, does not wake Keeper's threshold; Keeper's own
-      // does, once.
+      // does, once. A threshold that names a need matches only a crossing of that need, so Keeper's
+      // own movement, which carries none, never wakes it.
       await configure("own-move", "threshold", {
         eventType: "movement.started",
+        compiledRoutine: "noop",
+      });
+      await configure("own-move-hunger", "threshold", {
+        eventType: "movement.started",
+        need: "hunger",
         compiledRoutine: "noop",
       });
       await new Promise((resolve) => setTimeout(resolve, 1_100));
@@ -558,6 +564,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
             "SELECT event_id FROM clockgrove.events WHERE command_id = 'keeper-moves' AND event_type = 'movement.started'",
           )}/noop`,
         );
+      expect(
+        await owner.sql(
+          "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'own-move-hunger'",
+        ),
+      ).toBe("0");
     });
   },
   240_000,

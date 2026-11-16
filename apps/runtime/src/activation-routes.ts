@@ -212,6 +212,7 @@ function activationConfiguration(value: unknown): ActivationConfiguration {
     "nextWakeAt",
     "intervalMs",
     "eventType",
+    "need",
     "input",
     "priority",
     "enabled",
@@ -254,6 +255,7 @@ function activationConfiguration(value: unknown): ActivationConfiguration {
     ...(config.eventType === undefined
       ? {}
       : { eventType: text(config.eventType, "eventType", 256) }),
+    ...(config.need === undefined ? {} : { need: need(config.need) }),
     input: text(config.input, "input", 1024, true),
     priority: integer(config.priority, "priority", 100),
     enabled: boolean(config.enabled, "enabled"),
@@ -264,7 +266,13 @@ function activationConfiguration(value: unknown): ActivationConfiguration {
     ...(delivery === undefined ? {} : { delivery }),
   };
   if (compiledRoutine === "escalate" && configuration.input.trim().length === 0) invalid("input");
+  if (configuration.need !== undefined && configuration.kind !== "threshold") invalid("need");
   return configuration;
+}
+
+function need(value: unknown): "hunger" | "thirst" {
+  if (value !== "hunger" && value !== "thirst") invalid("need");
+  return value;
 }
 
 const ACTIVATION_REFUSALS: Readonly<

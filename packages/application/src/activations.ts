@@ -22,6 +22,11 @@ export interface ActivationConfiguration {
   readonly nextWakeAt: number | null;
   readonly intervalMs: number | null;
   readonly eventType?: string;
+  /**
+   * A threshold's need (issue 354): it matches only a crossing whose `need` is this one, such as
+   * `hunger` for the actor's own hunger going urgent. Only a threshold may name one.
+   */
+  readonly need?: "hunger" | "thirst";
   readonly input: string;
   readonly priority: number;
   readonly enabled: boolean;

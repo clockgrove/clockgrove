@@ -1597,7 +1597,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
           if (configuration.kind !== "subscription" && configuration.kind !== "threshold") continue;
           // A threshold is the actor's own: another actor's crossing, or one in another space, is not.
-          if (configuration.kind === "threshold" && !event.own) continue;
+          // One that names a need matches only a crossing of that need.
+          if (
+            configuration.kind === "threshold" &&
+            (!event.own || (configuration.need !== undefined && configuration.need !== event.need))
+          )
+            continue;
           await this.admitActivation(address, {
             configurationId: configuration.id,
             causalRoot: event.causalRoot,
