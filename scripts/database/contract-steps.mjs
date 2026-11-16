@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { loadModule, parsePlPgSQLSync, parseSync, scanSync } from "libpg-query";
 
 // Contract steps (docs/runbooks/database.md, "expand → backfill → verify → switch → contract"). A
 // migration that deletes, truncates, drops or rewrites clockgrove data runs only when
@@ -78,7 +77,10 @@ const DESTROYS = {
     !isSafeRole(stringOf(node.args?.[1])),
 };
 
+// Loaded on first use, not at import: `scripts/bootstrap.mjs` reaches this module through
+// `lib.mjs` before `pnpm install` has put `libpg-query` in node_modules.
 let loaded;
+let pg;
 
 const lastName = (names) => names?.at(-1)?.String?.sval?.toLowerCase();
 
@@ -89,7 +91,10 @@ const lastName = (names) => names?.at(-1)?.String?.sval?.toLowerCase();
  * does not parse.
  */
 export async function destructiveStatements(sql, routines = new Map()) {
-  loaded ??= loadModule();
+  loaded ??= import("libpg-query").then(async (module) => {
+    await module.loadModule();
+    pg = module;
+  });
   await loaded;
   const ctx = { found: [], called: new Set(), created: [], strict: true };
   analyzeSql(sql, ctx);
@@ -127,7 +132,7 @@ function bodyOf(routine) {
 function analyzeSql(sql, ctx, original = sql, whole = undefined) {
   let tree;
   try {
-    tree = parseSync(sql);
+    tree = pg.parseSync(sql);
   } catch (error) {
     if (ctx.strict) throw error;
     return false;
@@ -140,14 +145,23 @@ function analyzeSql(sql, ctx, original = sql, whole = undefined) {
   return true;
 }
 
-/** `statement` without comments, whitespace collapsed and without its trailing `;`. */
+/**
+ * `statement` without comments, each string literal and dollar-quoted string blanked to `''` (its
+ * `E`, `B`, `X`, `N` or `U&` prefix kept), whitespace collapsed and without its trailing `;`.
+ */
 function readable(statement) {
   const bytes = Buffer.from(statement);
   let text = "";
   let at = 0;
-  for (const token of scanSync(statement).tokens ?? []) {
-    if (!token.tokenName.endsWith("COMMENT")) continue;
-    text += `${bytes.subarray(at, token.start)} `;
+  for (const token of pg.scanSync(statement).tokens ?? []) {
+    const source = bytes.subarray(token.start, token.end).toString();
+    const literal = /^(?:[EeBbXxNn]|[Uu]&)?'/u.exec(source);
+    let replacement;
+    if (token.tokenName.endsWith("COMMENT")) replacement = " ";
+    else if (literal || /^U?[SBX]CONST$/u.test(token.tokenName))
+      replacement = `${literal?.[0].slice(0, -1) ?? ""}''`;
+    else continue;
+    text += `${bytes.subarray(at, token.start)}${replacement}`;
     at = token.end;
   }
   text += bytes.subarray(at);
@@ -201,7 +215,7 @@ function analyzeString(value, ctx) {
 function analyzePlpgsql(statement, ctx) {
   let tree;
   try {
-    tree = parsePlPgSQLSync(statement);
+    tree = pg.parsePlPgSQLSync(statement);
   } catch (error) {
     if (ctx.strict) throw error;
     return;
