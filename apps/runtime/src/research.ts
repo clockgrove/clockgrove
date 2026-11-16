@@ -31,6 +31,7 @@ import {
   decodeCommandEnvelope,
   decodeOpaqueId,
   type QueueEnvelope,
+  type VoiceMode,
 } from "@clockgrove/contracts";
 import { simulationTimeMs } from "@clockgrove/kernel";
 import {
@@ -46,7 +47,6 @@ import {
   PostgreSqlJournal,
   PostgreSqlMcpReadAdmission,
   PostgreSqlMcpWriteAdmission,
-  PostgreSqlWorldOwnerReader,
   type RecordedEffect,
   withClientTransaction,
 } from "@clockgrove/persistence";
@@ -939,13 +939,18 @@ export function composeResearch(configuration: ResearchConfiguration) {
         (await killed(client, c))
       )
         throw new Error("Effect retry unavailable");
-      // The session opens in the actor's declared voice (issue 354), read from the world state the
-      // operator's membership authorizes; an actor that declares none is not addressable.
+      // The retry opens in the voice of the session the uncertain effect came from (issue 354): that
+      // session opened in the voice its actor declares, so the retry speaks as the original did.
       const voiceMode = (
-        await new PostgreSqlWorldOwnerReader(client).hydrate(auth, scope)
-      ).document.state.entities.find(
-        (entity) => entity.objectId === original.actorId && entity.spaceId === scope.spaceId,
-      )?.conversationMode;
+        (
+          await client.query(
+            `SELECT s.voice_mode FROM clockgrove.agent_runs r JOIN clockgrove.conversation_sessions s
+              ON s.tenant_id=r.tenant_id AND s.session_id=r.session_id
+            WHERE r.tenant_id=$1 AND r.world_id=$2 AND r.timeline_id=$3 AND r.run_id=$4 AND s.actor_id=$5`,
+            [scope.tenantId, scope.worldId, scope.timelineId, original.runId, original.actorId],
+          )
+        ).rows[0] as { voice_mode: VoiceMode } | undefined
+      )?.voice_mode;
       if (voiceMode === undefined) throw new Error("Effect retry unavailable");
       const store = new PostgreSqlConversationStore(
         client,

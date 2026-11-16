@@ -106,7 +106,8 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
       store.open(participant, {
         scope,
         actorId: decodeOpaqueId("actor", "ObjectId"),
-        voiceMode: "cognitive",
+        // A declared non-cognitive voice: the operator retry below keeps it (issue 354).
+        voiceMode: "interpreted",
       }),
     );
     async function prepare(messageId: string) {
@@ -187,6 +188,13 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
       ).trim(),
     ).toBe("uncertain");
     const retry = await research.retry(scope, "uncertain", participant);
+    expect(
+      (
+        await sql(
+          `SELECT voice_mode FROM clockgrove.conversation_sessions WHERE session_id='${retry.sessionId}'`,
+        )
+      ).trim(),
+    ).toBe("interpreted");
     const retried = await current(retry.messageId);
     expect(retried.phase).toBe("approval_waiting");
     expect([sends, queued.length]).toEqual([2, 2]);
