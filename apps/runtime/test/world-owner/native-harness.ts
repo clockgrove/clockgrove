@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -240,6 +241,13 @@ export async function runNativeWorldOwnerProcess(
                 "--config",
                 vitestConfig,
                 testFile,
+                ...(process.env.CLOCKGROVE_WAVE4_CHILD_RESULTS
+                  ? [
+                      "--reporter=default",
+                      "--reporter=json",
+                      `--outputFile.json=${path.join(process.env.CLOCKGROVE_WAVE4_CHILD_RESULTS, `${testFile.replaceAll("/", "-")}-${randomUUID()}.results.json`)}`,
+                    ]
+                  : []),
               ],
               {
                 cwd: REPO_ROOT,

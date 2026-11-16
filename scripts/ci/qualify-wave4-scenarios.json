@@ -9,15 +9,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
-        },
-        {
-          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
-          "marker": "// A new transport's resume reads the already committed endpoint."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// S1: an observer before the event and an observer after it converge on the same view."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
+        },
+        {
+          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
+          "test": "commits before notification and fences retired transport work"
         }
       ]
     },
@@ -29,11 +29,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 810: two browsers in one space, one with relationship-private access, get different"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// issue 810: audiences are decided on the server per principal's current authority."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         }
       ]
     },
@@ -45,19 +49,19 @@
       "evidence": [
         {
           "file": "apps/web/test/convergence-properties.journey.contract.test.ts",
-          "marker": "permutations, duplicates, delays and drops converge or request the exact missing interval"
+          "test": "permutations, duplicates, delays and drops converge or request the exact missing interval"
         },
         {
           "file": "apps/web/test/convergence-recovery.journey.contract.test.ts",
-          "marker": "bounds gaps, retires recovery and preserves discarded revision obligations"
+          "test": "bounds gaps, retires recovery and preserves discarded revision obligations"
         },
         {
           "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
-          "marker": "// A contiguous patch moves the node; replaying it is stale and changes nothing."
+          "test": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
         },
         {
           "file": "packages/contracts/test/scene-compatibility.test.ts",
-          "marker": "rejects incompatible serialized protocol, projection, asset and client versions with visible stable codes"
+          "test": "rejects incompatible serialized protocol, projection, asset and client versions with visible stable codes"
         }
       ]
     },
@@ -69,31 +73,19 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// Replace the entire local workerd runtime, then model the platform restoring its attachment."
-        },
-        {
-          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// This drops the production stream service, retaining only workerd socket attachments."
-        },
-        {
-          "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "scene-before-redeploy"
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         },
         {
           "file": "apps/runtime/test/scene-admission.postgres.test.ts",
-          "marker": "// The same credential ceases to work immediately after revocation or provider expiry."
+          "test": "native authenticated hibernatable scene admission gates every upgrade and exposes only safe operational metadata"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// S4: the browser goes offline, reports recovery, and resumes the committed scene."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// F4: the stored session expires; an ordinary read denies it until a renewed session signs in."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ],
       "deviation": "Local browser offline/online and session expiry are covered; hosted hibernation, restart and deploy remain pending on issue 3."
@@ -106,11 +98,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The HUD shows PostgreSQL's paused clock, the pack's speed and 86 400 000 ms day, and rain."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// S5: pause, resume and speed changes are transitions in the browser HUD."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -122,43 +114,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The feed lists PostgreSQL's public material events, newest first, at their world time."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// An event of a command with retained routine decisions opens the same command's Why from the feed."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 20: the live hall draws the pack's bound sprites (worlds/fixture/reference/presentation.json);"
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 20: once it rains, the residents who chose shelter play the shelter strip."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 21: under PostgreSQL's rain at its night clock, puddles lie on the paths' midpoints"
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 21: once PostgreSQL's weather is dry the puddles clear, and once its clock passes"
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 20: Keeper, standing on the trash can his food routine targets, plays the eat strip."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 20: moved off the trash can his food routine targets, Keeper forages (sniffs)."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 21: Keeper moved while the committed rain still falls, and the puddles still lie."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
-          "marker": "explains why Keeper sought shelter from authorized deterministic evidence and receipts every interaction intent"
+          "test": "explains why Keeper sought shelter from authorized deterministic evidence and receipts every interaction intent"
         }
       ]
     },
@@ -170,11 +134,7 @@
       "evidence": [
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// Select: arrow keys, Home and End move between entities; Enter selects and is announced."
-        },
-        {
-          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// Live changes: movement, weather and material events, at most one announcement per 3 s."
+          "test": "completes every Wave 4 journey without the canvas"
         }
       ]
     },
@@ -186,15 +146,15 @@
       "evidence": [
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// Reduced motion: nothing in the shell animates or transitions."
-        },
-        {
-          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// High zoom: 1280 px at 400% is 320 CSS px (WCAG 1.4.10), with text at 200% (WCAG 1.4.4)."
+          "test": "completes every Wave 4 journey without the canvas"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Reduced motion snaps a short committed move, and a cue draws once per dedupe key."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -206,23 +166,23 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while hallSkew"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The destination's placeholder presentation fails after its renderer loaded."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
-          "marker": "// \u00a716 asset 404: the reviewed atlas is missing behind a loaded renderer."
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgpu)"
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgl2)"
         },
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// S9/F10: a corrupt copy is discarded and fetched again; the verified copy is drawn."
-        },
-        {
-          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// A re-fetched copy that is corrupt too is refused: the text scene, never the atlas."
+          "test": "shows provisioning, failed and ready arrival, and refuses a hash-mismatched atlas"
         }
       ]
     },
@@ -234,15 +194,7 @@
       "evidence": [
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// S10: a world still being born shows a focused provisioning status, never a scene."
-        },
-        {
-          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// Its birth fails: the polled read turns the screen into a focused failure with Retry."
-        },
-        {
-          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// WorldReady commits: the polled read opens the hall through the ordinary arrival."
+          "test": "shows provisioning, failed and ready arrival, and refuses a hash-mismatched atlas"
         }
       ]
     },
@@ -254,15 +206,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Compatibility rejection of an actual native snapshot on the live socket; while hallSkew"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Refresh reloads the current deployment at the same route, which signs the page out."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// fails to load after snapshot_ready ends at text_ready with the semantic scene usable."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -274,15 +222,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The renderer loads its reviewed atlas before presenting; its outcome lands first."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Signed out, the routed boot holds route_resolving; scene_ready follows the presentation."
-        },
-        {
-          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// S12: snapshot arrives before the held atlas, with no false scene_ready; release recovers."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -294,11 +238,15 @@
       "evidence": [
         {
           "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
-          "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
+          "test": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// issue 816: viewing nested regions and following Keeper is a read through the one scene"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -310,11 +258,11 @@
       "evidence": [
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
-          "marker": "// Public Say is explicit and scripted; private Talk lives in conversation sessions, which"
+          "test": "explains why Keeper sought shelter from authorized deterministic evidence and receipts every interaction intent"
         },
         {
           "file": "packages/contracts/test/scene-privacy.test.ts",
-          "marker": "refuses every private sentinel, private talk, operator lanes and nested extensions"
+          "test": "refuses every private sentinel, private talk, operator lanes and nested extensions"
         }
       ]
     },
@@ -326,11 +274,11 @@
       "evidence": [
         {
           "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
-          "marker": "// The headless consumer builds a 3D scene graph: frame groups, and nodes at frame-local x, y, z."
+          "test": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
         },
         {
           "file": "apps/web/test/boundaries.test.mjs",
-          "marker": "keeps renderer SDK types and its renderer out of the headless 3D adapter fixture's whole program"
+          "test": "keeps renderer SDK types and its renderer out of the headless 3D adapter fixture's whole program"
         }
       ]
     }
@@ -344,15 +292,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A real transport interruption retires the old owner, then resumes the acknowledged state."
-        },
-        {
-          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
-          "marker": "commits before notification and fences retired transport work"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// F1: deliberately close the first socket before its snapshot reaches the client."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
+        },
+        {
+          "file": "apps/web/test/stream-convergence.journey.contract.test.ts",
+          "test": "commits before notification and fences retired transport work"
         }
       ]
     },
@@ -364,11 +312,11 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// Hide one committed event from this audience: the authorized history now has a real gap."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         },
         {
           "file": "apps/web/test/convergence-recovery.journey.contract.test.ts",
-          "marker": "bounds gaps, retires recovery and preserves discarded revision obligations"
+          "test": "bounds gaps, retires recovery and preserves discarded revision obligations"
         }
       ]
     },
@@ -380,11 +328,11 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-admission.postgres.test.ts",
-          "marker": "// \u00a716 stale join assertion: one signed under the stale epoch 1 is refused and admits"
+          "test": "native authenticated hibernatable scene admission gates every upgrade and exposes only safe operational metadata"
         },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// A changed authority epoch ends a socket admitted under the old one."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         }
       ]
     },
@@ -396,15 +344,19 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-admission.postgres.test.ts",
-          "marker": "// The same credential ceases to work immediately after revocation or provider expiry."
+          "test": "native authenticated hibernatable scene admission gates every upgrade and exposes only safe operational metadata"
         },
         {
           "file": "apps/web/test/query-state.journey.contract.test.ts",
-          "marker": "retires scope and credential lifetimes, refusal and sign-out without late interference"
+          "test": "retires scope and credential lifetimes, refusal and sign-out without late interference"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// F4: the stored session expires; an ordinary read denies it until a renewed session signs in."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -416,11 +368,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// A narrowed ceiling forces a snapshot that keeps nothing of the prior audience."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         }
       ]
     },
@@ -432,7 +388,7 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// This drops the production stream service, retaining only workerd socket attachments."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         }
       ],
       "deviation": "Local workerd only; hosted hibernation pending on issue 3."
@@ -445,7 +401,7 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "scene-before-redeploy"
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         }
       ],
       "deviation": "Local equivalent only; hosted redeploy pending on issue 3."
@@ -458,11 +414,11 @@
       "evidence": [
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// Fill the bounded ledger, then coalesce two committed revisions until an ack frees it."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         },
         {
           "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
-          "marker": "// Pressure is retryable; with nothing applied since, the jittered delay doubles to (1 s, 2 s]."
+          "test": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
         }
       ]
     },
@@ -482,19 +438,23 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The destination's placeholder presentation fails after its renderer loaded."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
-          "marker": "// \u00a716 asset 404: the reviewed atlas is missing behind a loaded renderer."
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgpu)"
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgl2)"
         },
         {
           "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// S9/F10: a corrupt copy is discarded and fetched again; the verified copy is drawn."
-        },
-        {
-          "file": "tests/e2e/arrival-truth.journey.browser.test.mjs",
-          "marker": "// A re-fetched copy that is corrupt too is refused: the text scene, never the atlas."
+          "test": "shows provisioning, failed and ready arrival, and refuses a hash-mismatched atlas"
         }
       ]
     },
@@ -506,7 +466,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// \u00a716 React error boundary: a throwing hall component leaves a focused, announced error"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -518,7 +482,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -530,15 +498,15 @@
       "evidence": [
         {
           "file": "apps/runtime/test/observer-authority.postgres.test.ts",
-          "marker": "separates observation, inspection and mutation at HTTP boundaries"
+          "test": "separates observation, inspection and mutation at HTTP boundaries"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A held obsolete authorization failure cannot erase a newer entity selection."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// F13: an observer without inspect authority sees the inspector denial."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -550,7 +518,11 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A narrowed grant forces a snapshot; nothing of the prior audience stays in memory or DOM."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -562,11 +534,15 @@
       "evidence": [
         {
           "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
-          "marker": "// A contiguous patch moves the node; replaying it is stale and changes nothing."
+          "test": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// The real Three.js bridge's applyPatch applies the next contiguous patch and ignores a stale one."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         }
       ]
     },
@@ -578,11 +554,19 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Reconnect: from the page observing its scene socket drop to the next ready scene."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
+        },
+        {
+          "file": "tests/e2e/living-hall.journey.browser.test.mjs",
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
         },
         {
           "file": "tests/visual/golden-states.journey.browser.test.mjs",
-          "marker": "// Every new scene socket is refused, then the live one drops: the shell keeps the committed"
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgpu)"
+        },
+        {
+          "file": "tests/visual/golden-states.journey.browser.test.mjs",
+          "test": "captures the Wave 4 golden states at each visual matrix viewport (webgl2)"
         }
       ]
     },
@@ -594,15 +578,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Context loss falls back to the text path; the committed projection is unchanged."
-        },
-        {
-          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
-          "marker": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A4: retry rebuilds the canvas from the retained reducer projection, without another socket."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
+        },
+        {
+          "file": "apps/web/test/scene-adapter.journey.contract.test.ts",
+          "test": "observes socket revisions, recovers gaps and supplies renderer-neutral 3D selection"
         }
       ],
       "deviation": "WebGL2 loses the canvas through the real WEBGL_lose_context; the WebGPU run calls the renderer's onDeviceLost callback directly, because a page has no standard way to lose a WebGPU device other than GPUDevice.destroy(), and Three ignores a destroyed device's loss. The path from a real WebGPU device loss to that callback is not exercised."
@@ -615,15 +599,15 @@
       "evidence": [
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// Each click is a read: no world fact, scene socket or renderer call changes."
-        },
-        {
-          "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
-          "marker": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
+          "test": "observes native authorized socket updates and recovery in Chromium (webgpu)"
         },
         {
           "file": "tests/e2e/living-hall.journey.browser.test.mjs",
-          "marker": "// A5: browser error-boundary handling leaves exact PostgreSQL world facts unchanged."
+          "test": "observes native authorized socket updates and recovery in Chromium (webgl2)"
+        },
+        {
+          "file": "apps/runtime/test/viewed-space.journey.postgres.test.ts",
+          "test": "changes the viewed space and follows a selected actor with one of five dispositions, without changing any world fact"
         }
       ]
     },
@@ -635,15 +619,15 @@
       "evidence": [
         {
           "file": "packages/contracts/test/scene-privacy.test.ts",
-          "marker": "refuses every private sentinel, private talk, operator lanes and nested extensions"
+          "test": "refuses every private sentinel, private talk, operator lanes and nested extensions"
         },
         {
           "file": "apps/runtime/test/scene-delivery.postgres.test.ts",
-          "marker": "// Operator-lane messages reach only an audience with the inspection grant."
+          "test": "native recoverable bounded scene delivery recovers from Journal and fences acknowledgement, pressure and audience changes"
         },
         {
           "file": "tests/load/realtime/fanout.journey.browser.test.mjs",
-          "marker": "// Opaque IDs and categories only: no principal, credential, payload or text reaches a point."
+          "test": "fans one committed change out to every scene socket and measures it per turn"
         }
       ]
     },
@@ -655,11 +639,7 @@
       "evidence": [
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// WebGL2 unavailable with the renderer loaded: the complete text scene remains ready."
-        },
-        {
-          "file": "tests/accessibility/text-path.journey.browser.test.mjs",
-          "marker": "// The renderer never loads, so the whole journey runs with no canvas at all (\u00a716)."
+          "test": "completes every Wave 4 journey without the canvas"
         }
       ]
     }
