@@ -23,6 +23,7 @@ import {
   decodeCatchUpWorkflowEnvelope,
   decodeLifecycleWorkflowEnvelope,
   type InternalGrantView,
+  JOURNAL_EVENT_TYPES,
   type JournalPostCommitNotifier,
   JournalRevisionConflictError,
   type LifecycleWorkflowEnvelope,
@@ -100,7 +101,9 @@ import {
   actorOfferCommand,
   actorPreparedResponder,
   actorResponder,
+  type PerceptionFocus,
   type PreparedResponder,
+  standingOf,
 } from "./actor-model.js";
 import {
   activationHintNotifier,
@@ -2150,6 +2153,13 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       case "subscription.create":
       case "intention.schedule": {
         const subscription = definition.name === "subscription.create";
+        // Issue 354: an actor follows only an event type the journal can hold, and is shown them.
+        if (subscription && !JOURNAL_EVENT_TYPES.includes(String(value.eventType)))
+          return refused("unknown_event_type", {
+            refused: "unknown_event_type",
+            eventType: value.eventType,
+            validEventTypes: JOURNAL_EVENT_TYPES,
+          });
         const id = `${subscription ? "self-subscription" : "self-intention"}-${digest}`;
         // The proposal's checkpointed issue time fixes the due time, so a retry rewrites the same.
         const dueAt = subscription
@@ -2310,9 +2320,15 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     }
   }
 
-  private perceive = async (scope: BrowserScope, participant: ConversationSessionParticipant) => {
+  private perceive = async (
+    scope: BrowserScope,
+    participant: ConversationSessionParticipant,
+    focus?: PerceptionFocus,
+  ) => {
     const context = this.#talkContext(participant);
-    return context === undefined ? undefined : perceiveScene(this.environment, scope, context);
+    return context === undefined
+      ? undefined
+      : perceiveScene(this.environment, scope, context, focus);
   };
 
   /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
@@ -2326,6 +2342,21 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       grants: (participant, session) =>
         this.grants(participant, session.scope, session.actorId, session.sessionId),
       perceive: this.perceive,
+      // Issue 354: the actor's own standing subscriptions and intentions, read from its activation
+      // policy under the member's authorization, whichever turn or session made them.
+      standing: async (participant, session) => {
+        const context = this.#talkContext(participant);
+        if (context === undefined) return [];
+        const address: ActivationAddress = {
+          scope: session.scope as ActivationAddress["scope"],
+          participant: { ...worldAuthorization(context), personaId: participant.personaId },
+          actorId: session.actorId,
+        };
+        return withActivations(this.environment, (store) => store.inspect(address)).then(
+          (inspection) => standingOf(inspection.configurations),
+          () => [],
+        );
+      },
       selfResults: async (participant, session) => {
         const context = this.#talkContext(participant);
         if (context === undefined) return [];

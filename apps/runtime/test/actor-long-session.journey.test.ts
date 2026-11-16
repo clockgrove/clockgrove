@@ -163,7 +163,7 @@ it("a long session with a full summary and history keeps getting answers on the 
     );
   const cost = lastStep.cost ?? Number.NaN;
   const second = (await withEvidence(8_192)).reserveMicrousd;
-  expect([lastStep.reserve, cost, second]).toEqual([92_328, 16_400, 124_532]);
+  expect([lastStep.reserve, cost, second]).toEqual([92_872, 16_400, 125_076]);
   expect(lastStep.reserve + second).toBeLessThanOrEqual(250_000);
 
   // The same second step when its primary route fails: the fallback reserves its own worst case
@@ -225,9 +225,9 @@ it("a long session with a full summary and history keeps getting answers on the 
       outcomeCode: "cost_budget_exhausted",
       usage: { costMicrousd: 0 },
     },
-    asked: [124_532],
+    asked: [125_076],
     routes: [route],
-    turnHeld: 140_932,
+    turnHeld: 141_476,
     record: { decision: "budget_refused", attempts: [[route, "unavailable"]] },
   });
   // A store that cannot answer the fallback's reservation is not a spent budget: the step rejects
@@ -236,16 +236,16 @@ it("a long session with a full summary and history keeps getting answers on the 
   const storeDown = new Error("store unavailable");
   expect(await fallbackCase(4_096, storeDown)).toMatchObject({
     answer: { rejected: storeDown },
-    asked: [108_148],
+    asked: [108_692],
     routes: [route],
     record: { decision: "exhausted", attempts: [[route, "unavailable"]] },
   });
   // 16,400 settled + 108,148 for the primary + 108,148 for the fallback = 232,696.
   expect(await fallbackCase(4_096)).toMatchObject({
     answer: { text: "From the fallback.", usage: { costMicrousd: 16_400 } },
-    asked: [108_148],
+    asked: [108_692],
     routes: [route, "anthropic/claude-opus-5-5"],
-    turnHeld: 232_696,
+    turnHeld: 233_784,
     record: {
       decision: "fallback",
       attempts: [
@@ -485,4 +485,52 @@ it("a tool catalog of any size stays within the request's fixed parts", async ()
   expect(bytes(catalog)).toBeGreaterThan(16_384);
   expect(entries.at(-1)?.omitted).toBe(256 - (entries.length - 1));
   expect(entries.length - 1).toBeGreaterThan(0);
+});
+
+it("an actor's prompt lists what it perceives, named and nearest first, in a crowded yard", () => {
+  // A 30-entity yard: the keeper, 28 stones (stone-27 nearest), a dead one, and the offerable bowl
+  // created last and farthest away; a stranger stands in another space.
+  const at = (x: number) => ({ frameId: "yard", frameVersion: 1, coordinates: [BigInt(x), 0n] });
+  const stones = Array.from({ length: 28 }, (_, i) => ({
+    objectId: `stone-${String(i).padStart(2, "0")}`,
+    spaceId: "yard",
+    pose: at(1_000 * (28 - i)),
+  }));
+  const entities = [
+    { objectId: "keeper", spaceId: "yard", pose: at(0) },
+    ...stones,
+    { objectId: "fallen", spaceId: "yard", pose: at(1), lifecycle: { status: "dead" } },
+    {
+      objectId: "zz-bowl",
+      spaceId: "yard",
+      pose: at(900_000),
+      resource: { kind: "water", quantity: 3 },
+    },
+    { objectId: "stranger", spaceId: "street", pose: at(2) },
+  ];
+  const label = (id: string) => (id === "zz-bowl" ? "Water Bowl" : id);
+  const scene = {
+    revision: "9",
+    weather: { rainIntensity: 0 },
+    entities: entities.map(({ objectId }) => ({
+      objectId,
+      archetypeId: "thing",
+      presentation: { label: label(objectId) },
+    })),
+  } as unknown as LivingScene;
+  const state = { entities } as unknown as WorldState;
+  const message = "May I have some from the water bowl?";
+  const digest = describeScene(scene, state, { actorId: "keeper", message }).digest;
+  expect(digest.split("\n")).toEqual([
+    "Scene revision 9, rain intensity 0:",
+    "- zz-bowl: Water Bowl (thing), holds 3 water (offerable)",
+    "- keeper: keeper (thing)",
+    ...stones
+      .slice(6)
+      .reverse()
+      .map(({ objectId }) => `- ${objectId}: ${objectId} (thing)`),
+    "(6 more perceived, not listed)",
+  ]);
+  // Replay reads the same state and message, and perceives the same order.
+  expect(describeScene(scene, state, { actorId: "keeper", message }).digest).toBe(digest);
 });

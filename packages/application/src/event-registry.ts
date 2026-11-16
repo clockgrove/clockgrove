@@ -35,3 +35,8 @@ export const JOURNAL_EVENT_REGISTRY = createEventTypeRegistry(
     ...WORLD_KERNEL_EVENT_TYPES,
   ].map((type) => ({ type, schemaVersion: 2 })),
 );
+
+/** Every type the journal registry holds, in UTF-16 order: what an actor may subscribe to (issue 354). */
+export const JOURNAL_EVENT_TYPES: readonly string[] = Object.freeze(
+  [...new Set(JOURNAL_EVENT_REGISTRY.entries.map((entry) => entry.type))].sort(compareUtf16),
+);

@@ -72,7 +72,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { ActivationOwners } from "./activation-routes.js";
-import { type ActorScene, describeScene } from "./actor-model.js";
+import { type ActorScene, describeScene, type PerceptionFocus } from "./actor-model.js";
 import {
   composeReferenceAuthentication,
   composeWorldMcpAuthentication,
@@ -352,17 +352,21 @@ export function composeConversations(
   };
 }
 
-/** What the actor perceives: the member's authorized public scene, read over this invocation's connection. */
+/**
+ * What the actor perceives (issue 354): the entities of the member's authorized public scene the
+ * actor itself perceives, ordered for the turn's message, read over this invocation's connection.
+ */
 export function perceiveScene(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   scope: BrowserScope,
   context: TrustedContext,
+  focus?: PerceptionFocus,
 ): Promise<ActorScene> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
     const { scene, stored } = await new PostgreSqlLivingSceneReader(
       new PostgreSqlWorldOwnerReader(client),
     ).observeCanonical(scope, context);
-    return describeScene(scene, stored.document.state);
+    return describeScene(scene, stored.document.state, focus);
   });
 }
 
