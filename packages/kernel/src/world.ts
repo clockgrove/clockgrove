@@ -112,6 +112,7 @@ import {
   type ScheduleQueue,
   upsertSchedule,
 } from "./scheduler.js";
+import { impossibleSelections } from "./selection.js";
 import { guardDomain, parseMovementPayloadAtBoundary } from "./spatial/boundary.js";
 import {
   type DwellPayload,
@@ -1577,6 +1578,25 @@ function runWorld(
       }),
     };
   }
+  /** Actors that arrived in the current group and consumed nothing. */
+  const unserved = new Set<string>();
+  /**
+   * Brings forward the queued decision of each actor whose selected action stopped being possible
+   * (`impossibleSelections`). True when a decision other than the mover's moved: the drain over the
+   * old queue must then run again.
+   */
+  function redecideImpossible(at: SimTimeMs): boolean {
+    let again = false;
+    for (const objectId of impossibleSelections(current(), unserved)) {
+      const queued = decisionsOf(schedules).find(
+        (candidate) => candidate.payload.objectId === objectId,
+      );
+      if (queued === undefined || queued.dueAt <= at) continue;
+      reschedule(queued, at);
+      if (objectId !== mover) again = true;
+    }
+    return again;
+  }
   /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
   function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
@@ -1589,6 +1609,7 @@ function runWorld(
       new Map(),
       moved,
     );
+    if (moved && plan.consume === undefined) unserved.add(objectId);
     if (plan.location !== undefined)
       emit(
         event("location.changed", at, {
@@ -2510,12 +2531,21 @@ function runWorld(
       let rebuildAt: SimTimeMs | undefined;
       for (const group of groups) {
         arrivedActors = [];
+        unserved.clear();
         if (!emitGroup(group)) {
           fits = false;
           break;
         }
         if (lifecycleChanged || shelterChanged) {
           rebuildAt = group.time;
+          break;
+        }
+        // Food that an arrival ate, spoiled or evaporated leaves other actors' selections impossible.
+        if (
+          (arrivedActors.length > 0 || group.spoiled.length > 0 || group.water.length > 0) &&
+          redecideImpossible(group.time)
+        ) {
+          restartAt = group.time;
           break;
         }
         // An arrival, or an entry whose dwell falls due within this drain, restarts the drain here.
@@ -2558,6 +2588,7 @@ function runWorld(
             complete = false;
             break;
           }
+          redecideImpossible(processTime);
           engine = run = buildRun();
           continue;
         }
@@ -2710,6 +2741,8 @@ function runWorld(
       const nextDueAt = item.dueAt + policy.decisionIntervalMs;
       if (nextDueAt > MAX_TIME) throw new RangeError("next decision exceeds simulation-time range");
       reschedule(item, nextDueAt as SimTimeMs);
+      unserved.clear();
+      redecideImpossible(item.dueAt);
       dispatched += 1;
       if (spec.scheduled !== undefined) {
         // A scheduled decision stops once it has been dispatched; it never advances time further.
@@ -4072,8 +4105,35 @@ function runContainmentCommand(
       : [];
   for (const change of mutations)
     if (change.kind === "cancel") schedules = cancelSchedule(schedules, change.scheduleId);
+  // A retired target, or food consumed or moved away, brings forward the decision of each actor
+  // whose selected action it was.
+  const brought: WorldScheduleMutation[] = [];
+  if (type === "object.retire" || type === "resource.consume" || type === "resource.transfer") {
+    for (const objectId of impossibleSelections(final)) {
+      const queued = decisionsOf(schedules).find(
+        (candidate) => candidate.payload.objectId === objectId,
+      );
+      if (queued === undefined || queued.dueAt <= state.simulationTime) continue;
+      const next = Object.freeze({
+        ...queued,
+        dueAt: state.simulationTime,
+        payload: Object.freeze({ ...queued.payload }),
+        idempotencyKey: `${queued.id}:${state.simulationTime}`,
+      });
+      schedules = upsertSchedule(schedules, next);
+      brought.push(
+        Object.freeze({
+          kind: "upsert",
+          scheduleId: next.id,
+          dueAt: next.dueAt,
+          payload: next.payload,
+          item: next,
+        }),
+      );
+    }
+  }
   return {
-    scheduleMutations: mutations as readonly WorldScheduleMutation[],
+    scheduleMutations: [...(mutations as readonly WorldScheduleMutation[]), ...brought],
     projectionDelta: {
       schemaVersion: 1,
       partitionId: state.partitionId,

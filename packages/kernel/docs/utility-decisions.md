@@ -136,7 +136,19 @@ final-state and trace hashes are unchanged.
 object-id order (`movement.completed`, `location.changed`, `resource.consumed`, `needs.relieved`, then
 `comfort.changed`), then decisions (`routine.selected`, then the decision's plan in its step order: for a new seek the unlocating
 `location.changed` then `movement.started`; for a `stay` that stops a walk `movement.interrupted` then the
-stopping `location.changed`; for a walk stopped at its new target `movement.interrupted` then the arrival). Arrivals never bring a decision forward.
+stopping `location.changed`; for a walk stopped at its new target `movement.interrupted` then the arrival). An arrival does not bring its own actor's decision forward.
+
+**Re-deciding when a selection becomes impossible.** An actor's queued decision is brought forward to the instant its
+selected `seek-food`, `seek-water` or `seek-shelter` action stops being possible (`impossibleSelections`, using the
+scorer's own test of a target): the target is retired or no longer the resource kind, or its holder has none of the
+resource (an arrival ate it, it spoiled or evaporated, a process or `resource.transfer` moved it). A holder with none
+stops an actor still walking to it, and an actor that arrived at it in the same instant and consumed nothing; an actor
+that ate there, or is settled there, keeps its action. The check runs after each time group with an arrival, spoilage or
+water change, after a process fires, after a decision, and in `object.retire`, `resource.consume` and
+`resource.transfer`. A decision already due, or one that a move would never drain (the mover's own), is not moved
+further; a move's mover falls due at its end as before. `portal.close` needs no hook: it is refused while an active
+movement still has to cross the portal, so a route never closes under a walker. Two hungry actors
+heading for one unit of food: the second re-decides at the instant the first eats it.
 
 **`maxEvents`.** The exact minimum is unchanged by utility: `perActor*actors + plants + 1`, with `perActor` 2
 (`needs.changed` and `wellbeing.integrated` per actor, utility requires wellbeing); a smaller value is

@@ -102,6 +102,10 @@ pairs with equivalence and equal hashes), identical in Node and Workers, plus a 
 `comparison` summary, all in `scheduler.json` and validated by `test/spatial-evidence.ts`; see
 [Evidence report files](evidence.md#evidence-report-files).
 
+`world.advance` and the containment commands (`object.retire`, `resource.consume`, `resource.transfer`) also bring a
+queued `world.decision` forward to the instant its actor's selected action stops being possible, in the same single
+upsert as a wellbeing crossing ([utility decisions](utility-decisions.md)); they never move one later.
+
 Outside this pure scheduler, and built on main: durable schedules in PostgreSQL (Wave 2 §7.3,
 "Durable schedules"), and the timeline clock policy, its wall-clock mapping, alarms and the catch-up
 Workflow in the runtime (Wave 3 §10, "Perpetual scheduling and alarms"; see the
