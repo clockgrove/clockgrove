@@ -225,7 +225,10 @@ describe("migration backfills and contract steps", () => {
       // A routine an earlier migration created, called again.
       "0007_call.sql": "SELECT clockgrove.purge_probe();",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe;",
-      "0009_drop.sql": "DROP TABLE clockgrove.probe;",
+      "0009_merge.sql":
+        "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE;",
+      "0010_type.sql": "ALTER TABLE clockgrove.probe ALTER COLUMN id TYPE bigint;",
+      "0011_drop.sql": "DROP TABLE clockgrove.probe;",
     };
     const destroys: Record<string, string> = {
       "0002_delete.sql": "DELETE FROM clockgrove.probe WHERE id = 1",
@@ -236,7 +239,10 @@ describe("migration backfills and contract steps", () => {
       "0006_function.sql": purge,
       "0007_call.sql": purge,
       "0008_truncate.sql": "TRUNCATE clockgrove.probe",
-      "0009_drop.sql": "DROP TABLE clockgrove.probe",
+      "0009_merge.sql":
+        "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE",
+      "0010_type.sql": "ALTER TABLE clockgrove.probe ALTER COLUMN id TYPE bigint",
+      "0011_drop.sql": "DROP TABLE clockgrove.probe",
     };
     for (const [name, sql] of Object.entries(migrations))
       await writeFile(join(directory, name), sql);

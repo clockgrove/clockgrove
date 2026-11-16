@@ -1,19 +1,22 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { loadModule, parsePlPgSQLSync, parseSync, scanSync } from "libpg-query";
 
 // Contract steps (docs/runbooks/database.md, "expand → backfill → verify → switch → contract"). A
-// migration that deletes, truncates or drops clockgrove data, or rewrites an append-only table, runs
-// only when `contract-steps.json` beside it declares it: the exact bytes it was reviewed at (SHA-256,
-// the checksum `clockgrove.schema_migrations` records), the statements that destroy data, the restore
+// migration that deletes, truncates, drops or rewrites clockgrove data runs only when
+// `contract-steps.json` beside it declares it: the exact bytes it was reviewed at (SHA-256, the
+// checksum `clockgrove.schema_migrations` records), the statements that destroy data, the restore
 // point the deploy needs first and the issue or pull request that approved its release.
 //
-// The check reads what a migration runs: its statements, the bodies of its DO blocks (with or without
-// a LANGUAGE clause), every string literal and every other dollar-quoted string (so SQL handed to
-// EXECUTE is read, nested ones included), and the body of every function or procedure that it calls,
-// by name, when this or an earlier migration created it (followed through the functions that body
-// calls). It does not read SQL assembled at run time from pieces, or a trigger function, which runs
-// on a later write and is reviewed as code.
+// The check walks PostgreSQL's own parse tree (`libpg-query`, libpg_query built from the PostgreSQL 18
+// parser), so it sees a statement however it is written. It reads the migration's statements; the
+// body of each DO block; every string constant that parses as SQL (format placeholders filled in
+// first), so SQL handed to EXECUTE is read, nested ones included; every SQL or PL/pgSQL expression in
+// a PL/pgSQL body; and the body of each function or procedure the migration calls by name, when this
+// or an earlier migration created it (followed through the routines that body calls). It does not read
+// SQL assembled at run time from pieces, or a trigger function, which runs on a later write and is
+// reviewed as code. A migration that does not parse cannot be verified and is refused.
 
 export const CONTRACT_STEPS_FILE = "contract-steps.json";
 
@@ -22,149 +25,202 @@ export const CONTRACT_STEPS_FILE = "contract-steps.json";
  * canonical journal, authority or artifact records, so a migration that rewrites one is a contract
  * step. Event payloads evolve through upcasters, never rewrites (docs/runbooks/database.md).
  */
-const APPEND_ONLY = String.raw`clockgrove\.(?:events|authority_decisions|artifact_references|snapshots)\b`;
+const APPEND_ONLY = new Set(["events", "authority_decisions", "artifact_references", "snapshots"]);
 
-/** Destroys data wherever it appears in a statement. */
-const destroysAnywhere = [
-  /\bDELETE\s+FROM\b/iu,
-  // Not a trigger event or a privilege: `BEFORE TRUNCATE ON`, `UPDATE OR TRUNCATE OR …`.
-  /\bTRUNCATE\s+(?!(?:ON|OR)\b)/iu,
-  new RegExp(String.raw`\bUPDATE\s+(?:ONLY\s+)?${APPEND_ONLY}`, "iu"),
-  // Replica mode skips the triggers that keep journal tables immutable.
-  /(?<!\bRESET\s+)\bsession_replication_role\b(?!\s*(?:=|\bTO\b)\s*(?:DEFAULT|origin)\b)/iu,
-];
+const appendOnly = (relation) =>
+  relation?.schemaname === "clockgrove" && APPEND_ONLY.has(relation.relname);
 
-/** Destroys data as a statement of its own, at its start or after a PL/pgSQL BEGIN, THEN, ELSE or LOOP. */
-const destroysAsStatement = [
-  /^DROP\s+(?:TABLE|SCHEMA|DATABASE|OWNED|MATERIALIZED\s+VIEW)\b/iu,
-  /^DROP\b.*\bCASCADE\b/isu,
-  /^ALTER\s+TABLE\b.*\bDROP\s+(?!CONSTRAINT\b|DEFAULT\b|NOT\s+NULL\b|EXPRESSION\b|IDENTITY\b)/isu,
-  new RegExp(
-    String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${APPEND_ONLY}.*\bALTER\s+(?:COLUMN\s+)?\S+\s+(?:SET\s+DATA\s+)?TYPE\b`,
-    "isu",
-  ),
-];
+const stringOf = (constant) => constant?.A_Const?.sval?.sval;
 
-/** `CREATE [OR REPLACE] FUNCTION|PROCEDURE <name>(`, capturing the name. */
-const CREATES_ROUTINE =
-  /\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+((?:[\w$]+\.)?[\w$]+)\s*\(/iu;
+/** Replica mode skips the triggers that keep journal tables immutable. */
+const isSafeRole = (value) => ["default", "origin"].includes(String(value).toLowerCase());
+
+const setsReplicaRole = (node) =>
+  node?.name === "session_replication_role" &&
+  !(
+    node.kind === "VAR_SET_DEFAULT" ||
+    node.kind === "VAR_RESET" ||
+    (node.kind === "VAR_SET_VALUE" && isSafeRole(stringOf(node.args?.[0])))
+  );
+
+/** Node types that destroy data, by the parse-tree key; each returns whether `node` does. */
+const DESTROYS = {
+  DeleteStmt: () => true,
+  TruncateStmt: () => true,
+  DropdbStmt: () => true,
+  DropOwnedStmt: () => true,
+  UpdateStmt: (node) => appendOnly(node.relation),
+  MergeStmt: (node) =>
+    (node.mergeWhenClauses ?? []).some(
+      ({ MergeWhenClause: clause }) =>
+        clause.commandType === "CMD_DELETE" ||
+        (clause.commandType === "CMD_UPDATE" && appendOnly(node.relation)),
+    ),
+  InsertStmt: (node) =>
+    node.onConflictClause?.action === "ONCONFLICT_UPDATE" && appendOnly(node.relation),
+  DropStmt: (node) =>
+    node.behavior === "DROP_CASCADE" ||
+    ["OBJECT_TABLE", "OBJECT_SCHEMA", "OBJECT_MATVIEW", "OBJECT_FOREIGN_TABLE"].includes(
+      node.removeType,
+    ),
+  // A dropped column loses its data and a type change rewrites every row.
+  AlterTableStmt: (node) =>
+    (node.cmds ?? []).some(({ AlterTableCmd: command }) =>
+      ["AT_DropColumn", "AT_AlterColumnType"].includes(command.subtype),
+    ),
+  VariableSetStmt: setsReplicaRole,
+  // The tree holds the statement itself, not a wrapped node.
+  AlterRoleSetStmt: (node) => setsReplicaRole(node.setstmt),
+  AlterDatabaseSetStmt: (node) => setsReplicaRole(node.setstmt),
+  FuncCall: (node) =>
+    lastName(node.funcname) === "set_config" &&
+    stringOf(node.args?.[0])?.toLowerCase() === "session_replication_role" &&
+    !isSafeRole(stringOf(node.args?.[1])),
+};
+
+let loaded;
+
+const lastName = (names) => names?.at(-1)?.String?.sval?.toLowerCase();
 
 /**
  * The statements of `sql` that destroy data, whitespace collapsed, in order, then those of each
  * routine it calls, as `<routine>(): <statement>`. `routines` holds the routines earlier migrations
- * created, by lower-case name without schema; this migration's are added to it.
+ * created, by lower-case name without schema; this migration's are added to it. Throws when `sql`
+ * does not parse.
  */
-export function destructiveStatements(sql, routines = new Map()) {
-  const { text, pieces, functions } = scan(sql);
-  const known = [...routines.values(), ...functions];
-  for (const routine of functions) routines.set(routine.key, routine);
-  return [...new Set(destroysOf([text, ...pieces], known, new Set()))];
+export async function destructiveStatements(sql, routines = new Map()) {
+  loaded ??= loadModule();
+  await loaded;
+  const ctx = { found: [], called: new Set(), created: [], strict: true };
+  analyzeSql(sql, ctx);
+  const known = [...routines.values(), ...ctx.created];
+  for (const created of ctx.created) routines.set(created.key, created);
+  return [...new Set(reach(ctx, known, new Set()))];
 }
 
-/** What `executed` destroys itself, then through each of `routines` that it calls. */
-function destroysOf(executed, routines, visiting) {
-  const found = executed.flatMap((text) => text.split(";").flatMap(destroyingStatement));
+/** What `ctx` found, then what each of `routines` that it calls destroys. */
+function reach(ctx, routines, visiting) {
+  const found = [...ctx.found];
   for (const routine of routines) {
-    if (visiting.has(routine) || !executed.some((text) => routine.call.test(text))) continue;
+    if (visiting.has(routine) || !ctx.called.has(routine.key)) continue;
     visiting.add(routine);
-    const body = scan(routine.body);
-    for (const statement of destroysOf([body.text, ...body.pieces], routines, visiting))
+    for (const statement of reach(bodyOf(routine), routines, visiting))
       found.push(`${routine.name}(): ${statement}`);
     visiting.delete(routine);
   }
   return found;
 }
 
-/** `statement` collapsed and without leading PL/pgSQL block words, if it destroys data. */
-function destroyingStatement(statement) {
-  const text = statement
-    .replace(/\s+/gu, " ")
-    .trim()
-    .replace(/^(?:(?:BEGIN|THEN|ELSE|LOOP)\s+)+/iu, "");
-  const starts = [
-    0,
-    ...[...text.matchAll(/\b(?:BEGIN|THEN|ELSE|LOOP)\b/giu)].map((m) => m.index + m[0].length),
-  ];
-  const destroys =
-    destroysAnywhere.some((pattern) => pattern.test(text)) ||
-    starts.some((start) => {
-      const rest = text.slice(start).trim();
-      return destroysAsStatement.some((pattern) => pattern.test(rest));
-    });
-  return destroys ? [text] : [];
+function bodyOf(routine) {
+  const ctx = { found: [], called: new Set(), created: [], strict: true };
+  if (routine.language === "plpgsql") analyzePlpgsql(routine.text, ctx);
+  else if (routine.language === "sql" && routine.body !== undefined) analyzeSql(routine.body, ctx);
+  if (routine.sqlBody) visit(routine.sqlBody, routine.text, ctx);
+  return ctx;
 }
 
 /**
- * What `sql` runs now. `text` is `sql` without comments, each string literal and dollar-quoted string
- * blanked to `''`, except a DO block's body, which is inlined. `pieces` holds the executed text of
- * every literal and every other dollar-quoted string, so SQL handed to EXECUTE is read. `functions`
- * holds the routines `sql` creates, whose bodies run only when called.
+ * Parses `sql` and visits its statements. `original` is the text that was parsed from, same byte for
+ * byte in length, which statements are reported from; `whole` reports every statement as that text.
+ * A text that does not parse throws when `ctx.strict`, else it is not SQL and returns false.
  */
-function scan(sql) {
-  let text = "";
-  const pieces = [];
-  const functions = [];
-  const add = (inner) => {
-    pieces.push(...inner.pieces);
-    functions.push(...inner.functions);
-  };
-  let index = 0;
-  while (index < sql.length) {
-    const rest = sql.slice(index);
-    const dollar = rest.match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/u);
-    if (rest.startsWith("--")) {
-      const end = rest.indexOf("\n");
-      index += end === -1 ? rest.length : end;
-    } else if (rest.startsWith("/*")) {
-      const end = rest.indexOf("*/", 2);
-      index += end === -1 ? rest.length : end + 2;
-    } else if (rest.startsWith("'")) {
-      const literal = rest.match(/^'(?:[^']|'')*'?/u)[0];
-      const inner = scan(literal.slice(1, -1).replaceAll("''", "'"));
-      pieces.push(inner.text);
-      add(inner);
-      text += "''";
-      index += literal.length;
-    } else if (dollar) {
-      const tag = dollar[0];
-      const end = rest.indexOf(tag, tag.length);
-      const body = rest.slice(tag.length, end === -1 ? rest.length : end);
-      const statement = text.slice(text.lastIndexOf(";") + 1);
-      const created = statement.match(CREATES_ROUTINE);
-      if (/\bDO(?:\s+LANGUAGE\s+(?:\w+|''))?\s*$/iu.test(text)) {
-        const inner = scan(body);
-        text += `; ${inner.text};`;
-        add(inner);
-      } else if (created && /\bAS\s*$/iu.test(statement)) {
-        functions.push(routine(created[1], body));
-        text += "''";
-      } else {
-        const inner = scan(body);
-        pieces.push(inner.text);
-        add(inner);
-        text += "''";
-      }
-      index += tag.length + body.length + (end === -1 ? 0 : tag.length);
-    } else {
-      text += sql[index];
-      index += 1;
-    }
+function analyzeSql(sql, ctx, original = sql, whole = undefined) {
+  let tree;
+  try {
+    tree = parseSync(sql);
+  } catch (error) {
+    if (ctx.strict) throw error;
+    return false;
   }
-  return { text, pieces, functions };
+  const bytes = Buffer.from(original);
+  for (const { stmt, stmt_location: start = 0, stmt_len: length } of tree.stmts ?? []) {
+    const end = length ? start + length : bytes.length;
+    visit(stmt, whole ?? bytes.subarray(start, end).toString(), ctx);
+  }
+  return true;
 }
 
-/**
- * A routine named `name` with `body`. `call` finds a call of it: its name, schema-qualified or not,
- * followed by `(`, but not where FUNCTION, PROCEDURE or ROUTINE names it (CREATE, ALTER, DROP,
- * COMMENT ON, GRANT ON or a trigger's EXECUTE FUNCTION).
- */
-function routine(name, body) {
-  const key = name.split(".").at(-1).toLowerCase();
-  const call = new RegExp(
-    String.raw`(?<!\b(?:FUNCTION|PROCEDURE|ROUTINE)\s+(?:IF\s+EXISTS\s+)?)(?<![\w$."])(?:[\w$]+\.)?${key.replaceAll("$", "\\$")}\s*\(`,
-    "iu",
+/** `statement` without comments, whitespace collapsed and without its trailing `;`. */
+function readable(statement) {
+  const bytes = Buffer.from(statement);
+  let text = "";
+  let at = 0;
+  for (const token of scanSync(statement).tokens ?? []) {
+    if (!token.tokenName.endsWith("COMMENT")) continue;
+    text += `${bytes.subarray(at, token.start)} `;
+    at = token.end;
+  }
+  text += bytes.subarray(at);
+  return text.replace(/\s+/gu, " ").trim().replace(/;$/u, "").trim();
+}
+
+/** Records what the parse-tree `node`, part of the statement whose source is `text`, destroys, calls or creates. */
+function visit(node, text, ctx) {
+  if (Array.isArray(node)) {
+    for (const child of node) visit(child, text, ctx);
+    return;
+  }
+  if (node === null || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) {
+    if (DESTROYS[key]?.(value)) ctx.found.push(readable(text));
+    if (key === "FuncCall") ctx.called.add(lastName(value.funcname));
+    else if (key === "A_Const" && typeof value.sval?.sval === "string")
+      analyzeString(value.sval.sval, { ...ctx, strict: false });
+    else if (key === "DoStmt") analyzePlpgsql(text, ctx);
+    else if (key === "CreateFunctionStmt") ctx.created.push(createdRoutine(value, text));
+    if (key !== "sqlBody") visit(value, text, ctx);
+  }
+}
+
+function createdRoutine(node, text) {
+  const options = Object.fromEntries(
+    node.options.map(({ DefElem: option }) => [option.defname, option.arg]),
   );
-  return { name, key, body, call };
+  return {
+    name: node.funcname.map((part) => part.String.sval).join("."),
+    key: lastName(node.funcname),
+    language: options.language?.String?.sval?.toLowerCase(),
+    body: options.as?.List?.items?.[0]?.String?.sval,
+    sqlBody: node.sqlBody,
+    text,
+  };
+}
+
+/** A string constant that parses as SQL, once format placeholders hold a place, length for length. */
+function analyzeString(value, ctx) {
+  const sql = value.replace(/%%|%(?:\d+\$)?[-\d]*[IsL]/gu, (placeholder) => {
+    if (placeholder === "%%") return "% ";
+    return placeholder.endsWith("L")
+      ? "$1".padEnd(placeholder.length)
+      : "z".repeat(placeholder.length);
+  });
+  analyzeSql(sql, ctx, value);
+}
+
+/** The SQL and expressions of a PL/pgSQL body: a DO statement or a CREATE FUNCTION or PROCEDURE. */
+function analyzePlpgsql(statement, ctx) {
+  let tree;
+  try {
+    tree = parsePlPgSQLSync(statement);
+  } catch (error) {
+    if (ctx.strict) throw error;
+    return;
+  }
+  visitPlpgsql(tree, ctx);
+}
+
+function visitPlpgsql(node, ctx) {
+  if (node === null || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(Array.isArray(node) ? node : node)) {
+    if (key !== "PLpgSQL_expr") {
+      visitPlpgsql(value, ctx);
+      continue;
+    }
+    const query =
+      value.parseMode === 3 ? value.query.slice(value.query.indexOf(":=") + 2) : value.query;
+    if (!analyzeSql(query, { ...ctx, strict: false }))
+      analyzeSql(`SELECT ${query}`, ctx, `SELECT ${query}`, query);
+  }
 }
 
 /**
@@ -184,7 +240,13 @@ export async function assertContractSteps(directory, names) {
   const routines = new Map();
   for (const name of [...names].sort()) {
     const sql = await readFile(path.join(directory, name), "utf8");
-    const destroys = destructiveStatements(sql, routines);
+    let destroys;
+    try {
+      destroys = await destructiveStatements(sql, routines);
+    } catch (error) {
+      problems.push(`${name} cannot be parsed, so it cannot be verified: ${error.message}`);
+      continue;
+    }
     const step = declared[name];
     if (destroys.length === 0 && step === undefined) continue;
     if (step === undefined) {

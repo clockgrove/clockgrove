@@ -110,7 +110,7 @@ All five Wrangler configurations enable `nodejs_compat`.
 ## Pinned dependency selection
 
 Official npm publication metadata was read at `2026-10-06T06:17:05.204Z`, and again on `2026-11-10` for
-the rows the minor-and-patch npm update moved; every selection is older than the unchanged 1440-minute
+the rows the minor-and-patch npm update moved, and on `2026-11-16` for `libpg-query` (the newest 18.x, matching PostgreSQL 18; it has no install script and one dependency, `@pgsql/types`); every selection is older than the unchanged 1440-minute
 release-age cutoff at its selection. These are the newest eligible stable releases; Node typings stay on the supported Node 24 major. All resolved
 dependencies must also pass pnpm's unchanged age, provenance and build controls during
 `pnpm install --frozen-lockfile --ignore-scripts`. No release-age exclusions are authorized.
@@ -128,6 +128,7 @@ dependencies must also pass pnpm's unchanged age, provenance and build controls 
 | [dependency-cruiser](https://registry.npmjs.org/dependency-cruiser) | `18.7.1` | `2026-11-01T23:44:30.330Z` |
 | [drizzle-orm](https://registry.npmjs.org/drizzle-orm) | `0.45.4` | `2026-10-08T10:50:41.953Z` |
 | [kysely](https://registry.npmjs.org/kysely) | `0.29.8` | `2026-11-01T02:05:55.068Z` |
+| [libpg-query](https://registry.npmjs.org/libpg-query) | `18.2.4` | `2026-11-12T22:35:18.214Z` |
 | [@types/pg](https://registry.npmjs.org/%40types%2Fpg) | `8.23.1` | `2026-08-17T20:10:18.296Z` |
 | [pnpm](https://registry.npmjs.org/pnpm) | `12.9.1` | `2026-10-03T20:48:16.304Z` |
 | [pg](https://registry.npmjs.org/pg) | `8.23.1` | `2026-09-30T15:39:58.489Z` |

@@ -157,21 +157,24 @@ A destructive contract step requires a verified backup/restore point and release
 migration path (`pnpm db:migrate`, `pnpm db:verify`, `pnpm test:db`, through `applyMigrations`) and
 `pnpm check` refuse, before anything is applied, a migration that deletes, truncates or drops data
 unless `db/migrations/contract-steps.json` declares it (`scripts/database/contract-steps.mjs`). It
-counts a statement that contains `DELETE FROM` or `TRUNCATE` anywhere (a `WITH … DELETE` too), a
-`DROP TABLE`/`SCHEMA`/`DATABASE`/`OWNED`/`MATERIALIZED VIEW`, an `ALTER TABLE … DROP` of a column,
-any `DROP … CASCADE`, and a rewrite of an append-only table: an `UPDATE` of, or an `ALTER COLUMN …
-TYPE` on, `clockgrove.events`, `authority_decisions`, `artifact_references` or `snapshots`, and any
-`session_replication_role` setting other than `DEFAULT` or `origin`, which skips the immutability
+reads each statement with PostgreSQL's own parser (`libpg-query`) and counts a `DELETE` (in a `WITH`
+too), a `TRUNCATE`, a `MERGE` with a `DELETE` action, a `DROP TABLE`/`SCHEMA`/`DATABASE`/`OWNED`/
+`MATERIALIZED VIEW`/`FOREIGN TABLE`, any `DROP … CASCADE`, an `ALTER TABLE` that drops a column or
+changes a column type (which rewrites the data), a write to an append-only table (`clockgrove.events`,
+`authority_decisions`, `artifact_references` or `snapshots`) by `UPDATE`, `MERGE … UPDATE` or
+`INSERT … ON CONFLICT DO UPDATE`, and any `session_replication_role` setting other than `DEFAULT` or
+`origin` (`SET`, `ALTER ROLE`/`DATABASE … SET` or `set_config`), which skips the immutability
 triggers. A declaration pins the migration's SHA-256 (the checksum `schema_migrations` records),
 lists the statements that destroy data exactly as the check reports them, states the restore point
 the deploy needs first (`restorePoint`) and names the issue or pull request that approved its release
 (`releaseApproval`, `#<number>`). The check reads what a migration runs: its statements; the body of
-each DO block, with or without a `LANGUAGE` clause; the text of every string literal and of every
-other dollar-quoted string, nested ones included, so SQL passed to `EXECUTE` is read; and the body of
-every function or procedure the migration calls by name (`SELECT`, `PERFORM`, `CALL` or any other
-expression), when this or an earlier migration created it, following the routines that body calls.
-A routine it reaches is reported as `<routine>(): <statement>`. It does not read SQL assembled at run
-time from separate pieces (`'DELETE ' || 'FROM …'`), or the body of a trigger function, which runs on
+each DO block (PL/pgSQL, with or without a `LANGUAGE` clause); every string constant that parses as
+SQL, after `format` placeholders are filled in, nested ones included, so SQL passed to `EXECUTE` is
+read; every SQL statement and expression in a PL/pgSQL body; and the body of every function or
+procedure the migration calls by name (`SELECT`, `PERFORM`, `CALL` or any other expression), when this
+or an earlier migration created it, following the routines that body calls. A routine it reaches is
+reported as `<routine>(): <statement>`; a migration that does not parse is refused, as it cannot be
+verified. It does not read SQL assembled at run time from separate pieces (`'DELETE ' || 'FROM …'`), or the body of a trigger function, which runs on
 a later write, even one the same migration makes. The retention functions of 0023, 0027 and 0028
 delete rows, but no migration calls them: the runtime or a trigger runs them later, and they are
 reviewed as code and listed in `db/retention.json`. Two applied migrations are
