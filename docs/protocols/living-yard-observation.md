@@ -150,9 +150,12 @@ at A."; `resource.consumed` "K at A was used."; `resource.transferred` "K moved 
 Every other type, including `time.advanced`, `needs.changed`, `comfort.changed`, `needs.relieved`,
 `wellbeing.integrated`, `growth.integrated`, `location.changed`, `movement.started`,
 `movement.region-*`, `movement.interrupted`, `movement.replanned` and clock and lifecycle records, is
-never a feed item. The feed reads the space partition's 100 latest sequences up to the covered head,
-the bounded public window of the existing object-history reader, so it holds at most 100 items. Events
-outside the caller's privacy ceiling are absent from that window and never appear.
+never a feed item. The feed reads the space partition's newest 100 events of the material types above,
+up to the covered head, filtered by type in PostgreSQL (`PostgreSqlObjectHistoryReader.readTypes`,
+issue 354), so a space whose 30 to 50 busy actors journal routine events every tick still shows its
+latest material ones; it holds at most 100 items. Decision: the read scans at most the newest 10,000
+partition sequences, bounding its work on the partition-sequence index. Each event is verified as the
+history reader verifies it. Events outside the caller's privacy ceiling are absent and never appear.
 
 ## Authorized scene stream
 
