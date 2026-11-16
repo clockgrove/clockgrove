@@ -23,6 +23,9 @@ imports only `@clockgrove/contracts` (`tools/web-boundaries.mjs`).
   pans the camera when its entity is out of view. With no id, `focus` clears the focus affordance.
   Both the optional id and the pan widen §9.1, which declares `focus(id: WorldObjectId)` only: every
   adapter, the headless 3D fixture included, must accept `focus(undefined)` as clearing focus.
+- `setDayLength(dayLengthMs?)` takes the installed pack's day length from the world clock the HUD
+  shows (`WorldClock.dayLengthMs`); undefined while the clock is unread or when the pack declares
+  none, which keeps the canonical 86 400 000 ms day. Night follows it (below).
 - `setReducedMotion(enabled)` follows `prefers-reduced-motion`. While it is on, moves snap,
   animations hold frame 0, rain does not animate, focus pans are immediate and cues do not drift.
 - `onIntent(handler)` receives `{ type: "select", objectId }` intents. Intents only select. The
@@ -141,12 +144,15 @@ committed data. Legacy projections without lighting retain their existing enviro
   within 12 px, and the entity list in the shell is in the same order. A touch tap uses a 24 px
   radius (§4.4). A repeated tap within 8 px on the same candidate set picks the next candidate and
   wraps around.
-- **Movement.** A committed move of up to 16 m interpolates over 400 ms. Sixteen metres is beyond
-  the longest reference-fixture path edge (14.2 m, `den-mouth` to `tree-base` in
-  `worlds/fixture/reference/resources/spaces/neighborhood.json`), so a one-edge step interpolates. A longer move, or a
-  change of frame, snaps. There is no physics engine.
+- **Movement.** A committed move is drawn walking, interpolated over 400 ms whatever its length,
+  when the entity's committed movement carried it: the projection's `movements` entry for the
+  entity is active, or differs from the previous projection's (a new segment, or the one that just
+  completed or was interrupted). Any other pose change is a cut, however short: a teleport, a
+  respawn, a pose set outside movement, or a change of frame. There is no physics engine.
 - **Environment.** Lighting and weather read only the committed projection, never painted highlights
-  in the art. Night remains before 06:00 or from 18:00 of the canonical 86 400 000 ms day.
+  in the art. With no lighting environment projected, night is before 06:00 or from 18:00 on the
+  HUD's 24-hour face: the first and last quarter of the pack's day length (`setDayLength`), or of the
+  canonical 86 400 000 ms day when the pack declares none.
   Projection `effects` bind reviewed `<assetId>/<animationFamily>` strips and poses. Puddles show
   while `rainIntensity` is above zero, above shadows and below standing bodies; when rain ends they
   fade over 400 ms, or vanish immediately under reduced motion. Lantern and window sources light
@@ -245,6 +251,10 @@ measured device-class performance promises.
 | low | half output size, Lambert diffuse | 0 | off | off | off |
 | medium | output size, Standard PBR | 64 | half-size targets, strength 0.08 | on | off |
 | high | output size, Standard PBR | 192 | full-size targets, strength 0.12 | on | stencil-masked mirrored sprite geometry |
+
+Wind sways only an atlas sprite whose presentation binding declares `sway: true` (the pack's
+`presentation.json`); an asset's name or kind never decides it. The fixture world declares it on
+its growing herb (`plant`) and its cedar (`tree`); its lantern does not sway.
 
 All tiers retain projection-driven lights, emissive, lit geometry and fog. Low uses Lambert node
 materials to avoid Standard's GGX/Fresnel specular work, and a half-resolution TSL scene pass to

@@ -108,6 +108,16 @@ atomically so time/weather changes cannot leave stale parameters in the client. 
 `set_lighting` operation accepts `null` to clear the optional field when returning to a legacy
 presentation. A snapshot without lighting restores the product renderer’s legacy light rig.
 
+The optional `movements` field lists each projected entity's committed movement record as
+`{objectId, startedAt, endedAt?}`: the simulation time its current route segment started and, once
+the movement completed or was interrupted, the time it ended. Movement ids and routes stay in the
+runtime. The field is absent when no projected entity has a movement record, names only projected
+entities, at most once each, and is projection version 2 like `effects`: a version-1 snapshot must
+not carry it, nor a version-1 patch `set_movements`. `set_movements` replaces the whole list; a patch
+carries it only when the projection has the field or had it. The client draws a pose change as a
+walk when the entity's movement is active or changed between the two projections, and as a cut
+otherwise ([isometric scene](../../apps/web/docs/scene.md#isometric-rules-92)).
+
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
 fields they change; arbitrary JSON extensions and whole-entity-list replacements are excluded.
@@ -500,18 +510,24 @@ exponential backoff from 1 s over five attempts (`SCENE_RECONNECT` in `apps/web/
 A detected patch gap instead uses the pure reducer and the existing connection's resume protocol. An applied
 projection resets the count, and a sixth loss in a row is unavailable.
 
-Engineering budgets are four outstanding projection frames per socket,
-and four lagging publication turns before closing. Four reuses the existing four-command
-`OWNER_ACTIVATION_BUDGET` window, allowing one such activation before coalescing. Explicit resumes carry outstanding-frame debt
+Engineering budgets are four outstanding projection frames per socket, and 30 s
+(`SCENE_DELIVERY_BOUNDS.stalledMs`) that a full frame ledger may go unacknowledged before closing.
+Four reuses the existing four-command `OWNER_ACTIVATION_BUDGET` window, allowing one such activation
+before coalescing. The 30 s is a decision: the client's own wait for progress on an outstanding
+request (`SCENE_RECOVERY.requestTimeoutMs`, the owner mailbox's request deadline), so a client is
+dropped only after making no progress for as long as it would itself wait. A burst of commits
+therefore never closes a slow client that is still acknowledging; it only coalesces. Explicit resumes carry outstanding-frame debt
 across connection versions, so repeated resumes cannot bypass that bound. Each recipient's delivery work is bounded; socket admission reuses the existing mailbox state
 and depth bound, plus the resident socket caps above. Closed socket metadata is retired through the weak connection index. When the frame ledger fills, new replaceable projection
 fields coalesce into one dirty flag; the next ack reads the latest authorized projection from
 PostgreSQL. No intermediate frame queue is retained. Transient cues for objects outside the current authorized projection and expired cues are dropped and never
 repair physical state. No Wave 4 runtime source emits a cue yet: these rules bind the first
 producer, and only the native test worker exercises them. Recovery and disconnect notices bypass the replaceable projection lane.
-A client that remains behind receives typed `recovery/backpressure` and closes with code 1013 and
-reason `backpressure`. Only publication turns with a full frame ledger count as lag; a turn that
-finds the connection's own read still pending only marks it dirty. A delivery read the owner mailbox
+A client that has stopped acknowledging receives typed `recovery/backpressure` and closes with code
+1013 and reason `backpressure`: at the first publication turn that finds its frame ledger full 30 s
+or more after a turn first found it full, with no acknowledgement since. Any acknowledgement restarts
+that wait. Only a full frame ledger counts as lag; a turn that finds the connection's own read still
+pending only marks it dirty. A delivery read the owner mailbox
 refuses (`owner_mailbox_full`, `_expired` or `_timeout`, all retryable) also ends with
 `recovery/backpressure` and 1013, never `internal_error`; a refused cue read drops only that cue.
 Each read compares the canonical authority (routing) epoch with the one the socket was admitted

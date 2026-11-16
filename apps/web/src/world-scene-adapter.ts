@@ -38,6 +38,11 @@ export interface WorldSceneAdapter {
   /** Draws keyboard focus on an entity and keeps it in view; no id clears the focus affordance. */
   focus(id?: WorldObjectId): void;
   setReducedMotion(enabled: boolean): void;
+  /**
+   * The installed pack's day length in simulation milliseconds, as the world clock reports it;
+   * undefined when the pack declares none. Night follows it while no lighting environment is projected.
+   */
+  setDayLength(dayLengthMs: bigint | undefined): void;
   onIntent(handler: (intent: SceneIntent) => void): Unsubscribe;
   destroy(): void;
 }
@@ -54,8 +59,6 @@ const METRES_PER_UNIT: Readonly<Record<string, number>> = {
   millimeter: 0.001,
   millimetre: 0.001,
 };
-/** Movement within this many metres interpolates; beyond it the sprite snaps (see docs/scene.md). */
-export const SNAP_THRESHOLD_METRES = 16;
 /** How long one committed move is interpolated, in milliseconds (decision, docs/scene.md). */
 export const INTERPOLATION_MS = 400;
 /** Occlusion groups, drawn in this order: later groups always cover earlier ones. */
@@ -69,6 +72,8 @@ export interface ScenePlacement {
   readonly y: number;
   readonly elevation: number;
   readonly occlusionGroup: OcclusionGroup;
+  /** The entity's committed movement record (segment start and end), absent without one. */
+  readonly movement?: string;
   /** Occlusion group, nearness to the viewer (x − y), elevation, then object id. */
   readonly depthKey: readonly [number, number, number, ObjectId];
 }
@@ -82,13 +87,24 @@ function compareDepth(a: ScenePlacement, b: ScenePlacement): number {
  * Every committed entity whose frame version is present, in pick order: nearest first. Pointer,
  * touch and keyboard picking all resolve candidates in this order; drawing uses its reverse.
  */
-export function pickOrder(projection: Pick<SceneProjection, "frames" | "entities">) {
+export function pickOrder(
+  projection: Pick<SceneProjection, "frames" | "entities"> &
+    Partial<Pick<SceneProjection, "movements">>,
+) {
   const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
+  const movements = new Map(
+    (projection.movements ?? []).map((movement) => [
+      movement.objectId,
+      `${movement.startedAt}:${movement.endedAt ?? "active"}`,
+    ]),
+  );
   const placed: ScenePlacement[] = [];
   for (const entity of projection.entities) {
     const at = poseMetres(frames, entity.pose);
     if (!at) continue;
+    const movement = movements.get(entity.objectId);
     placed.push({
+      ...(movement === undefined ? {} : { movement }),
       objectId: entity.objectId,
       frame: at.frame,
       x: at.x,
@@ -119,19 +135,23 @@ export function poseMetres(
     elevation: frame.dimensions === 3 ? z : 0,
   };
 }
-const DAY_MS = 86_400_000n;
-const HOUR_MS = 3_600_000n;
-/** The issue 813 golden's night rule: before 06:00 or from 18:00 of the canonical day. */
-export function isNight(simulationTime: bigint): boolean {
-  const time = simulationTime % DAY_MS;
-  return time < 6n * HOUR_MS || time >= 18n * HOUR_MS;
+/** The canonical day, for a pack that declares no day length (as the runtime's wake triage). */
+export const CANONICAL_DAY_MS = 86_400_000n;
+/**
+ * Night is before 06:00 or from 18:00 on the HUD's 24-hour face, which scales the pack's day
+ * length: the first and the last quarter of each day.
+ */
+export function isNight(simulationTime: bigint, dayLengthMs = CANONICAL_DAY_MS): boolean {
+  const time = simulationTime % dayLengthMs;
+  return time * 4n < dayLengthMs || time * 4n >= 3n * dayLengthMs;
 }
-/** The effects shown now, decided from the committed projection alone. */
+/** The effects shown now, decided from the committed projection and the pack's day length. */
 export function shownEffects(
   projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
+  dayLengthMs?: bigint,
 ): SceneEffect[] {
   const raining = projection.weather.rainIntensity > 0;
-  const night = isNight(projection.simulationTime);
+  const night = isNight(projection.simulationTime, dayLengthMs);
   return (projection.effects ?? []).filter((effect) =>
     effect.role === "puddle"
       ? raining
@@ -143,8 +163,9 @@ export function shownEffects(
 /** The text path's description of the same conditions the canvas draws. */
 export function effectsText(
   projection: Pick<SceneProjection, "effects" | "weather" | "simulationTime" | "lighting">,
+  dayLengthMs?: bigint,
 ): { puddles: string; lights: string } {
-  const shown = shownEffects(projection);
+  const shown = shownEffects(projection, dayLengthMs);
   const puddles = shown.filter((effect) => effect.role === "puddle").length;
   const lit = (["lantern", "window"] as const).filter((role) =>
     shown.some((effect) => effect.role === role),
@@ -154,11 +175,14 @@ export function effectsText(
     lights: lit.length > 0 ? `${lit.join(", ")} lit` : "off",
   };
 }
-/** Whether a committed move is drawn as interpolation or as a snap. */
+/**
+ * Whether a committed move is drawn walking (interpolated) or as a cut (a snap): it walks, whatever
+ * its length, when the entity's movement carried it, that is when the movement is still active or
+ * changed between the two projections. A teleport, a respawn or a change of frame cuts.
+ */
 export function movement(from: ScenePlacement, to: ScenePlacement): "interpolate" | "snap" {
-  if (from.frame !== to.frame) return "snap";
-  const distance = Math.hypot(to.x - from.x, to.y - from.y, to.elevation - from.elevation);
-  return distance > SNAP_THRESHOLD_METRES ? "snap" : "interpolate";
+  if (from.frame !== to.frame || to.movement === undefined) return "snap";
+  return to.movement.endsWith(":active") || to.movement !== from.movement ? "interpolate" : "snap";
 }
 /** A repeated tap within this many CSS pixels of the last one cycles to the next candidate. */
 export const TOUCH_CYCLE_PX = 8;
@@ -206,6 +230,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let privateCognition = scene.privateCognition;
   let effects = scene.effects;
   let lighting = scene.lighting;
+  let movements = scene.movements;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -259,9 +284,19 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_effects":
         effects = operation.effects;
         break;
+      case "set_movements":
+        movements = operation.movements;
+        break;
     }
   }
-  const { privateCognition: _previous, effects: _effects, lighting: _lighting, ...rest } = scene;
+  const {
+    privateCognition: _previous,
+    effects: _effects,
+    lighting: _lighting,
+    movements: _movements,
+    ...rest
+  } = scene;
+  const moving = movements?.filter((movement) => entities.has(movement.objectId));
   return decodeSceneProjection({
     ...rest,
     ...(privateCognition && {
@@ -269,6 +304,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     }),
     ...(effects && { effects }),
     ...(lighting && { lighting }),
+    ...(moving && moving.length > 0 && { movements: moving }),
     revision: patch.toRevision,
     simulationTime,
     weather,

@@ -201,7 +201,8 @@ redistributable Creative Commons licenses). The committed negative fixtures
 `worlds/<dir>/reference/presentation.json` beside, not inside, the pack source. It declares
 `assetManifestVersion: 2` and names the pack's id and
 version. Its `bindings` have the wire `ScenePresentationBinding` shape and bind each stable object ID
-at most once. Its `effects` bind the scene roles `path`, `rain`, `puddle`, `lantern`, `window` and
+at most once. A binding with `sway: true` declares that its object sways in the wind; without it the
+object stands still, whatever its asset is named (the renderer reads nothing else). Its `effects` bind the scene roles `path`, `rain`, `puddle`, `lantern`, `window` and
 `selection` to manifests, optionally at an object. Pack conformance validates it
 ([presentation-bindings](../../packages/simulator/docs/conformance.md#checks)), and the asset pipeline
 ([pipeline](../../packages/assets/docs/pipeline.md)) builds, renders and uploads through it.
