@@ -1889,3 +1889,145 @@ it("continuous projected time of day lights and grades both renderer backends", 
     });
   }
 }, 120_000);
+
+/** #356: stand in for a device's reported identity, limits and memory before the renderer starts. */
+function scriptDevice({ memory, identity, fallback = false, maxDimension }) {
+  if (memory === undefined) delete Navigator.prototype.deviceMemory;
+  else Object.defineProperty(Navigator.prototype, "deviceMemory", { get: () => memory });
+  if (globalThis.GPUDevice) {
+    const own = (name) => Object.getOwnPropertyDescriptor(GPUDevice.prototype, name).get;
+    const [info, limits] = [own("adapterInfo"), own("limits")];
+    Object.defineProperty(GPUDevice.prototype, "adapterInfo", {
+      get() {
+        const real = info.call(this);
+        if (identity === undefined) return real;
+        return {
+          vendor: identity,
+          architecture: identity,
+          description: identity,
+          isFallbackAdapter: fallback,
+        };
+      },
+    });
+    Object.defineProperty(GPUDevice.prototype, "limits", {
+      get() {
+        const real = limits.call(this);
+        return new Proxy(real, {
+          get: (target, key) => (key === "maxTextureDimension2D" && maxDimension) || target[key],
+        });
+      },
+    });
+  }
+  const getParameter = WebGL2RenderingContext.prototype.getParameter;
+  WebGL2RenderingContext.prototype.getParameter = function (name) {
+    if (identity !== undefined && name === 0x9246) return identity; // UNMASKED_RENDERER_WEBGL
+    if (maxDimension && (name === this.MAX_TEXTURE_SIZE || name === this.MAX_RENDERBUFFER_SIZE))
+      return maxDimension;
+    if (maxDimension && name === this.MAX_VIEWPORT_DIMS)
+      return new Int32Array([maxDimension, maxDimension]);
+    return getParameter.call(this, name);
+  };
+  // #356: a scripted frame-time trace. Each real frame advances the rAF clock by `trace.interval`.
+  const raf = globalThis.requestAnimationFrame.bind(globalThis);
+  let time = 0;
+  let last;
+  globalThis.trace = { interval: 16.7, frames: 0 };
+  globalThis.requestAnimationFrame = (callback) =>
+    raf((now) => {
+      if (now !== last) [last, time, trace.frames] = [now, time + trace.interval, trace.frames + 1];
+      callback(time);
+    });
+  globalThis.runTrace = (interval, frames) =>
+    new Promise((resolve) => {
+      trace.interval = interval;
+      const end = trace.frames + frames;
+      const wait = () => (trace.frames >= end ? resolve() : raf(wait));
+      wait();
+    });
+}
+
+it("chooses the starting tier from device limits and changes it on sustained frame time on both backends", async () => {
+  if (isNativeWorldOwnerChild()) return;
+  const [shell, wire] = await rendererFixture();
+  const apple = { identity: "Apple M2", memory: 8 };
+  for (const backend of ["webgpu", "webgl2"]) {
+    await withRendererProof(backend, shell, async (browser, origin) => {
+      const start = async (device, viewport = { width: 320, height: 200 }, content) => {
+        const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
+        await page.addInitScript(scriptDevice, device);
+        const body =
+          '<style>body{margin:0}#scene{width:100vw;height:100vh}</style><div id="scene"></div>';
+        await prepareRendererProof(page, origin, shell, "tier-proof", body);
+        await page.evaluate(
+          async ([wire, bytes]) => {
+            const content = bytes && {
+              version: 1,
+              create: ({ THREE }) => ({
+                root: new THREE.Group(),
+                textures: [new THREE.DataTexture(new Uint8Array(bytes), 4096, bytes / 16384)],
+                update() {},
+              }),
+            };
+            globalThis.tierProof = await proofAdapter(wire, content);
+            globalThis.tiers = [];
+            const set = tierProof.setQuality.bind(tierProof);
+            // Record tier changes; content readiness re-applies the current tier.
+            tierProof.setQuality = (tier) => {
+              if (tier !== tierProof.tier) tiers.push(tier);
+              set(tier);
+            };
+          },
+          [wire, content],
+        );
+        return page;
+      };
+      const state = (page) =>
+        page.evaluate(() => ({
+          tier: tierProof.tier,
+          tiers,
+          content: tierProof.metrics.contentStatus,
+          width: tierProof.canvas.width,
+        }));
+      // Safari and Firefox report no device memory: medium, not high.
+      const starts = [
+        [{ identity: "Apple M2" }, "medium"],
+        [apple, "high"],
+        // A fallback adapter on WebGPU; WebGL2's own SwiftShader identity.
+        [backend === "webgpu" ? { ...apple, fallback: true } : { memory: 8 }, "low"],
+        [{ ...apple, maxDimension: 2048 }, "low", { width: 3000, height: 150 }],
+      ];
+      for (const [device, tier, viewport] of starts) {
+        const page = await start(device, viewport);
+        const result = await state(page);
+        expect(result.tier, `${backend} ${JSON.stringify(device)}`).toBe(tier);
+        // The low tier's canvas stays inside the device's reported 2048-pixel side.
+        expect(result.width).toBe(viewport ? 2048 : 320);
+        await page.close();
+      }
+      // 24 MiB of content fits medium and high, not low's 16 MiB.
+      const page = await start(apple, undefined, 24 * 1024 * 1024);
+      await expect.poll(() => state(page)).toMatchObject({ tier: "high", content: "ready" });
+      // A burst of one-time work (60 frames at 120 ms) after content loads keeps the tier.
+      await page.evaluate(async () => {
+        await runTrace(120, 60);
+        await runTrace(16.7, 400);
+      });
+      expect(await state(page)).toMatchObject({ tier: "high", tiers: [] });
+      // Sustained 50 ms frames step down once; low would retire the loaded content, so it stays.
+      await page.evaluate(() => runTrace(50, 600));
+      expect(await state(page)).toMatchObject({
+        tier: "medium",
+        tiers: ["medium"],
+        content: "ready",
+      });
+      // Sustained 10 ms frames step back up.
+      await page.evaluate(() => runTrace(10, 700));
+      expect(await state(page)).toMatchObject({
+        tier: "high",
+        tiers: ["medium", "high"],
+        content: "ready",
+      });
+      await page.close();
+    });
+  }
+}, 240_000);
