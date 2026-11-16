@@ -1,3 +1,4 @@
+import type { VoiceMode } from "./conversations.js";
 import type {
   ActionId,
   AuthorityDecisionId,
@@ -745,6 +746,11 @@ export interface SelectionPhysical extends SelectionValues {
   readonly locationId: ObjectId | null;
   readonly selectedAction: SelectionAction | null;
   readonly lifecycle: "active" | "retired" | "dead" | null;
+  /**
+   * The voice the entity answers Talk in, from its Conversation mode component. Present only when
+   * the entity declares one; an entity without it is not talkable.
+   */
+  readonly conversationMode?: VoiceMode;
 }
 export interface SelectionCurrentWellbeing {
   readonly thirst: number;
@@ -930,7 +936,7 @@ export function decodeEntitySelection(value: unknown): EntitySelection {
       "selectedAction",
       "lifecycle",
     ],
-    [],
+    ["conversationMode"],
     "selection.physical",
   );
   let resource: SelectionResource | null = null;
@@ -967,6 +973,14 @@ export function decodeEntitySelection(value: unknown): EntitySelection {
     lifecycle !== "dead"
   )
     throw new ContractDecodeError("selection.physical.lifecycle", "unknown lifecycle");
+  const conversationMode =
+    physical.conversationMode === undefined
+      ? undefined
+      : literal(
+          physical.conversationMode,
+          ["cognitive", "interpreted", "canonical"] as const satisfies readonly VoiceMode[],
+          "selection.physical.conversationMode",
+        );
   const derived = record(v.derived, "selection.derived");
   exactKeys(
     derived,
@@ -1088,6 +1102,7 @@ export function decodeEntitySelection(value: unknown): EntitySelection {
         physical.locationId === null ? null : decodeOpaqueId(physical.locationId, "ObjectId"),
       selectedAction,
       lifecycle,
+      ...(conversationMode === undefined ? {} : { conversationMode }),
     },
     derived: {
       needs: decodeSelectionNeeds(derived.needs, "selection.derived.needs"),

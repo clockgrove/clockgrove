@@ -129,6 +129,12 @@ it("recovers approved writes at the wait, interrupted transport and reply bounda
     });
     expect(retried.status).toBe(200);
     const retry = retried.body as { approvalId: string; sessionId: string; messageId: string };
+    // The retry's session opens in the voice the actor declares (issue 354): the keeper's cognitive.
+    expect(
+      await owner.sql(
+        `SELECT voice_mode FROM clockgrove.conversation_sessions WHERE session_id='${retry.sessionId}'`,
+      ),
+    ).toBe("cognitive");
     expect(await count()).toBe(2);
     expect((await decide(retry.approvalId)).status).toBe(200);
     await expect

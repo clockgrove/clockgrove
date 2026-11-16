@@ -263,7 +263,15 @@ finds nothing and clears. The policy owner's scheduled intentions, heartbeats an
 checks stay armed.
 
 Threshold configurations match a canonical threshold-crossing `eventType`; deterministic world
-logic owns evaluation of the physical condition. An event cursor starts when the actor's policy is
+logic owns evaluation of the physical condition. A threshold matches only a crossing whose subject
+(`payload.objectId`) is the actor itself, journaled in the space of the actor's activation policy.
+Another actor's crossing, or one in another space, never wakes it. A threshold may name a `need`
+(`hunger` or `thirst`, only on a threshold); it then matches only a crossing whose `payload.need` is
+that need, so a hunger threshold is not woken by the actor's own thirst crossing, nor by an event
+that carries no need. Without one it matches any of the actor's own crossings of its `eventType`.
+Both fields are read from a plain payload or from a journaled kernel event's payload. The match reads only journaled
+facts, so a replayed check admits the same wakes. Hints still go by event type, and a check that
+matches nothing admits nothing. An event cursor starts when the actor's policy is
 first configured: it skips the events of every transaction already under way or finished by then.
 Recurring intentions retain their scheduled cadence and skip missed opportunities instead of
 producing an unbounded catch-up burst.

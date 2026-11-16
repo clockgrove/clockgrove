@@ -20,9 +20,11 @@ Every route is `POST`, version 1, with the browser scope (tenant, world, timelin
 body and the bearer credential of a signed-in member. The session routes and Talk need
 `runtime:world-observe`, the `conversation` category in the member's privacy ceiling and a resolved
 world persona. This is the policy the interaction card's Talk action already reports. Say needs the
-observe grant and a persona. A new session and Say address only an actor (an entity with needs)
-projected in the request's space. A resource answers `409 talk_unavailable`, and an unknown or
-unprojected ID answers `409 selection_unavailable`.
+observe grant and a persona. A new session, Say and an activation address only an entity projected
+in the request's space that declares a Conversation mode (`clockgrove.conversation-mode`); needs alone
+no longer make an entity talkable (issue 354). An entity without the declaration answers
+`409 talk_unavailable`, and an unknown or unprojected ID answers `409 selection_unavailable`. The
+interaction card offers Talk by the same rule.
 
 Rows are scoped to the session's participant set in SQL (migration 0034). A member sees and
 changes only sessions they participate in, with those sessions' participants, messages and turns,
@@ -43,8 +45,10 @@ exercises this.
 - Its **voice mode** is `cognitive`, `interpreted` or `canonical` (Wave 5 §6.3), with the matching
   disclosure text. The values are those of the Conversation mode component
   (`clockgrove.conversation-mode`, [component catalog](../../packages/domain/docs/component-catalog.md)).
-  No pack object declares that component yet, so every Talk-addressable actor speaks for itself:
-  `cognitive`.
+  A new session opens in the voice its addressed entity declares, read from the entity selection's
+  `physical.conversationMode`. In the fixture world (`worlds/fixture/reference`) the keeper, the
+  companion and the dependent declare `cognitive` and the cedar `interpreted`; in the beacon fixture
+  (`worlds/fixture`) `beacon.master` declares `cognitive`.
 - **Messages** are immutable and ordered by `sequence` from 1. A Caretaker message is authored by
   the persona and has no voice mode. An actor message is authored by the actor and carries the
   session's voice mode.

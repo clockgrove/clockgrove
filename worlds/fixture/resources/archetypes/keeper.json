@@ -1,1 +1,1 @@
-{"components":{},"id":"beacon.keeper-kind","traits":[{"id":"beacon.needs","version":1}],"version":1}
+{"components":{"clockgrove.conversation-mode":{"state":{"mode":"cognitive"},"type":"clockgrove.conversation-mode","version":1}},"id":"beacon.keeper-kind","traits":[{"id":"beacon.needs","version":1}],"version":1}

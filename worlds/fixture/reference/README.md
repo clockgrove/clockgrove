@@ -7,6 +7,8 @@ work with the same engine.
 
 The pack ID is `clockgrove.fixture-hall@1.2.0`. Mobile actors are `fixture.companion`,
 `fixture.dependent` and `fixture.keeper`; their lexical order preserves deterministic scheduling.
+Their archetypes declare the `cognitive` Conversation mode, and the cedar's the `interpreted` one,
+so those are the entities Talk addresses, each in its declared voice.
 Scenario assertions retain exact physical values. Derived child, successor, command and planning
 identities change with their neutral input identities.
 

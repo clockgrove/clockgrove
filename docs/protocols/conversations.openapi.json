@@ -9,7 +9,7 @@
     "/v1/runtime/conversations/create": {
       "post": {
         "summary": "Open a private session with an actor",
-        "description": "The actor must be an actor (an entity with needs) projected in the request's space: otherwise `409 talk_unavailable` or `409 selection_unavailable`. `409 conversation_limit_reached` past 100 sessions that are not deleted per participant and world timeline. Optional channel/threadId binds a private thread to one session; explicit thread retries return that session. Browser defaults remain unchanged.",
+        "description": "The actor must be an entity projected in the request's space that declares a Conversation mode (`clockgrove.conversation-mode`); the session opens in that voice: otherwise `409 talk_unavailable` or `409 selection_unavailable`. `409 conversation_limit_reached` past 100 sessions that are not deleted per participant and world timeline. Optional channel/threadId binds a private thread to one session; explicit thread retries return that session. Browser defaults remain unchanged.",
         "security": [
           {
             "bearer": []

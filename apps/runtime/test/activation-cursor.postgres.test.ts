@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { ActivationAddress } from "@clockgrove/application";
+import { type ActivationAddress, encodeCanonicalNode } from "@clockgrove/application";
 import { decodeOpaqueId, decodePrivacyCeiling } from "@clockgrove/contracts";
 import {
   executeJournalStatement,
@@ -284,5 +284,65 @@ it("refuses a restore whose transaction IDs are ahead of the cluster, and a reba
     ]);
   } finally {
     await Promise.all([source.close(), target.close()]);
+  }
+});
+
+it("marks only the actor's own crossing in its policy's space as its own", async () => {
+  const client = connect(cluster.fixture.environment);
+  try {
+    const activations = new PostgreSqlActivations(client);
+    const journal = new PostgreSqlJournal(client);
+    await subscribe(activations, address, "watch-own");
+    await check(activations);
+    // Journaled as the world owner journals a kernel event: {kernelEvent: canonical record}.
+    const crossing = (s: FixtureScope, id: string, objectId: string, need: string) =>
+      journal.execute(
+        fixtureRequest(s, `command-${id}`, [
+          fixtureDraft(s, id, {
+            type: "needs.threshold-crossed",
+            payload: {
+              kernelEvent: encodeCanonicalNode({
+                type: "needs.threshold-crossed",
+                simulationTime: 1n,
+                payload: { objectId, need, value: 80 },
+              }),
+            },
+          }),
+        ]),
+      );
+    await crossing(A, "own-keeper-a", "keeper", "hunger");
+    await crossing(A, "own-keeper-thirst-a", "keeper", "thirst");
+    await crossing(A, "own-warden-a", "warden", "hunger");
+    await crossing(B, "own-keeper-b", "keeper", "hunger");
+    const { events } = await activations.events(address);
+    expect(events.map((e) => [e.eventId, e.own, e.need])).toEqual([
+      ["own-keeper-a", true, "hunger"],
+      ["own-keeper-thirst-a", true, "thirst"],
+      ["own-warden-a", false, "hunger"],
+      ["own-keeper-b", false, "hunger"],
+    ]);
+  } finally {
+    await client.close();
+  }
+});
+
+it("stores a need only on a threshold, and only hunger or thirst", async () => {
+  const client = connect(cluster.fixture.environment);
+  try {
+    const activations = new PostgreSqlActivations(client);
+    const policy = { allowModel: false, modelBudget: 0 };
+    const threshold = { id: "need", sessionId: "session-keeper", kind: "threshold" } as const;
+    const base = { nextWakeAt: null, intervalMs: null, input: "", priority: 1, enabled: true };
+    const stored = { ...threshold, ...base, compiledRoutine: "noop", need: "hunger" } as const;
+    for (const refused of [{ kind: "subscription" }, { need: "sleep" }])
+      await expect(
+        activations.configure(address, { ...stored, ...refused } as never, policy),
+      ).rejects.toThrow("invalid activation configuration");
+    await activations.configure(address, stored, policy);
+    expect((await activations.inspect(address)).configurations).toContainEqual(
+      expect.objectContaining({ id: "need", kind: "threshold", need: "hunger" }),
+    );
+  } finally {
+    await client.close();
   }
 });

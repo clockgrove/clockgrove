@@ -197,5 +197,10 @@ world evidence.
 {"type":"clockgrove.conversation-mode","version":1,"state":{"mode":"interpreted"}}
 ```
 
-The adapter accepts an object carrying it and does not project it to a `WorldEntity` field, so
-world state and hashes are unchanged; no pack declares it yet.
+The adapter projects it to the optional `WorldEntity.conversationMode` field (absent when the object
+does not carry it, so packs without it keep their canonical encoding). A child born of a parent with
+a mode takes the parent's mode, as it takes the parent's archetype. An entity is talkable only when
+it declares a mode, and a conversation session with it opens in that voice
+([conversations](../../../docs/protocols/conversations.md)). The reference fixture pack declares
+`cognitive` on its resident and dependent archetypes and `interpreted` on the cedar's; the beacon
+fixture pack declares `cognitive` on `beacon.keeper-kind`.

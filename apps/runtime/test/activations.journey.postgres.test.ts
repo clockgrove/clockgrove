@@ -15,6 +15,9 @@ it.skipIf(isNativeWorldOwnerChild())(
   "owns proactive PostgreSQL and native runtime",
   async () => {
     await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
+      // The needs-crossing run below advances the world seventy days, and each actor's cursor pages
+      // through its few thousand events: more than the harness's default two minutes on CI.
+      timeoutMs: 240_000,
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -25,7 +28,7 @@ it.skipIf(isNativeWorldOwnerChild())(
       },
     });
   },
-  240_000,
+  300_000,
 );
 
 it.skipIf(!isNativeWorldOwnerChild())(
@@ -66,6 +69,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
       );
       expect(created.status).toBe(200);
       const sessionId = decodeConversationSession(created.body).sessionId;
+      const configuration = (id: string, kind: string, fields: object = {}) => ({
+        id,
+        sessionId,
+        kind,
+        nextWakeAt: null,
+        intervalMs: null,
+        input: "Consider the changed world",
+        priority: 1,
+        enabled: true,
+        compiledRoutine: "escalate",
+        ...fields,
+      });
       const configure = (
         id: string,
         kind: string,
@@ -74,20 +89,17 @@ it.skipIf(!isNativeWorldOwnerChild())(
         allowModel = true,
       ) =>
         post("configure", {
-          configuration: {
-            id,
-            sessionId,
-            kind,
-            nextWakeAt: null,
-            intervalMs: null,
-            input: "Consider the changed world",
-            priority: 1,
-            enabled: true,
-            compiledRoutine: "escalate",
-            ...fields,
-          },
+          configuration: configuration(id, kind, fields),
           policy: { allowModel, modelBudget },
         });
+      const refusal = async (fields: object, token = MEMBER) =>
+        (
+          await owner.request(
+            "/v1/runtime/activations/configure",
+            { version: 1, scope: owner.scope, actorId: ACTOR, ...fields },
+            token,
+          )
+        ).body;
       const wake = (configurationId: string, causalRoot: string, reason: object) =>
         post("wake", {
           wake: { configurationId, causalRoot, reason, evidence: `evidence:${causalRoot}` },
@@ -98,28 +110,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
           || '/' || (SELECT count(*) FROM clockgrove.conversation_turn_fibers)
           || '/' || (SELECT count(*) FROM clockgrove.conversation_messages)`,
         );
-      const denied = await owner.request(
-        "/v1/runtime/activations/configure",
-        {
-          version: 1,
-          scope: owner.scope,
-          actorId: ACTOR,
-          configuration: {
-            id: "outsider",
-            sessionId,
-            kind: "heartbeat",
-            nextWakeAt: null,
-            intervalMs: null,
-            input: "unauthorized",
-            priority: 1,
-            enabled: true,
-            compiledRoutine: "escalate",
+      const policy = { allowModel: true, modelBudget: 10 };
+      expect(
+        await refusal(
+          {
+            configuration: configuration("outsider", "heartbeat", { input: "unauthorized" }),
+            policy,
           },
-          policy: { allowModel: true, modelBudget: 10 },
-        },
-        "outsider-session-token",
-      );
-      expect(denied.status).toBe(403);
+          "outsider-session-token",
+        ),
+      ).toEqual({ error: "authorization_refused" });
+      // A need is named only on a threshold, and only as hunger or thirst.
+      for (const [kind, need] of [
+        ["subscription", "hunger"],
+        ["threshold", "sleep"],
+      ] as const)
+        expect(
+          await refusal({ configuration: configuration(`need-${kind}`, kind, { need }), policy }),
+        ).toEqual({ error: "invalid_inspection_request" });
       expect(await counts()).toBe("0/0/0");
       await configure("rain", "subscription", { eventType: "rain.started" });
       await configure("perceived-rain", "perception");
@@ -327,6 +335,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
         eventType: "ClockPolicyChanged",
         compiledRoutine: "noop",
       });
+      // A threshold is the actor's own (issue 354): the same event, whose subject is not the actor,
+      // wakes the subscription and never the threshold.
+      await configure("own-only", "threshold", {
+        eventType: "ClockPolicyChanged",
+        compiledRoutine: "noop",
+      });
       // The event commits after the subscription's first check: its commit hint wakes the actor.
       await new Promise((resolve) => setTimeout(resolve, 1_100));
       expect(
@@ -348,6 +362,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         .toBe(
           '{"kind": "subscription", "eventId": "subscription-change:event:0", "subscriptionId": "journal"}/journal:subscription-change:event:0/noop',
         );
+      expect(
+        await owner.sql(
+          "SELECT count(*) FROM clockgrove.actor_activations WHERE configuration_id = 'own-only'",
+        ),
+      ).toBe("0");
       expect(await counts()).toBe("8/3/6");
       expect(await agent({ op: "model-calls" })).toBe(3);
 
@@ -502,6 +521,126 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ]),
       );
       expect(await agent({ op: "model-calls" })).toBe(3);
+
+      // The companion's movement, in the same space, does not wake Keeper's threshold; Keeper's own
+      // does, once. A threshold that names a need matches only a crossing of that need, so Keeper's
+      // own movement, which carries none, never wakes it.
+      await configure("own-move", "threshold", {
+        eventType: "movement.started",
+        compiledRoutine: "noop",
+      });
+      await configure("own-move-hunger", "threshold", {
+        eventType: "movement.started",
+        need: "hunger",
+        compiledRoutine: "noop",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      for (const [key, objectId] of [
+        ["companion-moves", "fixture.companion"],
+        ["keeper-moves", "fixture.keeper"],
+      ] as const) {
+        const revision = BigInt(
+          await owner.sql("SELECT revision::text FROM clockgrove.partition_states"),
+        );
+        expect(
+          (
+            await owner.submit({
+              ...advanceCommand(owner.world, key, 0n, revision),
+              type: "movement.start",
+              payload: {
+                schemaVersion: 1,
+                objectId,
+                destination: {
+                  kind: "pose",
+                  pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [9000n, 9000n] },
+                },
+                unitsPerSecond: 1000n,
+              },
+            })
+          ).status,
+        ).toBe(200);
+      }
+      await expect
+        .poll(() =>
+          owner.sql(
+            `SELECT string_agg(evidence || '/' || status, ' ')
+             FROM clockgrove.actor_activations WHERE configuration_id = 'own-move'`,
+          ),
+        )
+        .toBe(
+          `journal:${await owner.sql(
+            "SELECT event_id FROM clockgrove.events WHERE command_id = 'keeper-moves' AND event_type = 'movement.started'",
+          )}/noop`,
+        );
+      expect(
+        await owner.sql(
+          "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'own-move-hunger'",
+        ),
+      ).toBe("0");
+
+      // A threshold naming a need wakes only for its own actor's crossing of that need. Advancing
+      // the fixture world to just past the dependent's thirst crossing brings three crossings in one space: the companion's and
+      // a newborn child's hunger and the dependent's thirst. The dependent's hunger threshold sees
+      // its own thirst crossing and others' hunger crossings, and is woken by none of them.
+      const threshold = async (actorId: string, id: string, need: string) => {
+        const opened = await owner.request(
+          "/v1/runtime/conversations/create",
+          { version: 1, ...owner.scope, actorId },
+          MEMBER,
+        );
+        expect(opened.status).toBe(200);
+        await post("configure", {
+          actorId,
+          configuration: configuration(id, "threshold", {
+            sessionId: decodeConversationSession(opened.body).sessionId,
+            eventType: "needs.threshold-crossed",
+            need,
+            compiledRoutine: "noop",
+          }),
+          policy,
+        });
+      };
+      await threshold("fixture.companion", "companion-hunger", "hunger");
+      await threshold("fixture.dependent", "dependent-thirst", "thirst");
+      await threshold("fixture.dependent", "dependent-hunger", "hunger");
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      expect(
+        (
+          await owner.submit(
+            advanceCommand(owner.world, "crossings", 14_700_000_000n, null, {
+              maxInputs: 1024,
+              maxEvents: 4096,
+            }),
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        await owner.sql(
+          `SELECT string_agg(event_id || '=' || m[2] || ':' || m[1], ' ' ORDER BY journal_position)
+           FROM clockgrove.events, regexp_match(payload::text,
+             '\\["need", \\["string", "(\\w+)"\\]\\], \\["objectId", \\["string", "([^"]+)"') AS m
+           WHERE event_type = 'needs.threshold-crossed'`,
+        ),
+      ).toBe(
+        "crossings:event:289=fixture.companion:hunger crossings:event:1047=child_f49de9971bf27e7d:hunger crossings:event:3040=fixture.dependent:thirst",
+      );
+      await expect
+        .poll(
+          () =>
+            owner.sql(
+              `SELECT string_agg(configuration_id || '=' || evidence || '/' || status, ' ' ORDER BY configuration_id)
+             FROM clockgrove.actor_activations WHERE configuration_id IN ('companion-hunger', 'dependent-thirst')`,
+            ),
+          { timeout: 120_000, interval: 500 },
+        )
+        .toBe(
+          "companion-hunger=journal:crossings:event:289/noop dependent-thirst=journal:crossings:event:3040/noop",
+        );
+      expect(
+        await owner.sql(
+          "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'dependent-hunger'",
+        ),
+      ).toBe("0");
     });
   },
   240_000,

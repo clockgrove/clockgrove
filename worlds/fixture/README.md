@@ -11,7 +11,7 @@ uses the `beacon.` prefix.
 
 - space `beacon.hall` (one rectangular region);
 - a placed mobile subject with needs: `beacon.master` (archetype `beacon.keeper-kind`, trait
-  `beacon.needs`);
+  `beacon.needs`), whose archetype declares the `cognitive` Conversation mode, so Talk addresses it;
 - a stationary conversational object `beacon.lamp`, bound to the `beacon.speak` embodied-dialogue
   capability;
 - resource holders `beacon.larder` (food) and `beacon.cistern` (water);

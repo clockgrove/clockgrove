@@ -1,1 +1,1 @@
-{"components":{},"id":"fixture.resident-kind","traits":[{"id":"fixture.needs","version":1}],"version":1}
+{"components":{"clockgrove.conversation-mode":{"state":{"mode":"cognitive"},"type":"clockgrove.conversation-mode","version":1}},"id":"fixture.resident-kind","traits":[{"id":"fixture.needs","version":1}],"version":1}

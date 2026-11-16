@@ -5,6 +5,7 @@ import {
   type AccessPolicy as CatalogAccessPolicy,
   type ComponentValidationContext as CatalogContext,
   containmentSchema,
+  conversationModeSchema,
   createInitialComponentCatalog,
   identitySchema,
   lifecycleSchema,
@@ -162,6 +163,7 @@ export function projectEffectiveObjectsToWorldState(
     const needs = snapshots["clockgrove.needs"];
     const weather = snapshots["clockgrove.weather-exposure"];
     const portal = snapshots["clockgrove.portal"];
+    const conversation = snapshots["clockgrove.conversation-mode"];
     return {
       objectId: identity.objectId,
       archetypeId: `${archetype.archetype.id}@${archetype.archetype.version}`,
@@ -178,6 +180,9 @@ export function projectEffectiveObjectsToWorldState(
       ...(needs === undefined ? {} : { needs: needsSchema.parse(needs.state) }),
       ...(weather === undefined ? {} : { shelter: weatherExposureSchema.parse(weather.state) }),
       ...(portal === undefined ? {} : { portal: portalSchema.parse(portal.state) }),
+      ...(conversation === undefined
+        ? {}
+        : { conversationMode: conversationModeSchema.parse(conversation.state).mode }),
     };
   });
   return createWorldState({ ...ownedBase, entities });

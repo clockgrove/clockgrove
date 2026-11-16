@@ -22,7 +22,15 @@ const ACTIVATION_EVENT_PAGE = 64;
 
 /** One activation check's journal read. */
 export interface ActivationEventPage {
-  readonly events: readonly { eventId: string; eventType: string; causalRoot: string }[];
+  readonly events: readonly {
+    eventId: string;
+    eventType: string;
+    causalRoot: string;
+    /** The event's subject (`payload.objectId`) is this actor, journaled in its policy's space. */
+    own: boolean;
+    /** The event's `payload.need` (a `needs.threshold-crossed` event's need), else null. */
+    need: string | null;
+  }[];
   /** More events may be waiting: the page is full, or a visible event's transaction is unsettled. */
   readonly more: boolean;
 }
@@ -412,9 +420,26 @@ export class PostgreSqlActivations {
       const policy = await this.policy(a);
       const result = await this.client.query(
         `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,
+          coalesce(space_id = $8 AND subject.object_id = $7, false) AS own,
+          subject.need,
           transaction_id < settled.horizon AS settled
         FROM clockgrove.events
         CROSS JOIN (SELECT pg_snapshot_xmin(pg_current_snapshot()) AS horizon) settled
+        CROSS JOIN LATERAL (
+          SELECT coalesce(payload->>'objectId', kernel.object_id) AS object_id,
+            coalesce(payload->>'need', kernel.need) AS need
+          FROM (
+            -- A kernel event is journaled as {kernelEvent: canonical record}: its subject and need
+            -- are the objectId and need fields of the record's payload field.
+            SELECT max(field->1->>1) FILTER (WHERE field->>0 = 'objectId') AS object_id,
+              max(field->1->>1) FILTER (WHERE field->>0 = 'need') AS need
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(payload #> '{kernelEvent,1}') = 'array'
+                THEN payload #> '{kernelEvent,1}' ELSE '[]'::jsonb END) AS part,
+              jsonb_array_elements(CASE WHEN part->>0 = 'payload'
+                AND jsonb_typeof(part #> '{1,1}') = 'array' THEN part #> '{1,1}' ELSE '[]'::jsonb END)
+                AS field
+          ) kernel
+        ) subject
         WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3
           AND (transaction_id,journal_position) > ($4::xid8,$5::bigint)
         ORDER BY transaction_id,journal_position LIMIT $6`,
@@ -425,6 +450,8 @@ export class PostgreSqlActivations {
           policy.event_cursor_transaction,
           policy.event_cursor,
           ACTIVATION_EVENT_PAGE + 1,
+          a.actorId,
+          policy.space_id,
         ],
       );
       // Settled rows sort before every unsettled one: their transactions are older.
@@ -435,6 +462,8 @@ export class PostgreSqlActivations {
           eventId: String(r.event_id),
           eventType: String(r.event_type),
           causalRoot: String(r.causal_root),
+          own: r.own === true,
+          need: typeof r.need === "string" ? r.need : null,
         })),
         more: rows.length > settled.length,
       };
@@ -552,6 +581,8 @@ function validateConfiguration(c: ActivationConfiguration): void {
     (c.nextWakeAt !== null && (!Number.isSafeInteger(c.nextWakeAt) || c.nextWakeAt < 0)) ||
     (c.intervalMs !== null && (!Number.isSafeInteger(c.intervalMs) || c.intervalMs < 60000)) ||
     (c.eventType !== undefined && (typeof c.eventType !== "string" || c.eventType.length > 256)) ||
+    (c.need !== undefined &&
+      (c.kind !== "threshold" || (c.need !== "hunger" && c.need !== "thirst"))) ||
     (c.condition !== undefined &&
       (typeof c.condition !== "string" || new TextEncoder().encode(c.condition).length > 1024))
   )

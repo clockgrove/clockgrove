@@ -31,6 +31,7 @@ import {
   decodeCommandEnvelope,
   decodeOpaqueId,
   type QueueEnvelope,
+  type VoiceMode,
 } from "@clockgrove/contracts";
 import { simulationTimeMs } from "@clockgrove/kernel";
 import {
@@ -938,6 +939,21 @@ export function composeResearch(configuration: ResearchConfiguration) {
         (await killed(client, c))
       )
         throw new Error("Effect retry unavailable");
+      // The retry opens in the voice of the session the uncertain effect came from (issue 354): that
+      // session opened in the voice its actor declares, so the retry speaks as the original did. An
+      // effect with no originating session for its actor (its run is optional) keeps the retry's
+      // earlier voice, `cognitive`, so every effect retryable before stays retryable.
+      const voiceMode: VoiceMode =
+        (
+          (
+            await client.query(
+              `SELECT s.voice_mode FROM clockgrove.agent_runs r JOIN clockgrove.conversation_sessions s
+              ON s.tenant_id=r.tenant_id AND s.session_id=r.session_id
+            WHERE r.tenant_id=$1 AND r.world_id=$2 AND r.timeline_id=$3 AND r.run_id=$4 AND s.actor_id=$5`,
+              [scope.tenantId, scope.worldId, scope.timelineId, original.runId, original.actorId],
+            )
+          ).rows[0] as { voice_mode: VoiceMode } | undefined
+        )?.voice_mode ?? "cognitive";
       const store = new PostgreSqlConversationStore(
         client,
         configuration.artifacts(client),
@@ -946,7 +962,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
       const session = await store.open(participant, {
         scope,
         actorId: decodeOpaqueId(original.actorId, "ObjectId"),
-        voiceMode: "cognitive",
+        voiceMode,
       });
       const accepted = await store.acceptTurn(participant, {
         scope,

@@ -7,6 +7,7 @@ import type {
   SpaceId,
   TenantId,
   TimelineId,
+  VoiceMode,
   WorldId,
 } from "@clockgrove/contracts";
 import { decodeAttributionEnvelope } from "@clockgrove/contracts";
@@ -153,6 +154,11 @@ export interface WorldEntity {
   readonly movement?: MovementRecord;
   /** Present only on an object carrying the Portal component. */
   readonly portal?: PortalState;
+  /**
+   * The voice it answers Talk in, from the Conversation mode component
+   * (`clockgrove.conversation-mode`). Absent: the entity is not talkable.
+   */
+  readonly conversationMode?: VoiceMode;
 }
 
 export interface WorldNeeds {
@@ -1249,6 +1255,10 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
             archetypeId: parent.archetypeId,
             pose: parent.pose,
             lifecycle: { status: "active" as const },
+            // A child speaks in its parent's voice, as it takes the parent's archetype.
+            ...(parent.conversationMode === undefined
+              ? {}
+              : { conversationMode: parent.conversationMode }),
             needs: {
               hunger: 0,
               wetness: 0,
