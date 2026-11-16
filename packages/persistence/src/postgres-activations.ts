@@ -95,7 +95,10 @@ export class PostgreSqlActivations {
       }
       await this.client.query(
         `UPDATE clockgrove.actor_activation_policies SET configurations=$5::jsonb,
-        allow_model=$6,model_budget=$7,revoked_capabilities=coalesce($8::text[],revoked_capabilities)
+        allow_model=$6,model_budget=$7,revoked_capabilities=coalesce($8::text[],revoked_capabilities),
+        wake_limit=coalesce($9::integer,wake_limit),budget_period_ms=coalesce($10::bigint,budget_period_ms),
+        period_index=CASE WHEN $10::bigint IS DISTINCT FROM NULL AND $10::bigint<>budget_period_ms
+          THEN floor($11::bigint / $10::bigint) ELSE period_index END
         WHERE ${KEY}`,
         [
           ...values(a),
@@ -103,6 +106,10 @@ export class PostgreSqlActivations {
           policy.allowModel,
           policy.modelBudget,
           policy.revokedCapabilities === undefined ? null : [...policy.revokedCapabilities],
+          policy.wakeLimit ?? null,
+          policy.budgetPeriodMs ?? null,
+          // A new period length restarts counting at its current window, keeping this window's use.
+          Date.now(),
         ],
       );
       return this.inspectHere(a);
@@ -243,15 +250,15 @@ export class PostgreSqlActivations {
         new TextEncoder().encode(wake.evidence).length > 8192
       )
         throw new Error("invalid activation evidence");
-      const row = await this.policy(a);
+      const row = await this.roll(a);
       const previous = await this.client.query(
         `SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND causal_root=$5`,
         [...values(a), wake.causalRoot],
       );
       const prior = previous.rows[0] ? activation(previous.rows[0] as Row) : undefined;
       if (prior && prior.status !== "deferred") return prior;
-      if (!prior && Number(row.receipt_count) >= 1000)
-        throw new Error("activation receipt limit reached");
+      if (!prior && Number(row.period_wakes) >= Number(row.wake_limit))
+        throw new Error("activation wake limit reached");
       const configs = row.configurations as ActivationConfiguration[];
       const config = configs.find((c) => c.id === wake.configurationId);
       if (!config) throw new Error("activation configuration not found");
@@ -338,6 +345,7 @@ export class PostgreSqlActivations {
 
   beforeModel(a: ActivationAddress, fiber: TurnFiber): Promise<string | undefined> {
     return this.transaction(a, async () => {
+      await this.roll(a);
       const result = await this.client.query(
         `SELECT clockgrove.activation_model_gate($1,$2,$3,$4,$5,$6,$7,$8) AS status`,
         [
@@ -465,7 +473,22 @@ export class PostgreSqlActivations {
     if (!result.rows[0]) throw new Error("activation policy not found");
     return result.rows[0] as Row;
   }
+  /** Starts the current wall-clock period when the stored one has passed; answers the locked row. */
+  private async roll(a: ActivationAddress): Promise<Row> {
+    const result = await this.client.query(
+      `UPDATE clockgrove.actor_activation_policies SET period_index=floor($5::bigint / budget_period_ms),
+        period_wakes=0, model_calls_reserved=0
+      WHERE ${KEY} AND period_index < floor($5::bigint / budget_period_ms) RETURNING *`,
+      [...values(a), Date.now()],
+    );
+    return result.rows[0] ? (result.rows[0] as Row) : this.policy(a);
+  }
   private async inspectHere(a: ActivationAddress): Promise<ActivationInspection> {
+    const visible = await this.client.query(
+      `SELECT 1 FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
+      values(a),
+    );
+    if (visible.rows.length > 0) await this.roll(a);
     const result = await this.client.query(
       `SELECT * FROM clockgrove.actor_activation_policies WHERE ${KEY}`,
       values(a),
@@ -473,21 +496,43 @@ export class PostgreSqlActivations {
     const row = result.rows[0] as Row | undefined;
     const configs = (row?.configurations ?? []) as ActivationConfiguration[];
     const records = await this.client.query(
-      `SELECT * FROM clockgrove.actor_activations WHERE ${KEY} ORDER BY activation_id,causal_root`,
+      `SELECT * FROM (
+        SELECT *, row_number() OVER (PARTITION BY (CASE WHEN status='pending' THEN 0
+            WHEN status='deferred' AND left(causal_root,9)='schedule:' THEN 0
+            WHEN status='deferred' THEN 1 ELSE 2 END) ORDER BY
+            (CASE WHEN status='deferred' THEN admitted_at END) ASC NULLS LAST,
+            (CASE WHEN status='deferred' THEN NULL ELSE admitted_at END) DESC NULLS LAST,
+            causal_root) AS rank,
+          (CASE WHEN status='pending' OR (status='deferred' AND left(causal_root,9)='schedule:') THEN 0
+            WHEN status='deferred' THEN 1 ELSE 2 END) AS bucket
+        FROM clockgrove.actor_activations WHERE ${KEY}) ranked
+      WHERE bucket=0 OR (bucket=1 AND rank<=64) OR (bucket=2 AND rank<=256)
+      ORDER BY activation_id,causal_root`,
       values(a),
     );
     const times = configs
       .filter((c) => c.enabled && c.nextWakeAt !== null)
       .map((c) => c.nextWakeAt as number);
+    const periodMs = Number(row?.budget_period_ms ?? 3600000);
     return {
       configurations: configs,
       activations: (records.rows as Row[]).map(activation),
       policy: {
         allowModel: row?.allow_model === true,
         modelBudget: Number(row?.model_budget ?? 0),
+        wakeLimit: Number(row?.wake_limit ?? 120),
+        budgetPeriodMs: periodMs,
         revokedCapabilities: ((row?.revoked_capabilities ?? []) as string[]).map(String),
       },
       modelCallsReserved: Number(row?.model_calls_reserved ?? 0),
+      period: {
+        periodMs,
+        wakeLimit: Number(row?.wake_limit ?? 120),
+        wakes: Number(row?.period_wakes ?? 0),
+        endsAt: row
+          ? (Number(row.period_index) + 1) * periodMs
+          : (Math.floor(Date.now() / periodMs) + 1) * periodMs,
+      },
       nextWakeAt: times.length ? Math.min(...times) : null,
     };
   }
@@ -564,6 +609,12 @@ function validatePolicy(p: ActivationPolicy): void {
     !Number.isSafeInteger(p.modelBudget) ||
     p.modelBudget < 0 ||
     p.modelBudget > 1000 ||
+    (p.wakeLimit !== undefined &&
+      (!Number.isSafeInteger(p.wakeLimit) || p.wakeLimit < 1 || p.wakeLimit > 10000)) ||
+    (p.budgetPeriodMs !== undefined &&
+      (!Number.isSafeInteger(p.budgetPeriodMs) ||
+        p.budgetPeriodMs < 60000 ||
+        p.budgetPeriodMs > 2592000000)) ||
     (p.revokedCapabilities !== undefined &&
       (p.revokedCapabilities.length > MAX_REVOKED_CAPABILITIES ||
         p.revokedCapabilities.some(
