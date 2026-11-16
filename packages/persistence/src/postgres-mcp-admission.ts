@@ -490,7 +490,8 @@ export class PostgreSqlMcpAdmission {
     const result = await this.transaction(async () => {
       // Match model reservation lock order: one canonical turn owns the shared cost envelope.
       const fiberBudget = await this.client.query(
-        `SELECT research_reserved_microusd,research_max_cost_microusd FROM clockgrove.conversation_turn_fibers
+        `SELECT research_reserved_microusd-research_released_microusd AS research_reserved_microusd,
+          research_max_cost_microusd FROM clockgrove.conversation_turn_fibers
           WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND session_id=$4 AND message_id=$5 FOR UPDATE`,
         [...scope(i), request.sessionId, request.turnId],
       );

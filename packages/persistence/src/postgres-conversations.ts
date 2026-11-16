@@ -631,6 +631,12 @@ export class PostgreSqlConversationStore implements ConversationStore {
               : 0,
           ],
         );
+        // A step whose cost is known gives back the rest of its worst-case reservation (issue 349).
+        await this.client.query(`SELECT clockgrove.settle_turn_model_step($1,$2,$3,$4,$5)`, [
+          ...fiberKey(fiber),
+          fiber.leaseEpoch,
+          response.usage?.costMicrousd ?? null,
+        ]);
         return this.moveTurnHere(fiber, "proposal_validating", {
           replyArtifactId: replyArtifact,
           ...(response.outcomeCode === undefined ? {} : { outcomeCode: response.outcomeCode }),

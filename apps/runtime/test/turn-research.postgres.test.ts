@@ -166,6 +166,56 @@ it("checkpoints encrypted research, fences old owners and reserves all model ret
           "SELECT string_agg(tool_evidence->>'status',',' ORDER BY r.started_at,s.step) FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r USING(tenant_id,run_id) WHERE s.kind IN ('tool_proposal','tool_execution')",
         ),
       ).toBe("waiting,succeeded");
+      // Issue 349: a step whose cost is known gives back the rest of its worst-case reservation,
+      // so a second measured step of 200,000 still fits the turn's 250,000 once the first cost
+      // 12,000. A step whose cost is unknown keeps its whole reservation.
+      const settled = await store.acceptTurn(participant, {
+        scope,
+        sessionId: session.sessionId,
+        messageId: "settled",
+        text: "Look it up again",
+      });
+      let step = (await store.claimTurn(participant, settled.fiber!, "owner-s", 1))!;
+      step = (await store.assembleTurn(participant, step))!;
+      step = (await store.advanceTurn(participant, step, "model_running"))!;
+      const measured = { ...limits, reserveMicrousd: 200_000 };
+      expect(await store.reserveModelStep(participant, step, measured)).toBe("reserved");
+      step = (await store.answerTurn(participant, step, {
+        text: "Looking it up",
+        command: { capability: "inspect", input: {} },
+        usage: { inputTokens: 2_000, outputTokens: 200, costMicrousd: 12_000 },
+      }))!;
+      const again = { callId: "settled-call", effectId: "settled-effect", capability: "inspect" };
+      step = (await store.waitForTool(participant, step, again))!;
+      step = (await store.completeTool(participant, step, {
+        ...again,
+        status: "succeeded",
+        code: null,
+        text: "Fixture reading: 24",
+        resultArtifactId: null,
+        grantId: "observe",
+      }))!;
+      step = (await store.resumeAfterTool(participant, step))!;
+      expect(await store.reserveModelStep(participant, step, measured)).toBe("reserved");
+      // 12,000 spent and 200,000 in flight leave 38,000 of the 250,000.
+      expect(
+        await store.reserveModelStep(participant, step, { ...limits, reserveMicrousd: 38_001 }),
+      ).toBe("cost_budget_exhausted");
+      expect(
+        await store.reserveModelStep(participant, step, { ...limits, reserveMicrousd: 38_000 }),
+      ).toBe("reserved");
+      step = (await store.answerTurn(participant, step, {
+        text: "The tool reports 24 [settled-call].",
+        usage: { inputTokens: null, outputTokens: null, costMicrousd: null },
+      }))!;
+      expect(
+        await sql(
+          "SELECT research_reserved_microusd||','||research_released_microusd FROM clockgrove.conversation_turn_fibers WHERE message_id='settled'",
+        ),
+      ).toBe("438000,188000");
+      step = (await store.advanceTurn(participant, step, "committing"))!;
+      step = (await store.commitTurn(participant, step))!;
+      step = (await store.endTurn(participant, step, "completed"))!;
       // Bounds visibly replace a proposal's guess and fail the run as a system disposition.
       const bounded = await store.acceptTurn(participant, {
         scope,
@@ -204,7 +254,7 @@ it("checkpoints encrypted research, fences old owners and reserves all model ret
           privacyCeiling: { version: 1, allowedCategories: ["operator_evidence"] },
         },
         scope,
-        { sessionId: session.sessionId, turn: 2 },
+        { sessionId: session.sessionId, turn: 3 },
       );
       expect(metadata.map((run) => [run.status, run.outcomeCode, run.prompt?.text])).toEqual([
         ["failed", "tool_calls_exhausted", null],

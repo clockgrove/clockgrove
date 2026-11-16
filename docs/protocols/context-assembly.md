@@ -129,7 +129,12 @@ authorization:
    model context, escaped by JSON to at most 6 bytes a byte, plus 12,288 of the call's framing),
    and 65,536 for the rest:
    the system text, the tool catalog, recorded self results, the input's second copy, the output
-   schema and the sections' framing. An estimated token renders to at most 24 measured tokens: at
+   schema and the sections' framing. Where the request is built, the tool catalog gets only what
+   that 65,536 has left once the rest is measured and 8,192 is kept for the prompt's own framing:
+   entries that do not fit are left out and counted in a closing note (`fittedCatalog`), so a
+   catalog of any size never overruns it. The other parts are bounded where they are made: a
+   configured identity at 4 KiB and scene label at 256 bytes, the scene digest at 8 KiB, self
+   results at 16 KiB and the input at 1 KiB. An estimated token renders to at most 24 measured tokens: at
    most 4 bytes, each escaped by JSON to at most 6. A context within the budget therefore never
    makes a request, research steps included, that the
    gateway refuses for size. Under the production limit (998,976) the budget stays 4,096. Without
@@ -139,6 +144,8 @@ authorization:
    its summary and history for want of room. `contextTokenBudget` itself refuses such a limit
    rather than clamping it to a budget of one. Each research step reserves its own measured
    worst case (the gateway's reservation, for every fallback route) against the turn's cost cap.
+   Once the step's answer is recorded with a known cost, the rest of its reservation is released
+   (`settle_turn_model_step`, migration 0071); a step whose cost is unknown keeps all of it.
    The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
    length, then history newest first. A source that would pass the budget is excluded
