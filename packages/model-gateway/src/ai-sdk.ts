@@ -10,6 +10,7 @@ import {
 } from "ai";
 import {
   httpFailureBilling,
+  isRequestRejection,
   NOTHING_BILLED,
   type ProviderBilling,
   type ProviderEvent,
@@ -224,6 +225,8 @@ function classify(error: unknown, observed?: ProviderBilling): ProviderFailure {
   if (!Number.isInteger(status)) return new ProviderFailure("unavailable", null, true, observed);
   const billing = observed ?? httpFailureBilling(status);
   if (status === 429) return new ProviderFailure("rate_limited", status, true, billing);
+  if (isRequestRejection(status))
+    return new ProviderFailure("request_rejected", status, false, billing);
   return new ProviderFailure("unavailable", status, status === 408 || status >= 500, billing);
 }
 

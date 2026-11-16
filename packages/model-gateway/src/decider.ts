@@ -1,4 +1,9 @@
-import { httpFailureBilling, NOTHING_BILLED, ProviderFailure } from "./adapter.js";
+import {
+  httpFailureBilling,
+  isRequestRejection,
+  NOTHING_BILLED,
+  ProviderFailure,
+} from "./adapter.js";
 import type {
   DecisionAdapter,
   DecisionAdapterResult,
@@ -40,7 +45,11 @@ export class ScriptedDecider implements DecisionAdapter {
     if (step === undefined) throw new ProviderFailure("unavailable", null, false, NOTHING_BILLED);
     if (step.kind === "http") {
       throw new ProviderFailure(
-        step.status === 429 ? "rate_limited" : "unavailable",
+        step.status === 429
+          ? "rate_limited"
+          : isRequestRejection(step.status)
+            ? "request_rejected"
+            : "unavailable",
         step.status,
         step.status === 429 || step.status >= 500,
         httpFailureBilling(step.status),

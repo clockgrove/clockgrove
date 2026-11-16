@@ -273,6 +273,27 @@ describe("model gateway through the AI SDK adapter", () => {
     ]);
   });
 
+  it("ends a provider 400 as a request failure without charging or leaving the route", async () => {
+    const records: ModelCallRecord[] = [];
+    const gateway = localGateway(records);
+    queues.primary = [{ status: 400 }];
+    queues.fallback = [{ reply: ["ok"], input: 1, output: 1 }];
+    const outcome = await gateway.stream({
+      alias: "resident.local",
+      callId: "r-1",
+      attribution,
+      ...ask,
+    });
+    expect(outcome).toMatchObject({ status: "failed", code: "request_rejected", retryable: false });
+    expect(outcome.record.attempts).toMatchObject([
+      { outcome: "request_rejected", httpStatus: 400 },
+    ]);
+    expect(gateway.inspect("resident.local").routes[0]).toMatchObject({
+      breaker: "closed",
+      consecutiveFailures: 0,
+    });
+  });
+
   it("reports every route down as a recoverable state without calling out", async () => {
     const records: ModelCallRecord[] = [];
     received.length = 0;

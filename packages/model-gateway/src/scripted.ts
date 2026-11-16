@@ -1,4 +1,5 @@
 import {
+  isRequestRejection,
   type ProviderEvent,
   ProviderFailure,
   type RouteAdapter,
@@ -36,7 +37,11 @@ export class ScriptedModelProvider implements RouteAdapter {
     if (step === undefined) throw new ProviderFailure("unavailable", null, false);
     if (step.kind === "http") {
       throw new ProviderFailure(
-        step.status === 429 ? "rate_limited" : "unavailable",
+        step.status === 429
+          ? "rate_limited"
+          : isRequestRejection(step.status)
+            ? "request_rejected"
+            : "unavailable",
         step.status,
         step.status === 429 || step.status >= 500,
       );

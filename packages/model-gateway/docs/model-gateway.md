@@ -28,6 +28,7 @@ provider has no adapter is refused when the gateway is created, before any call.
 | `unavailable` | every route failed: missing credential, open breaker, HTTP error, connection error |
 | `timeout` | the last route tried timed out |
 | `rate_limited` | the last route tried answered 429 |
+| `request_rejected` | the provider rejected the request itself with a 4xx other than 401, 402, 403, 408 and 429 (a refused schema, an over-long prompt) |
 | `refused` | the model declined (`content-filter` finish) |
 | `invalid_output` | structured output was not JSON or failed the schema |
 | `input_too_large` | the request's measured input exceeds the alias's `maxInputTokens`; no route was called. The outcome names both (`inputTokens`, `maxInputTokens`) |
@@ -105,6 +106,10 @@ The gateway does not fall back after any other outcome:
 - **Any outcome after first bytes**, including a timeout and a mid-stream provider error such as
   Anthropic's `overloaded_error`. The caller already received text, and a second route would
   duplicate it. The call ends with that route's outcome and decision `primary` (or `fallback`).
+- **A rejected request.** A 4xx the provider gave the request itself (`request_rejected`) would
+  fail on every route, and says nothing about this route. The call ends at once, retryable false,
+  and the breaker is not charged. 401, 402 and 403 are the route's credential or account, and 408
+  and 429 are transient, so they stay `unavailable` or `rate_limited`.
 - **Refusal or invalid output.** The model answered, so moving to another route would be a silent
   switch.
 - **Cancellation.** The caller stopped the call.

@@ -588,6 +588,7 @@ function failureCode(outcome: RouteAttemptOutcome): ModelFailureCode {
     case "timeout_after_first_byte":
       return "timeout";
     case "rate_limited":
+    case "request_rejected":
     case "refused":
     case "invalid_output":
     case "cancelled":
