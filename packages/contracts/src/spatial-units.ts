@@ -1,5 +1,7 @@
 /** The spatial units the engine knows, with metres per unit. */
 export const SPATIAL_UNITS: Readonly<Record<string, number>> = Object.freeze({
+  centimeter: 0.01,
+  centimetre: 0.01,
   meter: 1,
   metre: 1,
   millimeter: 0.001,

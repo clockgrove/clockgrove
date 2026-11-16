@@ -14,7 +14,7 @@ All Clockgrove IDs are opaque branded strings. Callers may compare or transport 
 
 ## Spatial units
 
-`SPATIAL_UNITS` (`packages/contracts/src/spatial-units.ts`) lists the units the engine knows with metres per unit: `metre`, `meter`, `millimetre`, `millimeter`. `metresPerUnit(name)` returns undefined for any other name. The browser frame decoder, domain frame validation and so pack decoding refuse an unknown unit name; the web adapter reads metres from this table.
+`SPATIAL_UNITS` (`packages/contracts/src/spatial-units.ts`) lists the units the engine knows with metres per unit: `metre`, `meter`, `centimetre`, `centimeter`, `millimetre`, `millimeter`. `metresPerUnit(name)` returns undefined for any other name. The browser frame decoder, domain frame validation and so pack decoding refuse an unknown unit name; the web adapter reads metres from this table.
 
 ## Contract inventory version
 

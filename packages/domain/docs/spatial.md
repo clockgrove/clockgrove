@@ -27,7 +27,7 @@ command execution live in the kernel. All data is fixed-point `bigint`:
   axes {axes[]}, origin, gravity {kind: "constant-vector", vector}, parentFrameId?,
   parentTransform? {version, translation, basis}}`. `validateSpatialFrame` throws
   `DomainValidationError` unless: the version is a positive safe integer; the unit name is
-  one the engine knows (`metre`, `meter`, `millimetre`, `millimeter`) and `fractionalDigits` is an integer from 0 through 18; origin, gravity vector and
+  one the engine knows (`metre`, `meter`, `centimetre`, `centimeter`, `millimetre`, `millimeter`) and `fractionalDigits` is an integer from 0 through 18; origin, gravity vector and
   axes each have exactly `dimensions` entries; axis names and positive directions are non-empty
   and axis names are unique; `parentFrameId` and `parentTransform` are declared together; a
   frame is never its own parent; and the transform has a positive safe-integer version, a
