@@ -37,7 +37,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM clockgrove.actor_activation_policies
       WHERE tenant_id = NEW.tenant_id AND world_id = NEW.world_id AND timeline_id = NEW.timeline_id
         AND actor_id = NEW.actor_id AND principal_id = NEW.principal_id AND space_id=NEW.space_id)
-    THEN RAISE EXCEPTION 'activation wake limit reached'; END IF;
+    THEN RAISE EXCEPTION 'activation wake limit reached' USING ERRCODE = 'check_violation'; END IF;
     RAISE EXCEPTION 'activation policy not found';
   END IF;
   RETURN NEW;
