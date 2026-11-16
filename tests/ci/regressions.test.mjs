@@ -12,6 +12,7 @@ import ts from "typescript";
 import { expect, it } from "vitest";
 import {
   collectEvidence,
+  commandLimitsMs,
   readPassingReceipt,
   recordCommand,
   validateEvidence,
@@ -323,6 +324,13 @@ it("Quality measures a pull request against the main its merge commit was built 
       `CONTRACT_BASE_COMMIT=${main}\nCONTRACT_BASE_COMMIT=before\n`.repeat(2),
     );
   }));
+// #381: the browser journeys outgrew 30 minutes; their limit and kill grace stay inside Quality's job.
+it("the browser journey's command limit exceeds the default and fits Quality's job", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/quality.yml"), "utf8");
+  const jobMinutes = Number(/timeout-minutes: (\d+)/u.exec(workflow)[1]);
+  expect(commandLimitsMs.browser).toBeGreaterThan(30 * 60_000);
+  expect(commandLimitsMs.browser + 30_000 + 2 * 60_000).toBeLessThan(jobMinutes * 60_000);
+});
 it("CI deadlines settle termination-resistant descendants without promoting timeout to pass", () =>
   inTemporary("clockgrove-deadline-", async (directory) => {
     const descendant = `const net = require('node:net'); process.on('SIGTERM', () => {}); const server = net.createServer(); server.listen(0, '127.0.0.1', () => console.log(JSON.stringify({ pid: process.pid, port: server.address().port })));`;

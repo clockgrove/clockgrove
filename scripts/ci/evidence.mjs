@@ -623,6 +623,11 @@ export async function collectEvidence(directory, execution, buildDirectory) {
   );
   return manifest;
 }
+// Wall-clock limits by command name; every other command gets 30 minutes. The browser journeys run
+// one file at a time and outgrew 30 minutes once #356's tier proof and #381's drawn-high bake-off
+// step down joined them. 40 minutes plus the kill grace still leaves the build and its upload inside
+// Quality's 45-minute job.
+export const commandLimitsMs = Object.freeze({ browser: 40 * 60_000 });
 export async function recordCommand(directory, name, command, options = {}) {
   assert(/^[a-z0-9-]+$/u.test(name), "invalid CI evidence name");
   await mkdir(directory, { recursive: true });
@@ -644,7 +649,7 @@ export async function recordCommand(directory, name, command, options = {}) {
   const start = new Date().toISOString();
   const result = await ownedSubprocess(command[0], command.slice(1), {
     cwd: root,
-    timeoutMs: options.timeoutMs ?? 30 * 60_000,
+    timeoutMs: options.timeoutMs ?? commandLimitsMs[name] ?? 30 * 60_000,
     killGraceMs: options.killGraceMs ?? 30_000,
     maxBuffer: 128 * 1024 * 1024,
     env: { ...process.env, CI_EVIDENCE_DIR: directory },
