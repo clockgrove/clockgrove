@@ -22,6 +22,7 @@ import {
   type TalkStreamFrame,
   type TurnRequest,
   type TurnStatus,
+  type VoiceMode,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 
@@ -133,9 +134,11 @@ export interface ConversationCall {
   readonly scope: BrowserScope;
   /** The actor a new session addresses; the caller checks it is projected first. */
   readonly actorId?: ObjectId;
+  /** `voice` is the addressed entity's declared Conversation mode, when the call names one. */
   readonly run?: (
     store: ConversationStore,
     participant: ConversationParticipant,
+    voice?: VoiceMode,
   ) => Promise<unknown>;
   /** A call its session's actor owner answers: Talk, a turn's status, a cancel. */
   readonly owner?: {
@@ -157,9 +160,11 @@ export function conversationCall(route: ConversationRoute, body: unknown): Conve
       return {
         scope: input.scope,
         actorId: input.actorId,
-        // Every Talk-addressable actor speaks for itself: no pack object declares an interpreted
-        // or canonical Conversation mode yet.
-        run: (store, participant) => store.open(participant, { ...input, voiceMode: "cognitive" }),
+        // The session opens in the voice the addressed entity declares (its Conversation mode).
+        run: (store, participant, voice) => {
+          if (voice === undefined) throw new Error("a new session needs the entity's voice");
+          return store.open(participant, { ...input, voiceMode: voice });
+        },
       };
     }
     case "/v1/runtime/conversations/list": {

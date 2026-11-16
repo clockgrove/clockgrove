@@ -17,6 +17,7 @@ import {
 } from "../../../scripts/database/lib.mjs";
 import { DeterministicTestAuthProvider } from "../local/test-auth.js";
 import { PostgreSqlCausalInspector } from "../src/inspector.js";
+import { interactionsOf } from "../src/interactions.js";
 import {
   PostgreSqlEntitySelectionReader,
   PostgreSqlLivingSceneReader,
@@ -189,12 +190,23 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
             Object.fromEntries(
               projection.interactions
                 .filter(({ entityId }) =>
-                  ["fixture.keeper", "fixture.snack-dish", "fixture.den"].includes(entityId),
+                  ["fixture.keeper", "fixture.snack-dish", "fixture.den", "fixture.cedar"].includes(
+                    entityId,
+                  ),
                 )
                 .map(({ entityId, mode, actions }) => [entityId, [mode, actions]]),
             ),
           );
+      // Talk follows the declared Conversation mode (issue 354), not needs: the cedar declares one.
       expect(await scene({ categories: ["public_scene", "conversation"], command: true })).toEqual({
+        "fixture.cedar": [
+          "reactive",
+          [
+            { kind: "inspect", availability: "enabled" },
+            { kind: "history", availability: "enabled" },
+            { kind: "talk", availability: "enabled" },
+          ],
+        ],
         "fixture.den": [
           "inspectable",
           [
@@ -220,6 +232,28 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           ],
         ],
       });
+      // Needs alone no longer make an entity talkable: the same canonical Keeper without its
+      // declared Conversation mode keeps Why and loses Talk.
+      const canonical = (
+        await new PostgreSqlCommandOwner(client).reader.hydrate(authorization, scope)
+      ).document.state;
+      const undeclared = {
+        ...canonical,
+        entities: canonical.entities.map(({ conversationMode: _, ...entity }) => entity),
+      };
+      expect(
+        interactionsOf(undeclared, new Set(["fixture.keeper"]), { talk: true, influence: true }),
+      ).toEqual([
+        {
+          entityId: "fixture.keeper",
+          mode: "reactive",
+          actions: [
+            { kind: "inspect", availability: "enabled" },
+            { kind: "history", availability: "enabled" },
+            { kind: "why", availability: "enabled" },
+          ],
+        },
+      ]);
       const observerOnly = await scene({ categories: ["public_scene"], command: false });
       expect([
         observerOnly["fixture.keeper"]?.[1]?.[3],
@@ -233,6 +267,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const [selectionStatus, selection] = await post("entity", { objectId: "fixture.keeper" });
       expect(selectionStatus).toBe(200);
       const keeper = decodeEntitySelection(selection);
+      expect(keeper.physical.conversationMode).toBe("cognitive");
       expect(keeper.physical.selectedAction).toEqual({
         kind: "seek-shelter",
         targetObjectId: "fixture.porch",

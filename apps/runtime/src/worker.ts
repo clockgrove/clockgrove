@@ -72,6 +72,7 @@ import {
   SCENE_CREDENTIAL_PREFIX,
   SCENE_PROTOCOL,
   type SceneInterest,
+  type VoiceMode,
   type WorldDirectory,
   type WorldPersonaId,
   type WorldStatus,
@@ -1065,8 +1066,8 @@ export class RuntimeWorker {
         note.outcome = "unavailable";
         return jsonResponse({ error: "conversation_unavailable" }, 503);
       }
-      const refused = await this.unaddressable(call.scope, call.actorId, context, note);
-      if (refused !== undefined) return refused;
+      const addressed = await this.addressed(call.scope, call.actorId, context, note);
+      if (addressed instanceof Response) return addressed;
       const result = await call.run(owners, context, { ...context, personaId: context.personaId });
       note.outcome = "read";
       return jsonResponse(result);
@@ -1085,8 +1086,9 @@ export class RuntimeWorker {
   /**
    * Private Caretaker Talk and its sessions, under the observe grant, a `conversation` ceiling and
    * a resolved persona, the policy the interaction card's Talk action reports. A new session
-   * addresses only an actor (an entity with needs) projected in the request's space. Rows are the
-   * participant's own (migration 0034); nothing here reaches the scene.
+   * addresses only an entity projected in the request's space that declares a Conversation mode,
+   * and opens in that voice. Rows are the participant's own (migration 0034); nothing here reaches
+   * the scene.
    */
   private async conversation(
     request: Request,
@@ -1111,9 +1113,11 @@ export class RuntimeWorker {
         note.outcome = "unavailable";
         return jsonResponse({ error: "conversation_unavailable" }, 503);
       }
+      let voice: VoiceMode | undefined;
       if (call.actorId !== undefined) {
-        const refused = await this.unaddressable(call.scope, call.actorId, context, note);
-        if (refused !== undefined) return refused;
+        const addressed = await this.addressed(call.scope, call.actorId, context, note);
+        if (addressed instanceof Response) return addressed;
+        voice = addressed;
       }
       const participant = {
         ...context,
@@ -1128,7 +1132,7 @@ export class RuntimeWorker {
         return await this.turn(request, note, call.scope, call.owner, participant, context);
       if (call.run === undefined) throw new Error("conversation call has no store operation");
       const run = call.run;
-      const answer = await stores((store) => run(store, participant));
+      const answer = await stores((store) => run(store, participant, voice));
       note.outcome = "read";
       return jsonResponse(answer);
     } catch (error) {
@@ -1208,8 +1212,8 @@ export class RuntimeWorker {
       const personaId = context.personaId;
       if (personaId === undefined) throw new AuthorizationRefusedError("say refused");
       note.authorization = "authorized";
-      const refused = await this.unaddressable(say.scope, say.actorId, context, note);
-      if (refused !== undefined) return refused;
+      const addressed = await this.addressed(say.scope, say.actorId, context, note);
+      if (addressed instanceof Response) return addressed;
       note.outcome = "read";
       const participant = {
         ...context,
@@ -1247,20 +1251,23 @@ export class RuntimeWorker {
     }
   }
 
-  /** The card's capability, enforced here too: only a projected actor (one with needs) is addressed. */
-  private async unaddressable(
+  /**
+   * The card's Talk capability, enforced here too: only a projected entity that declares a
+   * Conversation mode is addressed. Answers its declared voice, or the refusal.
+   */
+  private async addressed(
     scope: BrowserScope,
     actorId: string,
     context: TrustedContext,
     note: RequestNote,
-  ): Promise<Response | undefined> {
+  ): Promise<Response | VoiceMode> {
     const select = this.bindings.observation?.select;
     if (select === undefined) return refusal(note, "inspector_unavailable", 503);
     const actor = await select(
       { version: 1, ...scope, objectId: actorId } as EntitySelectionRequest,
       context,
     );
-    if (actor.physical.needs !== null) return undefined;
+    if (actor.physical.conversationMode !== undefined) return actor.physical.conversationMode;
     note.outcome = "refused";
     return jsonResponse({ error: "talk_unavailable" }, 409);
   }

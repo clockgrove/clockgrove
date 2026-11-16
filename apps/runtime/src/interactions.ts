@@ -28,8 +28,10 @@ export interface InteractionAuthority {
 /**
  * The server's policy evaluation of every projected entity's interaction card. Capabilities come
  * from canonical components only; the caller's grants and ceiling then enable or disable each one,
- * so a missing capability is absent and a denied one carries its reason. Wave 4 has no cognition:
- * actors decide by deterministic utility, so no entity is `cognitive` or `interpreted` here.
+ * so a missing capability is absent and a denied one carries its reason. Talk is offered for an
+ * entity that declares a Conversation mode (`clockgrove.conversation-mode`), whatever else it
+ * carries; Why stays an actor's (an entity with needs), since it explains a routine choice. The
+ * card's `mode` is unchanged: actors still decide by deterministic utility.
  */
 export function interactionsOf(
   state: WorldState,
@@ -46,14 +48,13 @@ export function interactionsOf(
     .map((entity) => {
       const actor = entity.needs !== undefined;
       const actions: InteractionAction[] = [enabled("inspect"), enabled("history")];
-      if (actor) {
-        actions.push(enabled("why"));
+      if (actor) actions.push(enabled("why"));
+      if (entity.conversationMode !== undefined)
         actions.push(
           authority.talk
             ? enabled("talk")
             : { kind: "talk", availability: "disabled", reason: "conversation_not_permitted" },
         );
-      }
       if (entity.resource !== undefined)
         actions.push(
           authority.influence

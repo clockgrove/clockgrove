@@ -218,6 +218,31 @@ it.skipIf(!isNativeWorldOwnerChild())(
         { status: 404, body: { error: "conversation_not_found" } },
       );
 
+      // A session opens in the voice the entity declares (issue 354): the cedar's Conversation
+      // mode is `interpreted`, and its replies carry that voice.
+      const cedar = decodeConversationSession(
+        (
+          await post("/v1/runtime/conversations/create", {
+            actorId: "fixture.cedar",
+            title: "Cedar",
+          })
+        ).body,
+      );
+      expect([cedar.actorId, cedar.voiceMode, cedar.disclosure]).toEqual([
+        "fixture.cedar",
+        "interpreted",
+        "Narrated interpretation of modeled state; the object is not sentient",
+      ]);
+      const narrated = await talk(cedar.sessionId, "cedar-1", "How tall have you grown?");
+      expect([narrated.reply.authorId, narrated.reply.voiceMode]).toEqual([
+        "fixture.cedar",
+        "interpreted",
+      ]);
+      // An entity that declares no Conversation mode is not addressed.
+      expect(
+        await post("/v1/runtime/conversations/create", { actorId: "fixture.water-bowl" }),
+      ).toEqual({ status: 409, body: { error: "talk_unavailable" } });
+
       // The OpenAPI document describes exactly the routes the runtime serves.
       const openapi = JSON.parse(
         await readFile(

@@ -811,6 +811,9 @@ export class PostgreSqlEntitySelectionReader {
                 targetObjectId: entity.selectedAction.targetObjectId ?? null,
               },
         lifecycle: entity.lifecycle?.status ?? null,
+        ...(entity.conversationMode === undefined
+          ? {}
+          : { conversationMode: entity.conversationMode }),
       },
       derived: {
         canonical: false,
