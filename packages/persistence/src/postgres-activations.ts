@@ -22,7 +22,13 @@ const ACTIVATION_EVENT_PAGE = 64;
 
 /** One activation check's journal read. */
 export interface ActivationEventPage {
-  readonly events: readonly { eventId: string; eventType: string; causalRoot: string }[];
+  readonly events: readonly {
+    eventId: string;
+    eventType: string;
+    causalRoot: string;
+    /** The event's subject (`payload.objectId`) is this actor, journaled in its policy's space. */
+    own: boolean;
+  }[];
   /** More events may be waiting: the page is full, or a visible event's transaction is unsettled. */
   readonly more: boolean;
 }
@@ -412,6 +418,7 @@ export class PostgreSqlActivations {
       const policy = await this.policy(a);
       const result = await this.client.query(
         `SELECT event_id,event_type,coalesce(causation_id,event_id) AS causal_root,
+          coalesce(payload->>'objectId' = $7 AND space_id = $8, false) AS own,
           transaction_id < settled.horizon AS settled
         FROM clockgrove.events
         CROSS JOIN (SELECT pg_snapshot_xmin(pg_current_snapshot()) AS horizon) settled
@@ -425,6 +432,8 @@ export class PostgreSqlActivations {
           policy.event_cursor_transaction,
           policy.event_cursor,
           ACTIVATION_EVENT_PAGE + 1,
+          a.actorId,
+          policy.space_id,
         ],
       );
       // Settled rows sort before every unsettled one: their transactions are older.
@@ -435,6 +444,7 @@ export class PostgreSqlActivations {
           eventId: String(r.event_id),
           eventType: String(r.event_type),
           causalRoot: String(r.causal_root),
+          own: r.own === true,
         })),
         more: rows.length > settled.length,
       };

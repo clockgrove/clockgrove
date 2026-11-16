@@ -327,6 +327,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
         eventType: "ClockPolicyChanged",
         compiledRoutine: "noop",
       });
+      // A threshold is the actor's own (issue 354): the same event, whose subject is not the actor,
+      // wakes the subscription and never the threshold.
+      await configure("own-only", "threshold", {
+        eventType: "ClockPolicyChanged",
+        compiledRoutine: "noop",
+      });
       // The event commits after the subscription's first check: its commit hint wakes the actor.
       await new Promise((resolve) => setTimeout(resolve, 1_100));
       expect(
@@ -348,6 +354,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         .toBe(
           '{"kind": "subscription", "eventId": "subscription-change:event:0", "subscriptionId": "journal"}/journal:subscription-change:event:0/noop',
         );
+      expect(
+        await owner.sql(
+          "SELECT count(*) FROM clockgrove.actor_activations WHERE configuration_id = 'own-only'",
+        ),
+      ).toBe("0");
       expect(await counts()).toBe("8/3/6");
       expect(await agent({ op: "model-calls" })).toBe(3);
 

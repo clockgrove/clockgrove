@@ -286,3 +286,30 @@ it("refuses a restore whose transaction IDs are ahead of the cluster, and a reba
     await Promise.all([source.close(), target.close()]);
   }
 });
+
+it("marks only the actor's own crossing in its policy's space as its own", async () => {
+  const client = connect(cluster.fixture.environment);
+  try {
+    const activations = new PostgreSqlActivations(client);
+    const journal = new PostgreSqlJournal(client);
+    await subscribe(activations, address, "watch-own");
+    await check(activations);
+    const crossing = (s: FixtureScope, id: string, objectId: string) =>
+      journal.execute(
+        fixtureRequest(s, `command-${id}`, [
+          fixtureDraft(s, id, { type: "needs.threshold-crossed", payload: { objectId } }),
+        ]),
+      );
+    await crossing(A, "own-keeper-a", "keeper");
+    await crossing(A, "own-warden-a", "warden");
+    await crossing(B, "own-keeper-b", "keeper");
+    const { events } = await activations.events(address);
+    expect(events.map((e) => [e.eventId, e.own])).toEqual([
+      ["own-keeper-a", true],
+      ["own-warden-a", false],
+      ["own-keeper-b", false],
+    ]);
+  } finally {
+    await client.close();
+  }
+});
