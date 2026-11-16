@@ -2430,7 +2430,8 @@ BEGIN
     RAISE EXCEPTION 'activation owner did not settle evidence';
   END IF;
   -- Issue 358: the lifetime tally no longer stops wakes; the wall-clock period's wake limit does.
-  UPDATE clockgrove.actor_activation_policies SET receipt_count=1000, period_wakes=wake_limit;
+  UPDATE clockgrove.actor_activation_policies SET receipt_count=1000, period_wakes=wake_limit,
+    period_index=floor(extract(epoch FROM clock_timestamp()) * 1000 / budget_period_ms)::bigint;
   BEGIN
     INSERT INTO clockgrove.actor_activations (
       tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
@@ -2442,6 +2443,17 @@ BEGIN
   END;
   IF (SELECT count(*) FROM clockgrove.actor_activations) <> 1 THEN
     RAISE EXCEPTION 'refused activation changed durable receipt count';
+  END IF;
+  -- A passed period is renewed by the database itself, so a writer that never rolls one keeps
+  -- waking at the per-period rate.
+  UPDATE clockgrove.actor_activation_policies SET period_index=period_index-1;
+  INSERT INTO clockgrove.actor_activations (
+    tenant_id,world_id,timeline_id,space_id,actor_id,causal_root,activation_id,principal_id,
+    configuration_id,reason,evidence,session_id,message_id,input,status,outcome
+  ) VALUES ('tenant-a','world-a','timeline-a','space-a','keeper','renewed','renewed',
+    'principal-a','subscription-a','{}','renewed','activation-session','renewed','x','completed','completed');
+  IF (SELECT period_wakes || '/' || receipt_count FROM clockgrove.actor_activation_policies) <> '1/1001' THEN
+    RAISE EXCEPTION 'database did not renew a passed activation period';
   END IF;
   -- Commit hints (0042): only the world's own system principal learns which actors subscribe.
   UPDATE clockgrove.actor_activation_policies SET configurations='[

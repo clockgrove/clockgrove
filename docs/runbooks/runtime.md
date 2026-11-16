@@ -1402,6 +1402,18 @@ minimum-interval (60 s) heartbeat produces in it. Inspection answers the current
 owner logs `activation_limit_reached` when a scheduled check stops at the wake limit. Every causal
 receipt is kept, so a causal root that recurs is still refused.
 
+Upgrading to migration 0072: every existing policy gets the one-hour period and the 120-wake
+limit, and keeps its `modelBudget` number, which from then on renews every period instead of once
+for the actor's life. A policy whose `modelBudget` was meant as a lifetime allowance should be
+reconfigured (a smaller `modelBudget` or a longer `budgetPeriodMs`) before the new runtime is
+deployed. The database itself starts a passed period when a receipt is written, so a runtime from
+before 0072 keeps waking at the per-period rate between the migration and the deploy, or after a
+rollback.
+
+Receipts are never deleted, so `actor_activations` grows for each actor's life by up to
+`wakeLimit` rows per period (about 1,440 rows a day for one once-a-minute heartbeat). Inspection
+reads each kind of receipt in index order with a fixed limit, so its cost does not grow with them.
+
 ## Wake-triage shadow report
 
 Bind `WAKE_TRIAGE_CONFIG` to a JSON object to enable wake triage. Omit the binding to disable it;
