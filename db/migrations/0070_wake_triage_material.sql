@@ -12,7 +12,8 @@ BEGIN
       WHERE r.tenant_id=q.tenant_id AND r.session_id=q.session_id AND r.input_message_id=q.message_id),
     'deliveredMessage',EXISTS(SELECT 1 FROM clockgrove.actor_activations a JOIN clockgrove.deliveries d
       ON d.tenant_id=a.tenant_id AND d.world_id=a.world_id AND d.timeline_id=a.timeline_id
-        AND d.actor_id=a.actor_id AND d.dedupe_key='activation:'||a.activation_id
+        AND d.actor_id=a.actor_id AND d.principal_id=a.principal_id
+        AND d.dedupe_key='activation:'||a.activation_id
         AND d.status IN ('approved','downgraded')
       WHERE a.tenant_id=q.tenant_id AND a.world_id=q.world_id AND a.timeline_id=q.timeline_id
         AND a.actor_id=q.actor_id AND a.session_id=q.session_id AND a.message_id=q.message_id),
