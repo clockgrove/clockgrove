@@ -103,10 +103,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         return;
       }
       // With no declaration, Keeper may propose nothing, not even the offer it proposed before.
+      const receipts = await owner.sql("SELECT count(*) FROM clockgrove.command_receipts");
       const refused = { status: "refused", code: "not_granted", commandId: null };
       expect(await say("m1", "fixture:offer fixture.water-bowl water")).toMatchObject(refused);
       expect(await say("m2", TRANSFER)).toMatchObject(refused);
-      expect(await owner.sql("SELECT count(*) FROM clockgrove.command_receipts")).toBe("0");
+      expect(await owner.sql("SELECT count(*) FROM clockgrove.command_receipts")).toBe(receipts);
     });
   },
   240_000,
