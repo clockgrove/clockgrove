@@ -81,7 +81,11 @@ export interface ScenarioRun {
     readonly failure: string | null;
     readonly matches: boolean;
   };
-  /** Present only in a summarised run. */
+  /**
+   * Present only in a summarised run. Besides `subjects`, it carries `causes` (per acting object id,
+   * `{ actorId, events: [{ type, count, first, last }] }`) and `resources` (per resource kind,
+   * `{ kind, initial, causes: [{ type, quantity }] }`, quantities as bigints).
+   */
   readonly recording?: "summarised";
   readonly summary?: RunRecord;
 }

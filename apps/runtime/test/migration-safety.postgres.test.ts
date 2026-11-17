@@ -224,8 +224,30 @@ describe("migration backfills and contract steps", () => {
         AS $$ DELETE FROM clockgrove.probe WHERE id = 5 $$; SELECT clockgrove.purge_probe();`,
       // A routine an earlier migration created, called again.
       "0007_call.sql": "SELECT clockgrove.purge_probe();",
+      // CALL holds its routine as a CallStmt, not a FuncCall.
+      "0007a_procedure.sql": `CREATE PROCEDURE clockgrove.purge_procedure() LANGUAGE plpgsql
+        AS $$ BEGIN DELETE FROM clockgrove.probe WHERE id = 6; END $$;
+        CALL clockgrove.purge_procedure();`,
+      // SQL assembled from pieces counts by the piece a destroying statement begins with.
+      "0007b_pieces.sql":
+        "DO $$ DECLARE t text := 'probe'; BEGIN EXECUTE 'DELETE FROM clockgrove.' || t || ' WHERE id = 7'; END $$;",
+      // A piece that is the destroying word alone, its target appended at run time.
+      "0007c_truncate_piece.sql":
+        "DO $$ DECLARE t text := 'clockgrove.probe'; BEGIN EXECUTE 'TRUNCATE ' || t; END $$;",
+      // A destroying piece anywhere in its tokens: here inside a CTE, not at the piece's start.
+      "0007d_cte_piece.sql":
+        "DO $$ DECLARE t text := 'probe'; BEGIN EXECUTE 'WITH gone AS (DELETE FROM clockgrove.' || t || ' WHERE id = 8 RETURNING 1) SELECT 1'; END $$;",
+      // A piece that names a destroying routine before `(`.
+      "0007e_routine_piece.sql":
+        "DO $$ BEGIN EXECUTE 'SELECT clockgrove.' || 'purge_probe()'; END $$;",
+      // An append-only table written without its schema, reached through search_path.
+      "0007f_unqualified.sql": `CREATE TABLE clockgrove.snapshots (id integer);
+        SET LOCAL search_path = clockgrove; UPDATE snapshots SET id = 1;`,
       "0008_truncate.sql": "TRUNCATE clockgrove.probe;",
-      "0009_drop.sql": "DROP TABLE clockgrove.probe;",
+      "0009_merge.sql":
+        "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE;",
+      "0010_type.sql": "ALTER TABLE clockgrove.probe ALTER COLUMN id TYPE bigint;",
+      "0011_drop.sql": "DROP TABLE clockgrove.probe;",
     };
     const destroys: Record<string, string> = {
       "0002_delete.sql": "DELETE FROM clockgrove.probe WHERE id = 1",
@@ -235,8 +257,18 @@ describe("migration backfills and contract steps", () => {
       "0005_execute.sql": "DELETE FROM clockgrove.%I WHERE id = 4",
       "0006_function.sql": purge,
       "0007_call.sql": purge,
+      "0007a_procedure.sql":
+        "clockgrove.purge_procedure(): DELETE FROM clockgrove.probe WHERE id = 6",
+      "0007b_pieces.sql": "DELETE FROM clockgrove. …",
+      "0007c_truncate_piece.sql": "TRUNCATE …",
+      "0007d_cte_piece.sql": "WITH gone AS (DELETE FROM clockgrove. …",
+      "0007e_routine_piece.sql": purge,
+      "0007f_unqualified.sql": "UPDATE snapshots SET id = 1",
       "0008_truncate.sql": "TRUNCATE clockgrove.probe",
-      "0009_drop.sql": "DROP TABLE clockgrove.probe",
+      "0009_merge.sql":
+        "MERGE INTO clockgrove.probe AS p USING (SELECT 5 AS id) AS s ON p.id = s.id WHEN MATCHED THEN DELETE",
+      "0010_type.sql": "ALTER TABLE clockgrove.probe ALTER COLUMN id TYPE bigint",
+      "0011_drop.sql": "DROP TABLE clockgrove.probe",
     };
     for (const [name, sql] of Object.entries(migrations))
       await writeFile(join(directory, name), sql);

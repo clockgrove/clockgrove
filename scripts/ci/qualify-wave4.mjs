@@ -13,6 +13,7 @@ import { access, chmod, mkdir, readdir, readFile, realpath, writeFile } from "no
 import path from "node:path";
 import { ownedSubprocess } from "../lib/subprocess.mjs";
 import { digest, root } from "./evidence.mjs";
+import { resolveRow } from "./qualify-wave4-evidence.mjs";
 
 export const MANIFEST_FILE = "wave4-manifest.json";
 const PLAN = "docs/waves/clockgrove-wave-4-visual-projection-web-client-implementation-plan.md";
@@ -150,21 +151,45 @@ const browserMatrix = {
   ],
 };
 
-// Each §15.1 suite runs once on this candidate; its log is evidence beside the manifest.
+// Each §15.1 suite runs once on this candidate; its log and Vitest JSON report are evidence beside
+// the manifest, and the report is what proves a cited test ran and passed.
 const suites = [];
+const reports = {};
 for (const suite of SUITES) {
   const started = Date.now();
-  const result = await ownedSubprocess("pnpm", ["run", suite.name], {
-    cwd: root,
-    env: {
-      ...process.env,
-      CLOCKGROVE_WAVE4_EVIDENCE: evidence,
-      ...(suite.browser ? { CI: "true" } : {}),
+  const stem = suite.name.replaceAll(":", "-");
+  const children = path.join(evidence, `${stem}.children`);
+  await mkdir(children);
+  const resultsFile = path.join(evidence, `${stem}.results.json`);
+  const result = await ownedSubprocess(
+    "pnpm",
+    [
+      "run",
+      suite.name,
+      "--reporter=default",
+      "--reporter=json",
+      `--outputFile.json=${resultsFile}`,
+    ],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        CLOCKGROVE_WAVE4_EVIDENCE: evidence,
+        CLOCKGROVE_WAVE4_CHILD_RESULTS: children,
+        ...(suite.browser ? { CI: "true" } : {}),
+      },
+      timeoutMs: SUITE_TIMEOUT_MS,
     },
-    timeoutMs: SUITE_TIMEOUT_MS,
-  });
+  );
   const log = `${result.stdout}${result.stderr}`;
-  await writeFile(path.join(evidence, `${suite.name.replaceAll(":", "-")}.log`), log);
+  await writeFile(path.join(evidence, `${stem}.log`), log);
+  const resultsBytes = await readFile(resultsFile).catch(() => null);
+  // The native-owner child runs report beside the main run; the suite's tests are all of them.
+  const childReports = await Promise.all(
+    (await readdir(children)).sort().map((name) => json(path.join(children, name))),
+  );
+  reports[suite.name] =
+    resultsBytes === null ? null : [JSON.parse(resultsBytes.toString("utf8")), ...childReports];
   suites.push({
     name: suite.name,
     command: `${suite.browser ? "env CI=true " : ""}pnpm run ${suite.name}`,
@@ -172,6 +197,7 @@ for (const suite of SUITES) {
     exitCode: result.status,
     durationMs: Date.now() - started,
     logDigest: digest(log),
+    resultsDigest: resultsBytes === null ? null : digest(resultsBytes),
   });
   process.stdout.write(`${suites.at(-1).status.padEnd(8)} ${suite.name}\n`);
 }
@@ -179,52 +205,9 @@ const suiteOf = (file) =>
   SUITES.find((suite) => suite.files.some((pattern) => pattern.test(file)))?.name;
 const passed = (name) => suites.find((suite) => suite.name === name)?.status === "passed";
 
-// §15.2 and §16: each item's cited markers must still be in their files; its result is its suites'.
+// §15.2 and §16: an item is proven only when each cited test passed in this run's suite reports.
 const matrix = await json(path.join(root, "scripts/ci/qualify-wave4-scenarios.json"));
-const COVERAGE = ["full", "partial", "gap", "not_applicable"];
-const resolve = async (row) => {
-  assert(COVERAGE.includes(row.coverage), `${row.id}: unknown coverage ${row.coverage}`);
-  // An owner ruled the item out of this wave: it carries its reason and no evidence, and is no gap.
-  if (row.coverage === "not_applicable") {
-    assert(
-      typeof row.reason === "string" && row.reason !== "" && row.evidence.length === 0,
-      `${row.id}: not_applicable needs a reason and no evidence`,
-    );
-    return { ...row, status: "not_applicable" };
-  }
-  const evidenceRows = [];
-  for (const { file, marker } of row.evidence) {
-    const source = await readFile(path.join(root, file), "utf8").catch(() => "");
-    const suite = suiteOf(file) ?? null;
-    evidenceRows.push({
-      file,
-      marker,
-      found: source.includes(marker),
-      suite,
-      result: suite === null ? "outside-wave4-suites" : passed(suite) ? "passed" : "failed",
-    });
-  }
-  const proven =
-    evidenceRows.length > 0 &&
-    evidenceRows.every(({ found, result }) => found && result !== "failed");
-  // Evidence no §15.1 suite runs was not executed on this candidate: it is a marker, not a pass.
-  const ran = evidenceRows.every(({ result }) => result === "passed");
-  // A gap has no evidence to run: it is a deviation of its own, never a pass.
-  const status =
-    row.coverage === "gap"
-      ? "gap"
-      : !proven
-        ? "failed"
-        : row.coverage === "full" && ran
-          ? "passed"
-          : "deviation";
-  const outside = evidenceRows.filter(({ result }) => result === "outside-wave4-suites");
-  const deviation =
-    row.coverage === "full" && !ran
-      ? `cited evidence outside the §15.1 suites, not run on this candidate: ${outside.map(({ file }) => file).join(", ")}`
-      : row.deviation;
-  return { ...row, evidence: evidenceRows, status, ...(deviation ? { deviation } : {}) };
-};
+const resolve = (row) => resolveRow(row, { suiteOf, results: reports });
 // Reviewer records (plan §19): rows a review did not accept as full, and the reviewed §19 items.
 const reviewRecords = await json(path.join(root, "scripts/ci/qualify-wave4-review.json"));
 const notFull = new Map(
@@ -234,8 +217,8 @@ const withReview = (row) =>
   notFull.has(row.id)
     ? { ...row, review: { status: "not-reviewed-full", ...notFull.get(row.id) } }
     : row;
-const scenarios = (await Promise.all(matrix.scenarios.map(resolve))).map(withReview);
-const failureMatrix = (await Promise.all(matrix.failureMatrix.map(resolve))).map(withReview);
+const scenarios = matrix.scenarios.map(resolve).map(withReview);
+const failureMatrix = matrix.failureMatrix.map(resolve).map(withReview);
 for (const id of notFull.keys())
   assert(
     [...scenarios, ...failureMatrix].some((row) => row.id === id),

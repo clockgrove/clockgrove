@@ -1,9 +1,68 @@
-Date.now()
-new Date()
-Math.random()
-process.env.SECRET
-fetch("https://example.invalid")
-new WebSocket("wss://example.invalid")
-globalThis.crypto
-localStorage.getItem("state")
-Deno.readTextFile("state.json")
+import { readFileSync } from "node:fs";
+import * as os from "os";
+
+type OnlyAType = Date; // allowed
+export const onlyAnAnnotation: Date | undefined = undefined; // allowed
+export interface OnlyAnInterface extends Promise<Date> { when: Date } // allowed
+
+export const text = String(Date());
+const Clock = Date; export const aliased = new Clock(); // the alias itself is refused
+export const now = Date.now();
+export const fresh = new Date();
+export const tick = performance.now();
+export const formatted = new Intl.DateTimeFormat().format();
+export const localised = (1).toLocaleString();
+export const ordered = "a".localeCompare("b");
+export const random = Math.random();
+export const bytes = crypto.getRandomValues(new Uint8Array(1));
+export const id = globalThis.crypto.randomUUID();
+export const ambient = globalThis;
+export const viaGlobal = globalThis.Date.now();
+export const keyed = Math["random"]();
+const { random: draw } = Math; export const destructured = draw();
+export const keyedLocale = (1)["toLocaleString"]();
+export const reflected = Reflect.get(Math, "random");
+export const secret = process.env.SECRET;
+export const agent = navigator.userAgent;
+export const denoFile = Deno.readTextFile("state.json");
+export const bunFile = Bun.file("state.json");
+export const timer = setTimeout(() => {}, 0);
+export const repeat = setInterval(() => {}, 0);
+queueMicrotask(() => {});
+export const deadline = AbortSignal.timeout(5);
+export const channel = new MessageChannel();
+export const broadcast = new BroadcastChannel("x");
+export const instant = Temporal.Now.instant();
+export const waited = scheduler.wait(5);
+export const parked = Atomics.waitAsync(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+export const modified = new File([], "x").lastModified;
+export const stamped = new Event("x").timeStamp;
+export const castRandom = (Math as any).random();
+export const recastRandom = (Math as unknown as { random(): number }).random();
+export const castLocale = (5 as any).toLocaleString();
+export const castKeyed = (Math as any)["random"]();
+const M: { random(): number } = Math; export const typedAlias = M.random();
+function drawFrom(m: { random(): number }) { return m.random(); } export const passed = drawFrom(Math);
+const M3 = Math as { random(): number }; export const castAlias = M3.random();
+export const spread = Object.values(Math);
+export const protoEval = Object.getPrototypeOf(function () {}).constructor("return Date")();
+class Seeded { random() { return 4; } } // allowed
+export const seeded = new Seeded().random(); // allowed: a local method named like a platform one
+namespace ShadowClock { declare const performance: { now(): number }; export const t = performance.now(); }
+namespace ShadowDate { declare const Date: { now(): number }; export const t = Date.now(); }
+namespace ShadowDeno { declare const Deno: { env: { get(k: string): string } }; export const v = Deno.env.get("X"); }
+export const response = fetch("https://example.invalid");
+export const socket = new WebSocket("wss://example.invalid");
+export const stored = localStorage.getItem("state");
+export const logger = console.log;
+export const loaded = require("x");
+export const here = __dirname;
+export const root = window;
+export const evaluated = eval("1");
+export const made = new Function("return 1");
+export const smuggled = [].constructor.constructor("return Date")();
+export const weak = new WeakRef({});
+export const registry = new FinalizationRegistry(() => {});
+export const lazy = import("x");
+export const location = import.meta.url;
+export { readFileSync, os };

@@ -6,8 +6,16 @@ import { createHash } from "node:crypto";
 export const SMALL_STEP_RUN = "main";
 export const AGGREGATE_RUN = "aggregate";
 export const EQUIVALENCE_ID = "small-step-vs-aggregate";
-/** Ordinary autonomous action events; a dead actor must emit none after its death. */
-export const ACTION_EVENT_TYPES = ["routine.selected", "movement.started"];
+/**
+ * Events that can be about a dead actor's body without the actor doing anything: what it holds spoils,
+ * settles with the weather or is taken from it (the taker's own cause is checked by `summary.causes`).
+ * Any other event about a dead actor after its death, autonomous or pack-declared, is the actor acting.
+ */
+export const BODY_EVENT_TYPES = [
+  "resource.spoiled",
+  "resource.transferred",
+  "resource.weather-integrated",
+];
 export const RESOURCE_EVENT_TYPES = [
   "resource.consumed",
   "resource.spoiled",
@@ -48,6 +56,8 @@ const CHECKS = [
     run(bundle) {
       return perRun(bundle, (run) => {
         const problems = [];
+        if (!Array.isArray(run.summary.resources))
+          return ["summary.resources is missing, so conservation cannot be decided"];
         for (const type of ["resource.appeared", "resource.offered"])
           if ((run.eventCounts[type] ?? 0) > 0)
             problems.push(`closed world contains unbacked ${type}`);
@@ -60,6 +70,19 @@ const CHECKS = [
             !(Number.isSafeInteger(entity.resource.quantity) && entity.resource.quantity >= 0)
           )
             problems.push(`${entity.objectId} holds quantity ${text(entity.resource.quantity)}`);
+        // Conservation: each kind's initial total plus its journaled causes is its final total.
+        for (const { kind, initial, causes } of run.summary.resources) {
+          const expected = causes.reduce((total, cause) => total + cause.quantity, initial);
+          const final = run.finalState.entities.reduce(
+            (total, entity) =>
+              entity.resource?.kind === kind && Number.isSafeInteger(entity.resource.quantity)
+                ? total + BigInt(entity.resource.quantity)
+                : total,
+            0n,
+          );
+          if (expected !== final)
+            problems.push(`${kind} totals ${final} but initial plus causes is ${expected}`);
+        }
         for (const [objectId, events] of subjectEvents(run))
           if (
             RESOURCE_EVENT_TYPES.some((type) => events.has(type)) &&
@@ -258,11 +281,23 @@ const CHECKS = [
       return perRun(bundle, (run) => {
         const problems = [];
         const events = subjectEvents(run);
-        for (const [objectId, diedAt] of deathTimes(run))
-          for (const type of ACTION_EVENT_TYPES) {
-            const action = events.get(objectId).get(type);
-            if (action && action.last > diedAt)
+        const deaths = deathTimes(run);
+        // Autonomous events name the actor only as their subject: the engine attributes them to the
+        // scenario envelope or their process, so the subject decides whether the actor acted.
+        for (const [objectId, diedAt] of deaths)
+          for (const [type, entry] of events.get(objectId))
+            if (!BODY_EVENT_TYPES.includes(type) && entry.last > diedAt)
               problems.push(`${objectId} emitted ${type} after its death`);
+        // Any event the dead actor caused, including pack-declared verbs attributed to it. The engine
+        // records a cause under an actor's id when a command is spoken through it (a `via` step), or
+        // when the event's payload names it as `actorId`. Proven through the engine in
+        // tests/ci/qualify-wave1-long-runs.test.mjs ("dead-actors-inactive refuses an event the engine
+        // attributes to an actor after its death").
+        for (const { actorId, events } of run.summary.causes)
+          for (const { type, last } of events) {
+            const diedAt = deaths.get(actorId);
+            if (diedAt !== undefined && last > diedAt)
+              problems.push(`${actorId} caused ${type} after its death`);
           }
         return problems;
       });

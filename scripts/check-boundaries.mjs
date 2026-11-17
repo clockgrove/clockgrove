@@ -476,33 +476,6 @@ async function assertRendererLibrariesStayInWeb() {
   );
 }
 
-const ambientNondeterminism = [
-  {
-    name: "wall clock",
-    pattern: /\b(?:Date\s*\.\s*now|new\s+Date\s*\(|performance\s*\.\s*now\s*\()/u,
-  },
-  {
-    name: "process-global randomness",
-    pattern: /\b(?:Math\s*\.\s*random|crypto\s*\.\s*(?:getRandomValues|randomUUID))\s*\(/u,
-  },
-  {
-    name: "environment variables",
-    pattern: /\b(?:process|Deno|Bun)\s*\.\s*env\b/u,
-  },
-  { name: "network fetch", pattern: /\bfetch\s*\(/u },
-  {
-    name: "network socket",
-    pattern: /\b(?:WebSocket|WebSocketPair|XMLHttpRequest|EventSource)\s*\(/u,
-  },
-  {
-    name: "ambient storage or filesystem",
-    pattern:
-      /\b(?:(?:localStorage|sessionStorage|indexedDB|caches)\s*\.|(?:Deno|Bun)\s*\.\s*(?:file|readFile|readTextFile|writeFile|writeTextFile)\s*\()/u,
-  },
-  { name: "ambient global", pattern: /\bglobalThis\s*\./u },
-  { name: "dynamic import", pattern: /\bimport\s*\(/u },
-];
-
 async function sourceFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -514,32 +487,441 @@ async function sourceFiles(directory) {
   return files;
 }
 
-function detectedAmbientRules(source) {
-  return ambientNondeterminism.filter(({ pattern }) => pattern.test(source));
+const forbiddenGlobals = new Map(
+  Object.entries({
+    "wall clock": ["Date", "performance", "Temporal"],
+    entropy: ["crypto", "Crypto", "SubtleCrypto"],
+    environment: ["process", "Deno", "Bun", "navigator", "Intl"],
+    timers: [
+      "setTimeout",
+      "setInterval",
+      "setImmediate",
+      "queueMicrotask",
+      "requestAnimationFrame",
+      "requestIdleCallback",
+      "clearTimeout",
+      "clearInterval",
+      "clearImmediate",
+      "cancelAnimationFrame",
+      "cancelIdleCallback",
+      "MessageChannel",
+      "MessagePort",
+      "scheduler",
+    ],
+    "input or output": [
+      "fetch",
+      "WebSocket",
+      "WebSocketPair",
+      "XMLHttpRequest",
+      "EventSource",
+      "BroadcastChannel",
+      "Worker",
+      "SharedWorker",
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "caches",
+      "console",
+      "require",
+      "module",
+      "__dirname",
+      "__filename",
+    ],
+    "ambient global": ["globalThis", "window", "self", "global"],
+    "code evaluation": ["eval", "Function"],
+    "garbage collection observation": ["WeakRef", "FinalizationRegistry"],
+  }).flatMap(([rule, names]) => names.map((name) => [name, rule])),
+);
+const forbiddenLocaleMembers = new Set([
+  "toLocaleString",
+  "toLocaleDateString",
+  "toLocaleTimeString",
+  "toLocaleUpperCase",
+  "toLocaleLowerCase",
+  "localeCompare",
+]);
+/**
+ * Platform members that reach a forbidden capability, by name, with the variable, interface or class
+ * that declares them (any owner when `owners` is empty) and the rule they break.
+ */
+const forbiddenMembers = new Map([
+  ["random", { owners: ["Math"], rule: "randomness" }],
+  ["getRandomValues", { owners: ["Crypto"], rule: "entropy" }],
+  ["randomUUID", { owners: ["Crypto"], rule: "entropy" }],
+  ["timeout", { owners: ["AbortSignal"], rule: "timers" }],
+  ["waitAsync", { owners: ["Atomics"], rule: "timers" }],
+  ["lastModified", { owners: ["File"], rule: "wall clock" }],
+  ["timeStamp", { owners: ["Event"], rule: "wall clock" }],
+  // `x.constructor.constructor` reaches the Function constructor, which evaluates code.
+  ["constructor", { owners: [], rule: "code evaluation" }],
+  ...[...forbiddenLocaleMembers].map((name) => [name, { owners: [], rule: "locale" }]),
+]);
+const ambientRuleNames = [
+  ...new Set([
+    ...forbiddenGlobals.values(),
+    "randomness",
+    "locale",
+    "node built-in module",
+    "dynamic import",
+    "import.meta",
+  ]),
+];
+const deterministicPackages = ["domain", "kernel", "world-pack-sdk", "simulator"];
+const nodeBuiltinModules = new Set(createRequire(import.meta.url)("node:module").builtinModules);
+
+function isNodeBuiltinSpecifier(specifier) {
+  return specifier.startsWith("node:") || nodeBuiltinModules.has(specifier);
+}
+
+function isPlatformDeclaration(program, symbol) {
+  return (symbol.declarations ?? []).some((declaration) => {
+    const file = declaration.getSourceFile();
+    return (
+      program.isSourceFileDefaultLibrary(file) || /[\\/]@types[\\/]node[\\/]/u.test(file.fileName)
+    );
+  });
+}
+
+function referenceRules(program, checker, node) {
+  let symbol;
+  if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
+    symbol = checker.getShorthandAssignmentValueSymbol(node.parent);
+  } else {
+    symbol = checker.getSymbolAtLocation(node);
+  }
+  const isMember = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
+  const rules = symbolRules(program, checker, symbol, isMember, node.text);
+  if (rules.length > 0) return rules;
+  if (!isMember) return escapingOwnerRules(program, checker, node, symbol);
+  return castRules(program, checker, node.parent.expression, symbol, node.text);
+}
+
+/**
+ * Platform globals that own a forbidden member (`Math` owns `random`), with the rule that member breaks.
+ * `crypto` is not here: the global itself is refused.
+ */
+const forbiddenMemberOwners = new Map(
+  [...forbiddenMembers.values()].flatMap(({ owners, rule }) =>
+    owners.filter((owner) => !forbiddenGlobals.has(owner)).map((owner) => [owner, rule]),
+  ),
+);
+
+/**
+ * A forbidden member's owner used as a value anywhere but as the receiver of a member read
+ * whose key the detector can see: `const M: { random(): number } = Math`, `draw(Math)`,
+ * `Math as { random(): number }`, `Object.values(Math)`. A structural type or an argument hides
+ * the platform declaration from every later member read, so the owner may not escape.
+ */
+function escapingOwnerRules(program, checker, node, symbol) {
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  const rule = symbol && forbiddenMemberOwners.get(symbol.name);
+  if (rule === undefined || !isPlatformDeclaration(program, symbol)) return [];
+  if (!/^(?:global\.)?[^.]+$/u.test(checker.getFullyQualifiedName(symbol))) return [];
+  let use = node;
+  while (
+    ts.isParenthesizedExpression(use.parent) ||
+    ts.isNonNullExpression(use.parent) ||
+    ts.isSatisfiesExpression(use.parent)
+  ) {
+    use = use.parent;
+  }
+  const parent = use.parent;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === use) return [];
+  if (
+    ts.isElementAccessExpression(parent) &&
+    parent.expression === use &&
+    literalKey(parent.argumentExpression) !== undefined
+  ) {
+    return [];
+  }
+  // `const { random } = Math`: each key is visible and checked by `keyedRules`.
+  if (
+    ts.isVariableDeclaration(parent) &&
+    parent.initializer === use &&
+    ts.isObjectBindingPattern(parent.name) &&
+    parent.name.elements.every(
+      (element) =>
+        !element.dotDotDotToken && literalKey(element.propertyName ?? element.name) !== undefined,
+    )
+  ) {
+    return [];
+  }
+  return [rule];
+}
+
+/** `expression` without the parentheses, casts, `satisfies` and `!` around it. */
+function uncast(expression) {
+  let node = expression;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
+    node = node.expression;
+  }
+  return node;
+}
+
+/**
+ * A forbidden member read through a cast or an untyped value: `(Math as any).random()`,
+ * `(Math as unknown as { random(): number }).random()`, `(5 as any).toLocaleString()`,
+ * `Object.getPrototypeOf(f).constructor`. When the member is not a platform declaration, it is
+ * refused if the receiver is typed `any`, or if the cast's operand has the platform member.
+ */
+function castRules(program, checker, receiver, symbol, name) {
+  const member = forbiddenMembers.get(name);
+  if (member === undefined) return [];
+  if (symbol?.declarations && isPlatformDeclaration(program, symbol)) return [];
+  if (checker.getTypeAtLocation(receiver).flags & ts.TypeFlags.Any) return [member.rule];
+  const operand = uncast(receiver);
+  if (operand === receiver) return [];
+  const type = checker.getApparentType(checker.getTypeAtLocation(operand));
+  const property = checker.getPropertyOfType(type, name);
+  return symbolRules(program, checker, property, true, name).length > 0 ||
+    (type.flags & ts.TypeFlags.Any) !== 0
+    ? [member.rule]
+    : [];
+}
+
+/** The variable, interface or class a member is declared in (`@types/node` types `AbortSignal` as a variable). */
+function ownerName(declaration) {
+  for (let node = declaration.parent; node; node = node.parent) {
+    if (
+      ts.isVariableDeclaration(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isClassDeclaration(node)
+    ) {
+      return node.name && ts.isIdentifier(node.name) ? node.name.text : undefined;
+    }
+  }
+  return undefined;
+}
+
+function symbolRules(program, checker, symbol, isMember, name) {
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  // `globalThis` is the one global the compiler resolves to a symbol with no declarations.
+  if (!isMember && symbol?.escapedName === "globalThis" && !symbol.declarations?.length) {
+    return ["ambient global"];
+  }
+  if (!symbol || symbol.declarations === undefined) {
+    if (isMember) return [];
+    // An unresolved bare name is a global the compiler has no declaration for (Deno, window, ...).
+    const rule = forbiddenGlobals.get(name);
+    return rule === undefined || symbol !== undefined ? [] : [rule];
+  }
+  if (!isPlatformDeclaration(program, symbol)) {
+    // A local ambient declaration (`declare const performance: …`) hides the platform global it
+    // names but reaches the same value at run time, so it is refused by name.
+    const rule = isMember ? undefined : forbiddenGlobals.get(symbol.name);
+    const ambient = symbol.declarations.some(
+      (declaration) => declaration.flags & ts.NodeFlags.Ambient,
+    );
+    return rule !== undefined && ambient ? [rule] : [];
+  }
+  const qualified = checker.getFullyQualifiedName(symbol);
+  if (/^(?:global\.)?[^.]+$/u.test(qualified) && !isMember) {
+    const rule = forbiddenGlobals.get(symbol.name);
+    return rule === undefined ? [] : [rule];
+  }
+  const member = isMember ? forbiddenMembers.get(symbol.name) : undefined;
+  if (
+    member !== undefined &&
+    (member.owners.length === 0 ||
+      symbol.declarations.some((declaration) => member.owners.includes(ownerName(declaration))))
+  ) {
+    return [member.rule];
+  }
+  return [];
+}
+
+/** Literal text of a property key: `"random"`, `random`, `["random"]`, `` `random` ``. */
+function literalKey(node) {
+  if (node === undefined) return undefined;
+  if (ts.isComputedPropertyName(node)) return literalKey(node.expression);
+  if (ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) {
+    return node.text;
+  }
+  return undefined;
+}
+
+/** The rules a member read by its key's text off `target`'s type would break. */
+function keyedMemberRules(program, checker, target, key) {
+  if (key === undefined) return [];
+  const type = checker.getTypeAtLocation(target);
+  const property = checker.getPropertyOfType(checker.getApparentType(type), key);
+  const rules = symbolRules(program, checker, property, true, key);
+  return rules.length > 0 ? rules : castRules(program, checker, target, property, key);
+}
+
+const reflectiveReaders =
+  /^(?:Reflect\.(?:get|getOwnPropertyDescriptor)|ObjectConstructor\.getOwnPropertyDescriptor)$/u;
+
+/**
+ * Members reached by a key rather than a `.name`: `Math["random"]`, `const { random } = Math`,
+ * `Reflect.get(Math, "random")`. Each key is resolved on the type it is read from.
+ */
+function keyedRules(program, checker, node) {
+  if (ts.isElementAccessExpression(node)) {
+    return keyedMemberRules(program, checker, node.expression, literalKey(node.argumentExpression));
+  }
+  if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent) && !node.dotDotDotToken) {
+    return keyedMemberRules(
+      program,
+      checker,
+      node.parent,
+      literalKey(node.propertyName ?? node.name),
+    );
+  }
+  if (ts.isCallExpression(node) && node.arguments.length >= 2) {
+    const callee = checker.getSymbolAtLocation(
+      ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression,
+    );
+    if (!callee || !isPlatformDeclaration(program, callee)) return [];
+    if (!reflectiveReaders.test(checker.getFullyQualifiedName(callee))) return [];
+    return keyedMemberRules(program, checker, node.arguments[0], literalKey(node.arguments[1]));
+  }
+  return [];
+}
+
+function isValueIdentifier(node) {
+  const parent = node.parent;
+  if (ts.isPropertyAccessExpression(parent)) return true;
+  if (
+    (ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent) ||
+      ts.isPropertyAccessEntityNameExpression(parent) ||
+      ts.isBindingElement(parent) ||
+      ts.isLabeledStatement(parent) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isExportSpecifier(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isImportClause(parent)) &&
+    (parent.name === node || parent.propertyName === node)
+  ) {
+    return false;
+  }
+  if (ts.isQualifiedName(parent) || ts.isJsxAttribute(parent)) return false;
+  return !(ts.isDeclaration(parent) && parent.name === node);
+}
+
+function ambientViolations(program, sourceFile) {
+  const checker = program.getTypeChecker();
+  const found = [];
+  function report(node, rule) {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    found.push({ rule, line: line + 1, column: character + 1 });
+  }
+  function checkSpecifier(node, specifier) {
+    if (specifier && ts.isStringLiteralLike(specifier) && isNodeBuiltinSpecifier(specifier.text)) {
+      report(node, "node built-in module");
+    }
+  }
+  function visit(node) {
+    // Type positions never execute; `implements`/interface `extends` heritage is type-only too.
+    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (
+      ts.isExpressionWithTypeArguments(node) &&
+      (ts.isInterfaceDeclaration(node.parent.parent) ||
+        node.parent.token === ts.SyntaxKind.ImplementsKeyword)
+    ) {
+      return;
+    }
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      checkSpecifier(node, node.moduleSpecifier);
+    } else if (ts.isExternalModuleReference(node)) {
+      checkSpecifier(node, node.expression);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      report(node, "dynamic import");
+    } else if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword) {
+      report(node, "import.meta");
+    } else if (ts.isIdentifier(node) && isValueIdentifier(node)) {
+      for (const rule of referenceRules(program, checker, node)) report(node, rule);
+    } else {
+      for (const rule of keyedRules(program, checker, node)) report(node, rule);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return found;
+}
+
+function createAmbientProgram(rootNames, virtualFiles = new Map()) {
+  const configPath = path.join(repositoryRoot, "tsconfig.base.json");
+  const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
+  const { options } = ts.parseJsonConfigFileContent(
+    { compilerOptions: { ...config.compilerOptions, types: ["node"], noEmit: true } },
+    ts.sys,
+    repositoryRoot,
+    undefined,
+    configPath,
+  );
+  const host = ts.createCompilerHost(options, true);
+  const { fileExists, readFile, getSourceFile } = host;
+  host.fileExists = (fileName) => virtualFiles.has(fileName) || fileExists(fileName);
+  host.readFile = (fileName) => virtualFiles.get(fileName) ?? readFile(fileName);
+  host.getSourceFile = (fileName, languageVersion, ...rest) => {
+    const text = virtualFiles.get(fileName);
+    return text === undefined
+      ? getSourceFile(fileName, languageVersion, ...rest)
+      : ts.createSourceFile(fileName, text, languageVersion, true);
+  };
+  return ts.createProgram({ rootNames, options, host });
 }
 
 async function assertPureSourcesHaveNoAmbientNondeterminism() {
-  for (const packageName of ["domain", "kernel", "world-pack-sdk", "simulator"]) {
+  const files = [];
+  for (const packageName of deterministicPackages) {
     const directory = path.join(repositoryRoot, "packages", packageName, "src");
-    for (const sourcePath of await sourceFiles(directory)) {
-      const source = await readFile(sourcePath, "utf8");
-      const detections = detectedAmbientRules(source);
-      if (detections.length > 0) {
-        throw new Error(
-          `${path.relative(repositoryRoot, sourcePath)}: forbidden ${detections
-            .map(({ name }) => name)
-            .join(", ")}`,
-        );
-      }
+    files.push(...(await sourceFiles(directory)).filter((file) => /\.[cm]?tsx?$/u.test(file)));
+  }
+  const program = createAmbientProgram(files);
+  for (const file of files) {
+    const sourceFile = program.getSourceFile(file);
+    assert.ok(sourceFile, `${path.relative(repositoryRoot, file)}: not part of the program`);
+    const violations = ambientViolations(program, sourceFile);
+    if (violations.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, file)}: forbidden ${violations
+          .map(({ rule, line, column }) => `${rule} (${line}:${column})`)
+          .join(", ")}`,
+      );
     }
   }
 }
 
 async function assertAmbientNegativeFixtureIsRejected() {
   const source = await readFile(path.join(repositoryRoot, ambientFixture), "utf8");
-  const detected = new Set(detectedAmbientRules(source).map(({ name }) => name));
-  for (const { name } of ambientNondeterminism.filter(({ name }) => name !== "dynamic import")) {
-    if (!detected.has(name)) throw new Error(`${ambientFixture}: detector did not reject ${name}`);
+  const virtualPath = path.join(repositoryRoot, `${ambientFixture}.ts`);
+  const program = createAmbientProgram([virtualPath], new Map([[virtualPath, source]]));
+  const sourceFile = program.getSourceFile(virtualPath);
+  assert.ok(sourceFile, `${ambientFixture}: not part of the program`);
+  const violations = ambientViolations(program, sourceFile);
+  const detected = new Set(violations.map(({ rule }) => rule));
+  for (const rule of ambientRuleNames) {
+    if (!detected.has(rule)) throw new Error(`${ambientFixture}: detector did not reject ${rule}`);
+  }
+  const lines = source.split("\n");
+  // Every line that reaches ambient state is refused, not only one line per rule.
+  const refused = new Set(violations.map(({ line }) => line));
+  lines.forEach((text, index) => {
+    if (text.trim() && !/\/\/ allowed|^export \{/u.test(text) && !refused.has(index + 1))
+      throw new Error(`${ambientFixture}:${index + 1}: detector accepted ${text.trim()}`);
+  });
+  for (const { rule, line } of violations) {
+    if (lines[line - 1]?.includes("// allowed")) {
+      throw new Error(`${ambientFixture}:${line}: detector rejected type-only use as ${rule}`);
+    }
+  }
+  if (!lines.some((text) => text.includes("// allowed"))) {
+    throw new Error(`${ambientFixture}: no type-only use to prove acceptance`);
   }
 }
 
