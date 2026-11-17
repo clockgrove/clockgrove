@@ -83,6 +83,15 @@ version 1 through `set_compatibility` must not carry `set_effects`. Any other pr
 refused with `unsupported_projection_version`. A version-1 client therefore refuses a version-2
 snapshot or patch with that stable code and its recovery surface, instead of a generic field error.
 
+Optional fields and patch operations may be added within a projection version, as `lighting` and
+`movements` (with `set_movements`) were added within version 2; the version is bumped only for a
+change an existing field or operation can't absorb, and decoders still accept just the current and
+one prior version. A client built before such an addition refuses a projection that carries the new
+field with a generic decode error rather than `unsupported_projection_version`. This is accepted
+while Clockgrove runs no production deployment (owner decision, 2026-11-16, on #363); a later world
+with live players that needs older tabs to recover cleanly from additive fields takes that up as its
+own change.
+
 Material-enabled presentation bindings optionally carry `material`, versioned independently as
 `materialVersion: 2`. Version 2 delivers compressed pages as KTX2; version 1 delivered BC3 DDS.
 Decoders accept only version 2 and refuse any other with `unsupported_material_version`, checked
