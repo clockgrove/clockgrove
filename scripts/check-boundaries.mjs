@@ -591,8 +591,62 @@ function referenceRules(program, checker, node) {
   }
   const isMember = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
   const rules = symbolRules(program, checker, symbol, isMember, node.text);
-  if (rules.length > 0 || !isMember) return rules;
+  if (rules.length > 0) return rules;
+  if (!isMember) return escapingOwnerRules(program, checker, node, symbol);
   return castRules(program, checker, node.parent.expression, symbol, node.text);
+}
+
+/**
+ * Platform globals that own a forbidden member (`Math` owns `random`), with the rule that member breaks.
+ * `crypto` is not here: the global itself is refused.
+ */
+const forbiddenMemberOwners = new Map(
+  [...forbiddenMembers.values()].flatMap(({ owners, rule }) =>
+    owners.filter((owner) => !forbiddenGlobals.has(owner)).map((owner) => [owner, rule]),
+  ),
+);
+
+/**
+ * A forbidden member's owner used as a value anywhere but as the receiver of a member read
+ * whose key the detector can see: `const M: { random(): number } = Math`, `draw(Math)`,
+ * `Math as { random(): number }`, `Object.values(Math)`. A structural type or an argument hides
+ * the platform declaration from every later member read, so the owner may not escape.
+ */
+function escapingOwnerRules(program, checker, node, symbol) {
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  const rule = symbol && forbiddenMemberOwners.get(symbol.name);
+  if (rule === undefined || !isPlatformDeclaration(program, symbol)) return [];
+  if (!/^(?:global\.)?[^.]+$/u.test(checker.getFullyQualifiedName(symbol))) return [];
+  let use = node;
+  while (
+    ts.isParenthesizedExpression(use.parent) ||
+    ts.isNonNullExpression(use.parent) ||
+    ts.isSatisfiesExpression(use.parent)
+  ) {
+    use = use.parent;
+  }
+  const parent = use.parent;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === use) return [];
+  if (
+    ts.isElementAccessExpression(parent) &&
+    parent.expression === use &&
+    literalKey(parent.argumentExpression) !== undefined
+  ) {
+    return [];
+  }
+  // `const { random } = Math`: each key is visible and checked by `keyedRules`.
+  if (
+    ts.isVariableDeclaration(parent) &&
+    parent.initializer === use &&
+    ts.isObjectBindingPattern(parent.name) &&
+    parent.name.elements.every(
+      (element) =>
+        !element.dotDotDotToken && literalKey(element.propertyName ?? element.name) !== undefined,
+    )
+  ) {
+    return [];
+  }
+  return [rule];
 }
 
 /** `expression` without the parentheses, casts, `satisfies` and `!` around it. */
