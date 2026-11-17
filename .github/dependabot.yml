@@ -42,7 +42,7 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
     ignore:
-      - dependency-name: clockgrove/factory
+      - dependency-name: clockgrove/pendulum
   - package-ecosystem: github-actions
     directory: /.github/actions/toolchain
     schedule:
@@ -62,4 +62,4 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
     ignore:
-      - dependency-name: clockgrove/factory
+      - dependency-name: clockgrove/pendulum

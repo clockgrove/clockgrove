@@ -1,0 +1,228 @@
+# Pendulum: unattended Objectives. Written by `/pendulum setup`; edit the env block, not the jobs.
+# Triggers: cron, manual (one issue), a new pendulum:objective label or its removal, the review job's own last step,
+# pull_request when the Pendulum App labels a PR pendulum:review, and a review submitted on a Pendulum PR. Never from a fork: the Objective text (a writer) and the label (a
+# maintainer) are the only inputs. PENDULUM_AUTO_MERGE (below) decides the merge: true merges the reviewed head
+# with no human read, gated by your CI workflow's checks on that exact head (and the merge queue's commit), the
+# comment-only reviewer pass and the queue's own re-run; false leaves a ready-for-review PR.
+name: pendulum
+on:
+  schedule:
+    - cron: "*/10 * * * *" # the dispatcher's backstop: GitHub fires a schedule late or not at all under load
+  workflow_dispatch:
+    inputs:
+      issue: { description: Objective issue number (empty runs the dispatcher), required: false }
+      harness: { description: "Override PENDULUM_HARNESS for this run (claude | codex | copilot)", required: false }
+      wake: { description: "Set by a wake job only (the deadline it slept to); leave empty", required: false }
+  issues: # a new Objective dispatches at once (labelled at creation, or labelled later); pendulum:objective removed: the dispatcher leaves a stopped Objective's PR a draft; pendulum:restart: the dispatcher restarts it; pendulum:draft applied: a stop, removed: a start; closed: an Objective blocked by that issue is ready now
+    types: [opened, labeled, unlabeled, closed]
+  pull_request: # fires because the App (not the job token) applies pendulum:review, a human marks a Question draft ready (the App's own ready mark starts no job), a Pendulum PR merged (siblings may be stale now), or the merge queue dropped one (the dispatcher re-enqueues it once, then Blocks)
+    types: [labeled, ready_for_review, closed, dequeued]
+  pull_request_review: # an App's review of a Pendulum PR (a third-party reviewer's): the dispatcher puts back the review label a stage waiting for it took off
+    types: [submitted]
+  check_suite: # CI from a GitHub App outside Actions finished on a pendulum/ branch: a stage waiting on it resumes, or the dispatcher's merge pass runs
+    types: [completed]
+  workflow_run: # CI on Actions finished (GitHub sends no check_suite event for a suite Actions made)
+    workflows:
+      - Quality
+    types: [completed]
+# Several accounts of a harness (docs/INSTALL.md, Several accounts), in the env block below:
+#   PENDULUM_ACCOUNTS: '{"claude": ["claude", "claude-2"]}'  each account its own secrets; re-render after any change,
+#     since setup writes each declared account's secrets into the jobs by name
+#   PENDULUM_AUTO_ACCOUNT: "1"  a stage with no account label starts on one no usage limit holds
+env:
+  PENDULUM_HARNESS: claude # claude | codex | copilot
+  PENDULUM_MODEL: claude-opus-5-5
+  PENDULUM_SUBAGENT_MODEL: claude-sonnet-5-5
+  PENDULUM_REVIEWER_MODEL: claude-fable-5-2
+  PENDULUM_CREDENTIAL: plan # api; plan only for your own repository
+  PENDULUM_MAX_CONCURRENT: 2
+  PENDULUM_DAILY_USD: 100
+  PENDULUM_MAX_USD: 25
+  PENDULUM_MAX_OBJECTIVE_USD: "" # one Objective's dollars across all its stages and parts; empty: no cap
+  PENDULUM_TIMEOUT_MINUTES: 300 # under 360 on hosted runners; mirrored in timeout-minutes below
+  PENDULUM_AUTO_MERGE: "true"
+  PENDULUM_PUBLISH_TRANSCRIPTS: "false" # true: on a public repository the usage artifacts carry the agent's event stream and sessions readable by anyone signed in to GitHub; false seals them (docs/PRIVACY.md)
+  PENDULUM_NOTIFY: kirkmarple-clockgrove#318831919 # login#id: the id pins the account (setup writes it)
+  PENDULUM_SETUP: corepack enable && scripts/ci/toolchain.sh postgresql pgvector browser-deps
+  PENDULUM_INSTALL: pnpm install --frozen-lockfile --ignore-scripts && scripts/ci/toolchain.sh browser # auto (from the lockfile), none, or your own command
+  # pnpm check runs alone first (pnpm test reruns its turbo check tasks); the rest are independent and run together in local mode.
+  PENDULUM_VALIDATION: "pnpm check, parallel: pnpm test, parallel: pnpm run test:db, parallel: pnpm run test:runtime, parallel: pnpm run db:verify, parallel: pnpm run verify:docs, parallel: env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts"
+  PENDULUM_BUDGET_COMMAND: node scripts/check-test-budget.mjs
+  PENDULUM_PROTECTED_PATHS: scripts/test-budget.json, scripts/ci/toolchain.sh, scripts/ci/browser-toolchain.mjs
+  PENDULUM_CI_CHECKS: quality
+  PENDULUM_NODE_VERSION: 24.21.0 # the Node.js your CI uses
+  PENDULUM_THIRD_PARTY_REVIEWERS: greptile-apps[bot] # its review is part of each Pendulum PR's review (Pendulum INSTALL.md, Third-party reviewers)
+  # Local mode (factory serve): the database, runtime and browser suites start Postgres on a unix socket, which no
+  # local sandbox may create, so locally Pendulum runs these; the required quality check runs the full set.
+  PENDULUM_LOCAL_VALIDATION: 'pnpm check, parallel: pnpm test, parallel: pnpm run verify:docs'
+permissions: # the job token reads code and Actions; every write goes through the App's token
+  contents: read
+  actions: read # the dispatcher sums today's usage artifacts; doctor lists the CI workflow's triggers
+  issues: write
+  # id-token: write         # Claude workload identity federation only
+jobs:
+  dispatch:
+    # Ticks: the */10 cron only (a backstop: GitHub fires schedules late or not at all; other schedules are other
+    # jobs'), a manual run, a new Objective's label or its removal (a stop), a restart's label, a draft's label applied or removed (a stop, a start), any issue closing (it may block an Objective), Pendulum's own jobs'
+    # last steps (a slot freed, a failed or requeued start), a merged Pendulum PR, the merge queue dropping one
+    # (only GitHub and people with write access dequeue), an App's review on a Pendulum PR that is not Pendulum's own (a
+    # third-party reviewer's: a review stage may wait for it; a person's review ticks nothing), the queue watch, and, without a sandbox, CI finishing on a
+    # pendulum/ branch (the merge pass merges a PR whose checks just went green; with a sandbox the gate job takes those
+    # events and ticks this job itself).
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'pendulum:objective' || github.event.label.name == 'pendulum:draft' || (github.event.action == 'labeled' && github.event.label.name == 'pendulum:restart') || (github.event.action == 'opened' && contains(join(github.event.issue.labels.*.name, ','), 'pendulum:objective')))) ||
+      (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'pendulum/')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'dequeued' && startsWith(github.head_ref, 'pendulum/') && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_review' && github.event.review.user.type == 'Bot' && startsWith(github.event.pull_request.head.ref, 'pendulum/') && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.review.body, '<!-- pendulum:'))
+      || (github.event_name == 'check_suite' && startsWith(github.event.check_suite.head_branch, 'pendulum/')) ||
+      (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'pendulum/') && github.event.workflow_run.head_repository.full_name == github.repository)
+    concurrency: { group: pendulum-dispatch, cancel-in-progress: false } # ticks run one at a time
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # a tick takes seconds; a hung one would hold every later tick for the runner's six hours
+    outputs:
+      issues: "${{ steps.f.outputs.issues }}"
+      count: "${{ steps.f.outputs.count }}"
+      queue_watch: "${{ steps.f.outputs.queue_watch }}"
+      wake_at: "${{ steps.f.outputs.wake_at }}"
+      wake_kind: "${{ steps.f.outputs.wake_kind }}"
+    steps:
+      - uses: clockgrove/pendulum@v0.10.1
+        id: f
+        with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
+  queue-watch:
+    # The PRs the merge pass left in the merge queue: this job reads each entry every 30 s until it leaves the queue,
+    # then ticks the dispatcher, whose merge pass re-enqueues a dropped PR once, then Blocks. The tick is this job's own
+    # workflow_dispatch, which GitHub never holds for approval; the `dequeued` event's run can be held (the queue's bot
+    # counts as an outside contributor under a strict approval policy). A queue commit that starts no check in 10
+    # minutes, or whose required check makes no progress (its running step past max(3 x that step's normal duration,
+    # it + 15 min), read from recent green runs with this job's actions: read; runner wait never counts), ticks it
+    # too: the merge pass takes the PR out and puts it back once (CI restarts), then Blocks. Past 12 minutes the watch
+    # ticks anyway and the dispatcher starts a new one. One watch runs at a time; a newer one waits.
+    name: queue watch
+    needs: dispatch
+    if: needs.dispatch.outputs.queue_watch != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
+    concurrency: { group: pendulum-queue-watch, cancel-in-progress: false }
+    steps:
+      - uses: clockgrove/pendulum@v0.10.1
+        id: w
+        with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
+      - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
+        if: steps.w.outputs.tick == 'true'
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" } # no checkout here: gh names the repository from GH_REPO
+        run: gh workflow run pendulum.yml
+  wake:
+    # The dispatcher's own next tick, for a wait only time ends (GitHub's cron fires late or not at all): a sandbox
+    # stage's lease end (a stage that died silently), a retry the sandbox vendor's quota set, the next try of a start
+    # that failed another way (three failures Block), the UTC day's turn when daily_usd held work back, one retry of a
+    # read that failed or of a work job whose final tick may have come before GitHub marked it ended, or the end of a
+    # Running stint's 15-minute grace with no work job alive (a job that ended with no tick of its own is judged then).
+    # The dispatcher arms one only when no wake already queued or sleeping ticks before it;
+    # none is ever cancelled, and a second one only ticks twice. It sleeps on a hosted runner and holds one of the
+    # account's concurrent-job slots while it sleeps. Cost: a public repository pays nothing and sleeps to every wait
+    # (a deadline past 350 minutes in hops, each a plain tick that arms the rest). A private one pays about $0.36 a
+    # sleeper-hour (a 2-core Linux runner at $0.006 a minute), so it sleeps only to the short waits (a quota retry, a
+    # failed start's retry, a retry, a grace's end: minutes each); a lease end and the day's turn wait for events and
+    # the cron.
+    name: wake (${{ needs.dispatch.outputs.wake_kind }} ${{ needs.dispatch.outputs.wake_at }})
+    needs: dispatch
+    if: needs.dispatch.outputs.wake_at != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions: { actions: write } # the dispatcher tick only
+    steps:
+      - name: Sleep to the deadline, then tick the dispatcher
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", WAKE_AT: "${{ needs.dispatch.outputs.wake_at }}", WAKE_KIND: "${{ needs.dispatch.outputs.wake_kind }}" }
+        run: |
+          left=$(( $(date -u -d "$WAKE_AT" +%s) - $(date -u +%s) ))
+          if [ "$left" -gt 21000 ]; then
+            sleep 21000
+            gh workflow run pendulum.yml || { sleep 30; gh workflow run pendulum.yml; }
+            exit 0
+          fi
+          if [ "$left" -gt 0 ]; then sleep "$left"; fi
+          gh workflow run pendulum.yml -f wake="$WAKE_KIND $WAKE_AT" || { sleep 30; gh workflow run pendulum.yml -f wake="$WAKE_KIND $WAKE_AT"; }
+  work:
+    needs: dispatch
+    if: needs.dispatch.outputs.count != '' && needs.dispatch.outputs.count != '0'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 300
+    strategy: { fail-fast: false, matrix: { issue: "${{ fromJSON(needs.dispatch.outputs.issues) }}" } } # the dispatcher picks at most max_concurrent less the ones running, a repository variable's included
+    permissions: { contents: read, issues: write, actions: write } # actions: write for the tick at the end, triage's rerun of failed CI jobs and cross-OS CI's dispatch
+    concurrency: { group: "pendulum-${{ matrix.issue }}", cancel-in-progress: false } # one job per issue; a repeat waits, siblings keep running
+    steps:
+      - uses: clockgrove/pendulum@v0.10.1
+        id: account # several accounts (PENDULUM_ACCOUNTS): the one this stage runs on, so the step below gets only its secrets
+        if: env.PENDULUM_ACCOUNTS != ''
+        with: { mode: account, rendered_accounts: "", issue: "${{ matrix.issue }}", harness: "${{ inputs.harness }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: clockgrove/pendulum@v0.10.1
+        id: f
+        with:
+          vars: ${{ toJSON(vars) }} # the repository's variables: each PENDULUM_<NAME> one sets that setting over the env block (docs/INSTALL.md, Settings in layers)
+          mode: work
+          issue: ${{ matrix.issue }}
+          harness: ${{ inputs.harness }} # empty falls through to PENDULUM_HARNESS
+          account: ${{ steps.account.outputs.account }} # empty with no accounts declared: the secrets below are today's
+          app_id: ${{ secrets.PENDULUM_APP_ID }}
+          app_private_key: ${{ secrets.PENDULUM_APP_PRIVATE_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }} # Claude; empty with federation
+          codex_api_key: ${{ secrets.CODEX_API_KEY }} # Codex; reaches the harness step only
+          codex_gateway_key: ${{ secrets.PENDULUM_CODEX_GATEWAY_KEY }} # Codex through the Vercel AI Gateway; wins over CODEX_API_KEY when set
+          copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }} # Copilot; a token with only the Copilot Requests permission (required)
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }} # optional: the gateway's decision models answer red-check triage, the drift advisory, the answer gate, the finding check, the rebase check, the answer check, the fix-progress check and the edit check; empty, the stage's own harness answers them (decision_route)
+          worker_secret_values: ${{ secrets.PENDULUM_WORKER_SECRET_VALUES }} # optional, with PENDULUM_WORKER_SECRETS in the env block: SOURCE=value lines for the worker's shell only; a dedicated key with a gateway-side budget (docs/PLAN.md, Worker secrets)
+          # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }} # Claude federation (with id-token: write above)
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # credential: plan only; your own repository only
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: "pendulum-usage-${{ matrix.issue }}", path: "${{ steps.f.outputs.usage_dir }}", retention-days: 90 }
+      - name: Dispatch tick (this worker finished; a conflicting PR fires no review job)
+        if: always()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh workflow run pendulum.yml || true
+  review:
+    name: review (${{ github.head_ref }})
+    if: >-
+      github.event_name == 'pull_request' && startsWith(github.head_ref, 'pendulum/') && github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'pendulum:review') || (github.event.action == 'ready_for_review' && github.event.sender.type != 'Bot'))
+    runs-on: ubuntu-26.04
+    timeout-minutes: 300
+    permissions: { contents: read, issues: write, actions: write } # actions: write here, for the tick below and triage's rerun of failed CI jobs
+    concurrency: { group: "pendulum-review-${{ github.event.pull_request.number }}", cancel-in-progress: false }
+    steps:
+      - uses: clockgrove/pendulum@v0.10.1
+        id: account # several accounts (PENDULUM_ACCOUNTS): the one this stage runs on, so the step below gets only its secrets
+        if: env.PENDULUM_ACCOUNTS != ''
+        with: { mode: account, rendered_accounts: "", harness: "${{ inputs.harness }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: clockgrove/pendulum@v0.10.1
+        id: f
+        with:
+          vars: ${{ toJSON(vars) }}
+          mode: review
+          pr: ${{ github.event.pull_request.number }}
+          harness: ${{ inputs.harness }}
+          account: ${{ steps.account.outputs.account }}
+          app_id: ${{ secrets.PENDULUM_APP_ID }}
+          app_private_key: ${{ secrets.PENDULUM_APP_PRIVATE_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_api_key: ${{ secrets.CODEX_API_KEY }}
+          codex_gateway_key: ${{ secrets.PENDULUM_CODEX_GATEWAY_KEY }}
+          copilot_github_token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          ai_gateway_api_key: ${{ secrets.AI_GATEWAY_API_KEY }}
+          worker_secret_values: ${{ secrets.PENDULUM_WORKER_SECRET_VALUES }} # with PENDULUM_WORKER_SECRETS: the fix and answer passes only, never the reviewer
+          # anthropic_oidc_exchange_url: ${{ vars.ANTHROPIC_OIDC_EXCHANGE_URL }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.f.outputs.issue_number != ''
+        with: { name: "pendulum-usage-${{ steps.f.outputs.issue_number }}-review", path: "${{ steps.f.outputs.usage_dir }}", retention-days: 90, overwrite: true } # one name per review run; the bench lists it exactly
+      - name: Dispatch tick (a worker slot freed)
+        if: always()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh workflow run pendulum.yml || true
