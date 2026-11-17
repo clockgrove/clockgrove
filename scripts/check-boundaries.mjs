@@ -489,7 +489,7 @@ async function sourceFiles(directory) {
 
 const forbiddenGlobals = new Map(
   Object.entries({
-    "wall clock": ["Date", "performance"],
+    "wall clock": ["Date", "performance", "Temporal"],
     entropy: ["crypto", "Crypto", "SubtleCrypto"],
     environment: ["process", "Deno", "Bun", "navigator", "Intl"],
     timers: [
@@ -506,6 +506,7 @@ const forbiddenGlobals = new Map(
       "cancelIdleCallback",
       "MessageChannel",
       "MessagePort",
+      "scheduler",
     ],
     "input or output": [
       "fetch",
@@ -538,6 +539,22 @@ const forbiddenLocaleMembers = new Set([
   "toLocaleUpperCase",
   "toLocaleLowerCase",
   "localeCompare",
+]);
+/**
+ * Platform members that reach a forbidden capability, by name, with the variable, interface or class
+ * that declares them (any owner when `owners` is empty) and the rule they break.
+ */
+const forbiddenMembers = new Map([
+  ["random", { owners: ["Math"], rule: "randomness" }],
+  ["getRandomValues", { owners: ["Crypto"], rule: "entropy" }],
+  ["randomUUID", { owners: ["Crypto"], rule: "entropy" }],
+  ["timeout", { owners: ["AbortSignal"], rule: "timers" }],
+  ["waitAsync", { owners: ["Atomics"], rule: "timers" }],
+  ["lastModified", { owners: ["File"], rule: "wall clock" }],
+  ["timeStamp", { owners: ["Event"], rule: "wall clock" }],
+  // `x.constructor.constructor` reaches the Function constructor, which evaluates code.
+  ["constructor", { owners: [], rule: "code evaluation" }],
+  ...[...forbiddenLocaleMembers].map((name) => [name, { owners: [], rule: "locale" }]),
 ]);
 const ambientRuleNames = [
   ...new Set([
@@ -573,7 +590,45 @@ function referenceRules(program, checker, node) {
     symbol = checker.getSymbolAtLocation(node);
   }
   const isMember = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
-  return symbolRules(program, checker, symbol, isMember, node.text);
+  const rules = symbolRules(program, checker, symbol, isMember, node.text);
+  if (rules.length > 0 || !isMember) return rules;
+  return castRules(program, checker, node.parent.expression, symbol, node.text);
+}
+
+/** `expression` without the parentheses, casts, `satisfies` and `!` around it. */
+function uncast(expression) {
+  let node = expression;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
+    node = node.expression;
+  }
+  return node;
+}
+
+/**
+ * A forbidden member read through a cast or an untyped value: `(Math as any).random()`,
+ * `(Math as unknown as { random(): number }).random()`, `(5 as any).toLocaleString()`,
+ * `Object.getPrototypeOf(f).constructor`. When the member is not a platform declaration, it is
+ * refused if the receiver is typed `any`, or if the cast's operand has the platform member.
+ */
+function castRules(program, checker, receiver, symbol, name) {
+  const member = forbiddenMembers.get(name);
+  if (member === undefined) return [];
+  if (symbol?.declarations && isPlatformDeclaration(program, symbol)) return [];
+  if (checker.getTypeAtLocation(receiver).flags & ts.TypeFlags.Any) return [member.rule];
+  const operand = uncast(receiver);
+  if (operand === receiver) return [];
+  const type = checker.getApparentType(checker.getTypeAtLocation(operand));
+  const property = checker.getPropertyOfType(type, name);
+  return symbolRules(program, checker, property, true, name).length > 0 ||
+    (type.flags & ts.TypeFlags.Any) !== 0
+    ? [member.rule]
+    : [];
 }
 
 /** The variable, interface or class a member is declared in (`@types/node` types `AbortSignal` as a variable). */
@@ -616,17 +671,14 @@ function symbolRules(program, checker, symbol, isMember, name) {
     const rule = forbiddenGlobals.get(symbol.name);
     return rule === undefined ? [] : [rule];
   }
-  if (forbiddenLocaleMembers.has(symbol.name)) return ["locale"];
-  // `x.constructor.constructor` reaches the Function constructor, which evaluates code.
-  if (isMember && symbol.name === "constructor") return ["code evaluation"];
-  if (/(?:^|\.)Math\.random$/u.test(qualified)) return ["randomness"];
+  const member = isMember ? forbiddenMembers.get(symbol.name) : undefined;
   if (
-    symbol.name === "timeout" &&
-    symbol.declarations.some((d) => ownerName(d) === "AbortSignal")
+    member !== undefined &&
+    (member.owners.length === 0 ||
+      symbol.declarations.some((declaration) => member.owners.includes(ownerName(declaration))))
   ) {
-    return ["timers"];
+    return [member.rule];
   }
-  if (/(?:^|\.)Crypto\.(?:getRandomValues|randomUUID)$/u.test(qualified)) return ["entropy"];
   return [];
 }
 
@@ -645,7 +697,8 @@ function keyedMemberRules(program, checker, target, key) {
   if (key === undefined) return [];
   const type = checker.getTypeAtLocation(target);
   const property = checker.getPropertyOfType(checker.getApparentType(type), key);
-  return symbolRules(program, checker, property, true, key);
+  const rules = symbolRules(program, checker, property, true, key);
+  return rules.length > 0 ? rules : castRules(program, checker, target, property, key);
 }
 
 const reflectiveReaders =

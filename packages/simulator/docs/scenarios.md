@@ -194,7 +194,7 @@ What the §9.3 long-run invariants read in a summarised run:
 | Scheduler queue bounded under world policy | `schedulePeak`, `schedule.remaining` |
 | Deterministic population, resource and lifecycle summaries | `finalStateHash`, `subjects`, the stream digests |
 | Decision and action references resolve | `undispatchedDecisions`, `scriptedInputsUsed`, `replay` |
-| No inactive or dead actor acts autonomously | `subjects`: no action event `last` after the actor's death `first`; `summary.causes`: no event of any type caused by the dead actor after its death |
+| No inactive or dead actor acts autonomously | `subjects`: no event about the actor `last` after its death `first`, except what happens to what its body holds (`resource.spoiled`, `resource.transferred`, `resource.weather-integrated`); autonomous events are attributed to the scenario or a process, so their subject is the actor's only trace; `summary.causes`: no event of any type caused by the dead actor after its death |
 | No private perception in public client-view input | `perception` count and digest only; the record contents need a full recording |
 
 Small-step versus aggregate equivalence uses `equivalenceViews`, as above.

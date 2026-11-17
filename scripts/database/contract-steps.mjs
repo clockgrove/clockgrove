@@ -15,8 +15,10 @@ import path from "node:path";
 // a PL/pgSQL body; and the body of each function or procedure the migration calls by name, when this
 // or an earlier migration created it (followed through the routines that body calls, by any
 // expression or `CALL`). A constant that does not parse alone, a piece of SQL assembled at run time,
-// counts when its tokens begin as a destroying statement does. It does not read SQL split before its
-// leading words, or a trigger function, which runs on a later write and is reviewed as code. A
+// counts when its tokens hold words that destroy data anywhere (`DELETE FROM`, `TRUNCATE`, an
+// append-only `UPDATE`, `session_replication_role`) or begin a destroying DROP or ALTER, and a routine
+// it names before `(` is followed. It does not read SQL split inside those words, or a trigger
+// function, which runs on a later write and is reviewed as code. A
 // migration that does not parse cannot be verified and is refused.
 
 export const CONTRACT_STEPS_FILE = "contract-steps.json";
@@ -28,8 +30,9 @@ export const CONTRACT_STEPS_FILE = "contract-steps.json";
  */
 const APPEND_ONLY = new Set(["events", "authority_decisions", "artifact_references", "snapshots"]);
 
+/** Unqualified names count too: a migration's `search_path` may put `clockgrove` first. */
 const appendOnly = (relation) =>
-  relation?.schemaname === "clockgrove" && APPEND_ONLY.has(relation.relname);
+  [undefined, "clockgrove"].includes(relation?.schemaname) && APPEND_ONLY.has(relation?.relname);
 
 const stringOf = (constant) => constant?.A_Const?.sval?.sval;
 
@@ -73,6 +76,7 @@ const DESTROYS = {
   // The tree holds the statement itself, not a wrapped node.
   AlterRoleSetStmt: (node) => setsReplicaRole(node.setstmt),
   AlterDatabaseSetStmt: (node) => setsReplicaRole(node.setstmt),
+  AlterSystemStmt: (node) => setsReplicaRole(node.setstmt),
   FuncCall: (node) =>
     lastName(node.funcname) === "set_config" &&
     stringOf(node.args?.[0])?.toLowerCase() === "session_replication_role" &&
@@ -212,30 +216,40 @@ function analyzeString(value, ctx) {
       ? "$1".padEnd(placeholder.length)
       : "z".repeat(placeholder.length);
   });
-  if (!analyzeSql(sql, ctx, value) && destroyingFragment(value))
+  if (!analyzeSql(sql, ctx, value) && destroyingFragment(value, ctx))
     ctx.found.push(`${value.replace(/\s+/gu, " ").trim()} …`);
 }
 
-const APPEND_ONLY_NAME = `clockgrove \\. (?:${[...APPEND_ONLY].join("|")})\\b`;
+const APPEND_ONLY_NAME = `(?:clockgrove \\. )?(?:${[...APPEND_ONLY].join("|")})\\b`;
 
 /**
- * A piece of SQL assembled at run time (`'DELETE FROM clockgrove.' || t`) does not parse alone; it
- * counts when its tokens begin as a statement that destroys data begins, or continue an `ALTER TABLE`
- * with an action that does.
+ * A piece of SQL assembled at run time (`'DELETE FROM clockgrove.' || t`) does not parse alone. Its
+ * tokens count when they hold, anywhere, words that destroy data wherever they stand (in a CTE, after
+ * EXPLAIN or another statement), or begin one of its statements as a destroying DROP or ALTER does.
  */
-const DESTROYING_FRAGMENTS = [
-  /^DELETE FROM\b/u,
-  /^TRUNCATE\b(?! (?:ON|OR)\b)/u,
-  /^MERGE\b.*\bDELETE\b/u,
-  new RegExp(`^UPDATE (?:ONLY )?${APPEND_ONLY_NAME}`, "u"),
-  new RegExp(`^INSERT INTO ${APPEND_ONLY_NAME}.*\\bON CONFLICT\\b.*\\bDO UPDATE\\b`, "u"),
+const DESTROYING_ANYWHERE = [
+  /\bDELETE FROM\b/u,
+  // Not a trigger event or a privilege: `BEFORE TRUNCATE ON`, `UPDATE OR TRUNCATE OR …`.
+  /\bTRUNCATE\b(?! (?:ON|OR)\b)/u,
+  /\bMERGE\b.*\bDELETE\b/u,
+  new RegExp(`\\bUPDATE (?:ONLY )?${APPEND_ONLY_NAME}`, "u"),
+  new RegExp(`\\bINSERT INTO ${APPEND_ONLY_NAME}.*\\bON CONFLICT\\b.*\\bDO UPDATE\\b`, "u"),
+  // Replica mode skips the triggers that keep journal tables immutable.
+  /(?<!\bRESET )\bsession_replication_role\b(?! (?:=|TO) '?(?:DEFAULT|default|origin)'?(?: |$))/u,
+];
+const DESTROYING_STATEMENT = [
   /^DROP (?:TABLE|SCHEMA|DATABASE|OWNED|MATERIALIZED VIEW|FOREIGN TABLE|COLUMN)\b/u,
   /^DROP\b.*\bCASCADE\b/u,
   /^ALTER TABLE\b.*\bDROP (?!(?:CONSTRAINT|DEFAULT|NOT|EXPRESSION|IDENTITY)\b)/u,
   /^(?:ALTER TABLE\b.*\b)?ALTER (?:COLUMN )?(?!TYPE\b)\S+ (?:SET DATA )?TYPE\b/u,
 ];
 
-function destroyingFragment(value) {
+/**
+ * Whether the tokens of `value`, a string that does not parse as SQL, destroy data. Records in `ctx`
+ * each name its tokens call (`f (`), unless FUNCTION, PROCEDURE or ROUTINE names it, so a routine
+ * reached from a piece is followed too.
+ */
+function destroyingFragment(value, ctx) {
   let tokens;
   try {
     tokens = pg.scanSync(value).tokens ?? [];
@@ -248,9 +262,20 @@ function destroyingFragment(value) {
     .map((token) => {
       const word = bytes.subarray(token.start, token.end).toString();
       return token.keywordKind ? word.toUpperCase() : word.toLowerCase();
-    })
-    .join(" ");
-  return DESTROYING_FRAGMENTS.some((pattern) => pattern.test(words));
+    });
+  for (const [index, word] of words.entries())
+    if (
+      words[index + 1] === "(" &&
+      /^[A-Za-z_]|^"/u.test(word) &&
+      !["FUNCTION", "PROCEDURE", "ROUTINE"].includes(words[index - 1])
+    )
+      ctx.called.add(word.replace(/^"|"$/gu, "").toLowerCase());
+  const text = words.join(" ");
+  if (DESTROYING_ANYWHERE.some((pattern) => pattern.test(text))) return true;
+  return text
+    .split(/ ; /u)
+    .map((statement) => statement.replace(/^(?:(?:BEGIN|THEN|ELSE|LOOP) )+/u, "").trim())
+    .some((statement) => DESTROYING_STATEMENT.some((pattern) => pattern.test(statement)));
 }
 
 /** The SQL and expressions of a PL/pgSQL body: a DO statement or a CREATE FUNCTION or PROCEDURE. */

@@ -148,6 +148,19 @@ it.each([
       run.summary.causes.push({ actorId: objectId, events: [verb] });
     },
   ],
+  // Autonomous events the engine attributes to the scenario or a process, about the actor after its
+  // death: each is the actor acting, not something happening to its body.
+  ...["needs.relieved", "lifecycle.conceived", "movement.completed", "location.changed"].map(
+    (type) => [
+      "dead-actors-inactive",
+      (_bundle, run) => {
+        const { events } = actor(run);
+        const end = events.reduce((last, event) => (event.last > last ? event.last : last), 0n);
+        events.push({ type: "lifecycle.died", count: 1, first: end, last: end });
+        events.push({ type, count: 1, first: end + 1n, last: end + 1n });
+      },
+    ],
+  ),
   ["declared-equivalence", (copy) => (copy.equivalences[0].equivalent = false)],
   ["scenario-assertions", (copy) => (copy.assertions[0].passed = false)],
 ])("%s refuses a bundle that breaks it", (id, mutate) => {

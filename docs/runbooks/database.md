@@ -176,9 +176,13 @@ or an earlier migration created it, following the routines that body calls. A ro
 reported as `<routine>(): <statement>`; a migration that does not parse is refused, as it cannot be
 verified. A string constant that does not parse alone, a piece of SQL assembled at run time
 (`EXECUTE 'DELETE FROM clockgrove.' || t`, `EXECUTE 'TRUNCATE ' || t`, `format('TRUNCATE clockgrove.probe %s', …)`), counts when its
-tokens begin as a destroying statement begins (`DELETE FROM`, `TRUNCATE`, a destroying `DROP`, `MERGE …
-DELETE`, a rewrite of an append-only table) or as an `ALTER TABLE` that drops a column or changes its
-type; it is reported as `<piece> …`. SQL split before its leading words (`'DELETE ' || 'FROM …'`) is not
+tokens hold, anywhere (inside a CTE, after `EXPLAIN` or after another statement), `DELETE FROM`,
+`TRUNCATE`, `MERGE … DELETE`, a rewrite of an append-only table or a `session_replication_role`
+setting, or begin one of its statements as a destroying `DROP` or an `ALTER TABLE` that drops a column
+or changes its type; it is reported as `<piece> …`. A name its tokens put before `(` is followed as a
+call (`EXECUTE 'SELECT clockgrove.' || 'f()'`). An append-only table counts with or without its
+`clockgrove.` schema, as `search_path` may reach it; `ALTER SYSTEM SET session_replication_role` counts
+as the other settings of it do. SQL split inside those words (`'DELETE ' || 'FROM …'`) is not
 read, nor is the body of a trigger function, which runs on a later write, even one the same migration makes. The retention functions of 0023, 0027 and 0028
 delete rows, but no migration calls them: the runtime or a trigger runs them later, and they are
 reviewed as code and listed in `db/retention.json`. Two applied migrations are

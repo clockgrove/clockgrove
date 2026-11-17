@@ -6,8 +6,16 @@ import { createHash } from "node:crypto";
 export const SMALL_STEP_RUN = "main";
 export const AGGREGATE_RUN = "aggregate";
 export const EQUIVALENCE_ID = "small-step-vs-aggregate";
-/** Ordinary autonomous action events; a dead actor must emit none after its death (and, by `summary.causes`, no event at all). */
-export const ACTION_EVENT_TYPES = ["routine.selected", "movement.started"];
+/**
+ * Events that can be about a dead actor's body without the actor doing anything: what it holds spoils,
+ * settles with the weather or is taken from it (the taker's own cause is checked by `summary.causes`).
+ * Any other event about a dead actor after its death, autonomous or pack-declared, is the actor acting.
+ */
+export const BODY_EVENT_TYPES = [
+  "resource.spoiled",
+  "resource.transferred",
+  "resource.weather-integrated",
+];
 export const RESOURCE_EVENT_TYPES = [
   "resource.consumed",
   "resource.spoiled",
@@ -274,17 +282,17 @@ const CHECKS = [
         const problems = [];
         const events = subjectEvents(run);
         const deaths = deathTimes(run);
+        // Autonomous events name the actor only as their subject: the engine attributes them to the
+        // scenario envelope or their process, so the subject decides whether the actor acted.
         for (const [objectId, diedAt] of deaths)
-          for (const type of ACTION_EVENT_TYPES) {
-            const action = events.get(objectId).get(type);
-            if (action && action.last > diedAt)
+          for (const [type, entry] of events.get(objectId))
+            if (!BODY_EVENT_TYPES.includes(type) && entry.last > diedAt)
               problems.push(`${objectId} emitted ${type} after its death`);
-          }
         // Any event the dead actor caused, including pack-declared verbs attributed to it. The engine
-        // records a cause under an actor's id when a command is spoken through it (a `via` step);
-        // autonomous events are attributed to the scenario envelope or their process. Proven
-        // through the engine in tests/ci/qualify-wave1-long-runs.test.mjs ("dead-actors-inactive
-        // refuses an event the engine attributes to an actor after its death").
+        // records a cause under an actor's id when a command is spoken through it (a `via` step), or
+        // when the event's payload names it as `actorId`. Proven through the engine in
+        // tests/ci/qualify-wave1-long-runs.test.mjs ("dead-actors-inactive refuses an event the engine
+        // attributes to an actor after its death").
         for (const { actorId, events } of run.summary.causes)
           for (const { type, last } of events) {
             const diedAt = deaths.get(actorId);
