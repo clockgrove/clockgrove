@@ -74,6 +74,14 @@ types, possibly empty, and each must be declared in the `commands` of one of the
 (any version). Other keys, a wrong `schemaVersion` or a bad field are `INVALID_POLICY` at
 `manifest.policies[i].<field>`. A second one is `DUPLICATE_POLICY`. A pack with no such policy lets its
 actors propose no world command. It is checked only and is not part of the validated pack.
+The runtime builds an actor's proposal into a fixed payload shape: `{ schemaVersion: 1, quantity: 1 }`
+plus one to four fields the actor names (lower camel case, not `schemaVersion` or `quantity`), each an
+identifier (`[A-Za-z0-9][A-Za-z0-9._:-]{0,255}`). Declare only commands whose payload that shape can
+satisfy, such as `resource.offer` or `resource.transfer`: the SDK cannot see a command's payload schema,
+so it accepts any command a capability declares, but one that needs free text, another number, no
+`quantity` or more fields is offered to the actor and then always refused by the world's validator.
+A turn carries one command, so `callsPerTurn` above 1 has no effect today; it is the bound a later
+multi-command turn will use.
 
 **Behaviour policy.** A policy resource `{ type: "clockgrove.world-behavior-policy", policy }`
 whose `policy` is a domain `WorldBehaviorPolicy` accepted by `validateWorldBehaviorPack`

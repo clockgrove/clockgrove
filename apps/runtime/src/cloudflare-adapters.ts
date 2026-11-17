@@ -1280,6 +1280,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   #fibers: TurnFibers | undefined;
   /** Trusted contexts by principal and persona: each member's grants bound only their own turns. */
   readonly #talkContexts = new Map<string, TrustedExecutionContext>();
+  /** Each member's read of the world's actor-command declaration (issue 359), by world and principal. */
+  readonly #actorCommands = new Map<string, Promise<ActorCommandPolicy | undefined>>();
 
   #talkContext(who: { readonly principalId: string; readonly personaId: string }) {
     return this.#talkContexts.get(`${who.principalId}:${who.personaId}`);
@@ -2089,14 +2091,25 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return stores;
   }
 
-  /** The installed pack's actor-command declaration, read under the member's row security. */
+  /**
+   * The installed pack's actor-command declaration, read under the member's row security once per
+   * member and world in this incarnation. A world's installation and its artifact's resources are
+   * immutable rows (`clockgrove_birth.reject_mutation`), so a later read could not differ; a failed
+   * read is not kept, and the member's own context is still checked on every resolution.
+   */
   private actorCommands(
     context: TrustedExecutionContext,
     scope: { readonly tenantId: string; readonly worldId: string },
   ): Promise<ActorCommandPolicy | undefined> {
-    return withActorCapabilityClient(this.environment, (client) =>
+    const key = `${scope.tenantId}:${scope.worldId}:${context.principalId}`;
+    const known = this.#actorCommands.get(key);
+    if (known !== undefined) return known;
+    const read = withActorCapabilityClient(this.environment, (client) =>
       readActorCommandPolicy(client, worldAuthorization(context), scope),
     );
+    this.#actorCommands.set(key, read);
+    read.catch(() => this.#actorCommands.delete(key));
+    return read;
   }
 
   /** The actor's grants: the registry's, bounded by the grants of the participating member. */
