@@ -9,6 +9,20 @@ Stable repository facts for contributors, human or agent. Each rule has its reas
 - Python 3, for `verify:docs`.
 - OpenTofu 1.13.1 on `PATH`, required by `scripts/infra-validate.mjs` for the configuration in `infra/`. Wrangler 4.158.0 is pinned in the root development dependencies.
 - On Ubuntu 26.04, `scripts/ci/toolchain.sh` installs or verifies the pinned PostgreSQL, pgvector, OpenTofu, OpenTofu provider mirror and Playwright Chromium. It installs only a component that is missing or not the exact pinned version, and `--check` only verifies. Quality's toolchain action uses it, so CI and developer machines share one set of pins. The action caches the staged pgvector build per pinned pgvector and PostgreSQL version and runner image (`PGVECTOR_STAGE`); the script reuses it only when its library digest matches its stamp.
+- From a clean checkout, this verifies the Node, Corepack, Python, Git, Git LFS and pnpm prerequisites and then installs. mise is convenient for the Node and pnpm pins but not required. `node scripts/bootstrap.mjs` checks the same pins and also PostgreSQL, OpenTofu and the hydrated Git LFS inputs (see [W0-010 local bootstrap and qualification](#w0-010-local-bootstrap-and-qualification)).
+
+  ```bash
+  command -v node >/dev/null || { echo 'Node.js 24.21.0 LTS is required; install it from https://nodejs.org/ or with mise.' >&2; exit 1; }
+  node -e "if (process.versions.node !== '24.21.0') { console.error('Node.js 24.21.0 LTS is required; found ' + process.version); process.exit(1) }"
+  command -v corepack >/dev/null || { echo 'Corepack is required; install it using the official Node.js Corepack instructions.' >&2; exit 1; }
+  command -v python3 >/dev/null || { echo 'Python 3 is required for documentation validation; install your distribution Python 3 package.' >&2; exit 1; }
+  command -v git >/dev/null || { echo 'Git is required; install your distribution Git package.' >&2; exit 1; }
+  command -v git-lfs >/dev/null || { echo 'Git LFS is required; install it from https://git-lfs.com/ or your distribution package.' >&2; exit 1; }
+  corepack enable
+  pnpm --version | grep -qx '12.9.1' || { echo 'pnpm 12.9.1 is required; let Corepack activate the packageManager version declared in package.json.' >&2; exit 1; }
+  pnpm install --frozen-lockfile --ignore-scripts
+  ```
+
 - Run `pnpm install --frozen-lockfile --ignore-scripts` before any check. The lockfile is the dependency contract. Dependency lifecycle scripts must remain disabled for adapter work; if an install script that is not approved under `allowBuilds` runs, stop and report to the maintainer (approved builds are listed in [Dependency install scripts](#dependency-install-scripts)). Work in the checkout you were given: don't create extra git worktrees, because pnpm installs in each one.
 
 ## Acceptance commands

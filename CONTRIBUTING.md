@@ -6,7 +6,7 @@ Clockgrove is licensed under the [MIT License](LICENSE). Contributions are accep
 
 ## Before you start
 
-- Set up a checkout with the [contributor bootstrap](README.md#contributor-bootstrap).
+- Set up a checkout with the [quick start](README.md#quick-start), then the tools and checks in [Working on Clockgrove](README.md#working-on-clockgrove).
 - Read [AGENTS.md](AGENTS.md) for the repository rules. They apply to human and agent contributors alike.
 - Use the canonical commands and their rules in [docs/runbooks/development.md](docs/runbooks/development.md), and the test rules in [docs/runbooks/testing.md](docs/runbooks/testing.md).
 - Keep within the [clean-room and publication boundary](README.md#clean-room-and-publication-boundary). Code, data or assets that are not original Clockgrove work need an entry in [provenance.json](provenance.json) with their source, license and reason; third-party npm dependencies are covered by the SBOM it names instead.
