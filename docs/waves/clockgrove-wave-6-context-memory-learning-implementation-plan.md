@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 6 of 13  
 **Assumptions:** Waves 0–5 are qualified; cognitive runs and private event streams are stable  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; their prompts, transcripts, memory, and state never enter world-memory data unless an explicit product ingestion path authorizes them.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; their prompts, transcripts, memory, and state never enter world-memory data unless an explicit product ingestion path authorizes them.  
 
 ---
 

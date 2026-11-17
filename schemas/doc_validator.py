@@ -31,7 +31,7 @@ WAVE_OPTIONAL_FIELDS = frozenset(
         "Assumptions",
         "Decision source",
         "Development tooling",
-        "Factory execution",
+        "Pendulum execution",
         "Filename note",
         "Visual reference",
     }

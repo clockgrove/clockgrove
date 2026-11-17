@@ -1,3 +1,3 @@
 import "vitest";
 import "zod-extra";
-import "@clockgrove/factory";
+import "@clockgrove/pendulum";

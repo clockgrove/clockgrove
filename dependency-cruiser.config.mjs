@@ -194,11 +194,11 @@ export const forbidden = [
     to: { path: "^(?:apps|packages/(?!contracts|application|persistence)[^/]+)(?:/|$)" },
   },
   {
-    name: "no-factory-dependencies",
+    name: "no-pendulum-dependencies",
     severity: "error",
-    comment: "Factory is external development tooling, never a product or build dependency.",
+    comment: "Pendulum is external development tooling, never a product or build dependency.",
     from: {},
-    to: { path: "(?:^|node_modules/)(?:@clockgrove/)?factory(?:-rebuild)?(?:/|$)" },
+    to: { path: "(?:^|node_modules/)(?:@clockgrove/)?pendulum(?:/|$)" },
   },
   {
     name: "contracts-have-no-outward-dependencies",

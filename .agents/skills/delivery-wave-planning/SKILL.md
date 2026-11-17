@@ -1,6 +1,6 @@
 ---
 name: delivery-wave-planning
-description: How Clockgrove sequences product work into waves, Objectives and exit evidence in clockgrove/clockgrove. Use when amending a wave plan in docs/waves/, writing a factory:objective issue from a wave plan, changing roadmap sequencing, defining exit evidence, or deciding whether a capability belongs in the current wave or only as a seam for later.
+description: How Clockgrove sequences product work into waves, Objectives and exit evidence in clockgrove/clockgrove. Use when amending a wave plan in docs/waves/, writing a pendulum:objective issue from a wave plan, changing roadmap sequencing, defining exit evidence, or deciding whether a capability belongs in the current wave or only as a seam for later.
 ---
 
 # Clockgrove Delivery Wave Planning
@@ -20,7 +20,7 @@ They win over this page.
 
 - **Tracks:** Waves 0–9 are the technical/open-source track to GA; Waves 10–11 add shared hosted worlds; Wave 12 is optional commercial hosting. Do not relabel waves from an older document.
 - **A wave** is a substantial, mostly sequential workstream with numerous Objectives and full exit obligations. It is a qualification boundary, not a sprint.
-- **An Objective** is one complete, testable capability with one owner and a declared acceptance surface. The `factory:objective` label goes only on new product work from a wave plan. Gaps, regressions, maintenance, plan amendments and re-qualification are plain `Bug`, `Task` or `Feature` issues.
+- **An Objective** is one complete, testable capability with one owner and a declared acceptance surface. The `pendulum:objective` label goes only on new product work from a wave plan. Gaps, regressions, maintenance, plan amendments and re-qualification are plain `Bug`, `Task` or `Feature` issues.
 - **Work packets** (`RW-xxxx` in each plan) describe responsibility and dependencies. They feed Objective planning; they are not one Objective each and their boundaries are not frozen.
 - **GitHub is the live status.** Issues and PRs hold scheduling, scope, dependencies and evidence. Plans describe contracts and order, never a second status board.
 

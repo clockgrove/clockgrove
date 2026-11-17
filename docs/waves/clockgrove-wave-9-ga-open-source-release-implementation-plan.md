@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 9 of 13; technical/open-source GA  
 **Assumptions:** Waves 0–8 are qualified; Raccoon World is already demo-quality in clockgrove/raccoon-world  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; the released Clockgrove product does not depend on them.
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; the released Clockgrove product does not depend on them.
 
 ---
 

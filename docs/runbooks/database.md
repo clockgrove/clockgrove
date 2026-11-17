@@ -45,7 +45,7 @@ The helper (`databaseTransport` in `scripts/database/lib.mjs`) picks the transpo
 
 1. `CLOCKGROVE_TEST_DB_TRANSPORT`, when set and non-empty, wins. Its only values are `socket` and `loopback`; any
    other value fails the run with an error naming the variable.
-2. Otherwise `FACTORY_LOCAL=1` selects `loopback`. Factory's local mode sets it in every child
+2. Otherwise `PENDULUM_LOCAL=1` selects `loopback`. Pendulum's local mode sets it in every child
    process and passes commands only an allow-list of environment variables, so a workflow-level
    switch would not reach the fixture.
 3. Otherwise `socket`. CI and ordinary local runs keep this default.
@@ -55,7 +55,7 @@ abstract name stays below Linux's 107-byte socket-address limit regardless of th
 temporary-directory length. Trust authentication applies only to that socket; `listen_addresses`
 is empty, so there is no TCP listener.
 
-`loopback`. Factory's local sandboxes refuse every `AF_UNIX` socket, abstract and filesystem
+`loopback`. Pendulum's local sandboxes refuse every `AF_UNIX` socket, abstract and filesystem
 alike, with `EPERM`; the owner decided on 2026-11-07, after a security review, that the sandboxes stay
 that way and the fixture listens on loopback TCP instead. PostgreSQL listens on `127.0.0.1` at the
 allocated port with an empty `unix_socket_directories`; any socket directory makes PostgreSQL
@@ -68,7 +68,7 @@ login role gets the same password as a SCRAM verifier computed in the helper, so
 error or server log carries it. The fixture hands it out only as `PGPASSWORD` in its
 `environment` and in the URLs built from it (`connectionString` in
 `apps/runtime/test/world-fixture.ts`, the native harness's Hyperdrive bindings); it is never
-logged or written elsewhere. Inside a Factory sandbox the loopback listener is also confined to
+logged or written elsewhere. Inside a Pendulum sandbox the loopback listener is also confined to
 the sandbox's own network namespace.
 
 In both modes the helper never discovers or contacts a pre-existing database, and it drops an

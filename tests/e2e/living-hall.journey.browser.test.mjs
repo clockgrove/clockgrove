@@ -308,7 +308,7 @@ const observeHall = async (backend) => {
         {
           vitestConfig: "tests/ci/vitest.browser.config.ts",
           // The journey measured 106 s against the former 120 s deadline; with issue 816's navigation
-          // scenario it measured 140 s alone on the Factory host (2026-11-05), so 210 s keeps the same
+          // scenario it measured 140 s alone on the Pendulum host (2026-11-05), so 210 s keeps the same
           // margin; issue 19's Keeper turns (a refusal and a commit, each a model turn plus a reload)
           // exceeded that, so 330 s stays within the test's 360 s timeout.
           timeoutMs: 330_000,

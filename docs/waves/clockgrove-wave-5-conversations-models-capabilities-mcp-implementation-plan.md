@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 5 of 13  
 **Assumptions:** Waves 0–4 are qualified; web projection and ActorAgentDO seams are stable  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; their cognition, sessions, and state are separate from world/runtime cognition and authority.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; their cognition, sessions, and state are separate from world/runtime cognition and authority.  
 
 ---
 

@@ -48,7 +48,7 @@ const applicationFixture = "tests/dependency-boundaries/forbidden-application-to
 const persistenceFixture = "tests/dependency-boundaries/forbidden-persistence-outward.ts";
 const rendererFixture = "tests/dependency-boundaries/forbidden-renderer-libraries.ts";
 const ambientFixture = "packages/kernel/test/negative-boundaries/ambient-globals.txt";
-const factoryPackage = /^(?:@clockgrove\/)?factory(?:-rebuild)?$/u;
+const pendulumPackage = /^(?:@clockgrove\/)?pendulum$/u;
 const dependencyFields = [
   "dependencies",
   "devDependencies",
@@ -128,7 +128,7 @@ async function assertNoFactoryDependencies() {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
     for (const field of dependencyFields) {
       for (const dependency of Object.keys(manifest[field] ?? {})) {
-        if (factoryPackage.test(dependency)) {
+        if (pendulumPackage.test(dependency)) {
           throw new Error(
             `${path.relative(repositoryRoot, manifestPath)}: forbidden ${field} entry ${dependency}`,
           );
@@ -216,8 +216,8 @@ async function assertDomainZodExceptionIsNarrow() {
   for (const [from, target, rule] of [
     [external, /(?:^|\/)vitest(?:\/|$)/u, "domain-depends-only-inward"],
     [external, /^zod-extra$/u, "domain-depends-only-inward"],
-    [external, /^@clockgrove\/factory$/u, "no-factory-dependencies"],
-    [external, /^@clockgrove\/factory$/u, "domain-depends-only-inward"],
+    [external, /^@clockgrove\/pendulum$/u, "no-pendulum-dependencies"],
+    [external, /^@clockgrove\/pendulum$/u, "domain-depends-only-inward"],
     [kernelZod, /(?:^|\/)zod(?:\/|$)/u, "kernel-depends-only-inward"],
     [domainFixture, /^packages\/kernel\/src\//u, "domain-depends-only-inward"],
     [domainFixture, /^packages\/testkit\/src\//u, "no-production-to-testkit"],

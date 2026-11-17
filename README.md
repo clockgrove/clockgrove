@@ -163,7 +163,7 @@ A few boundaries are intentionally strong:
 ### Related repositories
 
 - [`clockgrove/raccoon-world`](https://github.com/clockgrove/raccoon-world): Raccoon World, the first reference world. It holds its own pack, art and style bible, and builds against a pinned Clockgrove commit through the [external-world commands](docs/protocols/world-presentation.md#external-local-session).
-- [`clockgrove/pendulum`](https://github.com/clockgrove/pendulum): Clockgrove Pendulum, formerly Factory, the agent tooling used to develop Clockgrove through GitHub Issues, pull requests and checks. This repository's `.github/workflows/factory.yml` still runs it under its old name, `clockgrove/factory@v0.9.37`. Clockgrove does not need it to build or run. Agent skills for working in this repository live in `.agents/skills/`, with `.claude/skills/` linking to them.
+- [`clockgrove/pendulum`](https://github.com/clockgrove/pendulum): Clockgrove Pendulum, formerly Pendulum, the agent tooling used to develop Clockgrove through GitHub Issues, pull requests and checks. This repository's `.github/workflows/pendulum.yml` still runs it under its old name, `clockgrove/pendulum@v0.9.37`. Clockgrove does not need it to build or run. Agent skills for working in this repository live in `.agents/skills/`, with `.claude/skills/` linking to them.
 - `clockgrove/.github`: the organization profile and shared GitHub metadata.
 
 ## Accounts and secrets
