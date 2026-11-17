@@ -42,7 +42,7 @@ Decisions:
   `clockgrove.actor-command-policy` ([collections](../../packages/world-pack-sdk/docs/collections.md)),
   read once per member and world by the actor's owner (installed packs are immutable rows) under
   the member's row security. Its `commands` are the grant's command types and its `callsPerTurn`
-  the grant's budget; a turn carries one command, so a value above 1 has no effect today. The
+  the grant's budget, which must be 1: a turn carries one command, so the SDK and the registry refuse any other value. The
   proposal becomes a payload of one to four identifier fields plus `schemaVersion: 1` and
   `quantity: 1`, so a declared command needing another shape is always refused by the world. A pack with no such policy
   grants no `world.command`, so an actor's proposal is refused `not_granted`; a type the policy does

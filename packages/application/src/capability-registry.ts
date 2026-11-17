@@ -143,13 +143,10 @@ export function actorCommandPolicyOf(policies: readonly unknown[]): ActorCommand
     found.length > 1 ||
     !Array.isArray(commands) ||
     !commands.every((command) => typeof command === "string") ||
-    typeof callsPerTurn !== "number" ||
-    !Number.isSafeInteger(callsPerTurn) ||
-    callsPerTurn < 1 ||
-    callsPerTurn > 4
+    callsPerTurn !== 1
   )
     throw new Error("installed actor command policy malformed");
-  return { commands: commands as string[], callsPerTurn };
+  return { commands: commands as string[], callsPerTurn: 1 };
 }
 
 /** One grant per capability and one call each. `world.command` comes only from the world. */
