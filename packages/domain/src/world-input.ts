@@ -246,6 +246,7 @@ function environmentPolicy(input: unknown, path: string): EnvironmentPolicy {
       "discomfortThreshold",
     ],
     path,
+    ["shelterReflexThreshold"],
   );
   version(raw, path);
   return {
@@ -269,6 +270,14 @@ function environmentPolicy(input: unknown, path: string): EnvironmentPolicy {
     }),
     wetThreshold: integer(raw.wetThreshold, `${path}.wetThreshold`),
     discomfortThreshold: integer(raw.discomfortThreshold, `${path}.discomfortThreshold`),
+    ...(raw.shelterReflexThreshold === undefined
+      ? {}
+      : {
+          shelterReflexThreshold: integer(
+            raw.shelterReflexThreshold,
+            `${path}.shelterReflexThreshold`,
+          ),
+        }),
   };
 }
 

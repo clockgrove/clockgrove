@@ -257,6 +257,13 @@ const cases: Case[] = [
     },
   ],
 
+  ...["Proprietary", "CC-BY-NC", "LicenseRef-Mine"].map(
+    (license): Case => [
+      "INVALID_LICENSE",
+      "manifest.assets[0].license",
+      ({ manifest }) => (manifest.assets[0].license = license),
+    ],
+  ),
   [
     "UNSUPPORTED_SCHEMA_VERSION",
     "manifest.schemaVersion",
@@ -422,6 +429,42 @@ describe("world pack refusals", () => {
 
   it("accepts a placement on a region boundary", async () => {
     await built((c) => (actor(c).placement.coordinates = [2000n, 1000n]));
+  });
+});
+
+describe("licences and pack size", () => {
+  it.each(["MIT OR Apache-2.0", "(MIT AND CC-BY-4.0)"])("accepts %s", async (license) => {
+    await built(({ manifest }) => (manifest.assets[0].license = license));
+  });
+
+  async function richPack(actors: number, assets: number) {
+    const source = await build(({ docs, manifest }) => {
+      for (let n = 0; n < actors; n++) {
+        const path = `actors/a${n}.json`;
+        docs[path] = { ...(docs["actors/resident.json"] as Json), id: `unit.actor${n}` };
+        manifest.actors.push({ id: `unit.actor${n}`, version: 1, path });
+      }
+      for (let n = 0; n < assets; n++)
+        manifest.assets.push({ ...manifest.assets[0], id: `unit.a${n}`, path: `assets/a${n}.svg` });
+    });
+    for (let n = 0; n < assets; n++)
+      source.resources[`assets/a${n}.svg`] = source.resources["assets/badge.svg"]!;
+    return source;
+  }
+
+  it("loads about 80 actors with 100 assets and refuses a limit below its default", async () => {
+    expect((await buildWorldPack(await richPack(80, 100), ports)).ok).toBe(true);
+    expect(await buildWorldPack(await build(), { ...ports, limits: { resources: 256 } })).toEqual(
+      refusal("MALFORMED_SOURCE", "ports.limits.resources"),
+    );
+  });
+
+  it("admits a pack beyond the default only when the owner raises the limit", async () => {
+    const source = await richPack(1, 1100);
+    expect(await buildWorldPack(source, ports)).toEqual(
+      refusal("LIMIT_EXCEEDED", "source.resources"),
+    );
+    expect((await buildWorldPack(source, { ...ports, limits: { resources: 2048 } })).ok).toBe(true);
   });
 });
 

@@ -9,7 +9,9 @@ import {
   type TraitDefinition,
   type WorldBehaviorPolicy,
 } from "@clockgrove/domain";
+import parseSpdx from "spdx-expression-parse";
 import { fail } from "../errors.js";
+import { resolveWorldPackLimits, type WorldPackLimits } from "../limits.js";
 import { decodeResource } from "../manifest/encoding.js";
 import {
   type ActorDefinitionDocument,
@@ -61,11 +63,8 @@ import {
 } from "./shape.js";
 
 const MAX_SIM_TIME = (1n << 63n) - 1n;
-const MAX_RESOURCES = 256;
-const MAX_RESOURCE_BYTES = 1_048_576;
 const WALL_EPOCH =
   /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/u;
-const LICENSE = /^[A-Za-z0-9][A-Za-z0-9.+-]*$/u;
 const MEDIA_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/u;
 const REVIEW_STATUS = ["approved", "pending", "rejected"];
 
@@ -138,7 +137,25 @@ function artifactRef(value: unknown, path: string): WorldPackArtifactRef {
 const NEW_ASSET_FIELDS = ["generation", "dimensions", "anchors", "footprint"];
 const MAX_DIMENSION = 16384;
 const MAX_FOOTPRINT = 256;
-const MAX_ANCHORS = 64;
+
+function checkSpdx(node: parseSpdx.Info, path: string): void {
+  if ("left" in node) {
+    checkSpdx(node.left, path);
+    checkSpdx(node.right, path);
+  } else if (/^(?:LicenseRef|DocumentRef)-/u.test(node.license))
+    fail("INVALID_LICENSE", path, "expected a listed SPDX identifier, not a custom reference");
+}
+
+/** An asset licence is an SPDX identifier or expression whose every identifier is on the SPDX list. */
+function checkLicense(license: string, path: string): void {
+  let node: parseSpdx.Info;
+  try {
+    node = parseSpdx(license);
+  } catch {
+    return fail("INVALID_LICENSE", path, "expected an SPDX licence identifier or expression");
+  }
+  checkSpdx(node, path);
+}
 
 function boundedInteger(value: unknown, path: string, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
@@ -150,6 +167,7 @@ function boundedInteger(value: unknown, path: string, min: number, max: number):
 function assetMetadata(
   full: Rec,
   loc: string,
+  limits: WorldPackLimits,
 ): Pick<AssetEntry, "generation" | "dimensions" | "anchors" | "footprint"> {
   let generation: AssetEntry["generation"] = null;
   if (full.generation !== null) {
@@ -188,7 +206,7 @@ function assetMetadata(
   const anchorsPath = `${loc}.anchors`;
   if (!Array.isArray(full.anchors)) fail("INVALID_ASSET", anchorsPath, "expected an anchor list");
   const rawAnchors = full.anchors as unknown[];
-  if (rawAnchors.length > MAX_ANCHORS) fail("LIMIT_EXCEEDED", anchorsPath, "too many anchors");
+  if (rawAnchors.length > limits.anchors) fail("LIMIT_EXCEEDED", anchorsPath, "too many anchors");
   if (rawAnchors.length > 0 && dimensions === null)
     fail("INVALID_ASSET", anchorsPath, "anchors require dimensions");
   const anchorNames = new Set<string>();
@@ -222,6 +240,7 @@ function parseRefs(
   field: string,
   withAsset: boolean,
   paths: Set<string>,
+  limits: WorldPackLimits,
 ): Located<ResourceEntry & Partial<AssetEntry>>[] {
   const result: Located<ResourceEntry & Partial<AssetEntry>>[] = [];
   const identities = new Set<string>();
@@ -264,7 +283,7 @@ function parseRefs(
       if (!MEDIA_TYPE.test(mediaType)) fail("INVALID_ASSET", `${loc}.mediaType`, "bad media type");
       const byteLength = nonNegativeInteger(full.byteLength, `${loc}.byteLength`, "INVALID_ASSET");
       const license = text(full.license, `${loc}.license`, "INVALID_LICENSE");
-      if (!LICENSE.test(license)) fail("INVALID_LICENSE", `${loc}.license`, "expected an SPDX id");
+      checkLicense(license, `${loc}.license`);
       const source = exact(
         full.provenance,
         ["source", "method", "reviewStatus"],
@@ -288,7 +307,7 @@ function parseRefs(
           method: text(source.method, `${loc}.provenance.method`, "INVALID_PROVENANCE"),
           reviewStatus,
         },
-        ...assetMetadata(full, loc),
+        ...assetMetadata(full, loc, limits),
       });
     }
     result.push({ entry, loc });
@@ -445,6 +464,7 @@ export async function validateWorldPackSource(
   input: unknown,
   ports: WorldPackPorts,
 ): Promise<ValidatedWorldPack> {
+  const limits = resolveWorldPackLimits(ports);
   const top = exact(input, ["manifest", "resources", "dependencyArtifacts"], [], "source");
   if (!isRecord(top.manifest)) return fail("MALFORMED_SOURCE", "manifest", "expected a record");
   const artifacts = array(top.dependencyArtifacts, "source.dependencyArtifacts").map(
@@ -454,14 +474,14 @@ export async function validateWorldPackSource(
     return fail("MALFORMED_SOURCE", "source.resources", "expected a resource inventory");
   const resources = new Map<string, Uint8Array>();
   const names = Object.keys(top.resources).sort(compareText);
-  if (names.length > MAX_RESOURCES)
+  if (names.length > limits.resources)
     fail("LIMIT_EXCEEDED", "source.resources", "too many resources");
   for (const name of names) {
     const path = `resources[${JSON.stringify(name)}]`;
     resourcePath(name, path);
     const bytes = top.resources[name];
     if (!(bytes instanceof Uint8Array)) fail("MALFORMED_SOURCE", path, "expected resource bytes");
-    if (bytes.byteLength > MAX_RESOURCE_BYTES)
+    if (bytes.byteLength > limits.resourceBytes)
       fail("LIMIT_EXCEEDED", path, "resource exceeds the byte limit");
     resources.set(name, bytes);
   }
@@ -548,20 +568,20 @@ export async function validateWorldPackSource(
         );
     }
   const catalog = catalogOf(ports);
-  const capabilities = parseCapabilities(manifest.capabilities, catalog);
+  const capabilities = parseCapabilities(manifest.capabilities, catalog, limits);
   const capabilityKeys = new Set(capabilities.map((item) => commandKey(item.id, item.version)));
-  const seedCommands = parseSeedCommands(manifest.seedCommands, catalog, ports);
+  const seedCommands = parseSeedCommands(manifest.seedCommands, catalog, ports, limits);
 
   const claimed = new Set<string>();
-  const archetypes = parseRefs(manifest, "archetypes", false, claimed);
-  const traits = parseRefs(manifest, "traits", false, claimed);
-  const spaces = parseRefs(manifest, "spaces", false, claimed);
-  const rules = parseRefs(manifest, "rules", false, claimed);
-  const actors = parseRefs(manifest, "actors", false, claimed);
-  const policies = parseRefs(manifest, "policies", false, claimed);
-  const cognitive = parseRefs(manifest, "cognitiveSeeds", false, claimed);
-  const assets = parseRefs(manifest, "assets", true, claimed) as Located<AssetEntry>[];
-  const migrationRefs = parseRefs(manifest, "migrations", false, claimed);
+  const archetypes = parseRefs(manifest, "archetypes", false, claimed, limits);
+  const traits = parseRefs(manifest, "traits", false, claimed, limits);
+  const spaces = parseRefs(manifest, "spaces", false, claimed, limits);
+  const rules = parseRefs(manifest, "rules", false, claimed, limits);
+  const actors = parseRefs(manifest, "actors", false, claimed, limits);
+  const policies = parseRefs(manifest, "policies", false, claimed, limits);
+  const cognitive = parseRefs(manifest, "cognitiveSeeds", false, claimed, limits);
+  const assets = parseRefs(manifest, "assets", true, claimed, limits) as Located<AssetEntry>[];
+  const migrationRefs = parseRefs(manifest, "migrations", false, claimed, limits);
   const randomStreams = parseRandomStreams(manifest);
   const expected = hash(manifest.expectedSeedProjectionHash, "manifest.expectedSeedProjectionHash");
 
@@ -629,7 +649,10 @@ export async function validateWorldPackSource(
       fail("MALFORMED_RESOURCE", seed.loc, "expected a cognitive seed record");
 
   const parsedSpaces = spaces
-    .map((item) => ({ space: parseSpace(decode(item), item.entry, item.loc), loc: item.loc }))
+    .map((item) => ({
+      space: parseSpace(decode(item), item.entry, item.loc, limits),
+      loc: item.loc,
+    }))
     .sort((left, right) => byIdentity(left.space, right.space));
   checkPlaceHierarchy(parsedSpaces);
   const spaceEntries = parsedSpaces.map((item) => item.space);

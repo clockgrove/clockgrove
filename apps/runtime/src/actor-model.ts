@@ -115,12 +115,50 @@ export function perceivedEntities(
       (found.lifecycle === undefined || found.lifecycle.status === "active")
     );
   });
+  return rankedEntities(perceived, state, focus, (entity) => entity.presentation.label);
+}
+
+/**
+ * `entities` in the order an actor attends to them (issue 364): the actor itself, then what it is
+ * involved with, then entities the message names, then the nearest to the actor in its frame, then
+ * by object id. Involved means a direct physical relation in the state, either way round: its
+ * location (shelter), its container and contents, and its routine target (the food, water or
+ * shelter it seeks or eats from). A pure order of the state, so replay reproduces it.
+ */
+export function rankedEntities<T extends { readonly objectId: string }>(
+  entities: readonly T[],
+  state: WorldState,
+  focus: PerceptionFocus = {},
+  label: (entity: T) => string = () => "",
+): T[] {
+  const byId = new Map(state.entities.map((entity) => [entity.objectId as string, entity]));
+  const actorId = focus.actorId;
+  const actor = actorId === undefined ? undefined : byId.get(actorId);
+  const involved = new Set<string>();
+  if (actor !== undefined && actorId !== undefined) {
+    const own = [
+      actor.locationId,
+      actor.containment?.containerId,
+      actor.selectedAction?.targetObjectId,
+    ];
+    for (const id of own) if (id !== undefined) involved.add(id);
+    for (const entity of state.entities)
+      if (
+        entity.locationId === actorId ||
+        entity.containment?.containerId === actorId ||
+        entity.selectedAction?.targetObjectId === actorId
+      )
+        involved.add(entity.objectId);
+  }
   const message = focus.message?.toLowerCase() ?? "";
-  const named = (entity: LivingScene["entities"][number]) =>
-    message !== "" &&
-    (message.includes(String(entity.objectId).toLowerCase()) ||
-      (entity.presentation.label.trim() !== "" &&
-        message.includes(entity.presentation.label.toLowerCase())));
+  const named = (entity: T) => {
+    const text = label(entity).trim().toLowerCase();
+    return (
+      message !== "" &&
+      (message.includes(String(entity.objectId).toLowerCase()) ||
+        (text !== "" && message.includes(text)))
+    );
+  };
   const distance = (objectId: string): bigint | undefined => {
     const pose = byId.get(objectId)?.pose;
     const from = actor?.pose;
@@ -137,11 +175,14 @@ export function perceivedEntities(
       return sum + delta * delta;
     }, 0n);
   };
-  return perceived
-    .map((entity) => ({ entity, named: named(entity), distance: distance(entity.objectId) }))
+  // Rank 0 is the actor, 1 what it is involved with, 2 what the message names, 3 everything else.
+  const rank = (entity: T) =>
+    entity.objectId === actorId ? 0 : involved.has(entity.objectId) ? 1 : named(entity) ? 2 : 3;
+  return entities
+    .map((entity) => ({ entity, rank: rank(entity), distance: distance(entity.objectId) }))
     .sort(
       (left, right) =>
-        Number(right.named) - Number(left.named) ||
+        left.rank - right.rank ||
         (left.distance === right.distance
           ? 0
           : left.distance === undefined

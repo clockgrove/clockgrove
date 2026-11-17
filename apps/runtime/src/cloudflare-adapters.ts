@@ -2232,7 +2232,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       }
       case "perception.list": {
         if (!hostedReadsAllowed) return refused("not_executable");
-        const listing = await perceiveListing(this.environment, fiber.scope, context);
+        const listing = await perceiveListing(
+          this.environment,
+          fiber.scope,
+          context,
+          fiber.actorId,
+        );
         // Decision: 64 entities and 128 routes keep the result inside the evidence bound.
         return {
           status: "committed",

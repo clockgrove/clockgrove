@@ -27,6 +27,11 @@ export interface EnvironmentPolicy {
   readonly wetThreshold: number;
   /** Basis points 1..10000: wetness at or above this value is `uncomfortable`. */
   readonly discomfortThreshold: number;
+  /**
+   * Basis points 1..10000: wetness at or above this value forces a routine actor to seek shelter
+   * before anything else. Absent means 9000; 10000 fires only at full saturation.
+   */
+  readonly shelterReflexThreshold?: number;
 }
 
 /** Present on `WorldState` exactly when the policy has an `environment`. */
@@ -90,6 +95,7 @@ function exactObject(
   value: unknown,
   keys: readonly string[],
   path: string,
+  optional: readonly string[] = [],
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return fail(path, "expected an object");
@@ -98,7 +104,7 @@ function exactObject(
     return fail(path, "expected a plain object");
   const descriptors = Object.getOwnPropertyDescriptors(value);
   for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== "string" || !keys.includes(key))
+    if (typeof key !== "string" || !(keys.includes(key) || optional.includes(key)))
       return fail(`${path}.${String(key)}`, "unknown field");
     const descriptor = descriptors[key]!;
     if (!("value" in descriptor)) return fail(`${path}.${key}`, "accessors are not data");
@@ -167,6 +173,7 @@ export function validateEnvironmentPolicy(
       "discomfortThreshold",
     ],
     path,
+    ["shelterReflexThreshold"],
   );
   if (root.schemaVersion !== ENVIRONMENT_POLICY_VERSION)
     fail(`${path}.schemaVersion`, "unsupported environment schema version");
@@ -198,6 +205,16 @@ export function validateEnvironmentPolicy(
   }
   basisPoints(root.wetThreshold, `${path}.wetThreshold`, 1);
   basisPoints(root.discomfortThreshold, `${path}.discomfortThreshold`, 1);
+  if (Object.hasOwn(root, "shelterReflexThreshold"))
+    basisPoints(root.shelterReflexThreshold, `${path}.shelterReflexThreshold`, 1);
+}
+
+const LEGACY_SHELTER_REFLEX_THRESHOLD = 9000n;
+
+/** The wetness at which an actor drops everything to seek shelter; 9000 when the pack declares none. */
+export function shelterReflexThreshold(environment: EnvironmentPolicy | undefined): bigint {
+  const declared = environment?.shelterReflexThreshold;
+  return declared === undefined ? LEGACY_SHELTER_REFLEX_THRESHOLD : BigInt(declared);
 }
 
 /** Validates an untrusted environment state record; throws `EnvironmentValidationError`. */

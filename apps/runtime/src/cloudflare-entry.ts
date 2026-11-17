@@ -79,6 +79,7 @@ import {
   actorModelConfiguration,
   describeScene,
   type PerceptionFocus,
+  rankedEntities,
 } from "./actor-model.js";
 import {
   composeReferenceAuthentication,
@@ -393,6 +394,7 @@ export function perceiveListing(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   scope: BrowserScope,
   context: TrustedContext,
+  actorId?: string,
 ): Promise<PerceptionListing> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
     const { scene, stored } = await new PostgreSqlLivingSceneReader(
@@ -402,7 +404,12 @@ export function perceiveListing(
     const frames = new Set(scene.frames.map((frame) => `${frame.frameId}@${frame.version}`));
     return {
       revision: scene.revision,
-      entities: scene.entities.map((entity) => ({
+      // Relevance order (issue 364), so the caller's bound never cuts what the actor is involved with.
+      entities: rankedEntities(
+        scene.entities,
+        stored.document.state,
+        actorId === undefined ? {} : { actorId },
+      ).map((entity) => ({
         objectId: String(entity.objectId),
         label: entity.presentation.label,
         archetypeId: entity.archetypeId,
