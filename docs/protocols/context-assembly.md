@@ -226,7 +226,12 @@ transaction with its `context_retrieval` step (step 1). It holds metadata only:
 `manifestHash` is the SHA-256 of the canonical encoding (`@clockgrove/kernel` `canonicalBytes`) of
 the session, input message, input revision, budget and entries. The budget is the manifest's
 recorded `tokenBudget`, so a reassembly decides and hashes under the budget the turn ran with even
-after the default changes.
+after the default changes. The manifest does not name the rule its documents were decided under,
+so a reassembly tries each rule, newest first (`CONTEXT_DECISION_RULES`): `shares`, the reserved
+shares below (issue 359), then `whole_budget`, every document against the whole budget, the rule
+manifests recorded before the shares ran under. It answers the first hash that equals
+`manifestHash`, or the `shares` hash when none does, so a manifest recorded before the shares still
+reproduces.
 
 `POST /v1/runtime/context/inspect` takes `runId`, or `sessionId` with `turn`. It needs
 `runtime:world-inspect` and `operator_evidence`, is audited with subject `context-manifest`, and
@@ -252,7 +257,7 @@ These are the defaults chosen for the human-owned policy (ADR §6, issue 17):
 | Context budget | 4,096 estimated tokens, or less if the route's input limit leaves less room | A small fixed model window for the local path; never a prompt the gateway refuses |
 | Token estimate | ceil(UTF-8 bytes / 4) | Common English estimate; no tokenizer is bound |
 | History window | 16 messages | Bounds the messages decrypted per turn |
-| Reserved shares | actor-writable documents leave a quarter of the budget for history and the session's own summary's size for it | A large working document cannot crowd out recent history or the summary (issue 359) |
+| Reserved shares | actor-writable documents leave a quarter of the budget for history and the session's own summary's size for it | A large working document cannot crowd out recent history or the summary (issue 359). A quarter of the default is 1,024 tokens: four chat lines of the largest size (1,024 bytes, 256 tokens), or 64 tokens for each message of the 16-message window. The three quarters left (3,072 tokens) still admit a full-size version (2,048 tokens) beside the largest input and a summary of up to 768 tokens; past that, a full-size working document gives way to the summary and history |
 
 Versions are kept for the world's life, because manifests cite exact versions. Refused change sets
 are kept 90 days, then retired on insert. Manifests follow their run. See `db/retention.json`.

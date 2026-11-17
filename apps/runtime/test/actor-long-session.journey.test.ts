@@ -2,6 +2,7 @@ import {
   assembleContext,
   CAPABILITY_REGISTRY,
   type CapabilityGrants,
+  CONTEXT_DECISION_RULES,
   type ContextSource,
   contextTokenBudget,
   renderPrompt,
@@ -598,31 +599,30 @@ it("a world's context settings and reserved shares keep history and the summary 
     sourceHash: sourceHash(text),
     tokens: tokensOfBytes(text.length),
   });
-  const context = await assembleContext(
-    {
-      sessionId: SESSION,
-      inputMessageId: "message-11",
-      inputRevision: 10,
-      ...actorContextSettings(configuration, false),
-      documents: [
-        document("working-context.md", "working_context", working),
-        document(`sessions/${SESSION}/summary.md`, "session_summary", summary),
-      ],
-      messages: Array.from({ length: 10 }, (_, index) => ({
-        messageId: `message-${index + 1}`,
-        sequence: index + 1,
-        role: index % 2 === 0 ? ("caretaker" as const) : ("actor" as const),
-      })),
-    },
-    async (source: ContextSource) =>
-      source.source === "input"
-        ? "Hi."
-        : source.source === "message"
-          ? said(source.sequence)
-          : source.documentId === "document-working_context"
-            ? working
-            : summary,
-  );
+  const inputs = {
+    sessionId: SESSION,
+    inputMessageId: "message-11",
+    inputRevision: 10,
+    ...actorContextSettings(configuration, false),
+    documents: [
+      document("working-context.md", "working_context", working),
+      document(`sessions/${SESSION}/summary.md`, "session_summary", summary),
+    ],
+    messages: Array.from({ length: 10 }, (_, index) => ({
+      messageId: `message-${index + 1}`,
+      sequence: index + 1,
+      role: index % 2 === 0 ? ("caretaker" as const) : ("actor" as const),
+    })),
+  };
+  const read = async (source: ContextSource) =>
+    source.source === "input"
+      ? "Hi."
+      : source.source === "message"
+        ? said(source.sequence)
+        : source.documentId === "document-working_context"
+          ? working
+          : summary;
+  const context = await assembleContext(inputs, read);
   // History keeps 640 and the summary its 400, so the 2,048-token working document (which left
   // the summary one message of history before) is what gives way: 1 + 400 + 71 × 3 + 72 = 686.
   expect(context.tokensUsed).toBe(686);
@@ -637,6 +637,25 @@ it("a world's context settings and reserved shares keep history and the summary 
     "caretaker@7:included",
     "caretaker@11:included",
   ]);
+  // The rule a manifest recorded before the shares ran under: every document against the whole
+  // budget, so the working document crowds history down to one message. A reassembly tries it
+  // after the shares, so such a manifest still reproduces.
+  expect(CONTEXT_DECISION_RULES).toEqual(["shares", "whole_budget"]);
+  const before = await assembleContext({ ...inputs, decisionRule: "whole_budget" }, read);
+  expect(before.manifestHash).not.toBe(context.manifestHash);
+  expect(
+    before.entries
+      .filter((entry) => entry.rule === null)
+      .map((entry) => `${entry.label}@${entry.version}`),
+  ).toEqual([
+    "working-context.md@1",
+    `sessions/${SESSION}/summary.md@1`,
+    "actor@10",
+    "caretaker@11",
+  ]);
+  expect((await assembleContext({ ...inputs, decisionRule: "shares" }, read)).manifestHash).toBe(
+    context.manifestHash,
+  );
 
   // Under the defaults, the summary is decided as if ahead of the working document, whatever its
   // size up to what history leaves; protected and governed documents keep the whole budget.

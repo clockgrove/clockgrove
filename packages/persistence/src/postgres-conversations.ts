@@ -3,6 +3,7 @@ import {
   type ArtifactStore,
   type AssembledContext,
   assembleContext,
+  CONTEXT_DECISION_RULES,
   CONTEXT_HISTORY_WINDOW,
   CONTEXT_TOKEN_BUDGET,
   type ContextInputs,
@@ -1306,20 +1307,29 @@ export class PostgreSqlConversationStore implements ConversationStore {
       stored,
       `${manifest.sessionId}:message:${manifest.inputMessageId}`,
     );
-    const inputs = recordedInputs(manifest);
-    const { messages, texts } = await this.transaction(reader, async () => ({
-      messages: await this.historyRows(
-        scope.tenantId,
-        manifest.sessionId,
-        manifest.inputRevision,
-        inputs.historyWindow ?? CONTEXT_HISTORY_WINDOW,
-      ),
-      texts: await this.admittedTexts(scope.tenantId, inputs, estimateTokens(input)),
-    }));
-    const context = await assembleContext(inputs, (source) =>
-      this.source(reader, stored, messages, texts, source, async () => input),
-    );
-    return context.manifestHash;
+    const recorded = recordedInputs(manifest);
+    // The manifest does not name the rule it was decided under, so each rule is tried, newest
+    // first: a manifest recorded before the shares (issue 359) reproduces under `whole_budget`.
+    let first: string | undefined;
+    for (const decisionRule of CONTEXT_DECISION_RULES) {
+      const inputs = { ...recorded, decisionRule };
+      const { messages, texts } = await this.transaction(reader, async () => ({
+        messages: await this.historyRows(
+          scope.tenantId,
+          manifest.sessionId,
+          manifest.inputRevision,
+          inputs.historyWindow ?? CONTEXT_HISTORY_WINDOW,
+        ),
+        texts: await this.admittedTexts(scope.tenantId, inputs, estimateTokens(input)),
+      }));
+      const context = await assembleContext(inputs, (source) =>
+        this.source(reader, stored, messages, texts, source, async () => input),
+      );
+      if (context.manifestHash === manifest.manifestHash) return context.manifestHash;
+      first ??= context.manifestHash;
+    }
+    // Reproduced under no rule: answer the current rule's hash, which differs from the manifest's.
+    return first as string;
   }
 
   /** The admitted documents' texts, keyed `documentId@version`, in one read. */

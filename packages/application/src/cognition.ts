@@ -31,6 +31,13 @@ export const CONTEXT_HISTORY_WINDOW = 16;
  * also leaves the summary's whole size (up to what the history reserve leaves), so a large working
  * document cannot crowd either out. Protected and governed documents are decided against the whole
  * budget. A reserve nothing uses goes to history, which is decided last.
+ *
+ * Why a quarter: under the default budget it is 1,024 estimated tokens, four chat lines of the
+ * largest size (`MAX_CONVERSATION_TEXT_OCTETS`, 256 tokens) or 64 tokens for each message of the
+ * full 16-message window, while the three quarters left (3,072 tokens) still admit a full-size
+ * version (8,192 bytes, 2,048 tokens) beside the largest input and a summary of up to 768 tokens.
+ * The trade is deliberate: past that, a full-size working document gives way to the summary and
+ * history, which is the crowding-out this share exists to prevent.
  */
 export const CONTEXT_HISTORY_SHARE = 0.25;
 export const CONTEXT_PROMPT_VERSION = "context-prompt-v1";
@@ -122,7 +129,17 @@ export interface ContextInputs {
   readonly messages: readonly MessageCandidate[];
   /** The newest messages that are history candidates; `CONTEXT_HISTORY_WINDOW` by default. */
   readonly historyWindow?: number;
+  /**
+   * How documents are decided: `shares` (the reserves of issue 359, the default for every new
+   * turn) or `whole_budget`, every document against the whole budget, the rule manifests recorded
+   * before the shares ran under. Only a reassembly names `whole_budget`.
+   */
+  readonly decisionRule?: ContextDecisionRule;
 }
+
+/** The document decision rules, newest first; a reassembly tries each until one reproduces. */
+export const CONTEXT_DECISION_RULES = ["shares", "whole_budget"] as const;
+export type ContextDecisionRule = (typeof CONTEXT_DECISION_RULES)[number];
 
 export type ContextSource =
   | { readonly source: "document"; readonly documentId: string; readonly version: number }
@@ -201,9 +218,9 @@ export function documentDecisions(
   inputTokens: number,
 ): readonly DocumentDecision[] {
   const budget = inputs.tokenBudget;
-  const historyReserve = historyCandidates(inputs).length
-    ? Math.floor(budget * CONTEXT_HISTORY_SHARE)
-    : 0;
+  const shares = (inputs.decisionRule ?? "shares") === "shares";
+  const historyReserve =
+    shares && historyCandidates(inputs).length ? Math.floor(budget * CONTEXT_HISTORY_SHARE) : 0;
   const summary = inputs.documents.find(
     (document) =>
       ownSummary(document, inputs.sessionId) &&
@@ -216,7 +233,7 @@ export function documentDecisions(
     if (rule !== null) return { document, rule };
     const tokens = document.tokens ?? 0;
     let limit = budget;
-    if (document.writeClass === "actor_writable") {
+    if (shares && document.writeClass === "actor_writable") {
       limit -= historyReserve;
       // The summary's room is kept only while the summary itself would still be admitted.
       if (document !== summary && used + summaryTokens <= limit) limit -= summaryTokens;
