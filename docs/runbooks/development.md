@@ -239,8 +239,12 @@ consumers and dependency-cruiser before exercising the existing boundary checks.
 
 The only additional root command is `pnpm run verify:supply-chain`. It enforces the retained
 license allowlist, inventories the full workspace lockfile in a CycloneDX SBOM, checks npm's
-bulk vulnerability advisory endpoint without suppression, and scans the complete repository
-secret surface. It needs the npm registry (license metadata and advisories), so it runs in CI's
+bulk vulnerability advisory endpoint, and scans the complete repository secret surface. Every
+reported advisory fails the check unless `acceptedAdvisories` in `scripts/supply-chain.mjs`
+accepts it: an entry is keyed by exact `name@version` and GHSA id, says why the advisory does not
+apply here, links its evidence and has an `until` date. Another locked version, another advisory or
+a day after `until` fails the check again, so an entry is a dated decision to re-review, not a
+standing suppression. It needs the npm registry (license metadata and advisories), so it runs in CI's
 Quality job, not in offline agent or Factory validation; don't list it as a Work Item
 validation command. A package's licence is its registry `license` string; without one, npm's
 legacy `licenses` array, whose types become one `OR` expression; without either, an entry in
