@@ -69,7 +69,7 @@ It does not authorize the submitter; the scenario runner uses it for `via` steps
 
 **Actor command policy.** A policy resource `{ type: "clockgrove.actor-command-policy",
 schemaVersion: 1, callsPerTurn, commands }` declares the world commands the world's actors may propose
-on their own. `callsPerTurn` is a safe integer from 1 to 4. `commands` is a list of unique command
+on their own. `callsPerTurn` must be `1`. `commands` is a list of unique command
 types, possibly empty, and each must be declared in the `commands` of one of the pack's capabilities
 (any version). Other keys, a wrong `schemaVersion` or a bad field are `INVALID_POLICY` at
 `manifest.policies[i].<field>`. A second one is `DUPLICATE_POLICY`. A pack with no such policy lets its
@@ -80,8 +80,8 @@ identifier (`[A-Za-z0-9][A-Za-z0-9._:-]{0,255}`). Declare only commands whose pa
 satisfy, such as `resource.offer` or `resource.transfer`: the SDK cannot see a command's payload schema,
 so it accepts any command a capability declares, but one that needs free text, another number, no
 `quantity` or more fields is offered to the actor and then always refused by the world's validator.
-A turn carries one command, so `callsPerTurn` above 1 has no effect today; it is the bound a later
-multi-command turn will use.
+A turn carries one command, so any other `callsPerTurn` is `INVALID_POLICY`: the field is kept so a
+later multi-command turn can raise the bound under a new rule.
 
 **Behaviour policy.** A policy resource `{ type: "clockgrove.world-behavior-policy", policy }`
 whose `policy` is a domain `WorldBehaviorPolicy` accepted by `validateWorldBehaviorPack`

@@ -390,7 +390,7 @@ const cases: Case[] = [
   [
     "INVALID_POLICY",
     "manifest.policies[2].callsPerTurn",
-    (c) => addActorCommandPolicy(c, { callsPerTurn: 5 }),
+    (c) => addActorCommandPolicy(c, { callsPerTurn: 2 }),
   ],
   [
     "DUPLICATE_POLICY",

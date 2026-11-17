@@ -359,8 +359,8 @@ function checkActorCommandPolicy(
     fail("INVALID_POLICY", `${loc}.${field}`, message);
   if (record.schemaVersion !== 1) bad("schemaVersion", "expected schema version 1");
   const calls = record.callsPerTurn;
-  if (typeof calls !== "number" || !Number.isSafeInteger(calls) || calls < 1 || calls > 4)
-    bad("callsPerTurn", "expected an integer from 1 to 4");
+  // A turn carries one command, so 1 is the only budget the runtime can honour today.
+  if (calls !== 1) bad("callsPerTurn", "expected 1: a turn carries one command");
   if (!Array.isArray(record.commands)) bad("commands", "expected a list of command types");
   const declared = new Set(capabilities.flatMap((item) => item.commands.map((c) => c.type)));
   const seen = new Set<string>();
