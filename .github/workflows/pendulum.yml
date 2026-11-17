@@ -25,9 +25,9 @@ on:
     workflows:
       - Quality
     types: [completed]
-# Several accounts of a harness (docs/INSTALL.md, Several accounts), in the env block below:
-#   PENDULUM_ACCOUNTS: '{"claude": ["claude", "claude-2"]}'  each account its own secrets; re-render after any change,
-#     since setup writes each declared account's secrets into the jobs by name
+# Several accounts of a harness (docs/INSTALL.md, Several accounts), in the env block below; set them with setup's
+# --add-account, --remove-account or --accounts and --auto-account, which also name each account's secrets in the jobs:
+#   PENDULUM_ACCOUNTS: '{"claude": ["claude", "claude-2"]}'  each account its own secrets
 #   PENDULUM_AUTO_ACCOUNT: "1"  a stage with no account label starts on one no usage limit holds
 env:
   PENDULUM_HARNESS: claude # claude | codex | copilot
@@ -87,7 +87,7 @@ jobs:
       wake_at: "${{ steps.f.outputs.wake_at }}"
       wake_kind: "${{ steps.f.outputs.wake_kind }}"
     steps:
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: f
         with: { mode: dispatch, issue: "${{ inputs.issue }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
   queue-watch:
@@ -107,7 +107,7 @@ jobs:
     permissions: { contents: read, actions: write } # actions: write only for the dispatcher tick
     concurrency: { group: pendulum-queue-watch, cancel-in-progress: false }
     steps:
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: w
         with: { mode: watch, pr: "${{ needs.dispatch.outputs.queue_watch }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
       - name: Dispatch tick (a watched PR left the queue or stalled there, or the watch's time is up)
@@ -154,13 +154,13 @@ jobs:
     permissions: { contents: read, issues: write, actions: write } # actions: write for the tick at the end, triage's rerun of failed CI jobs and cross-OS CI's dispatch
     concurrency: { group: "pendulum-${{ matrix.issue }}", cancel-in-progress: false } # one job per issue; a repeat waits, siblings keep running
     steps:
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: account # several accounts (PENDULUM_ACCOUNTS): the one this stage runs on, so the step below gets only its secrets
         if: env.PENDULUM_ACCOUNTS != ''
         with: { mode: account, rendered_accounts: "", issue: "${{ matrix.issue }}", harness: "${{ inputs.harness }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: f
         with:
           vars: ${{ toJSON(vars) }} # the repository's variables: each PENDULUM_<NAME> one sets that setting over the env block (docs/INSTALL.md, Settings in layers)
@@ -195,13 +195,13 @@ jobs:
     permissions: { contents: read, issues: write, actions: write } # actions: write here, for the tick below and triage's rerun of failed CI jobs
     concurrency: { group: "pendulum-review-${{ github.event.pull_request.number }}", cancel-in-progress: false }
     steps:
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: account # several accounts (PENDULUM_ACCOUNTS): the one this stage runs on, so the step below gets only its secrets
         if: env.PENDULUM_ACCOUNTS != ''
         with: { mode: account, rendered_accounts: "", harness: "${{ inputs.harness }}", app_id: "${{ secrets.PENDULUM_APP_ID }}", app_private_key: "${{ secrets.PENDULUM_APP_PRIVATE_KEY }}", vars: "${{ toJSON(vars) }}" }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0, persist-credentials: false }
-      - uses: clockgrove/pendulum@v0.10.1
+      - uses: clockgrove/pendulum@v0.10.2
         id: f
         with:
           vars: ${{ toJSON(vars) }}
