@@ -8,7 +8,7 @@
 **Visual reference:** `6897ED26-A7B5-4F5E-8D90-B6524B538626.jpeg`  
 **Wave:** 8 of 13  
 **Assumptions:** Waves 0–7 are qualified; all platform subsystems exist behind production contracts  
-**Development tooling:** external tools such as `clockgrove/factory` may execute and verify this wave through replaceable browser-capable execution environments. No specific workstation, operating system, or tool state is a product/runtime dependency.
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute and verify this wave through replaceable browser-capable execution environments. No specific workstation, operating system, or tool state is a product/runtime dependency.
 
 ---
 

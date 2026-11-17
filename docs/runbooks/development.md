@@ -245,7 +245,7 @@ accepts it: an entry is keyed by exact `name@version` and GHSA id, says why the 
 apply here, links its evidence and has an `until` date. Another locked version, another advisory or
 a day after `until` fails the check again, so an entry is a dated decision to re-review, not a
 standing suppression. It needs the npm registry (license metadata and advisories), so it runs in CI's
-Quality job, not in offline agent or Factory validation; don't list it as a Work Item
+Quality job, not in offline agent or Pendulum validation; don't list it as a Work Item
 validation command. A package's licence is its registry `license` string; without one, npm's
 legacy `licenses` array, whose types become one `OR` expression; without either, an entry in
 `verifiedLicenses` in `scripts/supply-chain.mjs`. That entry is keyed by exact `name@version`
@@ -273,7 +273,7 @@ libraries with `scripts/ci/toolchain.sh browser-deps browser`. `browser-deps` in
 system packages that Chromium needs with that Playwright's `install-deps chromium` (sudo, no
 `pnpm install` needed) unless the pinned Chromium already launches or none is missing.
 `browser` runs `pnpm exec playwright install chromium` into the user's Playwright cache, with no
-sudo, unless that Chromium is already installed and launches. Factory's setup step runs
+sudo, unless that Chromium is already installed and launches. Pendulum's setup step runs
 `browser-deps` and its unprivileged install step runs `browser`. Quality then explicitly invokes
 `node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts` in CI.
 This runs the retained browser/RuntimeWorker/PostgreSQL smoke and accessibility journey.

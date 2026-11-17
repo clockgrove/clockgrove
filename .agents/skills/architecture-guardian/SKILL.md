@@ -33,7 +33,7 @@ The full list is `docs/clockgrove-documentation-index.md` §7. The ones most oft
 - **Logical identity is not placement.** An actor or object does not imply a resident process, model call or Durable Object; a runtime instance ID is diagnostic only.
 - **Provider identity is not domain identity.** Provider SDK types stay behind project-owned adapters and composition roots (`AGENTS.md`, Product and capability boundaries).
 - **The platform is world-agnostic.** Platform code names no world except `worlds/fixture`; `scripts/world-boundaries.json` enforces the identifiers.
-- **Development tools are external.** `clockgrove/factory` may operate the repository but is never a build or runtime dependency.
+- **Development tools are external.** `clockgrove/pendulum` may operate the repository but is never a build or runtime dependency.
 
 ## Logical before physical
 

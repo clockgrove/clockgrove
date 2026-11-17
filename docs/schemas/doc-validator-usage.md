@@ -37,7 +37,7 @@ Optional fields currently recognized by the validator:
 - `Assumptions`
 - `Decision source`
 - `Development tooling`
-- `Factory execution`
+- `Pendulum execution`
 - `Filename note`
 - `Visual reference`
 

@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 2 of the first three substantive implementation waves  
 **Assumptions:** Wave 0 is complete; Wave 1 kernel contracts and golden scenarios are frozen  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; their state is not canonical journal or product/runtime authority.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; their state is not canonical journal or product/runtime authority.  
 
 ---
 

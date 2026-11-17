@@ -14,7 +14,7 @@ This index identifies the documents that define the current Clockgrove product/r
 
 Clockgrove is the reusable platform/runtime for any world. Raccoon World, the first reference world and demo-quality application, lives in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world) and builds against Clockgrove at a pinned commit. Clockgrove keeps `worlds/fixture` as its own test world, the platform's portability proof.
 
-External development tools such as `clockgrove/factory` may operate this repository. Their state and implementation are not Clockgrove product/runtime authority.
+External development tools such as `clockgrove/pendulum` may operate this repository. Their state and implementation are not Clockgrove product/runtime authority.
 
 ---
 
@@ -134,7 +134,7 @@ Adds Management-side usage rating, one authoritative wallet per billing account,
 
 ### Development tooling
 
-External tools such as `clockgrove/factory` may plan and deliver work through GitHub. Clockgrove remains buildable, testable, deployable and operable without them. Their configuration, logs, and run state stay outside this repository.
+External tools such as `clockgrove/pendulum` may plan and deliver work through GitHub. Clockgrove remains buildable, testable, deployable and operable without them. Their configuration, logs, and run state stay outside this repository.
 
 ---
 
@@ -163,7 +163,7 @@ External tools such as `clockgrove/factory` may plan and deliver work through Gi
 - Initial loose-quadtree indexing, Three.js rendering and bounded reactive runs are implementations behind durable spatial, scene and `ActorProcess` contracts.
 - Future 3D and selectively long-running agent capabilities are protected by conformance seams rather than prebuilt machinery.
 - All payment/customer/invoice/refund/dispute/tax integration is Management-only. Worlds do not require separate payment-provider customers, subscriptions or meters.
-- Factory cognition and Clockgrove runtime cognition are separate systems and data planes.
+- Pendulum cognition and Clockgrove runtime cognition are separate systems and data planes.
 - Privacy uses five accepted categories and a subset-narrowed set ceiling; scope, audience and authority remain independent. Only `public_scene` enters shared projection.
 - Waves 5–6 own governed cognitive documents, actor-authored SKILL.md and bounded compiled-policy artifacts/bindings/evaluations, adoption, invalidation and fallback; arbitrary generated code remains deferred.
 - Waves 5–6 own governed actor research and external-observation ingestion; Wave 8 proves a bounded live feed and actor-initiated MCP lookup in the integrated causal trace.
@@ -185,7 +185,7 @@ Historical material never overrides current authority. Private working history, 
 - **Raccoon World:** first reference world/world pack and demo application, in [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world).
 - **World repository:** a world's own repository, holding its pack, art, style bible, theme, goldens and journeys, and building against Clockgrove at a pinned commit.
 - **Fixture world:** `worlds/fixture`, Clockgrove's own test world: the beacon pack and the neutral reference variant under `worlds/fixture/reference`. It is the platform's portability proof.
-- **Factory:** separate engineering plugin and CLI in `clockgrove/factory`; not a world/runtime subsystem.
+- **Pendulum:** separate engineering plugin and CLI in `clockgrove/pendulum`; not a world/runtime subsystem.
 - **Workspace:** administrative and resource-ownership boundary.
 - **World membership:** participation boundary for one world.
 - **World persona:** durable in-world human identity and policy subject.

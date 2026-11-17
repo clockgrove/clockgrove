@@ -22,11 +22,11 @@ export async function testDisposableDatabaseLifecycle() {
   }
   assert(databaseTransport({}) === "socket", "socket is not the default transport");
   assert(
-    databaseTransport({ FACTORY_LOCAL: "1" }) === "loopback",
-    "Factory local mode not loopback",
+    databaseTransport({ PENDULUM_LOCAL: "1" }) === "loopback",
+    "Pendulum local mode not loopback",
   );
   assert(
-    databaseTransport({ FACTORY_LOCAL: "1", CLOCKGROVE_TEST_DB_TRANSPORT: "socket" }) === "socket",
+    databaseTransport({ PENDULUM_LOCAL: "1", CLOCKGROVE_TEST_DB_TRANSPORT: "socket" }) === "socket",
     "the explicit transport did not win",
   );
   assertStrict.throws(

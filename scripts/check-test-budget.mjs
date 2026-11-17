@@ -25,8 +25,8 @@ function baseCommit(root) {
   if (declared && /^[0-9a-f]{40}$/u.test(declared) && !/^0+$/u.test(declared)) {
     if (git(root, ["cat-file", "-e", `${declared}^{commit}`]) !== undefined) return declared;
   }
-  // Factory validation passes the Objective's accepted base; its checkout's origin/main can be stale.
-  const factoryBase = process.env.FACTORY_BASE_SHA;
+  // Pendulum validation passes the Objective's accepted base; its checkout's origin/main can be stale.
+  const factoryBase = process.env.PENDULUM_BASE_SHA;
   if (factoryBase && /^[0-9a-f]{40}$/u.test(factoryBase)) {
     if (git(root, ["merge-base", "--is-ancestor", factoryBase, "HEAD"]) !== undefined)
       return factoryBase;

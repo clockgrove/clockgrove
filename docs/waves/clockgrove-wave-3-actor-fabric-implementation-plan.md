@@ -7,11 +7,11 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.10  
 **Wave:** 3 of the first three substantive implementation waves  
 **Assumptions:** Waves 0–2 are complete; Journal, replay, schedules, and evidence are production contracts
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; this wave defines only product/runtime work and does not depend on them.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; this wave defines only product/runtime work and does not depend on them.  
 
 ---
 
-> **Revision note:** v1.7 preserves the complete v1.6 product/runtime specification and changes only the development-tooling boundary after Factory moved to its own repository.
+> **Revision note:** v1.7 preserves the complete v1.6 product/runtime specification and changes only the development-tooling boundary after Pendulum moved to its own repository.
 
 ## 1. Outcome
 

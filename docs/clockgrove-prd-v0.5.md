@@ -14,7 +14,7 @@
 
 Version 0.5 is the reconciled product baseline after the full Waves 0–12 editorial and fact-check review. It preserves the two-kernel, TypeScript-first, Cloudflare-native architecture from version 0.4 while incorporating the shared-world model that emerged during wave planning: provider-neutral identity, world-specific personas, foundational action attribution, world-local personal inventory, inherited object-mobility policy, activity-driven spatial partitioning, and optional Management-owned prepaid credits allocated to Runtime through bounded world leases.
 
-Version 0.5.1 through 0.5.3 introduced and refined Director/Keeper development automation. Version 0.5.7 moves that software-factory architecture and implementation authority to the separate `clockgrove/factory` project. Factory may operate this repository through ordinary source, issue, review, and CI interfaces, but it is not a Clockgrove product/runtime dependency or authority. This repository does not prescribe Factory deployment topology or operator-specific execution hosts.
+Version 0.5.1 through 0.5.3 introduced and refined Director/Keeper development automation. Version 0.5.7 moves that software-factory architecture and implementation authority to the separate `clockgrove/pendulum` project. Pendulum may operate this repository through ordinary source, issue, review, and CI interfaces, but it is not a Clockgrove product/runtime dependency or authority. This repository does not prescribe Pendulum deployment topology or operator-specific execution hosts.
 
 Version 0.5.4 pressure-tests every initial-release non-goal so 2D rendering, quadtree indexing, bounded reactive runs, and current provider choices cannot become accidental ceilings on full 3D, alternative engines, selectively long-running actor processes, or other deliberately deferred capabilities.
 
@@ -3166,7 +3166,7 @@ The detailed wave documents, not the older product-sequencing sketch retained be
 
 Attribution schema begins in Waves 0–2 even though full multiuser behavior arrives in Wave 11. This avoids a retroactive journal migration and makes human, agent, system, rule, and tool causation inspectable from the first mutation.
 
-Development automation is external to the product wave sequence. `clockgrove/factory` may maintain plans and dispatch bounded coding attempts through ordinary repository interfaces, but Factory goals, conversations, approvals, memories, execution state, and audit records never become world-domain state unless they enter through an explicit, authorized Clockgrove product command. Factory implementation choices do not pre-decide the Wave 5 actor-harness implementation.
+Development automation is external to the product wave sequence. `clockgrove/pendulum` may maintain plans and dispatch bounded coding attempts through ordinary repository interfaces, but Pendulum goals, conversations, approvals, memories, execution state, and audit records never become world-domain state unless they enter through an explicit, authorized Clockgrove product command. Pendulum implementation choices do not pre-decide the Wave 5 actor-harness implementation.
 
 ### 25.2 Checkpoints, Objective acceptance, and qualification
 
