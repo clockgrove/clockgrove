@@ -72,7 +72,14 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { ActivationOwners } from "./activation-routes.js";
-import { type ActorScene, describeScene, type PerceptionFocus } from "./actor-model.js";
+import {
+  type ActorScene,
+  actorContextSettings,
+  actorGateway,
+  actorModelConfiguration,
+  describeScene,
+  type PerceptionFocus,
+} from "./actor-model.js";
 import {
   composeReferenceAuthentication,
   composeWorldMcpAuthentication,
@@ -328,6 +335,7 @@ export function composeConversations(
   env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
   model?: string,
   contextTokenBudget?: number,
+  historyWindow?: number,
 ): ConversationStores | undefined {
   const secret = env.ARTIFACT_KEYRING;
   if (secret === undefined) return undefined;
@@ -346,7 +354,14 @@ export function composeConversations(
         ...(bucket === undefined ? {} : { bucket: workersR2Bucket(bucket) }),
       });
       return operation(
-        new PostgreSqlConversationStore(client, artifacts, undefined, model, contextTokenBudget),
+        new PostgreSqlConversationStore(
+          client,
+          artifacts,
+          undefined,
+          model,
+          contextTokenBudget,
+          historyWindow,
+        ),
       );
     });
   };
@@ -1083,6 +1098,12 @@ function composeGuardedResearch(
     },
     adapter: { execute, executeWrite: execute },
     internalRead: composeResearchInternalRead(env, supplied.authentication),
+    // The retry's turn assembles under the world's context settings, as the actor's own turns do.
+    context: () =>
+      actorContextSettings(
+        actorModelConfiguration(env.WORLD_MODEL_CONFIG),
+        actorGateway(env) !== undefined,
+      ),
   });
 }
 

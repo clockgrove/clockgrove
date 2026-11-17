@@ -2,6 +2,8 @@ import {
   type ActivationConfiguration,
   type CapabilityCall,
   type CapabilityGrants,
+  CONTEXT_HISTORY_WINDOW,
+  CONTEXT_TOKEN_BUDGET,
   type ConversationResponder,
   type ConversationResponse,
   contextTokenBudget,
@@ -553,7 +555,23 @@ export interface ActorModelConfiguration {
   readonly sceneLabel: string;
   readonly commandPrefix: string;
   readonly aliases: readonly ModelAliasDefinition[];
+  /** The world's context settings (issue 359); each omitted one keeps the decided default. */
+  readonly context?: ActorContextSettings;
 }
+
+export interface ActorContextSettings {
+  readonly tokenBudget?: number;
+  readonly historyWindow?: number;
+}
+
+/**
+ * Decision (issue 359): a world's context budget is 256 to 65,536 estimated tokens: 256 keeps room
+ * for the 1 KiB input, 65,536 (16 times the default) bounds the document text read each turn.
+ */
+export const CONTEXT_TOKEN_BUDGET_RANGE = [256, 65_536] as const;
+/** Decision (issue 359): a world's history window is 1 to 64 messages, 4 times the default. */
+export const CONTEXT_HISTORY_WINDOW_RANGE = [1, 64] as const;
+
 const DEFAULT_ACTOR_MODEL: ActorModelConfiguration = {
   alias: ACTOR_ALIAS,
   modelName: ACTOR_MODEL_NAME,
@@ -581,6 +599,22 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
           `at most ${SCENE_LABEL_OCTETS} bytes`,
         ),
       commandPrefix: z.string().min(1),
+      context: z
+        .strictObject({
+          tokenBudget: z
+            .number()
+            .int()
+            .min(CONTEXT_TOKEN_BUDGET_RANGE[0])
+            .max(CONTEXT_TOKEN_BUDGET_RANGE[1])
+            .optional(),
+          historyWindow: z
+            .number()
+            .int()
+            .min(CONTEXT_HISTORY_WINDOW_RANGE[0])
+            .max(CONTEXT_HISTORY_WINDOW_RANGE[1])
+            .optional(),
+        })
+        .optional(),
       aliases: z
         .array(
           z.object({
@@ -626,9 +660,20 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
     throw new Error(
       `world model alias ${value.alias} maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (${ACTOR_FIXED_INPUT_TOKENS}); the minimum is ${minimum}`,
     );
+  const { context, ...rest } = value;
   return {
-    ...value,
-    aliases: value.aliases.map((alias) => ({
+    ...rest,
+    ...(context === undefined
+      ? {}
+      : {
+          context: {
+            ...(context.tokenBudget === undefined ? {} : { tokenBudget: context.tokenBudget }),
+            ...(context.historyWindow === undefined
+              ? {}
+              : { historyWindow: context.historyWindow }),
+          },
+        }),
+    aliases: rest.aliases.map((alias) => ({
       ...alias,
       routes: alias.routes.map(({ baseURL, ...route }) => ({
         ...route,
@@ -644,7 +689,30 @@ function actorAlias(configuration: ActorModelConfiguration): ModelAliasDefinitio
   return alias;
 }
 
-/** The context budget an actor turn assembles under: its alias's input limit less the fixed parts. */
+/**
+ * The context budget an actor turn assembles under: the world's budget (the decided default when
+ * unset), lowered to what its alias's input limit leaves beside the fixed parts.
+ */
 export function actorContextTokenBudget(configuration: ActorModelConfiguration): number {
-  return contextTokenBudget(actorAlias(configuration).maxInputTokens, ACTOR_FIXED_INPUT_TOKENS);
+  return contextTokenBudget(
+    actorAlias(configuration).maxInputTokens,
+    ACTOR_FIXED_INPUT_TOKENS,
+    configuration.context?.tokenBudget ?? CONTEXT_TOKEN_BUDGET,
+  );
+}
+
+/**
+ * The context an actor turn assembles under: with a model route, the budget its input limit allows;
+ * on the scripted path, the world's budget as configured. The history window is the world's.
+ */
+export function actorContextSettings(
+  configuration: ActorModelConfiguration,
+  routed: boolean,
+): Required<ActorContextSettings> {
+  return {
+    tokenBudget: routed
+      ? actorContextTokenBudget(configuration)
+      : (configuration.context?.tokenBudget ?? CONTEXT_TOKEN_BUDGET),
+    historyWindow: configuration.context?.historyWindow ?? CONTEXT_HISTORY_WINDOW,
+  };
 }

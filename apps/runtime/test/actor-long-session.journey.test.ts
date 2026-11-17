@@ -2,6 +2,7 @@ import {
   assembleContext,
   CAPABILITY_REGISTRY,
   type CapabilityGrants,
+  CONTEXT_DECISION_RULES,
   type ContextSource,
   contextTokenBudget,
   renderPrompt,
@@ -28,6 +29,7 @@ import {
   ACTOR_FIXED_INPUT_TOKENS,
   ACTOR_INSTRUCTIONS_INPUT_TOKENS,
   ACTOR_PROMPT_FRAMING_TOKENS,
+  actorContextSettings,
   actorContextTokenBudget,
   actorModelConfiguration,
   actorPreparedResponder,
@@ -533,4 +535,227 @@ it("an actor's prompt lists what it perceives, named and nearest first, in a cro
   ]);
   // Replay reads the same state and message, and perceives the same order.
   expect(describeScene(scene, state, { actorId: "keeper", message }).digest).toBe(digest);
+});
+
+it("a world's context settings and reserved shares keep history and the summary beside a full working document", async () => {
+  const world = (context: object) =>
+    actorModelConfiguration(JSON.stringify({ ...JSON.parse(configured(998_976)), context }));
+  const configuration = world({ tokenBudget: 2_560, historyWindow: 4 });
+  // The scripted path assembles under the world's budget; a route with room leaves it whole.
+  expect(actorContextSettings(configuration, false)).toEqual({
+    tokenBudget: 2_560,
+    historyWindow: 4,
+  });
+  expect(actorContextSettings(configuration, true).tokenBudget).toBe(2_560);
+  expect(actorContextSettings(actorModelConfiguration(undefined), false)).toEqual({
+    tokenBudget: 4_096,
+    historyWindow: 16,
+  });
+  // Each range's ends are admitted, and one past either end of it is refused with its own issue.
+  for (const context of [
+    { tokenBudget: 256, historyWindow: 1 },
+    { tokenBudget: 65_536, historyWindow: 64 },
+  ])
+    expect(world(context).context).toEqual(context);
+  const refusal = (context: object) => {
+    try {
+      world(context);
+    } catch (error) {
+      return (JSON.parse((error as Error).message) as { code: string; path: string[] }[]).map(
+        ({ code, path }) => `${code}:${path.join(".")}`,
+      );
+    }
+    return [];
+  };
+  expect(
+    [
+      { tokenBudget: 255 },
+      { tokenBudget: 65_537 },
+      { tokenBudget: 1_024.5 },
+      { historyWindow: 0 },
+      { historyWindow: 65 },
+      { extra: 1 },
+    ].map(refusal),
+  ).toEqual([
+    ["too_small:context.tokenBudget"],
+    ["too_big:context.tokenBudget"],
+    ["invalid_type:context.tokenBudget"],
+    ["too_small:context.historyWindow"],
+    ["too_big:context.historyWindow"],
+    ["unrecognized_keys:context"],
+  ]);
+
+  const working = "w".repeat(MAX_DOCUMENT_OCTETS); // 2,048 tokens
+  const summary = "s".repeat(1_600); // 400 tokens
+  const document = (path: string, kind: "working_context" | "session_summary", text: string) => ({
+    documentId: `document-${kind}`,
+    path,
+    kind,
+    writeClass: "actor_writable" as const,
+    sessionId: kind === "session_summary" ? SESSION : null,
+    foreignSession: false,
+    state: "active" as const,
+    version: 1,
+    sourceHash: sourceHash(text),
+    tokens: tokensOfBytes(text.length),
+  });
+  const inputs = {
+    sessionId: SESSION,
+    inputMessageId: "message-11",
+    inputRevision: 10,
+    ...actorContextSettings(configuration, false),
+    documents: [
+      document("working-context.md", "working_context", working),
+      document(`sessions/${SESSION}/summary.md`, "session_summary", summary),
+    ],
+    messages: Array.from({ length: 10 }, (_, index) => ({
+      messageId: `message-${index + 1}`,
+      sequence: index + 1,
+      role: index % 2 === 0 ? ("caretaker" as const) : ("actor" as const),
+    })),
+  };
+  const read = async (source: ContextSource) =>
+    source.source === "input"
+      ? "Hi."
+      : source.source === "message"
+        ? said(source.sequence)
+        : source.documentId === "document-working_context"
+          ? working
+          : summary;
+  const context = await assembleContext(inputs, read);
+  // History keeps 640 and the summary its 400, so the 2,048-token working document (which left
+  // the summary one message of history before) is what gives way: 1 + 400 + 71 × 3 + 72 = 686.
+  expect(context.tokensUsed).toBe(686);
+  expect(
+    context.entries.map((entry) => `${entry.label}@${entry.version}:${entry.rule ?? "included"}`),
+  ).toEqual([
+    "working-context.md@1:token_budget",
+    `sessions/${SESSION}/summary.md@1:included`,
+    "actor@10:included",
+    "caretaker@9:included",
+    "actor@8:included",
+    "caretaker@7:included",
+    "caretaker@11:included",
+  ]);
+  // The rule a manifest recorded before the shares ran under: every document against the whole
+  // budget, so the working document crowds history down to one message. A reassembly tries it
+  // after the shares, so such a manifest still reproduces.
+  expect(CONTEXT_DECISION_RULES).toEqual(["shares", "whole_budget"]);
+  const before = await assembleContext({ ...inputs, decisionRule: "whole_budget" }, read);
+  expect(before.manifestHash).not.toBe(context.manifestHash);
+  expect(
+    before.entries
+      .filter((entry) => entry.rule === null)
+      .map((entry) => `${entry.label}@${entry.version}`),
+  ).toEqual([
+    "working-context.md@1",
+    `sessions/${SESSION}/summary.md@1`,
+    "actor@10",
+    "caretaker@11",
+  ]);
+  expect((await assembleContext({ ...inputs, decisionRule: "shares" }, read)).manifestHash).toBe(
+    context.manifestHash,
+  );
+
+  // Under the defaults, the summary is decided as if ahead of the working document, whatever its
+  // size up to what history leaves; protected and governed documents keep the whole budget.
+  const decided = async (
+    documents: readonly [
+      string,
+      "identity" | "policy" | "working_context" | "session_summary",
+      number,
+    ][],
+  ) => {
+    const texts = new Map(documents.map(([path, , tokens]) => [path, "d".repeat(tokens * 4)]));
+    const assembled = await assembleContext(
+      {
+        sessionId: SESSION,
+        inputMessageId: "message-11",
+        inputRevision: 10,
+        ...actorContextSettings(actorModelConfiguration(undefined), false),
+        documents: documents.map(([path, kind, tokens]) => ({
+          documentId: path,
+          path,
+          kind,
+          writeClass:
+            kind === "identity"
+              ? ("protected" as const)
+              : kind === "policy"
+                ? ("governed" as const)
+                : ("actor_writable" as const),
+          sessionId: kind === "session_summary" ? SESSION : null,
+          foreignSession: false,
+          state: "active" as const,
+          version: 1,
+          sourceHash: sourceHash(texts.get(path)!),
+          tokens,
+        })),
+        messages: Array.from({ length: 10 }, (_, index) => ({
+          messageId: `message-${index + 1}`,
+          sequence: index + 1,
+          role: index % 2 === 0 ? ("caretaker" as const) : ("actor" as const),
+        })),
+      },
+      async (source: ContextSource) =>
+        source.source === "input"
+          ? "Hi."
+          : source.source === "message"
+            ? said(source.sequence)
+            : texts.get(source.documentId)!,
+    );
+    return [
+      assembled.tokensUsed,
+      assembled.entries.map((entry) => `${entry.label}:${entry.rule ?? "included"}`),
+    ];
+  };
+  // A 1,100-token summary keeps its whole size: 1 + 1,100 leaves 1,972 below the 3,072 the history
+  // reserve leaves, so the 2,000-token working document gives way, not the summary.
+  expect(
+    await decided([
+      ["working-context.md", "working_context", 2_000],
+      [`sessions/${SESSION}/summary.md`, "session_summary", 1_100],
+    ]),
+  ).toEqual([
+    1 + 1_100 + 711, // all ten messages: 71 × 9 + 72
+    [
+      "working-context.md:token_budget",
+      `sessions/${SESSION}/summary.md:included`,
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "caretaker:included",
+    ],
+  ]);
+  // An identity and a policy that fit the whole budget are both included (1 + 2,048 + 1,500 =
+  // 3,549 ≤ 4,096); history takes what is left.
+  expect(
+    await decided([
+      ["identity.md", "identity", 2_048],
+      ["policy.md", "policy", 1_500],
+    ]),
+  ).toEqual([
+    1 + 2_048 + 1_500 + 498, // seven newest messages: 72 + 71 × 6
+    [
+      "identity.md:included",
+      "policy.md:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:included",
+      "actor:included",
+      "caretaker:token_budget",
+      "actor:token_budget",
+      "caretaker:token_budget",
+      "caretaker:included",
+    ],
+  ]);
 });

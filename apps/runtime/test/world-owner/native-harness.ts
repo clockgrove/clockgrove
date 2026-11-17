@@ -289,7 +289,11 @@ export function isNativeWorldOwnerChild(): boolean {
 /** Finite real-provider surface reused by owner safety and downstream scenario parity. */
 export async function withNativeWorldOwner(
   operation: (owner: NativeWorldOwner) => Promise<void>,
-  { mcp = false } = {},
+  {
+    mcp = false,
+    /** The world's context settings (`WORLD_MODEL_CONFIG`'s `context`), over the pack's model. */
+    context = undefined as object | undefined,
+  } = {},
 ): Promise<void> {
   const inherited = process.env[fixtureVariable];
   if (inherited === undefined)
@@ -308,7 +312,12 @@ export async function withNativeWorldOwner(
     WORLD_PRESENTATION: JSON.stringify(presentationSource.presentations ?? []),
     ...(presentationSource.model === undefined
       ? {}
-      : { WORLD_MODEL_CONFIG: JSON.stringify(presentationSource.model) }),
+      : {
+          WORLD_MODEL_CONFIG: JSON.stringify({
+            ...presentationSource.model,
+            ...(context === undefined ? {} : { context }),
+          }),
+        }),
   };
   const world = await testWorld(fixture.packName);
   const space = world.birth.spaces[0];

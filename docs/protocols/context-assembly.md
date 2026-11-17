@@ -129,12 +129,13 @@ authorization:
    hash, byte length), and only to a participant of that session. Another session's summary is
    returned redacted, flagged `foreign_session`: its path reads `sessions/*/summary.md` and its
    session, hash and length are `null`, so a participant learns neither that session's ID nor its
-   summary's hash or size. The history candidates are the newest 16
-   messages of the session at or before its input revision. The turn's input is a candidate too.
+   summary's hash or size. The history candidates are the newest messages of the session at or
+   before its input revision, as many as the world's history window (16 by default). The turn's input is a candidate too.
 2. **Authorization, before any text is read.** A document is excluded `other_session_private` when
    it is another session's summary, or `document_archived` when it is archived. Its hash in the
    manifest is the metadata's (`null` for another session's summary), and its text is never read.
-3. **Budget.** The turn's budget is the decided 4,096 estimated tokens, lowered when the model
+3. **Budget.** The turn's budget is the world's budget (the decided 4,096 estimated tokens by
+   default; see [world settings](#world-context-settings)), lowered when the model
    route's input limit leaves less room (`contextTokenBudget`, issue 349). That room is the alias's
    `maxInputTokens`, less the request's fixed parts, divided by 24. The limit and the fixed parts are
    both in the [model gateway's](../../packages/model-gateway/docs/model-gateway.md#budget) input
@@ -166,9 +167,18 @@ authorization:
    (`settle_turn_model_step`, migration 0071); a step whose cost is unknown keeps all of it.
    The input is reserved first. Then documents in kind order (identity, policy, goals,
    working context, session summaries; then path and document ID), decided from their stored byte
-   length, then history newest first. A source that would pass the budget is excluded
-   `token_budget`, and a document so excluded is never read. History keeps a contiguous newest
-   suffix: after one message is excluded, all older ones are too.
+   length, then history newest first. Room is reserved for history and the summary (issue 359):
+   whenever the session has history, actor-writable documents leave a quarter of the budget to it
+   (`CONTEXT_HISTORY_SHARE`), and every actor-writable document but the session's own summary also
+   leaves the summary's whole size free, as long as the summary itself would still fit. The summary
+   is therefore decided as if ahead of the other actor-writable documents, against the budget less
+   the history reserve. Protected and governed documents are decided against the whole budget, as
+   before, and history against the whole budget. A large working document therefore gives way
+   before the summary and recent history do; when the documents fit beside both reserves, nothing
+   changes. The history reserve is not sized to the history, because a message's size is known
+   only once its encrypted text is read, after the documents are decided. A source that would pass its limit is excluded `token_budget`, and a
+   document so excluded is never read. History keeps a contiguous newest suffix: after one message
+   is excluded, all older ones are too.
 4. **Read.** Only the admitted sources' text is read: the admitted documents in one query, in the
    same transaction as the candidates and under RLS, and message text decrypted from the session's
    artifacts. A document whose text does not match its candidate hash and length fails the
@@ -216,7 +226,12 @@ transaction with its `context_retrieval` step (step 1). It holds metadata only:
 `manifestHash` is the SHA-256 of the canonical encoding (`@clockgrove/kernel` `canonicalBytes`) of
 the session, input message, input revision, budget and entries. The budget is the manifest's
 recorded `tokenBudget`, so a reassembly decides and hashes under the budget the turn ran with even
-after the default changes.
+after the default changes. The manifest does not name the rule its documents were decided under,
+so a reassembly tries each rule, newest first (`CONTEXT_DECISION_RULES`): `shares`, the reserved
+shares below (issue 359), then `whole_budget`, every document against the whole budget, the rule
+manifests recorded before the shares ran under. It answers the first hash that equals
+`manifestHash`, or the `shares` hash when none does, so a manifest recorded before the shares still
+reproduces.
 
 `POST /v1/runtime/context/inspect` takes `runId`, or `sessionId` with `turn`. It needs
 `runtime:world-inspect` and `operator_evidence`, is audited with subject `context-manifest`, and
@@ -242,6 +257,24 @@ These are the defaults chosen for the human-owned policy (ADR §6, issue 17):
 | Context budget | 4,096 estimated tokens, or less if the route's input limit leaves less room | A small fixed model window for the local path; never a prompt the gateway refuses |
 | Token estimate | ceil(UTF-8 bytes / 4) | Common English estimate; no tokenizer is bound |
 | History window | 16 messages | Bounds the messages decrypted per turn |
+| Reserved shares | actor-writable documents leave a quarter of the budget for history and the session's own summary's size for it | A large working document cannot crowd out recent history or the summary (issue 359). A quarter of the default is 1,024 tokens: four chat lines of the largest size (1,024 bytes, 256 tokens), or 64 tokens for each message of the 16-message window. The three quarters left (3,072 tokens) still admit a full-size version (2,048 tokens) beside the largest input and a summary of up to 768 tokens; past that, a full-size working document gives way to the summary and history |
 
 Versions are kept for the world's life, because manifests cite exact versions. Refused change sets
 are kept 90 days, then retired on insert. Manifests follow their run. See `db/retention.json`.
+
+### World context settings
+
+A world sets its own context budget and history window in the `context` object of its
+[model configuration](world-presentation.md#runtime-inputs) (`WORLD_MODEL_CONFIG`), both optional:
+
+- `tokenBudget`: an integer from 256 to 65,536 estimated tokens, 4,096 by default. 256 keeps room
+  for the 1 KiB input; 65,536, sixteen times the default, bounds the document text read per turn.
+  A model route whose input limit leaves less room still lowers it, as above.
+- `historyWindow`: an integer from 1 to 64 messages, 16 by default; 64 bounds the messages
+  decrypted per turn at four times the default.
+
+A value outside its range, or any other field, refuses the whole configuration when it is read,
+so no turn runs under a setting the world did not choose. The settings apply on the scripted path
+too, and to the turn an operator's retry of an uncertain effect records (`composeResearch`'s
+`context`). A manifest records the budget its turn ran under, and its history entries are that turn's
+window, so a reassembly uses neither the current settings nor the defaults.

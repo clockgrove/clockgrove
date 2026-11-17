@@ -309,6 +309,10 @@ and `aliases`. The alias definitions retain the model gateway's provider-neutral
 credential-reference, token-limit, timeout and price contract. `identity` supplies the world's
 actor identity, and `sceneLabel` supplies its place label; platform instructions still protect grants and treat retrieved text as untrusted.
 The command prefix preserves a world's command idempotency identity across deployments.
+An optional `context` object sets the world's actor context budget (`tokenBudget`, 256 to 65,536
+estimated tokens, 4,096 by default) and history window (`historyWindow`, 1 to 64 messages, 16 by
+default). A value out of range refuses the configuration
+([context settings](context-assembly.md#world-context-settings)).
 Omitted model configuration uses the generic actor defaults.
 
 The reference world's `runtime.json` groups these as `presentations` and `model` and carries
