@@ -163,7 +163,7 @@ A few boundaries are intentionally strong:
 ### Related repositories
 
 - [`clockgrove/raccoon-world`](https://github.com/clockgrove/raccoon-world): Raccoon World, the first reference world. It holds its own pack, art and style bible, and builds against a pinned Clockgrove commit through the [external-world commands](docs/protocols/world-presentation.md#external-local-session).
-- `clockgrove/factory`: agent tooling used to develop Clockgrove through GitHub Issues, pull requests and checks (`.github/workflows/factory.yml`). Clockgrove does not need it to build or run. Agent skills for working in this repository live in `.agents/skills/`, with `.claude/skills/` linking to them.
+- [`clockgrove/pendulum`](https://github.com/clockgrove/pendulum): Clockgrove Pendulum, formerly Factory, the agent tooling used to develop Clockgrove through GitHub Issues, pull requests and checks. This repository's `.github/workflows/factory.yml` still runs it under its old name, `clockgrove/factory@v0.9.37`. Clockgrove does not need it to build or run. Agent skills for working in this repository live in `.agents/skills/`, with `.claude/skills/` linking to them.
 - `clockgrove/.github`: the organization profile and shared GitHub metadata.
 
 ## Accounts and secrets
@@ -225,7 +225,7 @@ Canonical repository content is written as if it may be public. Personal deploym
 
 ## Status
 
-There is no release line and no version to depend on yet: the root package is `0.0.0` and private, and a world repository pins a Clockgrove commit. The foundation, deterministic kernel, journal and replay, and actor runtime (Waves 0 to 3) are built. The visual projection and web client (Wave 4) are underway, and hosted qualification is still pending. Later waves add conversations and capabilities, memory and learning, authoring, the reference-world demo and optional hosted-world features. GitHub Issues hold the live state of each wave.
+There is no release line and no version to depend on yet: the root package is `0.0.0` and private, and a world repository pins a Clockgrove commit. The foundation, deterministic kernel, journal and replay, and actor runtime (Waves 0 to 3) are built. The visual projection and web client (Wave 4) are underway, and hosted qualification is still pending. Conversations, models, capabilities and MCP (Wave 5) are in progress, and not yet part of the local world. Later waves add memory and learning, authoring, the reference-world demo and optional hosted-world features. GitHub Issues hold the live state of each wave.
 
 ## Help, security, contributing and license
 
