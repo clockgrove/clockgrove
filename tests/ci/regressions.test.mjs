@@ -28,7 +28,7 @@ import {
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
 import { checkContractDrift, generateContractInventory } from "../../scripts/contract-drift.mjs";
-import { checkLicense, componentLicenses } from "../../scripts/supply-chain.mjs";
+import { checkLicense, componentLicenses, openAdvisories } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const run = (command, args, cwd = root) =>
@@ -395,6 +395,23 @@ it("license check evaluates SPDX OR, AND, precedence and WITH, and refuses garbl
     "refused",
     "refused",
   ]);
+});
+it("vulnerability scan accepts an advisory only for its exact version, GHSA id and until date", () => {
+  const advisory = { url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc", severity: "high" };
+  const accepted = new Map([
+    ["pkg@1.2.3 GHSA-aaaa-bbbb-cccc", { until: "2026-12-17", reason: "x", evidence: "y" }],
+  ]);
+  const open = (versions, list = [advisory], today = "2026-12-17") =>
+    Object.keys(openAdvisories({ pkg: list }, { pkg: versions }, { accepted, today }));
+  expect([
+    open(["1.2.3"]),
+    open(["1.2.3"], [advisory], "2026-12-18"),
+    open(["1.2.4"]),
+    open(["1.2.3", "1.2.4"]),
+    open(["1.2.3"], [{ ...advisory, url: "https://github.com/advisories/GHSA-dddd-eeee-ffff" }]),
+    open([]),
+  ]).toEqual([[], ["pkg"], ["pkg"], ["pkg"], ["pkg"], ["pkg"]]);
+  expect(Object.keys(openAdvisories({}, {}, { accepted, today: "2026-12-17" }))).toEqual([]);
 });
 it("license check reads npm's legacy licenses array and verified records for the exact version only", () => {
   const verdict = (key, metadata) => {
