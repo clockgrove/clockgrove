@@ -96,8 +96,7 @@ export interface PerceptionFocus {
  * the actor perceiving nothing by location, so the actor's space is its range until a world can
  * declare one. The member's authorized scene bounds them, so nothing outside it is ever shown; an actor
  * that is not an entity of the state has no space, and perceives that scene. Entities the message
- * names (by object id or label) come first, then the nearest to the actor in its frame, then by
- * object id: a pure order of the state, so replay reproduces it.
+ * names (by object id or label) come first, in the order of `rankedEntities`.
  */
 export function perceivedEntities(
   scene: LivingScene,
@@ -119,9 +118,9 @@ export function perceivedEntities(
 }
 
 /**
- * `entities` in the order an actor attends to them (issue 364): the actor itself, then what it is
- * involved with, then entities the message names, then the nearest to the actor in its frame, then
- * by object id. Involved means a direct physical relation in the state, either way round: its
+ * `entities` in the order an actor attends to them (issue 364): entities the turn's message names
+ * (issue 354; a listing has no message), then the actor itself, then what it is involved with, then
+ * the nearest to the actor in its frame, then by object id. Involved means a direct physical relation in the state, either way round: its
  * location (shelter), its container and contents, and its routine target (the food, water or
  * shelter it seeks or eats from). A pure order of the state, so replay reproduces it.
  */
@@ -175,9 +174,9 @@ export function rankedEntities<T extends { readonly objectId: string }>(
       return sum + delta * delta;
     }, 0n);
   };
-  // Rank 0 is the actor, 1 what it is involved with, 2 what the message names, 3 everything else.
+  // Rank 0 is what the message names, 1 the actor, 2 what it is involved with, 3 everything else.
   const rank = (entity: T) =>
-    entity.objectId === actorId ? 0 : involved.has(entity.objectId) ? 1 : named(entity) ? 2 : 3;
+    named(entity) ? 0 : entity.objectId === actorId ? 1 : involved.has(entity.objectId) ? 2 : 3;
   return entities
     .map((entity) => ({ entity, rank: rank(entity), distance: distance(entity.objectId) }))
     .sort(
