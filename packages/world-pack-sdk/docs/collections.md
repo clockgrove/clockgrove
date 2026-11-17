@@ -7,7 +7,7 @@ capability command or seed command is then `UNKNOWN_COMMAND` / `INVALID_RULE`.
 
 **Space** (resource listed in `manifest.spaces`): `{ id, version, frame, regions, anchorGraph }`.
 `frame` is a domain `SpatialFrame` (bigints as `$bigint`) checked by `validateSpatialFrame`;
-`regions` are at most 64 domain regions in that frame (`parseSpatialRegion`); `anchorGraph` is
+`regions` are at most `limits.regions` (64) domain regions in that frame (`parseSpatialRegion`); `anchorGraph` is
 `null` or `parseAnchorGraph` input in that frame. Domain refusals are `INVALID_SPACE` at
 `manifest.spaces[i]#frame...`, `#regions[j]...` or `#anchorGraph...`. `id`/`version` must equal
 the manifest entry (`RESOURCE_IDENTITY_MISMATCH`); extra fields are `UNKNOWN_FIELD`; a non-record
@@ -34,14 +34,14 @@ evaluation reads events at their current version; name the current version at th
 **Capability** (inline in `manifest.capabilities`): `{ id, version, kind, commands: [{ type,
 version }] }`. `kind` is `inspect`, `embodied-dialogue`, `interpreted-perspective`, `influence`
 or `operator-authoring` (`INVALID_CAPABILITY`). Every command must be in the catalog
-(`UNKNOWN_COMMAND`); a repeated id and version is `DUPLICATE_IDENTITY`; at most 256 capabilities.
+(`UNKNOWN_COMMAND`); a repeated id and version is `DUPLICATE_IDENTITY`; at most `limits.capabilities` (256) capabilities.
 
-**Seed command** (inline in `manifest.seedCommands`, in execution order, at most 1024):
+**Seed command** (inline in `manifest.seedCommands`, in execution order, at most `limits.seedCommands`, 1024 by default):
 `{ key, type, version, payload }`. `key` uses the identity format and is unique
 (`DUPLICATE_IDENTITY`); type and version must be in the catalog (`UNKNOWN_COMMAND` at `.type`);
 `payload` is required (`MISSING_FIELD`) and must be a plain data record that
-`ports.canonicalBytes` encodes (`INVALID_SEED_COMMAND`). More than 1024 is `LIMIT_EXCEEDED`.
-Unbacked `resource.offer` and positive-inventory `object.create` commands are refused as
+`ports.canonicalBytes` encodes (`INVALID_SEED_COMMAND`). More than the limit is `LIMIT_EXCEEDED`.
+Commands the domain's `closedWorldRefusal` names (an unbacked `resource.offer`, a positive-inventory `object.create`) are refused as
 `INVALID_SEED_COMMAND` at `manifest.seedCommands[i].payload`; declare initial quantities in actor
 resource components instead. Order is preserved and hashed; nothing is executed here.
 

@@ -17,6 +17,7 @@ const allowedLicenses = new Set([
   "0BSD",
   "MIT-0",
   "CC0-1.0",
+  "CC-BY-3.0",
   "CC-BY-4.0",
   "Python-2.0",
   "BlueOak-1.0.0",

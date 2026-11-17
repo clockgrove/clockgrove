@@ -18,6 +18,7 @@ import {
   type ContainmentPayload,
   type CrossingRecord,
   classifyRainChange,
+  closedWorldRefusal,
   createWorldState,
   currentInside,
   type DecisionTrace,
@@ -54,6 +55,7 @@ import {
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
+  shelterReflexThreshold,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -3815,7 +3817,7 @@ function chooseRoutine(
   }
   const eligible = candidates.filter((candidate) => candidate.excludedReason === undefined);
   const reflex =
-    wetness >= 9000n
+    wetness >= shelterReflexThreshold(policy.environment)
       ? eligible.filter((candidate) => candidate.action.kind === "seek-shelter")
       : [];
   const pool = reflex.length > 0 ? reflex : eligible;
@@ -4704,15 +4706,9 @@ function registerContainmentChecks(
         return index < 0 ? undefined : `events[${index}].type`;
       },
     }),
-    registerPre("resource.closed-world", ({ payload, command }) => {
-      if (command.type === "resource.offer") return "payload.quantity";
-      if (
-        command.type === "object.create" &&
-        ((payload as ContainmentPayload<"object.create">).object.resource?.quantity ?? 0) > 0
-      )
-        return "payload.object.resource.quantity";
-      return undefined;
-    }),
+    registerPre("resource.closed-world", ({ payload, command }) =>
+      closedWorldRefusal({ type: command.type, payload }),
+    ),
     registerPre("containment.fixture-and-references", ({ state, payload, input, command }) => {
       if (input.continuation !== undefined) return "continuation";
       if (command.type === "resource.transfer")

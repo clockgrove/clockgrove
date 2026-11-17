@@ -1,6 +1,15 @@
 import { replayWorldEvents, type WorldEvent } from "@clockgrove/domain";
 import { expect, it } from "vitest";
-import { food, needs, RAIN, shelter, utilityWorld, WITH } from "./decisions.scenario.js";
+import {
+  DEFAULT_UTILITY,
+  food,
+  needs,
+  RAIN,
+  shelter,
+  tracesOf,
+  utilityWorld,
+  WITH,
+} from "./decisions.scenario.js";
 import { CEDAR_SPEC, ecologyWorld } from "./ecology.scenario.js";
 import {
   advanceInput,
@@ -365,4 +374,30 @@ it("does not locate occupants in a shelter stopped by death, including bounded l
     ["lifecycle.died", 1n],
   ]);
   expect(replayWorldEvents(moving.state, fast.events)).toEqual(fast.world.state);
+});
+
+it("forces shelter at the pack's reflex threshold, 9000 when it declares none", async () => {
+  const world = await utilityWorld(
+    WITH({
+      ...RAIN,
+      initial: [needs(9000, 9500, 0)],
+      items: [shelter("den", [4000, 0], 1000), food("bin", [1000, 0])],
+      utility: { ...DEFAULT_UTILITY, perceptionRange: 5000n },
+    }),
+  );
+  const tier = (declared: object) => {
+    const { pack, policies } = world.template;
+    const policy = {
+      ...pack.pack.policy,
+      environment: { ...pack.pack.policy.environment!, ...declared },
+    };
+    const template = {
+      ...world.template,
+      pack: { ...pack, pack: { ...pack.pack, policy } },
+      policies: { ...policies, policy },
+    } as typeof world.template;
+    return tracesOf(runChain({ ...world, template }, "reflex", 1500n))[0]!.selectionTier;
+  };
+  expect(tier({})).toBe("reflex");
+  expect(tier({ shelterReflexThreshold: 10000 })).toBe("utility");
 });
