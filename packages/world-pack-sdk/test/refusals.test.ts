@@ -280,6 +280,11 @@ const cases: Case[] = [
     (c) => (doc(c, "spaces/hall.json").id = "unit.other"),
   ],
   [
+    "INVALID_SPACE",
+    "manifest.spaces[0]#frame.unit.name",
+    (c) => (doc(c, "spaces/hall.json").frame.unit.name = "cm"),
+  ],
+  [
     "UNKNOWN_FIELD",
     "manifest.spaces[0].colour",
     (c) => (doc(c, "spaces/hall.json").colour = "red"),

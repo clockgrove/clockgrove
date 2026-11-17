@@ -5,6 +5,7 @@ import { containmentSchema, lifecycleSchema, resourceSchema } from "./components
 import type { EcologyPolicy, EcologyState } from "./ecology/ecology.js";
 import type { EnvironmentPolicy, EnvironmentState } from "./environment/environment.js";
 import type {
+  LifecycleKind,
   LifecyclePolicy,
   LifecycleSeasonalHook,
   LifecycleState,
@@ -464,14 +465,38 @@ function wellbeingState(input: unknown, path: string): WellbeingState {
   };
 }
 
+const LIFECYCLE_KIND_KEYS = [
+  "stages",
+  "lifespanMs",
+  "deathHealth",
+  "reproduction",
+  "successorRule",
+];
+
 function lifecyclePolicy(input: unknown, path: string): LifecyclePolicy {
-  const raw = object(
-    input,
-    ["schemaVersion", "stages", "lifespanMs", "deathHealth", "reproduction", "successorRule"],
-    path,
-    ["seasonal"],
-  );
+  if (
+    input !== null &&
+    typeof input === "object" &&
+    (input as { schemaVersion?: unknown }).schemaVersion === 2
+  ) {
+    const raw = object(input, ["schemaVersion", "kinds"], path);
+    return {
+      schemaVersion: 2,
+      kinds: list(raw.kinds, `${path}.kinds`, (value, at) => {
+        const kind = object(value, [...LIFECYCLE_KIND_KEYS, "archetypes"], at, ["seasonal"]);
+        return {
+          archetypes: list(kind.archetypes, `${at}.archetypes`, text),
+          ...lifecycleKind(kind, at),
+        };
+      }),
+    };
+  }
+  const raw = object(input, ["schemaVersion", ...LIFECYCLE_KIND_KEYS], path, ["seasonal"]);
   version(raw, path);
+  return { schemaVersion: 1, ...lifecycleKind(raw, path) };
+}
+
+function lifecycleKind(raw: Record<string, unknown>, path: string): LifecycleKind {
   const reproduction = object(
     raw.reproduction,
     [
@@ -512,7 +537,6 @@ function lifecyclePolicy(input: unknown, path: string): LifecyclePolicy {
   }
   if (raw.successorRule !== null) text(raw.successorRule, `${path}.successorRule`);
   return {
-    schemaVersion: 1,
     stages: list(raw.stages, `${path}.stages`, (value, at) => {
       const stage = object(value, ["name", "startsAtAgeMs"], at);
       return {

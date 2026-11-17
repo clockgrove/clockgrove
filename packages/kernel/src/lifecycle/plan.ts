@@ -2,8 +2,10 @@ import type { ObjectId } from "@clockgrove/contracts";
 import {
   deriveLifecycleSeason,
   type LifecycleEntry,
+  type LifecycleKind,
   type LifecyclePolicy,
   type LifecycleState,
+  lifecycleForKind,
   type NamedRandomState,
   type RandomDrawMetadata,
 } from "@clockgrove/domain";
@@ -79,6 +81,10 @@ export interface LifecyclePlan {
 interface Overlay {
   readonly objectId: ObjectId;
   readonly householdId: string;
+  readonly archetypeId: string | undefined;
+  /** The lifecycle its archetype declares; `undefined` freezes the actor outside the lifecycle. */
+  readonly kind: LifecycleKind | undefined;
+  readonly parentIds: readonly ObjectId[];
   readonly generation: number;
   readonly bornAt: bigint;
   stageIndex: number;
@@ -100,17 +106,22 @@ const byId = (left: string, right: string): number => (left === right ? 0 : left
 export function planLifecycleAt(
   policy: LifecyclePolicy,
   lifecycle: LifecycleState,
+  archetypes: ReadonlyMap<string, string>,
   time: bigint,
   healthDeaths: ReadonlySet<string>,
   random: NamedRandomState,
 ): LifecyclePlan {
-  const reproduction = policy.reproduction;
+  const kindOf = (archetypeId: string | undefined): LifecycleKind | undefined =>
+    archetypeId === undefined ? undefined : lifecycleForKind(policy, archetypeId);
   const overlay = new Map<string, Overlay>(
     lifecycle.entries.map((entry) => [
       entry.objectId,
       {
         objectId: entry.objectId,
         householdId: entry.householdId,
+        archetypeId: archetypes.get(entry.objectId),
+        kind: kindOf(archetypes.get(entry.objectId)),
+        parentIds: entry.parentIds,
         generation: entry.generation,
         bornAt: entry.bornAt,
         stageIndex: entry.stageIndex,
@@ -130,10 +141,10 @@ export function planLifecycleAt(
   let stream = random;
 
   for (const actor of ordered()) {
-    if (actor.dead) continue;
+    if (actor.dead || actor.kind === undefined) continue;
     const cause = healthDeaths.has(actor.objectId)
       ? "health"
-      : actor.bornAt + policy.lifespanMs <= time
+      : actor.bornAt + actor.kind.lifespanMs <= time
         ? "lifespan"
         : undefined;
     if (cause === undefined) continue;
@@ -143,23 +154,25 @@ export function planLifecycleAt(
     actions.push({ kind: "died", objectId: actor.objectId, cause });
   }
   for (const actor of ordered()) {
-    if (actor.dead) continue;
+    const kind = actor.kind;
+    if (actor.dead || kind === undefined) continue;
     while (
-      actor.stageIndex + 1 < policy.stages.length &&
-      actor.bornAt + policy.stages[actor.stageIndex + 1]!.startsAtAgeMs <= time
+      actor.stageIndex + 1 < kind.stages.length &&
+      actor.bornAt + kind.stages[actor.stageIndex + 1]!.startsAtAgeMs <= time
     ) {
       actor.stageIndex += 1;
       actions.push({
         kind: "stage",
         objectId: actor.objectId,
         stageIndex: actor.stageIndex,
-        stageName: policy.stages[actor.stageIndex]!.name,
+        stageName: kind.stages[actor.stageIndex]!.name,
       });
     }
   }
   for (const actor of ordered()) {
     const gestation = actor.gestation;
-    if (actor.dead || gestation === null) continue;
+    const reproduction = actor.kind?.reproduction;
+    if (actor.dead || gestation === null || reproduction === undefined) continue;
     let index = gestation.milestoneIndex;
     while (
       index < reproduction.gestationMilestones.length &&
@@ -191,6 +204,11 @@ export function planLifecycleAt(
     overlay.set(gestation.childId, {
       objectId: gestation.childId,
       householdId: actor.householdId,
+      archetypeId: actor.archetypeId,
+      kind: actor.kind,
+      parentIds: [actor.objectId, ...(coParent === undefined ? [] : [coParent.objectId])].sort(
+        byId,
+      ),
       generation: Math.max(actor.generation, coParent?.generation ?? 0) + 1,
       bornAt: time,
       stageIndex: 0,
@@ -202,103 +220,116 @@ export function planLifecycleAt(
     actor.lastBirthAt = time;
     actor.gestation = null;
   }
-  if (time > 0n && time % reproduction.conceptionIntervalMs === 0n) {
-    const fertile = (actor: Overlay): boolean =>
-      reproduction.fertileStages.includes(policy.stages[actor.stageIndex]!.name);
-    const hook = policy.seasonal;
-    const seasonAllowed =
+  const seasonAllowed = (kind: LifecycleKind): boolean => {
+    const hook = kind.seasonal;
+    return (
       hook === undefined ||
-      hook.conceptionSeasons.includes(hook.seasons[deriveLifecycleSeason(hook, time)]!.name);
-    for (const actor of ordered()) {
-      if (actor.dead) continue;
-      const stageName = policy.stages[actor.stageIndex]!.name;
-      const living = ordered().filter((candidate) => !candidate.dead);
-      const pending = living.filter((candidate) => candidate.gestation !== null).length;
-      const coParent =
-        reproduction.coParent === "required"
-          ? living.find(
-              (candidate) =>
-                candidate.objectId !== actor.objectId &&
-                candidate.householdId === actor.householdId &&
-                fertile(candidate),
-            )
-          : undefined;
-      let exclusion: ConceptionExclusion | null = null;
-      if (!fertile(actor)) exclusion = "not-fertile-stage";
-      else if (actor.gestation !== null) exclusion = "gestating";
-      else if (actor.lastBirthAt !== null && time - actor.lastBirthAt < reproduction.cooldownMs)
-        exclusion = "cooldown";
-      else if (!seasonAllowed) exclusion = "out-of-season";
-      else if (reproduction.coParent === "required" && coParent === undefined)
-        exclusion = "no-co-parent";
-      else if (
-        living.length + pending >= reproduction.maxPopulation ||
-        overlay.size + pending >= 128
-      )
-        exclusion = "population-cap";
-      const base = {
-        schemaVersion: 1 as const,
-        objectId: actor.objectId,
-        simulationTime: time,
-        stageIndex: actor.stageIndex,
-        stageName,
-        conceptionChance: reproduction.conceptionChance,
-      };
-      if (exclusion !== null) {
-        decisions.push({
-          decision: Object.freeze({
-            ...base,
-            exclusion,
-            draw: null,
-            outcome: "excluded" as const,
-            coParentId: null,
-            childId: null,
-          }),
-          draws: Object.freeze([]),
-        });
-        continue;
-      }
-      const drawn = drawNamedRandomStream(stream, LIFECYCLE_STREAM);
-      stream = drawn.randomState;
-      const value = Number(BigInt.asUintN(32, drawn.draw.rawValue) % 10000n);
-      const conceived = value < reproduction.conceptionChance;
-      const coParentId =
-        reproduction.coParent === "required" ? (coParent!.objectId as ObjectId) : null;
-      const childId = conceived ? lifecycleChildId(actor.objectId, actor.conceptions + 1) : null;
+      hook.conceptionSeasons.includes(hook.seasons[deriveLifecycleSeason(hook, time)]!.name)
+    );
+  };
+  const fertile = (actor: Overlay): boolean =>
+    actor.kind !== undefined &&
+    actor.kind.reproduction.fertileStages.includes(actor.kind.stages[actor.stageIndex]!.name);
+  const related = (actor: Overlay, other: Overlay): boolean =>
+    actor.parentIds.includes(other.objectId) ||
+    other.parentIds.includes(actor.objectId) ||
+    actor.parentIds.some((parent) => other.parentIds.includes(parent));
+  for (const actor of ordered()) {
+    const kind = actor.kind;
+    if (actor.dead || kind === undefined) continue;
+    const reproduction = kind.reproduction;
+    if (!(time > 0n && time % reproduction.conceptionIntervalMs === 0n)) continue;
+    const stageName = kind.stages[actor.stageIndex]!.name;
+    const living = ordered().filter((candidate) => !candidate.dead);
+    const sameKind = living.filter((candidate) => candidate.kind === kind);
+    const pending = sameKind.filter((candidate) => candidate.gestation !== null).length;
+    const allPending = living.filter((candidate) => candidate.gestation !== null).length;
+    const coParent =
+      reproduction.coParent === "required"
+        ? living.find(
+            (candidate) =>
+              candidate.objectId !== actor.objectId &&
+              candidate.householdId === actor.householdId &&
+              candidate.archetypeId === actor.archetypeId &&
+              !related(actor, candidate) &&
+              fertile(candidate),
+          )
+        : undefined;
+    let exclusion: ConceptionExclusion | null = null;
+    if (!fertile(actor)) exclusion = "not-fertile-stage";
+    else if (actor.gestation !== null) exclusion = "gestating";
+    else if (actor.lastBirthAt !== null && time - actor.lastBirthAt < reproduction.cooldownMs)
+      exclusion = "cooldown";
+    else if (!seasonAllowed(kind)) exclusion = "out-of-season";
+    else if (reproduction.coParent === "required" && coParent === undefined)
+      exclusion = "no-co-parent";
+    else if (
+      sameKind.length + pending >= reproduction.maxPopulation ||
+      overlay.size + allPending >= 128
+    )
+      exclusion = "population-cap";
+    const base = {
+      schemaVersion: 1 as const,
+      objectId: actor.objectId,
+      simulationTime: time,
+      stageIndex: actor.stageIndex,
+      stageName,
+      conceptionChance: reproduction.conceptionChance,
+    };
+    if (exclusion !== null) {
       decisions.push({
         decision: Object.freeze({
           ...base,
-          exclusion: null,
-          draw: Object.freeze({
-            drawIndex: drawn.draw.drawIndex,
-            rawValue: drawn.draw.rawValue,
-            value,
-          }),
-          outcome: conceived ? ("conceived" as const) : ("not-conceived" as const),
-          coParentId: conceived ? coParentId : null,
-          childId,
+          exclusion,
+          draw: null,
+          outcome: "excluded" as const,
+          coParentId: null,
+          childId: null,
         }),
-        draws: Object.freeze([drawn.draw]),
+        draws: Object.freeze([]),
       });
-      if (conceived && childId !== null) {
-        const dueAt = time + reproduction.gestationMs;
-        actor.conceptions += 1;
-        actor.gestation = {
-          conceivedAt: time,
-          dueAt,
-          coParentId,
-          childId,
-          milestoneIndex: 0,
-        } as never;
-        actions.push({
-          kind: "conceived",
-          objectId: actor.objectId,
-          coParentId,
-          childId,
-          dueAt,
-          draw: drawn.draw,
-        });
-      }
+      continue;
+    }
+    const drawn = drawNamedRandomStream(stream, LIFECYCLE_STREAM);
+    stream = drawn.randomState;
+    const value = Number(BigInt.asUintN(32, drawn.draw.rawValue) % 10000n);
+    const conceived = value < reproduction.conceptionChance;
+    const coParentId =
+      reproduction.coParent === "required" ? (coParent!.objectId as ObjectId) : null;
+    const childId = conceived ? lifecycleChildId(actor.objectId, actor.conceptions + 1) : null;
+    decisions.push({
+      decision: Object.freeze({
+        ...base,
+        exclusion: null,
+        draw: Object.freeze({
+          drawIndex: drawn.draw.drawIndex,
+          rawValue: drawn.draw.rawValue,
+          value,
+        }),
+        outcome: conceived ? ("conceived" as const) : ("not-conceived" as const),
+        coParentId: conceived ? coParentId : null,
+        childId,
+      }),
+      draws: Object.freeze([drawn.draw]),
+    });
+    if (conceived && childId !== null) {
+      const dueAt = time + reproduction.gestationMs;
+      actor.conceptions += 1;
+      actor.gestation = {
+        conceivedAt: time,
+        dueAt,
+        coParentId,
+        childId,
+        milestoneIndex: 0,
+      } as never;
+      actions.push({
+        kind: "conceived",
+        objectId: actor.objectId,
+        coParentId,
+        childId,
+        dueAt,
+        draw: drawn.draw,
+      });
     }
   }
   return Object.freeze({
@@ -317,25 +348,30 @@ export function planLifecycleAt(
 export function nextLifecycleTime(
   policy: LifecyclePolicy,
   lifecycle: LifecycleState,
+  archetypes: ReadonlyMap<string, string>,
   after: bigint,
 ): bigint | undefined {
-  const interval = policy.reproduction.conceptionIntervalMs;
-  let next: bigint | undefined = (after / interval + 1n) * interval;
-  if (after < 0n) next = interval;
+  let next: bigint | undefined;
   const consider = (time: bigint): void => {
     if (time > after && (next === undefined || time < next)) next = time;
   };
   for (const entry of lifecycle.entries) {
-    if (entry.death !== null) continue;
-    consider(entry.bornAt + policy.lifespanMs);
-    const stage = policy.stages[entry.stageIndex + 1];
+    const archetypeId = archetypes.get(entry.objectId);
+    const kind = archetypeId === undefined ? undefined : lifecycleForKind(policy, archetypeId);
+    if (kind === undefined || entry.death !== null) continue;
+    consider(entry.bornAt + kind.lifespanMs);
+    const stage = kind.stages[entry.stageIndex + 1];
     if (stage !== undefined) consider(entry.bornAt + stage.startsAtAgeMs);
     const gestation = entry.gestation;
     if (gestation !== null) {
       consider(gestation.dueAt);
-      const milestone = policy.reproduction.gestationMilestones[gestation.milestoneIndex];
+      const milestone = kind.reproduction.gestationMilestones[gestation.milestoneIndex];
       if (milestone !== undefined) consider(gestation.conceivedAt + milestone.atMs);
     }
+  }
+  for (const kind of policy.schemaVersion === 1 ? [policy] : policy.kinds) {
+    const interval = kind.reproduction.conceptionIntervalMs;
+    consider(after < 0n ? interval : (after / interval + 1n) * interval);
   }
   return next;
 }

@@ -117,7 +117,7 @@ export interface EnvironmentRunOptions {
     readonly policy: WellbeingPolicy;
     readonly decisionIntervalMs: bigint;
     /** Lifecycle death level: the wellbeing systems also report the first ms health is at or below it. */
-    readonly deathHealth?: number;
+    readonly deathHealth?: (objectId: string) => number | undefined;
   };
   readonly actors: readonly EnvironmentActor[];
   readonly position: SimTimeMs;
@@ -282,7 +282,7 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
             wellbeing: wellbeing.policy,
             decisionIntervalMs: wellbeing.decisionIntervalMs,
             integrate: options.integrate,
-            ...(wellbeing.deathHealth === undefined ? {} : { deathHealth: wellbeing.deathHealth }),
+            ...optionalDeathHealth(wellbeing.deathHealth?.(actor.objectId)),
           }),
         )),
   ]);
@@ -673,4 +673,8 @@ export function createEnvironmentRun(options: EnvironmentRunOptions): Environmen
       });
     },
   });
+}
+
+function optionalDeathHealth(deathHealth: number | undefined): { deathHealth?: number } {
+  return deathHealth === undefined ? {} : { deathHealth };
 }

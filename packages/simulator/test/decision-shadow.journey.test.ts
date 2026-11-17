@@ -91,7 +91,7 @@ it("runs the supported CLI on a selected external pack with models off and prese
     });
     expect(report.reference).toMatchObject({ total: 3, correct: 0, accuracy: null });
     expect(report.finalStateHash).toBe(
-      "fd8d9acbe7dc99cb34d667e3b4222cd1b346ef7b36d9087a01dd0dabb23d37a4",
+      "709c8a1acf19ef06df13ec969400775c75f7396a779d50d0148ab6bc067b66cf",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -197,7 +197,7 @@ it("scores labelled fixture state variations through a scripted provider indepen
   expect(report.measuredCostMicrousd).toBe(0);
   expect(report.replay.matches).toBe(true);
   expect(report.finalStateHash).toBe(
-    "fd8d9acbe7dc99cb34d667e3b4222cd1b346ef7b36d9087a01dd0dabb23d37a4",
+    "709c8a1acf19ef06df13ec969400775c75f7396a779d50d0148ab6bc067b66cf",
   );
 });
 

@@ -14,6 +14,7 @@ import type {
 } from "./ids.js";
 import { decodeOpaqueId } from "./ids.js";
 import { decodeFeedSummary, type FeedSummary } from "./scene-interactions.js";
+import { metresPerUnit, SPATIAL_UNIT_NAMES } from "./spatial-units.js";
 import {
   array,
   bigintValue,
@@ -390,6 +391,15 @@ function observationPositive(value: unknown, path: string): number {
   if (result === 0) throw new ContractDecodeError(path, "expected a positive integer");
   return result;
 }
+function spatialUnitName(value: unknown, path: string): string {
+  const name = string(value, path);
+  if (metresPerUnit(name) === undefined)
+    throw new ContractDecodeError(
+      path,
+      `must be a unit the engine knows: ${SPATIAL_UNIT_NAMES.join(", ")}`,
+    );
+  return name;
+}
 function observationVector(value: unknown, path: string): readonly string[] {
   return array(value, path, observationDecimal);
 }
@@ -441,7 +451,7 @@ export function decodeLivingFrame(value: unknown, path: string): LivingSpatialFr
     frameId,
     version: observationPositive(v.version, `${path}.version`),
     dimensions,
-    unit: { name: string(unit.name, `${path}.unit.name`), fractionalDigits },
+    unit: { name: spatialUnitName(unit.name, `${path}.unit.name`), fractionalDigits },
     axes: { axes: decodedAxes },
     origin,
     gravity: { kind: "constant-vector", vector },

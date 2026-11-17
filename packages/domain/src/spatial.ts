@@ -1,4 +1,11 @@
-import type { ActorProcessId, ObjectId, SpatialFrameId, SubjectId } from "@clockgrove/contracts";
+import {
+  type ActorProcessId,
+  metresPerUnit,
+  type ObjectId,
+  SPATIAL_UNIT_NAMES,
+  type SpatialFrameId,
+  type SubjectId,
+} from "@clockgrove/contracts";
 
 import { DomainValidationError } from "./actor-process.js";
 
@@ -93,8 +100,11 @@ export function validateSpatialFrame<D extends SpatialDimensions>(frame: Spatial
   if (!Number.isSafeInteger(frame.version) || frame.version < 1) {
     throw new DomainValidationError("spatialFrame.version", "must be a positive safe integer");
   }
-  if (frame.unit.name.length === 0) {
-    throw new DomainValidationError("spatialFrame.unit.name", "must not be empty");
+  if (metresPerUnit(frame.unit.name) === undefined) {
+    throw new DomainValidationError(
+      "spatialFrame.unit.name",
+      `must be a unit the engine knows: ${SPATIAL_UNIT_NAMES.join(", ")}`,
+    );
   }
   if (
     !Number.isSafeInteger(frame.unit.fractionalDigits) ||

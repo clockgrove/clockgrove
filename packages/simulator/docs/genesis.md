@@ -54,7 +54,10 @@ produced by the domain rules and checked with the domain `*Disagreement` helpers
 - `utility`: no state of its own; see scripted cognition below.
 - `lifecycle`: one entry per needs actor in object id order. `householdId`, `parentIds`, `generation` and
   `bornAt` come from the actor document `lifecycle` seed; `stageIndex` is
-  `deriveLifecycleStage(policy.lifecycle, bornAt, epoch)`; `conceptions` is 0, `lastBirthAt`, `gestation`
+  `deriveLifecycleStage(kind, bornAt, epoch)`, where `kind` is
+  `lifecycleForKind(policy.lifecycle, archetypeId)`, the lifecycle the kind listing the actor's pinned
+  archetype declares. An actor whose archetype is in no declared kind is frozen outside the lifecycle:
+  its `stageIndex` is 0 and it never ages, dies of age or conceives; `conceptions` is 0, `lastBirthAt`, `gestation`
   and `death` are `null`. `households` lists the distinct household ids, sorted. A needs actor without a
   seed is `INVALID_INITIAL_STATE` at `manifest.actors[<index>]#lifecycle`; `parentIds` that name an
   undeclared actor, an actor without needs, the actor itself or more than two parents are refused at

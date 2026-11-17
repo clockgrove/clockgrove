@@ -1,5 +1,5 @@
 import type { ObjectId, ScheduleId } from "@clockgrove/contracts";
-import type { WorldBehaviorPolicy, WorldState } from "@clockgrove/domain";
+import { lifecycleForKind, type WorldBehaviorPolicy, type WorldState } from "@clockgrove/domain";
 import { canonicalSerialize } from "../canonical.js";
 import { fnv1a64Hex } from "../fnv1a64.js";
 
@@ -47,12 +47,12 @@ export function requestSuccessorIntent(
   const refuse = (code: SuccessorRefusal["code"], path: string): SuccessorRefusal =>
     Object.freeze({ code, path });
   try {
-    const rule = policy?.lifecycle?.successorRule;
     const entry = state?.lifecycle?.entries.find((candidate) => candidate.objectId === deceasedId);
     const entity = state?.entities.find((candidate) => candidate.objectId === deceasedId);
     if (policy?.lifecycle === undefined || state?.lifecycle === undefined)
       return refuse("precondition-failed", "policy.lifecycle");
     if (entry === undefined || entity === undefined) return refuse("invalid-input", "deceasedId");
+    const rule = lifecycleForKind(policy.lifecycle, entity.archetypeId)?.successorRule;
     if (entry.death === null || entity.lifecycle?.status !== "dead")
       return refuse("precondition-failed", "deceasedId");
     if (rule === null || rule === undefined)

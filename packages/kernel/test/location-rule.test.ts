@@ -94,7 +94,7 @@ describe("decision stops (item 1)", () => {
   });
 
   it("enters the shelter where a decision to stay stops the walk", async () => {
-    // A second actor empties the bin first, so the walker's decision at 1000 (at 2000, 0) stays.
+    // A second actor empties the bin at 1000, so the walker re-decides then (at 2000, 0) and stays.
     const world = await utilityWorld(
       WITH({
         actors: [
@@ -103,7 +103,7 @@ describe("decision stops (item 1)", () => {
         ],
         starts: [
           [0, 0],
-          [3000, 0],
+          [6000, 0],
         ],
         items: [food("bin", [4000, 0], 2), shelter("porch", [2000, 0], 0)],
         utility: { ...DEFAULT_UTILITY, perceptionRange: 5000n },

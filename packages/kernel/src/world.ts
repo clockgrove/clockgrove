@@ -26,10 +26,12 @@ import {
   type EcologyPolicy,
   EnvironmentValidationError,
   ecologyDisagreement,
+  entityIsActive,
   environmentDisagreement,
   expectedCrossings,
   isRegionCrossing,
   lifecycleDisagreement,
+  lifecycleForKind,
   MOVEMENT_COMMAND_TYPES,
   type MovementCommand,
   type MovementCommandType,
@@ -111,6 +113,7 @@ import {
   type ScheduleQueue,
   upsertSchedule,
 } from "./scheduler.js";
+import { impossibleSelections } from "./selection.js";
 import { guardDomain, parseMovementPayloadAtBoundary } from "./spatial/boundary.js";
 import {
   type DwellPayload,
@@ -1018,6 +1021,16 @@ function runWorld(
   /** Simulation time each lifecycle draft/draw belongs to, for rollback to the final time. */
   const draftTimes: bigint[] = [];
   const lifecyclePolicy = policy.lifecycle;
+  const archetypesNow = (): Map<string, string> =>
+    new Map(current().entities.map((entity) => [entity.objectId, entity.archetypeId]));
+  const kindOfActor = (objectId: string) => {
+    const archetypeId = current().entities.find(
+      (entity) => entity.objectId === objectId,
+    )?.archetypeId;
+    return lifecyclePolicy === undefined || archetypeId === undefined
+      ? undefined
+      : lifecycleForKind(lifecyclePolicy, archetypeId);
+  };
   /** The `lifecycle` stream state after each emitted lifecycle group (rolled back to the final time). */
   let lifecycleRandom: NamedRandomState = input.randomState;
   const randomLog: { time: bigint; random: NamedRandomState }[] = [];
@@ -1566,6 +1579,30 @@ function runWorld(
       }),
     };
   }
+  /** Actors that arrived in the current group and consumed nothing. */
+  const unserved = new Set<string>();
+  /**
+   * Brings forward the queued decision of each actor whose selected action stopped being possible
+   * (`impossibleSelections`). True when a decision other than the mover's moved: the drain over the
+   * old queue must then run again.
+   */
+  function redecideImpossible(
+    at: SimTimeMs,
+    justDecided: ReadonlySet<string> = new Set(),
+  ): boolean {
+    let again = false;
+    for (const objectId of impossibleSelections(current(), unserved)) {
+      const queued = decisionsOf(schedules).find(
+        (candidate) => candidate.payload.objectId === objectId,
+      );
+      // A decision that has just been dispatched at `at` is never brought back to `at`: it decided
+      // from this very state, so deciding again would only repeat it.
+      if (queued === undefined || queued.dueAt <= at || justDecided.has(objectId)) continue;
+      reschedule(queued, at);
+      if (objectId !== mover) again = true;
+    }
+    return again;
+  }
   /** The immediate-or-completed (`moved`) arrival effects, journaled from the live state. */
   function emitArrival(objectId: string, planId: string, at: SimTimeMs, moved: boolean): void {
     const actor = objectsOf(current(), objectId);
@@ -1578,6 +1615,7 @@ function runWorld(
       new Map(),
       moved,
     );
+    if (moved && plan.consume === undefined) unserved.add(objectId);
     if (plan.location !== undefined)
       emit(
         event("location.changed", at, {
@@ -1878,7 +1916,7 @@ function runWorld(
               decisionIntervalMs: policy.decisionIntervalMs,
               ...(lifecyclePolicy === undefined
                 ? {}
-                : { deathHealth: lifecyclePolicy.deathHealth }),
+                : { deathHealth: (objectId: string) => kindOfActor(objectId)?.deathHealth }),
             },
           }),
       actors:
@@ -1919,7 +1957,7 @@ function runWorld(
     for (const action of plan.actions) {
       total += 1;
       if (action.kind !== "died") continue;
-      if (lifecyclePolicy !== undefined && lifecyclePolicy.successorRule !== null) total += 1;
+      if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
       if (movement !== undefined && movement.status === "active")
         // Terminal interruptions do not reconcile shelter arrivals before the following death.
@@ -1941,6 +1979,7 @@ function runWorld(
         : planLifecycleAt(
             lifecyclePolicy,
             lifecycleNow,
+            archetypesNow(),
             at,
             new Set(group.deaths),
             lifecycleRandom,
@@ -2251,7 +2290,9 @@ function runWorld(
             (candidate) => candidate.objectId === action.objectId,
           );
           if (entry === undefined) throw new RangeError("dying actor has no wellbeing entry");
-          if (action.cause === "health" && entry.health > lifecyclePolicy.deathHealth)
+          const kind = kindOfActor(action.objectId);
+          if (kind === undefined) throw new RangeError("dying actor has no lifecycle kind");
+          if (action.cause === "health" && entry.health > kind.deathHealth)
             throw new RangeError("health death disagrees with the integrator");
           emit(
             event("lifecycle.died", at, {
@@ -2267,12 +2308,12 @@ function runWorld(
             schedules = cancelSchedule(schedules, queued.id);
             scheduleMutations.push(Object.freeze({ kind: "cancel", scheduleId: queued.id }));
           }
-          if (lifecyclePolicy.successorRule !== null)
+          if (kind.successorRule !== null)
             emit(
               event("lifecycle.successor-intended", at, {
                 objectId: action.objectId,
-                successorId: lifecycleSuccessorId(action.objectId, lifecyclePolicy.successorRule),
-                rule: lifecyclePolicy.successorRule,
+                successorId: lifecycleSuccessorId(action.objectId, kind.successorRule),
+                rule: kind.successorRule,
               }),
             );
         } else if (action.kind === "stage") {
@@ -2410,7 +2451,12 @@ function runWorld(
       const lifeTime =
         lifecyclePolicy === undefined
           ? undefined
-          : nextLifecycleTime(lifecyclePolicy, current().lifecycle as never, cursor);
+          : nextLifecycleTime(
+              lifecyclePolicy,
+              current().lifecycle as never,
+              archetypesNow(),
+              cursor,
+            );
       const processTime = current().processes?.reduce<SimTimeMs | undefined>(
         (earliest, entry) =>
           entry.nextAt !== null &&
@@ -2491,12 +2537,21 @@ function runWorld(
       let rebuildAt: SimTimeMs | undefined;
       for (const group of groups) {
         arrivedActors = [];
+        unserved.clear();
         if (!emitGroup(group)) {
           fits = false;
           break;
         }
         if (lifecycleChanged || shelterChanged) {
           rebuildAt = group.time;
+          break;
+        }
+        // Food that an arrival ate, spoiled or evaporated leaves other actors' selections impossible.
+        if (
+          (arrivedActors.length > 0 || group.spoiled.length > 0 || group.water.length > 0) &&
+          redecideImpossible(group.time)
+        ) {
+          restartAt = group.time;
           break;
         }
         // An arrival, or an entry whose dwell falls due within this drain, restarts the drain here.
@@ -2539,6 +2594,7 @@ function runWorld(
             complete = false;
             break;
           }
+          redecideImpossible(processTime);
           engine = run = buildRun();
           continue;
         }
@@ -2691,6 +2747,8 @@ function runWorld(
       const nextDueAt = item.dueAt + policy.decisionIntervalMs;
       if (nextDueAt > MAX_TIME) throw new RangeError("next decision exceeds simulation-time range");
       reschedule(item, nextDueAt as SimTimeMs);
+      unserved.clear();
+      redecideImpossible(item.dueAt, new Set([actor.objectId]));
       dispatched += 1;
       if (spec.scheduled !== undefined) {
         // A scheduled decision stops once it has been dispatched; it never advances time further.
@@ -3794,7 +3852,11 @@ function chooseRoutine(
       score: hunger * BigInt(policy.hungerWeight),
     }),
   ];
-  for (const shelter of state.entities.filter((entity) => entity.shelter !== undefined)) {
+  // A retired shelter is no candidate, as in `scoreUtility`: `impossibleSelections` calls it gone,
+  // so selecting it again would bring the decision straight back.
+  for (const shelter of state.entities.filter(
+    (entity) => entity.shelter !== undefined && entityIsActive(entity),
+  )) {
     const compatible =
       shelter.spaceId === actor.spaceId &&
       shelter.pose.frameId === actor.pose.frameId &&
@@ -4053,8 +4115,35 @@ function runContainmentCommand(
       : [];
   for (const change of mutations)
     if (change.kind === "cancel") schedules = cancelSchedule(schedules, change.scheduleId);
+  // A retired target, or food consumed or moved away, brings forward the decision of each actor
+  // whose selected action it was.
+  const brought: WorldScheduleMutation[] = [];
+  if (type === "object.retire" || type === "resource.consume" || type === "resource.transfer") {
+    for (const objectId of impossibleSelections(final)) {
+      const queued = decisionsOf(schedules).find(
+        (candidate) => candidate.payload.objectId === objectId,
+      );
+      if (queued === undefined || queued.dueAt <= state.simulationTime) continue;
+      const next = Object.freeze({
+        ...queued,
+        dueAt: state.simulationTime,
+        payload: Object.freeze({ ...queued.payload }),
+        idempotencyKey: `${queued.id}:${state.simulationTime}`,
+      });
+      schedules = upsertSchedule(schedules, next);
+      brought.push(
+        Object.freeze({
+          kind: "upsert",
+          scheduleId: next.id,
+          dueAt: next.dueAt,
+          payload: next.payload,
+          item: next,
+        }),
+      );
+    }
+  }
   return {
-    scheduleMutations: mutations as readonly WorldScheduleMutation[],
+    scheduleMutations: [...(mutations as readonly WorldScheduleMutation[]), ...brought],
     projectionDelta: {
       schemaVersion: 1,
       partitionId: state.partitionId,

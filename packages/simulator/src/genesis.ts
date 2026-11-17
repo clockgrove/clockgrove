@@ -20,6 +20,7 @@ import {
   initialBoundaryExchanges,
   initialWorldProcesses,
   lifecycleDisagreement,
+  lifecycleForKind,
   type NamedRandomState,
   plantStageIndex,
   projectEffectiveObjectsToWorldState,
@@ -453,6 +454,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
     const entries = actors.map((actor) => {
       const at = `${facts.actorLoc.get(actor.objectId) ?? "manifest.actors"}#lifecycle`;
       const seed = seeds.get(actor.objectId);
+      const kind = lifecycleForKind(policy.lifecycle!, actor.archetypeId);
       if (seed === undefined || seed === null)
         return refuse("INVALID_INITIAL_STATE", at, "a needs actor needs a lifecycle seed");
       if (
@@ -472,7 +474,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
         parentIds: [...seed.parentIds],
         generation: seed.generation,
         bornAt: seed.bornAt,
-        stageIndex: deriveLifecycleStage(policy.lifecycle!, seed.bornAt, epoch),
+        stageIndex: kind === undefined ? 0 : deriveLifecycleStage(kind, seed.bornAt, epoch),
         conceptions: 0,
         lastBirthAt: null,
         gestation: null,

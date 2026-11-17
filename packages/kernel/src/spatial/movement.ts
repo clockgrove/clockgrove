@@ -14,6 +14,7 @@ import {
   type MovementReplanPayload,
   type MovementStartPayload,
   movementCompletionTime,
+  movementLegs,
   type PortalStep,
   parseMovementRecord,
   portalEdges,
@@ -69,14 +70,47 @@ function separatedRoute(
   graph: AnchorGraph,
   from: readonly bigint[],
   to: readonly bigint[] | Anchor,
+  time: bigint,
+  movement?: MovementRecord,
 ): AnchorRoute | null | undefined {
   const sides = portalSides(state, graph);
   if (sides === undefined) return undefined;
-  const first = sides.attach(from);
+  const first = sides.attach(from, lastAnchorReached(graph, movement, time));
   const last = "anchorId" in to ? to : sides.attach(to);
   const [near, far] = [sides.side(first.anchorId), sides.side(last.anchorId)];
   if (near === far || (!sides.guarded.has(near) && !sides.guarded.has(far))) return undefined;
   return routeAnchors(graph, first.anchorId, last.anchorId, portalEdges(state, graph)) ?? null;
+}
+
+/**
+ * The last anchor of the recorded anchor path a movement had reached by `time`, or, once it has
+ * crossed a portal on a hop it has not finished, the anchor it crossed to; undefined when it
+ * reached none.
+ */
+function lastAnchorReached(
+  graph: AnchorGraph,
+  movement: MovementRecord | undefined,
+  time: bigint,
+): string | undefined {
+  if (movement === undefined) return undefined;
+  const until = movement.endedAt !== undefined && movement.endedAt < time ? movement.endedAt : time;
+  const steps = movement.portalSteps ?? [];
+  const crossed = expectedCrossings({ ...movement, portalSteps: steps }, []);
+  let reached: string | undefined;
+  for (const [index, leg] of movementLegs(movement.segment).entries()) {
+    if (leg.end > until) {
+      const hop = steps.findIndex((step) => step.waypoint === index + 1);
+      if (hop >= 0 && crossed[hop]!.time <= until) reached = steps[hop]!.to;
+      break;
+    }
+    reached =
+      movement.anchorPath.find((id) =>
+        graph.anchors.some(
+          (anchor) => anchor.anchorId === id && sameCoordinates(anchor.coordinates, leg.to),
+        ),
+      ) ?? reached;
+  }
+  return reached;
 }
 
 function coordinatesOf(graph: AnchorGraph, anchors: readonly string[]): (readonly bigint[])[] {
@@ -124,7 +158,14 @@ export function planMovement(
         graph.anchors[0]!.coordinates.length !== start.length
       )
         continue;
-      const route = separatedRoute(state, graph, start, pose.coordinates);
+      const route = separatedRoute(
+        state,
+        graph,
+        start,
+        pose.coordinates,
+        startTime,
+        entity.movement,
+      );
       if (route === null) return { ok: false, path: "payload.destination" };
       if (route === undefined) continue;
       anchorPath = [...route.anchors];
@@ -147,7 +188,7 @@ export function planMovement(
       return { ok: false, path: "payload.destination.anchorId" };
     const origin = graph.anchors.find((candidate) => sameCoordinates(candidate.coordinates, start));
     if (origin === undefined) {
-      const route = separatedRoute(state, graph, start, anchor);
+      const route = separatedRoute(state, graph, start, anchor, startTime, entity.movement);
       if (route === null) return { ok: false, path: "payload.destination" };
       if (route === undefined) {
         anchorPath = [anchor.anchorId];
