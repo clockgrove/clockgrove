@@ -16,7 +16,7 @@ import {
   type TurnToolCall,
 } from "@clockgrove/application";
 import type { TalkReceipt, TalkRequest, TalkStreamFrame } from "@clockgrove/contracts";
-import type { PreparedModelStep, PreparedResponder } from "./actor-model.js";
+import type { ActorWorldCommand, PreparedModelStep, PreparedResponder } from "./actor-model.js";
 import { CONVERSATION_REFUSAL_STATUS, type ConversationStores } from "./conversations.js";
 
 /**
@@ -127,7 +127,7 @@ export interface TurnFiberHost {
     participant: ConversationParticipant,
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
-    call: { readonly objectId: string; readonly kind: string },
+    call: ActorWorldCommand,
   ): Promise<TurnCommandRecord>;
   /**
    * Executes an accepted self capability (issue 322): the actor's own subscriptions, intentions,
@@ -744,8 +744,8 @@ export class TurnFibers {
         summary: "Refused before the world: not_executable",
         evidence: await evidence({ refused: "not_executable" }),
       };
-    const { objectId, kind } = decision.input as { objectId: string; kind: string };
-    const record = await this.host.submitCommand(participant, fiber, proposal, { objectId, kind });
+    const { type, ...fields } = decision.input as { type: string } & Record<string, string>;
+    const record = await this.host.submitCommand(participant, fiber, proposal, { type, fields });
     return {
       ...record,
       evidence: await evidence({

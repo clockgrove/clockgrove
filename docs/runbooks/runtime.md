@@ -181,7 +181,7 @@ commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewe
 that unbacked creation; callers must use a finite donor transfer to add inventory. `/v1/runtime/conversations/*` and
 `/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
 category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
-answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
+answer `503 conversation_unavailable`. A Talk turn's actor may propose only the world commands its world's pack declares in a `clockgrove.actor-command-policy`, at most its `callsPerTurn` a turn, and none when the pack declares none ([capabilities](../protocols/capabilities.md#grants-budgets-and-revocation)). Changing the declaration is a pack change, installed with the pack. `/v1/runtime/say` is public scripted speech that stores
 nothing. Talk turns, `/v1/runtime/turns/status` and `/v1/runtime/turns/cancel` run in the session
 actor's `ActorAgentDO`; see [recoverable turn fibers](../protocols/conversation-fibers.md),
 [private conversations](../protocols/conversations.md) and

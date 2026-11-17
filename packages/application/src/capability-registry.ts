@@ -85,12 +85,27 @@ export class CapabilityRegistry {
   /**
    * The grants a member's runtime grants allow an actor: one per registered capability whose
    * required grant the member holds, with the default budget. Nothing is granted by name alone.
+   * `world.command` is granted only for the world's own declaration (issue 359): its commands and
+   * per-turn budget. Without one, an actor may propose no world command.
    */
-  grantsFor(runtimeGrants: readonly string[]): CapabilityGrants {
+  grantsFor(
+    runtimeGrants: readonly string[],
+    actorCommands?: ActorCommandPolicy,
+  ): CapabilityGrants {
     const held = new Set(runtimeGrants);
+    const declared: CapabilityGrant[] =
+      actorCommands === undefined
+        ? []
+        : [
+            {
+              capability: "world.command",
+              callsPerTurn: actorCommands.callsPerTurn,
+              commandTypes: [...actorCommands.commands],
+            },
+          ];
     return new CapabilityGrants(
       this,
-      DEFAULT_GRANTS.filter((grant) => {
+      [...DEFAULT_GRANTS, ...declared].filter((grant) => {
         const definition = this.definitions.get(grant.capability);
         return definition !== undefined && held.has(definition.requiredRuntimeGrant);
       }),
@@ -99,11 +114,48 @@ export class CapabilityRegistry {
   }
 }
 
-/** One grant per capability and one call each: An actor proposes at most one command a turn. */
+/**
+ * A world's declaration of the commands its actors may propose on their own, and how many a turn:
+ * the pack's `clockgrove.actor-command-policy` (issue 359).
+ */
+export interface ActorCommandPolicy {
+  readonly commands: readonly string[];
+  readonly callsPerTurn: number;
+}
+
+export const ACTOR_COMMAND_POLICY_TYPE = "clockgrove.actor-command-policy";
+
+/**
+ * The actor-command declaration among a pack's decoded policies, or undefined when it has none.
+ * The world-pack SDK validated it at install; a malformed one here refuses rather than grants.
+ */
+export function actorCommandPolicyOf(policies: readonly unknown[]): ActorCommandPolicy | undefined {
+  const found = policies.filter(
+    (value) =>
+      typeof value === "object" &&
+      value !== null &&
+      (value as { type?: unknown }).type === ACTOR_COMMAND_POLICY_TYPE,
+  ) as { commands?: unknown; callsPerTurn?: unknown }[];
+  if (found.length === 0) return undefined;
+  const [policy] = found;
+  const { commands, callsPerTurn } = policy ?? {};
+  if (
+    found.length > 1 ||
+    !Array.isArray(commands) ||
+    !commands.every((command) => typeof command === "string") ||
+    typeof callsPerTurn !== "number" ||
+    !Number.isSafeInteger(callsPerTurn) ||
+    callsPerTurn < 1 ||
+    callsPerTurn > 4
+  )
+    throw new Error("installed actor command policy malformed");
+  return { commands: commands as string[], callsPerTurn };
+}
+
+/** One grant per capability and one call each. `world.command` comes only from the world. */
 const DEFAULT_GRANTS: readonly CapabilityGrant[] = [
   { capability: "inspect", callsPerTurn: 1 },
   { capability: "why", callsPerTurn: 1 },
-  { capability: "world.command", callsPerTurn: 1, commandTypes: ["resource.offer"] },
   { capability: "subscription.create", callsPerTurn: 1 },
   { capability: "subscription.revoke", callsPerTurn: 1 },
   { capability: "intention.schedule", callsPerTurn: 1 },
@@ -278,12 +330,25 @@ export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
     description: "Propose one typed world command; the ordinary validator decides it.",
     effect: "world_command",
     requiredRuntimeGrant: "runtime:world-command",
+    // The command's type and its object fields (issue 359); the runtime adds the schema version
+    // and the one unit an actor moves, so a proposal never sets a quantity.
     parse: (input) => {
-      const value = record(input, ["type", "objectId", "kind"]);
+      if (typeof input !== "object" || input === null || Array.isArray(input))
+        throw new CapabilityInputError("input shape refused");
+      const { type, ...fields } = input as Record<string, unknown>;
+      const names = Object.keys(fields);
+      if (
+        names.length === 0 ||
+        names.length > 4 ||
+        names.some(
+          (name) =>
+            !/^[a-z][A-Za-z]{0,63}$/u.test(name) || name === "schemaVersion" || name === "quantity",
+        )
+      )
+        throw new CapabilityInputError("input shape refused");
       return {
-        type: identifier(value.type),
-        objectId: identifier(value.objectId),
-        kind: identifier(value.kind),
+        type: identifier(type),
+        ...Object.fromEntries(names.sort().map((name) => [name, identifier(fields[name])])),
       };
     },
   },

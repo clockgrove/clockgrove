@@ -8,6 +8,7 @@ import {
   type ActivationPolicy,
   type ActivationWake,
   type ActorActivation,
+  type ActorCommandPolicy,
   type ActorReplyShadowRecord,
   AuthenticationRefusedError,
   AuthorizationRefusedError,
@@ -94,13 +95,14 @@ import {
 } from "./actor-agent.js";
 import {
   type ActorModelDeps,
+  type ActorWorldCommand,
   actorCommandId,
   actorContextSettings,
   actorGateway,
   actorModelConfiguration,
-  actorOfferCommand,
   actorPreparedResponder,
   actorResponder,
+  actorWorldCommand,
   type PerceptionFocus,
   type PreparedResponder,
   standingOf,
@@ -149,7 +151,11 @@ import {
   type OwnerMailboxState,
   SPACE_MAILBOX_BOUNDS,
 } from "./mailbox.js";
-import { readActorMcpCapabilities, resolveActorCapabilities } from "./mcp-actor-capabilities.js";
+import {
+  readActorCommandPolicy,
+  readActorMcpCapabilities,
+  resolveActorCapabilities,
+} from "./mcp-actor-capabilities.js";
 import {
   actorReplyShadowPolicy,
   moderationShadowDecider,
@@ -1449,15 +1455,17 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       }),
     ]);
     const revoked = new Set(canonical?.revoked ?? []);
-    const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(memberGrants).grants.map(
-      (grant) => ({
-        capability: grant.capability,
-        effect: CAPABILITY_REGISTRY.get(grant.capability)?.effect ?? "read",
-        callsPerTurn: grant.callsPerTurn,
-        ...(grant.commandTypes === undefined ? {} : { commandTypes: grant.commandTypes }),
-        revoked: revoked.has(grant.capability),
-      }),
-    );
+    const actorCommands = await this.actorCommands(context, scope);
+    const grants: InternalGrantView[] = CAPABILITY_REGISTRY.grantsFor(
+      memberGrants,
+      actorCommands,
+    ).grants.map((grant) => ({
+      capability: grant.capability,
+      effect: CAPABILITY_REGISTRY.get(grant.capability)?.effect ?? "read",
+      callsPerTurn: grant.callsPerTurn,
+      ...(grant.commandTypes === undefined ? {} : { commandTypes: grant.commandTypes }),
+      revoked: revoked.has(grant.capability),
+    }));
     // The policy and its budget read under the caller's row security: when another member owns
     // the actor's policy, they are this caller's defaults, not the actor's, and its configure would
     // be refused. Without a policy, this caller's configure creates one it owns.
@@ -2081,6 +2089,16 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return stores;
   }
 
+  /** The installed pack's actor-command declaration, read under the member's row security. */
+  private actorCommands(
+    context: TrustedExecutionContext,
+    scope: { readonly tenantId: string; readonly worldId: string },
+  ): Promise<ActorCommandPolicy | undefined> {
+    return withActorCapabilityClient(this.environment, (client) =>
+      readActorCommandPolicy(client, worldAuthorization(context), scope),
+    );
+  }
+
   /** The actor's grants: the registry's, bounded by the grants of the participating member. */
   private async grants(
     participant: ConversationSessionParticipant,
@@ -2090,6 +2108,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): Promise<CapabilityGrants | undefined> {
     const context = this.#talkContext(participant);
     if (context === undefined) return undefined;
+    // The world's own declaration of what its actors may propose (issue 359).
+    const actorCommands = await this.actorCommands(context, scope);
     const admitted = await resolveActorCapabilities(
       this.environment.PROVIDER_ENVIRONMENT,
       context.grants.map(String),
@@ -2102,8 +2122,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
             actorId,
             sessionId,
             runtimeGrants: context.grants.map(String),
+            ...(actorCommands === undefined ? {} : { actorCommands }),
           }),
         ),
+      actorCommands,
     );
     await this.reconcileCapabilities(admitted.revision);
     // Canonical per-actor revocation (issue 322): the operator's policy names them.
@@ -2402,7 +2424,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   }
 
   /**
-   * Submits the actor's authorized proposal as an ordinary `resource.offer`, sealed with the member's
+   * Submits the actor's authorized proposal as the ordinary command it declares, sealed with the member's
    * principal, membership and persona like the member's own Influence. The world decides it; the
    * outcome is returned as the turn's recorded command step.
    */
@@ -2410,7 +2432,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     participant: ConversationParticipant,
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
-    offer: { readonly objectId: string; readonly kind: string },
+    call: ActorWorldCommand,
   ): Promise<TurnCommandRecord> {
     const context = this.#talkContext(participant);
     if (context === undefined || proposal.expectedRevision === undefined)
@@ -2445,7 +2467,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       this.environment.HYPERDRIVE?.connectionString ?? "",
       (owner) =>
         owner.prepareBuilt(scope, participant.principalId, commandId, (fields) =>
-          actorOfferCommand(scope, fiber.actorId, commandId, offer, expectedRevision, {
+          actorWorldCommand(scope, fiber.actorId, commandId, call, expectedRevision, {
             epochs: fields.epochs,
             context: fields.context ?? metadata,
             issuedAt: fields.issuedAt ?? proposal.issuedAt,
@@ -2513,8 +2535,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       research: this.research(),
       grants: (participant, fiber) =>
         this.grants(participant, fiber.scope, fiber.actorId, fiber.sessionId),
-      submitCommand: (participant, fiber, proposal, offer) =>
-        this.submitCommand(participant, fiber, proposal, offer),
+      submitCommand: (participant, fiber, proposal, call) =>
+        this.submitCommand(participant, fiber, proposal, call),
       executeSelf: (participant, fiber, proposal, definition, input) =>
         this.executeSelf(participant, fiber, proposal, definition, input),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,

@@ -14,7 +14,7 @@ one exact input shape and refuses everything else.
 | --------------- | --------------- | ------------------------ | ------------------------------------ |
 | `inspect`       | `read`          | `runtime:world-observe`  | none                                 |
 | `why`           | `read`          | `runtime:world-observe`  | `commandId`                          |
-| `world.command` | `world_command` | `runtime:world-command`  | `type`, `objectId`, `kind`           |
+| `world.command` | `world_command` | `runtime:world-command` and the world's declaration | `type` and the command's object fields (1–4 identifiers; `objectId` and `kind` for an offer) |
 | `delivery.request` | `external-write` | Authorized proactive activation only; current `runtime:world-command` and delivery authority | `urgency`, `quietHoursBehavior` |
 | `subscription.create` | `actor-write` | `runtime:world-command` | `eventType` (1–256 bytes), `input` (1–1,024 bytes) |
 | `subscription.revoke` | `actor-write` | `runtime:world-command` | `subscriptionId` |
@@ -33,12 +33,18 @@ never activates an adapter.
 
 ## Grants, budgets and revocation
 
-`registry.grantsFor(memberGrants)` returns one `CapabilityGrant` per capability whose required
+`registry.grantsFor(memberGrants, actorCommands)` returns one `CapabilityGrant` per capability whose required
 runtime grant the member holds. An actor therefore never holds more than the member it talks with. `delivery.request` is excluded from default grants; only the authorized proactive producer constructs its one-call grant, and recipient-owned consent and budget still govern the request.
 Decisions:
 
 - Internal grants allow one call per capability per turn. World-command turns retain their one-command path; a configured research turn may take up to three read calls and four model steps.
-- `world.command` names the command types it allows. Only `resource.offer` is granted.
+- `world.command` comes only from the world's own declaration (issue 359): the installed pack's
+  `clockgrove.actor-command-policy` ([collections](../../packages/world-pack-sdk/docs/collections.md)),
+  read each time the actor's grants are resolved, under the member's row security. Its `commands`
+  are the grant's command types and its `callsPerTurn` the grant's budget. A pack with no such policy
+  grants no `world.command`, so an actor's proposal is refused `not_granted`; a type the policy does
+  not name is refused `command_type_not_granted`. The member must still hold
+  `runtime:world-command`. The fixture-hall pack declares `resource.offer` with one call a turn.
 - `grants.revoke(name)` returns grants without that capability; its proposals are refused `revoked`.
 - Revocation is canonical per actor: the activation policy's `revokedCapabilities`, set by the
   policy owner through `/v1/runtime/activations/configure`
@@ -68,9 +74,11 @@ still proposes only through this decision, so it cannot widen a grant.
 
 ## Executing a world command
 
-An accepted `world.command` proposal becomes the ordinary command `resource.offer`, built by the
-server (`apps/runtime/src/actor-model.ts`), never taken from the model's text. Under the
-[closed-world contract](../../packages/kernel/docs/ecology.md), this unbacked offer is refused by
+An accepted `world.command` proposal becomes the ordinary command of its declared type, built by the
+server (`actorWorldCommand`, `apps/runtime/src/actor-model.ts`): the proposal's object fields, with
+`schemaVersion: 1` and `quantity: 1` added by the server, never taken from the model's text. The
+world's ordinary validator decides the payload. For `resource.offer`, under the
+[closed-world contract](../../packages/kernel/docs/ecology.md), an unbacked offer is refused by
 `resource.closed-world@1` at `payload.quantity`; capability admission cannot create inventory.
 The refusal retains the ordinary command receipt and attribution:
 
