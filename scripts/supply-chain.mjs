@@ -37,6 +37,51 @@ const verifiedLicenses = new Map([
   ],
 ]);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Advisories a person reviewed and accepted until a date, keyed by exact `name@version` and the
+// advisory's GHSA id, each with why it does not apply here and the evidence. Another locked version,
+// another advisory or a day after `until` fails the scan again, so an entry is a deadline to
+// re-review, not a standing suppression.
+export const acceptedAdvisories = new Map([
+  [
+    "picomatch@4.0.7 GHSA-fc5q-39xc-vjpf",
+    {
+      until: "2026-12-17",
+      reason:
+        "A ReDoS needs an attacker-chosen glob pattern. picomatch is locked only for build and test tools (vite, vitest, tinyglobby, fdir, dependency-cruiser, @rolldown/plugin-babel), which match patterns the repository writes. 4.0.7 is the newest release, so no fixed version can be locked yet.",
+      evidence: "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    },
+  ],
+]);
+const advisoryId = (advisory) =>
+  String(advisory.url ?? "")
+    .split("/")
+    .pop();
+// The advisories in npm's bulk answer (`{ name: [advisory] }`) that no entry of `accepted` covers on
+// `today` (YYYY-MM-DD, UTC) for every locked version of that package. An advisory names its GHSA id
+// as the last segment of its `url`.
+export function openAdvisories(
+  advisories,
+  versions,
+  { accepted = acceptedAdvisories, today = new Date().toISOString().slice(0, 10) } = {},
+) {
+  const open = {};
+  for (const [name, list] of Object.entries(advisories)) {
+    for (const advisory of list) {
+      const id = advisoryId(advisory);
+      const locked = versions[name] ?? [];
+      const covered =
+        locked.length > 0 &&
+        locked.every((version) => {
+          const entry = accepted.get(`${name}@${version} ${id}`);
+          return (
+            entry !== undefined && /^\d{4}-\d{2}-\d{2}$/u.test(entry.until) && today <= entry.until
+          );
+        });
+      if (!covered) (open[name] ??= []).push(advisory);
+    }
+  }
+  return open;
+}
 export async function checkDependencyPolicy(directory) {
   const manifests = ["package.json"];
   const { readdir } = await import("node:fs/promises");
@@ -312,11 +357,17 @@ export async function verifySupplyChain(directory = root, output = process.env.C
         path.join(output, "vulnerabilities.json"),
         JSON.stringify(advisories, null, 2),
       );
+    const open = openAdvisories(advisories, versions);
     assert.equal(
-      Object.keys(advisories).length,
+      Object.keys(open).length,
       0,
       "dependency vulnerability scan: advisories found; inspect vulnerabilities.json",
     );
+    for (const [name, list] of Object.entries(advisories))
+      for (const advisory of list)
+        console.log(
+          `dependency vulnerabilities: accepted ${name} ${advisoryId(advisory)} (acceptedAdvisories)`,
+        );
     console.log(`dependency vulnerabilities: passed; ${components.length} locked components`);
   });
   if (output)
