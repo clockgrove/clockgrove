@@ -229,6 +229,25 @@ const doc = (context: Context, path: string): Json => context.docs[path] as Json
 const actor = (context: Context): Json => doc(context, "actors/resident.json");
 const behaviorPolicy = (context: Context): Json => doc(context, "policies/behavior.json").policy;
 
+function addActorCommandPolicy(
+  { docs, manifest }: Context,
+  fields: Json,
+  path = "policies/actor-commands.json",
+) {
+  docs[path] = {
+    type: "clockgrove.actor-command-policy",
+    schemaVersion: 1,
+    callsPerTurn: 1,
+    commands: ["world.say"],
+    ...fields,
+  };
+  manifest.policies.push({
+    id: `unit.actor-commands${manifest.policies.length}`,
+    version: 1,
+    path,
+  });
+}
+
 const cases: Case[] = [
   [
     "INVALID_POLICY",
@@ -364,6 +383,24 @@ const cases: Case[] = [
     ({ docs }) => (docs["policies/behavior.json"] = { type: "other.policy" }),
   ],
   [
+    "INVALID_POLICY",
+    "manifest.policies[2].commands[0]",
+    (c) => addActorCommandPolicy(c, { commands: ["resource.offer"] }),
+  ],
+  [
+    "INVALID_POLICY",
+    "manifest.policies[2].callsPerTurn",
+    (c) => addActorCommandPolicy(c, { callsPerTurn: 5 }),
+  ],
+  [
+    "DUPLICATE_POLICY",
+    "manifest.policies[3]",
+    (c) => {
+      addActorCommandPolicy(c, {});
+      addActorCommandPolicy(c, {}, "policies/actor-commands2.json");
+    },
+  ],
+  [
     "UNKNOWN_SPACE",
     "manifest.actors[0].placement.space",
     (c) => (actor(c).placement.space = { id: "unit.nowhere", version: 1 }),
@@ -418,6 +455,10 @@ describe("world pack refusals", () => {
     expect(await buildWorldPack(await build(), bare)).toEqual(
       refusal("UNKNOWN_COMMAND", "manifest.capabilities[0].commands[0]"),
     );
+  });
+
+  it("accepts an actor command policy in a valid pack", async () => {
+    await built((c) => addActorCommandPolicy(c, {}));
   });
 
   it("accepts a placement on a region boundary", async () => {
