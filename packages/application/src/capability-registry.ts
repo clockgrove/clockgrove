@@ -273,8 +273,9 @@ const WAKE_INPUT = { type: "string", minLength: 1, maxLength: 1024 } as const;
 /**
  * Decision (issue 359): at most 4 object fields in an actor's `world.command`. The widest catalogue
  * payload this shape fits without naming an actor or a boundary has 3 (`resource.transfer`:
- * fromObjectId, toObjectId, kind; `containment.transfer`: objectId, fromContainerId, toContainerId),
- * and one more leaves room for a pack command of the same kind with one extra identifier.
+ * fromObjectId, toObjectId, kind), and one more leaves room for a pack command of the same kind with
+ * one extra identifier. (`containment.transfer` has 3 too but no `quantity`, which the runtime always
+ * adds, so it does not fit.)
  * `boundary.exchange` (5, naming the acting actor) stays out of reach.
  */
 const MAX_WORLD_COMMAND_FIELDS = 4;

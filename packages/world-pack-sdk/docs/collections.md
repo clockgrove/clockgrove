@@ -78,8 +78,7 @@ The runtime builds an actor's proposal into a fixed payload shape: `{ schemaVers
 plus one to four fields the actor names (lower camel case of at most 64 characters, not
 `schemaVersion` or `quantity`), each an identifier (`[A-Za-z0-9][A-Za-z0-9._:-]{0,255}`). Four is a
 decision: the widest catalogue payload the shape fits without naming an actor or a boundary has three
-fields (`resource.transfer`, `containment.transfer`), and one more leaves room for a pack command of
-the same kind; `boundary.exchange`, which names the acting actor, needs five and stays out of reach.
+fields (`resource.transfer`), and one more leaves room for a pack command of the same kind; `boundary.exchange`, which names the acting actor, needs five and stays out of reach.
 64 is well above the longest catalogue field name (`fromContainerId`, 15) and bounds a proposal's keys. Declare only commands whose payload that shape can
 satisfy, such as `resource.offer` or `resource.transfer`: the SDK cannot see a command's payload schema,
 so it accepts any command a capability declares, but one that needs free text, another number, no
