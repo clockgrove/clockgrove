@@ -93,7 +93,11 @@ async function journey(name: Case) {
       await expect
         .poll(async () => (await wake()).body, { timeout: 90000 })
         .toMatchObject({ status: "completed" });
-      const read = await post("/v1/runtime/conversations/read", { sessionId });
+      // The wake's turn runs in a wake session of the configured session.
+      const wakeSessionId = await owner.sql(
+        `SELECT session_id FROM clockgrove.conversation_sessions WHERE wake_of='${sessionId}'`,
+      );
+      const read = await post("/v1/runtime/conversations/read", { sessionId: wakeSessionId });
       expect(JSON.stringify(read.body)).toContain(
         "Fixture research refused: Tool refused: approver_unconfigured",
       );
