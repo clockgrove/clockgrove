@@ -1882,7 +1882,7 @@ END;
 $$;
 ROLLBACK;
 
--- Breaker transitions (0074): a participant writes rows only on a running run of the row's own
+-- Breaker transitions (0076): a participant writes rows only on a running run of the row's own
 -- session and world, at most 512 a run (32 steps x 16 transitions a call); no one writes another session's rows or changes one.
 BEGIN;
 SELECT pg_temp.act_as('tenant-a', 'principal-a2');

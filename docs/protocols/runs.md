@@ -119,7 +119,7 @@ they are refused here with `403 authorization_refused`.
   A run whose model call changed a route's breaker carries `breakerTransitions`: `routeId`,
   `alias`, `from`, `to` (`closed`, `open`, `half_open`), `consecutiveFailures` and `recordedAt`,
   oldest first; absent when none changed. Each is one immutable row of
-  `clockgrove.model_breaker_transitions` (migration 0074), written by the turn's participant right
+  `clockgrove.model_breaker_transitions` (migration 0076), written by the turn's participant right
   after the call on the run that made it, and readable by that participant or an inspector holding
   `operator_evidence`. Its guard holds each row to a running run of the row's own session and world
   and a run to at most 512 rows (a run has at most 32 steps, each of its calls is one of them, and a

@@ -328,7 +328,7 @@ it("a smaller route limit lowers the context budget, and one with no room is ref
     expect(() => actorModelConfiguration(configured(limit))).toThrow(
       `world model alias actor.small maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (311920); the minimum is 311944`,
     );
-  // Issue 374: at most 8 routes an alias and 256-byte names, so a call's breaker record fits 0075.
+  // Issue 374: at most 8 routes an alias and 256-byte names, so a call's breaker record fits 0076.
   const reshaped = (change: (alias: { routes: { id: string }[] }) => void) => {
     const value = JSON.parse(configured(314_320));
     change(value.aliases[0]);

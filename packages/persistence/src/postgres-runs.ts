@@ -351,7 +351,7 @@ export class PostgreSqlRunRecorder {
 
   /**
    * The breaker changes one model call caused, under the participant's authorization, on the run
-   * that made the call; the guard (0074) refuses a run that is not running in this session and
+   * that made the call; the guard (0076) refuses a run that is not running in this session and
    * world. A retried write of the same call adds nothing.
    */
   async breakerTransitions(
