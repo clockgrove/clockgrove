@@ -121,7 +121,8 @@ const scoped = (intent: EffectIntentMetadata) => [
 ];
 const internal = (capability: string) => capability === "inspect" || capability === "why";
 // An attempt is lost only when neither its last heartbeat nor its start is this old: the executor
-// is really gone, however long a write or its persistence takes (issue 366).
+// is really gone, however long a write or its persistence takes (issue 366). The contract is the
+// lost-attempt paragraph of docs/runbooks/runtime.md (heartbeat_at, ATTEMPT_HEARTBEAT_MS).
 const ATTEMPT_RECONCILIATION_MS = 60_000;
 // Decision (issue 366): four beats fit in the 60 s window, so one slow beat under contention
 // does not lose the lease.
