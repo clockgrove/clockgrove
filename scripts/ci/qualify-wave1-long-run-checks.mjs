@@ -2,6 +2,7 @@
 // read from one decoded summarised scenario bundle (packages/simulator/docs/scenarios.md). Pure: no
 // clock, I/O or randomness; bigints stay bigints.
 import { createHash } from "node:crypto";
+import { isIntegrationEventType } from "../../packages/domain/src/events/world-events.ts";
 
 export const SMALL_STEP_RUN = "main";
 export const AGGREGATE_RUN = "aggregate";
@@ -179,8 +180,23 @@ const CHECKS = [
         bundle.runs.find((run) => run.name === name),
       );
       if (!small || !aggregate) return [`runs ${SMALL_STEP_RUN} and ${AGGREGATE_RUN} are required`];
-      // Stepping finely adds integration events only: at most a tenth more, or one final group per
-      // step (needs/wellbeing per actor, one per plant/water holder, and time.advanced). Since unchanged
+      // Stepping finely adds integration events only, as the world event vocabulary declares them: any
+      // other type (a duplicated routine.selected, a re-emitted schedule event) may not grow at all.
+      const types = new Set([
+        ...Object.keys(small.eventCounts),
+        ...Object.keys(aggregate.eventCounts),
+      ]);
+      let integrationExtra = 0;
+      for (const type of [...types].sort()) {
+        const extra = (small.eventCounts[type] ?? 0) - (aggregate.eventCounts[type] ?? 0);
+        if (isIntegrationEventType(type)) integrationExtra += extra;
+        else if (extra > 0)
+          problems.push(
+            `${small.commands.length} small steps emitted ${extra} more ${type} than the aggregate`,
+          );
+      }
+      // The integration events themselves: at most a tenth more, or one final group per step
+      // (needs/wellbeing per actor, one per plant/water holder, and time.advanced). Since unchanged
       // decisions journal nothing, the final groups can be most of a short run's events.
       const { entities, wellbeing, ecology } = aggregate.finalState;
       const actors = entities.filter((entity) => entity.needs !== undefined).length;
@@ -193,9 +209,9 @@ const CHECKS = [
         Math.ceil(aggregate.events.count / 10),
         small.commands.length * finalGroup,
       );
-      if (small.events.count - aggregate.events.count > allowance)
+      if (integrationExtra > allowance)
         problems.push(
-          `${small.commands.length} small steps emitted ${small.events.count} events, the aggregate ${aggregate.events.count}`,
+          `${small.commands.length} small steps emitted ${integrationExtra} more integration events than the aggregate, above ${allowance}`,
         );
       for (const run of bundle.runs)
         for (const command of run.commands)
