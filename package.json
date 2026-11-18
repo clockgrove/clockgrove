@@ -11,6 +11,7 @@
   "scripts": {
     "check": "biome check . && turbo run check --cache-dir=.turbo/cache && depcruise --config dependency-cruiser.config.mjs packages && node scripts/check-boundaries.mjs && node scripts/design-tokens.mjs && design.md lint DESIGN.md",
     "journey:scope": "node scripts/journey-scope.mjs",
+    "goldens:regenerate": "node scripts/regenerate-goldens.mjs",
     "format": "biome check --write .",
     "db:migrate": "node scripts/database/migrate.mjs",
     "db:verify": "node scripts/database/verify.mjs",
