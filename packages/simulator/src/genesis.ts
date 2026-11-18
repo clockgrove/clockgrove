@@ -57,14 +57,20 @@ import {
   validateWorldPack,
   WORLD_PACK_ENGINE_VERSION,
   type WorldPackArtifactRef,
+  type WorldPackLimits,
   type WorldPackPorts,
 } from "@clockgrove/world-pack-sdk";
 import { GENESIS_BUNDLE_KIND, SIMULATOR_VERSION } from "./constants.js";
 import { deepFreeze, isRecord } from "./scenario/support.js";
 
-/** The one port seeding needs: lowercase hexadecimal SHA-256 of exact bytes. */
+/** What seeding needs: lowercase hexadecimal SHA-256 of exact bytes, and any raised pack limits. */
 export interface SimulatorPorts {
   sha256(bytes: Uint8Array): Promise<string>;
+  /**
+   * The world owner's raises of the pack size limits (`DEFAULT_WORLD_PACK_LIMITS`), applied when the
+   * pack is built, validated and seeded. Build and seed with the same raises: absent keeps the defaults.
+   */
+  readonly packLimits?: Partial<WorldPackLimits>;
 }
 
 export interface SeedRefusal {
@@ -177,6 +183,7 @@ export function createSimulatorPackPorts(ports: SimulatorPorts): WorldPackPorts 
     canonicalBytes,
     sha256: (bytes) => ports.sha256(bytes),
     commandCatalog: worldRegistryIdentity().commands.map(([type, version]) => ({ type, version })),
+    ...(ports.packLimits === undefined ? {} : { limits: ports.packLimits }),
   };
 }
 

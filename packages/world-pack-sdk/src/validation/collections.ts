@@ -1,5 +1,6 @@
 import { decodeOpaqueId } from "@clockgrove/contracts";
 import {
+  closedWorldRefusal,
   DomainValidationError,
   parseAnchorGraph,
   parseSpatialRegion,
@@ -15,6 +16,7 @@ import {
   type WorldBehaviorPolicy,
 } from "@clockgrove/domain";
 import { fail } from "../errors.js";
+import type { WorldPackLimits } from "../limits.js";
 import {
   CAPABILITY_KINDS,
   type CapabilityDefinition,
@@ -35,10 +37,6 @@ import {
   text,
 } from "./shape.js";
 
-export const MAX_REGIONS = 64;
-export const MAX_CAPABILITIES = 256;
-export const MAX_CAPABILITY_COMMANDS = 64;
-export const MAX_SEED_COMMANDS = 1024;
 const MAX_PAYLOAD_DEPTH = 32;
 
 export type Catalog = ReadonlySet<string>;
@@ -70,7 +68,12 @@ function listOf(value: unknown, loc: string): unknown[] {
 }
 
 /** Spaces: frame, regions in that frame and an optional anchor graph, all domain-validated. */
-export function parseSpace(decoded: unknown, entry: ResourceEntry, loc: string): SpaceEntry {
+export function parseSpace(
+  decoded: unknown,
+  entry: ResourceEntry,
+  loc: string,
+  limits: WorldPackLimits,
+): SpaceEntry {
   const record = exact(
     decoded,
     ["id", "version", "frame", "regions", "anchorGraph"],
@@ -117,8 +120,8 @@ export function parseSpace(decoded: unknown, entry: ResourceEntry, loc: string):
     fail("INVALID_SPACE", `${framePath}.dimensions`, "expected 2 or 3 dimensions");
 
   const rawRegions = listOf(record.regions, `${loc}#regions`);
-  if (rawRegions.length > MAX_REGIONS)
-    fail("LIMIT_EXCEEDED", `${loc}#regions`, `at most ${MAX_REGIONS} regions`);
+  if (rawRegions.length > limits.regions)
+    fail("LIMIT_EXCEEDED", `${loc}#regions`, `at most ${limits.regions} regions`);
   const regionIds = new Set<string>();
   const regions: SpatialRegion[] = rawRegions.map((raw, index) => {
     const path = `regions[${index}]`;
@@ -218,10 +221,14 @@ export function parseRule(
   return deepFreeze(rule);
 }
 
-export function parseCapabilities(value: unknown, catalog: Catalog): CapabilityDefinition[] {
+export function parseCapabilities(
+  value: unknown,
+  catalog: Catalog,
+  limits: WorldPackLimits,
+): CapabilityDefinition[] {
   const items = array(value, "manifest.capabilities");
-  if (items.length > MAX_CAPABILITIES)
-    fail("LIMIT_EXCEEDED", "manifest.capabilities", `at most ${MAX_CAPABILITIES} capabilities`);
+  if (items.length > limits.capabilities)
+    fail("LIMIT_EXCEEDED", "manifest.capabilities", `at most ${limits.capabilities} capabilities`);
   const seen = new Set<string>();
   const result = items.map((raw, index): CapabilityDefinition => {
     const loc = `manifest.capabilities[${index}]`;
@@ -234,7 +241,7 @@ export function parseCapabilities(value: unknown, catalog: Catalog): CapabilityD
     )
       fail("INVALID_CAPABILITY", `${loc}.kind`, `expected one of ${CAPABILITY_KINDS.join(", ")}`);
     const commandList = array(record.commands, `${loc}.commands`);
-    if (commandList.length > MAX_CAPABILITY_COMMANDS)
+    if (commandList.length > limits.capabilityCommands)
       fail("LIMIT_EXCEEDED", `${loc}.commands`, "too many commands");
     const commandKeys = new Set<string>();
     const commands = commandList.map((item, position) => {
@@ -287,10 +294,11 @@ export function parseSeedCommands(
   value: unknown,
   catalog: Catalog,
   ports: WorldPackPorts,
+  limits: WorldPackLimits,
 ): SeedCommand[] {
   const items = array(value, "manifest.seedCommands");
-  if (items.length > MAX_SEED_COMMANDS)
-    fail("LIMIT_EXCEEDED", "manifest.seedCommands", `at most ${MAX_SEED_COMMANDS} seed commands`);
+  if (items.length > limits.seedCommands)
+    fail("LIMIT_EXCEEDED", "manifest.seedCommands", `at most ${limits.seedCommands} seed commands`);
   const keys = new Set<string>();
   const result = items.map((raw, index): SeedCommand => {
     const loc = `manifest.seedCommands[${index}]`;
@@ -304,14 +312,7 @@ export function parseSeedCommands(
       fail("UNKNOWN_COMMAND", `${loc}.type`, "command is not in the command catalog");
     if (!isRecord(record.payload) || !plainData(record.payload, 0))
       fail("INVALID_SEED_COMMAND", `${loc}.payload`, "expected a plain data record");
-    const object = record.payload.object;
-    if (
-      type === "resource.offer" ||
-      (type === "object.create" &&
-        isRecord(object) &&
-        isRecord(object.resource) &&
-        object.resource.quantity !== 0)
-    )
+    if (closedWorldRefusal({ type, payload: record.payload }) !== undefined)
       fail(
         "INVALID_SEED_COMMAND",
         `${loc}.payload`,

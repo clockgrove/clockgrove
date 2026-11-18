@@ -1200,6 +1200,12 @@ Birth steps explicitly pin the [native retry defaults](https://developers.cloudf
 five retries, a 10000 ms initial exponential delay and a ten-minute timeout per attempt.
 The finite local fault tests retain the retry count and timeout while removing the retry delay.
 
+Birth seeds the pack under the [pack size limits](../../packages/world-pack-sdk/docs/source-and-compatibility.md#size-limits).
+To host packs larger than the defaults, bind `WORLD_PACK_LIMITS` to a JSON object of raises, for
+example `{"resources":2048}`, and build the artifact with the same value in the CLI's environment.
+Omit the binding to keep the defaults. An unknown name, a non-integer or a value below its default
+fails the birth step rather than falling back to the defaults.
+
 A provisioning refusal is a terminal canonical case outcome, distinguishable from an infrastructure
 failure eligible for bounded provider retry and an internal genesis defect. Failed or exhausted
 native attempts are operational failures and cannot imply canonical readiness. Inspect the case

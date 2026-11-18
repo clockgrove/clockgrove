@@ -81,7 +81,11 @@ import {
   PostgreSqlWorldProvisioningStore,
   withClientTransaction,
 } from "@clockgrove/persistence";
-import { decodeResource } from "@clockgrove/world-pack-sdk";
+import {
+  decodeResource,
+  parseWorldPackLimits,
+  type WorldPackLimits,
+} from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
 import {
   ActivationGateBlockedError,
@@ -2264,7 +2268,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       }
       case "perception.list": {
         if (!hostedReadsAllowed) return refused("not_executable");
-        const listing = await perceiveListing(this.environment, fiber.scope, context);
+        const listing = await perceiveListing(
+          this.environment,
+          fiber.scope,
+          context,
+          fiber.actorId,
+        );
         // Decision: 64 entities and 128 routes keep the result inside the evidence bound.
         return {
           status: "committed",
@@ -2686,6 +2695,12 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
     return birthWorkflowStepConfig;
   }
 
+  /** The world owner's raises of the pack size limits, from the optional `WORLD_PACK_LIMITS` binding. */
+  protected packLimits(): Partial<WorldPackLimits> | undefined {
+    const raises = this.env.WORLD_PACK_LIMITS;
+    return raises === undefined ? undefined : parseWorldPackLimits(raises);
+  }
+
   protected createProvisioningStore(
     client: PostgreSqlClient,
     _envelope: LifecycleWorkflowEnvelope,
@@ -2704,7 +2719,8 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
           {
             store: this.createProvisioningStore(client, envelope),
             genesis: {
-              seed: ({ artifact, source }) => workflows.seedProvisioningBirth(artifact, source),
+              seed: ({ artifact, source }) =>
+                workflows.seedProvisioningBirth(artifact, source, this.packLimits()),
             },
             decodeResource,
           },

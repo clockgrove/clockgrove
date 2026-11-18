@@ -6,7 +6,7 @@
 
 - `manifest` is the PRD 24.5 manifest. Source uses `id`; only the built artifact has `packId`.
 - `resources` maps normalized relative paths (no `..`, no leading `/`, at most 256 bytes) to
-  `Uint8Array` bytes (at most 256 resources of 1 MiB each). Every resource must be referenced by
+  `Uint8Array` bytes (at most `limits.resources` resources of `limits.resourceBytes` each; see Size limits). Every resource must be referenced by
   exactly one manifest entry and match its declared `sha256`.
 - `dependencyArtifacts` are the only dependency candidates. Nothing is looked up implicitly.
 
@@ -54,16 +54,52 @@ malformed `$bigint` text are `MALFORMED_RESOURCE`. Use `encodeResource` / `decod
   [Migrations](migrations.md)); a schema-1 manifest predates these collections, so a non-empty one is refused there
   with `UNSUPPORTED_CAPABILITY`.
 - At most one `clockgrove.world-behavior-policy` resource is allowed next to the clock policy.
-- Assets need a media type, exact byte length, SPDX-style license and provenance, plus four
+- Assets need a media type, exact byte length, SPDX license and provenance, plus four
   required schema-2 keys:
   - `generation`: `null` or `{ provider, model, parametersSha256 }` (64 lowercase hex characters,
     else `INVALID_PROVENANCE`); any other type is `INVALID_PROVENANCE`.
   - `dimensions`: `null` or `{ width, height }`, positive safe integers up to 16384
     (`INVALID_ASSET`).
-  - `anchors`: at most 64 `{ name, x, y }` entries (`LIMIT_EXCEEDED` beyond that); integers in
+  - `anchors`: at most `limits.anchors` (64) `{ name, x, y }` entries (`LIMIT_EXCEEDED` beyond that); integers in
     `0..width` and `0..height`; unique names (`DUPLICATE_IDENTITY`); non-empty only when
     `dimensions` is set (`INVALID_ASSET`).
   - `footprint`: `null` or `{ width, depth }`, positive integers up to 256 (`INVALID_ASSET`).
+
+### Licences
+
+An asset `license` is an SPDX identifier or expression parsed by `spdx-expression-parse`:
+`MIT OR Apache-2.0` and `(MIT AND CC-BY-4.0)` pass; `Proprietary`, `CC-BY-NC` and any
+`LicenseRef-*` or `DocumentRef-*` are `INVALID_LICENSE`.
+
+## Size limits
+
+`DEFAULT_WORLD_PACK_LIMITS` holds every size bound as a safety bound against hostile or runaway
+source. The world's owner raises one by passing `limits: { name: value }` in the `WorldPackPorts`
+the composition root hands to `buildWorldPack`. A value below the default, a non-integer or an
+unknown name is `MALFORMED_SOURCE` at `ports.limits.<name>`. Limits are not part of the artifact.
+
+The simulator takes the same raises as `packLimits` on its `SimulatorPorts`, and
+`createSimulatorPackPorts` passes them on, so `seedGenesis`, `previewSeedProjection` and
+`runScenario` build, validate and seed under them. The world's owner sets the raises as
+configuration, `WORLD_PACK_LIMITS`: a JSON object such as `{"resources":2048}`, read by
+`parseWorldPackLimits`. The `clockgrove` CLI reads it from its environment for every `pack` and
+`simulate` command, and the runtime's birth workflow from its `WORLD_PACK_LIMITS` binding; absent,
+the defaults hold, and a malformed value fails rather than falling back. Build and seed a pack with
+the same raises: a pack over a default that is seeded without its raise is `LIMIT_EXCEEDED`.
+
+| Limit | Default | Reason |
+| --- | --- | --- |
+| `resources` | 1024 | About 80 actors and 100 assets plus their archetypes, traits, policies and spaces, with room to spare; bounds memory and hashing work. |
+| `resourceBytes` | 1,048,576 | One resource is decoded in memory. |
+| `seedCommands` | 1024 | Seed commands replay at world start. |
+| `capabilities` | 256 | Capabilities are checked on every command. |
+| `capabilityCommands` | 64 | Commands one capability names. |
+| `regions` | 64 | Regions per space; membership tests scan them. |
+| `anchors` | 64 | Anchors per asset. |
+| `migrationSteps` | 256 | Steps per migration resource. |
+
+Asset dimensions (16384), footprint (256) and payload depth (32) are format bounds, not size
+limits, and are not configurable.
 
 ## Schema versions and upcasting
 
