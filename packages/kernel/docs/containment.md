@@ -20,7 +20,7 @@ Registered reducers alone derive physical state; each event advances the revisio
 | `containment.remove` | `objectId, containerId` | `containment.removed {objectId, containerId}` |
 | `containment.transfer` | `objectId, fromContainerId, toContainerId` | `containment.transferred {objectId, fromContainerId, toContainerId}` |
 | `resource.offer` | `objectId, kind, quantity` | Stable refusal: unbacked resource creation is forbidden |
-| `resource.consume` | `objectId, kind, quantity` | `resource.consumed {objectId, kind, quantity}` |
+| `resource.consume` | `objectId, kind, quantity` | `resource.consumed {objectId, kind, quantity}`, with no `consumerId`: the command names no eater |
 | `resource.transfer` | `fromObjectId, toObjectId, kind, quantity` | `resource.transferred {fromObjectId, toObjectId, kind, quantity}` |
 
 Object IDs/archetype identifiers are nonempty strings of at most 512 UTF-16 units without

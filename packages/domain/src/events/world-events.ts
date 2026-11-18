@@ -68,7 +68,8 @@ const WORLD_EVENT_VOCABULARY: Readonly<
   "containment.removed": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
   "containment.transferred": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
   "resource.offered": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
-  "resource.consumed": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  /** The eater is the optional `consumerId`; a consumption that names none has no actor. */
+  "resource.consumed": declare(1, ["payload", "consumerId"], ["payload", "objectId"], null),
   "resource.transferred": declare(1, ["payload", "fromObjectId"], ["payload", "toObjectId"], null),
   "movement.started": declare(1, ["payload", "objectId"], null, null),
   "movement.region-entered": declare(1, ["payload", "objectId"], null, null),

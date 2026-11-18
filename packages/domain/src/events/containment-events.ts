@@ -25,8 +25,22 @@ export type ContainmentEventData =
       payload: Readonly<{ objectId: ObjectId; fromContainerId: ObjectId; toContainerId: ObjectId }>;
     }>
   | Readonly<{
-      type: "resource.offered" | "resource.consumed";
+      type: "resource.offered";
       payload: Readonly<{ objectId: ObjectId; kind: ResourceState["kind"]; quantity: number }>;
+    }>
+  | Readonly<{
+      type: "resource.consumed";
+      payload: Readonly<{
+        objectId: ObjectId;
+        kind: ResourceState["kind"];
+        quantity: number;
+        /**
+         * The eater, when the kernel knows it: an actor that eats on arriving at food. Optional and
+         * additive: consumptions journaled before it, and those of the `resource.consume` command,
+         * name none, and replay reads them with the eater unknown.
+         */
+        consumerId?: ObjectId;
+      }>;
     }>
   | Readonly<{
       type: "resource.transferred";

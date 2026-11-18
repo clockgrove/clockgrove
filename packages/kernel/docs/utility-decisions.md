@@ -88,7 +88,7 @@ post-state invariant of every command. A decision that stops a walk applies the 
 [spatial movement](spatial-movement.md#world-time-a-move-passes): after a `stay` interrupt the actor
 is in the active shelter standing where it stopped, or on open ground, and a walk stopped at the
 new target's coordinates arrives as a completed move does. Arrival effects: food and water take `q = min(biteQuantity, holder
-quantity)`, emit `resource.consumed {objectId: holder, kind, quantity}` then `needs.relieved` with
+quantity)`, emit `resource.consumed {objectId: holder, kind, quantity, consumerId: actor}` then `needs.relieved` with
 `value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
 standing at the target, the sought one first (so walking to food inside a shelter enters it), and on open
 ground otherwise; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits

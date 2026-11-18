@@ -1632,6 +1632,7 @@ function runWorld(
           objectId: plan.consume.holder as ObjectId,
           kind: plan.consume.kind,
           quantity: plan.consume.quantity,
+          consumerId: objectId as ObjectId,
         } as never),
       );
       emit(
@@ -4340,7 +4341,8 @@ function registerMovementChecks(
       commands: moving,
       check: ({ initial, state, events }) => {
         // Every event is in time order and none repeats, except a consumption: two actors eating
-        // from one holder at one time each journal the same `resource.consumed`.
+        // from one holder at one time journaled the same `resource.consumed` before it named its
+        // eater (`consumerId`), and replay still reads those journals.
         let last = initial.simulationTime;
         const seen = new Set<string>();
         for (const [index, event] of events.entries()) {

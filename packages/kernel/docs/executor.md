@@ -34,6 +34,11 @@ attribution's effective actor, and `integration`: whether it is integration book
 journals once per step, with the payload quantities that make one such event material when non-zero.
 Evidence that asks who acted, or whether an event is bookkeeping, reads `worldEventRole`,
 `isIntegrationEventType` and `materialWorldEvent` rather than payload key names.
+`resource.consumed@1` carries an optional `consumerId`, the eater, which its declaration names as
+the actor (the food holder `objectId` is the target). The kernel sets it when an actor eats on
+arriving at food, and the reducer requires it to name an object. A consumption journaled before the
+field, or by the `resource.consume` command, carries none and replays as before, with no actor.
+The version stays `1`: the field is additive, so every journaled `@1` event still reads as `@1`.
 
 ## Expected-revision policy kinds
 

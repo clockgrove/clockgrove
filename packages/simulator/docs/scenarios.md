@@ -114,7 +114,10 @@ event, kernel `resolveAudience` is called and the reasons, perceptions and clien
 recorded (or the refusal, or `not-addressable`). Without it, `perception` is `[]`. The event's
 `actorId` (who performed it) and `targetId` (what it was done to) are its type's declared roles
 (`worldEventRole`); a role naming no object of the post-event state, such as the scenario's own
-attribution, is `null`. So a `resource.consumed` names the food holder as target, never as actor.
+attribution, is `null`. So a `resource.consumed` names the food holder as target and its optional
+`consumerId` (the eater) as actor; one without it, journaled before the field or by the
+`resource.consume` command, has no actor. The reference `differential-perception` scenario asserts
+that the keeper, eating on arrival, is the perceived actor.
 
 ## Assertions
 
