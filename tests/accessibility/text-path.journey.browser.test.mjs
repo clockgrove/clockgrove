@@ -394,8 +394,31 @@ it("completes every Wave 4 journey without the canvas", async () => {
       await why.press("Enter");
       const whyPanel = page.getByRole("region", { name: "Recorded Why" });
       await whyPanel.getByText("Recorded evidence loaded.", { exact: true }).waitFor();
+      const opener = await why.getAttribute("data-why-opener");
+      expect(opener).toMatch(/^timeline:/u);
+      // A re-render replaces the opener while Why is open, and a decoy with the same text comes
+      // first in the shell: closing focuses the replacement carrying the same key, not the decoy.
+      await why.evaluate((button) => {
+        const decoy = document.createElement("button");
+        decoy.textContent = button.textContent;
+        decoy.id = "why-decoy";
+        document.querySelector(".rw-shell")?.prepend(decoy);
+        const replacement = button.cloneNode(true);
+        replacement.id = "why-replacement";
+        globalThis.whyOriginal = button;
+        button.replaceWith(replacement);
+      });
       await whyPanel.getByRole("button", { name: "Close Why", exact: true }).press("Enter");
-      expect(await focusedKey()).toBe(await why.textContent());
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe("why-replacement");
+      await page.evaluate(() => {
+        document.getElementById("why-replacement")?.replaceWith(globalThis.whyOriginal);
+        document.getElementById("why-decoy")?.remove();
+      });
+      // With the opener still in place, closing returns focus to that same control.
+      await why.press("Enter");
+      await whyPanel.getByText("Recorded evidence loaded.", { exact: true }).waitFor();
+      await whyPanel.getByRole("button", { name: "Close Why", exact: true }).press("Enter");
+      expect(await why.evaluate((button) => document.activeElement === button)).toBe(true);
 
       // Reconnect: the transport drops and resumes, and focus stays on the same entity control.
       await scene.getByRole("button", { name: "fixture.keeper", exact: true }).focus();

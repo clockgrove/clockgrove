@@ -8,6 +8,7 @@ import {
   MATERIAL_CHANNELS,
 } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
+import { runAssetsCli } from "../src/cli.js";
 import {
   buildAtlases,
   decodePng,
@@ -170,12 +171,12 @@ it("validates generated fixture-style actor and prop images through CLI, packing
           .sort()
           .map((name) => [name, sha256Hex(readFileSync(join(root, "assets/reviewed", name)))]),
       );
-    const build = () =>
-      execFileSync(process.execPath, ["bin/clockgrove-assets.mjs", "build", "--world", root], {
-        cwd: new URL("..", import.meta.url),
-        encoding: "utf8",
-        timeout: 30_000,
-      });
+    // The executable above is the same `runAssetsCli`; building in-process spares two process starts.
+    const build = () => {
+      const run = runAssetsCli(["build", "--world", root]);
+      expect(run.status, run.stderr).toBe(0);
+      return run.stdout;
+    };
     expect(JSON.parse(build())).toEqual({ status: "ok", command: "build" });
     const firstBuild = built();
     expect(Object.keys(firstBuild)).toHaveLength(44);
