@@ -9,6 +9,13 @@ import { CHECKS, failCheck } from "./failure.js";
 
 export { REPO_ROOT, WORLDS_ROOT };
 
+/**
+ * The root the suite discovers committed packs under: `worlds/`, unless
+ * `CLOCKGROVE_CONFORMANCE_WORLDS` names another directory (scripts/regenerate-goldens.mjs sets it
+ * from its own `--worlds=<dir>` argument, so its journey test can run on a temporary copy of a pack).
+ */
+export const CONFORMANCE_WORLDS_ROOT = process.env.CLOCKGROVE_CONFORMANCE_WORLDS || WORLDS_ROOT;
+
 export interface ScenarioFile {
   readonly name: string;
   readonly bytes: Uint8Array;
@@ -59,7 +66,7 @@ function isFile(path: string): boolean {
  */
 export const SMALL_PACKS: readonly string[] = ["fixture"];
 
-export function discoverPackDirectories(root: string = WORLDS_ROOT): string[] {
+export function discoverPackDirectories(root: string = CONFORMANCE_WORLDS_ROOT): string[] {
   if (!isDirectory(root)) return [];
   const found: string[] = [];
   for (const entry of readdirSync(root).sort()) {
@@ -146,7 +153,7 @@ export async function loadPack(directory: string): Promise<LoadedPack> {
   };
 }
 
-export async function loadAllPacks(root: string = WORLDS_ROOT): Promise<LoadedPack[]> {
+export async function loadAllPacks(root: string = CONFORMANCE_WORLDS_ROOT): Promise<LoadedPack[]> {
   const packs: LoadedPack[] = [];
   for (const directory of discoverPackDirectories(root)) packs.push(await loadPack(directory));
   return packs;
