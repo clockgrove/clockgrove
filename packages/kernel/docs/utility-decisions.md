@@ -87,12 +87,13 @@ system per moving actor and emits region crossings and `movement.completed` at t
 `expectedCrossings` and `movementCompletionTime`. `utility.plan-matches-action@1` is a precondition and a
 post-state invariant of every command. A decision that stops a walk applies the stopping rule of
 [spatial movement](spatial-movement.md#world-time-a-move-passes): after a `stay` interrupt the actor
-is in the active shelter standing where it stopped, or on open ground, and a walk stopped at the
+is in the active shelter covering where it stopped, or on open ground, and a walk stopped at the
 new target's coordinates arrives as a completed move does. Arrival effects: food and water take `q = min(biteQuantity, holder
 quantity)`, emit `resource.consumed {objectId: holder, kind, quantity, consumerId: actor}` then `needs.relieved` with
 `value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
-standing at the target, the sought one first (so walking to food inside a shelter enters it), and on open
-ground otherwise; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
+covering the target (at its exact coordinates or within its `coverRadius`), the sought one first (so walking to
+food under a shelter's cover enters it), and on open ground otherwise; a walk whose every waypoint stays within the
+cover of the shelter the actor is in keeps that location throughout; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
 `location.changed`, before any consumption, unless the actor is already there. Arrival events name the decision's
 plan (`plan:<objectId>@<time>`); when `world.advance` completes a movement no decision started (a moving command's,
 observed only up to `observeUntil`), they name that movement id. The two are told apart by structure: a decision's
@@ -163,9 +164,9 @@ emitted. Decision group at time t for due actor a: 0 for an unchanged decision, 
 `integrationEvents(a, t)` is 0 to `perActor` for the due actor only (`needs.changed` when its needs change, plus
 `wellbeing.integrated` when its entry is not already integrated at t); `pendingPlants(t)` counts the active plants
 not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the unlocate (1 when a seek
-starts and the actor has a location, else 0) plus the movement event (1 for `movement.started`,
+starts or replans and the actor has a location its path leaves, else 0) plus the movement event (1 for `movement.started`,
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
-stopping location (1 when a `stay` interrupts a walk where the shelter standing there, or open ground, differs
+stopping location (1 when a `stay` interrupts a walk where the shelter covering that point, or open ground, differs
 from the actor's location, else 0) plus the immediate-arrival events (a walk stopped at its target counts its
 arrival's `location.changed` here). Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
 over arriving actors b of (integrationEvents(b, t) when b is not already integrated in the group, else 0, plus 1 +

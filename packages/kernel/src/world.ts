@@ -1766,6 +1766,9 @@ function runWorld(
         },
       );
       if (record === undefined) throw new RangeError("selected seek is not plannable");
+      // A walk kept under its shelter's cover keeps the location; one that leaves it does not.
+      if (actor.locationId !== undefined && !staysCovered(state, actor, record))
+        steps.push({ kind: "unlocate" });
       steps.push({ kind: "replan", priorMovementId: prior.movementId, position, record });
       links.push(record.movementId);
       const first = pendingCrossings(record, t);
@@ -1773,8 +1776,6 @@ function runWorld(
         steps.push({ kind: "crossings", movementId: record.movementId, crossings: first });
       return { steps, links };
     }
-    if (actor.locationId !== undefined && actor.locationId !== null)
-      steps.push({ kind: "unlocate" });
     const record = planFor(
       state,
       actor,
@@ -1794,6 +1795,13 @@ function runWorld(
       },
     );
     if (record === undefined) throw new RangeError("selected seek is not plannable");
+    // A move off the spot leaves the shelter it is in, unless the whole path stays in its cover.
+    if (
+      actor.locationId !== undefined &&
+      actor.locationId !== null &&
+      !staysCovered(state, actor, record)
+    )
+      steps.push({ kind: "unlocate" });
     steps.push({ kind: "start", record });
     links.push(record.movementId);
     const first = pendingCrossings(record, t);
@@ -2842,10 +2850,13 @@ function runWorld(
           passedTime("events");
         integrateWaters(time as SimTimeMs);
         const at = time as SimTimeMs;
-        // A move off the spot leaves the mover's location as it sets out.
+        // A move off the spot leaves the mover's location as it sets out, unless every point of
+        // its path stays within that shelter's cover.
         if (type === "movement.started" || type === "movement.replanned") {
           const movement = (data as { readonly movement: MovementRecord }).movement;
-          if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
+          const moving = objectsOf(current(), mover as string);
+          if (moving === undefined || !staysCovered(current(), moving, movement))
+            relocate(at, null, movement.movementId, 1);
         }
         const changing = event(type as WorldEvent["type"], at, data as never);
         if (context.eventCount() + 1 + shelterEventCount(changing) > payload.maxEvents)
@@ -3968,6 +3979,20 @@ function shelterAt(
   for (const kept of [actor.locationId, preferred])
     if (kept !== undefined && kept !== null && here.includes(kept)) return kept;
   return here[0] ?? null;
+}
+/**
+ * Whether a movement keeps its mover under the shelter it is in: it never leaves its start, or
+ * every waypoint lies within that shelter's cover. A cover is a ball, so the straight legs between
+ * waypoints stay inside it too.
+ */
+function staysCovered(state: WorldState, actor: WorldEntity, movement: MovementRecord): boolean {
+  if (!leavesStart(movement)) return true;
+  if (actor.locationId === undefined || actor.locationId === null) return false;
+  const location = state.entities.find((entity) => entity.objectId === actor.locationId);
+  return (
+    location?.shelter?.coverRadius !== undefined &&
+    movement.segment.waypoints.every((point) => shelterMatches(actor, location, point))
+  );
 }
 /** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
 function leavesStart(movement: MovementRecord): boolean {

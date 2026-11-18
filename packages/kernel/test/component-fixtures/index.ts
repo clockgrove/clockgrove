@@ -31,6 +31,8 @@ export function composeComponentFixture(
   name: ComponentFixtureName,
   override = false,
   reverse = false,
+  /** The resident's own coat, declared as `clockgrove.weather-exposure`. */
+  coat?: number,
 ) {
   const components = createInitialComponentRegistry();
   const dimensions = name === "weather" ? 2 : 3;
@@ -134,7 +136,9 @@ export function composeComponentFixture(
           ? [snapshot("clockgrove.shelter", { rainProtection: 7500 })]
           : override && id === "primary-cover"
             ? [snapshot("clockgrove.shelter", { rainProtection: 1000 })]
-            : [],
+            : coat !== undefined && archetype === actorPin
+              ? [snapshot("clockgrove.weather-exposure", { rainProtection: coat })]
+              : [],
     };
     const state: TimelineObjectState = {
       worldId: base.worldId,
