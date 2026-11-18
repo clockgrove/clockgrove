@@ -117,7 +117,10 @@ recorded (or the refusal, or `not-addressable`). Without it, `perception` is `[]
 attribution, is `null`. So a `resource.consumed` names the food holder as target and its optional
 `consumerId` (the eater) as actor; one without it, journaled before the field or by the
 `resource.consume` command, has no actor. The reference `differential-perception` scenario asserts
-that the keeper, eating on arrival, is the perceived actor.
+that the keeper, eating on arrival, is the perceived actor. Every
+perception is resolved against the state after the command that journaled the event, so in a
+fast-forward an actor's range is measured from where it stands when the whole advance ends: an
+eater that walked on after eating is placed there, as a mover or a selector already is.
 
 ## Assertions
 

@@ -64,9 +64,15 @@ const WORLD_EVENT_VOCABULARY: Readonly<
   "weather.changed": declare(1, null, null, null),
   "object.created": declare(1, BY_ATTRIBUTION, ["payload", "object", "objectId"], null),
   "object.retired": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
-  "containment.put": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
-  "containment.removed": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
-  "containment.transferred": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  /** The contained object and its container (the destination of a transfer), as before #365. */
+  "containment.put": declare(1, ["payload", "objectId"], ["payload", "containerId"], null),
+  "containment.removed": declare(1, ["payload", "objectId"], ["payload", "containerId"], null),
+  "containment.transferred": declare(
+    1,
+    ["payload", "objectId"],
+    ["payload", "toContainerId"],
+    null,
+  ),
   "resource.offered": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
   /** The eater is the optional `consumerId`; a consumption that names none has no actor. */
   "resource.consumed": declare(1, ["payload", "consumerId"], ["payload", "objectId"], null),
