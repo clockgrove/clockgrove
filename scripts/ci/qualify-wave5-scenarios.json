@@ -856,6 +856,10 @@
         {
           "file": "apps/runtime/test/context.journey.postgres.test.ts",
           "marker": "// No member grant or capability set enters any prompt section, protected or untrusted."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "the actor's model request carries no member grant, and no capability in a prompt section"
         }
       ]
     },
