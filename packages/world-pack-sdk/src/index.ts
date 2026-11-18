@@ -34,6 +34,7 @@ export type {
   WorldPackPorts,
 } from "./manifest/types.js";
 export {
+  ACTOR_COMMAND_POLICY_TYPE,
   BEHAVIOR_POLICY_TYPE,
   CAPABILITY_KINDS,
   CLOCK_POLICY_TYPE,

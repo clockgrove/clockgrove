@@ -14,11 +14,13 @@ import { fail } from "../errors.js";
 import { resolveWorldPackLimits, type WorldPackLimits } from "../limits.js";
 import { decodeResource } from "../manifest/encoding.js";
 import {
+  ACTOR_COMMAND_POLICY_TYPE,
   type ActorDefinitionDocument,
   type ActorLifecycleSeed,
   type ActorPlacement,
   type AssetEntry,
   BEHAVIOR_POLICY_TYPE,
+  type CapabilityDefinition,
   CLOCK_POLICY_TYPE,
   type ClockPolicy,
   NAMED_RANDOM_ALGORITHM,
@@ -359,6 +361,38 @@ function parseRandomStreams(manifest: Rec): RandomStreamEntry[] {
   return streams.sort((left, right) => compareText(left.name, right.name));
 }
 
+/** Validation only: the policy is not part of the validated pack, so build hashes do not change. */
+function checkActorCommandPolicy(
+  value: unknown,
+  capabilities: readonly CapabilityDefinition[],
+  loc: string,
+): void {
+  const record = exact(
+    value,
+    ["type", "schemaVersion", "callsPerTurn", "commands"],
+    [],
+    loc,
+    "INVALID_POLICY",
+  );
+  const bad = (field: string, message: string) =>
+    fail("INVALID_POLICY", `${loc}.${field}`, message);
+  if (record.schemaVersion !== 1) bad("schemaVersion", "expected schema version 1");
+  const calls = record.callsPerTurn;
+  // A turn carries one command, so 1 is the only budget the runtime can honour today.
+  if (calls !== 1) bad("callsPerTurn", "expected 1: a turn carries one command");
+  if (!Array.isArray(record.commands)) bad("commands", "expected a list of command types");
+  const declared = new Set(capabilities.flatMap((item) => item.commands.map((c) => c.type)));
+  const seen = new Set<string>();
+  (record.commands as unknown[]).forEach((command, index) => {
+    const at = `commands[${index}]`;
+    if (typeof command !== "string") bad(at, "expected a command type string");
+    if (seen.has(command as string)) bad(at, "duplicate command type");
+    seen.add(command as string);
+    if (!declared.has(command as string))
+      bad(at, "command type is not declared by any capability of the pack");
+  });
+}
+
 function parseClockPolicy(value: unknown, loc: string): ClockPolicy {
   const record = exact(
     value,
@@ -623,8 +657,16 @@ export async function validateWorldPackSource(
 
   const clocks: ClockPolicy[] = [];
   const behaviors: WorldBehaviorPolicy[] = [];
+  let actorCommandPolicySeen = false;
   policies.forEach((policy) => {
     const decoded = decode(policy);
+    if (isRecord(decoded) && decoded.type === ACTOR_COMMAND_POLICY_TYPE) {
+      if (actorCommandPolicySeen)
+        fail("DUPLICATE_POLICY", policy.loc, "at most one actor command policy");
+      actorCommandPolicySeen = true;
+      checkActorCommandPolicy(decoded, capabilities, policy.loc);
+      return;
+    }
     if (isRecord(decoded) && decoded.type === BEHAVIOR_POLICY_TYPE) {
       if (behaviors.length > 0)
         fail("DUPLICATE_POLICY", policy.loc, "at most one world behaviour policy");
@@ -635,7 +677,7 @@ export async function validateWorldPackSource(
       fail(
         "UNSUPPORTED_POLICY",
         policy.loc,
-        `only ${CLOCK_POLICY_TYPE} and ${BEHAVIOR_POLICY_TYPE} policies are supported`,
+        `only ${CLOCK_POLICY_TYPE}, ${BEHAVIOR_POLICY_TYPE} and ${ACTOR_COMMAND_POLICY_TYPE} policies are supported`,
       );
     if (clocks.length > 0) fail("DUPLICATE_CLOCK_POLICY", policy.loc, "exactly one clock policy");
     clocks.push(parseClockPolicy(decoded, policy.loc));

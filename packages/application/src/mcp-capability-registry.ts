@@ -1,5 +1,6 @@
 import type { CapabilityValue } from "./capabilities.js";
 import {
+  type ActorCommandPolicy,
   type CapabilityDefinition,
   type CapabilityGrant,
   CapabilityGrants,
@@ -65,6 +66,8 @@ export interface McpRegistryContext {
   readonly runtimeGrants: readonly string[];
   /** A trusted session approval may narrow an existing grant; it cannot create one. */
   readonly sessionApproval?: McpCapabilityConstraints;
+  /** The world's actor-command declaration (issue 359); without one, no `world.command` grant. */
+  readonly actorCommands?: ActorCommandPolicy;
 }
 
 const EFFECTS = ["read", "world-write", "external-write", "destructive", "network", "cost"];
@@ -427,7 +430,7 @@ export function resolveMcpCapabilityRegistry(
     registry,
     grants: new CapabilityGrants(
       registry,
-      [...registry.grantsFor(context.runtimeGrants).grants, ...remote],
+      [...registry.grantsFor(context.runtimeGrants, context.actorCommands).grants, ...remote],
       new Set(),
     ),
   };

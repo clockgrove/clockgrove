@@ -53,7 +53,7 @@ malformed `$bigint` text are `MALFORMED_RESOURCE`. Use `encodeResource` / `decod
 - Schema 2 declares spaces, rules, capabilities and seed commands ([see collections](collections.md)). `migrations` (see
   [Migrations](migrations.md)); a schema-1 manifest predates these collections, so a non-empty one is refused there
   with `UNSUPPORTED_CAPABILITY`.
-- At most one `clockgrove.world-behavior-policy` resource is allowed next to the clock policy.
+- At most one `clockgrove.world-behavior-policy` resource is allowed next to the clock policy. So is at most one `clockgrove.actor-command-policy`.
 - Assets need a media type, exact byte length, SPDX license and provenance, plus four
   required schema-2 keys:
   - `generation`: `null` or `{ provider, model, parametersSha256 }` (64 lowercase hex characters,
