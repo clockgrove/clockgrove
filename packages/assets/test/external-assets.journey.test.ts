@@ -186,17 +186,33 @@ it.each(["pixel", "cartoon", "painterly"])(
       expect(run("check").stderr).toContain("golden");
       expect(run("update-golden").status).toBe(0);
       const goldenPath = join(world, "assets/goldens/reference.scene.json");
+      // The world's own registry records a test-only person and delegation.
+      writeFileSync(
+        join(world, "approvers.json"),
+        JSON.stringify({
+          people: [{ login: "synthetic-person" }],
+          delegations: [
+            { id: "test-delegation", owner: "test", date: "2026-11-18", grant: "test" },
+          ],
+        }),
+      );
       const approve = () => {
         const golden = JSON.parse(readFileSync(goldenPath, "utf8"));
-        expect(golden.approval.status).toBe("pending");
+        expect(golden.approval).toEqual({
+          status: "pending",
+          approver: null,
+          approvedSceneSha256: null,
+        });
         golden.approval = {
           status: "approved",
-          reviewer: "synthetic-reviewer",
+          approver: { kind: "agent", agent: "synthetic-agent", delegation: "test-delegation" },
           approvedSceneSha256: golden.sceneSha256,
         };
         writeFileSync(goldenPath, JSON.stringify(golden));
       };
-      expect(run("check").stderr).toContain("not human-approved");
+      expect(run("check").stderr).toContain(
+        "GOLDEN_NOT_APPROVED: assets/goldens/reference.scene.json: not approved",
+      );
       approve();
       expect(run("update-golden").status).toBe(0);
       const pinned = spawnSync(
@@ -212,11 +228,25 @@ it.each(["pixel", "cartoon", "painterly"])(
       expect([pinned.status, pinned.stdout]).toEqual([0, '{"status":"ok","command":"check"}\n']);
       if (style === "pixel") {
         const record = readFileSync(goldenPath, "utf8");
-        for (const reviewer of [null, "github-actions[bot]"]) {
+        // A listed person passes; a bare reviewer name, a bot, an unlisted person and an agent
+        // citing no recorded delegation are refused with the golden's file named.
+        for (const [approval, refusal] of [
+          [{ approver: { kind: "person", login: "synthetic-person" } }, ""],
+          [{ approver: undefined, reviewer: "synthetic-person" }, "GOLDEN_APPROVER_REQUIRED"],
+          [{ approver: { kind: "person", login: "renovate[bot]" } }, "GOLDEN_REVIEWER_NOT_HUMAN"],
+          [{ approver: { kind: "person", login: "anyone" } }, "GOLDEN_APPROVER_UNRECOGNISED"],
+          [{ approver: { kind: "agent", agent: "a" } }, "GOLDEN_DELEGATION_UNRECOGNISED"],
+        ] as const) {
           const golden = JSON.parse(record);
-          golden.approval.reviewer = reviewer;
+          Object.assign(golden.approval, approval);
           writeFileSync(goldenPath, JSON.stringify(golden));
-          expect(run("check").stderr).toContain("GOLDEN_REVIEWER_NOT_HUMAN");
+          const result = run("check");
+          if (refusal === "") expect(result.status).toBe(0);
+          else
+            expect([result.status, result.stderr]).toEqual([
+              1,
+              expect.stringContaining(`${refusal}: assets/goldens/reference.scene.json:`),
+            ]);
         }
         writeFileSync(goldenPath, record);
         // Malformed world data is a coded input refusal (exit 1), not an internal error (70).

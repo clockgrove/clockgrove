@@ -1,5 +1,5 @@
 {
-  "note": "Approvals of the Wave 4 \u00a715.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. A person approves a capture in a reviewed change, or an agent does on the owner's explicit delegation, recorded in that change; CI never approves.",
+  "note": "Approvals of the Wave 4 \u00a715.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. The review block names its approver: a person listed in approvers.json, or an agent citing a delegation approvers.json records; `clockgrove-assets check` refuses any other. A person approves a capture in a reviewed change, or an agent does on the owner's recorded delegation; CI never approves.",
   "approvals": [
     {
       "file": "daylight-dry@1536x864.png",
@@ -316,8 +316,11 @@
   ],
   "review": {
     "objective": "#363 (and the pack changes since d5a077d)",
-    "delegation": "Kirk, 2026-11-16 (standing): an agent may approve Clockgrove's fixture-world golden captures at their exact digests, after inspecting each one at its declared viewport and backend.",
-    "reviewer": "Claude agent (Clockgrove owner session)",
+    "approver": {
+      "kind": "agent",
+      "agent": "Claude agent (Clockgrove owner session)",
+      "delegation": "kirk-2026-11-16-fixture-goldens"
+    },
     "scope": "All 78 captures from Wave 4 qualification runs 44239785990 and 44239805102 on main c703023, which agree on every digest. 76 differ from the previous approvals (d5a077d, runs 43746149035/43746169619); event-why-inspector@390x844 on both backends is unchanged.",
     "findings": "Every file was inspected at its viewport and backend and pixel-diffed against the previous approved capture. Every change traces to one of two causes. First, the world id in the World select, heading and title (worldid_2aff39ee\u2026 to worldid_fec2fe94\u2026), which follows from the fixture pack moving to clockgrove.fixture-hall@1.3.0 (#355) and its other changes (#354, #363); the HUD clock group shifts 1 px with the select's width. Second, the herb now sways at the medium and high tiers, because the presentation declares sway (#363); the low tier has no wind and shows no change. Rendering is clean, and WebGL2 parity is unchanged from the previous approvals."
   }

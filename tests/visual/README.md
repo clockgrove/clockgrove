@@ -49,7 +49,14 @@ env CI=true pnpm test:visual
 
 The existing qualification caller supplies `CLOCKGROVE_WAVE4_EVIDENCE` and retains visual output
 under its `visual/` directory. Without it, the suite creates a temporary evidence directory.
-Fixture approvals remain in [`approved-captures.json`](approved-captures.json).
+Fixture approvals remain in [`approved-captures.json`](approved-captures.json). Its `review`
+block names the approver: `{"kind": "person", "login"}` for a person listed in the root
+[`approvers.json`](../../approvers.json), or `{"kind": "agent", "agent", "delegation"}` for an
+agent citing the id of an owner's delegation recorded there (Kirk's standing delegation of
+2026-11-16 is `kirk-2026-11-16-fixture-goldens`). `pnpm check` (`clockgrove-assets check`) refuses
+the file offline with `GOLDEN_APPROVER_REQUIRED`, `GOLDEN_REVIEWER_NOT_HUMAN`,
+`GOLDEN_APPROVER_UNRECOGNISED` or `GOLDEN_DELEGATION_UNRECOGNISED` when it names a bare
+reviewer, a bot, an unlisted person or an agent citing no recorded delegation.
 
 ## External caller
 
