@@ -21,7 +21,7 @@ pnpm run db:verify
 pnpm run verify:docs             # ADRs and wave plans; needs python3
 ```
 
-Any change under `apps/web/` or `apps/runtime/` runs the browser journey before you push, in the review answer pass as well as the first delivery: `env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts`. It is the integration test for socket delivery, recovery and the yard; `pnpm test` does not cover it, and CI catches a miss only after a 15-minute round.
+Before you push, in the review answer pass as well as the first delivery, run `pnpm run journey:scope`. When it says the browser journey is required, run `env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts`. The journey covers `apps/web`, `apps/runtime`, every workspace package they depend on (such as the scene protocol in `packages/contracts`), and whatever its tests load, spawn or apply. It is the integration test for socket delivery, recovery and the yard; `pnpm test` does not cover it, and CI catches a miss only after a long round.
 
 Browser tests run only as `env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts`, where Chromium is installed (`scripts/ci/toolchain.sh postgresql pgvector browser` provisions the toolchain on Ubuntu 24.04). Do not edit the bodies of the `check`, `test`, `test:db`, `test:runtime` or `verify:docs` scripts. `verify:supply-chain` needs the npm registry and is never a validation command here. `tests/ci/qualify-wave1.test.mjs` fails on a shallow or single-commit checkout; that is a checkout fact, not your defect.
 
