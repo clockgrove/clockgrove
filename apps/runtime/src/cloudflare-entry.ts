@@ -1557,6 +1557,16 @@ export default {
                 context,
               ),
             ),
+          state: (scope, context) =>
+            withHyperdrivePostgreSqlClient(
+              env.HYPERDRIVE?.connectionString ?? "",
+              async (client) =>
+                (
+                  await new PostgreSqlLivingSceneReader(
+                    new PostgreSqlWorldOwnerReader(client),
+                  ).hydrateObserved(scope, context)
+                ).stored.document.state,
+            ),
           status: (scope, context) =>
             withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
               new PostgreSqlWorldStatusReader(client).read(scope, context),

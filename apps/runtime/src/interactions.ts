@@ -16,6 +16,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import type { WorldState } from "@clockgrove/domain";
+import { resolveAudience } from "@clockgrove/kernel";
 import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js";
 
 /** The reader's authority that interaction policy evaluates, as its decided audience records it. */
@@ -154,15 +155,77 @@ export function influenceReceipt(
 }
 
 /**
+ * Decision: a Say carries 20,000 position units, the range the reference fixture's sight example
+ * uses, so a voice carries as far as a glance: the speaker's surroundings hear it, while an entity
+ * farther off in the same space (the fixture's pantry bin) or in another space does not.
+ */
+export const SAY_SOUND_RANGE = 20000;
+
+/**
+ * Who hears a Say: the kernel resolver over a synthetic, never-recorded `sound` event at the
+ * state's revision. The speaker is listed when the resolver includes it (as `event-actor`). A
+ * refused resolution fails closed to an empty audience.
+ */
+export function sayAudience(
+  state: WorldState,
+  speakerId: string,
+  messageId: string,
+): NonNullable<SayReceipt["audience"]> {
+  const spaceId = state.entities.find((entity) => entity.objectId === speakerId)?.spaceId;
+  const outcome =
+    spaceId === undefined
+      ? undefined
+      : resolveAudience(
+          {
+            version: 1,
+            type: "object.created",
+            eventId: `say:${messageId}`,
+            modality: "sound",
+            sourceRevision: state.revision,
+            spaceId,
+            actorId: speakerId,
+            targetId: null,
+            regionIds: [],
+          },
+          state,
+          {
+            version: 2,
+            modalities: [{ modality: "sound", range: SAY_SOUND_RANGE }],
+            occlusions: [],
+            access: [],
+            subscribers: [],
+            viewers: [],
+          },
+        );
+  return outcome?.ok
+    ? {
+        resolverVersion: outcome.value.resolverVersion,
+        observers: outcome.value.reasons.flatMap((reason) =>
+          reason.outcome === "included"
+            ? [
+                {
+                  observerId: reason.observerId,
+                  reason: reason.code,
+                  detailLevel: reason.detailLevel,
+                },
+              ]
+            : [],
+        ),
+      }
+    : { resolverVersion: "", observers: [] };
+}
+
+/**
  * Public Say: the addressed actor speaks a fixed scripted line aloud, never the caller's words
  * (that would be control), attributed to the trusted principal and persona whose explicit action
- * made it speak. Nothing is stored or delivered to another observer.
+ * made it speak. Nothing is stored; the receipt names who heard it (`sayAudience`).
  */
 export function scriptedSay(
   request: SayRequest,
   context: TrustedExecutionContext & { readonly personaId: WorldPersonaId },
   sentAt: string,
   envelope?: InboundEnvelope,
+  audience?: SayReceipt["audience"],
 ): SayReceipt {
   if (
     envelope !== undefined &&
@@ -184,5 +247,6 @@ export function scriptedSay(
       sentAt,
     },
     attribution: { principalId: context.principalId, personaId: context.personaId },
+    ...(audience === undefined ? {} : { audience }),
   };
 }

@@ -125,6 +125,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "Chitters aloud (scripted fixture line).",
         { principalId: "principal-runtime", personaId: "persona-runtime" },
       ]);
+      // Say's spatial audience: observers in and near the space hear it, and no one else.
+      const heard = spoken.audience?.observers.map((o) => `${o.observerId}:${o.reason}`);
+      expect(heard).toEqual([
+        "fixture.cedar:space-contents",
+        "fixture.cedar-hollow:space-contents",
+        "fixture.companion:space-contents",
+        "fixture.den:space-contents",
+        "fixture.den-stash:space-contents",
+        "fixture.dependent:space-contents",
+        "fixture.fence-gate:space-contents",
+        "fixture.herb:space-contents",
+        "fixture.keeper:event-actor",
+        "fixture.porch:space-contents",
+        "fixture.sky:space-contents",
+        "fixture.snack-dish:space-contents",
+        "fixture.trash-can:space-contents",
+        "fixture.water-bowl:space-contents",
+      ]);
 
       // Talk is never projected: the scene and the journal carry none of its words.
       const scene = await post("/v1/runtime/scene", {});
