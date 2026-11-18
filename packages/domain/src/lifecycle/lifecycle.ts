@@ -97,7 +97,7 @@ export interface LifecycleDeath {
 export interface LifecycleEntry {
   readonly objectId: ObjectId;
   readonly householdId: string;
-  /** 0..2 sorted unique parent object ids; each keeps its entry after death. */
+  /** 0..2 sorted unique parent object ids; each keeps its entry, or a lineage entry, after death. */
   readonly parentIds: readonly ObjectId[];
   readonly generation: number;
   /** Signed birth time; founders may be born before time zero. */
@@ -109,10 +109,22 @@ export interface LifecycleEntry {
   readonly death: LifecycleDeath | null;
 }
 
+/** A dead actor moved out of the counted state: its entry as it died, with its archetype. */
+export interface LifecycleLineageEntry extends LifecycleEntry {
+  readonly archetypeId: string;
+  readonly gestation: null;
+  readonly death: LifecycleDeath;
+}
+
 /** Present on `WorldState` exactly when the policy has a `lifecycle`; one entry per needs actor. */
 export interface LifecycleState {
   readonly households: readonly string[];
   readonly entries: readonly LifecycleEntry[];
+  /**
+   * The dead moved out of `entries` and `state.entities` (sorted by object id, at most
+   * `LIFECYCLE_MAX_LINEAGE`); absent until the first move, so earlier states keep their bytes.
+   */
+  readonly lineage?: readonly LifecycleLineageEntry[];
 }
 
 export type LifecycleEventData =
@@ -159,6 +171,11 @@ export const LIFECYCLE_POLICY_VERSION = 1;
 export const LIFECYCLE_MAX_STAGES = 16;
 export const LIFECYCLE_MAX_KINDS = 16;
 export const LIFECYCLE_MAX_ENTRIES = 128;
+/**
+ * Decision (#358): eight full populations of the 128-actor cap. Past it the earliest dead that no
+ * entry names as a parent or co-parent leave the state; the journal keeps every life's events.
+ */
+export const LIFECYCLE_MAX_LINEAGE = 1024;
 const MAX_SIM_TIME = (1n << 63n) - 1n;
 const MIN_SIM_TIME = -(1n << 63n);
 const MAX_DURATION = 1n << 53n;
@@ -412,7 +429,7 @@ export function validateLifecycleState(
   value: unknown,
   path = "state.lifecycle",
 ): asserts value is LifecycleState {
-  const root = exactObject(value, ["households", "entries"], path);
+  const root = exactObject(value, ["households", "entries"], path, ["lineage"]);
   const households = array(root.households, `${path}.households`, 0, LIFECYCLE_MAX_ENTRIES);
   let previousHousehold: string | undefined;
   for (const [index, household] of households.entries()) {
@@ -421,30 +438,46 @@ export function validateLifecycleState(
       fail(`${path}.households`, "households must be unique and sorted");
     previousHousehold = id;
   }
-  const entries = array(root.entries, `${path}.entries`, 0, LIFECYCLE_MAX_ENTRIES);
+  validateEntries(
+    array(root.entries, `${path}.entries`, 0, LIFECYCLE_MAX_ENTRIES),
+    `${path}.entries`,
+    false,
+  );
+  if (Object.hasOwn(root, "lineage"))
+    validateEntries(
+      array(root.lineage, `${path}.lineage`, 1, LIFECYCLE_MAX_LINEAGE),
+      `${path}.lineage`,
+      true,
+    );
+}
+
+const ENTRY_KEYS = [
+  "objectId",
+  "householdId",
+  "parentIds",
+  "generation",
+  "bornAt",
+  "stageIndex",
+  "conceptions",
+  "lastBirthAt",
+  "gestation",
+  "death",
+];
+
+function validateEntries(entries: readonly unknown[], path: string, lineage: boolean): void {
   let previous: string | undefined;
   for (const [index, entry] of entries.entries()) {
-    const at = `${path}.entries[${index}]`;
-    const record = exactObject(
-      entry,
-      [
-        "objectId",
-        "householdId",
-        "parentIds",
-        "generation",
-        "bornAt",
-        "stageIndex",
-        "conceptions",
-        "lastBirthAt",
-        "gestation",
-        "death",
-      ],
-      at,
-    );
+    const at = `${path}[${index}]`;
+    const record = exactObject(entry, lineage ? [...ENTRY_KEYS, "archetypeId"] : ENTRY_KEYS, at);
     const id = name(record.objectId, `${at}.objectId`);
     if (previous !== undefined && !(previous < id))
-      fail(`${path}.entries`, "entries must be unique and in object id order");
+      fail(path, "entries must be unique and in object id order");
     previous = id;
+    if (lineage) {
+      name(record.archetypeId, `${at}.archetypeId`);
+      if (record.death === null) fail(`${at}.death`, "a lineage entry is dead");
+      if (record.gestation !== null) fail(`${at}.gestation`, "a lineage entry does not gestate");
+    }
     name(record.householdId, `${at}.householdId`);
     const parents = array(record.parentIds, `${at}.parentIds`, 0, 2);
     let previousParent: string | undefined;
@@ -544,8 +577,16 @@ export function lifecycleDisagreement(
   if (record.entries.length !== actors.length) return "state.lifecycle.entries";
   for (const [index, actor] of actors.entries())
     if (record.entries[index]!.objectId !== actor.objectId) return "state.lifecycle.entries";
+  const lineage = record.lineage ?? [];
   const known = new Set(record.entries.map((entry) => entry.objectId));
   const households = new Set(record.households);
+  for (const [index, dead] of lineage.entries()) {
+    const at = `state.lifecycle.lineage[${index}]`;
+    if (known.has(dead.objectId) || state.entities.some((e) => e.objectId === dead.objectId))
+      return `${at}.objectId`;
+    if (!households.has(dead.householdId)) return `${at}.householdId`;
+  }
+  for (const dead of lineage) known.add(dead.objectId);
   const now = state.simulationTime;
   for (const [index, entry] of record.entries.entries()) {
     const at = `state.lifecycle.entries[${index}]`;
@@ -595,20 +636,35 @@ export function lifecycleDisagreement(
   return undefined;
 }
 
+/** One life in the lifecycle record: a counted entry or a lineage entry. */
+export type LifecycleLife = LifecycleEntry | LifecycleLineageEntry;
+
 export interface LifecycleLinks {
-  readonly entity: WorldEntity;
-  readonly entry: LifecycleEntry;
-  /** Parent entities in parent id order, living or dead. */
-  readonly parents: readonly WorldEntity[];
+  /** The object's entity; `undefined` once it has moved to the lineage. */
+  readonly entity: WorldEntity | undefined;
+  readonly entry: LifecycleLife;
+  /** Parent lives in parent id order, living or dead. */
+  readonly parents: readonly LifecycleLife[];
   readonly householdId: string;
   /** Every object id with the same household, in object id order, living or dead. */
   readonly householdMembers: readonly ObjectId[];
 }
 
+/** The entry of a living or dead object, in `entries` or the lineage; `undefined` if unknown. */
+export function findLifecycleLife(
+  lifecycle: LifecycleState | undefined,
+  objectId: string,
+): LifecycleLife | undefined {
+  return (
+    lifecycle?.entries.find((candidate) => candidate.objectId === objectId) ??
+    lifecycle?.lineage?.find((candidate) => candidate.objectId === objectId)
+  );
+}
+
 /**
- * Resolves an object's lifecycle entry, parent entities and household. Dead parents stay in
- * `state.entities` and keep their entries, so links resolve after every parent has died. Returns
- * `undefined` for an unknown object or when any link fails to resolve.
+ * Resolves an object's lifecycle entry, parents and household from `entries` and the lineage, so
+ * links resolve after a parent has died and left the counted state. Returns `undefined` for an
+ * unknown object or when any link fails to resolve (a parent evicted from a full lineage).
  */
 export function resolveLifecycleLinks(
   state: Readonly<{ entities: readonly WorldEntity[]; lifecycle?: LifecycleState }>,
@@ -616,23 +672,21 @@ export function resolveLifecycleLinks(
 ): LifecycleLinks | undefined {
   const lifecycle = state.lifecycle;
   if (lifecycle === undefined) return undefined;
-  const entry = lifecycle.entries.find((candidate) => candidate.objectId === objectId);
+  const entry = findLifecycleLife(lifecycle, objectId);
+  if (entry === undefined) return undefined;
   const entity = state.entities.find((candidate) => candidate.objectId === objectId);
-  if (entry === undefined || entity === undefined) return undefined;
-  const parents: WorldEntity[] = [];
+  if (entity === undefined && !("archetypeId" in entry)) return undefined;
+  const parents: LifecycleLife[] = [];
   for (const parentId of entry.parentIds) {
-    const parent = state.entities.find((candidate) => candidate.objectId === parentId);
-    if (
-      parent === undefined ||
-      !lifecycle.entries.some((candidate) => candidate.objectId === parentId)
-    )
-      return undefined;
+    const parent = findLifecycleLife(lifecycle, parentId);
+    if (parent === undefined) return undefined;
     parents.push(parent);
   }
   if (!lifecycle.households.includes(entry.householdId)) return undefined;
-  const householdMembers = lifecycle.entries
+  const householdMembers = [...lifecycle.entries, ...(lifecycle.lineage ?? [])]
     .filter((candidate) => candidate.householdId === entry.householdId)
-    .map((candidate) => candidate.objectId);
+    .map((candidate) => candidate.objectId)
+    .sort((left, right) => (left === right ? 0 : left < right ? -1 : 1));
   return Object.freeze({
     entity,
     entry,
@@ -640,4 +694,110 @@ export function resolveLifecycleLinks(
     householdId: entry.householdId,
     householdMembers: Object.freeze(householdMembers),
   });
+}
+
+type CompactableState = Readonly<{
+  entities: readonly WorldEntity[];
+  wellbeing?: WellbeingState;
+  lifecycle?: LifecycleState;
+}>;
+
+function collectStrings(value: unknown, into: Set<string>): void {
+  if (typeof value === "string") into.add(value);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, into);
+  else if (value !== null && typeof value === "object")
+    for (const item of Object.values(value)) collectStrings(item, into);
+}
+
+/**
+ * The dead that can leave the counted state: a needs actor with a death record and Lifecycle
+ * status `dead` whose object id no other part of the state names (outside its own entity, its
+ * wellbeing entry and the lifecycle record). One walk over the state; sorted by object id.
+ */
+export function removableLifecycleDead<S extends CompactableState>(state: S): readonly ObjectId[] {
+  const lifecycle = state.lifecycle;
+  if (lifecycle === undefined) return [];
+  const dead = new Set<string>();
+  for (const entry of lifecycle.entries) if (entry.death !== null) dead.add(entry.objectId);
+  for (const entity of state.entities)
+    if (dead.has(entity.objectId) && entity.lifecycle?.status !== "dead")
+      dead.delete(entity.objectId);
+  if (dead.size === 0) return [];
+  const named = new Set<string>();
+  for (const [key, value] of Object.entries(state)) {
+    if (key === "lifecycle") continue;
+    if (key === "entities") {
+      for (const entity of state.entities)
+        if (!dead.has(entity.objectId)) collectStrings(entity, named);
+    } else if (key === "wellbeing") {
+      for (const entry of state.wellbeing?.entries ?? [])
+        if (!dead.has(entry.objectId)) collectStrings(entry, named);
+    } else collectStrings(value, named);
+  }
+  return [...dead].filter((id) => !named.has(id)).sort() as ObjectId[];
+}
+
+/**
+ * Moves every removable dead actor (`removableLifecycleDead`) out of `entities`, `wellbeing` and
+ * `lifecycle.entries` into `lifecycle.lineage`, then keeps the lineage within
+ * `LIFECYCLE_MAX_LINEAGE` by dropping the earliest dead of the earlier lineage (by death time,
+ * then object id) that no remaining entry names as a parent or gestating co-parent. Returns the state unchanged when
+ * nothing can move. Pure and deterministic.
+ */
+export function moveDeadToLineage<S extends CompactableState>(state: S): S {
+  const lifecycle = state.lifecycle;
+  const removable = new Set<string>(removableLifecycleDead(state));
+  if (lifecycle === undefined || removable.size === 0) return state;
+  const archetypes = new Map(state.entities.map((entity) => [entity.objectId, entity.archetypeId]));
+  const entries = lifecycle.entries.filter((entry) => !removable.has(entry.objectId));
+  const moved = lifecycle.entries
+    .filter((entry) => removable.has(entry.objectId))
+    .map(
+      (entry): LifecycleLineageEntry => ({
+        ...entry,
+        gestation: null,
+        death: entry.death!,
+        archetypeId: archetypes.get(entry.objectId)!,
+      }),
+    );
+  const earlier = lifecycle.lineage ?? [];
+  let lineage = [...earlier, ...moved];
+  if (lineage.length > LIFECYCLE_MAX_LINEAGE) {
+    const pinned = new Set<string>();
+    for (const entry of entries) {
+      for (const parentId of entry.parentIds) pinned.add(parentId);
+      if (entry.gestation?.coParentId != null) pinned.add(entry.gestation.coParentId);
+    }
+    // Only earlier lineage entries leave: an entity never disappears in the same step it moves.
+    const evict = new Set(
+      earlier
+        .filter((dead) => !pinned.has(dead.objectId))
+        .sort((left, right) =>
+          left.death.diedAt !== right.death.diedAt
+            ? left.death.diedAt < right.death.diedAt
+              ? -1
+              : 1
+            : left.objectId < right.objectId
+              ? -1
+              : 1,
+        )
+        .slice(0, lineage.length - LIFECYCLE_MAX_LINEAGE)
+        .map((dead) => dead.objectId),
+    );
+    lineage = lineage.filter((dead) => !evict.has(dead.objectId));
+  }
+  lineage.sort((left, right) => (left.objectId < right.objectId ? -1 : 1));
+  return {
+    ...state,
+    entities: state.entities.filter((entity) => !removable.has(entity.objectId)),
+    ...(state.wellbeing === undefined
+      ? {}
+      : {
+          wellbeing: {
+            ...state.wellbeing,
+            entries: state.wellbeing.entries.filter((entry) => !removable.has(entry.objectId)),
+          },
+        }),
+    lifecycle: { ...lifecycle, entries, lineage },
+  };
 }

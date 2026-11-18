@@ -1,5 +1,10 @@
 import type { ObjectId, ScheduleId } from "@clockgrove/contracts";
-import { lifecycleForKind, type WorldBehaviorPolicy, type WorldState } from "@clockgrove/domain";
+import {
+  findLifecycleLife,
+  lifecycleForKind,
+  type WorldBehaviorPolicy,
+  type WorldState,
+} from "@clockgrove/domain";
 import { canonicalSerialize } from "../canonical.js";
 import { fnv1a64Hex } from "../fnv1a64.js";
 
@@ -47,13 +52,18 @@ export function requestSuccessorIntent(
   const refuse = (code: SuccessorRefusal["code"], path: string): SuccessorRefusal =>
     Object.freeze({ code, path });
   try {
-    const entry = state?.lifecycle?.entries.find((candidate) => candidate.objectId === deceasedId);
+    const entry = findLifecycleLife(state?.lifecycle, deceasedId);
     const entity = state?.entities.find((candidate) => candidate.objectId === deceasedId);
     if (policy?.lifecycle === undefined || state?.lifecycle === undefined)
       return refuse("precondition-failed", "policy.lifecycle");
-    if (entry === undefined || entity === undefined) return refuse("invalid-input", "deceasedId");
-    const rule = lifecycleForKind(policy.lifecycle, entity.archetypeId)?.successorRule;
-    if (entry.death === null || entity.lifecycle?.status !== "dead")
+    // A dead actor moved to the lineage has no entity; its lineage entry keeps the archetype.
+    const archetypeId =
+      entity?.archetypeId ??
+      (entry !== undefined && "archetypeId" in entry ? entry.archetypeId : undefined);
+    if (entry === undefined || archetypeId === undefined)
+      return refuse("invalid-input", "deceasedId");
+    const rule = lifecycleForKind(policy.lifecycle, archetypeId)?.successorRule;
+    if (entry.death === null || (entity !== undefined && entity.lifecycle?.status !== "dead"))
       return refuse("precondition-failed", "deceasedId");
     if (rule === null || rule === undefined)
       return refuse("precondition-failed", "policy.lifecycle.successorRule");

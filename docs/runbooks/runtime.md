@@ -1905,6 +1905,24 @@ must deliver those operations, verified hosted egress, revision-hook invalidatio
 PostgreSQL/runtime/browser/canary journey before the operator install/review/revoke procedure
 can be described as available.
 
+## Population over generations
+
+A world's lifecycle keeps reproducing for as long as it runs (issue 358). Its limits are world
+settings in the pack's behavior policy, not deployment settings, and every one stays fail-closed:
+
+| Setting | Default | Range | Limits |
+| --- | --- | --- | --- |
+| `policy.lifecycle.reproduction.maxPopulation` (per kind with `schemaVersion: 2`) | none; the pack declares it | 1 to 128 | the living and gestating actors of one kind; a conception past it is excluded `population-cap` |
+| entity budget (engine bound, not a setting) | 128 | fixed | the living, every other object and the dead still named elsewhere in the state; a conception that would need more is excluded `population-cap` |
+| lifecycle lineage (engine bound, not a setting) | 1,024 dead | fixed | the dead kept readable for Why and family links after they leave the counted state; past it the earliest dead no living actor names as a parent leave the state, and the journal keeps their events |
+
+A birth that finds the lifecycle record or the entity budget full first moves the dead out of
+`state.entities`, wellbeing and the counted lifecycle entries into `state.lifecycle.lineage`
+([kernel lifecycle](../../packages/kernel/docs/lifecycle.md)). A saved world that stopped
+reproducing at 128 lives needs no stored-state rewrite: its next eligible conception is drawn, and
+its birth moves the dead out through the journaled `lifecycle.born` event, which replay reduces
+identically.
+
 ## Local operator lifecycle
 
 The world screen's **Capabilities** control opens the governed remote installation screen.

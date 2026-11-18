@@ -49,10 +49,13 @@ import type { MovementEventData } from "./events/movement-events.js";
 import type { PortalEventData } from "./events/portal-events.js";
 import { upcastEventRecord, worldEventVersion } from "./events/world-events.js";
 import {
+  findLifecycleLife,
+  LIFECYCLE_MAX_ENTRIES,
   type LifecycleEntry,
   type LifecycleEventData,
   type LifecyclePolicy,
   type LifecycleState,
+  moveDeadToLineage,
   validateLifecyclePolicy,
   validateLifecycleState,
 } from "./lifecycle/lifecycle.js";
@@ -1207,8 +1210,15 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       });
     }
     case "lifecycle.born": {
-      const { lifecycle, entry } = requireLifecycleEntry(state, event.payload.gestatingParentId);
-      const parent = requireEntity(state, event.payload.gestatingParentId);
+      // A birth that finds the record or the entity budget full first moves the dead out (#358).
+      const room =
+        state.lifecycle !== undefined &&
+        (state.lifecycle.entries.length >= LIFECYCLE_MAX_ENTRIES ||
+          state.entities.length >= LIFECYCLE_MAX_ENTRIES)
+          ? moveDeadToLineage(state)
+          : state;
+      const { lifecycle, entry } = requireLifecycleEntry(room, event.payload.gestatingParentId);
+      const parent = requireEntity(room, event.payload.gestatingParentId);
       const gestation = entry.gestation;
       const childId = event.payload.childId;
       requireName(childId, "event.childId");
@@ -1220,16 +1230,18 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         gestation.coParentId !== event.payload.coParentId
       )
         throw new DomainValidationError("event.childId", "does not match the gestation due now");
-      if (state.entities.some((candidate) => candidate.objectId === childId))
+      if (room.entities.some((candidate) => candidate.objectId === childId))
         throw new DomainValidationError("event.childId", "the child id already names an entity");
-      if (lifecycle.entries.length >= 128)
+      if (lifecycle.entries.length >= LIFECYCLE_MAX_ENTRIES)
         throw new DomainValidationError("event.childId", "the lifecycle record is full");
-      if (state.wellbeing === undefined)
+      if (room.wellbeing === undefined)
         throw new DomainValidationError("state.wellbeing", "the state has no wellbeing record");
       const coParent =
         event.payload.coParentId === null
           ? undefined
-          : requireLifecycleEntry(state, event.payload.coParentId).entry;
+          : findLifecycleLife(lifecycle, event.payload.coParentId);
+      if (event.payload.coParentId !== null && coParent === undefined)
+        throw new DomainValidationError("event.coParentId", "entity has no lifecycle entry");
       const parentIds = [
         entry.objectId,
         ...(coParent === undefined ? [] : [coParent.objectId]),
@@ -1248,9 +1260,11 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       };
       const entry2 = { ...entry, lastBirthAt: event.simulationTime, gestation: null };
       return createWorldState({
-        ...advanced,
+        ...room,
+        revision: advanced.revision,
+        simulationTime: advanced.simulationTime,
         entities: [
-          ...state.entities,
+          ...room.entities,
           {
             objectId: childId,
             spaceId: parent.spaceId,
@@ -1272,7 +1286,7 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         ],
         wellbeing: {
           entries: [
-            ...state.wellbeing.entries,
+            ...room.wellbeing.entries,
             {
               objectId: childId,
               thirst: 0,

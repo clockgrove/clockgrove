@@ -54,6 +54,7 @@ import {
   type RoutineCandidate,
   reduceWorldEvent,
   regionsContaining,
+  removableLifecycleDead,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
@@ -1986,6 +1987,10 @@ function runWorld(
             at,
             new Set(group.deaths),
             lifecycleRandom,
+            {
+              entities: current().entities.length,
+              removable: () => removableLifecycleDead(current()).length,
+            },
           );
     const dying = new Set<string>(plan?.dying ?? []);
     const involved = new Set<string>([
@@ -4956,8 +4961,12 @@ function registerContainmentChecks(
       check: ({ initial, state }) => {
         for (const key of ["tenantId", "worldId", "timelineId", "partitionId"] as const)
           if (initial[key] !== state[key]) return `state.${key}`;
+        // An entity leaves only as a dead actor moved to the lifecycle lineage (#358).
         for (const entity of initial.entities)
-          if (!state.entities.some((candidate) => candidate.objectId === entity.objectId))
+          if (
+            !state.entities.some((candidate) => candidate.objectId === entity.objectId) &&
+            !(state.lifecycle?.lineage ?? []).some((dead) => dead.objectId === entity.objectId)
+          )
             return "state.entities";
         // Entity scope is inherited exclusively from its immutable partition envelope.
         for (const entity of state.entities)
