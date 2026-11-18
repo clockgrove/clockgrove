@@ -494,6 +494,62 @@ it.skipIf(!isNativeWorldOwnerChild())(
         JSON.stringify(scene.body).includes("Acorn ledger"),
         journal.trim(),
       ]).toEqual([200, false, false, "0"]);
+
+      // Document limits: a write past its size or count limit is refused with its typed reason.
+      const note = (n: number, content = "n") => ({
+        op: "create",
+        path: `sessions/limit-${n}/summary.md`,
+        content,
+      });
+      const count = async () =>
+        Number(await owner.sql("SELECT count(*) FROM clockgrove.actor_documents"));
+      await owner.sql(
+        `INSERT INTO clockgrove.conversation_sessions
+           SELECT (json_populate_record(s, json_build_object('session_id', 'limit-' || n, 'message_count', 0))).*
+             FROM clockgrove.conversation_sessions AS s, generate_series(0, 300) AS n
+            WHERE session_id = '${a}'`,
+      );
+      const refused = (error: string, id: string, operation: number | null) => ({
+        status: 409,
+        body: { error, changeSetId: id, operation },
+      });
+      const before = await count();
+      expect(await change("cs-big", [note(0), note(1, "x".repeat(8193))])).toEqual(
+        refused("document_too_large", "cs-big", 2),
+      );
+      expect(
+        await change(
+          "cs-nine",
+          Array.from({ length: 9 }, (_, n) => note(n)),
+        ),
+      ).toEqual(refused("change_set_too_large", "cs-nine", null));
+      expect(await count()).toBe(before);
+      for (let made = before; made < 256; made += 8)
+        expect(
+          (
+            await change(
+              `cs-fill-${made}`,
+              [...Array(Math.min(8, 256 - made)).keys()].map((n) => note(made + n)),
+            )
+          ).status,
+        ).toBe(200);
+      expect(await change("cs-over", [note(300)])).toEqual(
+        refused("document_limit_reached", "cs-over", 1),
+      );
+      expect(await count()).toBe(256);
+
+      // Retention: every version is kept for the world's life, as the document inspector states.
+      const patch = { op: "patch", path: "identity.md", expectedVersion: 1, content: "# New" };
+      // The read's `version` is 1 (it is also the request envelope's), so it names the first version.
+      const kept = await change("cs-keep", [patch]);
+      const original = await read("identity.md");
+      expect([kept.status, original.version, original.content]).toEqual([200, 1, IDENTITY]);
+      expect(original.retention).toEqual({
+        policy: "world_lifetime",
+        maxVersions: 1000,
+        maxDocumentBytes: 8192,
+        maxDocuments: 256,
+      });
     });
 
     // A world that sets its own budget and a four-message window (issue 359): a fourth turn reads
