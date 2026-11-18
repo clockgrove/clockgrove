@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.9  
 **Wave:** 7 of 13  
 **Assumptions:** Waves 0–6 are qualified; physical and cognitive replay are stable  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; their planning state and product preview timelines are distinct authorities and data planes.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; their planning state and product preview timelines are distinct authorities and data planes.  
 
 ---
 

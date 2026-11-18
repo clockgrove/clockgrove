@@ -7,7 +7,7 @@
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Wave:** 1 of the first three substantive implementation waves  
 **Assumption:** Wave 0 repository, contracts, ports, CI, local database, and Cloudflare skeleton are complete  
-**Development tooling:** external tools such as `clockgrove/factory` may execute this wave; their state is not product/runtime authority.  
+**Development tooling:** external tools such as `clockgrove/pendulum` may execute this wave; their state is not product/runtime authority.  
 
 ---
 

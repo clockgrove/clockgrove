@@ -96,8 +96,8 @@ export async function withDisposableDatabase(
  * How clients reach the disposable cluster. `socket`: a Linux abstract Unix socket with trust
  * authentication and no TCP listener. `loopback`: a `127.0.0.1` TCP listener with no Unix socket and
  * SCRAM authentication by a per-run password, for sandboxes that refuse every `AF_UNIX` socket.
- * A non-empty `CLOCKGROVE_TEST_DB_TRANSPORT` wins; otherwise Factory's local mode
- * (`FACTORY_LOCAL=1`) selects `loopback`; otherwise `socket`.
+ * A non-empty `CLOCKGROVE_TEST_DB_TRANSPORT` wins; otherwise Pendulum's local mode
+ * (`PENDULUM_LOCAL=1`) selects `loopback`; otherwise `socket`.
  */
 export function databaseTransport(environment = process.env) {
   const explicit = environment.CLOCKGROVE_TEST_DB_TRANSPORT;
@@ -106,7 +106,7 @@ export function databaseTransport(environment = process.env) {
     throw new Error(
       `CLOCKGROVE_TEST_DB_TRANSPORT must be "socket" or "loopback"; found ${JSON.stringify(explicit)}`,
     );
-  return environment.FACTORY_LOCAL === "1" ? "loopback" : "socket";
+  return environment.PENDULUM_LOCAL === "1" ? "loopback" : "socket";
 }
 
 async function createDisposableDatabase(operation, maxConnections, settings) {

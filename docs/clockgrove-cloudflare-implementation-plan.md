@@ -25,7 +25,7 @@ Every development wave exercises the production architecture through final inter
 
 ### 1.0 Reconciled scope
 
-The v3.8 baseline incorporated the accepted post-v3.0 product/runtime decisions, the PRD 4.3 future-capability pressure test, the end-to-end Raccoon World provisioning/browser walkthrough, and the accepted Management Plane / World Runtime Plane boundary. Development automation is externalized to the separate `clockgrove/factory` project and is not a product/runtime dependency:
+The v3.8 baseline incorporated the accepted post-v3.0 product/runtime decisions, the PRD 4.3 future-capability pressure test, the end-to-end Raccoon World provisioning/browser walkthrough, and the accepted Management Plane / World Runtime Plane boundary. Development automation is externalized to the separate `clockgrove/pendulum` project and is not a product/runtime dependency:
 
 - Clockgrove is the platform for any world. Raccoon World, its first reference world, lives in its own repository, [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), and builds against Clockgrove at a pinned commit. Clockgrove's own test world is `worlds/fixture`, the platform's portability proof.
 - Better Auth is the reference OSS authentication adapter; Clerk is optional.
@@ -3652,13 +3652,13 @@ Freeze one capability and intended final candidate, use one qualification owner 
 
 ### Development tooling
 
-Clockgrove product delivery begins at Wave 0. External development tools such as `clockgrove/factory` may operate this repository through GitHub Issues, branches, pull requests, checks, and repository guidance. Clockgrove remains buildable, testable, deployable, and operable without them, and their state is never world/runtime authority.
+Clockgrove product delivery begins at Wave 0. External development tools such as `clockgrove/pendulum` may operate this repository through GitHub Issues, branches, pull requests, checks, and repository guidance. Clockgrove remains buildable, testable, deployable, and operable without them, and their state is never world/runtime authority.
 
 ### Wave 0 — Repository, contracts, and production skeleton
 
 **Purpose:** Establish the final seams and executable topology before domain volume accumulates.
 
-**Execution boundary:** Wave 0 has no product/runtime dependency on Factory. If `clockgrove/factory` is used to execute the work, it operates through ordinary repository interfaces and its state does not become product/runtime authority.
+**Execution boundary:** Wave 0 has no product/runtime dependency on Pendulum. If `clockgrove/pendulum` is used to execute the work, it operates through ordinary repository interfaces and its state does not become product/runtime authority.
 
 Deliver:
 
@@ -4023,7 +4023,7 @@ Exit:
 
 ## 30. Coding-agent execution protocol
 
-`clockgrove/factory` may be used to execute packets in Waves 0–12, but it is external development tooling rather than a product/runtime control plane. The packet definitions, repository guidance, CI, GitHub checks, human approvals, and committed evidence below remain the portable project interfaces regardless of which development automation is used.
+`clockgrove/pendulum` may be used to execute packets in Waves 0–12, but it is external development tooling rather than a product/runtime control plane. The packet definitions, repository guidance, CI, GitHub checks, human approvals, and committed evidence below remain the portable project interfaces regardless of which development automation is used.
 
 ### 30.1 Root guidance
 
@@ -4043,7 +4043,7 @@ Each package has a concise README and optional local `AGENTS.md` for package-spe
 
 ### 30.2 Work-packet template
 
-A work packet states product intent. It becomes a Factory Objective, and Factory's compiler reads the repository and decides the Work Items, files, tests, commands, migrations and evidence layout, so the packet does not pre-plan them. Every packet includes:
+A work packet states product intent. It becomes a Pendulum Objective, and Pendulum's compiler reads the repository and decides the Work Items, files, tests, commands, migrations and evidence layout, so the packet does not pre-plan them. Every packet includes:
 
 ```text
 ID and title
@@ -4058,7 +4058,7 @@ Canonical sources
 
 When an exit item needs a specific proof, such as an exact value, an independent recomputation or a golden, state that in the exit item.
 
-Avoid broad tasks such as “implement memory.” Prefer independently reviewable capability Objectives with one owner and explicit contracts; Factory splits them into Work Items or child Objectives. Declare Objective acceptance separately from full-wave qualification. Record exact prerequisite evidence and pending obligations for any local-readiness exception under the accepted delivery ADR.
+Avoid broad tasks such as “implement memory.” Prefer independently reviewable capability Objectives with one owner and explicit contracts; Pendulum splits them into Work Items or child Objectives. Declare Objective acceptance separately from full-wave qualification. Record exact prerequisite evidence and pending obligations for any local-readiness exception under the accepted delivery ADR.
 
 Add the acceptance surface, explicit non-goals, evidence comparison rules, and existing resource/provider bounds to the Objective.
 

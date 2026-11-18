@@ -1,5 +1,5 @@
-name: Factory Objective
-description: Describe a wave's product outcome for Factory to plan and build
+name: Pendulum Objective
+description: Describe a wave's product outcome for Pendulum to plan and build
 type: Feature
 title: "Objective: "
 body:
@@ -8,7 +8,7 @@ body:
       value: |
         Use this form only for new product work from a wave plan. File defects, maintenance, plan amendments, re-qualification and cleanup as plain issues instead (see AGENTS.md).
 
-        Describe the outcome in your own words: a teammate should understand what success looks like without first reading every linked document. Filing this does not start Factory; a maintainer applies the `factory:objective` label when it is ready.
+        Describe the outcome in your own words: a teammate should understand what success looks like without first reading every linked document. Filing this does not start Pendulum; a maintainer applies the `pendulum:objective` label when it is ready.
   - type: textarea
     id: outcome
     attributes:

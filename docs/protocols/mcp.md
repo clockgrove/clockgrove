@@ -280,7 +280,7 @@ remaining composition obligations must be delivered before deployment.
 ## Remaining acceptance by delivery part
 
 The PostgreSQL provider (part 2) and internal governance (part 3) are independently
-reviewable under the Factory `implement-split` sequential-delivery rule. Their passing
+reviewable under the Pendulum `implement-split` sequential-delivery rule. Their passing
 proofs do not complete the following installation acceptance entries. The remaining work stays in issue
 164; these are prerequisites for remote actor access, not optional follow-ups.
 

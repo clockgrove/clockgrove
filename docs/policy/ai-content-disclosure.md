@@ -36,4 +36,4 @@ Players can mute, block and report an actor's proactive contact, and report publ
 
 ## Not player content
 
-Development tools are not disclosed as player content: Factory, coding agents, and models that help write code, docs or tests. This matches Steam's focus on content players consume. Assets those tools produce for players are still pre-generated content and follow that section.
+Development tools are not disclosed as player content: Pendulum, coding agents, and models that help write code, docs or tests. This matches Steam's focus on content players consume. Assets those tools produce for players are still pre-generated content and follow that section.

@@ -5,7 +5,7 @@
 **Date:** October 19, 2026
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
-**Development tooling:** `clockgrove/factory` may operate this repository but is not a product/runtime dependency
+**Development tooling:** `clockgrove/pendulum` may operate this repository but is not a product/runtime dependency
 **Wave:** 0 of 13 — foundation workstream for product implementation waves 1–12
 
 ---
@@ -65,7 +65,7 @@ Do not commit:
 
 Deployment-private notes belong outside this repository. Secrets belong in the configured secret-management system, never in Git.
 
-`clockgrove/factory` is an external development tool. It may read this repository, maintain GitHub Issues, launch coding attempts, and collect evidence. Clockgrove packages must not import Factory code or require Factory services to build, test, run, deploy, replay, export, or restore a world.
+`clockgrove/pendulum` is an external development tool. It may read this repository, maintain GitHub Issues, launch coding attempts, and collect evidence. Clockgrove packages must not import Pendulum code or require Pendulum services to build, test, run, deploy, replay, export, or restore a world.
 
 ---
 
@@ -603,7 +603,7 @@ Prove that:
 - one missed/duplicate Queue or webhook delivery cannot create duplicate logical effects;
 - a release can be reproduced from its manifest and source artifacts.
 
-Later world exports/replay bundles must not require provider runtime caches or Factory state.
+Later world exports/replay bundles must not require provider runtime caches or Pendulum state.
 
 ---
 
