@@ -27,6 +27,7 @@ import {
 import {
   digest,
   fileInventory,
+  mayChangeState,
   outstandingPhases,
   provisionRetry,
   root,
@@ -216,7 +217,8 @@ const stoppable = (executable, args, options) =>
 // Runs one phase and records it. With `timeoutMs` the call is bounded as above; a call stopped at
 // its limit is `unknown` with reason `timeout`, never retried, and stops the deploy. With
 // `refused` (from tofuBounds) nothing runs: the call is recorded `failed` with reason `budget` and
-// stops the deploy, so the evidence names why it ended.
+// stops the deploy, so the evidence names why it ended. A failed phase that may have changed state
+// (`mayChangeState`) is `unknown`, not `failed`.
 export async function recordDeploymentPhase(
   result,
   candidate,
@@ -267,7 +269,7 @@ export async function recordDeploymentPhase(
     command: [name],
     ...observed,
     status:
-      timedOut || (observed.status === "failed" && /apply|publication/u.test(name))
+      timedOut || (observed.status === "failed" && mayChangeState(name))
         ? "unknown"
         : observed.status,
     ...(timedOut ? { reason: "timeout" } : {}),
@@ -362,7 +364,8 @@ export function provisionOptions(store, target, readInventory) {
     },
   };
 }
-// A failed deployment's status: `unknown` while an apply or publication with an open effect
+// A failed deployment's status: `unknown` while a phase that may have changed state (an apply, a
+// publication or the migrations; `mayChangeState`) with an open effect
 // decides it (a provision apply that a later attempt passed does not), else `failed` once the
 // workspace exists, else `held`.
 export function failedDeploymentStatus(phases, started) {
