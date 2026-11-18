@@ -457,7 +457,7 @@ describe("journal-backed native timeline clock", () => {
           body: { error: "world_catching_up" },
         });
         expect(await commandCounts(sql, "too-far-behind")).toBe("0|0|0");
-        // A world ten times larger: each step takes 300 ms. The latency budget refuses the command
+        // A world ten times larger: each step takes 600 ms. The latency budget refuses the command
         // after the first step, long before the mailbox deadline.
         const steps = () =>
           sql(
@@ -465,7 +465,7 @@ describe("journal-backed native timeline clock", () => {
           );
         const stepsBefore = Number(await steps());
         await sql(
-          "CREATE FUNCTION clockgrove.slow_step_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.3); RETURN NEW; END $$; CREATE TRIGGER slow_step_test BEFORE INSERT ON clockgrove.command_receipts FOR EACH ROW WHEN (NEW.command_id LIKE 'trusted:advance:%') EXECUTE FUNCTION clockgrove.slow_step_test()",
+          "CREATE FUNCTION clockgrove.slow_step_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.6); RETURN NEW; END $$; CREATE TRIGGER slow_step_test BEFORE INSERT ON clockgrove.command_receipts FOR EACH ROW WHEN (NEW.command_id LIKE 'trusted:advance:%') EXECUTE FUNCTION clockgrove.slow_step_test()",
         );
         try {
           const started = performance.now();

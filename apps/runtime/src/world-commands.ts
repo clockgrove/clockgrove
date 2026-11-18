@@ -937,15 +937,20 @@ function nextThrough(owner: ClockOwnerState): bigint {
 export const OVERDUE_DEADLINE_LIMIT = 8;
 
 /**
- * Decision (issue 366): the latency budget of a client command's inline catch-up is 500 ms, the
- * Wave 3 load curves' worst measured inline catch-up (7 steps, 462 ms, issue 851) rounded up. At
- * that bound 32 mailbox entries spend at most 16 s catching up, inside the 30 s request deadline
- * (`SPACE_MAILBOX_BOUNDS`). A step is not started when the time spent plus the slowest step so
- * far would pass it, so a world ten times larger, whose steps take ten times longer, is refused
- * as catching up after a step or two instead of spending the deadline. The first step always runs
- * (nothing estimates it); `OVERDUE_DEADLINE_LIMIT` stays as the outer bound on steps.
+ * Decision (issue 366): the latency budget of a client command's inline catch-up is 1,000 ms,
+ * twice the Wave 3 load curves' worst measured inline catch-up (7 steps, 462 ms, issue 851). A
+ * step is not started when the time spent plus the slowest step so far would pass it. The
+ * headroom keeps the fixture's measured outcomes: 7 steps plus even the slowest possible eighth
+ * (at most 462 + 462 ms) fit, so a command after 6 minutes of sleep still runs and one after 8
+ * minutes is still refused by `OVERDUE_DEADLINE_LIMIT`, not by this budget. A world ten times
+ * larger, whose steps take ten times longer, is refused as catching up after a step or two instead
+ * of spending the deadline.
+ * The bound is not the budget alone: the first step always runs (nothing estimates it), and a
+ * step may be slower than every step before it. A command's catch-up therefore ends within the
+ * budget plus one step, and a world whose single step outlasts the budget runs exactly one step
+ * per command before refusing. Each step commits, so the next command finds that much less work.
  */
-export const CATCH_UP_BUDGET_MS = 500;
+export const CATCH_UP_BUDGET_MS = 1_000;
 
 interface CatchUpBudget {
   used: number;
