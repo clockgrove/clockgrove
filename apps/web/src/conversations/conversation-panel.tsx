@@ -120,6 +120,9 @@ export function ConversationPanel({
   // Once the stream ends with the turn still running, the status read below settles it.
   const running = useRef(false);
   const streaming = useRef(false);
+  // Which stream the panel follows. A cancelled turn's stream is let go at once: it ends only when
+  // the turn reaches its next checkpoint, and its late answer must not settle the next turn.
+  const followed = useRef(0);
   const [inFlight, setInFlight] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const [result, setResult] = useState<TurnResult>();
@@ -149,11 +152,14 @@ export function ConversationPanel({
     if (status.phase === "cancelled") {
       setResult("cancelled");
       setInFlight(false);
-      // A turn whose stream already ended has nothing else that settles it.
-      if (!streaming.current) {
-        running.current = false;
-        await settled(target.sessionId, "cancelled");
-      }
+      // The cancelled turn settles here, whether or not its stream is still open: a message sent
+      // next is a new turn of its own, not one dropped while the old stream waits to end.
+      // The let-go stream's own end no longer clears its partial reply, so the cancel clears it.
+      followed.current += 1;
+      setProvisional("");
+      streaming.current = false;
+      running.current = false;
+      await settled(target.sessionId, "cancelled");
     }
   };
 
@@ -315,20 +321,25 @@ export function ConversationPanel({
     void load().then(async () => {
       // A turn this browser left in flight is settled from its durable status, then re-read.
       let resumedId: string | undefined;
+      let stream: number | undefined;
+      const following = () => stream === undefined || followed.current === stream;
       const resumed = await session.resumeTurn(selectedId, {
-        onProvisional: (text) => live && setProvisional(text),
-        onPhase: (value) => live && reportPhase(value),
+        onProvisional: (text) => live && following() && setProvisional(text),
+        onPhase: (value) => live && following() && reportPhase(value),
         onTurn: (id) => {
           if (!live) return;
           resumedId = id;
+          stream = ++followed.current;
           running.current = true;
           streaming.current = true;
           setTurn({ sessionId: selectedId, messageId: id });
           setInFlight(true);
         },
-        onRecovered: () => live && setRecovered(true),
+        onRecovered: () => live && following() && setRecovered(true),
       });
-      streaming.current = false;
+      // A resumed turn cancelled while its stream was open was settled by the cancel.
+      if (!following()) return;
+      if (stream !== undefined) streaming.current = false;
       if (!live || !resumed) return;
       let outcome: TurnResult | "running" | undefined;
       if (!("refused" in resumed)) outcome = await stillRunning(selectedId, resumedId);
@@ -443,18 +454,27 @@ export function ConversationPanel({
     setInFlight(true);
     running.current = true;
     streaming.current = true;
+    const stream = ++followed.current;
     let still = false;
     try {
-      still = (await sendTurn(text, retryText === undefined)) === "running";
+      still = (await sendTurn(text, retryText === undefined, stream)) === "running";
     } finally {
-      streaming.current = false;
-      if (!still) {
-        running.current = false;
-        setInFlight(false);
+      // A stream let go by a cancel no longer owns the panel's turn state.
+      if (followed.current === stream) {
+        streaming.current = false;
+        if (!still) {
+          running.current = false;
+          setInFlight(false);
+        }
       }
     }
   };
-  const sendTurn = async (text: string, fromDraft: boolean): Promise<"running" | undefined> => {
+  const sendTurn = async (
+    text: string,
+    fromDraft: boolean,
+    stream: number,
+  ): Promise<"running" | undefined> => {
+    const following = () => followed.current === stream;
     // The message goes to the chosen conversation, or to the one being created, even before it has
     // loaded; only with neither is a conversation created for it.
     const started = await creating.current;
@@ -470,14 +490,16 @@ export function ConversationPanel({
     setTurn({ sessionId: target });
     let messageId: string | undefined;
     const receipt = await session.talk(target, text, {
-      onProvisional: setProvisional,
-      onPhase: reportPhase,
+      onProvisional: (value: string) => following() && setProvisional(value),
+      onPhase: (value: string) => following() && reportPhase(value),
       onTurn: (id: string) => {
         messageId = id;
-        setTurn({ sessionId: target, messageId: id });
+        if (following()) setTurn({ sessionId: target, messageId: id });
       },
-      onRecovered: () => setRecovered(true),
+      onRecovered: () => following() && setRecovered(true),
     });
+    // Cancelled while it streamed: the cancel settled this turn, and a later one may be running.
+    if (!following()) return undefined;
     setPhase(undefined);
     if ("refused" in receipt) {
       if (receipt.refused === "turn_cancelled") return void (await settled(target, "cancelled"));

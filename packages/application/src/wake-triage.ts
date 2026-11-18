@@ -7,6 +7,8 @@ export interface WakeTriagePolicy {
   readonly model: string;
   readonly confidenceThreshold: number;
   readonly dailyBudgetMicrousd: number;
+  /** IANA time zone whose calendar day the daily budget resets in. */
+  readonly dailyBudgetZone: string;
   readonly maxCostMicrousd: number;
 }
 export interface WakeTriageSubject {
