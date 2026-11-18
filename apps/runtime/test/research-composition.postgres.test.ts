@@ -32,6 +32,7 @@ import { connect, type DatabaseFixture } from "./world-fixture.js";
 it("governs encrypted queued research against malicious HTTP fixtures and reconciles lost attempts without resend", async () => {
   const canary = "fixture-research-canary";
   const calls: string[] = [];
+  let slowGate: Promise<void> = Promise.resolve();
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -51,6 +52,7 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       expect(req.headers.authorization).toBe(
         q === "anonymous-other-space" ? undefined : `Bearer ${canary}`,
       );
+      if (q === "slow") await slowGate;
       if (q === "redirect") {
         res.writeHead(307, { location: "https://other.example/mcp" });
         res.end();
@@ -292,6 +294,7 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
         });
       const research = composeResearch({
         environment: "local",
+        attemptHeartbeatMs: 200,
         withClient: withAdmin,
         network,
         artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
@@ -505,6 +508,43 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
         await research.executeTool(participant, lost.fiber, lost.proposal, lost.call),
       ).toMatchObject({ status: "uncertain", code: "tool_uncertain" });
       expect(calls).not.toContain("lost");
+      const slow = await prepare("slow");
+      await research.executeTool(participant, slow.fiber, slow.proposal, slow.call);
+      const slowQueue = queued.shift()!;
+      const blocker = connect(fixture.environment, "clockgrove", "clockgrove_admin");
+      let openGate = () => {};
+      slowGate = new Promise((resolve) => {
+        openGate = resolve;
+      });
+      const slowRun = research.consumer.consume(slowQueue, (v) => v);
+      await expect.poll(() => calls.includes("slow"), { timeout: 30_000 }).toBe(true);
+      await blocker.query("BEGIN");
+      await blocker.query("LOCK TABLE clockgrove.artifact_references IN EXCLUSIVE MODE");
+      openGate();
+      await expect
+        .poll(
+          () =>
+            sql(
+              `SELECT count(*) FROM clockgrove.effect_attempts WHERE effect_id='${slow.call.effectId}' AND heartbeat_at IS NOT NULL`,
+            ),
+          { timeout: 30_000 },
+        )
+        .toBe("1");
+      await sql(
+        `ALTER TABLE clockgrove.effect_intents DISABLE TRIGGER effect_intent_guard; UPDATE clockgrove.effect_intents SET created_at=statement_timestamp()-interval '62 seconds' WHERE effect_id='${slow.call.effectId}'; ALTER TABLE clockgrove.effect_intents ENABLE TRIGGER effect_intent_guard; ALTER TABLE clockgrove.effect_attempts DISABLE TRIGGER effect_attempt_guard; UPDATE clockgrove.effect_attempts SET started_at=statement_timestamp()-interval '61 seconds' WHERE effect_id='${slow.call.effectId}'; ALTER TABLE clockgrove.effect_attempts ENABLE TRIGGER effect_attempt_guard`,
+      );
+      await research.sweep();
+      expect(
+        await sql(
+          `SELECT disposition FROM clockgrove.effect_attempts WHERE effect_id='${slow.call.effectId}'`,
+        ),
+      ).toBe("started");
+      await blocker.query("COMMIT");
+      await blocker.close();
+      await slowRun;
+      expect(
+        await research.executeTool(participant, slow.fiber, slow.proposal, slow.call),
+      ).toMatchObject({ status: "succeeded", code: "ok" });
       const dead = await prepare("dead-letter");
       await research.executeTool(participant, dead.fiber, dead.proposal, dead.call);
       await research.deadLetter(queued.shift()!, "internal");

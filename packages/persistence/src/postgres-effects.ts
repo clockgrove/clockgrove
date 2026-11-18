@@ -326,6 +326,20 @@ export class PostgreSqlEffects {
     });
   }
 
+  /** Extends the lease of a started attempt; false once the attempt is no longer started. */
+  async heartbeat(address: EffectAddress, attemptId: string): Promise<boolean> {
+    const values = addressValues(address);
+    if (!identity(attemptId)) throw new Error("Invalid effect attempt");
+    return this.transaction(async () => {
+      const result = await this.client.query(
+        `UPDATE clockgrove.effect_attempts SET heartbeat_at=statement_timestamp()
+        WHERE ${predicate} AND attempt_id=$5 AND disposition='started' RETURNING attempt_id`,
+        [...values, attemptId],
+      );
+      return result.rows.length > 0;
+    });
+  }
+
   async complete(
     address: EffectAddress,
     attemptId: string,

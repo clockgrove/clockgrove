@@ -28,6 +28,11 @@ export interface ExternalEffectPorts {
     intent: EffectIntentMetadata,
     evidence: McpReadEvidence,
   ) => Promise<string>;
+  /** Keeps a started attempt alive while the executor is slow; a missed beat only shortens the lease. */
+  readonly heartbeat?: {
+    readonly everyMs: number;
+    readonly beat: (intent: EffectIntentMetadata, attemptId: string) => Promise<unknown>;
+  };
   readonly attemptId: () => string;
   readonly knownCost?: (intent: EffectIntentMetadata) => number | null;
 }
@@ -79,6 +84,12 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
         };
       } else {
         let resultReceived = false;
+        const beat = ports.heartbeat;
+        const timer = beat
+          ? setInterval(() => {
+              beat.beat(intent, attemptId).catch(() => undefined);
+            }, beat.everyMs)
+          : null;
         try {
           const evidence = await ports.adapter.execute(request, intent);
           resultReceived = true;
@@ -108,6 +119,8 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
             resultArtifactId: null,
             costMicrousd: null,
           };
+        } finally {
+          if (timer) clearInterval(timer);
         }
       }
       // A storage failure must reach Queue retry, which can reconcile but never resend.

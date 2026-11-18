@@ -69,6 +69,8 @@ export interface ResearchPolicy {
 }
 export interface ResearchConfiguration {
   readonly environment: string;
+  /** Executor heartbeat interval for started attempts; tests shorten it. */
+  readonly attemptHeartbeatMs?: number;
   /** Isolated privileged internal connection; never the ordinary runtime pool. */
   readonly withClient: <T>(operation: (client: PostgreSqlClient) => Promise<T>) => Promise<T>;
   readonly artifacts: (client: PostgreSqlClient) => ArtifactStore;
@@ -118,8 +120,12 @@ const scoped = (intent: EffectIntentMetadata) => [
   intent.effectId,
 ];
 const internal = (capability: string) => capability === "inspect" || capability === "why";
-// Three HTTP deadlines (45 s) plus a 15 s persistence allowance, after which only uncertainty is safe.
+// An attempt is lost only when neither its last heartbeat nor its start is this old: the executor
+// is really gone, however long a write or its persistence takes (issue 366).
 const ATTEMPT_RECONCILIATION_MS = 60_000;
+// Decision (issue 366): four beats fit in the 60 s window, so one slow beat under contention
+// does not lose the lease.
+const ATTEMPT_HEARTBEAT_MS = 15_000;
 
 export function composeResearch(configuration: ResearchConfiguration) {
   if (configuration.environment !== "local")
@@ -1234,7 +1240,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
     if (existing?.disposition !== "started") return existing;
     const stale = await client.query(
       `SELECT 1 FROM clockgrove.effect_attempts WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND effect_id=$4
-      AND disposition='started' AND started_at<=statement_timestamp()-$5::integer*interval '1 millisecond'`,
+      AND disposition='started' AND coalesce(heartbeat_at,started_at)<=statement_timestamp()-$5::integer*interval '1 millisecond'`,
       [...scoped(intent), ATTEMPT_RECONCILIATION_MS],
     );
     if (stale.rows.length === 0 || !existing.attemptId) return existing;
@@ -1270,6 +1276,11 @@ export function composeResearch(configuration: ResearchConfiguration) {
     }
   }
   const consumer = externalEffectsConsumer({
+    heartbeat: {
+      everyMs: configuration.attemptHeartbeatMs ?? ATTEMPT_HEARTBEAT_MS,
+      beat: (intent, id) =>
+        configuration.withClient((client) => new PostgreSqlEffects(client).heartbeat(intent, id)),
+    },
     effects: {
       resolveDispatch: (message) =>
         configuration.withClient((client) =>
