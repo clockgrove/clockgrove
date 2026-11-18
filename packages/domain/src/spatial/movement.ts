@@ -157,6 +157,75 @@ export function positionAt(segment: MovementSegment, at: bigint): readonly Fixed
   return segment.waypoints[segment.waypoints.length - 1]!;
 }
 
+/**
+ * The whole milliseconds during which a segment's path lies within a ball of `radius` around
+ * `centre` (a shelter's cover; the edge counts as inside), as maximal inclusive `[from, to]`
+ * intervals in time order. The path is the exact straight line between waypoints: at elapsed `e`
+ * of a leg of duration `D` the mover is within the ball when
+ * `f(e) = |D·(from - centre) + e·(to - from)|² - radius²·D² <= 0`. `f` is a convex quadratic, so
+ * its non-positive whole values form one run around its least whole value, whose ends a binary
+ * search on each side finds exactly.
+ */
+export function coverIntervals(
+  segment: MovementSegment,
+  centre: readonly bigint[],
+  radius: bigint,
+): readonly (readonly [bigint, bigint])[] {
+  const intervals: [bigint, bigint][] = [];
+  const add = (from: bigint, to: bigint): void => {
+    const last = intervals[intervals.length - 1];
+    if (last !== undefined && last[1] >= from) {
+      if (to > last[1]) last[1] = to;
+    } else intervals.push([from, to]);
+  };
+  const first = segment.waypoints[0]!;
+  if (first.length !== centre.length) return intervals;
+  const limit = radius * radius;
+  const offset = first.map((value, axis) => value - centre[axis]!);
+  if (offset.reduce((sum, value) => sum + value * value, 0n) <= limit)
+    add(segment.startTime, segment.startTime);
+  for (const leg of movementLegs(segment)) {
+    if (leg.duration === 0n) continue;
+    const duration = leg.duration;
+    const from = leg.from.map((value, axis) => value - centre[axis]!);
+    const step = leg.to.map((value, axis) => value - leg.from[axis]!);
+    const f = (elapsed: bigint): bigint =>
+      from.reduce((sum, value, axis) => {
+        const term = value * duration + elapsed * step[axis]!;
+        return sum + term * term;
+      }, 0n) -
+      limit * duration * duration;
+    // The vertex -D(A·B)/|B|², clamped to the leg; the least whole value is at its floor or ceiling.
+    const dot = from.reduce((sum, value, axis) => sum + value * step[axis]!, 0n);
+    const norm = step.reduce((sum, value) => sum + value * value, 0n);
+    const vertex = floorDiv(-duration * dot, norm);
+    const clamp = (value: bigint) => (value < 0n ? 0n : value > duration ? duration : value);
+    const low = clamp(vertex);
+    const high = clamp(vertex + 1n);
+    const least = f(high) < f(low) ? high : low;
+    if (f(least) > 0n) continue;
+    // First whole elapsed time within: f is non-increasing up to `least`.
+    let outside = -1n;
+    let inside = least;
+    while (inside - outside > 1n) {
+      const middle = outside + (inside - outside) / 2n;
+      if (f(middle) <= 0n) inside = middle;
+      else outside = middle;
+    }
+    const enter = inside;
+    // Last whole elapsed time within: f is non-decreasing from `least`.
+    inside = least;
+    outside = duration + 1n;
+    while (outside - inside > 1n) {
+      const middle = inside + (outside - inside) / 2n;
+      if (f(middle) <= 0n) inside = middle;
+      else outside = middle;
+    }
+    add(leg.start + enter, leg.start + inside);
+  }
+  return intervals;
+}
+
 function legTime(leg: MovementLeg, n: bigint, d: bigint): bigint {
   return leg.start + roundDiv(leg.duration * n, d);
 }

@@ -83,8 +83,9 @@ decision emits `location.changed` to null when the actor is located, then `movem
 `planMovement` (anchor-at-target destination, else the target pose; `unitsPerSecond`; `movementIdFor` of the
 dispatch command id). The same action continues silently, a different seek replans
 (`movement.replanned`) and `stay` interrupts (`movement.interrupted`). `world.advance` registers one movement
-system per moving actor and emits region crossings and `movement.completed` at the exact times, reusing
-`expectedCrossings` and `movementCompletionTime`. `utility.plan-matches-action@1` is a precondition and a
+system per moving actor and emits region crossings, `movement.completed` and the `location.changed` of a
+walk crossing a declared cover at the exact times, reusing `expectedCrossings`, `movementCompletionTime` and
+`coverIntervals`. `utility.plan-matches-action@1` is a precondition and a
 post-state invariant of every command. A decision that stops a walk applies the stopping rule of
 [spatial movement](spatial-movement.md#world-time-a-move-passes): after a `stay` interrupt the actor
 is in the active shelter covering where it stopped, or on open ground, and a walk stopped at the
@@ -92,8 +93,10 @@ new target's coordinates arrives as a completed move does. Arrival effects: food
 quantity)`, emit `resource.consumed {objectId: holder, kind, quantity, consumerId: actor}` then `needs.relieved` with
 `value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
 covering the target (at its exact coordinates or within its `coverRadius`), the sought one first (so walking to
-food under a shelter's cover enters it), and on open ground otherwise; a walk whose every waypoint stays within the
-cover of the shelter the actor is in keeps that location throughout; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
+food under a shelter's cover enters it), and on open ground otherwise. While it walks, its location follows the
+declared covers it passes through, changing at the millisecond it crosses a cover's boundary (the "Crossing a cover"
+rule of [spatial movement](spatial-movement.md#world-time-a-move-passes)), so a walk kept within the cover of the shelter
+the actor is in keeps that location throughout; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
 `location.changed`, before any consumption, unless the actor is already there. Arrival events name the decision's
 plan (`plan:<objectId>@<time>`); when `world.advance` completes a movement no decision started (a moving command's,
 observed only up to `observeUntil`), they name that movement id. The two are told apart by structure: a decision's
@@ -164,13 +167,15 @@ emitted. Decision group at time t for due actor a: 0 for an unchanged decision, 
 `integrationEvents(a, t)` is 0 to `perActor` for the due actor only (`needs.changed` when its needs change, plus
 `wellbeing.integrated` when its entry is not already integrated at t); `pendingPlants(t)` counts the active plants
 not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the unlocate (1 when a seek
-starts or replans and the actor has a location its path leaves, else 0) plus the movement event (1 for `movement.started`,
+starts or replans and the actor has a location whose declared cover does not cover its start, else 0) plus the movement event (1 for `movement.started`,
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
 stopping location (1 when a `stay` interrupts a walk where the shelter covering that point, or open ground, differs
 from the actor's location, else 0) plus the immediate-arrival events (a walk stopped at its target counts its
 arrival's `location.changed` here). Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
 over arriving actors b of (integrationEvents(b, t) when b is not already integrated in the group, else 0, plus 1 +
-arrivalEvents(b))`, where the 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
+arrivalEvents(b))` + the sum over actors c whose walk crosses a declared cover at t without completing there of
+(integrationEvents(c, t) when c is not already integrated in the group, else 0, plus 1 for its `location.changed`),
+where the arrival's 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
 ends in a shelter (0 when already there), plus, for food or water, `resource.consumed` + `needs.relieved` + any
 `comfort.changed` the relief causes, with consume and relieve both 0 when `q` is 0. Final group: unchanged
 `perActor*actors + plants + 1`. New events count toward `maxEvents` in indivisible

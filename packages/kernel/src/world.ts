@@ -19,6 +19,7 @@ import {
   type CrossingRecord,
   classifyRainChange,
   closedWorldRefusal,
+  coverIntervals,
   createWorldState,
   currentInside,
   type DecisionTrace,
@@ -1527,6 +1528,19 @@ function runWorld(
           }),
     } as unknown as WorldState;
   }
+  /** Where a walking actor's location changes under declared covers at exactly `at`, if it does. */
+  function coverChangeAt(
+    state: WorldState,
+    objectId: string,
+    at: bigint,
+  ): string | null | undefined {
+    const actor = objectsOf(state, objectId);
+    const movement = actor?.movement;
+    if (actor === undefined || movement === undefined || movement.status !== "active")
+      return undefined;
+    const change = coverChanges(state, actor, movement, at - 1n)[0];
+    return change?.time === at ? change.locationId : undefined;
+  }
   function pendingCrossings(movement: MovementRecord, upTo: bigint) {
     return expectedCrossings(movement, startState.spatialRegions ?? [])
       .slice(movement.emitted.length)
@@ -1766,9 +1780,9 @@ function runWorld(
         },
       );
       if (record === undefined) throw new RangeError("selected seek is not plannable");
-      // A walk kept under its shelter's cover keeps the location; one that leaves it does not.
-      if (actor.locationId !== undefined && !staysCovered(state, actor, record))
-        steps.push({ kind: "unlocate" });
+      // The actor leaves its shelter as it sets out, unless it is under a declared cover: then the
+      // world time unlocates it where the walk crosses the cover's boundary, if it ever does.
+      if (leavesAtStart(state, actor, record)) steps.push({ kind: "unlocate" });
       steps.push({ kind: "replan", priorMovementId: prior.movementId, position, record });
       links.push(record.movementId);
       const first = pendingCrossings(record, t);
@@ -1795,13 +1809,9 @@ function runWorld(
       },
     );
     if (record === undefined) throw new RangeError("selected seek is not plannable");
-    // A move off the spot leaves the shelter it is in, unless the whole path stays in its cover.
-    if (
-      actor.locationId !== undefined &&
-      actor.locationId !== null &&
-      !staysCovered(state, actor, record)
-    )
-      steps.push({ kind: "unlocate" });
+    // A move off the spot leaves the shelter it is in as it sets out; under a declared cover it
+    // leaves where the walk crosses the cover's boundary instead.
+    if (leavesAtStart(state, actor, record)) steps.push({ kind: "unlocate" });
     steps.push({ kind: "start", record });
     links.push(record.movementId);
     const first = pendingCrossings(record, t);
@@ -1894,6 +1904,12 @@ function runWorld(
             entity.objectId,
             entity.movement as MovementRecord,
             state.spatialRegions ?? [],
+            coverChanges(
+              state,
+              entity,
+              entity.movement as MovementRecord,
+              state.simulationTime,
+            ).map((change) => change.time),
           ),
         })),
     );
@@ -2023,6 +2039,11 @@ function runWorld(
       crossings: readonly CrossingRecord[];
     }[] = [];
     const arrivalIds: string[] = [];
+    const coverMoves: {
+      objectId: string;
+      movement: MovementRecord;
+      locationId: string | null;
+    }[] = [];
     let movementSize = 0;
     if (utilityPolicy !== undefined && group.movers.length > 0) {
       const before = current();
@@ -2039,6 +2060,17 @@ function runWorld(
         const crossings = pendingCrossings(movement, at);
         moverCrossings.push({ objectId, movement, crossings });
         movementSize += crossings.length;
+        // A walk crossing a declared cover's boundary here changes its location (`coverChanges`;
+        // its arrival, which never coincides with one, relocates it by the stopping rule).
+        const change = coverChangeAt(before, objectId, at);
+        if (change !== undefined) {
+          coverMoves.push({ objectId, movement, locationId: change });
+          movementSize +=
+            1 +
+            (integratedHere.has(objectId)
+              ? 0
+              : integrationEvents(objectsOf(before, objectId) as WorldEntity, at));
+        }
       }
       let arrivalState = before;
       for (const { objectId, movement } of moverCrossings) {
@@ -2397,6 +2429,18 @@ function runWorld(
     }
     for (const { objectId, movement, crossings } of moverCrossings)
       emitCrossings(objectId, movement.movementId, crossings);
+    for (const { objectId, movement, locationId } of coverMoves) {
+      integrateActor(objectsOf(current(), objectId) as WorldEntity, at);
+      emit(
+        event("location.changed", at, {
+          objectId: objectId as ObjectId,
+          locationId: locationId as ObjectId | null,
+          planId: completedPlanId(objectId, movement),
+        }),
+      );
+      // Its protection changed: the run is rebuilt from here.
+      shelterChanged = true;
+    }
     for (const objectId of arrivalIds) {
       const actor = objectsOf(current(), objectId) as WorldEntity;
       integrateActor(actor, at);
@@ -2529,13 +2573,15 @@ function runWorld(
             pulled = true;
             break;
           }
-          // Arrival re-seeds physiology; thresholds beyond it are speculative and may disappear.
+          // Arrival, or crossing a declared cover's boundary, re-seeds physiology; thresholds
+          // beyond it are speculative and may disappear.
           if (
             group.movers.some((objectId) => {
               const movement = objectsOf(current(), objectId)?.movement;
               return (
                 movement?.status === "active" &&
-                movementCompletionTime(movement.segment) === group.time
+                (movementCompletionTime(movement.segment) === group.time ||
+                  coverChangeAt(current(), objectId, group.time) !== undefined)
               );
             })
           )
@@ -2842,6 +2888,22 @@ function runWorld(
           throw new RangeError("a movement handler emitted an event its command does not own");
         if (ended) return;
         if (time - start > policy.decisionIntervalMs) passedTime("state.simulationTime");
+        // Where the walk enters or leaves a shelter's declared cover by this event's time, its
+        // location changes there, after the world time up to that millisecond.
+        for (;;) {
+          const walking = objectsOf(current(), mover as string);
+          const walk = walking?.movement?.status === "active" ? walking.movement : undefined;
+          const change =
+            walk === undefined
+              ? undefined
+              : coverChanges(current(), walking!, walk, current().simulationTime)[0];
+          if (walk === undefined || change === undefined || change.time > time) break;
+          const changeAt = change.time as SimTimeMs;
+          if (!advanceTo(changeAt, (changeAt - 1n) as SimTimeMs)) passedTime("events");
+          ended = moverDied();
+          if (ended) return;
+          relocate(changeAt, change.locationId, walk.movementId, 1);
+        }
         // Dwells due at `time` fall due after the command's events at that time.
         if (!advanceTo(time as SimTimeMs, (time - 1n) as SimTimeMs)) passedTime("events");
         ended = moverDied();
@@ -2850,12 +2912,13 @@ function runWorld(
           passedTime("events");
         integrateWaters(time as SimTimeMs);
         const at = time as SimTimeMs;
-        // A move off the spot leaves the mover's location as it sets out, unless every point of
-        // its path stays within that shelter's cover.
+        // A move off the spot leaves the mover's location as it sets out, unless that shelter's
+        // declared cover covers it there: then it leaves where the walk crosses the cover's
+        // boundary (above), if it ever does.
         if (type === "movement.started" || type === "movement.replanned") {
           const movement = (data as { readonly movement: MovementRecord }).movement;
           const moving = objectsOf(current(), mover as string);
-          if (moving === undefined || !staysCovered(current(), moving, movement))
+          if (moving !== undefined && leavesAtStart(current(), moving, movement))
             relocate(at, null, movement.movementId, 1);
         }
         const changing = event(type as WorldEvent["type"], at, data as never);
@@ -3806,8 +3869,14 @@ function waterAt(
 /** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
+  // A walker's pose is where its walk began; under a declared cover the walk keeps its location
+  // to the cover's boundary (`coverChanges`), so that location is what covers it.
+  const walk = actor.movement?.status === "active" ? actor.movement : undefined;
   const sheltered =
-    location !== undefined && shelterMatches(actor, location)
+    location !== undefined &&
+    (walk !== undefined && coversWalk(actor, location, walk)
+      ? true
+      : shelterMatches(actor, location))
       ? (location.shelter?.rainProtection ?? 0)
       : 0;
   return Math.max(actor.weatherProtection?.rainProtection ?? 0, sheltered);
@@ -3981,18 +4050,86 @@ function shelterAt(
   return here[0] ?? null;
 }
 /**
- * Whether a movement keeps its mover under the shelter it is in: it never leaves its start, or
- * every waypoint lies within that shelter's cover. A cover is a ball, so the straight legs between
- * waypoints stay inside it too.
+ * Whether a walking actor can be under a shelter's declared cover mid-walk: the shelter declares
+ * `coverRadius`, is active, is not itself moving, and stands in the walk's space and frame, and
+ * the walk takes no portal.
  */
-function staysCovered(state: WorldState, actor: WorldEntity, movement: MovementRecord): boolean {
-  if (!leavesStart(movement)) return true;
-  if (actor.locationId === undefined || actor.locationId === null) return false;
+function coversWalk(actor: WorldEntity, shelter: WorldEntity, movement: MovementRecord): boolean {
+  return (
+    shelter.shelter?.coverRadius !== undefined &&
+    shelter.objectId !== actor.objectId &&
+    (shelter.lifecycle === undefined || shelter.lifecycle.status === "active") &&
+    shelter.movement?.status !== "active" &&
+    shelter.spaceId === actor.spaceId &&
+    shelter.pose.frameId === movement.frameId &&
+    shelter.pose.frameVersion === movement.frameVersion &&
+    movement.portalSteps === undefined
+  );
+}
+/** The whole milliseconds of a walk that a shelter's declared cover covers (`coverIntervals`). */
+function walkCover(shelter: WorldEntity, movement: MovementRecord) {
+  return coverIntervals(
+    movement.segment,
+    shelter.pose.coordinates,
+    shelter.shelter?.coverRadius as bigint,
+  );
+}
+/**
+ * Whether a movement takes its mover out of the shelter it is in as it sets out: it leaves its
+ * start and the shelter declares no cover over the walk (`coversWalk`), or its cover does not
+ * reach the start.
+ */
+function leavesAtStart(state: WorldState, actor: WorldEntity, movement: MovementRecord): boolean {
+  if (actor.locationId === undefined || actor.locationId === null || !leavesStart(movement))
+    return false;
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
   return (
-    location?.shelter?.coverRadius !== undefined &&
-    movement.segment.waypoints.every((point) => shelterMatches(actor, location, point))
+    location === undefined ||
+    !coversWalk(actor, location, movement) ||
+    walkCover(location, movement)[0]?.[0] !== movement.segment.startTime
   );
+}
+/**
+ * The location changes of a walk under declared covers after `from` and before it completes. At
+ * each whole millisecond its exact path enters or leaves a shelter's cover (`coverIntervals`), the
+ * walker is in the shelter whose cover it is under (the one it is in, else the first by object
+ * id) or on open ground; a change is listed where that differs from where it is. Where it stops,
+ * the stopping rule places it as before.
+ */
+function coverChanges(
+  state: WorldState,
+  actor: WorldEntity,
+  movement: MovementRecord,
+  from: bigint,
+): readonly { readonly time: bigint; readonly locationId: string | null }[] {
+  if (!leavesStart(movement)) return [];
+  const end = movementCompletionTime(movement.segment);
+  const covers = state.entities
+    .filter((entity) => coversWalk(actor, entity, movement))
+    .map((entity) => ({ objectId: entity.objectId as string, spans: walkCover(entity, movement) }))
+    .filter((cover) => cover.spans.length > 0)
+    .sort((left, right) =>
+      left.objectId < right.objectId ? -1 : left.objectId > right.objectId ? 1 : 0,
+    );
+  const times = [
+    ...new Set(
+      covers.flatMap((cover) => cover.spans.flatMap(([enter, leave]) => [enter, leave + 1n])),
+    ),
+  ]
+    .filter((time) => time > from && time < end)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const changes: { time: bigint; locationId: string | null }[] = [];
+  let where: string | null = actor.locationId ?? null;
+  for (const time of times) {
+    const under = covers
+      .filter((cover) => cover.spans.some(([enter, leave]) => enter <= time && time <= leave))
+      .map((cover) => cover.objectId);
+    const next = where !== null && under.includes(where) ? where : (under[0] ?? null);
+    if (next === where) continue;
+    changes.push({ time, locationId: next });
+    where = next;
+  }
+  return changes;
 }
 /** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
 function leavesStart(movement: MovementRecord): boolean {

@@ -6,6 +6,7 @@ import {
   ACTOR_PROCESS_STATUSES,
   type ActorProcess,
   type ActorProcessSegment,
+  coverIntervals,
   DomainValidationError,
   parseAnchorGraph,
   parseSpatialRegion,
@@ -234,5 +235,72 @@ describe("durable actor process", () => {
       "segment.budgetConsumed",
       "segment.budgetConsumed: exceeds the bounded segment budget",
     );
+  });
+});
+
+describe("coverIntervals", () => {
+  const segment = (waypoints: readonly (readonly bigint[])[]) =>
+    ({ waypoints, startTime: 100n, speed: { unitsPerSecond: 1000n } }) as never;
+  it("gives the whole milliseconds a walk spends within a cover, edge inclusive", () => {
+    // Out from the centre at 1 unit/ms: within through 500 units, outside from 501.
+    expect(
+      coverIntervals(
+        segment([
+          [0n, 0n],
+          [900n, 0n],
+        ]),
+        [0n, 0n],
+        500n,
+      ),
+    ).toEqual([[100n, 600n]]);
+    // Passing through from outside: 600 units out, in at 500, out after -500.
+    expect(
+      coverIntervals(
+        segment([
+          [600n, 0n],
+          [-600n, 0n],
+        ]),
+        [0n, 0n],
+        500n,
+      ),
+    ).toEqual([[200n, 1200n]]);
+    // A chord that only reaches 300 units from the centre at its nearest stays out of a 299 cover.
+    expect(
+      coverIntervals(
+        segment([
+          [-600n, 300n],
+          [600n, 300n],
+        ]),
+        [0n, 0n],
+        299n,
+      ),
+    ).toEqual([]);
+    // Two legs inside one cover make one interval (400 ms, then 565 ms); leaving and coming back
+    // make two.
+    expect(
+      coverIntervals(
+        segment([
+          [0n, 0n],
+          [400n, 0n],
+          [0n, 400n],
+        ]),
+        [0n, 0n],
+        500n,
+      ),
+    ).toEqual([[100n, 1065n]]);
+    expect(
+      coverIntervals(
+        segment([
+          [0n, 0n],
+          [700n, 0n],
+          [0n, 0n],
+        ]),
+        [0n, 0n],
+        500n,
+      ),
+    ).toEqual([
+      [100n, 600n],
+      [1000n, 1500n],
+    ]);
   });
 });

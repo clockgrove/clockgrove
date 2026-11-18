@@ -14,7 +14,9 @@ identities change with their neutral input identities.
 
 The porch, den and cedar hollow are shelters because their archetypes declare `clockgrove.shelter`;
 the porch also declares a `coverRadius` of 1000 units, so an actor anywhere within that distance of it is
-under it. The behaviour policy declares its wet-weather reflex, `shelterReflexThreshold: 9000`. The
+under it, walking or standing. A keeper setting out from the porch stays under it until its walk crosses
+that boundary (`boundary-walk`'s `dawn-walk` and `rain-stop`), and one walking past is under it while it is
+within that distance, which delays its uncomfortable wetness crossing mid-walk (`walk-crossings`). The behaviour policy declares its wet-weather reflex, `shelterReflexThreshold: 9000`. The
 `favorite-snack-house` keeper's remembered snack dish is familiar, so choosing it out of view raises no
 `unperceived-target` planning request (see `cedar-growth`'s `keeper-remembered-*` assertions).
 
