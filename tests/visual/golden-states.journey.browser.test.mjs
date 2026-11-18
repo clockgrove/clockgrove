@@ -1948,10 +1948,12 @@ function scriptDevice({ memory, identity, fallback = false, maxDimension }) {
 
 // #401: one test per backend, each judged against its own limit. Every scripted frame renders under
 // SwiftShader, so the work is frame-bound: about 2,700 rendered frames per backend, 45 s at a
-// steady 60 Hz. Measured on a developer host pinned to 4 and to 2 CPUs while other work loaded it:
-// the slower half (WebGPU) took 94-108 s, WebGL2 79-102 s, and both in one test 177-225 s,
-// which timed out at 240 s on the ubuntu-26.04 runner (main push run 44160374795). 360 s is over
-// three times the slowest half.
+// steady 60 Hz. On the ubuntu-26.04 runner both backends in one test reached 240 s: it passed under
+// that limit on most runs and timed out at it on main push run 44160374795. Each half does less work
+// than that whole, so 720 s per half is over three times its runner figure. The runner's per-test
+// log needs admin rights to read, so no per-half runner figure was available. For scale, a
+// developer host pinned to 4 and to 2 CPUs under load took 94-108 s for WebGPU, 79-102 s for WebGL2
+// and 177-225 s for both.
 for (const backend of ["webgpu", "webgl2"])
   it(`chooses the starting tier from device limits and changes it on sustained frame time on ${backend}`, async () => {
     if (isNativeWorldOwnerChild()) return;
@@ -2066,7 +2068,7 @@ for (const backend of ["webgpu", "webgl2"])
       });
       await page.close();
     });
-  }, 360_000);
+  }, 720_000);
 
 it("sways, darkens and walks by the pack's declarations and the world's facts on both backends", async () => {
   if (isNativeWorldOwnerChild()) return;

@@ -128,11 +128,13 @@ function world() {
   writeFileSync(join(root, "reference/asset-style.json"), JSON.stringify(profile));
   return root;
 }
-// #401: the work here is about 1.2 s on one CPU, more than half of it the CLI process (Node start,
-// TypeScript hooks, the Basis encoder's wasm). Inside the full `pnpm test` turbo run on 4 CPUs of a
-// developer host it took 9.0 s, sharing them with every package's suite, and it timed out at 30 s on
-// the ubuntu-26.04 runner (runs 44142357167, 44166504617, 44220017261). 120 s is over thirteen times
-// the loaded measurement; the CLI process gets half of that.
+// #401: on the ubuntu-26.04 runner this test reaches 30 s: it passed under that limit on reruns and
+// timed out at it on runs 44142357167, 44166504617 and 44220017261. 120 s is four times that runner
+// figure. The CLI process (Node start, TypeScript hooks, the Basis encoder's wasm) is about 60% of the
+// work (0.7 of 1.2 s on one CPU of a developer host), so about 18 s of the runner's 30 s; its 60 s
+// limit is over three times that. The runner's per-test log needs admin rights to read, so no finer
+// runner figure was available. For scale, inside the full `pnpm test` turbo run on 4 CPUs of a
+// developer host the test took 9.0 s.
 it("validates generated fixture-style actor and prop images through CLI, packing, compression and reviewed delivery", async () => {
   let step = "source validation";
   onTestFailed(({ task }) => {

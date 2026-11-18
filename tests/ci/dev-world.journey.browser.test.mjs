@@ -89,10 +89,11 @@ function steps() {
   return current;
 }
 // #401: each Ctrl-C journey starts its own dev:world session (PostgreSQL, migrations, Vite) and a
-// browser. Measured on a developer host pinned to 4 and to 2 CPUs: 22-34 s for the living hall and
-// 33-36 s for the external pack when quiet, and 119 s for the external pack while the full turbo test
-// run loaded the host. 240 s timed out on the ubuntu-26.04 runner (main push run 44160374795).
-// 480 s is four times the slowest measurement.
+// browser. On the ubuntu-26.04 runner the journey reaches 240 s: it passed under that limit on most
+// runs and timed out at it on main push run 44160374795. 720 s is three times that runner figure.
+// The runner's per-test log needs admin rights to read, so no finer runner figure was available.
+// For scale, a developer host pinned to 4 and to 2 CPUs took 22-36 s when quiet and 119 s for the
+// external pack while the full turbo test run loaded it.
 
 // issue 1002: `pnpm dev:world` serves fixture-hall@1 at the URL it prints, the printed credential signs
 // in there, and Ctrl-C removes the temporary database it created.
@@ -144,8 +145,9 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
     expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
       "Arrival: scene ready at revision 0.",
     );
-  } finally {
+    // Set only once the journey's steps passed, so a failure inside them keeps its own step.
     at.step = "Ctrl-C stops dev:world";
+  } finally {
     await browser?.close();
     process.kill(-hall.pid, "SIGINT");
   }
@@ -155,7 +157,7 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
     "string",
     false,
   ]);
-}, 480_000);
+}, 720_000);
 
 it("serves an external pack with its shell and every reviewed atlas page, and cleans up on Ctrl-C", async () => {
   const at = steps();
@@ -345,8 +347,9 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       expect(measured.textureBytes).toBeLessThanOrEqual(budgets.textureBytes.limit);
       await page.close();
     }
-  } finally {
+    // Set only once the journey's steps passed, so a failure inside them keeps its own step.
     at.step = "Ctrl-C stops dev:world";
+  } finally {
     await browser?.close();
     if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");
     if (exited) {
@@ -359,7 +362,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
     }
     await rm(external, { recursive: true, force: true });
   }
-}, 480_000);
+}, 720_000);
 
 it("captures an external world's full matrix and retains digest-specific approvals there", async () => {
   const external = await mkdtemp(path.join(tmpdir(), "clockgrove-external-captures-"));
