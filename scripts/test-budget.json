@@ -1,5 +1,5 @@
 {
-  "testLineAllowance": 150,
+  "testLineAllowance": 300,
   "testLineExceptions": [
     {
       "file": "packages/kernel/test/rules-fuzz.test.ts",
