@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNoSecretValues, maskSecretValues } from "../check-secrets.mjs";
 import { ownedSubprocess } from "../lib/subprocess.mjs";
+import { browserShardCommands, browserShards, recordedBrowserShards } from "./browser-shards.mjs";
 import {
   assertPassingReceiptFacts,
   browserCommand,
@@ -239,12 +240,34 @@ export async function validateEvidence(manifest) {
       retainedLog(descriptor[0], result);
     }
   }
+  const browser = manifest.extensions.browserShards;
+  if (browser) assertRuntimePartition(browser.files, browser.shards);
+  if (browser && manifest.browser.status === "passed") {
+    const labels = browserShardCommands(browser).map(([label]) => label);
+    for (const [label, command] of browserShardCommands(browser)) {
+      const observed = manifest.commands.find(
+        (result) => result.status === "passed" && sameCommand(result.command, command),
+      );
+      assert(observed, "positive summary has no matching observed receipt");
+      assertPassingReceiptFacts(observed, manifest.candidate, command);
+      retainedLog(label, observed);
+      assert(
+        manifest.artifacts.some((artifact) => artifact.path === `${label}.result.json`),
+        "positive summary proof artifact missing",
+      );
+    }
+    assert.deepEqual(
+      manifest.browser.evidence,
+      labels.map((label) => `${label}.result.json`),
+      "positive summary evidence mismatch",
+    );
+  }
   for (const [name, command, evidence] of [
     ["browser", browserCommand, "browser.result.json"],
     ["recovery", localRecoveryCommand, "local-recovery.json"],
   ]) {
     const summary = manifest[name];
-    if (summary.status !== "passed") continue;
+    if (summary.status !== "passed" || (name === "browser" && browser)) continue;
     const observed = manifest.commands.find(
       (result) => result.status === "passed" && sameCommand(result.command, command),
     );
@@ -346,9 +369,11 @@ export async function collectEvidence(directory, execution, buildDirectory) {
   const results = [];
   const namedResults = new Map();
   const { runtime, commands: runtimeShardCommands } = await recordedRuntimeShards(directory);
+  const { browser, commands: browserShardCommandList } = await recordedBrowserShards(directory);
   const expectedCommands = new Map([
     ...canonicalCommands,
     ...runtimeShardCommands,
+    ...browserShardCommandList,
     ["browser", browserCommand],
     ["local-recovery", localRecoveryCommand],
     ["native-recovery", nativeRecoveryCommand],
@@ -380,6 +405,26 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     return sameCommand(result?.command, expectedCommands.get(name)) ? result : undefined;
   };
   const canonicalResults = (names) => names.map(observed).filter(Boolean);
+  const browserSummary = () => {
+    if (!browser)
+      return {
+        status: observed("browser")?.status ?? "missing",
+        evidence: observed("browser") ? ["browser.result.json"] : [],
+      };
+    assert(!namedResults.has("browser"), "browser receipts mix one run and shards");
+    const shards = browserShardCommandList.map(([label]) => [label, observed(label)]);
+    const statuses = shards.map(([, result]) => result?.status);
+    return {
+      status: statuses.includes("failed")
+        ? "failed"
+        : statuses.includes("unknown")
+          ? "unknown"
+          : statuses.includes(undefined)
+            ? "missing"
+            : "passed",
+      evidence: shards.filter(([, result]) => result).map(([label]) => `${label}.result.json`),
+    };
+  };
   const runtimeShardLabels = runtimeShardCommands.map(([label]) => label);
   // Quality's shards observe test:runtime only as a complete set.
   const shardedRuntime = runtime !== null && runtimeShardLabels.every(observed);
@@ -411,10 +456,7 @@ export async function collectEvidence(directory, execution, buildDirectory) {
       policies: null,
     },
     commands: results,
-    browser: {
-      status: observed("browser")?.status ?? "missing",
-      evidence: observed("browser") ? ["browser.result.json"] : [],
-    },
+    browser: browserSummary(),
     tests: canonicalResults([...commandRoles.tests, ...runtimeShardLabels]),
     fixtureHashes: await fileInventory(path.join(root, "packages/contracts/test/fixtures")),
     stateHashes: [],
@@ -447,6 +489,7 @@ export async function collectEvidence(directory, execution, buildDirectory) {
         return !descriptor || !observed(descriptor[0]);
       }),
       ...(runtime ? { runtimeShards: runtime } : {}),
+      ...(browser ? { browserShards: browser } : {}),
     },
   };
   for (const name of (await readdir(directory, { withFileTypes: true }))
@@ -454,12 +497,15 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     .map((entry) => entry.name)
     .filter(
       (name) =>
-        (!name.endsWith(".result.json") || name === "browser.result.json") &&
+        (!name.endsWith(".result.json") ||
+          name === "browser.result.json" ||
+          /^browser-\d+-of-\d+\.result\.json$/u.test(name)) &&
         name !== "evidence-manifest.json",
     )
     .sort()) {
     assert(
       /^[a-z0-9-]+\.log$/u.test(name) ||
+        /^browser-\d+-of-\d+\.result\.json$/u.test(name) ||
         [
           "bootstrap.json",
           "local-recovery.json",
@@ -632,9 +678,12 @@ export async function collectEvidence(directory, execution, buildDirectory) {
 }
 // Wall-clock limits by command name; every other command gets 30 minutes. The browser journeys run
 // one file at a time and outgrew 30 minutes once #356's tier proof and #381's drawn-high bake-off
-// step down joined them. 40 minutes plus the kill grace still leaves the build and its upload inside
-// Quality's 45-minute job.
+// step down joined them. 40 minutes plus the kill grace still leaves the upload inside Quality's
+// 45-minute job, whether the journeys run whole (Qualification) or as Quality's shards.
 export const commandLimitsMs = Object.freeze({ browser: 40 * 60_000 });
+// A browser shard runs a share of the journeys, so it gets the browser limit.
+const commandLimitMs = (name) =>
+  commandLimitsMs[/^browser-\d+-of-\d+$/u.test(name) ? "browser" : name];
 export async function recordCommand(directory, name, command, options = {}) {
   assert(/^[a-z0-9-]+$/u.test(name), "invalid CI evidence name");
   await mkdir(directory, { recursive: true });
@@ -656,7 +705,7 @@ export async function recordCommand(directory, name, command, options = {}) {
   const start = new Date().toISOString();
   const result = await ownedSubprocess(command[0], command.slice(1), {
     cwd: root,
-    timeoutMs: options.timeoutMs ?? commandLimitsMs[name] ?? 30 * 60_000,
+    timeoutMs: options.timeoutMs ?? commandLimitMs(name) ?? 30 * 60_000,
     killGraceMs: options.killGraceMs ?? 30_000,
     maxBuffer: 128 * 1024 * 1024,
     env: { ...process.env, CI_EVIDENCE_DIR: directory },
@@ -694,5 +743,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       },
       name,
     );
-  else throw new Error("evidence command requires run or generate");
+  else if (mode === "browser-shard") {
+    const { shards } = await browserShards();
+    const index = Number(name);
+    assert(
+      Number.isInteger(index) && index >= 1 && index <= shards.length,
+      `unknown browser shard: ${name}`,
+    );
+    const [label, shardCommand] = browserShardCommands({ shards })[index - 1];
+    process.exitCode = await recordCommand(directory, label, shardCommand);
+  } else throw new Error("evidence command requires run, browser-shard or generate");
 }

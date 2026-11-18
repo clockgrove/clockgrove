@@ -1,7 +1,7 @@
 // CI guards nothing else exercises: the contract checker refuses drift, evidence never promotes an
-// unobserved or failed command to a pass, test:runtime shards run each file once and count only as
-// a complete set, Quality measures a pull request against the main it merges into, and deadlines
-// settle termination-resistant descendants; the license check reads SPDX expressions, npm's legacy
+// unobserved or failed command to a pass, test:runtime and browser journey shards run each file
+// once and count only as a complete set, Quality measures a pull request against the main it merges
+// into, and deadlines settle termination-resistant descendants; the license check reads SPDX expressions, npm's legacy
 // licenses array and exact-version verified records.
 import { execFileSync, spawnSync } from "node:child_process";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { expect, it } from "vitest";
+import { browserShardCommands, browserShards } from "../../scripts/ci/browser-shards.mjs";
 import {
   collectEvidence,
   commandLimitsMs,
@@ -300,6 +301,47 @@ it(
       ).rejects.toThrow("exactly one shard");
     }),
   120_000,
+);
+// Spawns `vitest list` once for the config and once per shard (scripts/ci/browser-shards.mjs); no browser launches.
+it(
+  "browser shards run every journey exactly once and count as passed only as a complete set",
+  () =>
+    inTemporary("clockgrove-browser-shards-", async (directory) => {
+      const browser = await browserShards();
+      const { files, shards } = browser;
+      expect(files).toContain("tests/e2e/living-hall.journey.browser.test.mjs");
+      const extra = (names) => (names ? [...names, files.find((f) => !names.includes(f))] : files);
+      await expect(browserShards(4, extra)).rejects.toThrow("runs exactly its files");
+      const record = async (label, command, overrides = {}) => {
+        await recordCommand(directory, label, ["node", "--version"]);
+        const file = path.join(directory, `${label}.result.json`);
+        const receipt = { ...JSON.parse(await readFile(file, "utf8")), command, ...overrides };
+        await writeFile(file, JSON.stringify(receipt));
+      };
+      const commands = browserShardCommands(browser);
+      for (const [index, [label, command]] of commands.entries()) {
+        if (index > 0)
+          expect((await collectEvidence(directory, execution)).browser.status).not.toBe("passed");
+        await record(label, command);
+      }
+      const manifest = await collectEvidence(directory, execution);
+      expect(manifest.browser).toEqual({
+        status: "passed",
+        evidence: commands.map(([label]) => `${label}.result.json`),
+      });
+      expect(manifest.extensions.browserShards).toEqual(browser);
+      const doubled = { files, shards: [[...shards[0], shards[1][0]], ...shards.slice(1)] };
+      await expect(
+        validateEvidence({
+          ...manifest,
+          extensions: { ...manifest.extensions, browserShards: doubled },
+        }),
+      ).rejects.toThrow("exactly one shard");
+      await rm(path.join(directory, `${commands[3][0]}.result.json`));
+      await record(commands[3][0], commands[3][1], { exitCode: 1, status: "failed" });
+      expect((await collectEvidence(directory, execution)).browser.status).toBe("failed");
+    }),
+  180_000,
 );
 it("Quality measures a pull request against the main its merge commit was built on, not the event's base.sha", () =>
   inTemporary("clockgrove-contract-base-", async (directory) => {
