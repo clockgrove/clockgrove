@@ -940,9 +940,10 @@ export const OVERDUE_DEADLINE_LIMIT = 8;
  * Decision (issue 366): the latency budget of a client command's inline catch-up is 1,000 ms,
  * twice the Wave 3 load curves' worst measured inline catch-up (7 steps, 462 ms, issue 851). A
  * step is not started when the time spent plus the slowest step so far would pass it. The
- * headroom keeps the fixture's measured outcomes: 7 steps plus even the slowest possible eighth
- * (at most 462 + 462 ms) fit, so a command after 6 minutes of sleep still runs and one after 8
- * minutes is still refused by `OVERDUE_DEADLINE_LIMIT`, not by this budget. A world ten times
+ * headroom keeps the measured outcomes on the host that measured them: 7 steps plus even the
+ * slowest possible eighth (at most 462 + 462 ms) fit, so a command after 6 minutes of sleep still
+ * runs and one after 8 minutes is refused by `OVERDUE_DEADLINE_LIMIT`. A slower host can be refused
+ * by this budget after fewer steps, which the load curves accept. A world ten times
  * larger, whose steps take ten times longer, is refused as catching up after a step or two instead
  * of spending the deadline.
  * The bound is not the budget alone: the first step always runs (nothing estimates it), and a

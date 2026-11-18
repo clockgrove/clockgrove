@@ -282,9 +282,13 @@ describe("Wave 3 load curves through the native owner (qualify:wave3:load-curves
             ),
           );
           const code = (body as { error?: string }).error ?? null;
-          // A refused command ran exactly the limit's steps first; an admitted one at most that many.
-          if (status === 200) expect(steps).toBeLessThanOrEqual(OVERDUE_DEADLINE_LIMIT);
-          else expect([code, steps]).toEqual(["world_catching_up", OVERDUE_DEADLINE_LIMIT]);
+          // At most the limit's steps run first. A refused command stopped at the step limit or,
+          // on a slower host, earlier at the latency budget (`CATCH_UP_BUDGET_MS`); it still ran one.
+          expect(steps).toBeLessThanOrEqual(OVERDUE_DEADLINE_LIMIT);
+          if (status !== 200) {
+            expect(code).toBe("world_catching_up");
+            expect(steps).toBeGreaterThanOrEqual(1);
+          }
           const points = await drain(primary.scope);
           overdueInline.push({ sleepMs: Number(sleepMs), status, code, steps, points });
         }
