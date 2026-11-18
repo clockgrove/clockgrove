@@ -270,6 +270,21 @@ function exact(properties: Record<string, unknown>): unknown {
 }
 const WAKE_INPUT = { type: "string", minLength: 1, maxLength: 1024 } as const;
 
+/**
+ * Decision (issue 359): at most 4 object fields in an actor's `world.command`. The widest catalogue
+ * payload this shape fits without naming an actor or a boundary has 3 (`resource.transfer`:
+ * fromObjectId, toObjectId, kind; `containment.transfer`: objectId, fromContainerId, toContainerId),
+ * and one more leaves room for a pack command of the same kind with one extra identifier.
+ * `boundary.exchange` (5, naming the acting actor) stays out of reach.
+ */
+const MAX_WORLD_COMMAND_FIELDS = 4;
+/**
+ * Decision (issue 359): a field name is lower camel case of at most 64 characters. The longest
+ * catalogue field name is 15 (`fromContainerId`); 64 leaves pack names room and bounds the keys
+ * an actor puts in a payload at 4 × 64 characters.
+ */
+const WORLD_COMMAND_FIELD_NAME = /^[a-z][A-Za-z]{0,63}$/u;
+
 function identifier(value: unknown): string {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value))
     throw new CapabilityInputError("identifier refused");
@@ -336,10 +351,10 @@ export const INTERNAL_CAPABILITIES: readonly CapabilityDefinition[] = [
       const names = Object.keys(fields);
       if (
         names.length === 0 ||
-        names.length > 4 ||
+        names.length > MAX_WORLD_COMMAND_FIELDS ||
         names.some(
           (name) =>
-            !/^[a-z][A-Za-z]{0,63}$/u.test(name) || name === "schemaVersion" || name === "quantity",
+            !WORLD_COMMAND_FIELD_NAME.test(name) || name === "schemaVersion" || name === "quantity",
         )
       )
         throw new CapabilityInputError("input shape refused");
