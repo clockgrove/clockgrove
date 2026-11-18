@@ -1,0 +1,12 @@
+{
+  "tests/accessibility/text-path.journey.browser.test.mjs": 74,
+  "tests/ci/dev-world.journey.browser.test.mjs": 96,
+  "tests/ci/renderer-bakeoff.journey.browser.test.mjs": 157,
+  "tests/e2e/arrival-truth.journey.browser.test.mjs": 46,
+  "tests/e2e/conversation-states.journey.browser.test.mjs": 80,
+  "tests/e2e/living-hall.journey.browser.test.mjs": 542,
+  "tests/e2e/mcp-installation.journey.browser.test.mjs": 77,
+  "tests/e2e/research.journey.browser.test.mjs": 50,
+  "tests/load/realtime/fanout.journey.browser.test.mjs": 34,
+  "tests/visual/golden-states.journey.browser.test.mjs": 344
+}

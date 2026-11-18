@@ -1,5 +1,5 @@
 // Browser test placement (docs/runbooks/testing.md): only the CI jobs that install Chromium,
-// Quality's browser-build share and Qualification, run tests/ci/vitest.browser.config.ts. Playwright
+// Quality's browser-1 to browser-4 shares and Qualification, run tests/ci/vitest.browser.config.ts. Playwright
 // anywhere outside that config's include passes on a host that has browsers, then fails in CI's
 // other shares. `pnpm check` runs this through scripts/check-boundaries.mjs.
 import assert from "node:assert/strict";
@@ -10,7 +10,7 @@ import path from "node:path";
 const BROWSER_CONFIG = "tests/ci/vitest.browser.config.ts";
 const RULE = `tests that launch a browser live in the include of ${BROWSER_CONFIG}, run only where CI installs Chromium`;
 /**
- * Besides the browser config's include: the browser-build toolchain probe and this check's fixtures.
+ * Besides the browser config's include: the browser shards' toolchain probe and this check's fixtures.
  * An entry ending in "/" allows a directory.
  */
 const TOOLS = ["scripts/ci/browser-toolchain.mjs", "scripts/check-browser-tests.mjs"];
