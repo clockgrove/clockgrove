@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
-import { expect, it } from "vitest";
+import { expect, it, onTestFailed } from "vitest";
 import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
 import { readPackDirectory, sdkSource } from "../../packages/simulator/cli/pack-source.ts";
 import { previewSeedProjection } from "../../packages/simulator/src/index.ts";
@@ -79,9 +79,26 @@ async function buildPagedWorld(world) {
   return path.join(world, "assets/reviewed");
 }
 
+// #401: a failure, a timeout included, names the step it stopped in.
+function steps() {
+  const current = { step: "start" };
+  onTestFailed(({ task }) => {
+    for (const error of task.result?.errors ?? [])
+      error.message = `step "${current.step}": ${error.message}`;
+  });
+  return current;
+}
+// #401: each Ctrl-C journey starts its own dev:world session (PostgreSQL, migrations, Vite) and a
+// browser. Measured on a developer host pinned to 4 and to 2 CPUs: 22-34 s for the living hall and
+// 33-36 s for the external pack when quiet, and 119 s for the external pack while the full turbo test
+// run loaded the host. 240 s timed out on the ubuntu-26.04 runner (main push run 44160374795).
+// 480 s is four times the slowest measurement.
+
 // issue 1002: `pnpm dev:world` serves fixture-hall@1 at the URL it prints, the printed credential signs
 // in there, and Ctrl-C removes the temporary database it created.
 it("serves the living hall it prints and removes it on Ctrl-C", async () => {
+  const at = steps();
+  at.step = "dev:world prints its URL and credential";
   const hall = spawn(process.execPath, ["scripts/dev-world.mjs"], {
     cwd: root,
     detached: true,
@@ -105,6 +122,7 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
       printed,
       exited.then((code) => Promise.reject(new Error(`dev:world exited ${code}\n${output}`))),
     ]);
+    at.step = "world directory";
     const directory = await fetch(new URL("/v1/runtime/world-directory", url), {
       method: "POST",
       headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
@@ -116,6 +134,7 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
       `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
       "hall-observer",
     ]);
+    at.step = "browser signs in and the scene arrives";
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     await page.goto(url.toString());
@@ -126,6 +145,7 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
       "Arrival: scene ready at revision 0.",
     );
   } finally {
+    at.step = "Ctrl-C stops dev:world";
     await browser?.close();
     process.kill(-hall.pid, "SIGINT");
   }
@@ -135,9 +155,10 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
     "string",
     false,
   ]);
-}, 240_000);
+}, 480_000);
 
 it("serves an external pack with its shell and every reviewed atlas page, and cleans up on Ctrl-C", async () => {
+  const at = steps();
   const external = await mkdtemp(path.join(tmpdir(), "clockgrove-external-world-"));
   const launcher = path.join(root, "scripts/dev-world.mjs");
   let session;
@@ -172,11 +193,13 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
     shell.wordmark = "External Fixture";
     shell.scene.atlases = true;
     await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
+    at.step = "build the paged world";
     const reviewed = await buildPagedWorld(path.join(external, "world"));
     expect(JSON.parse(await readFile(path.join(reviewed, "atlases.json"), "utf8")).atlases).toEqual(
       ["sheet", "sheet-page-2", "walker", "walker-page-2"],
     );
     await writeFile(path.join(reviewed, "fixture.txt"), "external fixture asset\n");
+    at.step = "refuse invalid arguments";
     const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", reviewed];
     for (const invalid of [
       args.slice(0, 2),
@@ -193,6 +216,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
       expect(refused.stderr).toContain("Usage:");
       expect(refused.stdout).toBe("");
     }
+    at.step = "dev:world prints its URL and credential";
     session = spawn(process.execPath, [launcher, ...args], {
       cwd: external,
       detached: true,
@@ -244,6 +268,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
     expect([pageBytes, pageBytes <= budgets.atlasTextureBytes.limit]).toEqual([17_040_000, true]);
     browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
     for (const backend of ["webgpu", "webgl2"]) {
+      at.step = `${backend}: sign in and arrive`;
       const page = await browser.newPage();
       await page.route(/\/src\/renderer\.ts(\?.*)?$/u, async (route) => {
         const response = await route.fetch();
@@ -280,6 +305,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
         for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
           expect(requested).toContain(`/${file}`);
+      at.step = `${backend}: sample every walk frame`;
       const walked = new Set();
       for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
         const shot = (await page.locator("canvas").screenshot()).toString("base64");
@@ -320,6 +346,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await page.close();
     }
   } finally {
+    at.step = "Ctrl-C stops dev:world";
     await browser?.close();
     if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");
     if (exited) {
@@ -332,7 +359,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
     }
     await rm(external, { recursive: true, force: true });
   }
-}, 240_000);
+}, 480_000);
 
 it("captures an external world's full matrix and retains digest-specific approvals there", async () => {
   const external = await mkdtemp(path.join(tmpdir(), "clockgrove-external-captures-"));

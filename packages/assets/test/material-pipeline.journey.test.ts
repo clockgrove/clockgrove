@@ -7,7 +7,7 @@ import {
   decodeAssetStyleProfile,
   MATERIAL_CHANNELS,
 } from "@clockgrove/contracts";
-import { expect, it } from "vitest";
+import { expect, it, onTestFailed } from "vitest";
 import { runAssetsCli } from "../src/cli.js";
 import {
   buildAtlases,
@@ -128,7 +128,17 @@ function world() {
   writeFileSync(join(root, "reference/asset-style.json"), JSON.stringify(profile));
   return root;
 }
+// #401: the work here is about 1.2 s on one CPU, more than half of it the CLI process (Node start,
+// TypeScript hooks, the Basis encoder's wasm). Inside the full `pnpm test` turbo run on 4 CPUs of a
+// developer host it took 9.0 s, sharing them with every package's suite, and it timed out at 30 s on
+// the ubuntu-26.04 runner (runs 44142357167, 44166504617, 44220017261). 120 s is over thirteen times
+// the loaded measurement; the CLI process gets half of that.
 it("validates generated fixture-style actor and prop images through CLI, packing, compression and reviewed delivery", async () => {
+  let step = "source validation";
+  onTestFailed(({ task }) => {
+    for (const error of task.result?.errors ?? [])
+      error.message = `step "${step}": ${error.message}`;
+  });
   const root = world();
   try {
     const entries = readManifests(root);
@@ -137,6 +147,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
         validateSource(entry.manifest, entry.bytes, entry.path, profile, entry.materialSources),
       ),
     ).toEqual([[], []]);
+    step = "CLI validate";
     const output = execFileSync(
       process.execPath,
       [
@@ -146,9 +157,10 @@ it("validates generated fixture-style actor and prop images through CLI, packing
         "--world",
         root,
       ],
-      { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 30_000 },
+      { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 60_000 },
     );
     expect(JSON.parse(output)).toEqual({ status: "ok", command: "validate" });
+    step = "packing and compression";
     const atlases = buildAtlases(entries, undefined, profile);
     expect(buildAtlases([...entries].reverse(), undefined, profile)).toEqual(atlases);
     const textures = atlases.flatMap((atlas) => atlas.materialTextures ?? []);
@@ -177,6 +189,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       expect(run.status, run.stderr).toBe(0);
       return run.stdout;
     };
+    step = "reviewed build";
     expect(JSON.parse(build())).toEqual({ status: "ok", command: "build" });
     const firstBuild = built();
     expect(Object.keys(firstBuild)).toHaveLength(44);
@@ -195,6 +208,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
           return n + image.width * image.height * 4;
         }, 0),
     ).toBeLessThanOrEqual(budgets.atlasTextureBytes.limit);
+    step = "KTX2 containers";
     // Read each KTX2 container independently (KTX 2.0 specification, Khronos Data Format 1.3).
     for (const texture of textures) {
       const ktx = new DataView(
@@ -229,6 +243,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       expect(texture.format).toBe("ktx2-uastc");
       expect(decodePng(texture.png).width).toBe(texture.width);
     }
+    step = "material metadata";
     const metadata = JSON.parse(atlases[0]!.animations);
     const materials = JSON.parse(
       readFileSync(join(root, "assets/reviewed/materials.json"), "utf8"),
@@ -271,6 +286,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
       width: 8,
       height: 8,
     });
+    step = "reviewed delivery";
     const stored = new Map<string, Uint8Array>();
     const result = await uploadReviewedAssets(
       {
@@ -299,7 +315,7 @@ it("validates generated fixture-style actor and prop images through CLI, packing
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 120_000);
 it("refuses material grid, coverage, ranges, hashes, scaled bounds and excessive loop-seam changes with stable reasons", () => {
   const entry = art("actor", [64, 70, 76]);
   const validate = () =>
