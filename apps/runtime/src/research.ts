@@ -122,14 +122,17 @@ export function worldApprover(raw: string | undefined): WorldApprover | undefine
   const keys = value !== null && typeof value === "object" ? Object.keys(value) : [];
   const [key] = keys;
   const named = key === undefined ? undefined : (value as Record<string, unknown>)[key];
-  if (
-    keys.length !== 1 ||
-    (key !== "principal" && key !== "role") ||
-    typeof named !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(named)
-  )
+  if (keys.length !== 1 || (key !== "principal" && key !== "role"))
     throw new Error("WORLD_APPROVER unavailable");
-  return key === "principal" ? { principal: named } : { role: named };
+  // The same grammar as every principal and role id (`decodeOpaqueId`), so any operator can be named.
+  let id: string;
+  try {
+    id =
+      key === "principal" ? decodeOpaqueId(named, "PrincipalId") : decodeOpaqueId(named, "RoleId");
+  } catch {
+    throw new Error("WORLD_APPROVER unavailable");
+  }
+  return key === "principal" ? { principal: id } : { role: id };
 }
 
 interface Context extends ResearchResumeTarget {
@@ -797,12 +800,12 @@ export function composeResearch(configuration: ResearchConfiguration) {
       let approval = prior;
       if (!approval) {
         let approver = c.principalId;
-        if (activation.rows.length || !c.grants.includes(proposal.capability)) {
+        if (activation.rows.length) {
           // The world's named approver, never whichever operator sorts first (issue 359).
           const named = configuration.approver;
           if (named === undefined) return "approver_unconfigured";
           const operators = await client.query(
-            `SELECT principal_id FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation' AND ${"principal" in named ? "principal_id=$5" : "roles @> ARRAY[$5]::text[]"} ORDER BY principal_id LIMIT 1`,
+            `SELECT DISTINCT principal_id FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation' AND ${"principal" in named ? "principal_id=$5" : "roles @> ARRAY[$5]::text[]"} ORDER BY principal_id LIMIT 2`,
             [
               c.scope.tenantId,
               c.scope.worldId,
@@ -811,6 +814,8 @@ export function composeResearch(configuration: ResearchConfiguration) {
               "principal" in named ? named.principal : named.role,
             ],
           );
+          // A role two current operators hold names no one approver: refused, not routed by id order.
+          if (operators.rows.length > 1) return "approver_unconfigured";
           const operator = (operators.rows[0] as { principal_id: string } | undefined)
             ?.principal_id;
           if (!operator) return "revoked";

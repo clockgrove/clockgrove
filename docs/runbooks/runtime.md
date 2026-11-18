@@ -2299,13 +2299,15 @@ record or sends the original call again. See [governed writes](../protocols/mcp.
 
 The world owner names who approves the protected writes that route to an operator (an actor's
 proactive call): bind `WORLD_APPROVER` to `{"principal":"<principal id>"}` or `{"role":"<role>"}`,
-from the world's `runtime.json` `approver` (issue 359). The approval goes to that principal, or to
-the first by id of the operators holding that role, and only while they are a current operator
-member (`runtime:world-operate`, the `conversation` category); otherwise the call is refused
-`approval_revoked`. With the binding absent, such a call is refused `approver_unconfigured` and no
-approval is requested; it never goes to an arbitrary operator. Any other value refuses the
-composition. A member who holds the capability's grant and asks directly still approves their own
-call.
+from the world's `runtime.json` `approver` (issue 359). Each id has the grammar of every principal
+and role id: a non-empty string without outer whitespace. The approval goes to that principal, or
+to the one current operator holding that role, and only while they are a current operator member
+(`runtime:world-operate`, the `conversation` category); with no such operator the call is refused
+`approval_revoked`. With the binding absent, or a role that two or more current operators hold,
+such a call is refused `approver_unconfigured` and no approval is requested; it never goes to an
+arbitrary operator. Any other value refuses the composition. A member who holds the capability's
+grant and asks directly, including an operator's retry of an uncertain call, still approves their
+own call.
 
 If a pending call loses its grant, installation, binding or membership, restore no authority
 merely to approve it: allow canonical refusal/recovery to finish it. Approval expiry is ten

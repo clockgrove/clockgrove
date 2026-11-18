@@ -1,5 +1,6 @@
 import { decodeConversationSession } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
+import { worldApprover } from "../src/research.js";
 import {
   ACTOR,
   CAPABILITY,
@@ -16,9 +17,14 @@ import {
 // fixture's `principal-runtime`, so routing by id alone would pick the wrong one.
 const FILE = "apps/runtime/test/world-approver.journey.postgres.test.ts";
 const CASES = {
-  principal: { approver: { principal: "principal-second" }, routed: "principal-second" },
+  principal: {
+    approver: { principal: "principal-second" },
+    routed: "principal-second",
+  },
   role: { approver: { role: "write-approver" }, routed: "principal-second" },
   unconfigured: { approver: null, routed: undefined },
+  // Two current operators hold the role, so it names no one approver.
+  sharedRole: { approver: { role: "write-approver" }, routed: undefined },
 } as const;
 type Case = keyof typeof CASES;
 
@@ -31,6 +37,11 @@ async function journey(name: Case) {
       await owner.sql(`INSERT INTO clockgrove.tenant_principals(tenant_id,principal_id) VALUES('${t}','principal-second');
         INSERT INTO clockgrove.world_memberships(tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
         VALUES('${t}','${w}','${tl}','${s}','principal-second','member-second','persona-second',ARRAY['write-approver'],
+        ARRAY['runtime:world-operate'],'{"version":1,"allowedCategories":["conversation","operator_evidence"]}',statement_timestamp());`);
+      if (name === "sharedRole")
+        await owner.sql(`INSERT INTO clockgrove.tenant_principals(tenant_id,principal_id) VALUES('${t}','principal-third');
+        INSERT INTO clockgrove.world_memberships(tenant_id,world_id,timeline_id,space_id,principal_id,membership_id,persona_id,roles,grants,privacy_ceiling,committed_at)
+        VALUES('${t}','${w}','${tl}','${s}','principal-third','member-third','persona-third',ARRAY['write-approver'],
         ARRAY['runtime:world-operate'],'{"version":1,"allowedCategories":["conversation","operator_evidence"]}',statement_timestamp());`);
       const post = (path: string, fields: object) =>
         owner.request(path, {
@@ -98,6 +109,28 @@ async function journey(name: Case) {
     { approver },
   );
 }
+
+it("decodes WORLD_APPROVER as the id contract does and refuses any other value", () => {
+  expect(worldApprover(undefined)).toBeUndefined();
+  expect(worldApprover('{"principal":"ops@example.com|team/a"}')).toEqual({
+    principal: "ops@example.com|team/a",
+  });
+  expect(worldApprover('{"role":"write-approver"}')).toEqual({
+    role: "write-approver",
+  });
+  for (const raw of [
+    "{",
+    "null",
+    '"principal-a"',
+    "{}",
+    '{"principal":"a","role":"b"}',
+    '{"owner":"a"}',
+    '{"principal":7}',
+    '{"role":""}',
+    '{"principal":" a"}',
+  ])
+    expect(() => worldApprover(raw), raw).toThrow("WORLD_APPROVER unavailable");
+});
 
 for (const name of Object.keys(CASES) as Case[]) {
   it(`routes a proactive write's approval by the world's approver: ${name}`, async () => {
