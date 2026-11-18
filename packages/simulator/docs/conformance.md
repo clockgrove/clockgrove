@@ -186,13 +186,14 @@ disposed in a `finally`, including when a check fails.
 To accept regenerated goldens, for example after a merge that conflicts on them, take either side's
 goldens and run `pnpm run goldens:regenerate` from the repository root. It runs this suite
 (`conformance.test.ts`), moves each `*.actual.json` that a `golden-match` failure names over its
-golden, and runs the suite again; it exits 0 only when that second run passes, or when every golden
+golden (a missing golden, which also fails `scenario-golden-layout`, is accepted the same way), and runs the suite again; it exits 0 only when that second run passes, or when every golden
 already matched and nothing was changed. When any other check fails (or a failure names no check,
 such as a build or load error) it exits 1, lists the failing tests and checks, and leaves every file
 under `worlds/` as it was. It writes nothing but `worlds/**/goldens/*.json`. The suite still never
 writes a golden itself; the rewritten goldens are a change like any other, and their diff is
-reviewed in the pull request. `CLOCKGROVE_CONFORMANCE_WORLDS` points the suite and the command at
-another worlds root; the command's journey test uses it on a temporary copy of the fixture pack.
+reviewed in the pull request. `CLOCKGROVE_CONFORMANCE_WORLDS` points the suite at
+another worlds root; the command ignores it and always uses `worlds/`, unless given an explicit
+`--worlds=<dir>` argument, which only its journey test passes, on a temporary copy of the fixture pack.
 
 The CLI's `simulate scenario` resolves named scenarios from the committed packs only (`worlds/`) and runs the
 same scenario execution path as this suite; it reports a golden mismatch but never writes a golden or an

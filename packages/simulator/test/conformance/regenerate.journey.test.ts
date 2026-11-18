@@ -11,7 +11,10 @@ const RUN_TIMEOUT = 240_000;
 
 async function snapshot(root: string): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
-  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+  for (const entry of await readdir(root, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
     if (!entry.isFile()) continue;
     const path = join(entry.parentPath, entry.name);
     files[path.slice(root.length + 1)] = (await readFile(path)).toString("base64");
@@ -20,7 +23,7 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 }
 
 it(
-  "regenerates a wrong golden in place and leaves worlds unchanged otherwise",
+  "regenerates a wrong or missing golden in place and leaves worlds unchanged otherwise",
   async () => {
     const worlds = await mkdtemp(join(tmpdir(), "clockgrove-regenerate-"));
     try {
@@ -29,12 +32,20 @@ it(
           recursive: true,
         });
       const run = () =>
-        promisify(execFile)(process.execPath, [join(REPO_ROOT, "scripts/regenerate-goldens.mjs")], {
-          cwd: REPO_ROOT,
-          env: { ...process.env, CLOCKGROVE_CONFORMANCE_WORLDS: worlds },
-          maxBuffer: 64 * 1024 * 1024,
-          timeout: RUN_TIMEOUT,
-        });
+        promisify(execFile)(
+          process.execPath,
+          [join(REPO_ROOT, "scripts/regenerate-goldens.mjs"), `--worlds=${worlds}`],
+          {
+            cwd: REPO_ROOT,
+            // The stage's environment never redirects the command: only --worlds does.
+            env: {
+              ...process.env,
+              CLOCKGROVE_CONFORMANCE_WORLDS: join(worlds, "elsewhere"),
+            },
+            maxBuffer: 64 * 1024 * 1024,
+            timeout: RUN_TIMEOUT,
+          },
+        );
       const committed = await snapshot(worlds);
 
       await run();
@@ -44,6 +55,10 @@ it(
       const bytes = await readFile(golden);
       bytes[100] = bytes[100]! ^ 1;
       await writeFile(golden, bytes);
+      await run();
+      expect(await snapshot(worlds)).toEqual(committed);
+
+      await rm(golden);
       await run();
       expect(await snapshot(worlds)).toEqual(committed);
 
@@ -65,5 +80,5 @@ it(
       await rm(worlds, { recursive: true, force: true });
     }
   },
-  RUN_TIMEOUT * 4,
+  RUN_TIMEOUT * 6,
 );

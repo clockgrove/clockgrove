@@ -11,8 +11,8 @@ export { REPO_ROOT, WORLDS_ROOT };
 
 /**
  * The root the suite discovers committed packs under: `worlds/`, unless
- * `CLOCKGROVE_CONFORMANCE_WORLDS` names another directory (scripts/regenerate-goldens.mjs passes it
- * through, so its journey test can run on a temporary copy of a pack).
+ * `CLOCKGROVE_CONFORMANCE_WORLDS` names another directory (scripts/regenerate-goldens.mjs sets it
+ * from its own `--worlds=<dir>` argument, so its journey test can run on a temporary copy of a pack).
  */
 export const CONFORMANCE_WORLDS_ROOT = process.env.CLOCKGROVE_CONFORMANCE_WORLDS || WORLDS_ROOT;
 

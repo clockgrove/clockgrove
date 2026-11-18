@@ -11,9 +11,21 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const SIMULATOR = join(REPO_ROOT, "packages", "simulator");
 const SUITE = "test/conformance/conformance.test.ts";
-const WORLDS = resolve(process.env.CLOCKGROVE_CONFORMANCE_WORLDS || join(REPO_ROOT, "worlds"));
+// The worlds root is always the checkout's worlds/, whatever the environment holds; only an explicit
+// `--worlds=<dir>` argument (the command's journey test, on a temporary copy) names another one.
+const WORLDS_ARGUMENT = "--worlds=";
+const worldsArgument = process.argv.slice(2).find((arg) => arg.startsWith(WORLDS_ARGUMENT));
+const WORLDS = resolve(
+  worldsArgument === undefined
+    ? join(REPO_ROOT, "worlds")
+    : worldsArgument.slice(WORLDS_ARGUMENT.length),
+);
 const ACTUAL = ".actual.json";
 const GOLDEN_CHECK = "golden-match";
+// A scenario without a golden also fails the layout check; that line is accepted together with the
+// golden-match actual the suite wrote for the same scenario of the same pack.
+const MISSING_GOLDEN =
+  /^(?:\w+: )?pack "([^"]+)": check "scenario-golden-layout": scenario (\S+) has no golden$/;
 
 const vitest = join(
   dirname(createRequire(join(SIMULATOR, "package.json")).resolve("vitest/package.json")),
@@ -65,7 +77,14 @@ function runSuite(pass) {
     results = JSON.parse(readFileSync(report, "utf8"));
   } catch {
     const reason = run.error?.message ?? `exit ${run.status ?? run.signal}`;
-    return [{ name: `vitest wrote no report (${reason})`, checks: [], actuals: [] }];
+    return [
+      {
+        name: `vitest wrote no report (${reason})`,
+        problems: [],
+        checks: [],
+        actuals: [],
+      },
+    ];
   }
   if (run.status === 0 && results.success) return null;
   const failures = [];
@@ -76,7 +95,12 @@ function runSuite(pass) {
       failures.push(describe(relative(REPO_ROOT, file.name), [file.message]));
   }
   if (failures.length === 0)
-    failures.push({ name: `vitest exited ${run.status}`, checks: [], actuals: [] });
+    failures.push({
+      name: `vitest exited ${run.status}`,
+      problems: [],
+      checks: [],
+      actuals: [],
+    });
   return failures;
 }
 
@@ -85,16 +109,35 @@ function describe(name, messages) {
   const problems = lines.filter((line) => /^(?:\w+: )?pack "/.test(line));
   return {
     name,
+    problems,
     checks: [...new Set(problems.map((line) => /check "([^"]+)"/.exec(line)?.[1] ?? "unknown"))],
-    // A failure that names no check (a build, import or assertion error) is not a golden mismatch.
-    onlyGolden:
-      problems.length > 0 &&
-      problems.every((line) => line.includes(`check "${GOLDEN_CHECK}"`) && line.includes(ACTUAL)),
     actuals: problems.flatMap((line) => {
       const path = / was written to (\S+?\.actual\.json)/.exec(line)?.[1];
       return path === undefined ? [] : [resolve(path)];
     }),
   };
+}
+
+/**
+ * True when every failure is a golden mismatch: each failure line is a golden-match line naming its
+ * actual bundle, or a missing-golden layout line whose scenario has such an actual. A failure that
+ * names no check (a build, import or assertion error) is not a golden mismatch.
+ */
+function onlyGoldenMismatches(failures) {
+  const actuals = new Set(failures.flatMap((failure) => failure.actuals));
+  const accepted = (line) => {
+    if (line.includes(`check "${GOLDEN_CHECK}"`)) return line.includes(ACTUAL);
+    const missing = MISSING_GOLDEN.exec(line);
+    if (missing === null) return false;
+    const [, pack, scenario] = missing;
+    return [...actuals].some(
+      (actual) =>
+        basename(actual) === `${scenario}${ACTUAL}` && basename(dirname(dirname(actual))) === pack,
+    );
+  };
+  return failures.every(
+    (failure) => failure.problems.length > 0 && failure.problems.every(accepted),
+  );
 }
 
 function isAcceptable(actual) {
@@ -140,7 +183,7 @@ try {
   const first = runSuite(1);
   if (first === null) {
     console.info("goldens:regenerate: every golden already matches; nothing was changed.");
-  } else if (first.some((failure) => !failure.onlyGolden)) {
+  } else if (!onlyGoldenMismatches(first)) {
     fail(
       `the conformance suite failed for a reason other than a golden mismatch:\n${summary(first)}`,
     );
