@@ -405,8 +405,12 @@ export function summaryHashes(bundle) {
   const { entities, lifecycle } = run.finalState;
   return {
     finalStateHash: run.finalStateHash,
+    // Every life the state still holds: counted entries and the dead a birth moved to the lineage (#358).
     population: summaryHash(
-      (lifecycle?.entries ?? []).map((entry) => [entry.objectId, entry.death === null]),
+      [...(lifecycle?.entries ?? []), ...(lifecycle?.lineage ?? [])].map((entry) => [
+        entry.objectId,
+        entry.death === null,
+      ]),
     ),
     resources: summaryHash(
       entities

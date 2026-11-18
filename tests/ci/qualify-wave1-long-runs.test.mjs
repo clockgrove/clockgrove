@@ -10,7 +10,12 @@ import { readPackDirectory } from "../../packages/simulator/cli/pack-source.ts";
 import { runInNode } from "../../packages/simulator/cli/runtime.ts";
 import { fromBase64, toWireRequest } from "../../packages/simulator/cli/wire.ts";
 import { decodeCanonicalBytes } from "../../packages/simulator/src/canonical-decode.ts";
-import { checkLongRunBundle } from "../../scripts/ci/qualify-wave1-long-run-checks.mjs";
+import {
+  checkLongRunBundle,
+  LIFECYCLE_MAX_LINEAGE,
+  SMALL_STEP_RUN,
+  summaryHashes,
+} from "../../scripts/ci/qualify-wave1-long-run-checks.mjs";
 import {
   qualifyLongRuns,
   WAVE1_LONG_RUN_BUDGETS,
@@ -198,6 +203,56 @@ it("reads the dead a birth moved to lifecycle.lineage as lives, not missing obje
   expect(failing((_bundle, run) => moveToLineage(run, { keepEntity: true }))).toEqual([
     "no-orphans-or-containment-cycles",
   ]);
+});
+
+/**
+ * Fills the lineage with `size` other dead and drops the dead `moveToLineage` moved there, as a full
+ * lineage evicts its earliest dead: only their events remain. A living entry names it as its parent.
+ */
+const evictFromLineage = (run, size) => {
+  const lifecycle = run.finalState.lifecycle;
+  const [evicted] = lifecycle.lineage;
+  const { bornAt } = evicted;
+  lifecycle.lineage = Array.from({ length: size }, (_, index) => {
+    const objectId = `lineage-${String(index).padStart(4, "0")}`;
+    const death = { diedAt: evicted.death.diedAt + 1n, cause: "age" };
+    run.summary.subjects.push({
+      objectId,
+      events: [
+        { type: "lifecycle.born", count: 1, first: bornAt, last: bornAt },
+        { type: "lifecycle.died", count: 1, first: death.diedAt, last: death.diedAt },
+      ],
+    });
+    return { ...evicted, objectId, parentIds: [], death };
+  });
+  lifecycle.entries[0].parentIds = [evicted.objectId];
+};
+
+it("accepts the dead a full lineage evicted, known only by their events, and only then", () => {
+  const evicted = (size) => (_bundle, run) => {
+    moveToLineage(run);
+    evictFromLineage(run, size);
+  };
+  expect(failing(evicted(LIFECYCLE_MAX_LINEAGE))).toEqual([]);
+  expect(failing(evicted(LIFECYCLE_MAX_LINEAGE - 1))).toEqual([
+    "no-orphans-or-containment-cycles",
+    "no-duplicate-births-deaths-schedules",
+  ]);
+});
+
+it("counts the dead moved to the lineage in the population summary hash", () => {
+  const population = (mutate) => {
+    const copy = structuredClone(bundle);
+    mutate(copy.runs.find((run) => run.name === SMALL_STEP_RUN));
+    return summaryHashes(copy).population;
+  };
+  const moved = population((run) => moveToLineage(run));
+  const dropped = population((run) => {
+    moveToLineage(run);
+    run.finalState.lifecycle.lineage = [];
+  });
+  expect(population(() => {})).toBe(summaryHashes(bundle).population);
+  expect(moved).not.toBe(dropped);
 });
 
 it("never passes the perception check it cannot observe, and refuses full recordings", () => {
