@@ -80,10 +80,12 @@ unknown name is `MALFORMED_SOURCE` at `ports.limits.<name>`. Limits are not part
 
 The simulator takes the same raises as `packLimits` on its `SimulatorPorts`, and
 `createSimulatorPackPorts` passes them on, so `seedGenesis`, `previewSeedProjection` and
-`runScenario` build, validate and seed under them. The runtime's birth workflow seeds with the
-raises its `packLimits()` returns (none by default); a deployment that hosts larger packs overrides
-it. Build and seed a pack with the same raises: a pack over a default that is seeded without its
-raise is `LIMIT_EXCEEDED`.
+`runScenario` build, validate and seed under them. The world's owner sets the raises as
+configuration, `WORLD_PACK_LIMITS`: a JSON object such as `{"resources":2048}`, read by
+`parseWorldPackLimits`. The `clockgrove` CLI reads it from its environment for every `pack` and
+`simulate` command, and the runtime's birth workflow from its `WORLD_PACK_LIMITS` binding; absent,
+the defaults hold, and a malformed value fails rather than falling back. Build and seed a pack with
+the same raises: a pack over a default that is seeded without its raise is `LIMIT_EXCEEDED`.
 
 | Limit | Default | Reason |
 | --- | --- | --- |

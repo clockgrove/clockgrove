@@ -9,7 +9,7 @@ export { checkCapabilityCommand } from "./capabilities.js";
 export type { WorldPackIssue } from "./errors.js";
 export { WorldPackError } from "./errors.js";
 export type { WorldPackLimits } from "./limits.js";
-export { DEFAULT_WORLD_PACK_LIMITS } from "./limits.js";
+export { DEFAULT_WORLD_PACK_LIMITS, parseWorldPackLimits } from "./limits.js";
 export { decodeResource, encodeResource } from "./manifest/encoding.js";
 export type {
   ActorDefinitionDocument,

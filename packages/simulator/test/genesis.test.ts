@@ -1,5 +1,6 @@
 import { buildWorldPack } from "@clockgrove/world-pack-sdk";
 import { describe, expect, it } from "vitest";
+import { cliPorts } from "../cli/ports.js";
 import { createSimulatorPackPorts, seedGenesis } from "../src/index.js";
 import {
   buildLampHallSource,
@@ -129,7 +130,9 @@ describe("seedGenesis", () => {
   });
 
   it("seeds a pack over a default size limit only with the world owner's raise", async () => {
-    const raised = { ...ports, packLimits: { resources: 2048 } };
+    // The CLI's ports under the owner's WORLD_PACK_LIMITS configuration carry the raise.
+    const raised = cliPorts({ WORLD_PACK_LIMITS: '{"resources":2048}' }).ports;
+    expect(raised.packLimits).toEqual({ resources: 2048 });
     const source = await buildLampHallSource({
       edit: ({ manifest }) => {
         for (let n = 0; n < 1100; n++)
@@ -146,5 +149,13 @@ describe("seedGenesis", () => {
     expect(await refusal(input)).toEqual({ code: "LIMIT_EXCEEDED", path: "source.resources" });
     const seeded = await seedGenesis(input, raised);
     expect(seeded.ok ? "seeded" : seeded.error).toBe("seeded");
+  });
+
+  it("refuses a malformed or lowering WORLD_PACK_LIMITS instead of using the defaults", () => {
+    expect(cliPorts({}).ports.packLimits).toBeUndefined();
+    expect(() => cliPorts({ WORLD_PACK_LIMITS: "2048" })).toThrow(/JSON object/);
+    expect(() => cliPorts({ WORLD_PACK_LIMITS: '{"actors":90}' })).toThrow(/unknown limit: actors/);
+    expect(() => cliPorts({ WORLD_PACK_LIMITS: '{"resources":256}' })).toThrow(/above 1024/);
+    expect(() => cliPorts({ WORLD_PACK_LIMITS: '{"resources":2048.5}' })).toThrow(/above 1024/);
   });
 });

@@ -38,3 +38,29 @@ export function resolveWorldPackLimits(ports: WorldPackPorts): WorldPackLimits {
   }
   return Object.freeze(resolved) as unknown as WorldPackLimits;
 }
+
+/**
+ * Reads the world owner's raises from their configuration text (the `WORLD_PACK_LIMITS` binding or
+ * environment variable): a JSON object of limit names to integers no lower than their defaults.
+ * Anything else throws, so a misconfigured deployment fails loudly instead of using the defaults.
+ */
+export function parseWorldPackLimits(text: string): Partial<WorldPackLimits> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("WORLD_PACK_LIMITS must be a JSON object of limit names to integers");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new Error("WORLD_PACK_LIMITS must be a JSON object of limit names to integers");
+  const raises: Record<string, number> = {};
+  for (const [name, value] of Object.entries(parsed)) {
+    const floor = (DEFAULT_WORLD_PACK_LIMITS as unknown as Record<string, number>)[name];
+    if (!Object.hasOwn(DEFAULT_WORLD_PACK_LIMITS, name) || floor === undefined)
+      throw new Error(`WORLD_PACK_LIMITS names an unknown limit: ${name}`);
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < floor)
+      throw new Error(`WORLD_PACK_LIMITS.${name} may only raise the limit above ${floor}`);
+    raises[name] = value;
+  }
+  return Object.freeze(raises) as Partial<WorldPackLimits>;
+}

@@ -761,6 +761,8 @@ export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
+  /** The world owner's pack size raises, JSON such as `{"resources":2048}`; absent, the defaults. */
+  readonly WORLD_PACK_LIMITS?: string;
   readonly MODERATION_SHADOW_CONFIG?: string;
   /** Optional actor-reply shadow judging (issue 271); absent, replies are not judged. */
   readonly ACTOR_REPLY_SHADOW_CONFIG?: string;
