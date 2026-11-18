@@ -550,7 +550,7 @@ Wave 6 does not implement:
 - [ ] Gracie's versioned field guide preserves attributed sources, uncertainty and revisions; a kit reads testimony, verifies it firsthand and authors its own evidence-backed next edition.
 - [ ] Guide generation never automatically publishes private cognition; sharing, source expansion, revocation and retention/deletion/rebuild or withdrawal pass existing privacy policy.
 - [ ] Physical world continues when indexing/models/consolidation fail.
-- [ ] Local, eval, replay, deletion, and validation-deployment qualifications pass.
+- [ ] Local, eval, replay, deletion, and staging qualifications pass.
 
 The manifest records commit, schema/policy/model/embedding versions, corpus hash, index coverage, eval reports, privacy matrix, replay hashes, behavioral-control comparison, cognitive-document/policy/evaluation versions and hashes, invalidation/fallback/shadow evidence, observation provenance/time policy, cost/latency/storage evidence, results on the validation deployment, and exit decision.
 

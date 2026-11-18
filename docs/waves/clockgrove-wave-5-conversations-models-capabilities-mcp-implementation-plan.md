@@ -782,7 +782,7 @@ Wave 5 does not implement:
 - [ ] Browser, CLI, and fake channel address one canonical actor/session model.
 - [ ] Preview/replay cannot produce live external delivery.
 - [ ] World remains active with model/MCP unavailable.
-- [ ] Local and real-provider qualification on the validation deployment pass.
+- [ ] Local and real-provider/staging qualification pass.
 
 The manifest records commit, schema/policy/model/tool versions, provider and scripted eval results, crash matrix, security fixtures, token/cost distributions, effect/delivery evidence, UI/accessibility results, validation-deployment qualification, and exit decision.
 

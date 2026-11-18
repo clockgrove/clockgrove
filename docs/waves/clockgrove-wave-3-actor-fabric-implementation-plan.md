@@ -695,7 +695,7 @@ pnpm verify:runtime-scenario-parity
 
 Amended (2026-10-28): `test:runtime:actors` and `test:runtime:transfers` are removed. Their subjects left the wave with the maintainer's 2026-10-19 amendments, the `ActorAgentDO` foundation (RW-0307) to Wave 5 (§9.3) and cross-space transfer (RW-0308) to Wave 11 (§13), so no Wave 3 test has either subject. Each other command is a root script that runs a named set of `apps/runtime` test files, and no file is in two of them; `verify:runtime-scenario-parity` runs the native-owner and autonomous scenario parity long runs that §18.3 relies on ([development runbook](../runbooks/development.md#acceptance-commands)). `pnpm check` refuses a command listed here that has neither a script nor an amendment.
 
-### 18.2 Validation-deployment cloud qualification
+### 18.2 Staging cloud qualification
 
 Real Cloudflare tests verify behavior local emulation cannot prove:
 
