@@ -717,7 +717,7 @@ const captureGoldenStates = async (backend) => {
       }
       for (const page of pages) await page.evaluate(() => globalThis.hallAdapter.setQuality("low"));
 
-      // fixture-hall has no cognitive actor before Wave 5: Keeper, an actor, discloses reactive.
+      // Keeper declares a cognitive Conversation mode, so its card names a cognitive actor (#396).
       await each("selected-actor-rail", async (page) => {
         if (external) {
           await living(page)
@@ -733,7 +733,7 @@ const captureGoldenStates = async (backend) => {
         if (!external)
           await expect
             .poll(() => rail(page).innerText())
-            .toContain("Deterministic/reactive object");
+            .toContain("Actor's subjective perspective");
         await selected(page)
           .getByText(/^Selected entity at canonical revision /u)
           .waitFor();

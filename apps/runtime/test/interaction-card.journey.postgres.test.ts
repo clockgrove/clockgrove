@@ -198,9 +198,11 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
             ),
           );
       // Talk follows the declared Conversation mode (issue 354), not needs: the cedar declares one.
+      // The card's mode is that declared mode (issue 396): Keeper's archetype declares `cognitive`
+      // and the cedar's `interpreted`; the undeclared dish and den keep reactive and inspectable.
       expect(await scene({ categories: ["public_scene", "conversation"], command: true })).toEqual({
         "fixture.cedar": [
-          "reactive",
+          "interpreted",
           [
             { kind: "inspect", availability: "enabled" },
             { kind: "history", availability: "enabled" },
@@ -223,7 +225,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           ],
         ],
         "fixture.keeper": [
-          "reactive",
+          "cognitive",
           [
             { kind: "inspect", availability: "enabled" },
             { kind: "history", availability: "enabled" },
@@ -233,7 +235,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         ],
       });
       // Needs alone no longer make an entity talkable: the same canonical Keeper without its
-      // declared Conversation mode keeps Why and loses Talk.
+      // declared Conversation mode keeps Why, loses Talk and discloses today's reactive mode.
       const canonical = (
         await new PostgreSqlCommandOwner(client).reader.hydrate(authorization, scope)
       ).document.state;

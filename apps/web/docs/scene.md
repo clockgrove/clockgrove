@@ -456,9 +456,12 @@ the latest retained reducer projection. The text scene remains available through
 retrying does not reconnect the observation or issue a world command. A retry that presents
 returns the boot to `scene_ready`; one that fails leaves it at `text_ready`.
 
-The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
-a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
-and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
+The right rail shows a talkable entity's private conversation as chat bubbles under its portrait
+and a message box, below the interaction card. The card names the entity's declared voice
+(`INTERACTION_DISCLOSURES[mode]`, so a cognitive actor reads "Actor's subjective perspective") and
+keeps the same action list whatever that voice is (issue 396); the rail adds Why? for the newest
+command the conversation proposed. Below 1200 px the rail is the bottom sheet; it works without the
+canvas.
 
 Atlas animation uses per-mesh UVs on one shared Texture per atlas page; each animation's frames index
 the page it was loaded from, one rectangle per frame. A frame that names another page's `atlasId`
