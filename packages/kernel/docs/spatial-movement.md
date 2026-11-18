@@ -231,14 +231,18 @@ creation objects it covers enter it, preserving an existing matching shelter.
 Every affected occupant is integrated under its old protection before its location changes,
 including a shelter that is itself a needs actor or a plant.
 
-Three rules, applied to every active mover (a needs actor, a plant or any
-other object):
+Three rules. Leaving and stopping apply to every active mover (a needs actor, a plant or any
+other object); crossing a cover applies to a mover the world time follows, a needs actor under a
+utility policy, whose walk `world.advance` carries past its command's events:
 
 - **Leaving.** When the movement it starts or replans leaves its starting point, a located mover
   journals `location.changed` to null just before `movement.started` or `movement.replanned`. A
-  zero-length movement does not leave, and neither does one that starts within the declared cover
-  (`coverRadius`) of the shelter the mover is in.
-- **Crossing a cover.** While it walks, a mover's location follows the declared covers its path
+  zero-length movement does not leave. A followed mover whose walk starts within a declared cover
+  (`coverRadius`) is instead in that shelter as it sets out (the one it is in, else the first by
+  object id), journaling `location.changed` to it there when it was elsewhere or on open ground.
+  Any other mover keeps its shelter only when every waypoint of its path lies within that
+  shelter's cover, and otherwise leaves it as it sets out.
+- **Crossing a cover.** While a followed mover walks, its location follows the declared covers its path
   passes through. The path is the exact straight line between waypoints, and at each whole
   millisecond the mover is under a cover when that point is within `coverRadius` of the shelter
   (edge inclusive; domain `coverIntervals`). At the first millisecond it is outside the cover of
