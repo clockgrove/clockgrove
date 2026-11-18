@@ -243,7 +243,9 @@ function commandFieldHint(type: string): string {
   const fields =
     schema === undefined
       ? []
-      : Object.keys(schema.unwrap().shape).filter((key) => key !== "schemaVersion" && key !== "quantity");
+      : Object.keys(schema.unwrap().shape).filter(
+          (key) => key !== "schemaVersion" && key !== "quantity",
+        );
   return fields.length === 0
     ? "<the command's object fields>"
     : fields.map((field) => `"${field}":<${field} from the scene>`).join(",");
