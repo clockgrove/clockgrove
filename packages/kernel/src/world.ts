@@ -31,6 +31,7 @@ import {
   environmentDisagreement,
   expectedCrossings,
   isRegionCrossing,
+  LIFECYCLE_MAX_LINEAGE,
   lifecycleDisagreement,
   lifecycleForKind,
   MOVEMENT_COMMAND_TYPES,
@@ -4961,12 +4962,15 @@ function registerContainmentChecks(
       check: ({ initial, state }) => {
         for (const key of ["tenantId", "worldId", "timelineId", "partitionId"] as const)
           if (initial[key] !== state[key]) return `state.${key}`;
-        // An entity leaves only as a dead actor moved to the lifecycle lineage (#358).
+        // An entity leaves only as a dead actor moved to the lifecycle lineage (#358). One call can
+        // move a dead actor at one birth and evict it from a full lineage at a later birth, so a dead
+        // actor may also be gone altogether, but only while the lineage is at its bound.
+        const kept = new Set(state.entities.map((entity) => entity.objectId));
+        const lineage = state.lifecycle?.lineage ?? [];
+        for (const dead of lineage) kept.add(dead.objectId);
+        const full = lineage.length >= LIFECYCLE_MAX_LINEAGE;
         for (const entity of initial.entities)
-          if (
-            !state.entities.some((candidate) => candidate.objectId === entity.objectId) &&
-            !(state.lifecycle?.lineage ?? []).some((dead) => dead.objectId === entity.objectId)
-          )
+          if (!kept.has(entity.objectId) && !(full && entity.lifecycle?.status === "dead"))
             return "state.entities";
         // Entity scope is inherited exclusively from its immutable partition envelope.
         for (const entity of state.entities)

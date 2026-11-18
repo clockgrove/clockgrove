@@ -3,6 +3,7 @@ import type { ObjectId, SimTimeMs } from "@clockgrove/contracts";
 import { EnvironmentValidationError } from "../environment/environment.js";
 import type { WellbeingPolicy, WellbeingState } from "../wellbeing/wellbeing.js";
 import type { WorldEntity } from "../world.js";
+import { isSealedLifecycleLineage } from "./sealed-lineage.js";
 
 export type LifecycleCause = "lifespan" | "health";
 export type LifecycleCoParent = "required" | "none";
@@ -443,7 +444,8 @@ export function validateLifecycleState(
     `${path}.entries`,
     false,
   );
-  if (Object.hasOwn(root, "lineage"))
+  // A lineage the previous state already validated is shared, frozen, and skipped (sealed-lineage.ts).
+  if (Object.hasOwn(root, "lineage") && !isSealedLifecycleLineage(root.lineage))
     validateEntries(
       array(root.lineage, `${path}.lineage`, 1, LIFECYCLE_MAX_LINEAGE),
       `${path}.lineage`,
@@ -580,10 +582,10 @@ export function lifecycleDisagreement(
   const lineage = record.lineage ?? [];
   const known = new Set(record.entries.map((entry) => entry.objectId));
   const households = new Set(record.households);
+  const entityIds = lineage.length === 0 ? known : new Set(state.entities.map((e) => e.objectId));
   for (const [index, dead] of lineage.entries()) {
     const at = `state.lifecycle.lineage[${index}]`;
-    if (known.has(dead.objectId) || state.entities.some((e) => e.objectId === dead.objectId))
-      return `${at}.objectId`;
+    if (known.has(dead.objectId) || entityIds.has(dead.objectId)) return `${at}.objectId`;
     if (!households.has(dead.householdId)) return `${at}.householdId`;
   }
   for (const dead of lineage) known.add(dead.objectId);

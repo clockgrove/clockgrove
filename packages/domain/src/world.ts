@@ -59,6 +59,7 @@ import {
   validateLifecyclePolicy,
   validateLifecycleState,
 } from "./lifecycle/lifecycle.js";
+import { isSealedLifecycleLineage, sealLifecycleLineage } from "./lifecycle/sealed-lineage.js";
 import type { RandomDrawMetadata } from "./random.js";
 import { type AnchorGraph, parseAnchorGraph } from "./spatial/anchors.js";
 import { validateSemanticHierarchy } from "./spatial/hierarchy.js";
@@ -486,7 +487,7 @@ export function validateWorldState(state: WorldState): void {
 /** Copies and canonicalizes owned collections without mutating or freezing the caller's input. */
 export function createWorldState(state: WorldState): WorldState {
   validateWorldState(state);
-  return frozenCopy({
+  const created = frozenCopy({
     ...state,
     spatialFrames: [...state.spatialFrames].sort((left, right) =>
       compareNames(left.frameId, right.frameId),
@@ -509,6 +510,8 @@ export function createWorldState(state: WorldState): WorldState {
       compareNames(left.objectId, right.objectId),
     ),
   });
+  sealLifecycleLineage(created.lifecycle?.lineage);
+  return created;
 }
 
 export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldState {
@@ -1530,6 +1533,8 @@ function compareNames(left: string, right: string): number {
 }
 
 function frozenCopy<T>(value: T, ancestors = new WeakSet<object>()): T {
+  // A sealed lineage is already a validated deep-frozen copy; the new state shares it (#358).
+  if (isSealedLifecycleLineage(value)) return value;
   if (value !== null && typeof value === "object") {
     if (ancestors.has(value))
       throw new DomainValidationError("state", "must not contain cyclic values");

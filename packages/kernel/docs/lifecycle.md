@@ -55,7 +55,7 @@ and their lifecycle entry is kept until a birth finds the lifecycle record or th
 earliest unnamed dead leaving first; the journal keeps their events), and Why's attribution and family links read
 the lineage. This is a recorded state contract change of issue 358: no event or reducer version changed, every
 committed golden kept its hash, and a journal written before it replays to the same state: a birth onto a full
-record was refused before, and one onto 128 or more entities left a world whose every later command was refused. `object.immutable-scope@1` lets an entity leave only into the lineage. Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
+record was refused before, and one onto 128 or more entities left a world whose every later command was refused. `object.immutable-scope@1` lets an entity leave only as a dead actor: into the lineage, or out of the state while the lineage is full (one `world.advance` call can move a dead actor at one birth and evict it at a later one). Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
 random state equals the input. A movement or portal command that moves the world time plans the lifecycle times it
 passes the same way and in the same stream order, and a mover's death ends its move: `movement.interrupted`
 (without a cause), then `lifecycle.died` with the cause, both at the time of death

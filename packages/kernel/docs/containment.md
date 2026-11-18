@@ -83,7 +83,7 @@ Globally registered post-state checks run for every command, including `world.ad
 | Invariant | Stable path |
 | --- | --- |
 | `containment.structure@1` | `state.entities[i].spaceId` for missing/mismatched physical space; `.containment.capacity` for invalid/exceeded capacity; `.containment.containerId` for unknown/inactive/noncontainer parent or cycle (scalar parentage guarantees at most one immediate parent) |
-| `object.immutable-scope@1` | `state.tenantId`, `.worldId`, `.timelineId`, `.partitionId` for changed partition scope; `state.entities` for removed identity; `state.entities[i].<scope-field>` for attempted per-object scope injection |
+| `object.immutable-scope@1` | `state.tenantId`, `.worldId`, `.timelineId`, `.partitionId` for changed partition scope; `state.entities` for removed identity (a dead actor may leave only into `lifecycle.lineage`, or out of the state while that lineage is at its 1,024 bound, #358); `state.entities[i].<scope-field>` for attempted per-object scope injection |
 | `object.lifecycle@1` | `state.entities[i]` for changing a terminal object; `.lifecycle.status` for terminal containers with active contents; `.resource.quantity` for retirement without disposition |
 | `resource.closed-world@1` | `events[i].type` for offered, appeared or positive-inventory created events in new execution |
 | `resource.quantity-conservation@1` | `state.entities[i].resource.quantity` for invalid kind/quantity; `state.resources.food` or `state.resources.water` for unrecorded total change |
