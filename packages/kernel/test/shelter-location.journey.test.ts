@@ -613,3 +613,81 @@ it("unlocates a mover the world time does not follow as it sets out, even under 
     after.world.state,
   );
 });
+
+it("locates a walker under a cover created over it, and unlocates it when that shelter sets out or is retired", async () => {
+  const base = await rainy(true);
+  // The den, where the actor stands in the rain, declares a cover of 500 units around it.
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  // It walks out to (900, 0); its decision walks it back toward the den at 2 units/ms from 900 ms.
+  const out = move(world, actor, 900n, "walk-past-porch");
+  const midway = runChain(out.world, "walk-past-porch-mid", 1000n);
+  const walker = midway.world.state.entities.find((entity) => entity.objectId === actor)!;
+  expect([walker.movement?.status, walker.locationId ?? null]).toEqual(["active", null]);
+  const den = midway.world.state.entities.find((entity) => entity.objectId === "den")!;
+  const created = execute(
+    midway.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "porch",
+        archetypeId: den.archetypeId,
+        spatial: {
+          spaceId: den.spaceId,
+          pose: { ...den.pose, coordinates: [700n, 0n] },
+        },
+        shelter: { rainProtection: 10000, coverRadius: 100n },
+      },
+    },
+    "porch-over-walker",
+  );
+  // At (700, 0) the walker is inside the new porch's cover: it is under the porch from its
+  // creation, on open ground where its walk leaves that cover (600 units, 1051 ms), and in the den
+  // where it enters the den's (1100 ms).
+  expect(changes(created.events)).toEqual([[1000n, actor, "porch"]]);
+  const after = runChain(created.world, "porch-over-walker-after", 1200n);
+  expect(changes(after.events)).toEqual([
+    [1051n, actor, null],
+    [1100n, actor, "den"],
+  ]);
+  expect(replayWorldEvents(midway.world.state, [...created.events, ...after.events])).toEqual(
+    after.world.state,
+  );
+
+  // A walker under the porch leaves it the moment the porch sets out, or is retired.
+  const porch = created.world.state.entities.find((entity) => entity.objectId === "porch")!;
+  const departed = execute(
+    created.world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "porch",
+      destination: {
+        kind: "pose",
+        pose: { ...porch.pose, coordinates: [700n, 2000n] },
+      },
+      unitsPerSecond: 1000n,
+    },
+    "porch-sets-out",
+  );
+  expect(changes(departed.events)[0]).toEqual([1000n, actor, null]);
+  expect(replayWorldEvents(created.world.state, departed.events)).toEqual(departed.world.state);
+  const retired = execute(
+    created.world,
+    "object.retire",
+    { schemaVersion: 1, objectId: "porch", disposition: "discard" },
+    "porch-retired",
+  );
+  expect(changes(retired.events)).toEqual([[1000n, actor, null]]);
+  expect(replayWorldEvents(created.world.state, retired.events)).toEqual(retired.world.state);
+});

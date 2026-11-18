@@ -1088,16 +1088,32 @@ function runWorld(
                 },
           ),
         };
+    // A walker is placed by the cover rule at this millisecond (`walkLocationAt`): one the world
+    // time follows may come under the stopped shelter's cover, and any walker in a departing one
+    // leaves it.
     const changes = before.entities
       .filter(
         (entity) =>
           active(entity) &&
-          entity.movement?.status !== "active" &&
           entity.objectId !== shelter.objectId &&
-          (entity.locationId === shelter.objectId ||
-            (!departing && shelterMatches(entity, objectsOf(after, shelter.objectId)!))),
+          (entity.movement?.status === "active"
+            ? follows(entity) || entity.locationId === shelter.objectId
+            : entity.locationId === shelter.objectId ||
+              (!departing && shelterMatches(entity, objectsOf(after, shelter.objectId)!))),
       )
-      .map((entity) => ({ entity, locationId: shelterAt(after, entity, entity.pose.coordinates) }))
+      .map((entity) => ({
+        entity,
+        locationId:
+          entity.movement?.status === "active"
+            ? walkLocationAt(
+                after,
+                entity,
+                entity.movement,
+                changing.simulationTime,
+                follows(entity),
+              )
+            : shelterAt(after, entity, entity.pose.coordinates),
+      }))
       .filter(({ entity, locationId }) => (entity.locationId ?? null) !== locationId);
     return { after, departing, changes, planId: data.movement?.movementId ?? data.movementId! };
   }
@@ -4173,6 +4189,36 @@ function coverChanges(
   }
   return changes;
 }
+/**
+ * Where a walker is at `at` when a shelter is created, retired, sets out or stops mid-walk. A
+ * zero-length walk is placed by the stopping rule at its pose. A walker the world time follows is
+ * in the shelter whose declared cover its path is under at that millisecond (`coversWalk`; the one
+ * it is in, else the first by object id) or on open ground, as `coverChanges` places it at a
+ * boundary. Any other walker keeps its shelter only while that shelter still covers the walk.
+ */
+function walkLocationAt(
+  state: WorldState,
+  actor: WorldEntity,
+  movement: MovementRecord,
+  at: bigint,
+  followed: boolean,
+): string | null {
+  if (!leavesStart(movement)) return shelterAt(state, actor, actor.pose.coordinates);
+  const here = actor.locationId ?? null;
+  if (!followed) {
+    const location = state.entities.find((entity) => entity.objectId === here);
+    return location !== undefined && coversWalk(actor, location, movement) ? here : null;
+  }
+  const under = state.entities
+    .filter(
+      (entity) =>
+        coversWalk(actor, entity, movement) &&
+        walkCover(entity, movement).some(([enter, leave]) => enter <= at && at <= leave),
+    )
+    .map((entity) => entity.objectId as string)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return here !== null && under.includes(here) ? here : (under[0] ?? null);
+}
 /** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
 function leavesStart(movement: MovementRecord): boolean {
   const [first, ...rest] = movement.segment.waypoints;
@@ -4207,18 +4253,33 @@ function runContainmentCommand(
   };
   const reconcile = (after: WorldState, shelterId: string, created = false): void => {
     const shelter = after.entities.find((entity) => entity.objectId === shelterId);
+    // A walker the world time follows (a needs actor under a utility policy) is placed by the
+    // cover rule at this millisecond, so a cover created over it locates it; any walker in a
+    // retired shelter leaves it (`walkLocationAt`).
+    const followed = (entity: WorldEntity): boolean =>
+      input.pack.pack.policy.utility !== undefined && entity.needs !== undefined;
     const changes = (created ? after.entities : state.entities)
       .filter(
         (entity) =>
           active(entity) &&
-          entity.movement?.status !== "active" &&
-          (entity.objectId === shelterId ||
-            entity.locationId === shelterId ||
-            (shelter !== undefined && shelterMatches(entity, shelter))),
+          (entity.movement?.status === "active"
+            ? entity.objectId !== shelterId && (followed(entity) || entity.locationId === shelterId)
+            : entity.objectId === shelterId ||
+              entity.locationId === shelterId ||
+              (shelter !== undefined && shelterMatches(entity, shelter))),
       )
       .map((occupant) => ({
         occupant,
-        locationId: shelterAt(after, occupant, occupant.pose.coordinates),
+        locationId:
+          occupant.movement?.status === "active"
+            ? walkLocationAt(
+                after,
+                occupant,
+                occupant.movement,
+                state.simulationTime,
+                followed(occupant),
+              )
+            : shelterAt(after, occupant, occupant.pose.coordinates),
       }))
       .filter(({ occupant, locationId }) => (occupant.locationId ?? null) !== locationId);
     const at = state.simulationTime;
