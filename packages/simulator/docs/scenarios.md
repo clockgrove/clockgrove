@@ -103,6 +103,7 @@ The `events` view excludes integration bookkeeping, as the world event vocabular
 `resource.weather-integrated` and `time.advanced`): those events vary with command boundaries. An
 integration event whose declared quantities are not all zero stays material, so every nonzero
 `resource.weather-integrated` collection or evaporation is kept, including one with a zero net change.
+The `eventCounts` view leaves out the integration types for the same reason.
 Both full and summarised equivalence use this material view; the journal, replay and native
 invariant checks retain all events.
 

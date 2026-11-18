@@ -1,4 +1,4 @@
-import { materialWorldEvent } from "@clockgrove/domain";
+import { isIntegrationEventType, materialWorldEvent } from "@clockgrove/domain";
 import type {
   AssertionResult,
   EquivalenceAssertionResult,
@@ -65,7 +65,11 @@ function view(
           payload: event.payload,
         }));
     case "eventCounts":
-      return Object.fromEntries(Object.entries(run.eventCounts).filter(([type]) => compared(type)));
+      return Object.fromEntries(
+        Object.entries(run.eventCounts).filter(
+          ([type]) => compared(type) && !isIntegrationEventType(type),
+        ),
+      );
     case "finalState":
       return equivalence.ignoreStatePaths.reduce<unknown>(
         (state, path) => withoutPath(state, path),

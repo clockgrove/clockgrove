@@ -28,7 +28,7 @@ function hallDocument(recording: "full" | "summarised"): Rec {
         left: "main",
         right: "aggregate",
         // Every event type: the runs differ only in integration bookkeeping, which is not material.
-        fields: ["events"],
+        fields: ["events", "eventCounts"],
       },
       {
         id: "dry-vs-rainy",
