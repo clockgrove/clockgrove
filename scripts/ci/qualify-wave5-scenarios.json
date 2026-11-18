@@ -653,7 +653,7 @@
         },
         {
           "file": "apps/runtime/test/activations.journey.postgres.test.ts",
-          "marker": "// The same scheduled-intention wake sent twice: one activation, one message and at most one effect."
+          "marker": "// The same scheduled-intention wake sent twice: one activation, one message and one effect."
         }
       ]
     }
