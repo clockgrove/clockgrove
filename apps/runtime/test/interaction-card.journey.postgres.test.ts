@@ -275,8 +275,8 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const decision = keeper.history.actions.find((action) => action.type === "routine.selected");
       expect(decision?.commandId).toBe("storm-decision");
       expect(decision?.decision).toBe(true);
-      // A command Keeper proposed itself (a model rung) is its newer decision; Why opens it, not
-      // the older routine selection.
+      // A command Keeper proposed itself (a model rung) is its newer decision even though its
+      // payload names only another object; Why opens it, not the older routine selection.
       const own = advanceCommand(
         world,
         "keeper-own",
@@ -288,16 +288,16 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         await executeWorldCommand(
           commandRequest(provisioned, {
             ...own,
-            type: "movement.start",
+            // Like actorOfferCommand's offer (refused by this closed world), the payload names
+            // only other objects: the bowl and the household store, never Keeper.
+            type: "resource.transfer",
             attribution: { effectiveActorId: "fixture.keeper", causalRootActionId: "action-own" },
             payload: {
               schemaVersion: 1,
-              objectId: "fixture.keeper",
-              destination: {
-                kind: "pose",
-                pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [6000n, 6000n] },
-              },
-              unitsPerSecond: 1000n,
+              fromObjectId: "fixture.water-bowl",
+              toObjectId: "fixture.household-water",
+              kind: "water",
+              quantity: 1,
             },
           } as typeof own),
           { journal: new PostgreSqlWorldCommandJournal(client), behavior: provisioned.behavior },
@@ -306,6 +306,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
       const newest = decodeEntitySelection(
         (await post("entity", { objectId: "fixture.keeper" }))[1],
       ).history.actions.filter((action) => action.decision === true);
+      expect(newest[0]?.type).toBe("resource.transferred");
       expect([...new Set(newest.map((action) => action.commandId))].slice(0, 2)).toEqual([
         "keeper-own",
         "storm-decision",

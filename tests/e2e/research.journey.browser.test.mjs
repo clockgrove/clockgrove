@@ -228,6 +228,19 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       await history
         .getByText(/Fixture research uncertain: tool_uncertain/u)
         .waitFor({ timeout: 60000 });
+      // A refused or uncertain call is recorded but cites nothing, so these replies carry no
+      // [tool:…] text; the control still follows the turn's recorded calls.
+      for (const reply of [
+        /Fixture research refused: Tool refused: approval_denied/u,
+        /Fixture research uncertain: tool_uncertain/u,
+      ]) {
+        const row = history.getByRole("listitem").filter({ hasText: reply });
+        expect(await row.count()).toBe(1);
+        expect(await row.textContent()).not.toContain("[tool:");
+        expect(
+          await row.getByRole("button", { name: "Why? Tool evidence", exact: true }).count(),
+        ).toBe(1);
+      }
       await page
         .getByLabel("Message Keeper…", { exact: true })
         .fill(`fixture:research-no-answer 1 ${CAPABILITY} {"q":"down"}`);

@@ -556,7 +556,7 @@ export function ConversationPanel({
               data-why-opener={
                 kind === "why"
                   ? whyCommand !== undefined
-                    ? `receipt:${whyCommand}`
+                    ? `rail:receipt:${whyCommand}`
                     : `card:${actorId}`
                   : undefined
               }
@@ -679,7 +679,7 @@ export function ConversationPanel({
                       {outcome.commandId !== null && (
                         <button
                           type="button"
-                          data-why-opener={`receipt:${outcome.commandId}`}
+                          data-why-opener={`message:${message.messageId}`}
                           onClick={(event) =>
                             openWhy(outcome.commandId as string, event.currentTarget)
                           }
