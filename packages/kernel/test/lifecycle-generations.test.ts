@@ -3,6 +3,7 @@
 import { replayWorldEvents, resolveLifecycleLinks } from "@clockgrove/domain";
 import { describe, expect, it } from "vitest";
 import { canonicalBytes } from "../src/index.js";
+import { executeWorldKernel } from "../src/world.js";
 import {
   eventsOf,
   lifeChain,
@@ -11,6 +12,7 @@ import {
   SURE_SPEC,
   timeOf,
 } from "./lifecycle.scenario.js";
+import { movementInput } from "./spatial.scenario.js";
 
 describe("population over generations", () => {
   it("keeps reproducing past 128 cumulative births with the living under the cap", async () => {
@@ -67,5 +69,83 @@ describe("population over generations", () => {
     expect(Buffer.from(canonicalBytes(replayed)).toString("hex")).toBe(
       Buffer.from(canonicalBytes(state)).toString("hex"),
     );
+  }, 300_000);
+
+  it("commits a movement whose passed time crosses the birth that moves the dead to the lineage", async () => {
+    const start = await lifeWorld(SURE_SPEC);
+    // The founder plus 127 births fill the 128-entry record; the 128th birth moves the dead out.
+    const filled = lifeChain(start, "generations-fill", 330_000n, 1024, 4096);
+    const births = eventsOf(filled.events, "lifecycle.born");
+    const crossing = timeOf(births[127]!);
+    expect(crossing).toBe(324_000n);
+    const before = lifeChain(start, "generations-before", crossing - 1n, 1024, 4096).world;
+    expect(before.state.lifecycle!.entries.length).toBe(128);
+    expect(before.state.lifecycle!.lineage).toBeUndefined();
+
+    const mover = before.state.lifecycle!.entries.find(
+      (entry) => entry.death === null && entry.gestation === null,
+    )!.objectId;
+    const pose = before.state.entities.find((entity) => entity.objectId === mover)!.pose;
+    const command = (world: typeof before, type: string, payload: object, id: string) =>
+      executeWorldKernel(
+        movementInput(
+          {
+            ...world.template,
+            partition: {
+              ...world.template.partition,
+              revision: world.state.revision,
+              state: world.state,
+            },
+            simulationTime: world.state.simulationTime,
+            schedules: world.schedules,
+            randomState: world.random,
+          },
+          type,
+          payload,
+          id,
+        ) as never,
+        { mode: "test" },
+      );
+    const started = command(
+      before,
+      "movement.start",
+      {
+        schemaVersion: 1,
+        objectId: mover,
+        destination: { kind: "pose", pose: { ...pose, coordinates: [500n, 0n] } },
+        unitsPerSecond: 1n,
+        observeUntil: before.state.simulationTime,
+      },
+      "generations-start",
+    );
+    if (!started.ok)
+      throw new Error(`${started.error.code} ${started.error.path} ${started.error.check}`);
+    const moving = {
+      ...before,
+      state: started.result.state,
+      schedules: started.result.schedules,
+      random: started.result.updatedRandomState,
+    };
+    // The interrupt passes world time up to the birth that finds the record full.
+    const outcome = command(
+      moving,
+      "movement.interrupt",
+      { schemaVersion: 1, objectId: mover, at: crossing },
+      "generations-interrupt",
+    );
+    // Before movement.scope@5 this was invariant-violated at state.entities: no entity removed.
+    expect(outcome.ok ? undefined : outcome.error).toBeUndefined();
+    if (!outcome.ok) return;
+    const { events, state } = outcome.result;
+    expect(eventsOf(events, "movement.interrupted").map(timeOf)).toEqual([crossing]);
+    const born = eventsOf(events, "lifecycle.born");
+    expect(born.map(timeOf)).toEqual([crossing]);
+    const lineage = state.lifecycle!.lineage ?? [];
+    expect([lineage.length, state.lifecycle!.entries.length]).toEqual([123, 6]);
+    for (const dead of lineage) {
+      expect(before.state.entities.some((entity) => entity.objectId === dead.objectId)).toBe(true);
+      expect(state.entities.some((entity) => entity.objectId === dead.objectId)).toBe(false);
+    }
+    expect(lineage[0]).toMatchObject({ objectId: "a-resident" });
   }, 300_000);
 });

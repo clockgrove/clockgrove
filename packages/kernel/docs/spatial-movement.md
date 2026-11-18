@@ -43,7 +43,7 @@ hashed. The domain reducers validate against every region, so a faulty index is 
 
 | Command | Payload | Events | Preconditions | Invariants |
 | --- | --- | --- | --- | --- |
-| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@4` |
+| `movement.start` | `objectId`, `destination`, `unitsPerSecond`, `observeUntil?` | `movement.started`, then crossings up to `observeUntil`, then `movement.completed` if reached | `movement.active-object@1` (object active, no active movement), `movement.route@1`, `movement.timing@1` (`observeUntil` not before start) | `movement.event-authority.movement.start@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@5` |
 | `movement.interrupt` | `objectId`, `at` | crossings up to `at`, then `movement.interrupted` | `movement.active-object@1` (active movement), `movement.timing@1` (`at` inside the active segment), `movement.passed-time@2` | `movement.event-authority.movement.interrupt@3` plus the shared three |
 | `movement.replan` | `objectId`, `at`, `destination`, `unitsPerSecond`, `observeUntil?` | crossings of the prior movement up to `at`, `movement.replanned`, new crossings, `movement.completed` if reached | `movement.active-object@1` (unfinished movement), `movement.route@1`, `movement.timing@1`, `movement.passed-time@2` | `movement.event-authority.movement.replan@3` plus the shared three |
 
@@ -58,7 +58,7 @@ Refusals (always returned, never thrown):
 | `precondition-failed` | `payload.destination.anchorId`, `payload.destination.graphVersion`, `payload.destination.pose.frameId` (unknown frame or frame mismatch with the object), `payload.destination.pose.frameVersion`, `payload.destination.pose.coordinates`, `payload.destination` (unreachable) | `movement.route@1` |
 | `precondition-failed` | `payload.at` (before world time or outside the active segment), `payload.observeUntil` (before the start) | `movement.timing@1` |
 | `precondition-failed` | `payload.at` (more than the policy's `decisionIntervalMs` after the world time), `state.simulationTime`, `events` (the time a move passes; see [World time a move passes](#world-time-a-move-passes)) | `movement.passed-time@2` |
-| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering and uniqueness), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events[i].simulationTime`, `state.<collection>`, `state.entities`, `state.entities[i]` (scope) | `movement.event-authority.<command>@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@4` |
+| `invariant-violated` | `events[i].type` (event authority per command), `events[i].simulationTime` or `events[i]` or `state.simulationTime` (ordering and uniqueness), `state.entities[i].movement.emitted[j]` (duplicate or reversed crossing), `events[i].simulationTime`, `state.<collection>`, `state.entities`, `state.entities[i]` (scope) | `movement.event-authority.<command>@3`, `movement.events-ordered-and-unique@3`, `movement.crossings-consistent@1`, `movement.scope@5` |
 
 `parseSpatialRegionAtBoundary`, `parseAnchorGraphAtBoundary`, `parseMovementRecordAtBoundary`
 and `parseMovementPayloadAtBoundary` wrap the throwing domain validators and return an
@@ -145,7 +145,7 @@ Refusals are `precondition-failed` with the `portal.<check>@1` check (malformed 
 | `portal.transit@1` | `payload.portalId` | `close` while an active movement still has to cross the portal |
 
 Invariants: `portal.event-authority.<command>@1` (`events[i].type`; `@3` for `portal.use`);
-`portal.use` also runs `movement.events-ordered-and-unique@3` and `movement.scope@4`, and is bound
+`portal.use` also runs `movement.events-ordered-and-unique@3` and `movement.scope@5`, and is bound
 by `movement.passed-time@2` like a move; and the global
 `portal.transit-open@1` refuses any command after which an active movement still has to cross a
 portal that is not open (`state.entities[i].movement.portalSteps[j]`), for example retiring the
@@ -260,7 +260,7 @@ when the mover's `lifecycle.died` follows it at the same time. Other objects' mo
 from the world time. `movement.events-ordered-and-unique@3` requires
 time order and no repeated event (same type, time and payload). The one exception is
 `resource.consumed`: two actors eating from one holder at one time journaled the same
-consumption before it named its eater (`consumerId`), and replay still reads those journals. `movement.scope@4` refuses:
+consumption before it named its eater (`consumerId`), and replay still reads those journals. `movement.scope@5` refuses:
 
 - spoilage at a time its ecology does not own (`events[i].simulationTime`);
 - no movement event of the mover, or a movement event of another object that is not a needs actor
@@ -268,7 +268,10 @@ consumption before it named its eater (`consumerId`), and replay still reads tho
   (`events`);
 - any change to the frames, regions or anchor graphs, or to the weather without a
   `weather.transitioned` (`state.<collection>`);
-- a removed entity, or a new one that no `lifecycle.born` names (`state.entities`);
+- a removed entity, or a new one that no `lifecycle.born` names (`state.entities`). An entity
+  may leave only as a dead actor that a birth in the passed time moved to `lifecycle.lineage`, or
+  out of the state while that lineage is at its 1,024 bound, the exception `object.immutable-scope@1`
+  also makes (#358; version 5 records it, version 4 refused any removed entity);
 - a change to an entity field that no event naming the entity owns (`state.entities[i]`). Each
   event type owns fields of the object its `objectId` names: `needs.changed` and `needs.relieved`
   own `needs`; `resource.appeared`, `resource.spoiled` and `resource.consumed` own `resource`;

@@ -467,7 +467,7 @@ describe("movement scope and uniqueness", () => {
     expect(await run(events)).toBeUndefined();
     // A needs change names the object but owns only its needs, not its pose.
     expect(await run(events, moved("other"))).toMatchObject({
-      check: "movement.scope@4",
+      check: "movement.scope@5",
       path: "state.entities[1]",
     });
     // A routine mover's movement event owns its pose.
@@ -478,12 +478,12 @@ describe("movement scope and uniqueness", () => {
   it("refuses movement events of an object no routine moves", async () => {
     expect(
       await run([fake("movement.started", "mover"), fake("movement.completed", "other")]),
-    ).toMatchObject({ check: "movement.scope@4", path: "events" });
+    ).toMatchObject({ check: "movement.scope@5", path: "events" });
   });
 
   it("requires a movement event of the mover", async () => {
     expect(await run([fake("needs.changed", "other")])).toMatchObject({
-      check: "movement.scope@4",
+      check: "movement.scope@5",
       path: "events",
     });
   });
