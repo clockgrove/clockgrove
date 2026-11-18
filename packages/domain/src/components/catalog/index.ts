@@ -211,20 +211,12 @@ export const weatherExposureSchema = dataSchema(
   z.strictObject({ rainProtection: quantity }).readonly(),
 );
 export type WeatherExposureState = z.infer<typeof weatherExposureSchema>;
+const coverRadius = coordinate.refine((value) => value >= 0n);
+function shelterShape<C extends z.ZodType<ReturnType<typeof fixedPoint>>>(radius: C) {
+  return z.strictObject({ rainProtection: quantity, coverRadius: radius.optional() }).readonly();
+}
 /** An object that others may shelter at; `coverRadius` widens "at its coordinates" to a disc/ball. */
-export const shelterSchema = dataSchema(
-  z
-    .strictObject({
-      rainProtection: quantity,
-      coverRadius: z
-        .bigint()
-        .min(0n)
-        .refine((value) => value.toString().length <= 256)
-        .transform(fixedPoint)
-        .optional(),
-    })
-    .readonly(),
-);
+export const shelterSchema = dataSchema(shelterShape(coverRadius));
 export type ShelterState = z.infer<typeof shelterSchema>;
 
 /** Material units are exact safe integers; aggregate totals use bigint. */
@@ -526,7 +518,12 @@ export function createInitialComponentCatalog() {
     weatherExposureSchema,
     () => [],
   );
-  const shelter = registration("clockgrove.shelter", shelterSchema, shelterSchema, () => []);
+  const shelter = registration(
+    "clockgrove.shelter",
+    shelterSchema,
+    dataSchema(shelterShape(decimal.pipe(coverRadius))),
+    () => [],
+  );
   const containment = registration(
     "clockgrove.containment",
     containmentSchema,

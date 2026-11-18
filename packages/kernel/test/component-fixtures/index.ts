@@ -106,7 +106,7 @@ export function composeComponentFixture(
     {
       ...shelterPin,
       traits: [],
-      components: map(snapshot("clockgrove.weather-exposure", { rainProtection: 10000 })),
+      components: map(snapshot("clockgrove.shelter", { rainProtection: 10000 })),
     },
   ];
   const archetypes: ArchetypeDefinition[] = [
@@ -131,9 +131,9 @@ export function composeComponentFixture(
       capabilities: [],
       overrides:
         id === "secondary-cover"
-          ? [snapshot("clockgrove.weather-exposure", { rainProtection: 7500 })]
+          ? [snapshot("clockgrove.shelter", { rainProtection: 7500 })]
           : override && id === "primary-cover"
-            ? [snapshot("clockgrove.weather-exposure", { rainProtection: 1000 })]
+            ? [snapshot("clockgrove.shelter", { rainProtection: 1000 })]
             : [],
     };
     const state: TimelineObjectState = {
