@@ -122,7 +122,8 @@ they are refused here with `403 authorization_refused`.
   `clockgrove.model_breaker_transitions` (migration 0074), written by the turn's participant right
   after the call on the run that made it, and readable by that participant or an inspector holding
   `operator_evidence`. Its guard holds each row to a running run of the row's own session and world
-  and a run to at most 64 rows, so the breaker's opening and closing outlives the gateway's memory
+  and a run to at most 512 rows (a run has at most 32 steps, each of its calls is one of them, and a
+  call records at most 16 transitions), so the breaker's opening and closing outlives the gateway's memory
   (issue 374). The Wave 5 qualification samples the rows (`breakerTransitions` in its §18
   measurement).
 

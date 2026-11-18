@@ -55,13 +55,18 @@ it("keeps a run's breaker transitions for the inspector", () => {
 });
 
 it("refuses a malformed or unbounded breaker record", () => {
+  // 32 steps x 16 transitions a call is the most a run can hold (0074).
+  const full = Array.from({ length: 512 }, () => transition("closed", "open", 3));
+  expect(
+    decodeRunWalk(walk({ breakerTransitions: full })).runs[0]?.breakerTransitions,
+  ).toHaveLength(512);
   expect(() =>
     decodeRunWalk(walk({ breakerTransitions: [transition("closed", "ajar", 1)] })),
   ).toThrow(ContractDecodeError);
   expect(() =>
     decodeRunWalk(
       walk({
-        breakerTransitions: Array.from({ length: 65 }, () => transition("closed", "open", 3)),
+        breakerTransitions: Array.from({ length: 513 }, () => transition("closed", "open", 3)),
       }),
     ),
   ).toThrow(ContractDecodeError);

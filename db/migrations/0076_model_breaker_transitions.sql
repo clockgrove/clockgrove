@@ -23,8 +23,12 @@ CREATE INDEX model_breaker_transitions_run ON clockgrove.model_breaker_transitio
   (tenant_id, run_id, recorded_at, ordinal);
 
 -- A row belongs to a running run of its own session and world, as a run step does (0036), and a
--- run holds at most 64 rows: two per route attempt (a half-open trial and its verdict), so 32
--- attempts, whatever its calls' aliases and steps.
+-- run holds at most 512 rows, derived from the limits that already exist: every call that records
+-- transitions on a run is one of that run's model-attempt steps (each claim of a turn opens its own
+-- run; its first model call is step 2 and each later one, after a tool, inserts a new step), a run
+-- has at most 32 steps (`run_steps.step BETWEEN 1 AND 32`, 0036), and a call at most 16 transitions
+-- (`ordinal BETWEEN 0 AND 15`): 32 x 16 = 512. A real step therefore never reaches the guard after
+-- its model call has been paid for.
 CREATE FUNCTION clockgrove.guard_breaker_transition()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -42,7 +46,7 @@ BEGIN
       USING ERRCODE = 'CG020';
   END IF;
   IF (SELECT count(*) FROM clockgrove.model_breaker_transitions
-       WHERE tenant_id = NEW.tenant_id AND run_id = NEW.run_id) >= 64 THEN
+       WHERE tenant_id = NEW.tenant_id AND run_id = NEW.run_id) >= 512 THEN
     RAISE EXCEPTION 'run breaker transition limit reached' USING ERRCODE = 'CG021';
   END IF;
   RETURN NEW;

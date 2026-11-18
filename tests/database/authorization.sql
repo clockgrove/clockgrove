@@ -1883,7 +1883,7 @@ $$;
 ROLLBACK;
 
 -- Breaker transitions (0074): a participant writes rows only on a running run of the row's own
--- session and world, at most 64 a run; no one writes another session's rows or changes one.
+-- session and world, at most 512 a run (32 steps x 16 transitions a call); no one writes another session's rows or changes one.
 BEGIN;
 SELECT pg_temp.act_as('tenant-a', 'principal-a2');
 INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a2');
@@ -1951,12 +1951,12 @@ BEGIN
     RAISE EXCEPTION 'breaker row on a missing run' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG020' OR foreign_key_violation THEN NULL;
   END;
-  -- A run holds at most 64 rows; another run of the session is not counted against it.
-  FOR n IN 2..64 LOOP
+  -- A run holds at most 512 rows; another run of the session is not counted against it.
+  FOR n IN 2..512 LOOP
     PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-' || n, 0);
   END LOOP;
   BEGIN
-    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-65', 0);
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-513', 0);
     RAISE EXCEPTION 'run breaker limit not enforced' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG021' THEN NULL;
   END;
@@ -1973,7 +1973,7 @@ BEGIN
     RAISE EXCEPTION 'breaker row changed' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege OR SQLSTATE 'CG020' THEN NULL;
   END;
-  IF (SELECT count(*) FROM clockgrove.model_breaker_transitions) <> 65 THEN
+  IF (SELECT count(*) FROM clockgrove.model_breaker_transitions) <> 513 THEN
     RAISE EXCEPTION 'participant does not see their own breaker rows';
   END IF;
 END;
