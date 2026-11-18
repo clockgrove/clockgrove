@@ -537,9 +537,9 @@ PostgreSQL. No intermediate frame queue is retained. Transient cues for objects 
 repair physical state. No Wave 4 runtime source emits a cue yet: these rules bind the first
 producer, and only the native test worker exercises them. Recovery and disconnect notices bypass the replaceable projection lane.
 A client that has stopped acknowledging receives typed `recovery/backpressure` and closes with code
-1013 and reason `backpressure`: at the first publication turn that finds its frame ledger full 30 s
-or more after a turn first found it full, with no acknowledgement since. Any acknowledgement restarts
-that wait. Only a full frame ledger counts as lag; a turn that finds the connection's own read still
+1013 and reason `backpressure`: at the first publication turn, or explicit resume, 30 s or more
+after a turn first found its frame ledger full, with no acknowledgement since, whether or not the
+ledger is full at that turn. Any acknowledgement restarts that wait. Only a full frame ledger counts as lag; a turn that finds the connection's own read still
 pending only marks it dirty. A delivery read the owner mailbox
 refuses (`owner_mailbox_full`, `_expired` or `_timeout`, all retryable) also ends with
 `recovery/backpressure` and 1013, never `internal_error`; a refused cue read drops only that cue.
