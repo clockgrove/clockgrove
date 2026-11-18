@@ -641,6 +641,26 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'dependent-hunger'",
         ),
       ).toBe("0");
+
+      // The same scheduled-intention wake sent twice: one activation, one message and at most one effect.
+      await configure("twice", "scheduled_intention");
+      const effects = async () =>
+        Number(await owner.sql("SELECT count(*) FROM clockgrove.command_receipts"));
+      const before = (await counts()).split("/");
+      const e0 = await effects();
+      const twice = { kind: "scheduled_intention", scheduleId: "twice" };
+      const first = await wake("twice", "twice-root", twice);
+      const second = await wake("twice", "twice-root", twice);
+      expect(second.activationId).toBe(first.activationId);
+      const after = (await counts()).split("/");
+      // One turn: its inbound message and its reply.
+      expect(after.map((n, i) => Number(n) - Number(before[i]))).toEqual([1, 1, 2]);
+      expect((await effects()) - e0).toBeLessThanOrEqual(1);
+      expect(
+        await owner.sql(
+          `SELECT count(*) FROM clockgrove.actor_activations WHERE causal_root = 'twice-root'`,
+        ),
+      ).toBe("1");
     });
   },
   240_000,
