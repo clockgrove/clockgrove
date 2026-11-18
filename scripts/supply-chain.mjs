@@ -17,6 +17,8 @@ const allowedLicenses = new Set([
   "0BSD",
   "MIT-0",
   "CC0-1.0",
+  // Owner decision 2026-11-16 (#364): same permissive attribution family as CC-BY-4.0, needed for
+  // spdx-exceptions, the data of the maintained spdx-expression-parse the pack SDK checks licences with.
   "CC-BY-3.0",
   "CC-BY-4.0",
   "Python-2.0",
