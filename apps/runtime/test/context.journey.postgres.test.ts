@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   actorCommandPolicyOf,
   assembleContext,
@@ -69,37 +68,23 @@ it.skipIf(isNativeWorldOwnerChild())(
   240_000,
 );
 
-/** The capabilities the reference pack declares for Keeper, read from the pack this journey runs. */
-function keeperDeclaredCapabilities(): string[] {
-  const keeper = JSON.parse(
+/** A resource of the reference pack this journey runs. */
+const referenceResource = (file: string) =>
+  JSON.parse(
     readFileSync(
-      fileURLToPath(
-        new URL("../../../worlds/fixture/reference/resources/actors/keeper.json", import.meta.url),
-      ),
+      new URL(`../../../worlds/fixture/reference/resources/${file}`, import.meta.url),
       "utf8",
     ),
-  ) as { capabilities: { id: string }[] };
-  return keeper.capabilities.map((capability) => capability.id);
-}
-
-/** The world commands the reference pack lets an actor propose: its actor-command policy. */
-function referenceActorCommands() {
-  const policy = actorCommandPolicyOf([
-    JSON.parse(
-      readFileSync(
-        fileURLToPath(
-          new URL(
-            "../../../worlds/fixture/reference/resources/policies/actor-commands.json",
-            import.meta.url,
-          ),
-        ),
-        "utf8",
-      ),
-    ),
-  ]);
-  if (policy === undefined) throw new Error("reference pack declares no actor commands");
-  return policy;
-}
+  );
+/** The capabilities the pack declares for Keeper. */
+const keeperDeclaredCapabilities = (): string[] =>
+  referenceResource("actors/keeper.json").capabilities.map((c: { id: string }) => c.id);
+/** The world commands the pack lets an actor propose: its actor-command policy. */
+const referenceActorCommands = () =>
+  actorCommandPolicyOf([referenceResource("policies/actor-commands.json")]) ?? {
+    commands: [],
+    callsPerTurn: 1,
+  };
 
 // G1 on the whole request the production actor sends: the assembled prompt, the instructions and
 // the tool catalog. The scripted fixture above sends no request, so this reads the provider's.

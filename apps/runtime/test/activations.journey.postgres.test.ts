@@ -643,18 +643,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).toBe("0");
 
       // The same scheduled-intention wake sent twice: one activation, one message and one effect.
-      // Its turn proposes one world command (the pack's `resource.offer`), so the turn makes one
-      // command receipt; a second turn would make a second.
-      await configure("twice", "scheduled_intention", {
-        input: "fixture:offer fixture.water-bowl water",
-      });
+      // Its turn proposes the pack's `resource.offer`: one command receipt per turn.
+      const offer = "fixture:offer fixture.water-bowl water";
+      await configure("twice", "scheduled_intention", { input: offer });
       // A command is decided under the owner's trusted talk context, which a direct message sets.
-      const talked = await owner.request(
-        "/v1/runtime/talk",
-        { version: 1, ...owner.scope, sessionId, messageId: "twice-hello", text: "Hello" },
-        MEMBER,
-      );
-      expect(talked.status).toBe(200);
+      const hello = { version: 1, ...owner.scope, sessionId, messageId: "twice-hello", text: "Hi" };
+      expect((await owner.request("/v1/runtime/talk", hello, MEMBER)).status).toBe(200);
       const effects = async () =>
         Number(await owner.sql("SELECT count(*) FROM clockgrove.command_receipts"));
       const before = (await counts()).split("/");
