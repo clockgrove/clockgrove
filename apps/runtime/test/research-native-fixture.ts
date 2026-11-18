@@ -11,7 +11,7 @@ import {
   type RuntimeEnvironment,
 } from "../src/cloudflare-entry.js";
 import { withHyperdrivePostgreSqlClient } from "../src/hyperdrive-postgres.js";
-import { composeResearch, type ResearchConfiguration } from "../src/research.js";
+import { composeResearch, type ResearchConfiguration, worldApprover } from "../src/research.js";
 import { stableRuntimeRouteName } from "../src/routing.js";
 
 export type NativeResearchEnvironment = RuntimeEnvironment & {
@@ -84,6 +84,7 @@ export function nativeResearch(
       modelStepReserveMicrousd: 50000,
     },
     toolCallReserveMicrousd: 1000,
+    approver: worldApprover(env.WORLD_APPROVER),
   };
   const service = composeResearch(configuration);
   cached = { origin, service, configuration };

@@ -139,6 +139,7 @@ import {
   composeResearch,
   type ResearchConfiguration,
   type ResearchResumeTarget,
+  worldApprover,
 } from "./research.js";
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
@@ -771,6 +772,8 @@ export async function cancelWorldProvisioning(env: RuntimeEnvironment, input: un
 export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
+  /** The world owner's approver of protected writes, `{"principal":…}` or `{"role":…}` (issue 359). */
+  readonly WORLD_APPROVER?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
   /** The world owner's pack size raises, JSON such as `{"resources":2048}`; absent, the defaults. */
   readonly WORLD_PACK_LIMITS?: string;
@@ -1120,6 +1123,7 @@ function composeGuardedResearch(
     },
     adapter: { execute, executeWrite: execute },
     internalRead: composeResearchInternalRead(env, supplied.authentication),
+    approver: worldApprover(env.WORLD_APPROVER),
     // The retry's turn assembles under the world's context settings, as the actor's own turns do.
     context: () =>
       actorContextSettings(

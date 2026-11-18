@@ -889,7 +889,9 @@ The live-timeline fence continues to refuse preview writes.
 
 The internal write port requires a separate approval for every call. Its initial
 session path accepts the session person as designated approver within their current
-grants. Operator and proactive approval routing remain later integration work. A
+grants. Operator and proactive approvals route to the world's named approver
+(`WORLD_APPROVER`, [runtime runbook](../runbooks/runtime.md)), refused `approver_unconfigured`
+when none is named. A
 trusted human-authenticated boundary must record decisions; model output and tool
 results have no decision authority. This storage API does not authenticate a person.
 

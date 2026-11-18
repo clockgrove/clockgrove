@@ -100,6 +100,36 @@ export interface ResearchConfiguration {
    * when the retry runs; omitted, the decided defaults.
    */
   readonly context?: () => { readonly tokenBudget: number; readonly historyWindow: number };
+  /**
+   * Who approves the world's protected external writes that route to an operator (issue 359), from
+   * `WORLD_APPROVER`; omitted, such a write is refused `approver_unconfigured`.
+   */
+  readonly approver?: WorldApprover | undefined;
+}
+
+/** The world owner's approver: one principal, or the current operators holding one role. */
+export type WorldApprover = { readonly principal: string } | { readonly role: string };
+
+/** Decodes `WORLD_APPROVER`; absent is unconfigured, and any other shape refuses the composition. */
+export function worldApprover(raw: string | undefined): WorldApprover | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("WORLD_APPROVER unavailable");
+  }
+  const keys = value !== null && typeof value === "object" ? Object.keys(value) : [];
+  const [key] = keys;
+  const named = key === undefined ? undefined : (value as Record<string, unknown>)[key];
+  if (
+    keys.length !== 1 ||
+    (key !== "principal" && key !== "role") ||
+    typeof named !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(named)
+  )
+    throw new Error("WORLD_APPROVER unavailable");
+  return key === "principal" ? { principal: named } : { role: named };
 }
 
 interface Context extends ResearchResumeTarget {
@@ -710,7 +740,15 @@ export function composeResearch(configuration: ResearchConfiguration) {
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
     call: TurnToolCall,
-  ): Promise<"not_required" | "waiting" | "approved" | "denied" | "expired" | "revoked"> {
+  ): Promise<
+    | "not_required"
+    | "waiting"
+    | "approved"
+    | "denied"
+    | "expired"
+    | "revoked"
+    | "approver_unconfigured"
+  > {
     return configuration.withClient(async (client) => {
       const c = await context(client, {
         scope: fiber.scope,
@@ -758,6 +796,26 @@ export function composeResearch(configuration: ResearchConfiguration) {
         return "revoked";
       let approval = prior;
       if (!approval) {
+        let approver = c.principalId;
+        if (activation.rows.length || !c.grants.includes(proposal.capability)) {
+          // The world's named approver, never whichever operator sorts first (issue 359).
+          const named = configuration.approver;
+          if (named === undefined) return "approver_unconfigured";
+          const operators = await client.query(
+            `SELECT principal_id FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation' AND ${"principal" in named ? "principal_id=$5" : "roles @> ARRAY[$5]::text[]"} ORDER BY principal_id LIMIT 1`,
+            [
+              c.scope.tenantId,
+              c.scope.worldId,
+              c.scope.timelineId,
+              c.scope.spaceId,
+              "principal" in named ? named.principal : named.role,
+            ],
+          );
+          const operator = (operators.rows[0] as { principal_id: string } | undefined)
+            ?.principal_id;
+          if (!operator) return "revoked";
+          approver = operator;
+        }
         await put(client, c, intent.argumentsArtifactId!, resolved.decision.input);
         await event(
           client,
@@ -766,18 +824,6 @@ export function composeResearch(configuration: ResearchConfiguration) {
           proposal,
           resolved.binding?.constraints.idempotency ?? "none",
         );
-        let approver = c.principalId;
-        if (activation.rows.length || !c.grants.includes(proposal.capability)) {
-          // Deterministic routing to one currently authorized operator avoids duplicate approvals.
-          const operators = await client.query(
-            `SELECT principal_id FROM clockgrove.world_memberships WHERE tenant_id=$1 AND world_id=$2 AND timeline_id=$3 AND space_id=$4 AND revoked_at IS NULL AND committed_at<=clock_timestamp() AND grants @> ARRAY['runtime:world-operate'] AND privacy_ceiling->'allowedCategories' ? 'conversation' ORDER BY principal_id LIMIT 1`,
-            [c.scope.tenantId, c.scope.worldId, c.scope.timelineId, c.scope.spaceId],
-          );
-          const operator = (operators.rows[0] as { principal_id: string } | undefined)
-            ?.principal_id;
-          if (!operator) return "revoked";
-          approver = operator;
-        }
         approval = await approvals.request({
           ...address,
           spaceId: c.scope.spaceId,

@@ -315,10 +315,16 @@ default). A value out of range refuses the configuration
 ([context settings](context-assembly.md#world-context-settings)).
 Omitted model configuration uses the generic actor defaults.
 
-The reference world's `runtime.json` groups these as `presentations` and `model` and carries
-`presentationVersion: 1`. Deployment tooling serializes the two fields into their corresponding
+`WORLD_APPROVER` binds the world owner's approver of protected external writes that route to an
+operator, `{"principal":"<id>"}` or `{"role":"<role>"}`; absent, such a write is refused
+`approver_unconfigured` ([runtime runbook](../runbooks/runtime.md)). Any other value refuses the
+composition.
+
+The reference world's `runtime.json` groups these as `presentations`, `model` and `approver` and
+carries `presentationVersion: 1`. Deployment tooling serializes the three fields into their corresponding
 bindings; the platform does not discover or import this file. The native test composition does
-this for the explicitly selected pack. The fixture intentionally needs no runtime presentation
+this for the explicitly selected pack; the reference world's `approver` names `principal-runtime`,
+the operator that composition provisions. The fixture intentionally needs no runtime presentation
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
 An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
 does not require an atlas texture when `scene.atlases` is `false`.

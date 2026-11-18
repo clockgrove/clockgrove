@@ -227,5 +227,8 @@
       }
     ],
     "sceneLabel": "hall"
+  },
+  "approver": {
+    "principal": "principal-runtime"
   }
 }
