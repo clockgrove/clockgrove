@@ -474,7 +474,7 @@ describe("journal-backed native timeline clock", () => {
             body: { error: "world_catching_up" },
           });
           expect(performance.now() - started).toBeLessThan(1_500);
-          expect(Number(await steps()) - stepsBefore).toBeLessThan(3);
+          expect(Number(await steps()) - stepsBefore).toBe(1);
           expect(await commandCounts(sql, "slow-steps")).toBe("0|0|0");
         } finally {
           await sql(
