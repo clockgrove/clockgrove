@@ -519,6 +519,13 @@
       "when": 1796162400014,
       "tag": "0074_effect_attempt_heartbeat",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1796162400015,
+      "tag": "0075_activation_wake_sessions",
+      "breakpoints": true
     }
   ]
 }

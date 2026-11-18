@@ -227,7 +227,10 @@ completion or operator reasons, with the corresponding reason identifier.
 The actor's canonical causal-root key coalesces deliveries before escalation. Deterministic
 compiled routines and policy run before a model opportunity is reserved; a no-op or deferred
 activation records its outcome without opening a model turn. An admitted model activation uses a
-stable message ID in the existing recoverable turn fiber. Inspection preserves its reason, causal
+stable message ID in the existing recoverable turn fiber, in a wake session of the configured
+session rather than the configured session itself (issue 366), so wakes never fill the person's
+conversation; inspection's `sessionId` names the session its turn runs in (the runbook's Proactive
+actor activation section describes wake sessions). Inspection preserves its reason, causal
 root, participant attribution, decision and next wake. Configurations and durable deduplication
 receipts are bounded to 64 configurations and `wakeLimit` new causal receipts per period; a wake
 past the limit is refused `activation_wake_limit` (429) rather than forgetting an old receipt and

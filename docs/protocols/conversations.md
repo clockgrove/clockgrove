@@ -105,11 +105,17 @@ Decided limits:
 | --- | --- |
 | Message text | 1024 octets |
 | Title | 120 characters |
-| Messages per session | 1,000 |
+| Messages per session (`CONVERSATION_MESSAGE_LIMIT`) | 1,000 |
 | Sessions that are not deleted, per participant and world timeline | 100 |
 | Messages per read page | 100 |
 
 Past these limits a request answers `409 conversation_full` or `409 conversation_limit_reached`.
+The message limit is the runtime setting `CONVERSATION_MESSAGE_LIMIT` (2 to 1,000, default 1,000;
+[runtime runbook](../runbooks/runtime.md#proactive-actor-activation)), which the turn check and
+proactive wake sessions share; migration 0034's check on `message_count` is its ceiling. Proactive wakes don't count against a person's session: each runs in a wake session of the
+configured session, which isn't counted in the 100 sessions either, and the list shows only the
+newest wake session of each configured session
+([proactive activation](conversation-fibers.md#proactive-activation)).
 Delete hides a session and its messages from every route and refuses new messages. Its rows and
 ciphertext remain until Wave 9 RW-0902 crypto-shreds the data key (`db/retention.json`).
 

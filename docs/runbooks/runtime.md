@@ -1437,6 +1437,29 @@ deployed. The database itself starts a passed period when a receipt is written, 
 before 0072 keeps waking at the per-period rate between the migration and the deploy, or after a
 rollback.
 
+Wakes keep out of the person's conversation (issue 366). An admitted model wake runs its turn in a
+*wake session* of the configured session, not in the configured session itself: an ordinary session
+of the same participant, actor, space, channel and voice mode, recorded with `wake_of` (the
+configured session) and `wake_generation` (migration 0075). Admission reuses the newest active
+generation while it has room for one more turn under the session message limit and otherwise opens the next generation in the same transaction; nothing is deleted. A day of
+once-a-minute heartbeats writes 2,880 messages, nearly three sessions' worth, all in wake sessions,
+and leaves the person's session as it was (`wake-sessions.journey.postgres.test.ts` runs that day
+scaled to a limit of 8).
+
+The session message limit is a runtime setting: bind `CONVERSATION_MESSAGE_LIMIT` to an integer
+from 2 to 1,000; unset, it is 1,000, the decided limit, which migration 0034's check holds as the
+ceiling (`conversationMessageLimit`, `packages/persistence/src/postgres-conversations.ts`). Talk
+refuses `conversation_full` and wake sessions rotate at the same value. A value outside the range
+fails every conversation and activation request. Wake sessions are bounded by model wakes, so they are not
+counted in the 100 sessions a participant may open, and the conversation list shows only the newest
+generation of each configured session; older generations stay readable by ID. A wake's turn reads
+its wake session's history; its proactive delivery carries the reply from that session to the
+configured session's channel and thread, the person's own: every delivery of a wake session is
+addressed through its configured session's binding. A configured session that is archived or
+deleted gets no wake session: its wakes are refused as before. Upgrading to migration 0075 moves no
+message: a deferred activation that has not run moves to a wake session when it is next admitted,
+and one already running finishes in the session it started in.
+
 Receipts are never deleted, so `actor_activations` grows for each actor's life by up to
 `wakeLimit` rows per period (about 1,440 rows a day for one once-a-minute heartbeat). The per-turn
 reads that find a receipt by its turn or its activation use indexes from 0072, and inspection reads

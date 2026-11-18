@@ -66,6 +66,21 @@ import { type PostgreSqlClient, withClientTransaction } from "./postgres-transac
 
 type Row = Record<string, unknown>;
 
+/**
+ * The default and greatest message limit of one session; the 0034 CHECK on `message_count` holds
+ * it. A runtime may set a lower one (`CONVERSATION_MESSAGE_LIMIT`, docs/protocols/conversations.md).
+ */
+export const CONVERSATION_MESSAGE_LIMIT = 1000;
+
+/** A session message limit from its setting: undefined is the default, else 2 to 1,000. */
+export function conversationMessageLimit(setting: string | undefined): number {
+  if (setting === undefined) return CONVERSATION_MESSAGE_LIMIT;
+  const limit = Number(setting);
+  if (!Number.isInteger(limit) || limit < 2 || limit > CONVERSATION_MESSAGE_LIMIT)
+    throw new Error("CONVERSATION_MESSAGE_LIMIT must be an integer from 2 to 1000");
+  return limit;
+}
+
 const TEXT_MEDIA_TYPE = "text/plain;charset=utf-8";
 const JSON_MEDIA_TYPE = "application/json";
 /** A command proposal's artifact ID carries this infix; a document proposal's does not. */
@@ -122,6 +137,50 @@ interface StoredSession {
 }
 
 /**
+ * Opens a wake session of a configured session: same world, space, actor and voice, bound to its
+ * own thread, with the participant joined first as `open` does. Returns the new session ID.
+ */
+export async function openWakeSession(
+  client: PostgreSqlClient,
+  participant: ConversationParticipant,
+  configured: { readonly tenantId: string; readonly sessionId: string },
+  generation: number,
+): Promise<string> {
+  const sessionId = `wake-${crypto.randomUUID()}`;
+  await client.query(
+    `INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+     VALUES ($1, $2, $3, $4)`,
+    [configured.tenantId, sessionId, participant.principalId, participant.personaId],
+  );
+  const inserted = await client.query(
+    `INSERT INTO clockgrove.conversation_sessions (
+       tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id,
+       voice_mode, channel, wake_of, wake_generation
+     ) SELECT tenant_id, $3, world_id, timeline_id, partition_id, space_id, actor_id,
+              voice_mode, channel, session_id, $4
+         FROM clockgrove.conversation_sessions WHERE tenant_id = $1 AND session_id = $2
+       RETURNING world_id, timeline_id, channel`,
+    [configured.tenantId, configured.sessionId, sessionId, generation],
+  );
+  const row = inserted.rows[0] as Row | undefined;
+  if (row === undefined) throw new Error("activation session not found");
+  await client.query(
+    `INSERT INTO clockgrove.channel_bindings
+      (tenant_id, world_id, timeline_id, principal_id, session_id, channel, thread_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$5)`,
+    [
+      configured.tenantId,
+      row.world_id,
+      row.timeline_id,
+      participant.principalId,
+      sessionId,
+      row.channel,
+    ],
+  );
+  return sessionId;
+}
+
+/**
  * Conversations over migration 0034. Row visibility is the participant policy; this adapter adds
  * the world/timeline scope and keeps text out of the rows: every message and title is a
  * `conversation` artifact in the session's partition and space, stored encrypted by the artifact
@@ -141,6 +200,8 @@ export class PostgreSqlConversationStore implements ConversationStore {
     private readonly contextTokenBudget: number = CONTEXT_TOKEN_BUDGET,
     /** The newest messages a turn reads as history: the decided default, or the world's window. */
     private readonly historyWindow: number = CONTEXT_HISTORY_WINDOW,
+    /** Messages a session takes: the decided default, or the runtime's lower setting. */
+    private readonly messageLimit: number = CONVERSATION_MESSAGE_LIMIT,
   ) {
     this.runs = new PostgreSqlRunRecorder(client);
     this.documents = new PostgreSqlActorDocuments(client);
@@ -242,6 +303,10 @@ export class PostgreSqlConversationStore implements ConversationStore {
         `SELECT ${SESSION_COLUMNS} FROM clockgrove.conversation_sessions
           WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND state <> 'deleted'
             AND ($4::text IS NULL OR actor_id = $4)
+            AND (wake_of IS NULL OR wake_generation = (
+              SELECT max(w.wake_generation) FROM clockgrove.conversation_sessions w
+               WHERE w.tenant_id = conversation_sessions.tenant_id
+                 AND w.wake_of = conversation_sessions.wake_of))
             AND session_id IN (
               SELECT participant.session_id FROM clockgrove.conversation_participants AS participant
                WHERE participant.tenant_id = $1 AND participant.principal_id = $5)
@@ -395,7 +460,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
     if (receipt === undefined && existing === undefined) {
       if (stored.row.state !== "active")
         throw new ConversationRefusedError("conversation_not_active");
-      if (Number(stored.row.message_count) + 2 > 1000)
+      if (Number(stored.row.message_count) + 2 > this.messageLimit)
         throw new ConversationRefusedError("conversation_full");
     }
     // Compare the complete normalized metadata before returning even an already committed receipt.
