@@ -98,9 +98,11 @@ materially equivalent over `fields`: `events`, `eventCounts`, `finalState`, `dec
 `eventTypes` keeps only those event types, `ignoreEventTypes` drops event types, `ignoreStatePaths` removes
 state paths (for example `["revision"]`) before comparing. The bundle records the declaration, whether it
 holds, and the differing fields. A divergent variant is recorded as `equivalent: false`.
-The `events` view excludes `resource.weather-integrated` events whose collected and evaporated
-quantities are both zero: those fractional bookkeeping events vary with command boundaries.
-It retains every nonzero collection or evaporation, including an event with a zero net change.
+The `events` view excludes integration bookkeeping, as the world event vocabulary declares it
+(`worldEventDeclaration(type).integration`: `needs.changed`, `wellbeing.integrated`, `growth.integrated`,
+`resource.weather-integrated` and `time.advanced`): those events vary with command boundaries. An
+integration event whose declared quantities are not all zero stays material, so every nonzero
+`resource.weather-integrated` collection or evaporation is kept, including one with a zero net change.
 Both full and summarised equivalence use this material view; the journal, replay and native
 invariant checks retain all events.
 
@@ -108,7 +110,10 @@ invariant checks retain all events.
 
 `perception: { policy, modality?, modalities? }` supplies a kernel audience policy. For every perceivable
 event, kernel `resolveAudience` is called and the reasons, perceptions and client-interest hash are
-recorded (or the refusal, or `not-addressable`). Without it, `perception` is `[]`.
+recorded (or the refusal, or `not-addressable`). Without it, `perception` is `[]`. The event's
+`actorId` (who performed it) and `targetId` (what it was done to) are its type's declared roles
+(`worldEventRole`); a role naming no object of the post-event state, such as the scenario's own
+attribution, is `null`. So a `resource.consumed` names the food holder as target, never as actor.
 
 ## Assertions
 
@@ -190,7 +195,7 @@ What the §9.3 long-run invariants read in a summarised run:
 | No negative or conjured resources | `finalState`, `eventCounts`, `summary.resources`: each kind's `initial` plus its causes equals its final total |
 | No orphan active objects or containment cycles | `finalState` |
 | No duplicate births, deaths or schedules | `summary.subjects` counts per object, `scheduleDuplicateIds` |
-| Event volume bounded relative to semantic transitions | `eventCounts`, per-chunk `commands` (calls and events) |
+| Event volume bounded relative to semantic transitions | `eventCounts`: per type, the small-step run exceeds the aggregate only for declared integration types, and those by at most one final group per step; per-chunk `commands` (calls and events) |
 | Scheduler queue bounded under world policy | `schedulePeak`, `schedule.remaining` |
 | Deterministic population, resource and lifecycle summaries | `finalStateHash`, `subjects`, the stream digests |
 | Decision and action references resolve | `undispatchedDecisions`, `scriptedInputsUsed`, `replay` |

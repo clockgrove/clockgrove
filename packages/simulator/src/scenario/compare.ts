@@ -1,3 +1,4 @@
+import { materialWorldEvent } from "@clockgrove/domain";
 import type {
   AssertionResult,
   EquivalenceAssertionResult,
@@ -23,10 +24,13 @@ function omitCall(entry: Rec): Rec {
   return rest;
 }
 
+/**
+ * Whether a recorded event is a material change, by its type's declaration in the world event
+ * vocabulary: integration bookkeeping (needs, wellbeing, growth and weather integration, time
+ * advancing) is not, unless it moved a declared quantity.
+ */
 export function materialEvent(event: Rec): boolean {
-  if (event.type !== "resource.weather-integrated") return true;
-  const payload = event.payload as Rec;
-  return payload.collected !== 0 || payload.evaporated !== 0;
+  return materialWorldEvent({ type: event.type, payload: event.payload });
 }
 
 /** The comparable view of one run for one field under the declared ignore lists. */

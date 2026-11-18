@@ -11,6 +11,7 @@ import {
   type WorldBehaviorPack,
   type WorldEvent,
   type WorldState,
+  worldEventRole,
 } from "@clockgrove/domain";
 import {
   canonicalBytes,
@@ -108,8 +109,6 @@ function expectedRevisionOf(command: WorldCommand): bigint {
   return revision;
 }
 
-const ACTOR_KEYS = ["objectId", "fromObjectId"] as const;
-
 /** Payload keys naming the object an event is about, in priority order (`childId` for births). */
 const SUBJECT_KEYS = ["objectId", "childId", "fromObjectId"] as const;
 
@@ -128,7 +127,6 @@ const omitCall = (entry: Rec): Rec => {
   const { call: _call, ...rest } = entry;
   return rest;
 };
-const TARGET_KEYS = ["containerId", "toContainerId", "toObjectId"] as const;
 
 const sortedCounts = (counts: ReadonlyMap<string, number>): Record<string, number> =>
   Object.fromEntries([...counts].sort(([left], [right]) => compareText(left, right)));
@@ -420,7 +418,12 @@ export async function executePlan(
 
   function resolvePerception(
     call: number,
-    event: { readonly type: string; readonly eventId: string; readonly payload: unknown },
+    event: {
+      readonly type: string;
+      readonly eventId: string;
+      readonly payload: unknown;
+      readonly attribution?: unknown;
+    },
     after: WorldState,
   ): void {
     const perception = scenario.perception;
@@ -428,18 +431,15 @@ export async function executePlan(
     const type = event.type;
     if (!isOneOf(PERCEIVABLE_EVENT_TYPES, type)) return;
     const payload = isRecord(event.payload) ? event.payload : {};
-    const pick = (keys: readonly string[]): string | null => {
-      for (const key of keys) {
-        const value = payload[key];
-        if (typeof value === "string" && value.length > 0) return value;
-      }
-      const nested = payload.object;
-      if (isRecord(nested) && typeof nested.objectId === "string") return nested.objectId;
-      return null;
-    };
-    const actorId = pick(ACTOR_KEYS);
-    const targetId = pick(TARGET_KEYS);
     const entities = after.entities;
+    // Who performed the event and what it was done to, from its type's declared roles; a role
+    // whose id names no object of the state (a scenario's own attribution) is no one to perceive.
+    const role = (name: "actor" | "target"): string | null => {
+      const id = worldEventRole(event, name);
+      return id !== null && entities.some((entity) => entity.objectId === id) ? id : null;
+    };
+    const actorId = role("actor");
+    const targetId = role("target");
     const spaceOf = (id: string | null): string | null => {
       const entity =
         id === null ? undefined : entities.find((candidate) => candidate.objectId === id);

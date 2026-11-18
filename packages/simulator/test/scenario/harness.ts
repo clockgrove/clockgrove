@@ -10,22 +10,6 @@ import {
 export const ports = { sha256: sha256Hex };
 export { SECTION_EPOCH };
 
-/** The event types whose live and fast-forward streams the kernel declares materially equal. */
-export const MATERIAL_TYPES = [
-  "environment.phase-changed",
-  "weather.transitioned",
-  "exposure.threshold-crossed",
-  "resource.spoiled",
-  "resource.transferred",
-  "resource.weather-integrated",
-  "process.command-attempted",
-  "growth.stage-changed",
-  "needs.threshold-crossed",
-  "comfort.changed",
-  "health.threshold-crossed",
-  "routine.selected",
-];
-
 const rule = (id: string, trigger: Json, rain: bigint): Json => ({
   schemaVersion: 1,
   id,
