@@ -8,10 +8,7 @@ import { sha256Hex } from "@clockgrove/kernel";
 import { previewSeedProjection } from "@clockgrove/simulator";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- repository-local JavaScript helper has no declarations.
-import {
-  fixtureWallTimeBound,
-  writeLoadCurves,
-} from "../../../scripts/ci/qualify-wave3-load-curves.mjs";
+import * as loadCurvesCommand from "../../../scripts/ci/qualify-wave3-load-curves.mjs";
 // @ts-expect-error -- repository-local JavaScript helper has no declarations.
 import { workerdPeakMemory } from "../../../scripts/lib/process-memory.mjs";
 import { SPACE_MAILBOX_BOUNDS } from "../src/mailbox.js";
@@ -140,7 +137,7 @@ async function provisionStormWorlds(fixture: DatabaseFixture): Promise<void> {
 
 // The host's wall-time bound (600 s on the reference host, more on a slower one), set by
 // qualify:wave3:load-curves, so a slower host that finishes every point is not stopped at 600 s.
-const BOUND_MS = fixtureWallTimeBound();
+const BOUND_MS: number = loadCurvesCommand.fixtureWallTimeBound();
 
 describe("Wave 3 load curves through the native owner (qualify:wave3:load-curves)", () => {
   it.skipIf(isNativeWorldOwnerChild())(
@@ -341,7 +338,7 @@ describe("Wave 3 load curves through the native owner (qualify:wave3:load-curves
           });
         workerdBytes = Math.max(workerdBytes, ...workerdPeakMemory());
 
-        const file = await writeLoadCurves({
+        const file = await loadCurvesCommand.writeLoadCurves({
           startedAt,
           completedAt: new Date().toISOString(),
           harness: { bridgeConnections: CONNECTIONS, postgresMaxConnections: CONNECTIONS + 16 },
