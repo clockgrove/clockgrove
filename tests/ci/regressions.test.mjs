@@ -23,12 +23,17 @@ import {
   validateNativeRecoveryProof,
 } from "../../scripts/ci/native-recovery.mjs";
 import {
+  CALIBRATION_REFERENCE_MS,
+  hostWallTimeBound,
+} from "../../scripts/ci/qualify-wave3-load-curves.mjs";
+import {
   assertRuntimePartition,
   partitionRuntimeFiles,
   runtimeShards,
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
 import { checkContractDrift, generateContractInventory } from "../../scripts/contract-drift.mjs";
+import { journeyPaths, journeyReasons } from "../../scripts/journey-scope.mjs";
 import { checkLicense, componentLicenses, openAdvisories } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -488,6 +493,27 @@ it(
     }),
   30_000,
 );
+
+// #367: the browser journey ran only for apps/ changes, and a fixed load-curve bound failed a
+// slower runner that finished every point.
+it("journey scope follows the apps' workspace dependencies; the load-curve bound scales with the host", () => {
+  const scope = journeyReasons(
+    [
+      "packages/contracts/src/scene.ts",
+      "apps/web/src/x.ts",
+      "docs/x.md",
+      "scripts/ci/evidence.mjs",
+    ],
+    journeyPaths(root),
+  );
+  expect(scope.map((reason) => reason.file)).toEqual([
+    "packages/contracts/src/scene.ts",
+    "apps/web/src/x.ts",
+  ]);
+  expect(
+    [CALIBRATION_REFERENCE_MS / 2, CALIBRATION_REFERENCE_MS * 2].map(hostWallTimeBound),
+  ).toEqual([600_000, 1_200_000]);
+});
 
 // #381: a dependency update left the recovery check expecting the previous Wrangler, Miniflare and
 // workerd. The expectation is what the lockfile installs, and the workerd binary's own report.
