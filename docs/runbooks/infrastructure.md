@@ -311,6 +311,11 @@ or cancelled. Before dispatching another deploy, check the exact environment and
 Neither publication timeout counts as published or authorizes routing or successful activation.
 Retain the unknown evidence; a later inspection does not turn this run into a passed deploy.
 
+A `database migrations` phase that exits non-zero, without a timeout, is also `unknown`, and so is
+the deployment: the migrations apply one file at a time, so earlier files may have committed
+before the one that failed. Inspect the migration ledger and schema as above before dispatching
+again. An apply or publication that exits non-zero is `unknown` in the same way.
+
 ### Database roles
 
 `clockgrove_migrator` is the only Neon API role (`neon_role.database["migrations"]`), and it owns the
@@ -411,7 +416,11 @@ secrets to the S3 backend as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, th
 the Cloudflare provider reads `CLOUDFLARE_API_TOKEN` itself. Sensitive outputs and plan contents are
 captured in memory and never printed or placed in ordinary artifacts. Only phase names, outcomes and
 digests enter deployment evidence. Interrupted apply or publication has an unknown effect and fails
-closed; it is never recorded as a successful activation.
+closed; it is never recorded as a successful activation. A phase that may have changed state before
+it failed (an OpenTofu apply, a Wrangler publication or the `database migrations`; `mayChangeState`
+in `scripts/ci/evidence.mjs`) is `unknown` when it exits non-zero too, and so is the deployment; the
+evidence check refuses such a phase recorded `failed`. The role grants run in one transaction, and
+OpenTofu's init, plan, show and output change nothing, so their non-zero exit stays `failed`.
 
 Each OpenTofu stage (provision, bindings, routing) plans into a saved plan, reviews it (declared
 resources only, no deletion, the stage's own limits below) and applies
