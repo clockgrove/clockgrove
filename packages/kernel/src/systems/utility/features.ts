@@ -51,6 +51,7 @@ export const UTILITY_FEATURE_SCALES: Readonly<Record<string, UtilityFeatureScale
   }),
   remembered: Object.freeze({
     unit: "flag",
+    level: "candidate",
     meaning: "the actor holds a memory of the target, so it is familiar even out of view",
   }),
   expectation: share(
