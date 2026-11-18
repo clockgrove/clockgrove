@@ -47,13 +47,14 @@ export const NOTHING_BILLED: ProviderBilling = Object.freeze({ kind: "none" });
 export const BILLING_UNKNOWN: ProviderBilling = Object.freeze({ kind: "unknown" });
 
 /**
- * HTTP refusals the gateway gives before routing to a model (authentication, payment and rate
- * limit) bill nothing; any other status may follow model work, so its billing is unknown.
+ * HTTP refusals given before any model ran bill nothing: the gateway's authentication, payment and
+ * rate limit refusals (401, 402, 403, 429), and a request rejected as such (issue 366): malformed
+ * (400), naming no model or route (404) or over the body limit (413). Any other status (408, 5xx,
+ * one without a known meaning) may follow model work, so its billing is unknown.
  */
+const REFUSED_BEFORE_MODEL: ReadonlySet<number> = new Set([400, 401, 402, 403, 404, 413, 429]);
 export function httpFailureBilling(status: number): ProviderBilling {
-  return status === 401 || status === 402 || status === 403 || status === 429
-    ? NOTHING_BILLED
-    : BILLING_UNKNOWN;
+  return REFUSED_BEFORE_MODEL.has(status) ? NOTHING_BILLED : BILLING_UNKNOWN;
 }
 
 /**

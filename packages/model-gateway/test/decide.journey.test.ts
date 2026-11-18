@@ -203,6 +203,10 @@ describe("decide on the model gateway port", () => {
       ],
       // A rate limit refused before any model ran: nothing billed.
       [429, { error: { message: "rate limited" } }],
+      // A request rejected before any model ran (malformed, no such model, too large): nothing billed.
+      [400, { error: { message: "bad request" } }],
+      [404, { error: { message: "model not found" } }],
+      [413, { error: { message: "payload too large" } }],
       // A server error may follow model work: unknown.
       [500, { error: { message: "upstream failed" } }],
     ];
@@ -247,21 +251,26 @@ describe("decide on the model gateway port", () => {
       const ask = (alias: string, callId: string) =>
         models.decide({ alias, callId, attribution, state: "resting", question });
       const outcomes = [];
-      for (const callId of ["refused-priced", "refused-unknown", "invalid", "limited", "server"])
+      for (const callId of ["refused-priced", "refused-unknown", "invalid", "limited"])
+        outcomes.push(await ask("answered", callId));
+      for (const callId of ["malformed", "no-model", "too-large", "server"])
         outcomes.push(await ask("answered", callId));
       outcomes.push(await ask("keyless", "no-credential"));
-      expect(outcomes.map((outcome) => outcome.status)).toEqual(Array(6).fill("failed"));
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(Array(9).fill("failed"));
       expect(records.map((record) => [record.outcome, record.costMicrousd])).toEqual([
         ["refused", 9],
         ["refused", null],
         ["unavailable", 5],
         ["rate_limited", 0],
+        ["request_rejected", 0],
+        ["request_rejected", 0],
+        ["request_rejected", 0],
         ["unavailable", null],
         ["unavailable", 0],
       ]);
-      expect(records.map((record) => record.reservedMicrousd)).toEqual(Array(6).fill(1000));
-      expect(index).toBe(5);
-      // Settled: 9 + 1000 (unknown) + 5 + 0 + 1000 (unknown) + 0.
+      expect(records.map((record) => record.reservedMicrousd)).toEqual(Array(9).fill(1000));
+      expect(index).toBe(8);
+      // Settled: 9 + 1000 (unknown) + 5 + 0 + 0 + 0 + 0 + 1000 (unknown) + 0.
       expect(budget.spentMicrousd("t/w")).toBe(2014);
     } finally {
       server.closeAllConnections();
