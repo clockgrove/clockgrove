@@ -228,8 +228,10 @@ It is not a generation call: no streaming, no structured output, no fallback cha
 - **Cost of a failed call.** The adapter's `ProviderFailure.billing` says what a failure may have billed. A call
   the provider answered before it failed (a model refusal, an answer the SDK rejects) is priced from the usage
   that answer reported, like a completed call, or recorded as unknown. Only a call that provably billed nothing
-  records 0 and settles 0: a missing credential (no request sent) and an HTTP 401, 402, 403 or 429 refusal
-  (the gateway refused before routing to a model). Any other failure, a cancellation included, records a null
+  records 0 and settles 0, releasing its reservation: a missing credential (no request sent), an HTTP 401, 402,
+  403 or 429 refusal (the gateway refused before routing to a model) and an HTTP 400, 404 or 413 (the request
+  itself was rejected before any model ran: a malformed request, an unknown model, a body over the limit;
+  issue 366). Any other failure (a 408, a 5xx, a status without a known meaning, a cancellation) records a null
   cost and settles the whole reservation.
 - **Outcome.** `completed` carries `{type, label, confidence}`; `failed` carries a `ModelFailureCode`,
   `retryable` and the call record. Confidence is the model's probability for its label, `null` when absent.

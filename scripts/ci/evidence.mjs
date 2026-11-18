@@ -33,6 +33,13 @@ export async function readPassingReceipt(directory, name, candidate, command) {
   );
   return receipt;
 }
+// Deploy phases that may have changed external state before they failed, so a failure is an
+// unknown effect, not a clean one (issue 366): an OpenTofu apply, a Wrangler publication, and the
+// database migrations, which apply one file at a time, so a failure can follow applied ones. The
+// role grants run in one transaction and OpenTofu's init, plan, show and output change nothing.
+export function mayChangeState(name) {
+  return /apply|publication/u.test(name) || name === "database migrations";
+}
 // The deploy retries only a failed provision apply (scripts/ci/deploy.mjs): at most `attempts` runs,
 // `backoffSeconds` apart. Each retry re-reads state, then plans, reviews and applies, in this order.
 export const provisionRetry = { attempts: 4, backoffSeconds: [15, 30, 60] };
@@ -190,7 +197,7 @@ export async function validateEvidence(manifest) {
     else if (result.exitCode !== 0)
       assert.equal(
         result.status,
-        deploymentPhases.includes(result) && /apply|publication/u.test(result.command[0])
+        deploymentPhases.includes(result) && mayChangeState(result.command[0])
           ? "unknown"
           : "failed",
         "execution outcome mismatch",

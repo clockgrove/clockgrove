@@ -140,7 +140,7 @@ that evidence.
 | Bound | Default | Source |
 | --- | --- | --- |
 | `requestDeadlineMs` | 30000 | Decision: the same 30 s as one kernel call's idle bound (`WORLD_COMMAND_TIMEOUTS.idleInTransactionTimeoutMs`, the Workers default CPU limit of one invocation). That bound covers one kernel call, not a whole entry: queue wait, statements (10 s each), lock waits (3 s each) and inline overdue steps add to it, so a slow but healthy command can outlast 30 s. It is then answered `owner_mailbox_timeout` and runs on, and its caller loses only a retry. Measured: not reached; a full mailbox's oldest entry waited 1.4 to 1.7 s |
-| `maxDepth` | 32 | Decision: a client command runs at most 8 overdue steps inline (`OVERDUE_DEADLINE_LIMIT`, 280 to 419 ms measured), so 32 such entries drain in under 14 s, well inside the deadline. Measured: a burst of 32 concurrent clients fills it unrefused; 48, the next level, is the first refused |
+| `maxDepth` | 32 | Decision: a client command runs at most 8 overdue steps inline (`OVERDUE_DEADLINE_LIMIT`, 280 to 419 ms measured), and its catch-up ends within the 1,000 ms latency budget (`CATCH_UP_BUDGET_MS`) plus one step, since the first step always runs and a step may be slower than those before it. Steps commit, so later entries find less overdue work, but where one step takes 1 s, 32 entries can spend 32 s and the later ones are answered `owner_mailbox_timeout` while their steps still advance the world. Measured: a burst of 32 concurrent clients fills it unrefused; 48, the next level, is the first refused |
 | `retryAfterSeconds` | 1 | Decision: the hint `world_catching_up` already gives. Measured: a full mailbox frees about 24 entries a second (41 to 43 ms per command, p50) |
 
 ### Causal-chain inspector
@@ -362,7 +362,8 @@ a time-only move: no per-actor integration events, needs stay lazy. Environment 
 earned time are committed first as one trusted lazy advance (they are not in the alarm plan), so the
 command always runs at earned time. The fast path is the owner's one clock read. A paused
 clock runs the command at its current time. More than 8 steps (deadlines, chunks, boundary advances;
-`OVERDUE_DEADLINE_LIMIT`, see [Runtime budgets and load curves](#runtime-budgets-and-load-curves))
+`OVERDUE_DEADLINE_LIMIT`), or a next step that would pass the 1,000 ms latency budget (`CATCH_UP_BUDGET_MS`:
+time spent plus the slowest step so far; the first step always runs), see [Runtime budgets and load curves](#runtime-budgets-and-load-curves))
 refuse with a retryable 503 `world_catching_up` (`Retry-After: 1`); the alarm and catch-up workflow
 drain the backlog. No revision is rebased: state changed by catch-up gives the client the normal 409.
 Inspection returns
@@ -775,7 +776,8 @@ tripped for a lone world after a 4-hour sleep in one run and a 16-hour sleep in 
 | `OWNER_ACTIVATION_BUDGET.startWithinMs` | 250 | As above | Varies from run to run, because 4 commands take about as long as the bound and a step's time counts from its mailbox enqueue: 4 worlds waking together in four runs and 2 in the fifth. Per run, batches and steps that stopped short of 4 commands: 0 for a lone world, 0 to 1 for 2 worlds, 4 to 6 for 4 worlds and 138 to 166 for 8; the keepers levels, whose single advances took 0.4 to 4.4 s at the former `maxInputs` of 64, stopped short 2, 2 and 5 times at 16, 64 and 96 keepers (`sweep: "keepers"` in `observed.catchUpSteps`), and do not count toward `tripsAt`. In three of eight earlier runs of this fixture (ff1d4bd, 60e48ae; some on a host with load average 3 to 10) it also tripped for a lone world after a 1-hour or 4-hour sleep |
 | `DUE_WORK_ADVANCE_BUDGET.maxEvents` (`@clockgrove/application`) | 4096 | The kernel's per-call maximum (`packages/kernel/src/world.ts`) | Not reached: at most 646 events per due-work advance (the first 64 decisions of 96 keepers, at the former `maxInputs` of 64); 11 for the fixture pack's one keeper |
 | `DUE_WORK_ADVANCE_BUDGET.maxInputs` | 16 | Decision, from issue 900's measurements here | At issue 900's former default of 64, every run: 96 keepers due together (`tripsAt` `{ keepers: 96, inputsPerAdvance: 64 }`), where each deadline's advance stops at 64 with work left and a continuation chunk runs the other 32; with 64 each advance dispatches all 64, reaching the bound without stopping; 16 dispatch 16. An advance's transaction (`journal_latency_ms`, which spans the kernel call) took a median of 350 to 363 ms for 16 inputs and 1.98 to 1.99 s for 64 (at most 2.52 to 2.60 s); the first 64 of 96 keepers took at most 4.29 to 4.40 s, so the time per input grows with the keepers in the world. One such advance holds the partition lock for about 8 to 18 times `startWithinMs`, which is checked only between commands. At 16 (one run on 3e074fc, on a host loaded by other test runs, so its times are not comparable): 64 keepers (`tripsAt` `{ keepers: 64, inputsPerAdvance: 16 }`), where each deadline's advance runs as 4 chunks of 16, 12 advances for 64 keepers and 18 for 96 instead of 3 and 6, and every level drained |
-| `OVERDUE_DEADLINE_LIMIT` (`world-commands.ts`) | 8 | Decision: 8 steps keep a command's extra latency to a few hundred milliseconds | Every run: a sleep of 8 minutes, where the command runs 8 steps and is refused (280 to 419 ms); after 6 minutes it runs 7 in 280 to 462 ms |
+| `CATCH_UP_BUDGET_MS` (`world-commands.ts`) | 1,000 | Decision (issue 366): twice the worst measured inline catch-up (7 steps, 462 ms), so the load curves keep, on the host that measured them, the outcomes in the `OVERDUE_DEADLINE_LIMIT` row (7 steps plus the slowest possible eighth fit, at most 924 ms); a slower host can be refused by this budget after fewer steps. A step that would pass it, judged by time spent plus the slowest step so far, is refused as catching up. The first step always runs, so a command's catch-up ends within the budget plus one step | Proven with a scripted 600 ms step delay (`timeline-clock.postgres.test.ts`): refused after one step |
+| `OVERDUE_DEADLINE_LIMIT` (`world-commands.ts`) | 8 | Decision: 8 steps keep a command's extra latency to a few hundred milliseconds | Every run: a sleep of 8 minutes, where the command runs 8 steps and is refused (280 to 419 ms); after 6 minutes it runs 7 in 280 to 462 ms. On a slower host the latency budget (`CATCH_UP_BUDGET_MS`) can refuse first: on a developer box whose 7 steps took 650 ms, the 8-minute command was refused after 6 steps |
 | `SPACE_MAILBOX_BOUNDS.maxDepth` (`mailbox.ts`) | 32 | [Physical owner mailbox](#physical-owner-mailbox) | Every run: a burst of 48 clients (16 refused); 32 fill it unrefused |
 | `SPACE_MAILBOX_BOUNDS.requestDeadlineMs` | 30000 | As above | Not reached: a full mailbox's oldest entry waited 1.4 to 1.7 s |
 | `SPACE_MAILBOX_BOUNDS.retryAfterSeconds` | 1 | As above | A hint, not a bound: a full mailbox frees about 24 entries a second |
@@ -2066,8 +2068,17 @@ a plaintext artifact store, a per-call reopened credential provider or an inline
 Maintain the configured per-turn step/call/cost bounds. Unknown observed costs are reported
 separately from reservations and known cost totals.
 
-A lost attempt is reconciled after 60 seconds: three existing 15-second HTTP deadlines and a
-15-second persistence allowance. A sealed result can be reused; an absent result becomes
+A started attempt is lost only when its executor is gone: the executor writes the attempt's
+`heartbeat_at` every 15 seconds (`ATTEMPT_HEARTBEAT_MS`, `research.ts`) from its claim until its
+completion is written, and the sweep reconciles an attempt only when neither its last heartbeat
+nor, if it never beat, its `started_at` is within 60 seconds (`ATTEMPT_RECONCILIATION_MS`, four
+beats). The sweep's terminal write rechecks that lease under the intent lock a heartbeat also
+takes, in the same statement as the outcome (`PostgreSqlEffects.complete`, `leaseExpiredMs`), so a
+beat that commits after the sweep judged the attempt stale leaves it started for its executor. A
+slow write or a slow persistence under database contention therefore completes as it ran. Trusted composition may shorten the beat with `attemptHeartbeatMs` (tests use it); composition
+refuses a value that is not a whole number of milliseconds above 0 and at most 15 seconds, and the
+60-second window is fixed. The attempt guard accepts a heartbeat only on a started attempt, only forward and never past
+the database's own clock (migration 0074). A sealed result can be reused; an absent result becomes
 `tool_uncertain`. Never clear the effect to retry it. Queue retry and sweep recovery resume
 canonical work; physical DLQ inspection remains an operator action. The browser's 180-second
 presentation wait preserves its pending message on expiry, so reopening can read or resume it.

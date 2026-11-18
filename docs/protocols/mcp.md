@@ -762,8 +762,12 @@ a credential, endpoint, grant or execution authority.
 
 Only one attempt may send. Sanitized text evidence is encrypted before a terminal success is
 recorded. Queue redelivery reads that result without contacting the MCP server. A started attempt
-is never reset to pending: after three 15-second transport deadlines plus a 15-second persistence
-allowance, reconciliation uses an already sealed result or records explicit uncertainty.
+is never reset to pending. Its executor writes the attempt's heartbeat every 15 seconds until the
+completion is written; only when neither its last heartbeat nor, if it never beat, its start is
+within 60 seconds is its executor gone, and reconciliation then uses an already sealed result or
+records explicit uncertainty. That terminal write rechecks the lease under the intent lock that
+a heartbeat also takes, so a beat committed in between keeps the attempt started. A slow write
+that is still beating completes as it ran.
 Late or duplicated completion cannot overwrite an earlier terminal disposition. A completed
 call wakes the same turn through `tool_completed`, rather than opening another conversation.
 

@@ -32,6 +32,7 @@ import { connect, type DatabaseFixture } from "./world-fixture.js";
 it("governs encrypted queued research against malicious HTTP fixtures and reconciles lost attempts without resend", async () => {
   const canary = "fixture-research-canary";
   const calls: string[] = [];
+  let slowGate: Promise<void> = Promise.resolve();
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -51,6 +52,7 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       expect(req.headers.authorization).toBe(
         q === "anonymous-other-space" ? undefined : `Bearer ${canary}`,
       );
+      if (q === "slow" || q === "racing") await slowGate;
       if (q === "redirect") {
         res.writeHead(307, { location: "https://other.example/mcp" });
         res.end();
@@ -290,8 +292,23 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
             ? operator.executeRead({ ...intent, installationId }, request)
             : operator.executeWrite({ ...intent, installationId }, request);
         });
+      // A beat no shorter than the 60 s window, or none at all, is refused at composition.
+      for (const attemptHeartbeatMs of [0, -1, 15_001, 60_000, 0.5])
+        expect(() =>
+          composeResearch({
+            environment: "local",
+            attemptHeartbeatMs,
+            withClient: withAdmin,
+            network,
+            artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
+            adapter: { execute, executeWrite: execute },
+            publish: async () => {},
+            wake: async () => {},
+          }),
+        ).toThrow("Research attempt heartbeat unavailable");
       const research = composeResearch({
         environment: "local",
+        attemptHeartbeatMs: 200,
         withClient: withAdmin,
         network,
         artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
@@ -505,6 +522,123 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
         await research.executeTool(participant, lost.fiber, lost.proposal, lost.call),
       ).toMatchObject({ status: "uncertain", code: "tool_uncertain" });
       expect(calls).not.toContain("lost");
+      const slow = await prepare("slow");
+      await research.executeTool(participant, slow.fiber, slow.proposal, slow.call);
+      const slowQueue = queued.shift()!;
+      const blocker = connect(fixture.environment, "clockgrove", "clockgrove_admin");
+      let openGate = () => {};
+      slowGate = new Promise((resolve) => {
+        openGate = resolve;
+      });
+      const slowRun = research.consumer.consume(slowQueue, (v) => v);
+      await expect.poll(() => calls.includes("slow"), { timeout: 30_000 }).toBe(true);
+      await blocker.query("BEGIN");
+      await blocker.query("LOCK TABLE clockgrove.artifact_references IN EXCLUSIVE MODE");
+      openGate();
+      await expect
+        .poll(
+          () =>
+            sql(
+              `SELECT count(*) FROM clockgrove.effect_attempts WHERE effect_id='${slow.call.effectId}' AND heartbeat_at IS NOT NULL`,
+            ),
+          { timeout: 30_000 },
+        )
+        .toBe("1");
+      await sql(
+        `ALTER TABLE clockgrove.effect_intents DISABLE TRIGGER effect_intent_guard; UPDATE clockgrove.effect_intents SET created_at=statement_timestamp()-interval '62 seconds' WHERE effect_id='${slow.call.effectId}'; ALTER TABLE clockgrove.effect_intents ENABLE TRIGGER effect_intent_guard; ALTER TABLE clockgrove.effect_attempts DISABLE TRIGGER effect_attempt_guard; UPDATE clockgrove.effect_attempts SET started_at=statement_timestamp()-interval '61 seconds' WHERE effect_id='${slow.call.effectId}'; ALTER TABLE clockgrove.effect_attempts ENABLE TRIGGER effect_attempt_guard`,
+      );
+      await research.sweep();
+      expect(
+        await sql(
+          `SELECT disposition FROM clockgrove.effect_attempts WHERE effect_id='${slow.call.effectId}'`,
+        ),
+      ).toBe("started");
+      await blocker.query("COMMIT");
+      await blocker.close();
+      await slowRun;
+      expect(
+        await research.executeTool(participant, slow.fiber, slow.proposal, slow.call),
+      ).toMatchObject({ status: "succeeded", code: "ok" });
+      // A heartbeat that commits after the sweep's stale query but before its completion keeps the
+      // attempt for its live executor. The 15 s beat means the executor itself doesn't beat during
+      // this case; the interleaved beat stands in for the one that arrives at that moment.
+      let interleave: (() => Promise<void>) | null = null;
+      let interleaved = 0;
+      const withInterleaving = <T>(operation: (client: ReturnType<typeof connect>) => Promise<T>) =>
+        withAdmin((client) =>
+          operation(
+            new Proxy(client, {
+              get(target, property) {
+                if (property === "query")
+                  return async (text: string, values?: readonly unknown[]) => {
+                    const result = await target.query(text, values);
+                    if (
+                      interleave &&
+                      text.includes("coalesce(heartbeat_at,started_at)") &&
+                      !text.includes("UPDATE") &&
+                      result.rows.length > 0
+                    ) {
+                      interleaved++;
+                      await interleave();
+                    }
+                    return result;
+                  };
+                const value = Reflect.get(target, property, target) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }),
+          ),
+        );
+      const leased = composeResearch({
+        environment: "local",
+        attemptHeartbeatMs: 15_000,
+        withClient: withInterleaving,
+        network,
+        artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
+        adapter: { execute, executeWrite: execute },
+        publish: async (message) => {
+          queued.push(message);
+        },
+        wake: async () => {},
+      });
+      const racing = await prepare("racing");
+      await leased.executeTool(participant, racing.fiber, racing.proposal, racing.call);
+      const racingQueue = queued.shift()!;
+      let openRacing = () => {};
+      slowGate = new Promise((resolve) => {
+        openRacing = resolve;
+      });
+      const racingRun = leased.consumer.consume(racingQueue, (v) => v);
+      await expect.poll(() => calls.includes("racing"), { timeout: 30_000 }).toBe(true);
+      await sql(
+        `ALTER TABLE clockgrove.effect_intents DISABLE TRIGGER effect_intent_guard; UPDATE clockgrove.effect_intents SET created_at=statement_timestamp()-interval '62 seconds' WHERE effect_id='${racing.call.effectId}'; ALTER TABLE clockgrove.effect_intents ENABLE TRIGGER effect_intent_guard; ALTER TABLE clockgrove.effect_attempts DISABLE TRIGGER effect_attempt_guard; UPDATE clockgrove.effect_attempts SET started_at=statement_timestamp()-interval '61 seconds' WHERE effect_id='${racing.call.effectId}'; ALTER TABLE clockgrove.effect_attempts ENABLE TRIGGER effect_attempt_guard`,
+      );
+      const racingAttempt = await sql(
+        `SELECT attempt_id FROM clockgrove.effect_attempts WHERE effect_id='${racing.call.effectId}' AND heartbeat_at IS NULL`,
+      );
+      interleave = async () => {
+        expect(
+          await withAdmin((client) =>
+            new PostgreSqlEffects(client).heartbeat(
+              { ...scope, effectId: racing.call.effectId },
+              racingAttempt,
+            ),
+          ),
+        ).toBe(true);
+      };
+      await leased.sweep();
+      interleave = null;
+      expect(interleaved).toBe(1);
+      expect(
+        await sql(
+          `SELECT disposition FROM clockgrove.effect_attempts WHERE effect_id='${racing.call.effectId}'`,
+        ),
+      ).toBe("started");
+      openRacing();
+      await racingRun;
+      expect(
+        await leased.executeTool(participant, racing.fiber, racing.proposal, racing.call),
+      ).toMatchObject({ status: "succeeded", code: "ok" });
       const dead = await prepare("dead-letter");
       await research.executeTool(participant, dead.fiber, dead.proposal, dead.call);
       await research.deadLetter(queued.shift()!, "internal");
