@@ -162,7 +162,7 @@ export async function buildSectionHallSource(options: SectionHallOptions = {}): 
         version: 1,
         traits: [],
         components: {
-          "clockgrove.weather-exposure": component("clockgrove.weather-exposure", {
+          "clockgrove.shelter": component("clockgrove.shelter", {
             rainProtection: 5000,
           }),
         },
@@ -241,7 +241,7 @@ export async function buildSectionHallSource(options: SectionHallOptions = {}): 
       components: [
         { type: "clockgrove.needs", version: 1 },
         { type: "clockgrove.resource", version: 1 },
-        { type: "clockgrove.weather-exposure", version: 1 },
+        { type: "clockgrove.shelter", version: 1 },
       ],
       archetypes: [
         { id: "sec.keeper", version: 1, path: "archetypes/keeper.json" },

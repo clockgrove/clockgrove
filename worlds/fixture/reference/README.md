@@ -12,6 +12,12 @@ so those are the entities Talk addresses, each in its declared voice.
 Scenario assertions retain exact physical values. Derived child, successor, command and planning
 identities change with their neutral input identities.
 
+The porch, den and cedar hollow are shelters because their archetypes declare `clockgrove.shelter`;
+the porch also declares a `coverRadius` of 1000 units, so an actor anywhere within that distance of it is
+under it. The behaviour policy declares its wet-weather reflex, `shelterReflexThreshold: 9000`. The
+`favorite-snack-house` keeper's remembered snack dish is familiar, so choosing it out of view raises no
+`unperceived-target` planning request (see `cedar-growth`'s `keeper-remembered-*` assertions).
+
 Resources are closed-world: five declared household processes move finite initial food/water
 inventory from a disconnected household store through ordinary transfers. The water bowl also
 collects rainfall up to its authored capacity. No scheduled source or unbacked offer refills a
