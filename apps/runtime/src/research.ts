@@ -69,7 +69,10 @@ export interface ResearchPolicy {
 }
 export interface ResearchConfiguration {
   readonly environment: string;
-  /** Executor heartbeat interval for started attempts; tests shorten it. */
+  /**
+   * Executor heartbeat interval for started attempts; tests shorten it. Composition refuses a value
+   * that is not a whole number of milliseconds above 0 and at most `ATTEMPT_HEARTBEAT_MS`.
+   */
   readonly attemptHeartbeatMs?: number;
   /** Isolated privileged internal connection; never the ordinary runtime pool. */
   readonly withClient: <T>(operation: (client: PostgreSqlClient) => Promise<T>) => Promise<T>;
@@ -142,6 +145,11 @@ export function composeResearch(configuration: ResearchConfiguration) {
   const toolReserve = configuration.toolCallReserveMicrousd ?? 1_000;
   if (![...Object.values(policy), toolReserve].every((v) => Number.isSafeInteger(v) && v > 0))
     throw new Error("Research policy unavailable");
+  // A longer beat would let the sweep take a live executor's attempt as lost; 0 would beat without
+  // pause (issue 366 review).
+  const heartbeatMs = configuration.attemptHeartbeatMs ?? ATTEMPT_HEARTBEAT_MS;
+  if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs <= 0 || heartbeatMs > ATTEMPT_HEARTBEAT_MS)
+    throw new Error("Research attempt heartbeat unavailable");
 
   async function context(
     client: PostgreSqlClient,
@@ -1278,7 +1286,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
   }
   const consumer = externalEffectsConsumer({
     heartbeat: {
-      everyMs: configuration.attemptHeartbeatMs ?? ATTEMPT_HEARTBEAT_MS,
+      everyMs: heartbeatMs,
       beat: (intent, id) =>
         configuration.withClient((client) => new PostgreSqlEffects(client).heartbeat(intent, id)),
     },

@@ -292,6 +292,20 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
             ? operator.executeRead({ ...intent, installationId }, request)
             : operator.executeWrite({ ...intent, installationId }, request);
         });
+      // A beat no shorter than the 60 s window, or none at all, is refused at composition.
+      for (const attemptHeartbeatMs of [0, -1, 15_001, 60_000, 0.5])
+        expect(() =>
+          composeResearch({
+            environment: "local",
+            attemptHeartbeatMs,
+            withClient: withAdmin,
+            network,
+            artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
+            adapter: { execute, executeWrite: execute },
+            publish: async () => {},
+            wake: async () => {},
+          }),
+        ).toThrow("Research attempt heartbeat unavailable");
       const research = composeResearch({
         environment: "local",
         attemptHeartbeatMs: 200,

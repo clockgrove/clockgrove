@@ -2073,8 +2073,9 @@ A started attempt is lost only when its executor is gone: the executor writes th
 completion is written, and the sweep reconciles an attempt only when neither its last heartbeat
 nor, if it never beat, its `started_at` is within 60 seconds (`ATTEMPT_RECONCILIATION_MS`, four
 beats). A slow write or a slow persistence under database contention therefore completes as it
-ran. Trusted composition may shorten the beat with `attemptHeartbeatMs` (tests use it); the 60-second
-window is fixed. The attempt guard accepts a heartbeat only on a started attempt, only forward and never past
+ran. Trusted composition may shorten the beat with `attemptHeartbeatMs` (tests use it); composition
+refuses a value that is not a whole number of milliseconds above 0 and at most 15 seconds, and the
+60-second window is fixed. The attempt guard accepts a heartbeat only on a started attempt, only forward and never past
 the database's own clock (migration 0074). A sealed result can be reused; an absent result becomes
 `tool_uncertain`. Never clear the effect to retry it. Queue retry and sweep recovery resume
 canonical work; physical DLQ inspection remains an operator action. The browser's 180-second
