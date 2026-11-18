@@ -302,6 +302,12 @@ export interface ActorModelDeps {
     participant: ConversationSessionParticipant,
     session: ConversationSession,
   ) => Promise<readonly StandingConfiguration[]>;
+  /** Records the breaker changes a step's model call caused, before the step's outcome is used. */
+  readonly breakerTransitions?: (
+    participant: ConversationSessionParticipant,
+    session: ConversationSession,
+    record: ModelCallRecord,
+  ) => Promise<void>;
   /** The actor's newest recorded self capability results in this session (issue 322). */
   readonly selfResults?: (
     participant: ConversationSessionParticipant,
@@ -452,7 +458,10 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
     );
     return {
       reserveMicrousd,
-      send: (reserveFallback) => sendActorStep(deps, scene, request, reserveFallback),
+      send: (reserveFallback) =>
+        sendActorStep(deps, scene, request, reserveFallback, (record) =>
+          deps.breakerTransitions?.(participant, session, record),
+        ),
     };
   };
 }
@@ -491,6 +500,7 @@ async function sendActorStep(
   scene: ActorScene | undefined,
   request: Pick<ModelRequest, "alias" | "callId" | "attribution" | "system" | "messages">,
   reserveFallback?: (microusd: number) => Promise<boolean>,
+  recordBreaker?: (record: ModelCallRecord) => Promise<void> | undefined,
 ): Promise<ConversationResponse> {
   let fallbackRefused = false;
   const outcome = await deps.gateway.generateObject({
@@ -506,6 +516,8 @@ async function sendActorStep(
           },
         }),
   });
+  if (outcome.record.attempts.some((attempt) => attempt.breakerTransitions !== undefined))
+    await recordBreaker?.(outcome.record);
   if (outcome.status === "failed") {
     if (fallbackRefused)
       return {

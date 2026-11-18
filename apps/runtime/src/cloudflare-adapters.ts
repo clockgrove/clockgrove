@@ -73,11 +73,13 @@ import {
   constructTrustedExecutionContext,
   type TrustedExecutionContext,
 } from "@clockgrove/contracts/trusted";
+import type { ModelGateway } from "@clockgrove/model-gateway";
 import {
   PostgreSqlActorDocuments,
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlModerationShadow,
+  PostgreSqlRunRecorder,
   PostgreSqlWakeTriage,
   PostgreSqlWorldProvisioningStore,
   withClientTransaction,
@@ -2416,8 +2418,9 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   };
 
   /** The production route when a key is bound, else the scripted fixture; both perceive the scene. */
-  private actorModelDeps(): ActorModelDeps | undefined {
-    const gateway = actorGateway(this.environment);
+  protected actorModelDeps(
+    gateway: ModelGateway | undefined = actorGateway(this.environment),
+  ): ActorModelDeps | undefined {
     if (gateway === undefined) return undefined;
     return {
       researchEnabled: this.research() !== undefined,
@@ -2426,6 +2429,23 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       grants: (participant, session) =>
         this.grants(participant, session.scope, session.actorId, session.sessionId),
       perceive: this.perceive,
+      breakerTransitions: async (participant, session, record) => {
+        const context = this.#talkContext(participant);
+        if (context === undefined) return;
+        const authorization = { ...worldAuthorization(context), personaId: participant.personaId };
+        const transitions = record.attempts.flatMap((a) => a.breakerTransitions ?? []);
+        await withActorCapabilityClient(this.environment, (client) =>
+          withClientTransaction(client, { authorization }, () =>
+            new PostgreSqlRunRecorder(client).breakerTransitions(
+              session.scope.tenantId,
+              session.scope.worldId,
+              session.sessionId,
+              record,
+              transitions,
+            ),
+          ),
+        );
+      },
       // Issue 354: the actor's own standing subscriptions and intentions, read from its activation
       // policy's configurations under the member's authorization, whichever turn or session made
       // them. One read of the policy row's configurations column per model step.

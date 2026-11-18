@@ -32,6 +32,9 @@ import {
   createModelGateway,
   decisionAlias,
   InMemoryModelBudget,
+  type ModelGateway,
+  ProviderFailure,
+  type RouteAdapter,
   ScriptedDecider,
   type ScriptedDecisionStep,
 } from "@clockgrove/model-gateway";
@@ -46,6 +49,7 @@ import {
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import type { TurnResearchHost } from "../../src/actor-agent.js";
+import { ACTOR_ALIAS, actorModelConfiguration, actorResponder } from "../../src/actor-model.js";
 import {
   type ActivationArming,
   type ActivationArmingStep,
@@ -237,6 +241,51 @@ interface NativeEnvironment extends RuntimeEnvironment {
 }
 
 /**
+ * A real gateway on a scripted provider, so no model is called: an input `fixture:breaker overload`
+ * is answered 529, `fixture:breaker recover` first moves the gateway's clock past the breaker's
+ * cooldown and is answered. It lives for the isolate, as the production gateway does.
+ */
+let breakerClockSkewMs = 0;
+let breakerGateway: ModelGateway | undefined;
+const breakerAdapter: RouteAdapter = {
+  async *stream(call) {
+    const prompt = call.messages.at(-1)?.text ?? "";
+    if (prompt.slice(prompt.lastIndexOf("Caretaker message:")).includes("fixture:breaker overload"))
+      throw new ProviderFailure("unavailable", 529, true);
+    yield { kind: "text", text: '{"reply":"Scripted route recovered.","command":null}' };
+    yield {
+      kind: "finish",
+      finishReason: "stop",
+      inputTokens: 1,
+      outputTokens: 1,
+      reportedCostUsd: null,
+      responseModel: call.route.model,
+    };
+  },
+};
+const breakerConfiguration = {
+  ...actorModelConfiguration(undefined),
+  aliases: [
+    {
+      alias: ACTOR_ALIAS,
+      policyVersion: "native-breaker-v1",
+      maxInputTokens: 1_000_000,
+      maxOutputTokens: 1_000,
+      timeouts: { firstByteMs: 10_000, idleMs: 10_000, totalMs: 20_000 },
+      routes: [
+        {
+          id: "native.breaker.primary",
+          provider: "scripted" as const,
+          model: "scripted-overload",
+          credential: null,
+          priceUsdPerMTok: { input: 0, output: 0 },
+        },
+      ],
+    },
+  ],
+};
+
+/**
  * Turn crash injection (issue 18): the incarnation ends right after the named phase checkpoint,
  * once per turn and phase, as an eviction or crash there would.
  */
@@ -267,6 +316,31 @@ export class ActorAgentDO extends ProductionActorAgentDO {
     return nativeResearch(this.researchEnvironment) ?? super.research();
   }
   protected override responder(): ConversationResponder {
+    breakerGateway ??= createModelGateway({
+      aliases: breakerConfiguration.aliases,
+      adapters: { scripted: breakerAdapter },
+      budget: new InMemoryModelBudget(() => 1_000_000),
+      accounting: { record: () => undefined },
+      now: () => Date.now() + breakerClockSkewMs,
+    });
+    const breaker = actorResponder({
+      ...this.actorModelDeps(breakerGateway)!,
+      configuration: breakerConfiguration,
+    });
+    const through = (respond: ConversationResponder): ConversationResponder => {
+      return async (session, count, input, prompt) => {
+        if (!input.startsWith("fixture:breaker ")) return respond(session, count, input, prompt);
+        if (input === "fixture:breaker recover") breakerClockSkewMs += 31_000;
+        try {
+          return await breaker(session, count, input, prompt);
+        } catch {
+          return { text: "Scripted route unavailable." };
+        }
+      };
+    };
+    return through(this.nativeResponder());
+  }
+  private nativeResponder(): ConversationResponder {
     if (this.researchEnvironment.NATIVE_RESEARCH_ORIGIN)
       return async (session, count, input, prompt) => {
         if (input === "fixture:model-down") throw new Error("scripted fixture model unavailable");

@@ -24,6 +24,10 @@ const SAMPLE_SQL = `SELECT jsonb_build_object(
     'timeline', r.timeline_id, 'actor', r.actor_id, 'session', r.session_id,
     'durationMs', (extract(epoch FROM s.ended_at - s.started_at) * 1000)::bigint)), '[]')
     FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r USING (tenant_id, run_id)),
+  'breakerTransitions', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'route', route_id, 'from', from_state, 'to', to_state,
+    'consecutiveFailures', consecutive_failures, 'tenant', tenant_id, 'run', run_id)), '[]')
+    FROM clockgrove.model_breaker_transitions),
   'fibers', (SELECT coalesce(jsonb_agg(jsonb_build_object(
     'phase', phase, 'attempt', attempt, 'leaseEpoch', lease_epoch, 'outcome', outcome_code,
     'tenant', tenant_id, 'session', session_id, 'actor', actor_id,

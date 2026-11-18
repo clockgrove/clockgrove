@@ -11,6 +11,7 @@ import {
   type BrowserScope,
   decodeOpaqueId,
   type ProtectedPayload,
+  type RunBreakerTransition,
   type RunEntry,
   type RunSearchRequest,
   type RunStatus,
@@ -348,6 +349,46 @@ export class PostgreSqlRunRecorder {
     );
   }
 
+  /**
+   * The breaker changes one model call caused, under the participant's authorization. They belong
+   * to the session's open run when there is one; a retried write of the same call adds nothing.
+   */
+  async breakerTransitions(
+    tenantId: string,
+    worldId: string,
+    sessionId: string,
+    call: { readonly callId: string; readonly alias: string },
+    transitions: readonly (Omit<RunBreakerTransition, "alias" | "recordedAt"> & {
+      readonly at: number;
+    })[],
+  ): Promise<void> {
+    for (const [ordinal, move] of transitions.entries())
+      await this.client.query(
+        `INSERT INTO clockgrove.model_breaker_transitions (
+           tenant_id, world_id, session_id, run_id, call_id, ordinal, route_id, alias, from_state,
+           to_state, consecutive_failures, recorded_at
+         ) VALUES ($1, $2, $3,
+           (SELECT run_id FROM clockgrove.agent_runs
+             WHERE tenant_id = $1 AND session_id = $3 AND status = 'running'
+             ORDER BY started_at DESC LIMIT 1),
+           $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::double precision / 1000))
+         ON CONFLICT DO NOTHING`,
+        [
+          tenantId,
+          worldId,
+          sessionId,
+          call.callId,
+          ordinal,
+          move.routeId,
+          call.alias,
+          move.from,
+          move.to,
+          move.consecutiveFailures,
+          move.at,
+        ],
+      );
+  }
+
   /** Records a disposition other than completion, if the run is still open. */
   async close(
     tenantId: string,
@@ -382,7 +423,7 @@ export class PostgreSqlRunReader {
     scope: BrowserScope,
     entry: RunEntry,
   ): Promise<readonly RunView[]> {
-    const { runs, steps } = await withClientTransaction(
+    const { runs, steps, breakers } = await withClientTransaction(
       this.client,
       { authorization },
       async () => {
@@ -403,7 +444,19 @@ export class PostgreSqlRunReader {
             WHERE tenant_id = $1 AND run_id = ANY($2::text[]) ORDER BY run_id, step`,
           [scope.tenantId, runRows.map((row) => row.run_id)],
         );
-        return { runs: runRows, steps: stepRows.rows as Row[] };
+        const breakerRows = await this.client.query(
+          `SELECT run_id, route_id, alias, from_state, to_state, consecutive_failures,
+                  ${timestamp("recorded_at")}
+             FROM clockgrove.model_breaker_transitions
+            WHERE tenant_id = $1 AND run_id = ANY($2::text[])
+            ORDER BY run_id, recorded_at, call_id, ordinal`,
+          [scope.tenantId, runRows.map((row) => row.run_id)],
+        );
+        return {
+          runs: runRows,
+          steps: stepRows.rows as Row[],
+          breakers: breakerRows.rows as Row[],
+        };
       },
     );
     const allowed = authorization.privacyCeiling.allowedCategories;
@@ -447,10 +500,21 @@ export class PostgreSqlRunReader {
           input: await payload(step.input_artifact_id, step.input_privacy_class),
           output: await payload(step.output_artifact_id),
         });
+      const breakerTransitions: RunBreakerTransition[] = breakers
+        .filter((move) => move.run_id === row.run_id)
+        .map((move) => ({
+          routeId: String(move.route_id),
+          alias: String(move.alias),
+          from: move.from_state as RunBreakerTransition["from"],
+          to: move.to_state as RunBreakerTransition["to"],
+          consecutiveFailures: Number(move.consecutive_failures),
+          recordedAt: String(move.recorded_at),
+        }));
       views.push({
         ...summaryOf(row),
         prompt: await payload(row.prompt_artifact_id, row.prompt_privacy_class),
         steps: runSteps,
+        ...(breakerTransitions.length === 0 ? {} : { breakerTransitions }),
       });
     }
     return views;

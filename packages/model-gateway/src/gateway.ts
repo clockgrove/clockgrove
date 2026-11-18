@@ -21,6 +21,8 @@ import type {
   DecisionRequest,
 } from "./decision.js";
 import type {
+  BreakerState,
+  BreakerTransition,
   ModelAccountingSink,
   ModelBudgetPort,
   ModelCallRecord,
@@ -403,6 +405,19 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     }
     const adapter = options.adapters[route.provider];
     if (adapter === undefined) throw new Error(`no adapter for model provider: ${route.provider}`);
+    const transitions: BreakerTransition[] = [];
+    const moved = (from: BreakerState, to: BreakerState, at: number) => {
+      if (from !== to)
+        transitions.push({
+          routeId: route.id,
+          from,
+          to,
+          consecutiveFailures: routeBreaker.consecutiveFailures,
+          at,
+        });
+    };
+    // Admitting a half-open route is the trial; `admit` only said yes, so the state before it was open.
+    if (routeBreaker.state(started) === "half_open") moved("open", "half_open", started);
 
     const controller = new AbortController();
     const abortFromOuter = () => controller.abort(outer?.reason);
@@ -471,10 +486,15 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
     } finally {
       outer?.removeEventListener("abort", abortFromOuter);
     }
-    if (BREAKER_FAILURES.has(result.attempt.outcome)) routeBreaker.failed(now());
+    const verdictAt = now();
+    const before = routeBreaker.state(verdictAt);
+    if (BREAKER_FAILURES.has(result.attempt.outcome)) routeBreaker.failed(verdictAt);
     else if (result.attempt.outcome === "completed") routeBreaker.succeeded();
     else routeBreaker.released();
-    return result;
+    moved(before, routeBreaker.state(verdictAt), verdictAt);
+    return transitions.length === 0
+      ? result
+      : { ...result, attempt: { ...result.attempt, breakerTransitions: transitions } };
 
     function completed(): RouteResult {
       const inputTokens = finish?.inputTokens ?? null;

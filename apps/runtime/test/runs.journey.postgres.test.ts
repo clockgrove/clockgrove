@@ -317,6 +317,48 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).toBe(
         "allow:served,deny:runtime-grant-missing,allow:served,allow:served,allow:served,allow:served,allow:not-found",
       );
+
+      // The model route's breaker opening and closing is recorded durably and the run inspector shows it.
+      const breakerSession = decodeConversationSession(
+        (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper" })).body,
+      ).sessionId;
+      const turns = [
+        "fixture:breaker overload",
+        "fixture:breaker overload",
+        "fixture:breaker overload",
+        "fixture:breaker overload",
+        "fixture:breaker recover",
+      ];
+      const seen: unknown[] = [];
+      for (const [index, text] of turns.entries()) {
+        await post("/v1/runtime/talk", { sessionId: breakerSession, messageId: `b${index}`, text });
+        const walk = await inspect({ sessionId: breakerSession, turn: index + 1 });
+        seen.push(
+          walk.runs.flatMap((run) =>
+            (run.breakerTransitions ?? []).map(
+              (move) => `${move.routeId} ${move.from}>${move.to} ${move.consecutiveFailures}`,
+            ),
+          ),
+        );
+      }
+      expect(seen).toEqual([
+        [],
+        [],
+        ["native.breaker.primary closed>open 3"],
+        [],
+        ["native.breaker.primary open>half_open 3", "native.breaker.primary half_open>closed 0"],
+      ]);
+      expect(
+        (
+          await owner.sql(
+            `SELECT string_agg(t.from_state || '>' || t.to_state || ':' || t.consecutive_failures
+                      || ':' || (r.input_message_id), ',' ORDER BY t.recorded_at, t.ordinal)
+               FROM clockgrove.model_breaker_transitions t
+               JOIN clockgrove.agent_runs r USING (tenant_id, run_id)
+              WHERE t.session_id = '${breakerSession}'`,
+          )
+        ).trim(),
+      ).toBe("closed>open:3:b2,open>half_open:3:b4,half_open>closed:0:b4");
     });
   },
   180_000,
