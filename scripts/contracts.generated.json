@@ -10,7 +10,7 @@
 
     "channels.ts": "8606814b06b231f896a88935b3070a0d5abf2bb4b713dacb2bfb06f630e1a9d6",
 
-    "cognition.ts": "c5b2361398760b18215b2795297dd13cb2e1f8a51b3e9a7834c8948b7517848b",
+    "cognition.ts": "b335b06eeee3ee4072ea699234076bc7f91c284de53c02f87bbe7f7c05d38e04",
 
     "conformance.ts": "f58094883f98f00ef4f023146449fe765070ff4ade92d378cc014443db83c3a4",
 
@@ -36,13 +36,13 @@
 
     "run-walk.ts": "01bf01fdf24562a1352167d6773ff2c4527044ad0e51e5df7a337b8478baa26a",
 
-    "runs.ts": "f14ebe2f104baeb1bafd63f9149415d41bfb3623891ed78110775a2edcde1577",
+    "runs.ts": "af10baf86102fa854111fda79fdd4f0114ee546ee738d20dbb2195abd4b209da",
 
     "scene-arrival.ts": "d7a8b2ac7b624603d7f05813501bc530e5310384facf01a555372e87138eb83f",
 
     "scene-connection.ts": "8cc378383f635b614dcb31c4eaff8638abc937578ecac7808d9fa79df4a30b49",
 
-    "scene-interactions.ts": "5a360a95c22b1dd91456400659f05eca10a1999913e956e4ddbfcf2499a6130a",
+    "scene-interactions.ts": "15d4bb58c8347916087293a2e868decdbab34ce4335893067679df5aedf08603",
 
     "scene-protocol.ts": "fbaebfd471f63c49f7f335718cca0bd9b1d267084a644d13fbb343079ccc0b1e",
 
