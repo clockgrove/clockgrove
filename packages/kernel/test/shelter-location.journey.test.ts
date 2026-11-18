@@ -537,3 +537,79 @@ it("keeps a walker under a shelter's cover until its walk crosses the cover's bo
     [1100n, 1039],
   ]);
 });
+
+it("enters the cover a walk starts under, even from open ground", async () => {
+  // The actor stands unlocated at the den's centre in the rain; the den declares a 500-unit cover.
+  const base = await rainy(false);
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const started = move(world, actor, 900n, "walk-from-open");
+  const finished = runChain(started.world, "walk-from-open-after", 3000n);
+  expect(replayWorldEvents(world.state, started.events)).toEqual(started.world.state);
+  expect(replayWorldEvents(started.world.state, finished.events)).toEqual(finished.world.state);
+  // Its first millisecond is under the den's cover: it is in the den as it sets out, and on open
+  // ground from the boundary (501 ms) on.
+  expect(changes([...started.events, ...finished.events]).slice(0, 2)).toEqual([
+    [world.state.simulationTime, actor, "den"],
+    [501n, actor, null],
+  ]);
+});
+
+it("unlocates a mover the world time does not follow as it sets out, even under a cover", async () => {
+  // A plant is no needs actor, so the world time does not follow its walk past the command's
+  // events: walking out of its shelter's cover, it leaves the shelter as it sets out.
+  const base = await ecologyWorld(CEDAR_SPEC);
+  const home = base.state.entities.find((entity) => entity.objectId === "sheltered-cedar")!
+    .locationId!;
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === home
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const settled = applyCommand(
+    world,
+    commandInput(world, "world.advance", "cover-plant-before", {
+      targetTime: 3500n,
+      maxInputs: 1024,
+      maxEvents: 4096,
+      lazy: true,
+    }),
+  ).world;
+  const pose = settled.state.entities.find((entity) => entity.objectId === "sheltered-cedar")!.pose;
+  const moved = execute(
+    settled,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "sheltered-cedar",
+      destination: { kind: "pose", pose: { ...pose, coordinates: [2000n, 0n] } },
+      unitsPerSecond: 1000n,
+      observeUntil: 3500n,
+    },
+    "cover-plant-move",
+  );
+  const after = runChain(moved.world, "cover-plant-after", 9000n);
+  expect(changes([...moved.events, ...after.events])).toEqual([[3500n, "sheltered-cedar", null]]);
+  expect(
+    after.world.state.ecology!.plants.find((entry) => entry.objectId === "sheltered-cedar")!
+      .wetness,
+  ).toBeGreaterThan(0);
+  expect(replayWorldEvents(settled.state, [...moved.events, ...after.events])).toEqual(
+    after.world.state,
+  );
+});
