@@ -154,7 +154,9 @@ export function ConversationPanel({
       setInFlight(false);
       // The cancelled turn settles here, whether or not its stream is still open: a message sent
       // next is a new turn of its own, not one dropped while the old stream waits to end.
+      // The let-go stream's own end no longer clears its partial reply, so the cancel clears it.
       followed.current += 1;
+      setProvisional("");
       streaming.current = false;
       running.current = false;
       await settled(target.sessionId, "cancelled");
