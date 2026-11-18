@@ -184,7 +184,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         { sessionId: session, messageId: "m3:reply" },
         MEMBER,
       );
-      const back = answer.body as RunWalk;
+      const back = decodeRunWalk(answer.body);
       // The exact model input: the session's history and the input, every part labelled untrusted.
       const part = (source: string, version: number, text: string) => ({
         trust: "untrusted",
