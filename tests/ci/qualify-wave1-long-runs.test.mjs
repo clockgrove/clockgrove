@@ -170,6 +170,36 @@ it.each([
   expect(failing(mutate)).toContain(id);
 });
 
+/** Moves the first lifecycle entry out of the counted state into the lineage, dead (#358). */
+const moveToLineage = (run, { keepEntity = false } = {}) => {
+  const state = run.finalState;
+  const entry = state.lifecycle.entries[0];
+  const subject = run.summary.subjects.find((item) => item.objectId === entry.objectId);
+  const end = subject.events.reduce((last, event) => (event.last > last ? event.last : last), 0n);
+  subject.events.push({ type: "lifecycle.died", count: 1, first: end, last: end });
+  const entity = state.entities.find((item) => item.objectId === entry.objectId);
+  state.lifecycle.entries = state.lifecycle.entries.slice(1);
+  // The dead have nothing queued.
+  run.schedule.remaining = run.schedule.remaining.filter(
+    (item) => item.payload?.objectId !== entry.objectId,
+  );
+  state.lifecycle.lineage = [
+    { ...entry, death: { diedAt: end, cause: "age" }, archetypeId: entity.archetypeId },
+  ];
+  if (keepEntity) return;
+  state.entities = state.entities.filter((item) => item.objectId !== entry.objectId);
+  state.wellbeing.entries = state.wellbeing.entries.filter(
+    (item) => item.objectId !== entry.objectId,
+  );
+};
+
+it("reads the dead a birth moved to lifecycle.lineage as lives, not missing objects", () => {
+  expect(failing((_bundle, run) => moveToLineage(run))).toEqual([]);
+  expect(failing((_bundle, run) => moveToLineage(run, { keepEntity: true }))).toEqual([
+    "no-orphans-or-containment-cycles",
+  ]);
+});
+
 it("never passes the perception check it cannot observe, and refuses full recordings", () => {
   const checks = checkLongRunBundle(bundle, { maxPopulation: 4 });
   expect(checks.find((check) => check.id === "no-private-perception-in-public-view").status).toBe(

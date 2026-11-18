@@ -24,6 +24,9 @@ export const RESOURCE_EVENT_TYPES = [
   "resource.weather-integrated",
 ];
 
+/** `LIFECYCLE_MAX_LINEAGE` in packages/domain/src/lifecycle/lifecycle.ts: the dead kept in the lineage. */
+export const LIFECYCLE_MAX_LINEAGE = 1024;
+
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value) =>
   JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? `${item}n` : item));
@@ -119,19 +122,32 @@ const CHECKS = [
             seen.add(at);
           }
         }
+        // The dead a birth moved out of the counted state live on in `lifecycle.lineage` (#358);
+        // past its bound the earliest of them leave the state, and only their events remain.
+        const lineage = lifecycle?.lineage ?? [];
+        const lineageIds = new Set(lineage.map((dead) => dead.objectId));
+        const events = subjectEvents(run);
+        const evicted = (objectId) =>
+          lineage.length >= LIFECYCLE_MAX_LINEAGE && events.get(objectId)?.has("lifecycle.died");
         const lifecycleIds = new Set((lifecycle?.entries ?? []).map((entry) => entry.objectId));
-        for (const entry of lifecycle?.entries ?? []) {
-          if (!ids.has(entry.objectId))
+        for (const objectId of lineageIds) {
+          if (ids.has(objectId) || lifecycleIds.has(objectId))
+            problems.push(`lineage entry ${objectId} is still counted`);
+          lifecycleIds.add(objectId);
+        }
+        for (const entry of [...(lifecycle?.entries ?? []), ...lineage]) {
+          if (!ids.has(entry.objectId) && !lineageIds.has(entry.objectId))
             problems.push(`lifecycle entry ${entry.objectId} has no object`);
           for (const parent of entry.parentIds)
-            if (!lifecycleIds.has(parent))
+            if (!lifecycleIds.has(parent) && !evicted(parent))
               problems.push(`${entry.objectId} names missing parent ${parent}`);
         }
         for (const entry of wellbeing?.entries ?? [])
           if (!ids.has(entry.objectId))
             problems.push(`wellbeing entry ${entry.objectId} has no object`);
-        for (const objectId of subjectEvents(run).keys())
-          if (!ids.has(objectId)) problems.push(`events name ${objectId}, which is no object`);
+        for (const objectId of events.keys())
+          if (!ids.has(objectId) && !lineageIds.has(objectId) && !evicted(objectId))
+            problems.push(`events name ${objectId}, which is no object`);
         return problems;
       });
     },
@@ -142,21 +158,26 @@ const CHECKS = [
     run(bundle) {
       return perRun(bundle, (run) => {
         const problems = [];
-        const entries = new Map(
-          (run.finalState.lifecycle?.entries ?? []).map((e) => [e.objectId, e]),
-        );
-        if (entries.size !== (run.finalState.lifecycle?.entries ?? []).length)
-          problems.push("lifecycle entries are not unique");
+        // A life is in `entries` or, once a birth moved it out, in `lifecycle.lineage` (#358).
+        const lives = [
+          ...(run.finalState.lifecycle?.entries ?? []),
+          ...(run.finalState.lifecycle?.lineage ?? []),
+        ];
+        const entries = new Map(lives.map((e) => [e.objectId, e]));
+        if (entries.size !== lives.length) problems.push("lifecycle entries are not unique");
+        // Past the lineage bound the earliest dead leave the state; only their events remain.
+        const full = (run.finalState.lifecycle?.lineage ?? []).length >= LIFECYCLE_MAX_LINEAGE;
         const died = new Set();
         for (const [objectId, events] of subjectEvents(run)) {
           const born = events.get("lifecycle.born");
           const death = events.get("lifecycle.died");
           if (born && born.count !== 1) problems.push(`${objectId} was born ${born.count} times`);
-          if (born && entries.get(objectId)?.bornAt !== born.first)
+          const gone = full && death !== undefined && !entries.has(objectId);
+          if (born && !gone && entries.get(objectId)?.bornAt !== born.first)
             problems.push(`${objectId} birth event disagrees with its lifecycle entry`);
           if (death && death.count !== 1) problems.push(`${objectId} died ${death.count} times`);
           if (death) died.add(objectId);
-          if (death && entries.get(objectId)?.death?.diedAt !== death.first)
+          if (death && !gone && entries.get(objectId)?.death?.diedAt !== death.first)
             problems.push(`${objectId} death event disagrees with its lifecycle entry`);
         }
         for (const [objectId, entry] of entries)
@@ -240,8 +261,10 @@ const CHECKS = [
         const dwellRegions = (run.finalState.spatialRegions ?? []).filter(
           (region) => region.dwell !== undefined,
         ).length;
-        const bound =
-          run.schedule.initial.length + born.length + run.finalState.entities.length * dwellRegions;
+        // The dead moved to the lineage (#358) were objects when the peak was reached.
+        const objects =
+          run.finalState.entities.length + (run.finalState.lifecycle?.lineage ?? []).length;
+        const bound = run.schedule.initial.length + born.length + objects * dwellRegions;
         if (run.summary.schedulePeak > bound)
           problems.push(`schedule peaked at ${run.summary.schedulePeak}, above ${bound}`);
         for (const item of run.schedule.remaining) {
