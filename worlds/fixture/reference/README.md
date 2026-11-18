@@ -5,7 +5,7 @@ lifecycle, cognition, rules and capability commands. The independent beacon fixt
 at `worlds/fixture`, so conformance continues to prove that different actors and capabilities
 work with the same engine.
 
-The pack ID is `clockgrove.fixture-hall@1.4.0`. Mobile actors are `fixture.companion`,
+The pack ID is `clockgrove.fixture-hall@1.5.0`. Mobile actors are `fixture.companion`,
 `fixture.dependent` and `fixture.keeper`; their lexical order preserves deterministic scheduling.
 Their archetypes declare the `cognitive` Conversation mode, the cedar's the `interpreted` one and the fence gate's the `canonical` one,
 so those are the entities Talk addresses, each in its declared voice.
