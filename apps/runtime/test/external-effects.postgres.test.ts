@@ -207,22 +207,33 @@ it("verifies canonical Queue identity, executes once, records uncertainty and re
       expect((await sql("SELECT count(*) FROM clockgrove.effect_attempts;")).trim()).toBe("5");
       const rows = await sql("SELECT row_to_json(a)::text FROM clockgrove.effect_attempts a;");
       expect(rows.includes("private-canary")).toBe(false);
+      // A live executor keeps beating through slow admission and a slow completion write.
+      let beats = 0;
+      const beaten = async () => {
+        const seen = beats;
+        await expect.poll(() => beats, { timeout: 30_000 }).toBeGreaterThan(seen);
+      };
       const completeFailure = externalEffectsConsumer({
         effects: {
           resolveDispatch: (message) => stores[0]!.resolveDispatch(message),
           claim: (address, id) => stores[0]!.claim(address, id),
           reconcile: (address) => stores[0]!.reconcile(address),
           complete: async () => {
+            await beaten();
             throw new Error("completion unavailable");
           },
         },
+        heartbeat: { everyMs: 10, beat: async () => beats++ },
         attemptId: () => "completion-write-attempt",
-        admit: async () => ({
-          admittedReadOnly: false,
-          endpoint: "https://fixture.example/mcp",
-          toolName: "completion-write",
-          arguments: {},
-        }),
+        admit: async () => {
+          await beaten();
+          return {
+            admittedReadOnly: false,
+            endpoint: "https://fixture.example/mcp",
+            toolName: "completion-write",
+            arguments: {},
+          };
+        },
         adapter: {
           execute: async () => {
             calls++;

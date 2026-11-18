@@ -16,7 +16,9 @@ BEGIN
   IF TG_OP='UPDATE' THEN
     IF OLD.disposition='started' AND NEW.disposition='started'
        AND NEW.heartbeat_at IS DISTINCT FROM OLD.heartbeat_at THEN
+      -- A beat is the database's own now: never backward, and never ahead to hold a lease open.
       IF NEW.heartbeat_at IS NULL OR NEW.heartbeat_at<coalesce(OLD.heartbeat_at,OLD.started_at)
+         OR NEW.heartbeat_at>statement_timestamp()
          OR (to_jsonb(NEW)-'heartbeat_at') IS DISTINCT FROM (to_jsonb(OLD)-'heartbeat_at') THEN
         RAISE EXCEPTION 'attempt heartbeat may only move forward' USING ERRCODE='22023';
       END IF;

@@ -2068,8 +2068,13 @@ a plaintext artifact store, a per-call reopened credential provider or an inline
 Maintain the configured per-turn step/call/cost bounds. Unknown observed costs are reported
 separately from reservations and known cost totals.
 
-A lost attempt is reconciled after 60 seconds: three existing 15-second HTTP deadlines and a
-15-second persistence allowance. A sealed result can be reused; an absent result becomes
+A started attempt is lost only when its executor is gone: the executor writes the attempt's
+`heartbeat_at` every 15 seconds (`ATTEMPT_HEARTBEAT_MS`, `research.ts`) from its claim until its
+completion is written, and the sweep reconciles an attempt only when neither its last heartbeat
+nor, if it never beat, its `started_at` is within 60 seconds (`ATTEMPT_RECONCILIATION_MS`, four
+beats). A slow write or a slow persistence under database contention therefore completes as it
+ran. The attempt guard accepts a heartbeat only on a started attempt, only forward and never past
+the database's own clock (migration 0074). A sealed result can be reused; an absent result becomes
 `tool_uncertain`. Never clear the effect to retry it. Queue retry and sweep recovery resume
 canonical work; physical DLQ inspection remains an operator action. The browser's 180-second
 presentation wait preserves its pending message on expiry, so reopening can read or resume it.

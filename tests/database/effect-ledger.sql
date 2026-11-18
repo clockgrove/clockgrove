@@ -33,6 +33,15 @@ INSERT INTO clockgrove.effect_intents SELECT tenant_id,world_id,'effect-preview'
 UPDATE clockgrove.effect_intents SET disposition='started' WHERE timeline_id='timeline-j-a';
 INSERT INTO clockgrove.effect_attempts(tenant_id,world_id,timeline_id,effect_id,attempt_id)
  VALUES ('tenant-j-a','world-j-a','timeline-j-a','effect-a','attempt-a');
+UPDATE clockgrove.effect_attempts SET heartbeat_at=statement_timestamp() WHERE attempt_id='attempt-a';
+DO $$ DECLARE q text; BEGIN
+ FOREACH q IN ARRAY ARRAY['heartbeat_at=heartbeat_at-interval ''1 microsecond''','heartbeat_at=NULL',
+  'heartbeat_at=statement_timestamp()+interval ''1 hour''','heartbeat_at=statement_timestamp(),outcome_code=''ok'''] LOOP
+  BEGIN EXECUTE 'UPDATE clockgrove.effect_attempts SET '||q||' WHERE attempt_id=''attempt-a''';
+   RAISE EXCEPTION 'heartbeat guard accepted %',q;
+  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+ END LOOP;
+END $$;
 DO $$ BEGIN
  BEGIN
   INSERT INTO clockgrove.effect_attempts(tenant_id,world_id,timeline_id,effect_id,attempt_id)
@@ -55,6 +64,7 @@ DO $$ DECLARE q text; BEGIN
  IF (SELECT count(*) FROM clockgrove.effect_attempts WHERE cost_microusd IS NULL)<>1 THEN RAISE EXCEPTION 'unknown cost lost'; END IF;
  FOREACH q IN ARRAY ARRAY[
   'UPDATE clockgrove.effect_attempts SET disposition=''succeeded'',outcome_code=''ok''',
+  'UPDATE clockgrove.effect_attempts SET heartbeat_at=statement_timestamp()',
   'UPDATE clockgrove.effect_intents SET disposition=''pending'',ended_at=NULL,outcome_code=NULL WHERE timeline_id=''timeline-j-a''',
   'DELETE FROM clockgrove.effect_attempts', 'TRUNCATE clockgrove.effect_intents CASCADE'] LOOP
   BEGIN EXECUTE q; RAISE EXCEPTION 'immutable ledger accepted %',q;
