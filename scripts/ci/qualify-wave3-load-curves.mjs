@@ -58,6 +58,27 @@ export function hostWallTimeBound(calibrationMs) {
   return Math.round(WALL_TIME_BOUND_MS * Math.max(1, calibrationMs / CALIBRATION_REFERENCE_MS));
 }
 
+/** The host's bound, in ms, handed to the fixture; set by this command. */
+export const LOAD_CURVES_BOUND = "CLOCKGROVE_WAVE3_LOAD_CURVES_BOUND_MS";
+
+/** The fixture's environment: where to write its result, and the host's bound. */
+export function fixtureEnvironment(directory, boundMs, environment = process.env) {
+  return {
+    ...environment,
+    [LOAD_CURVES_DIRECTORY]: directory,
+    [LOAD_CURVES_BOUND]: String(boundMs),
+  };
+}
+
+/**
+ * Read by the fixture: the bound its native owner runs under, the host's bound this command set, or
+ * the base when the fixture runs on its own. Never below the base.
+ */
+export function fixtureWallTimeBound(environment = process.env) {
+  const bound = Number(environment[LOAD_CURVES_BOUND]);
+  return Number.isSafeInteger(bound) && bound > WALL_TIME_BOUND_MS ? bound : WALL_TIME_BOUND_MS;
+}
+
 /** Nearest-rank percentiles (the smallest value with at least q of the values at or below it). */
 export function summary(values) {
   const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
@@ -415,7 +436,7 @@ export async function qualifyLoadCurves(directory) {
     [vitest, "run", "--config", "apps/runtime/vitest.load-curves.config.ts"],
     {
       cwd: root,
-      env: { ...process.env, [LOAD_CURVES_DIRECTORY]: directory },
+      env: fixtureEnvironment(directory, boundMs),
       inherit: true,
       timeoutMs: boundMs + 60_000,
     },

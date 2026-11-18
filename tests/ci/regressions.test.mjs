@@ -24,6 +24,8 @@ import {
 } from "../../scripts/ci/native-recovery.mjs";
 import {
   CALIBRATION_REFERENCE_MS,
+  fixtureEnvironment,
+  fixtureWallTimeBound,
   hostWallTimeBound,
 } from "../../scripts/ci/qualify-wave3-load-curves.mjs";
 import {
@@ -496,23 +498,39 @@ it(
 
 // #367: the browser journey ran only for apps/ changes, and a fixed load-curve bound failed a
 // slower runner that finished every point.
-it("journey scope follows the apps' workspace dependencies; the load-curve bound scales with the host", () => {
+it("journey scope follows what the journey tests and apps load; the load-curve bound scales with the host", () => {
   const scope = journeyReasons(
     [
       "packages/contracts/src/scene.ts",
       "apps/web/src/x.ts",
+      // Loaded by the journey tests, not by an app: the asset package, the migrations and database
+      // helpers the native harness applies, and the dev-world launcher the journey spawns.
+      "packages/assets/src/cli.ts",
+      "db/migrations/0999_x.sql",
+      "scripts/database/lib.mjs",
+      "scripts/dev-world.mjs",
       "docs/x.md",
       "scripts/ci/evidence.mjs",
+      "tests/ci/regressions.test.mjs",
     ],
     journeyPaths(root),
   );
   expect(scope.map((reason) => reason.file)).toEqual([
     "packages/contracts/src/scene.ts",
     "apps/web/src/x.ts",
+    "packages/assets/src/cli.ts",
+    "db/migrations/0999_x.sql",
+    "scripts/database/lib.mjs",
+    "scripts/dev-world.mjs",
   ]);
   expect(
     [CALIBRATION_REFERENCE_MS / 2, CALIBRATION_REFERENCE_MS * 2].map(hostWallTimeBound),
   ).toEqual([600_000, 1_200_000]);
+  // The bound reaches the fixture's native owner: a host twice as slow runs it under 1,200 s, not
+  // the fixed 600 s that stopped it before; run on its own, the fixture keeps the base.
+  const slow = hostWallTimeBound(CALIBRATION_REFERENCE_MS * 2);
+  expect(fixtureWallTimeBound(fixtureEnvironment("/results", slow, {}))).toBe(1_200_000);
+  expect(fixtureWallTimeBound({})).toBe(600_000);
 });
 
 // #381: a dependency update left the recovery check expecting the previous Wrangler, Miniflare and

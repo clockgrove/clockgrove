@@ -8,7 +8,10 @@ import { sha256Hex } from "@clockgrove/kernel";
 import { previewSeedProjection } from "@clockgrove/simulator";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- repository-local JavaScript helper has no declarations.
-import { writeLoadCurves } from "../../../scripts/ci/qualify-wave3-load-curves.mjs";
+import {
+  fixtureWallTimeBound,
+  writeLoadCurves,
+} from "../../../scripts/ci/qualify-wave3-load-curves.mjs";
 // @ts-expect-error -- repository-local JavaScript helper has no declarations.
 import { workerdPeakMemory } from "../../../scripts/lib/process-memory.mjs";
 import { SPACE_MAILBOX_BOUNDS } from "../src/mailbox.js";
@@ -135,19 +138,23 @@ async function provisionStormWorlds(fixture: DatabaseFixture): Promise<void> {
   }
 }
 
+// The host's wall-time bound (600 s on the reference host, more on a slower one), set by
+// qualify:wave3:load-curves, so a slower host that finishes every point is not stopped at 600 s.
+const BOUND_MS = fixtureWallTimeBound();
+
 describe("Wave 3 load curves through the native owner (qualify:wave3:load-curves)", () => {
   it.skipIf(isNativeWorldOwnerChild())(
     "owns a native runtime, disposable PostgreSQL and eleven worlds",
     async () => {
       await runNativeWorldOwnerProcess(FILE, "fixture", {
         vitestConfig: "apps/runtime/vitest.load-curves.config.ts",
-        timeoutMs: 600_000,
+        timeoutMs: BOUND_MS,
         inheritOutput: true,
         prepare: provisionStormWorlds,
         connections: CONNECTIONS,
       });
     },
-    720_000,
+    BOUND_MS + 120_000,
   );
 
   it.skipIf(!isNativeWorldOwnerChild())(
@@ -358,6 +365,6 @@ describe("Wave 3 load curves through the native owner (qualify:wave3:load-curves
         process.stdout.write(`load curves written to ${file}\n`);
       });
     },
-    600_000,
+    BOUND_MS,
   );
 });

@@ -709,7 +709,10 @@ over the reference, never below 1, so a faster host keeps 600 s and a host twice
 1,200 s (`hostWallTimeBound`). `wallTime` in the result records `ms`, `boundMs` (the host bound),
 `baseBoundMs`, `hostFactor` (2 decimals), `calibrationMs`, `referenceMs`, `source` and `status`. A
 run on a slower runner class that finishes every point correctly is judged against its own scaled
-bound, not failed for wall time alone.
+bound, not failed for wall time alone. The command hands the host bound to the fixture as
+`CLOCKGROVE_WAVE3_LOAD_CURVES_BOUND_MS` (`fixtureEnvironment`), and the fixture runs its native
+owner under that bound (`fixtureWallTimeBound`; the base 600 s when the fixture runs on its own),
+so the owner is not stopped at 600 s on a slower host.
 
 The fixture drives the native workerd/PostgreSQL owner path of the other native tests (the
 production Worker, `WorldDO`, `SpaceDO` and catch-up Workflow in Miniflare, over one disposable
