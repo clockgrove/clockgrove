@@ -322,6 +322,32 @@ it.skipIf(!isNativeWorldOwnerChild())(
         [3, "commit", "succeeded"],
       ]);
 
+      // No member grant or capability set enters any prompt section, protected or untrusted.
+      const grants = (await owner.sql("SELECT unnest(grants) FROM clockgrove.world_memberships"))
+        .trim()
+        .split("\n");
+      const capabilities = [
+        "fixture.inspect",
+        "perception.list",
+        "world.command",
+        "document.write",
+      ];
+      const runIds = (await owner.sql("SELECT run_id FROM clockgrove.agent_runs"))
+        .trim()
+        .split("\n");
+      const sections: [string, string][] = [];
+      for (const runId of runIds) {
+        const run = (await post("/v1/runtime/runs/inspect", { runId }, MEMBER)).body as RunWalk;
+        const text = JSON.parse(run.runs[0]?.prompt?.text ?? "{}");
+        for (const name of ["protected", "governed", "untrusted"])
+          sections.push([name, JSON.stringify(text[name])]);
+      }
+      const filled = sections.filter(([, text]) => text !== "[]").map(([name]) => name);
+      expect(new Set(filled)).toEqual(new Set(["protected", "untrusted"]));
+      expect(grants).toContain("runtime:world-observe");
+      for (const [, text] of sections)
+        for (const secret of [...grants, ...capabilities]) expect(text).not.toContain(secret);
+
       // Private cognition never enters scene state or the journal.
       const scene = await post("/v1/runtime/scene", {});
       const journal = await owner.sql(
