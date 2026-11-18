@@ -11,6 +11,7 @@ import {
   positionAt,
   type RoutineCandidate,
   sameCoordinates,
+  shelterReflexThreshold,
   type WorldBehaviorPolicy,
   type WorldEntity,
   type WorldState,
@@ -283,7 +284,7 @@ export function scoreUtility(
   }
   const eligible = candidates.filter((candidate) => candidate.excludedReason === undefined);
   const reflex =
-    wetness >= 9000n
+    wetness >= shelterReflexThreshold(environment)
       ? eligible.filter((candidate) => candidate.action.kind === "seek-shelter")
       : [];
   const pool = reflex.length > 0 ? reflex : eligible;

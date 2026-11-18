@@ -178,6 +178,8 @@ export interface ConversationMessage {
   /** On an actor reply: the world command proposed in that turn and what became of it, read from run evidence. */
   readonly command?: TalkCommandOutcome;
   readonly moderationShadow?: ModerationShadowJudgement;
+  /** On an actor reply: present when its turn recorded at least one tool call, read from the turn's record. */
+  readonly toolCallsRecorded?: true;
   /** Runtime degradation is a service disposition, not an actor's authored behavior. */
   readonly serviceOutcome?:
     | "model_unavailable"
@@ -472,6 +474,11 @@ export function decodeConversationSession(
   });
 }
 
+function toolCallsRecorded(value: unknown, path: string): true {
+  if (value !== true) throw new ContractDecodeError(path, "must be true when present");
+  return true;
+}
+
 export function decodeConversationMessage(
   value: unknown,
   path = "conversationMessage",
@@ -480,7 +487,7 @@ export function decodeConversationMessage(
   exactKeys(
     v,
     ["sessionId", "sequence", "messageId", "role", "authorId", "voiceMode", "text", "createdAt"],
-    ["command", "moderationShadow", "serviceOutcome"],
+    ["command", "moderationShadow", "serviceOutcome", "toolCallsRecorded"],
     path,
   );
   const role = literal(v.role, ["caretaker", "actor"], `${path}.role`);
@@ -511,6 +518,9 @@ export function decodeConversationMessage(
             `${path}.serviceOutcome`,
           ),
         }),
+    ...(v.toolCallsRecorded === undefined
+      ? {}
+      : { toolCallsRecorded: toolCallsRecorded(v.toolCallsRecorded, `${path}.toolCallsRecorded`) }),
     ...(v.command === undefined
       ? {}
       : { command: decodeTalkCommandOutcome(v.command, `${path}.command`) }),

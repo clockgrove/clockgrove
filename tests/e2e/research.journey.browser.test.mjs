@@ -102,7 +102,10 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
         .getByText(/Fixture research succeeded: The fixture archive code is ORCHID-42\./u)
         .waitFor({ timeout: 60000 });
       expect(await history.textContent()).not.toContain("Unexecuted proposal text");
-      await history.getByRole("button", { name: "Why? Tool evidence", exact: true }).click();
+      // The control follows the turn's recorded calls: exactly the one research reply has it.
+      const toolEvidence = history.getByRole("button", { name: "Why? Tool evidence", exact: true });
+      expect(await toolEvidence.count()).toBe(1);
+      await toolEvidence.click();
       const evidence = page.getByRole("complementary", { name: "Tool evidence", exact: true });
       await evidence
         .getByText("Tool result recorded as untrusted evidence", { exact: true })
@@ -225,6 +228,19 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       await history
         .getByText(/Fixture research uncertain: tool_uncertain/u)
         .waitFor({ timeout: 60000 });
+      // A refused or uncertain call is recorded but cites nothing, so these replies carry no
+      // [tool:…] text; the control still follows the turn's recorded calls.
+      for (const reply of [
+        /Fixture research refused: Tool refused: approval_denied/u,
+        /Fixture research uncertain: tool_uncertain/u,
+      ]) {
+        const row = history.getByRole("listitem").filter({ hasText: reply });
+        expect(await row.count()).toBe(1);
+        expect(await row.textContent()).not.toContain("[tool:");
+        expect(
+          await row.getByRole("button", { name: "Why? Tool evidence", exact: true }).count(),
+        ).toBe(1);
+      }
       await page
         .getByLabel("Message Keeper…", { exact: true })
         .fill(`fixture:research-no-answer 1 ${CAPABILITY} {"q":"down"}`);

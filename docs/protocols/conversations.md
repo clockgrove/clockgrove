@@ -120,6 +120,8 @@ The internal [delivery boundary](channels.md#governed-outbound-delivery) governs
 Proactive delivery retains recipient-owned per-actor consent, lifetime reservations and quiet hours in the recipient timezone. Actor activation alarms automatically resume delayed requests, rechecking current authority and consent. Live timelines use the deterministic fake sink; non-live timelines use only the isolated preview sink. Replay reads historical receipts without another send. The combined browser/CLI/fake journey proves separate channel-thread transcripts on the same fixture actor.
 ## Research service dispositions
 
+An actor reply carries `toolCallsRecorded: true` exactly when its turn recorded at least one tool call, read from the turn's record and not from the reply text. The browser offers "Why? Tool evidence" on that fact alone; the field is absent otherwise.
+
 Issue 165 adds optional `serviceOutcome` metadata to an actor reply, sourced from its canonical
 turn fiber. Values are `model_unavailable`, `model_steps_exhausted`, `cost_budget_exhausted` and
 `tool_calls_exhausted`. The receipt and reloaded transcript carry the same value. The browser

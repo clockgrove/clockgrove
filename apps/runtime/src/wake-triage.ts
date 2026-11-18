@@ -30,6 +30,17 @@ interface WakeTriageEnvironment {
   readonly AI_GATEWAY_API_KEY?: string;
 }
 
+/** The calendar day (YYYY-MM-DD) of an instant in an IANA time zone. */
+export function wallClockDay(nowMs: number, zone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(nowMs);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 export function wakeTriagePolicy(source: string | undefined): WakeTriagePolicy | undefined {
   if (source === undefined) return undefined;
   // Decisions for the opt-in pilot: 65% confidence; $0.10 reserved per world/day and $0.001
@@ -41,6 +52,17 @@ export function wakeTriagePolicy(source: string | undefined): WakeTriagePolicy |
       model: z.string().min(1).default("perplexity/pplx-decider-v1.2"),
       confidenceThreshold: z.number().int().min(0).max(10000).default(6500),
       dailyBudgetMicrousd: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(100000),
+      dailyBudgetZone: z
+        .string()
+        .default("UTC")
+        .refine((zone) => {
+          try {
+            new Intl.DateTimeFormat("en-CA", { timeZone: zone });
+            return true;
+          } catch {
+            return false;
+          }
+        }, "dailyBudgetZone must be an IANA time zone"),
       maxCostMicrousd: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(1000),
     })
     .strict()
@@ -97,7 +119,13 @@ export async function shadowActorWake(
     ) as { policy?: { environment?: { dayLengthMs: bigint } } } | undefined;
   const dayLengthMs = behavior?.policy?.environment?.dayLengthMs ?? 86400000n;
   const store = new PostgreSqlWakeTriage(client);
-  const reservation = await store.reserve(participant, fiber, policy, dayLengthMs);
+  const reservation = await store.reserve(
+    participant,
+    fiber,
+    policy,
+    dayLengthMs,
+    wallClockDay(Date.now(), policy.dailyBudgetZone),
+  );
   const record =
     reservation.record ??
     (await judgeWake({

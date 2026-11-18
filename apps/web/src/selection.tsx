@@ -185,6 +185,7 @@ function EntitySelectionPanel({
                   </time>{" "}
                   <button
                     type="button"
+                    data-why-opener={`history:${action.eventId}`}
                     onClick={(event) => {
                       whyOpener.current = event.currentTarget;
                       session.explain(action.commandId);

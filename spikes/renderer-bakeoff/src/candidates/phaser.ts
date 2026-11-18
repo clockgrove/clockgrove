@@ -774,6 +774,9 @@ class PhaserBakeoff implements BakeoffAdapter {
     this.reduced = enabled;
   }
 
+  /** The spike draws no day/night cycle. */
+  setDayLength(_dayLengthMs: bigint | undefined): void {}
+
   onIntent(handler: (intent: SceneIntent) => void): Unsubscribe {
     this.handlers.add(handler);
     return () => {

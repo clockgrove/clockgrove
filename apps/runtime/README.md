@@ -57,7 +57,7 @@ Both fixtures are scoped to `tenant-runtime` / `world-runtime` / `timeline-runti
 `DeterministicTestAuthProvider.createRoleSession(role, { revision, expiresAt })` installer.
 The provider maps identities and verifies sessions; `authenticationFixture` supplies separate
 `WorldAuthorization` records. Its clock is 100 and session expiry is 200, matching the existing
-local session convention. These fixtures do not enroll hosted or staging users and are not
+local session convention. These fixtures do not enroll users of a hosted deployment and are not
 production authentication or fallback identities; hosted enrollment and production stored-session
 composition remain separate.
 

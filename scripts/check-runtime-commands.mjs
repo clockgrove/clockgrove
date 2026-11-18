@@ -27,12 +27,19 @@ export function planCommands(plan) {
   };
 }
 
-/** A command an amendment sentence removes, naming it in backticks with the word "removed". */
+/**
+ * A command an amendment retires: a sentence that records the decision for it, its subject the
+ * command in backticks, alone or in a list (`` `a`, `b` and `c` ``), followed by "is removed" or
+ * "are removed". A sentence that only names the command near the word ("`a` is not removed",
+ * "`b` replaces the removed `a`") retires nothing.
+ */
+const RETIRING =
+  /^(?:Amended \([^)]*\):\s*)?((?:`[^`]+`(?:,\s*|,?\s+and\s+)?)+)\s+(?:is|are)\s+removed\b/u;
 const removedBy = (amendments, name) =>
   amendments.find((paragraph) =>
     paragraph
       .split(/(?<=\.)\s+/u)
-      .some((sentence) => /\bremoved\b/u.test(sentence) && sentence.includes(`\`${name}\``)),
+      .some((sentence) => RETIRING.exec(sentence)?.[1].includes(`\`${name}\``) === true),
   );
 
 /**
@@ -105,12 +112,12 @@ export async function runtimeCommands(root) {
 }
 
 export async function checkRuntimeCommands(root) {
-  // Negative control: an unremoved missing command, a file that is not a runtime test and a file two
-  // scripts name are each reported.
+  // Negative control: an unremoved missing command, a missing command a sentence names beside "not
+  // removed", a file that is not a runtime test and a file two scripts name are each reported.
   const run = (...files) =>
     `vitest run --config apps/runtime/vitest.runtime.config.ts ${files.join(" ")}`;
   const control = runtimeCommandProblems(
-    "### 18.1 x\n```text\npnpm a\npnpm b\npnpm c\npnpm d\n```\n\nAmended (2026-01-01): `d` is removed.\n",
+    "### 18.1 x\n```text\npnpm a\npnpm b\npnpm c\npnpm d\npnpm e\n```\n\nAmended (2026-01-01): `d` is removed. `e` is not removed.\n",
     {
       b: run("apps/runtime/test/x.test.ts"),
       c: run("apps/runtime/test/y.test.ts", "apps/runtime/test/x.test.ts"),
@@ -118,7 +125,7 @@ export async function checkRuntimeCommands(root) {
     ["apps/runtime/test/x.test.ts"],
     [],
   ).problems;
-  assert.equal(control.length, 3, `runtime commands negative control: ${control.join("; ")}`);
+  assert.equal(control.length, 4, `runtime commands negative control: ${control.join("; ")}`);
   const commands = await runtimeCommands(root);
   console.log(
     `runtime commands: ${commands.filter((entry) => entry.disposition === "script").length} scripts, ${commands.filter((entry) => entry.disposition === "removed").length} removed by amendment`,

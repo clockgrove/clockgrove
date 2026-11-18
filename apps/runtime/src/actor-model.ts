@@ -96,8 +96,7 @@ export interface PerceptionFocus {
  * the actor perceiving nothing by location, so the actor's space is its range until a world can
  * declare one. The member's authorized scene bounds them, so nothing outside it is ever shown; an actor
  * that is not an entity of the state has no space, and perceives that scene. Entities the message
- * names (by object id or label) come first, then the nearest to the actor in its frame, then by
- * object id: a pure order of the state, so replay reproduces it.
+ * names (by object id or label) come first, in the order of `rankedEntities`.
  */
 export function perceivedEntities(
   scene: LivingScene,
@@ -115,12 +114,50 @@ export function perceivedEntities(
       (found.lifecycle === undefined || found.lifecycle.status === "active")
     );
   });
+  return rankedEntities(perceived, state, focus, (entity) => entity.presentation.label);
+}
+
+/**
+ * `entities` in the order an actor attends to them (issue 364): entities the turn's message names
+ * (issue 354; a listing has no message), then the actor itself, then what it is involved with, then
+ * the nearest to the actor in its frame, then by object id. Involved means a direct physical relation in the state, either way round: its
+ * location (shelter), its container and contents, and its routine target (the food, water or
+ * shelter it seeks or eats from). A pure order of the state, so replay reproduces it.
+ */
+export function rankedEntities<T extends { readonly objectId: string }>(
+  entities: readonly T[],
+  state: WorldState,
+  focus: PerceptionFocus = {},
+  label: (entity: T) => string = () => "",
+): T[] {
+  const byId = new Map(state.entities.map((entity) => [entity.objectId as string, entity]));
+  const actorId = focus.actorId;
+  const actor = actorId === undefined ? undefined : byId.get(actorId);
+  const involved = new Set<string>();
+  if (actor !== undefined && actorId !== undefined) {
+    const own = [
+      actor.locationId,
+      actor.containment?.containerId,
+      actor.selectedAction?.targetObjectId,
+    ];
+    for (const id of own) if (id !== undefined) involved.add(id);
+    for (const entity of state.entities)
+      if (
+        entity.locationId === actorId ||
+        entity.containment?.containerId === actorId ||
+        entity.selectedAction?.targetObjectId === actorId
+      )
+        involved.add(entity.objectId);
+  }
   const message = focus.message?.toLowerCase() ?? "";
-  const named = (entity: LivingScene["entities"][number]) =>
-    message !== "" &&
-    (message.includes(String(entity.objectId).toLowerCase()) ||
-      (entity.presentation.label.trim() !== "" &&
-        message.includes(entity.presentation.label.toLowerCase())));
+  const named = (entity: T) => {
+    const text = label(entity).trim().toLowerCase();
+    return (
+      message !== "" &&
+      (message.includes(String(entity.objectId).toLowerCase()) ||
+        (text !== "" && message.includes(text)))
+    );
+  };
   const distance = (objectId: string): bigint | undefined => {
     const pose = byId.get(objectId)?.pose;
     const from = actor?.pose;
@@ -137,11 +174,14 @@ export function perceivedEntities(
       return sum + delta * delta;
     }, 0n);
   };
-  return perceived
-    .map((entity) => ({ entity, named: named(entity), distance: distance(entity.objectId) }))
+  // Rank 0 is what the message names, 1 the actor, 2 what it is involved with, 3 everything else.
+  const rank = (entity: T) =>
+    named(entity) ? 0 : entity.objectId === actorId ? 1 : involved.has(entity.objectId) ? 2 : 3;
+  return entities
+    .map((entity) => ({ entity, rank: rank(entity), distance: distance(entity.objectId) }))
     .sort(
       (left, right) =>
-        Number(right.named) - Number(left.named) ||
+        left.rank - right.rank ||
         (left.distance === right.distance
           ? 0
           : left.distance === undefined

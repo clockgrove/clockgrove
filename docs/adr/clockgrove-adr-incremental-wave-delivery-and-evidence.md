@@ -18,7 +18,7 @@ Plans must also avoid two failures: comparisons that mistake incidental evidence
 
 ### 1. Waves are substantial sequential workstreams
 
-Waves 0–12 remain the canonical sequence and retain their full exit obligations. A wave contains numerous Objectives, and an Objective contains the Work Items needed for one complete, testable capability. A wave is neither one giant Objective nor a release per Work Item.
+Waves 0–9 remain the canonical sequence and retain their full exit obligations; Waves 10–12 are parked. A wave contains numerous Objectives, and an Objective contains the Work Items needed for one complete, testable capability. A wave is neither one giant Objective nor a release per Work Item.
 
 The detailed work packets describe responsibility and dependencies. They are inputs to Objective planning, not an instruction to create one Objective per packet or to freeze the original packet boundaries forever. Group closely related implementation, tests, and integration into a capability with one owner and a declared acceptance surface. Split when ownership, evidence, resources, or a real dependency requires it.
 
@@ -42,7 +42,7 @@ At the first relevant checkpoint, declare the intended audience and hypothesis, 
 
 ### 3. Readiness and qualification are distinct
 
-Full preceding-wave qualification remains the default entry condition. The following bounded local-development exception is accepted: a named Objective may consume an already accepted subset of a preceding wave before that wave's remaining staging, load, or full release qualification finishes.
+Full preceding-wave qualification remains the default entry condition. The following bounded local-development exception is accepted: a named Objective may consume an already accepted subset of a preceding wave before that wave's remaining validation-deployment, load, or full release qualification finishes.
 
 Before starting that consumer, its Issue must identify the exact prerequisite capabilities and evidence, the pending wave-exit obligations, the local or isolated test surface, the consumer's acceptance, and the owner of the remaining qualification. This permits only the named subset and does not authorize completing a later wave wholesale in parallel.
 
@@ -86,4 +86,4 @@ Human-owned choices remain explicit at the first consumer: pilot audience/rubric
 
 Waves remain substantial and mostly sequential, with multiple accepted capabilities before full qualification. Early feedback can change later Objective scope without creating a competing roadmap. The wave-local sequencing notes identify first and subsequent capabilities; detailed packets, failure matrices, full exits, and release requirements remain applicable at their stated milestone.
 
-Waves 0–9 deliver technical/open-source GA. Waves 10–11 are the separate hosted/shared-world continuation. Wave 12 is optional commercial hosting; Redis, money collection, and Stripe do not move onto the earlier product path. No runtime behavior, provider configuration, existing Objective, or release validator changes merely because this planning decision is accepted.
+Waves 0–9 deliver technical/open-source GA. Waves 10–12 are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Redis, money collection, and Stripe do not move onto the product path. No runtime behavior, provider configuration, existing Objective, or release validator changes merely because this planning decision is accepted.

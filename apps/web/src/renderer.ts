@@ -368,6 +368,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private visible = true;
   private rain!: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicNodeMaterial>;
   private night = false;
+  /** The pack's day length from the world clock; undefined keeps the canonical day. */
+  private dayLength: bigint | undefined;
   private readonly environmentGrade = uniform(new THREE.Color(0xffffff));
   private lights: THREE.PointLight[] = [];
   private sky: THREE.DirectionalLight[] = [];
@@ -1167,6 +1169,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     }
     this.drawEmphasis();
   }
+  setDayLength(dayLengthMs: bigint | undefined): void {
+    if (dayLengthMs === this.dayLength) return;
+    this.dayLength = dayLengthMs;
+    this.draw();
+  }
   setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
     if (enabled) {
@@ -1511,7 +1518,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         }
         drawn.visual = visual;
       }
-      drawn.body.userData.wind = /(?:shrub|foliage|tree)/u.test(binding?.assetId ?? "");
+      drawn.body.userData.wind = binding?.sway === true;
       drawn.body.renderOrder = 10000 + index;
       drawn.body.position.z = this.content
         ? contentDepth(placement.x, placement.y, placement.elevation)
@@ -1549,7 +1556,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     mesh.material?.dispose();
   }
   private drawEnvironment(projection: SceneProjection): void {
-    this.night = isNight(projection.simulationTime);
+    this.night = isNight(projection.simulationTime, this.dayLength);
     this.scene.userData.night = this.night;
     const environment = projection.lighting?.environment;
     this.environmentGrade.value.set(environment?.gradeColour ?? 0xffffff);
@@ -1602,7 +1609,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const frames = new Map(projection.frames.map((frame) => [frame.frameId, frame]));
     const sources =
       projection.lighting?.placed ??
-      shownEffects(projection).flatMap((effect) =>
+      shownEffects(projection, this.dayLength).flatMap((effect) =>
         effect.role === "puddle"
           ? []
           : [{ pose: effect.pose, colour: "#ffb966", intensity: 1500, rangeMetres: 14.4 }],
@@ -1755,7 +1762,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.effects.push({ role: effect.role, key, sprite, index });
       });
     }
-    const shown = new Set(shownEffects(projection));
+    const shown = new Set(shownEffects(projection, this.dayLength));
     for (const item of this.effects) {
       const daylight = projection.lighting?.environment?.daylight;
       const alpha = item.role !== "puddle" && daylight !== undefined ? 1 - daylight : 1;
@@ -1813,7 +1820,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     if (
       !SCENE_QUALITY[this.tier].reflections ||
       !this.projection ||
-      !shownEffects(this.projection).some((effect) => effect.role === "puddle")
+      !shownEffects(this.projection, this.dayLength).some((effect) => effect.role === "puddle")
     )
       return;
     for (const drawn of this.drawn.values()) {
@@ -2046,7 +2053,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const index = Math.floor(t / (animation?.durationMs ?? 250)) % count;
       drawn.body.userData.playing = !this.reducedMotion && count > 1;
       changed = this.setFrame(drawn.body, index) || changed;
-      // Today's bindings identify foliage explicitly; absent #66 wind maps use a gentle uniform weight.
+      // The pack's binding declares what sways; absent #66 wind maps use a gentle uniform weight.
       const wind = SCENE_QUALITY[this.tier].wind && drawn.body.userData.wind;
       if (!wind && drawn.body.userData.base && drawn.body.userData.swayed) {
         drawn.body.geometry.getAttribute("position").array.set(drawn.body.userData.base);

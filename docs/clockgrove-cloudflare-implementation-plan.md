@@ -28,15 +28,16 @@ Every development wave exercises the production architecture through final inter
 The v3.8 baseline incorporated the accepted post-v3.0 product/runtime decisions, the PRD 4.3 future-capability pressure test, the end-to-end Raccoon World provisioning/browser walkthrough, and the accepted Management Plane / World Runtime Plane boundary. Development automation is externalized to the separate `clockgrove/pendulum` project and is not a product/runtime dependency:
 
 - Clockgrove is the platform for any world. Raccoon World, its first reference world, lives in its own repository, [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), and builds against Clockgrove at a pinned commit. Clockgrove's own test world is `worlds/fixture`, the platform's portability proof.
+- Clockgrove is an engine, not a hosted service. The unit of deployment is a world: a world pack plus a pinned Clockgrove, deployed into the developer's own cloud account. Players sign in to that world's deployment.
 - Better Auth is the reference OSS authentication adapter; Clerk is optional.
 - Workspace membership, world membership, world persona, and live presence are distinct records.
-- Mutation attribution is required from Wave 0 onward, before billing exists.
+- Mutation attribution is required from Wave 0 onward.
 - Personal inventory and object mobility are world- and timeline-local; cross-world runtime object portability is explicitly out of scope.
 - Mobility policy inherits from world to space to role/persona to archetype to instance; children may narrow but not silently widen, and deny wins.
 - One million logical actors per world is a qualification target. A loose quadtree and activity tiers prevent total population from implying total activation.
-- Waves 0–9 are the technical/open-source track, Waves 10–11 are the shared hosted-world track, and Wave 12 is optional commercial hosting.
-- One Management-owned `BillingAccount` wallet is shared across its worlds. PostgreSQL owns immutable accounting, Redis atomically allocates bounded world credit leases, Runtime consumes leases locally, and Stripe remains Management-only money infrastructure.
-- Management owns identity/tenancy, world catalog/desired lifecycle, pack registry, provisioning cases, quotas, sponsorship, wallet/rating/accounting and Stripe. World Runtime owns journals, simulation, cognition, world participation, attribution and projection. They initially compose as a modular monolith/CLI and may split physically later without changing contracts.
+- Waves 0–9 are the delivery plan. Waves 10 and 12 (self-service signup and tenancy, metering, prepaid credits and billing) and Wave 11's hosted and social parts are parked and not planned. Wave 11's engine items (per-space state split, cross-space transfer saga, fidelity tiers, quadtree promotion, the one-million-actor fixture, and object mobility) are planned post-GA engine work.
+- Shared wallets, credit leases, rating, accounting and payment-provider integration are parked with Waves 10–12.
+- Inside each world's deployment, Management owns identity/tenancy, world catalog/desired lifecycle, pack registry, provisioning cases and quotas. World Runtime owns journals, simulation, cognition, world participation, attribution and projection. They initially compose as a modular monolith/CLI and may split physically later without changing contracts.
 
 If an older subsection conflicts with this reconciliation, this subsection, PRD v0.5, and the accepted ADR control in that order of specificity.
 
@@ -114,7 +115,7 @@ Browser
         ▼
 Cloudflare Worker gateway
   Management API: identity · tenancy · world catalog/lifecycle
-                  pack registry · provisioning · quotas · wallet · Stripe
+                  pack registry · provisioning · quotas
   Runtime API: world authorization · commands · chat · inspection · projection
   one modular deployable initially; typed plane boundary internally
         │
@@ -154,7 +155,7 @@ The public gateway may be one deployable and the local `clockgrove` CLI may comp
 | Principals, tenants/workspaces and workspace roles | World membership, personas, presence and inventory |
 | World catalog and desired lifecycle | Applied runtime lifecycle and `WorldReady` truth |
 | Pack registry and provisioning/upgrade/archive/delete cases | Genesis, migrations, journal commits and installation receipts |
-| Billing accounts, shared wallets, sponsorship, quotas, rating, accounting and Stripe | Attributed raw usage, world-local credit-lease enforcement and execution modes |
+| Quotas; *parked:* billing accounts, shared wallets, sponsorship, rating, accounting and Stripe | Attributed raw usage; *parked:* world-local credit-lease enforcement and execution modes |
 | Administrative APIs and desired policy | Simulation, schedules, actors, cognition, conversations and scene/text projection |
 
 No Management adapter writes world journal/state tables. No Runtime adapter imports authentication-provider, Stripe, invoice, payment, tax or global-wallet persistence. Cross-plane changes use versioned commands/cases, leases, usage receipts and applied-state projections with outbox/reconciliation semantics.
@@ -3008,9 +3009,11 @@ The inspector is built through authorized application APIs, not direct productio
 | CI | Parallel automated validation | Ephemeral PostgreSQL; local Cloudflare runtime; unique test IDs |
 | Development | Shared integration | Dedicated Cloudflare resources, Neon project/branch, Better Auth reference environment or selected provider dev app |
 | Staging | Production-equivalent qualification | Dedicated account/resources/project/app and sanitized fixtures |
-| Production | Hosted GA | Isolated resources, protected credentials and release controls |
+| Production | A developer's live world | Isolated resources, protected credentials and release controls |
 
-Pull-request web previews use fixture data. Full stateful cloud qualification uses the development/staging environments with unique test tenants/worlds; do not create a fragile production-like infrastructure stack per PR.
+These are the environments a world's deployment uses in the developer's own accounts. The deploy tooling deploys only this repository's qualified main commit: main pushes to `development`, release candidates to the validation deployment (environment `staging`). Deploying a developer's world pack, and any `production` deployment, are not built yet; `production` is disabled. Clockgrove has no production deployment of its own; its hosted proof is the validation deployment, with release evidence on the fixture world.
+
+Pull-request web previews use fixture data. Full stateful cloud qualification uses the `development` and `staging` environments with unique test tenants/worlds; do not create a fragile production-like infrastructure stack per PR.
 
 ### 22.2 Cloudflare resources per deployed environment
 
@@ -3030,7 +3033,7 @@ One Worker is the initial deployment unit. Package and RPC boundaries allow late
 ### 22.3 Neon resources
 
 - separate production and nonproduction projects at minimum;
-- dedicated database/branch per staging and production;
+- dedicated database/branch per `staging` and `production` environment;
 - roles for migrations, runtime, read-only support and backup verification;
 - pgvector extension;
 - PITR/retention configured and tested;
@@ -3040,7 +3043,7 @@ One Worker is the initial deployment unit. Package and RPC boundaries allow late
 
 ### 22.4 Authentication-provider resources
 
-- Better Auth reference schema/migrations and secrets separated across development, staging, and production;
+- Better Auth reference schema/migrations and secrets separated across `development`, `staging` and `production`;
 - optional hosted-provider applications/instances separated across environments;
 - allowed origins/callbacks pinned per environment;
 - production MFA/session/security policy;
@@ -3100,7 +3103,7 @@ Use `rw-{environment}-{resource}` externally. Never include customer names or pr
 - local authentication bypass only in explicit development mode;
 - local inspector and structured trace output.
 
-The local authentication bypass issues a clearly marked `DevelopmentPrincipal` through a separate composition binding. It cannot compile into staging/production configuration, and a CI test asserts the production gateway has no bypass route.
+The local authentication bypass issues a clearly marked `DevelopmentPrincipal` through a separate composition binding. It cannot compile into `staging`/`production` configuration, and a CI test asserts the production gateway has no bypass route.
 
 Hyperdrive local configuration points directly to local PostgreSQL. A separate `pnpm dev:cloud` profile uses real nonproduction Cloudflare/Hyperdrive behavior for qualification.
 
@@ -3118,7 +3121,7 @@ pnpm test:runtime          local Cloudflare DO/Workflow/Queue tests
 pnpm test:e2e              Playwright browser tests
 pnpm test:replay           golden replay and state hashes
 pnpm test:eval             scripted agent/memory evaluations
-pnpm test:cloud            staging qualification; credentials required
+pnpm test:cloud            hosted-environment qualification (default staging); credentials required
 pnpm db:migrate
 pnpm db:verify
 pnpm dev:world
@@ -3177,7 +3180,7 @@ No live model credentials are available to untrusted pull requests.
 - publish web preview and inspector evidence link;
 - retain release manifest and test results.
 
-### 24.3 Staging release
+### 24.3 `staging` release
 
 1. verify OpenTofu plan;
 2. apply additive infrastructure/database changes;
@@ -3190,7 +3193,7 @@ No live model credentials are available to untrusted pull requests.
 9. verify dashboards and alerts;
 10. approve release manifest.
 
-### 24.4 Production release
+### 24.4 `production` release
 
 - canary by internal tenant/world and feature flag;
 - compare SLOs, errors, replay hashes and costs;
@@ -3497,7 +3500,7 @@ Canonical world replay never depends on retained raw model/tool payloads: behavi
 | UI | Testing Library + Playwright | interactions, inspector, authoring, accessibility |
 | Load | k6 plus scenario drivers | hot space/actor, fanout, catch-up, cost |
 | Recovery | fault harness | database/provider/runtime/deploy failures |
-| Cloud qualification | staging | behaviors local emulation cannot prove |
+| Cloud qualification | validation deployment (environment `staging`) | behaviors local emulation cannot prove |
 
 ### 27.2 Package test obligations
 
@@ -3583,7 +3586,7 @@ Each test asserts canonical state, idempotency, user-visible status, evidence co
 
 ### 27.4 Cloud qualification
 
-Staging verifies:
+The validation deployment (environment `staging`) verifies:
 
 - real DO placement/restart and hibernating sockets;
 - real Hyperdrive interruption/connection behavior;
@@ -3683,7 +3686,7 @@ Tests:
 - schema/address golden vectors;
 - production build proves no auth bypass;
 - fresh local setup on clean machine/container;
-- staging no-op path browser → Worker → DO RPC → PostgreSQL evidence.
+- validation-deployment no-op path browser → Worker → DO RPC → PostgreSQL evidence.
 
 Exit:
 
@@ -3963,7 +3966,7 @@ Deliver:
 
 - tenant admin, invitations, moderation hooks and quotas;
 - retention, deletion, export and audit workflows;
-- billing meters without coupling world semantics to a billing vendor;
+- usage and cost meters without coupling world semantics to a billing vendor;
 - production SLO dashboards/alerts;
 - feature, rule, model, MCP and world kill switches;
 - backup/restore/DR and replay verification;
@@ -3987,9 +3990,11 @@ Exit:
 
 > All GA objectives have measured evidence, P0/P1 runbooks are rehearsed, and the repository can reproduce the hosted architecture locally and in a clean Cloudflare/Neon environment.
 
-GA ships the platform. Raccoon World ships beside it as a separate reference world from its own repository, pinned to the released Clockgrove commit.
+GA ships the platform. Raccoon World ships beside it as a separate reference world from its own repository, pinned to the released Clockgrove commit; that repository deploys it into its own accounts.
 
-### Wave 10 — Self-service multitenancy, signup, and workspace onboarding
+**Parked (owner decisions 2026-11-14 and 2026-11-17):** Waves 10 and 12 below, and Wave 11's hosted and social parts, are not planned. Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Wave 11's engine items are planned post-GA engine work (see the Wave 11 plan).
+
+### Wave 10 — Self-service multitenancy, signup, and workspace onboarding (parked)
 
 **Purpose:** Add the provider-neutral Management Plane after technical/open-source GA.
 
@@ -3999,7 +4004,7 @@ Exit:
 
 > A new principal can create or join a workspace and provision a bounded starter world without any provider-specific identifier becoming a domain key.
 
-### Wave 11 — Multiuser worlds, personas, attribution, and world-local inventory
+### Wave 11 — Multiuser worlds, personas, attribution, and world-local inventory (hosted and social parts parked)
 
 **Purpose:** Make a world a durable social place with MUD/MOO-style participation.
 
@@ -4009,7 +4014,7 @@ Exit:
 
 > A visitor joins a friend's world, drops a permitted axe, and the friend later picks it up and chops a permitted tree; identity, possession, authority, action, and consequences remain inspectable across disconnects and retries.
 
-### Wave 12 — Optional metering, prepaid credits, and billing
+### Wave 12 — Optional metering, prepaid credits, and billing (parked)
 
 **Purpose:** Add commercially safe admission for variable-cost hosted work without changing world truth.
 
@@ -4023,7 +4028,7 @@ Exit:
 
 ## 30. Coding-agent execution protocol
 
-`clockgrove/pendulum` may be used to execute packets in Waves 0–12, but it is external development tooling rather than a product/runtime control plane. The packet definitions, repository guidance, CI, GitHub checks, human approvals, and committed evidence below remain the portable project interfaces regardless of which development automation is used.
+`clockgrove/pendulum` may be used to execute packets in Waves 0–9, but it is external development tooling rather than a product/runtime control plane. The packet definitions, repository guidance, CI, GitHub checks, human approvals, and committed evidence below remain the portable project interfaces regardless of which development automation is used.
 
 ### 30.1 Root guidance
 
@@ -4171,10 +4176,10 @@ These topics require explicit decision coverage, not fourteen new ADRs before th
 | MMO-scale evolution | 4, 10, 12, 28 | 3–4, 9 |
 | Product metrics and falsifiable evaluation | 2.4, 25.4, 27.5 | 4–9 |
 | Future quests/gamification reuse existing primitives | 18.5 | after rule/authoring foundation |
-| World-local personal inventory and inherited object mobility | 6, 7.6, 10.8–10.9, 13 | 1–4, 7, 10–11 |
-| Immutable action and authority attribution | 6, 9, 13, 25 | every wave; full multiuser UX in 11 |
-| Provider-neutral signup and world personas | 13, 20, 22 | 0, 4, 10–11 |
-| Redis-backed prepaid admission and PostgreSQL accounting | 25, 33 | 12 |
+| World-local personal inventory and inherited object mobility | 6, 7.6, 10.8–10.9, 13 | 1–4, 7; 10–11 parked |
+| Immutable action and authority attribution | 6, 9, 13, 25 | every wave; full multiuser UX in 11 (parked) |
+| Provider-neutral signup and world personas | 13, 20, 22 | 0, 4; 10–11 parked |
+| Redis-backed prepaid admission and PostgreSQL accounting | 25, 33 | 12 (parked) |
 | Crash recovery and distributed failure correctness | 9, 10, 15, 27.3–27.4, 32 | every wave |
 
 ---
@@ -4225,7 +4230,7 @@ These are responsibility/dependency scopes for the full GA system, grouped into 
 ### Cloudflare actor runtime
 
 31. **RW-0301 — Actor routing and DO names:** pure address routing, opaque names, logical/runtime identity separation, routing/authority epochs, namespace migrations and golden vectors.
-32. **RW-0302 — WorldDO runtime coordinator:** applied lifecycle, clock policy, partition/runtime-cell directory, routing/authority epochs, credit-lease/execution-entitlement application, fidelity transitions and operator RPC.
+32. **RW-0302 — WorldDO runtime coordinator:** applied lifecycle, clock policy, partition/runtime-cell directory, routing/authority epochs, credit-lease/execution-entitlement application (parked with Wave 12), fidelity transitions and operator RPC.
 33. **RW-0303 — SpaceDO command owner:** hydration, hot/warm/dormant transitions, epoch fencing, mailbox, PostgreSQL commit path, cache reconciliation and RPC.
 34. **RW-0304 — Simulation alarms:** fidelity-aware deadline mapping, pause/speed changes, dormant reactivation, bounded catch-up and alarm recovery.
 35. **RW-0305 — Queue dispatch runtime:** three channels, consumers, semantic dedupe, sweeper, DLQs and replay tooling.
@@ -4355,7 +4360,7 @@ Required:
 
 Attribute cost by tenant, world, timeline, space, subject, session, simulated day, branch, model, MCP server, Workflow, Queue channel, R2 class and PostgreSQL workload.
 
-In optional commercial hosting, attribution and sponsorship remain separate. `AttributionEnvelope` answers who acted and why; a versioned sponsorship decision selects one Management-owned billing-account wallet. One wallet may fund many worlds. Redis atomically allocates bounded, expiring, epoch-fenced `WorldCreditLease` authority from that wallet; each Runtime owner reserves/consumes locally inside its lease and emits raw usage plus idempotent capture/release receipts. PostgreSQL stores rated usage, immutable double-entry accounting, purchases, grants, refunds, disputes, leases and reconciliation checkpoints and can rebuild operational projections. Stripe or another payment provider only collects and reconciles money inside Management; worlds never require distinct provider customers, subscriptions or meters.
+Commercial hosting is parked with Wave 12; this paragraph and the next describe its boundary and are not planned. In optional commercial hosting, attribution and sponsorship remain separate. `AttributionEnvelope` answers who acted and why; a versioned sponsorship decision selects one Management-owned billing-account wallet. One wallet may fund many worlds. Redis atomically allocates bounded, expiring, epoch-fenced `WorldCreditLease` authority from that wallet; each Runtime owner reserves/consumes locally inside its lease and emits raw usage plus idempotent capture/release receipts. PostgreSQL stores rated usage, immutable double-entry accounting, purchases, grants, refunds, disputes, leases and reconciliation checkpoints and can rebuild operational projections. Stripe or another payment provider only collects and reconciles money inside Management; worlds never require distinct provider customers, subscriptions or meters.
 
 If the allocator is unavailable, no new leases issue. A world may finish work only inside its valid outstanding lease, then applies its epoch/versioned `active`, `credit_restricted`, `frozen`, `read_only`, or `archived` mode. Empty prepaid wallets normally restrict variable-cost work; nonpayment may freeze simulation time at a safe journal boundary without unbounded catch-up. Redis and local lease counters are never canonical world or accounting truth.
 

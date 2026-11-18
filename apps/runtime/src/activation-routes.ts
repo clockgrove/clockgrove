@@ -177,7 +177,13 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   const configuration =
     body.configuration === undefined ? undefined : activationConfiguration(body.configuration);
   const policyValue = object(body.policy, "policy");
-  keys(policyValue, ["allowModel", "modelBudget", "revokedCapabilities"]);
+  keys(policyValue, [
+    "allowModel",
+    "modelBudget",
+    "wakeLimit",
+    "budgetPeriodMs",
+    "revokedCapabilities",
+  ]);
   const revoked = policyValue.revokedCapabilities;
   if (
     revoked !== undefined &&
@@ -187,6 +193,12 @@ export function activationCall(route: ActivationRoute, value: unknown): Activati
   const policy: ActivationPolicy = {
     allowModel: boolean(policyValue.allowModel, "allowModel"),
     modelBudget: integer(policyValue.modelBudget, "modelBudget", 1000),
+    ...(policyValue.wakeLimit === undefined
+      ? {}
+      : { wakeLimit: integer(policyValue.wakeLimit, "wakeLimit", 10_000) }),
+    ...(policyValue.budgetPeriodMs === undefined
+      ? {}
+      : { budgetPeriodMs: integer(policyValue.budgetPeriodMs, "budgetPeriodMs", 2_592_000_000) }),
     ...(revoked === undefined
       ? {}
       : {
@@ -286,6 +298,7 @@ const ACTIVATION_REFUSALS: Readonly<
     status: 409,
   },
   "activation receipt limit reached": { error: "activation_receipt_limit", status: 409 },
+  "activation wake limit reached": { error: "activation_wake_limit", status: 429 },
   "invalid activation evidence": { error: "invalid_activation_request", status: 400 },
   "invalid activation configuration": { error: "invalid_activation_request", status: 400 },
   "activation reason mismatch": { error: "invalid_activation_reason", status: 400 },

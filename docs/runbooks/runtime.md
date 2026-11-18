@@ -4,7 +4,7 @@
 the `WorldDO`, `SpaceDO`, and `ActorAgentDO` ownership shells, and the accepted PostgreSQL journal.
 Tests include portable local/emulated bindings and a genuine pinned Workers journey through
 the production default Worker/authentication composition and native Durable Object adapters over
-an isolated PostgreSQL 18.6 database. This is not a cloud deployment or staging qualification.
+an isolated PostgreSQL 18.6 database. This is not a cloud deployment or qualification on the validation deployment.
 
 ## First-party MCP client readiness
 
@@ -681,7 +681,7 @@ workerd/PostgreSQL harness, firing the snapshot Cron Trigger:
   `snapshot_create_ms`; the composed artifact store records a spilled put, another tenant's refused
   read and a corrupt R2 object; every point has the Analytics Engine shape below and a closed label.
 
-The staging round trip stays pending on issue 3.
+The round trip on the validation deployment stays pending on issue 3.
 
 ## Runtime budgets and load curves
 
@@ -699,6 +699,20 @@ PostgreSQL while it measures. Neither Quality nor `pnpm test:long-run` runs it; 
 Wave 3 evidence manifest (issue 853; see [development.md](development.md)). It writes
 `wave3-load-curves.json` to the directory (a new temp directory without one; it refuses to
 overwrite an earlier result) and exits 0 only if the fixture passed within its wall-time bound.
+
+The wall-time bound is a setting that accounts for the host. The base bound is 600 s, about four
+times the slowest local run (143.2 s). Before it runs the fixture, the command times a fixed
+single-thread CPU calibration (`calibrate()`: PBKDF2-SHA256, 5,000,000 iterations, the best of 3
+runs). `CALIBRATION_REFERENCE_MS` (590 ms) is that time on the reference host, the local
+development host class of the 143.2 s run (an AMD Ryzen 9 5900XT), measured 2026-11-17. The host factor is the host's calibration
+over the reference, never below 1, so a faster host keeps 600 s and a host twice as slow gets
+1,200 s (`hostWallTimeBound`). `wallTime` in the result records `ms`, `boundMs` (the host bound),
+`baseBoundMs`, `hostFactor` (2 decimals), `calibrationMs`, `referenceMs`, `source` and `status`. A
+run on a slower runner class that finishes every point correctly is judged against its own scaled
+bound, not failed for wall time alone. The command hands the host bound to the fixture as
+`CLOCKGROVE_WAVE3_LOAD_CURVES_BOUND_MS` (`fixtureEnvironment`), and the fixture runs its native
+owner under that bound (`fixtureWallTimeBound`; the base 600 s when the fixture runs on its own),
+so the owner is not stopped at 600 s on a slower host.
 
 The fixture drives the native workerd/PostgreSQL owner path of the other native tests (the
 production Worker, `WorldDO`, `SpaceDO` and catch-up Workflow in Miniflare, over one disposable
@@ -800,7 +814,7 @@ connections, 28 of 32 commands at 16 clients were refused `authentication_refuse
 the mailbox. The fixture therefore allows 384 loopback connections (four per client at 96) and
 PostgreSQL 400
 (`runNativeWorldOwnerProcess` `connections`). Hosted CPU, memory, subrequest and wall-time limits,
-Hyperdrive pooling and the hosted connection budget stay with staging.
+Hyperdrive pooling and the hosted connection budget stay with the validation deployment.
 
 **Wall time.** The fixture takes about 2 minutes 20 seconds on the host above with the keepers
 sweep (about two minutes before it). Its bound is `WALL_TIME_BOUND_MS`, 10 minutes, a decision:
@@ -1200,6 +1214,12 @@ Birth steps explicitly pin the [native retry defaults](https://developers.cloudf
 five retries, a 10000 ms initial exponential delay and a ten-minute timeout per attempt.
 The finite local fault tests retain the retry count and timeout while removing the retry delay.
 
+Birth seeds the pack under the [pack size limits](../../packages/world-pack-sdk/docs/source-and-compatibility.md#size-limits).
+To host packs larger than the defaults, bind `WORLD_PACK_LIMITS` to a JSON object of raises, for
+example `{"resources":2048}`, and build the artifact with the same value in the CLI's environment.
+Omit the binding to keep the defaults. An unknown name, a non-integer or a value below its default
+fails the birth step rather than falling back to the defaults.
+
 A provisioning refusal is a terminal canonical case outcome, distinguishable from an infrastructure
 failure eligible for bounded provider retry and an internal genesis defect. Failed or exhausted
 native attempts are operational failures and cannot imply canonical readiness. Inspect the case
@@ -1283,7 +1303,7 @@ deployment, stay pending on issue 3.
 
 ## Remaining qualification
 
-Cloud deployment, staging behavior and human-authentication qualification remain with their owning
+Cloud deployment, validation-deployment behavior and human-authentication qualification remain with their owning
 Objectives. The world-command service above provides bounded local physical execution. The retained
 Wave 0 recovery evidence stays distinct from that capability and from browser/cognition capability,
 hosted production readiness and whole-wave acceptance.
@@ -1343,8 +1363,8 @@ manifest, Wrangler's exact root pin, and the Miniflare and workerd packages Wran
 workerd binary reports the date in its package version), so a dependency update moves it along with
 the lockfile. Recipes require matching candidate/command/log/proof identities and refuse
 unsupported positive claims. The literal runtime-local checklist row can pass from this native
-proof; owner setup, enrollment/grants/privacy handoff, protected staging deployment, authenticated
-staging correlation, successful Queue/webhook effects, independent review and full Wave 0 acceptance
+proof; owner setup, enrollment/grants/privacy handoff, protected validation deployment, authenticated
+correlation on the validation deployment, successful Queue/webhook effects, independent review and full Wave 0 acceptance
 remain separate obligations. Operator-appointed independent exact-candidate review and fresh
 published-head Quality/browser/artifact evidence are still required before integration/acceptance.
 
@@ -1366,7 +1386,8 @@ abandons its attempt and the client's retry resumes. The pilot's rubric and cost
 The native `/v1/projection` stream resumes from the acknowledged native attachment and PostgreSQL.
 The [delivery contract](../protocols/realtime-projection.md#bounded-native-delivery-and-recovery)
 records the 64-event history budget, four outstanding projection frames and
-four lagging publication turns. Clients apply only compatible contiguous patches, then acknowledge
+the 30 s a full frame ledger may go unacknowledged (`SCENE_DELIVERY_BOUNDS.stalledMs`, kept in the
+socket attachment as `stalledSince` so hibernation does not restart it). Clients apply only compatible contiguous patches, then acknowledge
 the delivered endpoint with their connection version. Snapshot fallback is normal after a gap,
 unsupported history or excessive lag. A `recovery/backpressure` notice followed by close 1013,
 sent for a full frame ledger or a refused owner mailbox read, requires reconnect/resume; sending
@@ -1376,7 +1397,7 @@ an upgrade beyond `SCENE_SOCKET_BOUNDS` answers 503 `scene_connections_full`.
 Native qualification lives in `apps/runtime/test/scene-delivery.postgres.test.ts`. It is local
 workerd/PostgreSQL evidence, not hosted eviction or redeploy evidence. The partial
 [Wave 4 manifest](../waves/clockgrove-wave-4-runtime-evidence.json) keeps actual Cloudflare hibernation,
-restart and redeploy pending on issue 3, blocked on issue 1 and issue 2. No staging qualification is claimed.
+restart and redeploy pending on issue 3, blocked on issue 1 and issue 2. No qualification on the validation deployment is claimed.
 
 ## Proactive actor activation
 
@@ -1388,6 +1409,44 @@ an opportunity for policy and compiled checks, and can record a no-op without ca
 The activation inspector reports each causal reason and the next scheduled wake, including
 budget-deferred evidence. The existing native owner executes admitted work through its recoverable
 turn fiber, retaining PostgreSQL as authority. No continuous per-actor process is required.
+
+Long-lived worlds keep waking (issue 358): each actor's wakes and model spend are limited per
+period of wall-clock time on the runtime's clock, never over its lifetime. The operator sets them
+in the configure route's `policy`; omitting a field keeps the stored value:
+
+| Setting | Default | Range | Limits |
+| --- | --- | --- | --- |
+| `budgetPeriodMs` | 3,600,000 (one hour) | 60,000 to 2,592,000,000 | the length of one period; periods are fixed windows from the Unix epoch |
+| `wakeLimit` | 120 | 1 to 10,000 | new causal receipts (wakes) admitted per period; at the limit a wake is refused `activation_wake_limit` (429) and a scheduled wake or unread event waits for the next period |
+| `modelBudget` | required | 0 to 1,000 | model opportunities reserved per period; past it a wake is deferred `budget_exhausted` and resumes when the next period starts |
+
+Decision: the one-hour period follows the hourly intention, and 120 wakes are twice what one
+minimum-interval (60 s) heartbeat produces in it. Inspection answers the current `period`
+(`periodMs`, `wakeLimit`, `wakes`, `endsAt`) and `modelCallsReserved` for this period, and the
+owner logs `activation_limit_reached` when a scheduled check stops at the wake limit. Every causal
+receipt is kept, so a causal root that recurs is still refused.
+
+Upgrading to migration 0072: every existing policy gets the one-hour period and the 120-wake
+limit, and keeps its `modelBudget` number, which from then on renews every period instead of once
+for the actor's life. A policy whose `modelBudget` was meant as a lifetime allowance should be
+reconfigured (a smaller `modelBudget` or a longer `budgetPeriodMs`) before the new runtime is
+deployed. The database itself starts a passed period when a receipt is written, so a runtime from
+before 0072 keeps waking at the per-period rate between the migration and the deploy, or after a
+rollback.
+
+Receipts are never deleted, so `actor_activations` grows for each actor's life by up to
+`wakeLimit` rows per period (about 1,440 rows a day for one once-a-minute heartbeat). The per-turn
+reads that find a receipt by its turn or its activation use indexes from 0072, and inspection reads
+each kind of receipt in index order with a fixed limit, so neither cost grows with the history.
+Inspection's `activations` list holds:
+
+| Bucket | Limit | Why |
+| --- | --- | --- |
+| pending | all | at most one turn joins them |
+| deferred scheduled wakes | all | at most one per configuration's next wake, and an actor has at most 64 configurations; the planner must see each to hold that wake back |
+| deferred `budget_exhausted` event wakes, oldest first | 64 | decision: one journal page, the 64 unread events one scheduled check admits; the check retries every deferred wake it inspects, so a 65th waits until an older one settles |
+| other deferred wakes, oldest first (`policy_denied`, for example) | 64 | decision: the same page size; kept apart so wakes no period renews never hide one it does |
+| completed and no-op, newest first | 256 | decision: four pages of recent history for the inspector panel; no retry reads them |
 
 ## Wake-triage shadow report
 
@@ -1405,11 +1464,14 @@ Bind `WAKE_TRIAGE_CONFIG` to a JSON object to enable wake triage. Omit the bindi
 }
 ```
 
-The threshold is 65% in basis points. The budget is $0.10 per world per simulated day and reserves
+The threshold is 65% in basis points. The budget is $0.10 per world per wall-clock day and reserves
 $0.001 for each decision opportunity. Full reservations remain spent, including lower measured
 cost, unknown cost and interrupted calls; the default admits at most 100 reserved opportunities
-in a day. All actors in the world and timeline share the durable budget. Day boundaries follow
-the pack's declared environment day length, with an 86,400,000 ms fallback when absent.
+in a day. All actors in the world and timeline share the durable budget. The day is the calendar
+day of the runtime's clock in `dailyBudgetZone` (an IANA time zone, default `"UTC"`), whatever the
+pack's environment day length (issue 358): a world with one-hour days still spends at most one
+`dailyBudgetMicrousd` per real day. Reservations made before migration 0073 carry no wall-clock day
+and are not counted against one.
 These are conservative operator policy choices,
 not measured model prices. Change the configured model to `openai/gpt-6-luna-decisions`,
 `baseten/mammoth-1` or `google/gemini-decision-1` to measure the owner's other candidates through the same alias. Bind
@@ -1615,7 +1677,7 @@ answered picks, reports coverage separately, and is null when no case was answer
 
 The [MCP installation protocol](../protocols/mcp.md) separates local acceptance from hosted
 activation. The owner assigned hosted private-egress verification to issue 3 after issue 2's
-first staging deployment. Production remote MCP access stays guarded off until that receipt
+first validation deployment (environment `staging`). Production remote MCP access stays guarded off until that receipt
 exists. A local fixture network port is never a production loopback allowance.
 
 Local composition must retain one installation owner across requests and OAuth callbacks,

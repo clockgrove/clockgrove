@@ -7,9 +7,12 @@
 // the candidate, wall time and peak memory, `loadCurves`, `resourceCounters`, every budget with the
 // measured load at which it trips, and the partition-seam thresholds. The Wave 3 manifest
 // takes `loadCurves` and `resourceCounters` as they are. Exit 0 only if the fixture passed within
-// its wall-time bound. The curves are read from the §20 metrics and the `*_answered` records
-//; the fixture adds no instrumentation to the runtime.
+// its wall-time bound, which accounts for the host: a fixed CPU calibration timed before the run
+// scales the base bound on a host slower than the reference one (hostWallTimeBound). The curves are
+// read from the §20 metrics and the `*_answered` records; the fixture adds no instrumentation to
+// the runtime.
 import { execFileSync } from "node:child_process";
+import { pbkdf2Sync } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -22,15 +25,59 @@ export const LOAD_CURVES_FILE = "wave3-load-curves.json";
 /** The directory the fixture writes its result to; set by this command. */
 export const LOAD_CURVES_DIRECTORY = "CLOCKGROVE_WAVE3_LOAD_CURVES";
 /**
- * Decision: 10 minutes, about four times the slowest local run with the keepers sweep (143.2 s;
- * five times the 120.7 s before it; listed in docs/runbooks/runtime.md "Runtime budgets and load
- * curves"). The fixture runs its points one after another, so a host with slower cores (the
- * QUALITY_RUNNER class) stretches it. The first run of Qualification's wave3-load-curves job
- * re-sources it.
+ * Decision: a base of 10 minutes, about four times the slowest local run with the keepers sweep
+ * (143.2 s; five times the 120.7 s before it; listed in docs/runbooks/runtime.md "Runtime budgets
+ * and load curves"). The fixture runs its points one after another, so a host with slower cores (the
+ * QUALITY_RUNNER class) stretches it; `hostWallTimeBound` scales the base for such a host. The first
+ * run of Qualification's wave3-load-curves job re-sources it.
  */
 export const WALL_TIME_BOUND_MS = 600_000;
 export const WALL_TIME_BOUND_SOURCE =
-  "decision: about 4x the slowest local run with the keepers sweep, 143.2 s (docs/runbooks/runtime.md#runtime-budgets-and-load-curves), until the first run of Qualification's wave3-load-curves job re-sources it";
+  "decision: about 4x the slowest local run with the keepers sweep, 143.2 s, scaled by the host's calibration against the reference host (docs/runbooks/runtime.md#runtime-budgets-and-load-curves), until the first run of Qualification's wave3-load-curves job re-sources it";
+
+/**
+ * Decision: the calibration's time on the reference host, the local development host class of the
+ * 143.2 s run, measured 2026-11-17 as the best of ten runs (588 to 733 ms) on an AMD Ryzen 9 5900XT
+ * 16-Core Processor (os.cpus()[0].model).
+ */
+export const CALIBRATION_REFERENCE_MS = 590;
+
+/** A fixed single-thread CPU workload, timed in ms: the best of 3 runs, to reduce noise. */
+export function calibrate() {
+  let best = Number.POSITIVE_INFINITY;
+  for (let run = 0; run < 3; run += 1) {
+    const started = performance.now();
+    pbkdf2Sync("clockgrove-calibration", "clockgrove-salt", 5_000_000, 32, "sha256");
+    best = Math.min(best, performance.now() - started);
+  }
+  return Math.round(best);
+}
+
+/** The wall-time bound for a host whose calibration took `calibrationMs`; a faster host keeps the base. */
+export function hostWallTimeBound(calibrationMs) {
+  return Math.round(WALL_TIME_BOUND_MS * Math.max(1, calibrationMs / CALIBRATION_REFERENCE_MS));
+}
+
+/** The host's bound, in ms, handed to the fixture; set by this command. */
+export const LOAD_CURVES_BOUND = "CLOCKGROVE_WAVE3_LOAD_CURVES_BOUND_MS";
+
+/** The fixture's environment: where to write its result, and the host's bound. */
+export function fixtureEnvironment(directory, boundMs, environment = process.env) {
+  return {
+    ...environment,
+    [LOAD_CURVES_DIRECTORY]: directory,
+    [LOAD_CURVES_BOUND]: String(boundMs),
+  };
+}
+
+/**
+ * Read by the fixture: the bound its native owner runs under, the host's bound this command set, or
+ * the base when the fixture runs on its own. Never below the base.
+ */
+export function fixtureWallTimeBound(environment = process.env) {
+  const bound = Number(environment[LOAD_CURVES_BOUND]);
+  return Number.isSafeInteger(bound) && bound > WALL_TIME_BOUND_MS ? bound : WALL_TIME_BOUND_MS;
+}
 
 /** Nearest-rank percentiles (the smallest value with at least q of the values at or below it). */
 export function summary(values) {
@@ -381,15 +428,17 @@ export async function qualifyLoadCurves(directory) {
     path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
     "vitest.mjs",
   );
+  const calibrationMs = calibrate();
+  const boundMs = hostWallTimeBound(calibrationMs);
   const started = performance.now();
   const run = await ownedSubprocess(
     process.execPath,
     [vitest, "run", "--config", "apps/runtime/vitest.load-curves.config.ts"],
     {
       cwd: root,
-      env: { ...process.env, [LOAD_CURVES_DIRECTORY]: directory },
+      env: fixtureEnvironment(directory, boundMs),
       inherit: true,
-      timeoutMs: WALL_TIME_BOUND_MS + 60_000,
+      timeoutMs: boundMs + 60_000,
     },
   );
   const ms = Math.round(performance.now() - started);
@@ -403,10 +452,14 @@ export async function qualifyLoadCurves(directory) {
     resourceCounters: null,
   };
   const passed = run.status === 0 && !run.error && written !== null;
-  const within = ms <= WALL_TIME_BOUND_MS;
+  const within = ms <= boundMs;
   result.wallTime = {
     ms,
-    boundMs: WALL_TIME_BOUND_MS,
+    boundMs,
+    baseBoundMs: WALL_TIME_BOUND_MS,
+    hostFactor: Math.round(Math.max(1, calibrationMs / CALIBRATION_REFERENCE_MS) * 100) / 100,
+    calibrationMs,
+    referenceMs: CALIBRATION_REFERENCE_MS,
     source: WALL_TIME_BOUND_SOURCE,
     status: within ? "within" : "exceeded",
   };

@@ -522,7 +522,7 @@ Wave 7 does not implement:
 - [ ] `mirror-room@1` proves four entity interaction modes without engine changes.
 - [ ] Local, eval, security, replay, UI, and staging qualifications pass.
 
-The manifest records commit, schema/rule/compiler/world-pack versions, fork/base hashes, scenario seeds, isolation attack results, authoring eval, preview costs, promotion proofs, UI/accessibility evidence, staging qualification, and exit decision.
+The manifest records commit, schema/rule/compiler/world-pack versions, fork/base hashes, scenario seeds, isolation attack results, authoring eval, preview costs, promotion proofs, UI/accessibility evidence, qualification on the validation deployment, and exit decision.
 
 ---
 

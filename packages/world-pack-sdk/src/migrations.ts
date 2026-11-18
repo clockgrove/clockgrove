@@ -1,4 +1,5 @@
 import { fail, WorldPackError, type WorldPackIssue } from "./errors.js";
+import { resolveWorldPackLimits } from "./limits.js";
 import type {
   MigrationEntry,
   MigrationStep,
@@ -24,8 +25,6 @@ import {
   text,
 } from "./validation/shape.js";
 
-export const MAX_MIGRATION_STEPS = 256;
-
 /** Parses one migration resource document against its manifest entry. */
 export function parseMigration(
   decoded: unknown,
@@ -35,6 +34,7 @@ export function parseMigration(
   catalog: Catalog,
   ports: WorldPackPorts,
 ): MigrationEntry {
+  const limits = resolveWorldPackLimits(ports);
   const record = exact(
     decoded,
     ["id", "version", "fromPackVersion", "toPackVersion", "steps"],
@@ -60,8 +60,8 @@ export function parseMigration(
     return fail("MALFORMED_RESOURCE", stepsPath, "expected an array");
   const raw: unknown[] = record.steps;
   if (raw.length === 0) fail("INVALID_MIGRATION", stepsPath, "at least one step is required");
-  if (raw.length > MAX_MIGRATION_STEPS)
-    fail("LIMIT_EXCEEDED", stepsPath, `at most ${MAX_MIGRATION_STEPS} steps`);
+  if (raw.length > limits.migrationSteps)
+    fail("LIMIT_EXCEEDED", stepsPath, `at most ${limits.migrationSteps} steps`);
   const keys = new Set<string>();
   const steps = raw.map((item, index): MigrationStep => {
     const at = `${stepsPath}[${index}]`;

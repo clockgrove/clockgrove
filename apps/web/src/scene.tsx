@@ -74,11 +74,14 @@ const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 function SceneCanvas({
   projection,
+  dayLengthMs,
   content,
   availability,
   retry,
 }: {
   readonly projection: SceneProjection;
+  /** The pack's day length from the world clock, which the HUD shows; undefined until read or when none. */
+  readonly dayLengthMs: bigint | undefined;
   readonly content?: RendererContent;
   readonly availability: (ready: boolean) => void;
   readonly retry: () => void;
@@ -89,6 +92,8 @@ function SceneCanvas({
   const request = useRef("");
   const latest = useRef(projection);
   latest.current = projection;
+  const dayLength = useRef(dayLengthMs);
+  dayLength.current = dayLengthMs;
   const [unavailable, setUnavailable] = useState(false);
   const select = useSceneView((state) => state.select);
   const advance = useWorldBoot((state) => state.advance);
@@ -125,6 +130,7 @@ function SceneCanvas({
           () => {
             if (!active || created !== renderer) return;
             adapter.current = renderer;
+            renderer.setDayLength(dayLength.current);
             advance({ type: "assets", requestId });
             const ready = presentScene(adapter, latest.current, requestId);
             setUnavailable(!ready);
@@ -170,6 +176,9 @@ function SceneCanvas({
       availability(false);
     };
   }, [select, advance, availability, content]);
+  useEffect(() => {
+    adapter.current?.setDayLength(dayLengthMs);
+  }, [dayLengthMs]);
   useEffect(() => {
     if (!presentScene(adapter, projection, request.current)) {
       setUnavailable(true);
@@ -392,6 +401,8 @@ export function WorldApp({
     // Only the latest revision is read when the interval ends; intermediate ones are skipped.
     useThrottled(scene && shown ? scene.revision : undefined, STATUS_INTERVAL_MS),
   );
+  const clockDay = typeof status === "object" ? status.clock.dayLengthMs : null;
+  const dayLengthMs = clockDay === null ? undefined : BigInt(clockDay);
   const viewTrace = useViewTraceQuery(session);
   const railOpen = useEntityRail((rail) => rail.open);
   useEffect(() => {
@@ -559,6 +570,7 @@ export function WorldApp({
               <SceneCanvas
                 key={canvasAttempt}
                 projection={state.projection}
+                dayLengthMs={dayLengthMs}
                 {...(content && { content })}
                 availability={setCanvasAvailable}
                 retry={() => retryCanvas((value) => value + 1)}
@@ -569,8 +581,8 @@ export function WorldApp({
             <p>Rain intensity: {scene.weather.rainIntensity}</p>
             {state.projection && (
               <>
-                <p>Puddles: {effectsText(state.projection).puddles}</p>
-                <p>Lights: {effectsText(state.projection).lights}</p>
+                <p>Puddles: {effectsText(state.projection, dayLengthMs).puddles}</p>
+                <p>Lights: {effectsText(state.projection, dayLengthMs).lights}</p>
               </>
             )}
             <p>

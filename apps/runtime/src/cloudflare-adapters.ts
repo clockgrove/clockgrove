@@ -82,7 +82,11 @@ import {
   PostgreSqlWorldProvisioningStore,
   withClientTransaction,
 } from "@clockgrove/persistence";
-import { decodeResource } from "@clockgrove/world-pack-sdk";
+import {
+  decodeResource,
+  parseWorldPackLimits,
+  type WorldPackLimits,
+} from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
 import {
   ActivationGateBlockedError,
@@ -1563,6 +1567,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     // A hint from here on may name an event the scan below has already passed, or not yet reached.
     const hints = this.#journalHints;
     let more = false;
+    let limited = 0;
     // The current one-shot is being consumed. Persist its successor before any turn can abort
     // this incarnation; a finally block cannot create the only recovery alarm after owner loss.
     const inspection = await this.armActivations(address, {
@@ -1601,7 +1606,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           ? { events: [], more: false }
           : await withActivations(this.environment, (store) => store.events(address));
       more = page.more;
-      for (const event of page.events) {
+      events: for (const event of page.events) {
         for (const configuration of inspection.configurations
           .filter((c) => c.enabled && c.eventType === event.eventType)
           .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
@@ -1613,15 +1618,26 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
             (!event.own || (configuration.need !== undefined && configuration.need !== event.need))
           )
             continue;
-          await this.admitActivation(address, {
-            configurationId: configuration.id,
-            causalRoot: event.causalRoot,
-            evidence: `journal:${event.eventId}`,
-            reason:
-              configuration.kind === "subscription"
-                ? { kind: "subscription", subscriptionId: configuration.id, eventId: event.eventId }
-                : { kind: "threshold", conditionId: configuration.id },
-          });
+          try {
+            await this.admitActivation(address, {
+              configurationId: configuration.id,
+              causalRoot: event.causalRoot,
+              evidence: `journal:${event.eventId}`,
+              reason:
+                configuration.kind === "subscription"
+                  ? {
+                      kind: "subscription",
+                      subscriptionId: configuration.id,
+                      eventId: event.eventId,
+                    }
+                  : { kind: "threshold", conditionId: configuration.id },
+            });
+          } catch (error) {
+            if (!isWakeLimit(error)) throw error;
+            // Unacknowledged, the event is read again once the period renews.
+            limited += 1;
+            break events;
+          }
         }
         await withActivations(this.environment, (store) =>
           store.acknowledgeEvent(address, event.eventId),
@@ -1632,17 +1648,31 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
         .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
         if (configuration.kind !== "heartbeat" && configuration.kind !== "scheduled_intention")
           continue;
-        await this.admitActivation(address, {
-          configurationId: configuration.id,
-          causalRoot: `schedule:${configuration.id}:${configuration.nextWakeAt}`,
-          evidence: `due:${configuration.nextWakeAt}`,
-          reason:
-            configuration.kind === "heartbeat"
-              ? { kind: "heartbeat", heartbeatId: configuration.id }
-              : { kind: "scheduled_intention", scheduleId: configuration.id },
-        });
+        try {
+          await this.admitActivation(address, {
+            configurationId: configuration.id,
+            causalRoot: `schedule:${configuration.id}:${configuration.nextWakeAt}`,
+            evidence: `due:${configuration.nextWakeAt}`,
+            reason:
+              configuration.kind === "heartbeat"
+                ? { kind: "heartbeat", heartbeatId: configuration.id }
+                : { kind: "scheduled_intention", scheduleId: configuration.id },
+          });
+        } catch (error) {
+          if (!isWakeLimit(error)) throw error;
+          limited += 1;
+        }
       }
     } finally {
+      if (limited > 0)
+        console.warn(
+          JSON.stringify({
+            event: "activation_limit_reached",
+            actorId: address.actorId,
+            principalId: address.participant.principalId,
+            refused: limited,
+          }),
+        );
       await this.armActivations(address, {
         fromCallback: true,
         prompt: more || this.#journalHints !== hints,
@@ -1726,6 +1756,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     const blocked = new Set(
       inspection.activations.filter((a) => a.status === "deferred").map((a) => a.causalRoot),
     );
+    const renews = inspection.activations.some(
+      (a) => a.status === "deferred" && a.outcome === "budget_exhausted",
+    );
+    const full = inspection.period.wakes >= inspection.period.wakeLimit;
     const times = inspection.configurations
       .filter(
         (c) =>
@@ -1733,18 +1767,20 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       )
       .map((c) => c.nextWakeAt as number);
     const next = times.length ? Math.min(...times) : null;
+    // With the period's wakes spent and nothing pending, no wake is admitted before it renews.
+    const spent = full && !pending;
+    const floor = spent ? inspection.period.endsAt : 0;
     const candidates = [
-      next,
+      // A budget renews with its period: wait for it instead of retrying a refused wake.
+      renews ? inspection.period.endsAt : null,
+      next === null ? null : Math.max(next, floor),
       // Decision: delayed recipient contacts reuse the one-minute quiet subscription cadence.
       delayed ? Date.now() + 60000 : null,
       poll || pending || (initial && inspection.activations.some((a) => a.status === "deferred"))
-        ? Date.now() + (initial || pending || (poll && prompt) ? 1000 : 60000)
+        ? Math.max(floor, Date.now() + (initial || pending || (poll && prompt) ? 1000 : 60000))
         : null,
     ].filter((value): value is number => value !== null);
-    if (
-      (inspection.activations.length >= 1000 && !pending && !delayed) ||
-      candidates.length === 0
-    ) {
+    if (candidates.length === 0) {
       await this.objectState.storage.put(key, null);
       if (stored) await this.cancelSchedule(stored.id);
       return;
@@ -2267,7 +2303,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       }
       case "perception.list": {
         if (!hostedReadsAllowed) return refused("not_executable");
-        const listing = await perceiveListing(this.environment, fiber.scope, context);
+        const listing = await perceiveListing(
+          this.environment,
+          fiber.scope,
+          context,
+          fiber.actorId,
+        );
         // Decision: 64 entities and 128 routes keep the result inside the evidence bound.
         return {
           status: "committed",
@@ -2666,6 +2707,9 @@ abstract class WorkflowAdapter extends WorkflowEntrypoint<
     return step.do("portable-runtime-shell", () => this.shell.run(event.payload));
   }
 }
+const isWakeLimit = (error: unknown) =>
+  error instanceof Error && error.message === "activation wake limit reached";
+
 /** Failures that every retry repeats: the pack's own defect, or a stage fenced by a terminal case. */
 function deterministicBirthFailure(error: unknown): error is Error {
   return (
@@ -2686,6 +2730,12 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
     return birthWorkflowStepConfig;
   }
 
+  /** The world owner's raises of the pack size limits, from the optional `WORLD_PACK_LIMITS` binding. */
+  protected packLimits(): Partial<WorldPackLimits> | undefined {
+    const raises = this.env.WORLD_PACK_LIMITS;
+    return raises === undefined ? undefined : parseWorldPackLimits(raises);
+  }
+
   protected createProvisioningStore(
     client: PostgreSqlClient,
     _envelope: LifecycleWorkflowEnvelope,
@@ -2704,7 +2754,8 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
           {
             store: this.createProvisioningStore(client, envelope),
             genesis: {
-              seed: ({ artifact, source }) => workflows.seedProvisioningBirth(artifact, source),
+              seed: ({ artifact, source }) =>
+                workflows.seedProvisioningBirth(artifact, source, this.packLimits()),
             },
             decodeResource,
           },

@@ -35,7 +35,8 @@ division, with `need` `hunger*hungerWeight*freshness/10000` for food, `thirst*th
 `(wetness+rain)*protection*shelterWeight/10000` for shelter. A candidate is excluded for the first applicable
 of `outside-current-space-or-frame`, `not-perceived` (not within `perceptionRange` and no effective scripted
 entry), `unavailable` (quantity 0), `no-rain-protection` and `unreachable` (no plan). The reflex (wetness at
-least 9000 limits the pool to eligible shelters) and the `actionKey` tie order are preserved. No random
+least `environment.shelterReflexThreshold`, 9000 when the pack declares none, limits the pool to eligible
+shelters; the same threshold applies in the legacy routine chooser) and the `actionKey` tie order are preserved. No random
 stream is drawn. `seek-water` is a new action kind and requires a target; `seek-food` may carry its target.
 
 **Trace.** The `DecisionTrace` keeps its shape: `policyVersion` is `<policy.version>/clockgrove.routine-utility@1`,

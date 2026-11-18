@@ -713,6 +713,7 @@ await new Promise((resolve, reject) => {
       "--config",
       "apps/runtime/vitest.runtime.config.ts",
       "apps/runtime/test/hyperdrive.postgres.test.ts",
+      "apps/runtime/test/activation-periods.postgres.test.ts",
       "apps/runtime/test/journal-isolation.postgres.test.ts",
       "apps/runtime/test/journal-range.postgres.test.ts",
       "apps/runtime/test/attributed-receipts.postgres.test.ts",

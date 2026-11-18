@@ -229,7 +229,9 @@ jobs:
     # §19, issue 851). A job of its own, so nothing else shares its runner while it measures. Its receipt
     # (candidate and log digest) and wave3-load-curves.json are retained for the Wave 3 evidence
     # manifest. Decision: 30 minutes, as the other toolchain jobs; the fixture's own bound is
-    # 10 (WALL_TIME_BOUND_MS in scripts/ci/qualify-wave3-load-curves.mjs).
+    # 10 minutes on the reference host (WALL_TIME_BOUND_MS in
+    # scripts/ci/qualify-wave3-load-curves.mjs), scaled up for a slower host by its calibration and
+    # handed to the fixture as CLOCKGROVE_WAVE3_LOAD_CURVES_BOUND_MS.
     needs: [stale]
     if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.stale.outputs.qualify == 'true') }}
     runs-on: ${{ vars.QUALITY_RUNNER || 'ubuntu-26.04' }}

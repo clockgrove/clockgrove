@@ -37,7 +37,12 @@ import {
   type WorldStatus,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
-import type { WorldState } from "@clockgrove/domain";
+import {
+  isWorldDecisionEvent,
+  WORLD_FEED_EVENT_TYPES,
+  type WorldState,
+  worldEventFeedCategory,
+} from "@clockgrove/domain";
 import {
   type HydratedWorldOwner,
   type PostgreSqlClient,
@@ -107,30 +112,18 @@ export class PostgreSqlLivingSceneReader {
   }
 }
 
-/** Each material journal event type's feed category and plain-words text; no other type is fed. */
-const MATERIAL_EVENTS: ReadonlyMap<string, readonly [WorldFeedCategory, string]> = new Map<
-  string,
-  readonly [WorldFeedCategory, string]
->([
-  ["weather.changed", ["weather", "The weather changed."]],
-  ["weather.transitioned", ["weather", "The weather turned."]],
-  ["environment.phase-changed", ["weather", "The time of day changed."]],
-  ["routine.selected", ["routine", "A new routine was chosen."]],
-  ["needs.threshold-crossed", ["wellbeing", "A need crossed a threshold."]],
-  ["exposure.threshold-crossed", ["wellbeing", "Exposure to the weather crossed a threshold."]],
-  ["health.threshold-crossed", ["wellbeing", "Health crossed a threshold."]],
-  ["growth.stage-changed", ["growth", "A plant reached a new growth stage."]],
-  ["movement.portal-crossed", ["movement", "A journey passed through a portal."]],
-  ["movement.completed", ["movement", "A journey ended."]],
-  ["portal.opened", ["portal", "A portal opened."]],
-  ["portal.closed", ["portal", "A portal closed."]],
-  ["resource.offered", ["resource", "A resource was offered."]],
-  ["resource.consumed", ["resource", "A resource was consumed."]],
-  ["resource.transferred", ["resource", "A resource changed hands."]],
-  ["resource.boundary-exchanged", ["resource", "A resource crossed the world boundary."]],
-  ["resource.spoiled", ["resource", "Food spoiled."]],
-  ["resource.weather-integrated", ["resource", "Weather changed a water holder."]],
-]);
+/** The plain-words text of a feed item whose event lacks the fields its sentence needs. */
+const FEED_FALLBACKS: Readonly<Record<WorldFeedCategory, string>> = {
+  weather: "The weather changed.",
+  routine: "A routine was chosen.",
+  wellbeing: "An actor's wellbeing changed.",
+  growth: "A plant grew.",
+  movement: "Something moved.",
+  portal: "A portal changed.",
+  resource: "A resource changed.",
+  lifecycle: "A life changed.",
+  object: "Something new appeared.",
+};
 
 /** The kernel event's payload fields of a world-command journal event, when it has them. */
 function kernelPayloadOf(event: StoredEvent): object | undefined {
@@ -191,17 +184,16 @@ function feedSentence(
         const action = field("action");
         if (who === undefined || typeof action !== "object" || action === null) return undefined;
         const { kind: actionKind, targetObjectId } = action as Record<string, unknown>;
-        const what = { "seek-food": "food", "seek-water": "water", "seek-shelter": "shelter" }[
-          String(actionKind)
-        ];
-        if (actionKind === "stay") return `${who} is staying put.`;
-        if (what === undefined) return undefined;
-        return `${who} is looking for ${what}${typeof targetObjectId === "string" ? ` at ${nameOf(targetObjectId)}` : ""}.`;
+        if (typeof actionKind !== "string" || actionKind === "") return undefined;
+        const at = typeof targetObjectId === "string" ? ` at ${nameOf(targetObjectId)}` : "";
+        return actionKind.startsWith("seek-") && actionKind.length > 5
+          ? `${who} is looking for ${actionKind.slice(5).replaceAll("-", " ")}${at}.`
+          : `${who} chose to ${actionKind.replaceAll("-", " ")}${at}.`;
       }
-      case "needs.threshold-crossed": {
-        const word = { hunger: "hungry", thirst: "thirsty" }[str("need") ?? ""];
-        return who === undefined || word === undefined ? undefined : `${who} is ${word}.`;
-      }
+      case "needs.threshold-crossed":
+        return who === undefined || str("need") === undefined
+          ? undefined
+          : `${who}'s ${str("need")} is urgent.`;
       case "exposure.threshold-crossed": {
         const threshold = str("threshold");
         if (who === undefined || (threshold !== "wet" && threshold !== "uncomfortable"))
@@ -216,6 +208,7 @@ function feedSentence(
             ? `${who}'s health is critical.`
             : `${who} is recovering.`;
       case "growth.stage-changed":
+      case "lifecycle.stage-changed":
         return who === undefined || str("stageName") === undefined
           ? undefined
           : `${who} reached its ${str("stageName")} stage.`;
@@ -254,7 +247,25 @@ function feedSentence(
           ? undefined
           : `${named("actorId")} ${str("direction") === "import" ? "imported" : "exported"} ${String(field("quantity"))} ${kind} ${str("direction") === "import" ? "from" : "to"} outside the world at ${str("boundaryName")} ${str("direction") === "import" ? "into" : "from"} ${who}.`;
       case "resource.spoiled":
-        return who === undefined ? undefined : `Food at ${who} spoiled.`;
+        return who === undefined || Kind === undefined ? undefined : `${Kind} at ${who} spoiled.`;
+      case "lifecycle.born":
+        return named("childId") === undefined || named("gestatingParentId") === undefined
+          ? undefined
+          : `${named("childId")} was born to ${named("gestatingParentId")}.`;
+      case "lifecycle.died":
+        return who === undefined ? undefined : `${who} died.`;
+      case "lifecycle.conceived":
+        return who === undefined || named("childId") === undefined
+          ? undefined
+          : `${who} conceived ${named("childId")}.`;
+      case "object.created": {
+        const created = field("object");
+        const createdId =
+          typeof created === "object" && created !== null && "objectId" in created
+            ? created.objectId
+            : undefined;
+        return typeof createdId === "string" ? `${nameOf(createdId)} appeared.` : undefined;
+      }
       default:
         return undefined;
     }
@@ -268,13 +279,21 @@ function concernedObjectId(event: StoredEvent): ObjectId | null {
   const id =
     payload === undefined
       ? undefined
-      : "objectId" in payload
-        ? payload.objectId
-        : "toObjectId" in payload
-          ? payload.toObjectId
-          : "portalId" in payload
-            ? payload.portalId
-            : undefined;
+      : event.type === "lifecycle.born" && "childId" in payload
+        ? payload.childId
+        : event.type === "object.created" &&
+            "object" in payload &&
+            typeof payload.object === "object" &&
+            payload.object !== null &&
+            "objectId" in payload.object
+          ? payload.object.objectId
+          : "objectId" in payload
+            ? payload.objectId
+            : "toObjectId" in payload
+              ? payload.toObjectId
+              : "portalId" in payload
+                ? payload.portalId
+                : undefined;
   return typeof id === "string" ? decodeOpaqueId(id, "ObjectId") : null;
 }
 
@@ -307,7 +326,10 @@ export class PostgreSqlWorldStatusReader {
     // so routine events of many busy actors, and weather integrations that moved no water, cannot
     // crowd them out: the read continues past every refused event. Privacy-hidden ones are absent.
     const shown = (event: StoredEvent): boolean => {
-      if (!MATERIAL_EVENTS.has(event.type) || !isSharedSceneEligible(event.privacyClass))
+      if (
+        worldEventFeedCategory(event.type) === undefined ||
+        !isSharedSceneEligible(event.privacyClass)
+      )
         return false;
       const payload = kernelPayloadOf(event);
       return !(
@@ -323,7 +345,7 @@ export class PostgreSqlWorldStatusReader {
       authorization,
       { tenantId: scope.tenantId, timelineId: scope.timelineId, partitionId: stored.partitionId },
       stored.coveredHeadSequence + 1n,
-      [...MATERIAL_EVENTS.keys()],
+      WORLD_FEED_EVENT_TYPES,
       100,
       shown,
     );
@@ -344,16 +366,21 @@ export class PostgreSqlWorldStatusReader {
         timeOfDayMs: dayLength === undefined ? null : (time % dayLength).toString(),
       },
       feed: recent.flatMap((event) => {
-        const material = MATERIAL_EVENTS.get(event.type);
-        if (material === undefined) return [];
+        const category = worldEventFeedCategory(event.type);
+        if (category === undefined) return [];
         return [
           {
             id: event.eventId,
             simTimeMs: event.simulationTime,
             kind: "material" as const,
-            text: feedSentence(event.type, kernelPayloadOf(event), material[1], nameOf),
+            text: feedSentence(
+              event.type,
+              kernelPayloadOf(event),
+              FEED_FALLBACKS[category],
+              nameOf,
+            ),
             sourceEventIds: [event.eventId],
-            category: material[0],
+            category,
             objectId: concernedObjectId(event),
           },
         ];
@@ -508,6 +535,18 @@ export class PostgreSqlSceneStreamReader {
     const audienceHash = decision.hash;
     const projected = new Set(scene.entities.map((entity) => entity.objectId));
     const privateCognition = privateCognitionOf(stored.document.state, decision, projected);
+    // Each projected entity's committed movement record, so the scene walks the moves it carried.
+    const movements = stored.document.state.entities.flatMap(({ objectId, movement }) =>
+      movement === undefined || !projected.has(objectId)
+        ? []
+        : [
+            {
+              objectId,
+              startedAt: movement.segment.startTime,
+              ...(movement.endedAt === undefined ? {} : { endedAt: movement.endedAt }),
+            },
+          ],
+    );
     const effects = sceneEffects(
       stored,
       stored.document.state,
@@ -555,6 +594,7 @@ export class PostgreSqlSceneStreamReader {
       audienceHash,
       ...(privateCognition === undefined ? {} : { privateCognition }),
       ...(effects.length === 0 ? {} : { effects }),
+      ...(movements.length === 0 ? {} : { movements }),
     });
     const snapshot = { projection, patch: null, authorityEpoch: stored.routingEpoch, decision };
     if (fromRevision === null || fromRevision < 0n || fromRevision >= projection.revision)
@@ -749,7 +789,15 @@ export class PostgreSqlEntitySelectionReader {
         payload.evaporated === 0
       )
         return [];
+      // The entity's own decisions: a decision record about it, or an event of a command it
+      // proposed itself (its decision-model or model rung), which may name only other objects.
+      const decision =
+        (isWorldDecisionEvent(event.type) &&
+          "objectId" in payload &&
+          payload.objectId === input.objectId) ||
+        event.attribution.effectiveActorId === input.objectId;
       const touches =
+        decision ||
         ("objectId" in payload && payload.objectId === input.objectId) ||
         ("actorId" in payload && payload.actorId === input.objectId) ||
         ("fromObjectId" in payload && payload.fromObjectId === input.objectId) ||
@@ -772,6 +820,7 @@ export class PostgreSqlEntitySelectionReader {
           partitionSequence: event.partitionSequence.toString(),
           simulationTime: event.simulationTime.toString(),
           recordedAt: event.recordedAt,
+          ...(decision ? { decision: true as const } : {}),
         },
       ];
     });

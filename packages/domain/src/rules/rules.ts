@@ -1,4 +1,5 @@
 import { DomainValidationError } from "../actor-process.js";
+import { closedWorldRefusal } from "../commands/closed-world.js";
 import { isPlainRecord } from "../spatial/parse.js";
 
 export const RULE_SCHEMA_VERSION = 1 as const;
@@ -398,7 +399,7 @@ export function validateRuleDefinition(
     const ip = `${path}.intents[${i}]`;
     const o = exactRecord(raw, ip, ["commandType", "commandVersion", "payload"]);
     const commandType = text(o["commandType"], `${ip}.commandType`);
-    if (commandType === "resource.offer")
+    if (closedWorldRefusal({ type: commandType, payload: o["payload"] }) !== undefined)
       fail(
         `${ip}.commandType`,
         "closed worlds require a transfer from existing inventory",

@@ -22,6 +22,8 @@ example `manifest.actors[0].archetype` or `manifest.archetypes[0]#traits[["routi
 `HASH_MISMATCH` and `ASSET_LENGTH_MISMATCH` messages state the declared and actual values
 (`declared hash differs from the supplied bytes: expected <sha256>, actual <sha256>`).
 
+`INVALID_LICENSE` is refused at `manifest.assets[i].license` unless the licence is an SPDX identifier or expression of listed identifiers. `MALFORMED_SOURCE` at `ports.limits.<name>` refuses a size limit set below its default ([source](source-and-compatibility.md#size-limits)).
+
 `MISSING_RANDOM_STREAM` is refused at `manifest.randomStreams` when the manifest declares no named stream.
 `UNSUPPORTED_RANDOM_ALGORITHM` is refused at `manifest.randomStreams[i].algorithm` or `.algorithmVersion`
 when a stream names an algorithm or version other than the one the kernel supports.

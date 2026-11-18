@@ -91,6 +91,21 @@ beforeAll(async () => {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // One untimed call first: the adapter's one-time start-up cost (module set-up, the first local
+  // connection) on a loaded runner must not count against the tests' 400 ms first-byte window.
+  queues.primary = [{ reply: ["warm"], input: 1, output: 1 }];
+  await localGateway([], SECRETS, undefined, {
+    firstByteMs: 30_000,
+    idleMs: 30_000,
+    totalMs: 30_000,
+  }).stream(
+    { alias: "resident.local", callId: "warm-up", attribution, ...ask },
+    undefined,
+    () => {},
+  );
+  queues.primary = [];
+  queues.fallback = [];
+  received.length = 0;
 });
 
 afterAll(async () => {
@@ -109,6 +124,7 @@ function localGateway(
   records: ModelCallRecord[],
   credentials = SECRETS,
   budget = new InMemoryModelBudget(() => 1_000_000),
+  timeouts: ModelAliasDefinition["timeouts"] = { firstByteMs: 400, idleMs: 400, totalMs: 10_000 },
 ) {
   const route = (name: string, credential: string) => ({
     id: `local/${name}`,
@@ -124,7 +140,7 @@ function localGateway(
     routes: [route("primary", "PRIMARY_KEY"), route("fallback", "FALLBACK_KEY")],
     maxInputTokens: 1_000,
     maxOutputTokens: 100,
-    timeouts: { firstByteMs: 400, idleMs: 400, totalMs: 10_000 },
+    timeouts,
   };
   return createModelGateway({
     aliases: [alias],

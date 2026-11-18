@@ -127,6 +127,7 @@ export class Headless3DAdapter implements WorldSceneAdapter {
   setReducedMotion(enabled: boolean): void {
     this.reducedMotion = enabled;
   }
+  setDayLength(_dayLengthMs: bigint | undefined): void {}
   onIntent(handler: (intent: SceneIntent) => void): Unsubscribe {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);

@@ -279,6 +279,8 @@ sudo, unless that Chromium is already installed and launches. Pendulum's setup s
 This runs the retained browser/RuntimeWorker/PostgreSQL smoke and accessibility journey.
 A private browser cache or locally excluded test is not CI browser evidence.
 
+Before pushing, run `pnpm run journey:scope` (`scripts/journey-scope.mjs`). It diffs your branch against `origin/main`, with uncommitted and untracked files, and says whether the browser journey is required. The journey covers `apps/web`, `apps/runtime`, every workspace package they depend on (the scene protocol in `packages/contracts` among them), `worlds/fixture/`, `tests/e2e/`, the browser config and its journey tests, and the root manifest and lockfile. It also follows what those sources and the journey tests load: relative imports, workspace packages by name, and repository paths they name in code (not comments), such as `scripts/dev-world.mjs`, which the dev-world journey spawns, and `db/migrations`, which the native harness applies. Another suite's test or vitest config named in a shard list is not followed. Markdown never counts. When it is required, run `env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts`.
+
 Quality keeps its required `quality` job, minimum read permissions and all previous checks.
 `recordCommand` captures actual candidate-bound command outcomes; the schema-validated
 manifest binds their output hashes, browser outcome, migration inventory, security outcomes,
@@ -318,7 +320,7 @@ These are account-independent implementation checks. Final Objective acceptance 
 requires actual exact-candidate CI logs/artifacts proving license enforcement, SBOM,
 vulnerability/tree-secret scanning, generated validated evidence and the installed real
 browser journey, plus verified external independent focused review. Owner setup (issue 1),
-the authenticated staging path and full Wave 0 exit (issue 2) remain pending.
+the authenticated path on the validation deployment and full Wave 0 exit (issue 2) remain pending.
 
 ## W0-010 local bootstrap and qualification
 
@@ -392,8 +394,9 @@ not from per-PR Quality.
 
 The authentication composition packet is account-independent preparation. Controlled local rows
 exercise stored-session and authority readers only. Enrollment/World-participation handoff, hosted
-configuration, authenticated staging and full Wave 0 qualification remain pending until an authorized
-bounded enrollment/provisioning path declares grants/privacy, or the planned provisioning path exists.
+configuration, authenticated qualification on the validation deployment and full Wave 0 qualification
+remain pending until an authorized bounded enrollment/provisioning path declares grants/privacy, or the
+planned provisioning path exists.
 Before integration, the operator must supply a passing independent review of the exact collected
 commit/tree covering every changed credential, authority and schema boundary. Missing review prevents
 integration; a negative review refuses integration. Final Objective review also requires fresh protected
@@ -407,4 +410,4 @@ implementation checkout can run behavior checks but cannot claim candidate-bound
 Native local evidence never supplies external review, published CI or hosted acceptance facts.
 
 When those whole-Objective facts remain unavailable, retain their pending dispositions and ask:
-"Which retained, authenticated, candidate-bound receipts satisfy each still-pending whole-Objective criterion, including real missed/duplicate Queue or webhook effects, approved owner setup and enrollment/World-grant/privacy handoff, protected staging deployment, authenticated staging correlation and the complete Wave 0 evidence manifest?"
+"Which retained, authenticated, candidate-bound receipts satisfy each still-pending whole-Objective criterion, including real missed/duplicate Queue or webhook effects, approved owner setup and enrollment/World-grant/privacy handoff, protected validation deployment, authenticated correlation on the validation deployment and the complete Wave 0 evidence manifest?"

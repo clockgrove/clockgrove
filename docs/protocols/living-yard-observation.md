@@ -122,8 +122,10 @@ its simulation time as a decimal string on the wire, `kind: "material"`, a plain
 `text`), its `category`, and `objectId`: the event's object or actor, else its portal, and null
 when no single entity applies (weather, phase changes and resource transfers). Items are derived on
 read from the canonical journal's public semantic events, with no stored feed. They never carry an
-event payload, attribution, principal or provider identity. The material event types and their
-categories form a closed list:
+event payload, attribution, principal or provider identity. The world's event definitions
+(`WORLD_EVENT_FEED` in `packages/domain/src/events/world-events.ts`) declare each event type's
+category, or that it is not feed-worthy, so the feed is not a list the observer keeps. The current
+feed types and categories are:
 
 - `weather`: `weather.changed`, `weather.transitioned`, `environment.phase-changed`;
 - `routine`: `routine.selected`;
@@ -131,26 +133,36 @@ categories form a closed list:
 - `growth`: `growth.stage-changed`;
 - `movement`: `movement.portal-crossed`, `movement.completed`;
 - `portal`: `portal.opened`, `portal.closed`;
-- `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.spoiled`, `resource.weather-integrated` (only nonzero collection or evaporation).
+- `resource`: `resource.offered`, `resource.consumed`, `resource.transferred`, `resource.boundary-exchanged`, `resource.spoiled`, `resource.weather-integrated` (only nonzero collection or evaporation);
+- `lifecycle`: `lifecycle.born`, `lifecycle.died`, `lifecycle.conceived`, `lifecycle.stage-changed`;
+- `object`: `object.created`.
 
 `text` is generated on read from the event's public payload, naming each entity by its `presentation.label`
 in the space's living scene (an entity outside the scene by its object id); the payload itself is never exposed. When the payload lacks a field a sentence needs,
-`text` falls back to fixed per-type wording. Sentences, with `A` the object and `K` the capitalised
+`text` falls back to fixed per-category wording ("The weather changed.", "A routine was chosen.", "An
+actor's wellbeing changed.", "A plant grew.", "Something moved.", "A portal changed.", "A resource
+changed.", "A life changed.", "Something new appeared."). The words come from the pack's own payload
+fields, not from a table in the observer. Sentences, with `A` the object and `K` the capitalised
 resource kind: `weather.transitioned` "It started raining." / "The rain stopped." / "The rain changed."
 / "The weather turned."; `weather.changed` "It is raining." / "It is dry."; `environment.phase-changed`
-"It is now {phase}."; `routine.selected` "A is staying put." / "A is looking for food|water|shelter[ at
-{target}]."; `needs.threshold-crossed` "A is hungry|thirsty."; `exposure.threshold-crossed` "A got wet." /
+"It is now {phase}."; `routine.selected` "A is looking for X[ at {target}]." for a `seek-X` action and
+"A chose to {action}[ at {target}]." for any other action kind (hyphens read as spaces);
+`needs.threshold-crossed` "A's {need} is urgent."; `exposure.threshold-crossed` "A got wet." /
 "A dried off." / "A is uncomfortable in the weather." / "A is comfortable again.";
-`health.threshold-crossed` "A's health is critical." / "A is recovering."; `growth.stage-changed` "A
-reached its {stage} stage."; `movement.completed` "A arrived."; `movement.portal-crossed` "A went
-through {portal}."; `portal.opened|closed` "{portal} opened|closed."; `resource.offered` "K was offered
-at A."; `resource.consumed` "K at A was used."; `resource.transferred` "K moved from {from} to {to}.";
-`resource.spoiled` "Food at A spoiled."; `resource.weather-integrated` "A collected N water from rain; M evaporated."
+`health.threshold-crossed` "A's health is critical." / "A is recovering."; `growth.stage-changed` and
+`lifecycle.stage-changed` "A reached its {stage} stage."; `movement.completed` "A arrived.";
+`movement.portal-crossed` "A went through {portal}."; `portal.opened|closed` "{portal} opened|closed.";
+`resource.offered` "K was offered at A."; `resource.consumed` "K at A was used.";
+`resource.transferred` "K moved from {from} to {to}."; `resource.spoiled` "K at A spoiled.";
+`resource.weather-integrated` "A collected N water from rain; M evaporated."; `lifecycle.born`
+"{child} was born to {parent}."; `lifecycle.died` "A died."; `lifecycle.conceived` "A conceived
+{child}."; `object.created` "{object} appeared." For `lifecycle.born` and `object.created`, `objectId`
+is the child or the created object.
 
-Every other type, including `time.advanced`, `needs.changed`, `comfort.changed`, `needs.relieved`,
-`wellbeing.integrated`, `growth.integrated`, `location.changed`, `movement.started`,
-`movement.region-*`, `movement.interrupted`, `movement.replanned` and clock and lifecycle records, is
-never a feed item. Neither is a `resource.weather-integrated` event that collected and evaporated
+Every type the world does not declare feed-worthy, including `time.advanced`, `needs.changed`,
+`comfort.changed`, `needs.relieved`, `wellbeing.integrated`, `growth.integrated`, `location.changed`,
+`movement.started`, `movement.region-*`, `movement.interrupted`, `movement.replanned`,
+`lifecycle.gestation-milestone`, `lifecycle.successor-intended` and clock records, is never a feed item. Neither is a `resource.weather-integrated` event that collected and evaporated
 nothing, or an event the shared scene may not show. The feed holds the space partition's newest 100
 shown events of the material types above, up to the covered head: it reads them filtered by type in
 PostgreSQL (`PostgreSqlObjectHistoryReader.readTypes`, issue 354) and keeps reading older pages past
@@ -274,6 +286,11 @@ Reading or refreshing this view writes no canonical state, revision, receipt or 
 contain original `eventId`, `actionId` and `commandId`, public event `type`, canonical
 `partitionSequence`, event `simulationTime` and its original `recordedAt` timestamp. Summaries
 are newest first by partition sequence, never by wall time. They contain no raw journal payload.
+A summary carries `decision: true` when it records the entity's own decision: its type is one the
+world declares a decision record (`isWorldDecisionEvent`, currently `routine.selected`) about the
+entity, or its command's effective actor is the entity. An event of the entity's own command is in
+its history even when the payload names only other objects. Otherwise the key is absent. Why from the interaction card
+explains the newest summary with `decision`, at any rung of the decision ladder.
 Only authorized public actions concerning the selected object are returned; a broader privacy
 ceiling cannot widen this vocabulary. No action beyond the snapshot's covered journal head is
 included.

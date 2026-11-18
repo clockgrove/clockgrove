@@ -71,7 +71,7 @@ it("recovers a durable approval wait without cognition or dispatch and refuses t
       stores: async (operation) => operation(store),
       respond: async () => {
         modelCalls++;
-        return { text: "Recorded result" };
+        return { text: "Recorded result [tool:approved:call]" };
       },
       research: withApproval
         ? research
@@ -165,8 +165,8 @@ it("recovers a durable approval wait without cognition or dispatch and refuses t
         owner.activate(participant, waiting),
       ]);
       expect(results.map((r) => r.receipt?.reply.text)).toEqual([
-        "Recorded result\n\nResearch evidence: [tool:approved:call]",
-        "Recorded result\n\nResearch evidence: [tool:approved:call]",
+        "Recorded result [tool:approved:call]\n\nResearch evidence: [tool:approved:call]",
+        "Recorded result [tool:approved:call]\n\nResearch evidence: [tool:approved:call]",
       ]);
       expect([modelCalls, dispatches]).toEqual([1, 1]);
       expect((await store.turnStatus(participant, request)).phase).toBe("completed");
@@ -180,7 +180,8 @@ it("recovers a durable approval wait without cognition or dispatch and refuses t
         );
         approval = decision;
         const f = await current(decision);
-        await new TurnFibers(host(`decision-${decision}`)).activate(participant, f);
+        const decided = await new TurnFibers(host(`decision-${decision}`)).activate(participant, f);
+        expect(decided.receipt?.reply.text).toBe("Recorded result [unverified tool citation]");
         const recorded = await store.researchState(participant, f);
         expect([
           recorded.calls[0]?.status,

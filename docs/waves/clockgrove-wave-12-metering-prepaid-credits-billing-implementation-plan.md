@@ -11,6 +11,8 @@
 
 ---
 
+**Parked (owner decision 2026-11-14):** Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Not planned.
+
 ## 1. Outcome
 
 Wave 12 completes the Management Plane's commercially safe usage system without putting money, customers, payment-provider state, or a global wallet inside World Runtime semantics. It consumes Wave 11's immutable action/causal attribution, resolves sponsorship separately, and implements one shared wallet per billing account, bounded world credit leases, Runtime-local admission and quota enforcement, immutable usage receipts, versioned Management rating, PostgreSQL accounting, Redis-backed global allocation, purchases and promotional grants, automatic recharge, customer billing UI, Management-only Stripe collection/reconciliation, refunds/chargebacks, execution entitlements, and zero-balance/nonpayment behavior.

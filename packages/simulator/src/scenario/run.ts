@@ -73,7 +73,10 @@ export async function runScenario(input: unknown, ports: ScenarioPorts): Promise
         throw error;
       }
     };
-    const wrapped: SimulatorPorts = { sha256 };
+    const wrapped: SimulatorPorts = {
+      sha256,
+      ...(ports.packLimits === undefined ? {} : { packLimits: ports.packLimits }),
+    };
 
     const { artifact: suppliedArtifact, source, scenario: rawScenario } = readInput(input);
     const scenario = decodeScenario(rawScenario);

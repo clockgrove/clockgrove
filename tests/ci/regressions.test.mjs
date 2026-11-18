@@ -13,6 +13,7 @@ import { expect, it } from "vitest";
 import {
   collectEvidence,
   commandLimitsMs,
+  fileInventory,
   readPassingReceipt,
   recordCommand,
   validateEvidence,
@@ -22,12 +23,19 @@ import {
   validateNativeRecoveryProof,
 } from "../../scripts/ci/native-recovery.mjs";
 import {
+  CALIBRATION_REFERENCE_MS,
+  fixtureEnvironment,
+  fixtureWallTimeBound,
+  hostWallTimeBound,
+} from "../../scripts/ci/qualify-wave3-load-curves.mjs";
+import {
   assertRuntimePartition,
   partitionRuntimeFiles,
   runtimeShards,
   shardCommands,
 } from "../../scripts/ci/runtime-shards.mjs";
 import { checkContractDrift, generateContractInventory } from "../../scripts/contract-drift.mjs";
+import { journeyPaths, journeyReasons } from "../../scripts/journey-scope.mjs";
 import { checkLicense, componentLicenses, openAdvisories } from "../../scripts/supply-chain.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -413,6 +421,7 @@ it("vulnerability scan accepts an advisory only for its exact version, GHSA id a
   ]).toEqual([[], ["pkg"], ["pkg"], ["pkg"], ["pkg"], ["pkg"]]);
   expect(Object.keys(openAdvisories({}, {}, { accepted, today: "2026-12-17" }))).toEqual([]);
 });
+// #367: a legacy list names every licence the package is under, so each must be allowed.
 it("license check reads npm's legacy licenses array and verified records for the exact version only", () => {
   const verdict = (key, metadata) => {
     try {
@@ -426,6 +435,8 @@ it("license check reads npm's legacy licenses array and verified records for the
   expect([
     verdict("format@0.2.2", legacy("MIT")),
     verdict("dual@1.0.0", legacy("GPL-2.0", "MIT")),
+    verdict("both@1.0.0", legacy("MIT", "GPL-3.0")),
+    verdict("permissive@1.0.0", legacy("MIT", "Apache-2.0")),
     verdict("gpl@1.0.0", legacy("GPL-2.0")),
     verdict("empty@1.0.0", { licenses: [] }),
     verdict("prose@1.0.0", legacy("Apache 2.0")),
@@ -437,6 +448,8 @@ it("license check reads npm's legacy licenses array and verified records for the
     verdict("@google/design.md@0.4.0", { license: "GPL-2.0" }),
   ]).toEqual([
     "allowed",
+    "refused",
+    "refused",
     "allowed",
     "refused",
     "missing",
@@ -448,6 +461,76 @@ it("license check reads npm's legacy licenses array and verified records for the
     "missing",
     "refused",
   ]);
+});
+
+// #367: a fixture password or synthetic token in a failing run's output once withheld the whole log.
+// The log is kept; only the job's own secret values and high-signal material are masked.
+it(
+  "CI evidence keeps a command log and masks only secret values",
+  () =>
+    inTemporary("clockgrove-evidence-mask-", async (directory) => {
+      const secret = `job-${"s".repeat(24)}`;
+      const fixture = `${["pass", "word"].join("")}: "fixture-pass"`;
+      const token = `ghp_${"z".repeat(36)}`;
+      process.env.CLOCKGROVE_TEST_API_TOKEN = secret;
+      try {
+        const printed = [fixture, `token ${secret}`, token, "expected 2, got 3"].join("\n");
+        expect(
+          await recordCommand(directory, "masked", [
+            "node",
+            "-e",
+            `console.log(${JSON.stringify(printed)}); process.exit(1)`,
+          ]),
+        ).toBe(1);
+        expect(await readFile(path.join(directory, "masked.log"), "utf8")).toBe(
+          `${fixture}\ntoken ***\n***\nexpected 2, got 3\n`,
+        );
+        expect((await fileInventory(directory)).map((file) => file.path)).toEqual([
+          "masked.log",
+          "masked.result.json",
+        ]);
+      } finally {
+        delete process.env.CLOCKGROVE_TEST_API_TOKEN;
+      }
+    }),
+  30_000,
+);
+
+// #367: the browser journey ran only for apps/ changes, and a fixed load-curve bound failed a
+// slower runner that finished every point.
+it("journey scope follows what the journey tests and apps load; the load-curve bound scales with the host", () => {
+  const scope = journeyReasons(
+    [
+      "packages/contracts/src/scene.ts",
+      "apps/web/src/x.ts",
+      // Loaded by the journey tests, not by an app: the asset package, the migrations and database
+      // helpers the native harness applies, and the dev-world launcher the journey spawns.
+      "packages/assets/src/cli.ts",
+      "db/migrations/0999_x.sql",
+      "scripts/database/lib.mjs",
+      "scripts/dev-world.mjs",
+      "docs/x.md",
+      "scripts/ci/evidence.mjs",
+      "tests/ci/regressions.test.mjs",
+    ],
+    journeyPaths(root),
+  );
+  expect(scope.map((reason) => reason.file)).toEqual([
+    "packages/contracts/src/scene.ts",
+    "apps/web/src/x.ts",
+    "packages/assets/src/cli.ts",
+    "db/migrations/0999_x.sql",
+    "scripts/database/lib.mjs",
+    "scripts/dev-world.mjs",
+  ]);
+  expect(
+    [CALIBRATION_REFERENCE_MS / 2, CALIBRATION_REFERENCE_MS * 2].map(hostWallTimeBound),
+  ).toEqual([600_000, 1_200_000]);
+  // The bound reaches the fixture's native owner: a host twice as slow runs it under 1,200 s, not
+  // the fixed 600 s that stopped it before; run on its own, the fixture keeps the base.
+  const slow = hostWallTimeBound(CALIBRATION_REFERENCE_MS * 2);
+  expect(fixtureWallTimeBound(fixtureEnvironment("/results", slow, {}))).toBe(1_200_000);
+  expect(fixtureWallTimeBound({})).toBe(600_000);
 });
 
 // #381: a dependency update left the recovery check expecting the previous Wrangler, Miniflare and

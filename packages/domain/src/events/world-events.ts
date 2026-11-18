@@ -1,3 +1,4 @@
+import type { WorldFeedCategory } from "@clockgrove/contracts";
 import type { WorldEvent } from "../world.js";
 
 export interface VersionedDefinition {
@@ -59,6 +60,83 @@ const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["sche
   "lifecycle.died": 1,
   "lifecycle.successor-intended": 1,
 };
+
+/**
+ * Exhaustive by construction: each world event type's feed category, or null when it is not
+ * feed-worthy. The world, not the observer, decides what appears in the material feed.
+ */
+const WORLD_EVENT_FEED: Readonly<Record<WorldEvent["type"], WorldFeedCategory | null>> = {
+  "boundary.departed": null,
+  "boundary.returned": null,
+  "resource.boundary-exchanged": "resource",
+  "process.command-attempted": null,
+  "needs.changed": null,
+  "routine.selected": "routine",
+  "time.advanced": null,
+  "weather.changed": "weather",
+  "object.created": "object",
+  "object.retired": null,
+  "containment.put": null,
+  "containment.removed": null,
+  "containment.transferred": null,
+  "resource.offered": "resource",
+  "resource.consumed": "resource",
+  "resource.transferred": "resource",
+  "movement.started": null,
+  "movement.region-entered": null,
+  "movement.region-exited": null,
+  "movement.region-remained": null,
+  "movement.portal-crossed": "movement",
+  "movement.interrupted": null,
+  "movement.replanned": null,
+  "movement.completed": "movement",
+  "portal.opened": "portal",
+  "portal.closed": "portal",
+  "environment.phase-changed": "weather",
+  "weather.transitioned": "weather",
+  "exposure.threshold-crossed": "wellbeing",
+  "resource.appeared": null,
+  "resource.weather-integrated": "resource",
+  "resource.spoiled": "resource",
+  "growth.stage-changed": "growth",
+  "growth.integrated": null,
+  "wellbeing.integrated": null,
+  "needs.threshold-crossed": "wellbeing",
+  "comfort.changed": null,
+  "health.threshold-crossed": "wellbeing",
+  "location.changed": null,
+  "needs.relieved": null,
+  "lifecycle.conceived": "lifecycle",
+  "lifecycle.gestation-milestone": null,
+  "lifecycle.born": "lifecycle",
+  "lifecycle.stage-changed": "lifecycle",
+  "lifecycle.died": "lifecycle",
+  "lifecycle.successor-intended": null,
+};
+
+/** The feed category of a world event type, or `undefined` when it is unknown or not feed-worthy. */
+export function worldEventFeedCategory(type: string): WorldFeedCategory | undefined {
+  if (!Object.hasOwn(WORLD_EVENT_FEED, type)) return undefined;
+  return WORLD_EVENT_FEED[type as WorldEvent["type"]] ?? undefined;
+}
+
+/** The feed-worthy world event types, in UTF-16 order. */
+export const WORLD_FEED_EVENT_TYPES: readonly string[] = Object.freeze(
+  Object.keys(WORLD_EVENT_FEED)
+    .filter((type) => worldEventFeedCategory(type) !== undefined)
+    .sort(),
+);
+
+/**
+ * The world event types that record an actor's own decision (`payload.objectId` is the actor):
+ * `routine.selected` carries the choice of utility, compiled policy or a decision point alike.
+ */
+const WORLD_DECISION_EVENTS: ReadonlySet<WorldEvent["type"]> = new Set(["routine.selected"]);
+
+/** Whether a world event type records an actor's own decision. */
+export function isWorldDecisionEvent(type: string): boolean {
+  return (WORLD_DECISION_EVENTS as ReadonlySet<string>).has(type);
+}
 
 /** An event as the upcast sees it: any record with a type, a schema version and a payload. */
 export interface VersionedEventRecord {

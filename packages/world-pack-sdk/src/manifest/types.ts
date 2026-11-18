@@ -6,6 +6,8 @@ import type {
   WorldBehaviorPolicy,
 } from "@clockgrove/domain";
 
+import type { WorldPackLimits } from "../limits.js";
+
 export const WORLD_PACK_SCHEMA_VERSION = 2;
 export const WORLD_PACK_ENGINE_VERSION = "1.0.0";
 export const WORLD_PACK_BUILD_TOOL_VERSION = "clockgrove-world-pack-sdk@0.1.0";
@@ -32,6 +34,8 @@ export interface WorldPackPorts {
   sha256(bytes: Uint8Array): Promise<string>;
   /** Commands rules, capabilities and seed commands may name; an absent catalog is empty. */
   readonly commandCatalog?: readonly { type: string; version: number }[];
+  /** Size bounds the world's owner raises above DEFAULT_WORLD_PACK_LIMITS; never lowered. */
+  readonly limits?: Partial<WorldPackLimits>;
 }
 
 export const BEHAVIOR_POLICY_TYPE = "clockgrove.world-behavior-policy";

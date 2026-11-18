@@ -18,7 +18,7 @@ They win over this page.
 
 ## The model
 
-- **Tracks:** Waves 0–9 are the technical/open-source track to GA; Waves 10–11 add shared hosted worlds; Wave 12 is optional commercial hosting. Do not relabel waves from an older document.
+- **Tracks:** Waves 0–9 are the technical/open-source track to GA. Waves 10–12 are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Do not relabel waves from an older document.
 - **A wave** is a substantial, mostly sequential workstream with numerous Objectives and full exit obligations. It is a qualification boundary, not a sprint.
 - **An Objective** is one complete, testable capability with one owner and a declared acceptance surface. The `pendulum:objective` label goes only on new product work from a wave plan. Gaps, regressions, maintenance, plan amendments and re-qualification are plain `Bug`, `Task` or `Feature` issues.
 - **Work packets** (`RW-xxxx` in each plan) describe responsibility and dependencies. They feed Objective planning; they are not one Objective each and their boundaries are not frozen.

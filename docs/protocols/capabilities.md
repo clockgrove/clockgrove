@@ -194,7 +194,7 @@ only held capability names and bounded input schemas as untrusted catalog data; 
 cannot add grants or choose execution authority.
 
 Hosted MCP composition and remote admission remain disabled pending issue 3's hosted egress
-receipt after issue 2's staging deployment. The local factory/network path is not evidence for
+receipt after issue 2's first validation deployment. The local factory/network path is not evidence for
 hosted SSRF or DNS rebinding protection. See the [operator lifecycle](../runbooks/runtime.md#local-operator-lifecycle).
 
 ## Proactive delivery producer

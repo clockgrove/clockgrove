@@ -152,7 +152,7 @@ credentials, canonical installation/review/binding governance and actor revision
 The [local runtime composition](#local-runtime-composition) and
 [operator procedure](../runbooks/runtime.md#local-operator-lifecycle) describe the current path.
 Production remote MCP remains guarded off pending issue 3's hosted egress receipt after issue 2's
-staging deployment. Remote execution belongs to RW-0508. Earlier delivery-part sections below
+first validation deployment. Remote execution belongs to RW-0508. Earlier delivery-part sections below
 record the foundation boundaries; the final local integration supersedes their pending local work.
 
 ## Transport and untrusted discovery
@@ -491,7 +491,7 @@ private-egress protection and document residual rebinding behavior before exposi
 ## Hosted evidence ownership
 
 Owner amendment (2026-11-10, issue 164): the hosted private-egress verification belongs to
-issue 3 and runs on staging after issue 2's first successful deployment. Local operator,
+issue 3 and runs on the validation deployment after issue 2's first successful deployment. Local operator,
 credential and actor integration does not wait for that receipt. Production remote MCP
 composition remains disabled until that candidate-bound hosted receipt exists; local fixture
 results do not substitute for it. The required checks include private/metadata destinations,

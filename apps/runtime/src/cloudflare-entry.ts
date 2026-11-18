@@ -79,6 +79,7 @@ import {
   actorModelConfiguration,
   describeScene,
   type PerceptionFocus,
+  rankedEntities,
 } from "./actor-model.js";
 import {
   composeReferenceAuthentication,
@@ -393,6 +394,7 @@ export function perceiveListing(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
   scope: BrowserScope,
   context: TrustedContext,
+  actorId?: string,
 ): Promise<PerceptionListing> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", async (client) => {
     const { scene, stored } = await new PostgreSqlLivingSceneReader(
@@ -402,7 +404,12 @@ export function perceiveListing(
     const frames = new Set(scene.frames.map((frame) => `${frame.frameId}@${frame.version}`));
     return {
       revision: scene.revision,
-      entities: scene.entities.map((entity) => ({
+      // Relevance order (issue 364), so the caller's bound never cuts what the actor is involved with.
+      entities: rankedEntities(
+        scene.entities,
+        stored.document.state,
+        actorId === undefined ? {} : { actorId },
+      ).map((entity) => ({
         objectId: String(entity.objectId),
         label: entity.presentation.label,
         archetypeId: entity.archetypeId,
@@ -754,6 +761,8 @@ export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
+  /** The world owner's pack size raises, JSON such as `{"resources":2048}`; absent, the defaults. */
+  readonly WORLD_PACK_LIMITS?: string;
   readonly MODERATION_SHADOW_CONFIG?: string;
   /** Optional actor-reply shadow judging (issue 271); absent, replies are not judged. */
   readonly ACTOR_REPLY_SHADOW_CONFIG?: string;

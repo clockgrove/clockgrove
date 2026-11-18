@@ -8,10 +8,14 @@ time emits the phase changes, weather transitions and exposure crossings it pass
 unchanged.
 
 **Environment policy** (`policy.environment`, validated in the domain by
-`validateEnvironmentPolicy`). Fields, all required, no others: `schemaVersion` (`1`; any other
-version is refused), `dayLengthMs` (positive bigint, at most 2^53), `phases` (1 to 64 records
+`validateEnvironmentPolicy`). Required fields: `schemaVersion` (`1`; any other version is
+refused), `dayLengthMs` (positive bigint, at most 2^53), `phases` (1 to 64 records
 `{name, startMs, lightBand}`), `weatherSegments` (1 to 64 records `{durationMs, rainIntensity,
 temperatureBand}`), `wetThreshold` and `discomfortThreshold` (integer basis points 1 to 10000).
+One optional field: `shelterReflexThreshold` (integer basis points 1 to 10000), the wetness at or
+above which a routine actor seeks shelter before anything else
+([utility decisions](utility-decisions.md)); absent means 9000 and the field is not encoded. No
+other field is accepted.
 The first phase starts at 0, phase starts strictly increase and stay below the day length, phase
 names are unique, a segment duration is a positive bigint of at most 2^53 and a rain intensity is
 an integer from 0 to 10000. Phase, light band and temperature band names are pack data (nonempty,
