@@ -359,11 +359,22 @@ function logError(error: unknown): RuntimeLogRecord["error"] {
   };
 }
 
-/** URLs (connection strings carry credentials), bearer tokens and `key=value` secrets go. */
+/**
+ * URLs (connection strings carry credentials), bearer tokens, JSON secret fields
+ * (`"password": "…"`) and `name=value` or `name: value` secrets go, where the name ends in a secret
+ * word: `password=`, `client_secret=`, `access_token=`, `api_key=`, `x-api-key:`.
+ */
 function redact(text: string, limit: number): string {
   return text
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/giu, "[url]")
     .replace(/\bbearer\s+\S+/giu, "Bearer [redacted]")
-    .replace(/\b(password|passwd|secret|token|key|sslkey)\s*=\s*\S+/giu, "$1=[redacted]")
+    .replace(
+      /"([\w-]*(?:password|passwd|secret|token|key))"(\s*:\s*)"(?:\\.|[^"\\])*"/giu,
+      '"$1"$2"[redacted]"',
+    )
+    .replace(
+      /(?<![\w-])([\w-]*(?:password|passwd|secret|token|key))(\s*[=:]\s*)(?:"(?:\\.|[^"\\])*"|'[^']*'|[^\s&,;]+)/giu,
+      "$1$2[redacted]",
+    )
     .slice(0, limit);
 }

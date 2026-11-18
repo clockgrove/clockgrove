@@ -211,7 +211,8 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
     spaceId: context.spaceId,
   };
   const logger = new InMemoryRuntimeLogger();
-  // A connection string and a libpq password in the cause; neither may reach the log.
+  // A connection string, a libpq password, OAuth and API-key parameters, an API-key header and a JSON
+  // password field in the cause; none may reach the log.
   const secret = ["fixture", "secret"].join("-");
   const leaked = new URL("postgres://rt@db.test/cg");
   leaked.password = secret;
@@ -230,7 +231,16 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
               logger,
               ownerLogIds(input.scope, trusted, input.command.commandId),
               () =>
-                Promise.reject(new Error(`connect ${leaked} ${["password", secret].join("=")}`)),
+                Promise.reject(
+                  new Error(
+                    [
+                      `connect ${leaked} ${["password", secret].join("=")}`,
+                      `${["client_secret", secret].join("=")}&${["access_token", secret].join("=")}`,
+                      `${["api_key", secret].join("=")} ${["x-api-key", secret].join(": ")}`,
+                      JSON.stringify({ user: "rt", ["pass" + "word"]: secret }),
+                    ].join(" "),
+                  ),
+                ),
             ),
           ),
         deny: async () => {
@@ -281,7 +291,10 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
     ...failure,
   });
   expect(new Date(timestamp).toISOString()).toBe(timestamp);
-  expect([error.name, error.message]).toEqual(["Error", "connect [url] password=[redacted]"]);
+  expect([error.name, error.message]).toEqual([
+    "Error",
+    `connect [url] password=[redacted] client_secret=[redacted]&access_token=[redacted] api_key=[redacted] x-api-key: [redacted] {"user":"rt","${"pass"}word":"[redacted]"}`,
+  ]);
   expect(error.stack).not.toContain(secret);
   expect({ ...answered, timestamp: undefined }).toEqual({
     schemaVersion: 6,
