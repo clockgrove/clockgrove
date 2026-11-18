@@ -557,7 +557,7 @@ export function ConversationPanel({
                 kind === "why"
                   ? whyCommand !== undefined
                     ? `rail:receipt:${whyCommand}`
-                    : `card:${actorId}`
+                    : `rail:card:${actorId}`
                   : undefined
               }
               onClick={(event) => railAction(kind, event.currentTarget)}
