@@ -137,7 +137,12 @@ Three consecutive failures open the breaker. One or two failures are ordinary pr
 While the breaker is open, calls skip the route and record `skipped_breaker_open`. After 30 s the
 breaker is half-open and lets one trial call through. A success closes it; a failure opens it again.
 `inspect(alias)` reports each route's breaker state and consecutive failures. Breaker state is
-in-memory execution state, one entry per route.
+in-memory execution state, one entry per route. Each change of it (`closed` to `open`, `open` to
+`half_open` when a trial is admitted, `half_open` to `closed` or back to `open`) is reported on the
+`RouteAttempt` that caused it as `breakerTransitions` (`routeId`, `from`, `to`,
+`consecutiveFailures`, `at`), absent when the attempt changed nothing; `generateObject` and `stream`
+report them, `decide` does not. The runtime records each one durably (issue 374): see
+[runs](../../../docs/protocols/runs.md).
 
 ## Budget
 

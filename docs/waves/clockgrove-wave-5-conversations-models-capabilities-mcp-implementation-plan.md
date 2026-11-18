@@ -815,3 +815,25 @@ provider idempotency declaration and a new exact approval; provider keys remain 
 across separately recorded retries. Replay, preview, Queue redelivery and owner recovery
 never dispatch the original recorded write twice. Credentials stay inside the vault-bound
 transport. Hosted egress activation remains outside this local boundary.
+
+## Issue 374: behaviour the qualification recorded as missing
+
+Wave 5's qualification (issue 169) recorded five deviations. Issue 374 adds the behaviour, each
+proven by the row of `scripts/ci/qualify-wave5-scenarios.json` that names it. Its first part
+delivers three:
+
+- **§17 Say's audience (S6).** A public Say's receipt names its spatial audience, decided by the
+  kernel's audience resolver for a `sound` event of the speaker: the speaker and the entities of its
+  space within the Say range hear it, and no one else. Say stays distinct from Talk and never enters
+  a session ([channels](../protocols/channels.md)).
+- **§20 document limits and retention (X2).** A cognitive document write past its size, change-set
+  or count limit is refused with its typed reason, and the document inspector shows the versions'
+  retention policy: kept for the world's life within the stated bounds
+  ([context assembly](../protocols/context-assembly.md)).
+- **§18 provider breakers (O-breaker).** Each change of a model route's breaker is recorded durably
+  with the run whose call caused it; the run inspector shows it and qualification measures it, so
+  breaker state is no longer only the gateway's memory ([runs](../protocols/runs.md)).
+
+Still pending in later parts of issue 374: the §18 actor and conversation mute (G8) and the §17
+`continuously_eligible` process with budgets across a deployment (S16). Their rows stay deviations
+until then.
