@@ -29,7 +29,7 @@ Browser tests run only as `env CI=true node node_modules/vitest/vitest.mjs run -
 
 Unit tests are scaffolding: write them while building, delete them before handoff. Lasting tests are one integration test per acceptance claim through the real path (native owner, PostgreSQL, HTTP), asserting exact values, named `*.postgres.test.ts`, `*.long-run.test.ts` or `*.journey.*.test.ts`; plus goldens and the `tests/database/` attack suite. New unit-test files are allowed only under `unitTestAreas` in `scripts/test-budget.json`. Every Vitest timeout is at least 30,000 ms. A test that launches a browser must be in the `include` of `tests/ci/vitest.browser.config.ts`; `pnpm check` refuses Playwright anywhere else.
 
-Budget command: `node scripts/check-test-budget.mjs`, run by `pnpm check`. Net test lines (added minus deleted) may not exceed added production lines beyond `testLineAllowance` (150); aim for about half. In a checkout without `origin/main`, run it with `CONTRACT_BASE_COMMIT=<40-hex base commit>`. The only way over is a `testLineExceptions` entry recorded by the owner; you never add one, never raise the allowance, and never edit `scripts/test-budget.json`. Over budget means smaller tests, not an exception.
+Budget command: `node scripts/check-test-budget.mjs`, run by `pnpm check`. Net test lines (added minus deleted) may not exceed added production lines beyond `testLineAllowance` (300); aim for about half. In a checkout without `origin/main`, run it with `CONTRACT_BASE_COMMIT=<40-hex base commit>`. The only way over is a `testLineExceptions` entry recorded by the owner; you never add one, never raise the allowance, and never edit `scripts/test-budget.json`. Over budget means smaller tests, not an exception.
 
 ## The six design-checklist questions
 
