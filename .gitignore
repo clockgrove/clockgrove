@@ -9,7 +9,7 @@ __pycache__/
 /packages/*/*.tsbuildinfo
 /dist/
 /packages/*/dist/
-/worlds/*/goldens/*.actual.json
+/worlds/**/goldens/*.actual.json
 .env
 .env.*
 !/.env.example
