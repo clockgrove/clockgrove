@@ -331,6 +331,8 @@ export class PostgreSqlEffects {
     const values = addressValues(address);
     if (!identity(attemptId)) throw new Error("Invalid effect attempt");
     return this.transaction(async () => {
+      // The intent first, as claim and complete take it, so a beat and a completion never deadlock.
+      await this.lock(values);
       const result = await this.client.query(
         `UPDATE clockgrove.effect_attempts SET heartbeat_at=statement_timestamp()
         WHERE ${predicate} AND attempt_id=$5 AND disposition='started' RETURNING attempt_id`,
