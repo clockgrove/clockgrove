@@ -7,15 +7,15 @@ import { browserCommand } from "./canonical-commands.mjs";
 import { assertRuntimePartition, partitionRuntimeFiles } from "./runtime-shards.mjs";
 
 // Quality runs the browser journeys (tests/ci/vitest.browser.config.ts) as `browserShardCount`
-// shards, each on its own runner, the way runtime-shards.mjs shards test:runtime. Decision: four
-// shards; issue 405 measured the single browser job at 32 m on 2026-11-17, ~25 m of it journeys. A
-// shard is whole files, so the largest journey (living-hall) bounds the slowest shard. A shard
-// names its files and keeps the config's
-// one-file-at-a-time order. Files are packed greedily, longest first, by the seconds in
-// browser-shard-durations.json; those are estimates proportional to each file's size until a real
-// run rewrites them, and a stale entry only unbalances the shards. The quality job recomputes the
-// partition and accepts the shard receipts in place of the one browser receipt only when every file
-// the config lists is in exactly one shard and Vitest lists exactly those files for it.
+// shards, each on its own runner, the way runtime-shards.mjs shards test:runtime. A shard names its
+// files and keeps the config's one-file-at-a-time order. Files are packed greedily, longest first,
+// by the seconds in browser-shard-durations.json (a file it does not list counts as their mean), so
+// a stale entry only unbalances the shards. The quality job recomputes the partition and accepts the
+// shard receipts in place of the one browser receipt only when every file the config lists is in
+// exactly one shard and Vitest lists exactly those files for it. Decision: four shards. Issue 405
+// measured the single browser job at 32 m (2026-11-17), and the durations, measured file by file on
+// 2026-11-18, total ~25 m. A shard is whole files, so dev-world (~7.5 m) and living-hall (~7 m) each
+// take a shard and bound the slowest one; the other eight fill two shards of ~5.5 m.
 export const browserShardCount = 4;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const durationsFile = path.join(root, "scripts/ci/browser-shard-durations.json");
