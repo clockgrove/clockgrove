@@ -1,7 +1,7 @@
 {
   "enforceNames": true,
   "activation": "Platform identifiers are enforced; only the neutral fixture world is allowed.",
-  "identifiers": ["raccoon", "stevie", "juniper", "gracie", "grove.", "yard"],
+  "identifiers": ["raccoon", "stevie", "juniper", "gracie", "grove."],
   "sourceRoots": ["apps", "packages", "scripts", "tools"],
   "allowPaths": ["worlds/fixture/", "tests/", "scripts/world-boundaries.json"],
   "allowSegments": ["test", "tests", "negative-boundaries"],

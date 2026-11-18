@@ -44,6 +44,24 @@ export function isWorldPath(value, config) {
   ).test(normalized);
 }
 
+/**
+ * A world identifier as a whole word, not inside another word ("yard" is not in "courtyard"). A
+ * dotted namespace matches at its start, in any case. A name matches as a word of its own in lower
+ * or upper case (`name`, `NAME_WORLD`, `name-world`), or capitalised as a camel-case part
+ * (`NameWorld`, `useNameView`), with an optional plural `s`.
+ */
+function identifierPattern(identifier) {
+  const name = escapePattern(identifier);
+  if (identifier.endsWith(".")) return new RegExp(`(?<![A-Za-z0-9_])${name}`, "iu");
+  const lower = name.toLowerCase();
+  const upper = name.toUpperCase();
+  const capital = lower[0].toUpperCase() + lower.slice(1);
+  return new RegExp(
+    `(?<![A-Za-z0-9])${lower}s?(?![a-z0-9])|(?<![A-Z])${capital}s?(?![a-z0-9])|(?<![A-Za-z0-9])${upper}S?(?![A-Z0-9])`,
+    "u",
+  );
+}
+
 export function worldNameProblems(file, source, config) {
   if (
     config.allowPaths.some((allowed) => file.startsWith(allowed)) ||
@@ -54,9 +72,7 @@ export function worldNameProblems(file, source, config) {
   const problems = [];
   for (const [index, line] of source.split("\n").entries()) {
     for (const identifier of config.identifiers) {
-      // Dotted namespaces match at their start; ordinary names also catch camel-case symbols.
-      const prefix = identifier.endsWith(".") ? "(?<![A-Za-z0-9_])" : "";
-      const pattern = new RegExp(`${prefix}${escapePattern(identifier)}`, "iu");
+      const pattern = identifierPattern(identifier);
       if (pattern.test(line) || (index === 0 && pattern.test(file))) {
         problems.push(`${file}:${index + 1}: ${identifier}`);
       }
@@ -117,6 +133,19 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     worldNameProblems("worlds/fixture/example.ts", config.identifiers.join(" "), config).length,
     0,
   );
+  // A name inside another word or a generic word is not a world's content; the name itself is.
+  const [name] = config.identifiers;
+  const capital = name[0].toUpperCase() + name.slice(1);
+  assert.deepEqual(
+    worldNameProblems(
+      "apps/web/src/example.ts",
+      `courtyard vineyard yard ${capital}ish ${name}er grover.x`,
+      config,
+    ),
+    [],
+  );
+  for (const named of [`use${capital}View`, `${name.toUpperCase()}_WORLD`, `${name}s-world`])
+    assert.equal(worldNameProblems("apps/web/src/example.ts", named, config).length, 1, named);
   assert.equal(
     worldImportProblems(
       "apps/web/src/example.ts",
