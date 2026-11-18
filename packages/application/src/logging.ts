@@ -362,7 +362,9 @@ function logError(error: unknown): RuntimeLogRecord["error"] {
 /**
  * URLs (connection strings carry credentials), bearer tokens, JSON secret fields
  * (`"password": "…"`) and `name=value` or `name: value` secrets go, where the name ends in a secret
- * word: `password=`, `client_secret=`, `access_token=`, `api_key=`, `x-api-key:`.
+ * word: `password=`, `client_secret=`, `access_token=`, `api_key=`, `x-api-key:`. A value runs to
+ * whitespace or `&` (the next query parameter), past any quotes, so `,` `;` or text after a closing
+ * quote inside a secret goes with it.
  */
 function redact(text: string, limit: number): string {
   return text
@@ -373,7 +375,7 @@ function redact(text: string, limit: number): string {
       '"$1"$2"[redacted]"',
     )
     .replace(
-      /(?<![\w-])([\w-]*(?:password|passwd|secret|token|key))(\s*[=:]\s*)(?:"(?:\\.|[^"\\])*"|'[^']*'|[^\s&,;]+)/giu,
+      /(?<![\w-])([\w-]*(?:password|passwd|secret|token|key))(\s*[=:]\s*)(?:(?:"(?:\\.|[^"\\])*"|'[^']*')[^\s&]*|[^\s&]+)/giu,
       "$1$2[redacted]",
     )
     .slice(0, limit);

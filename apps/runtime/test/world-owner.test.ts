@@ -238,6 +238,9 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
                       `${["client_secret", secret].join("=")}&${["access_token", secret].join("=")}`,
                       `${["api_key", secret].join("=")} ${["x-api-key", secret].join(": ")}`,
                       JSON.stringify({ user: "rt", ["pass" + "word"]: secret }),
+                      // A value holding `,` or `;`, and text after a closing quote, go whole.
+                      `${["password", `ab,${secret};${secret}`].join("=")}`,
+                      `${["client_secret", `"ab"${secret}`].join("=")}`,
                     ].join(" "),
                   ),
                 ),
@@ -293,7 +296,7 @@ it("logs a failed world command once, at the owner, with its IDs and a redacted 
   expect(new Date(timestamp).toISOString()).toBe(timestamp);
   expect([error.name, error.message]).toEqual([
     "Error",
-    `connect [url] password=[redacted] client_secret=[redacted]&access_token=[redacted] api_key=[redacted] x-api-key: [redacted] {"user":"rt","${"pass"}word":"[redacted]"}`,
+    `connect [url] password=[redacted] client_secret=[redacted]&access_token=[redacted] api_key=[redacted] x-api-key: [redacted] {"user":"rt","${"pass"}word":"[redacted]"} password=[redacted] client_secret=[redacted]`,
   ]);
   expect(error.stack).not.toContain(secret);
   expect({ ...answered, timestamp: undefined }).toEqual({
