@@ -13,9 +13,11 @@ import { assertRuntimePartition, partitionRuntimeFiles } from "./runtime-shards.
 // a stale entry only unbalances the shards. The quality job recomputes the partition and accepts the
 // shard receipts in place of the one browser receipt only when every file the config lists is in
 // exactly one shard and Vitest lists exactly those files for it. Decision: four shards. Issue 405
-// measured the single browser job at 32 m (2026-11-17), and the durations, measured file by file on
-// 2026-11-18, total ~25 m. A shard is whole files, so dev-world (~7.5 m) and living-hall (~7 m) each
-// take a shard and bound the slowest one; the other eight fill two shards of ~5.5 m.
+// measured the single browser job at 32 m on QUALITY_RUNNER (12 PR runs, 2026-11-17). The durations
+// were measured file by file on 2026-11-18 on a 24-thread local development host, not on
+// QUALITY_RUNNER, and total ~25 m there. A shard is whole files, so on that host dev-world (~7.5 m)
+// and living-hall (~7 m) each take a shard and bound the slowest one; the other eight fill two
+// shards of ~5.5 m. A JSON report from a QUALITY_RUNNER run rebalances them (the CLI at the end of this file).
 export const browserShardCount = 4;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const durationsFile = path.join(root, "scripts/ci/browser-shard-durations.json");
