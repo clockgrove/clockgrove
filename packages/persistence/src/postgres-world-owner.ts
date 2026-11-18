@@ -249,9 +249,11 @@ export class PostgreSqlWorldOwnerReader {
     );
   }
 
+  /** The installed pack's resources, or only those of one kind (`policies`, say). */
   installedResources(
     authorization: RuntimeAuthorizationContext,
     scope: RuntimeAuthorizationScope,
+    kind?: string,
   ): Promise<InstalledWorldResources> {
     return withClientTransaction(this.client, { authorization }, async () => {
       const result = await this.client.query(
@@ -261,8 +263,9 @@ export class PostgreSqlWorldOwnerReader {
            FROM clockgrove_birth.pack_installations AS installation
            JOIN clockgrove_birth.pack_artifact_resources AS resource USING (tenant_id, pack_id, pack_version)
           WHERE installation.tenant_id = $1 AND installation.world_id = $2
+            AND ($3::text IS NULL OR resource.resource_kind = $3)
           ORDER BY resource.path`,
-        [scope.tenantId, scope.worldId],
+        [scope.tenantId, scope.worldId, kind ?? null],
       );
       if (result.rows.length === 0) throw new JournalRouteNotFoundError(scope.worldId);
       const first = record(result.rows[0], "installed pack");

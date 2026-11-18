@@ -181,7 +181,7 @@ commits a command; see [viewed spaces](../protocols/realtime-projection.md#viewe
 that unbacked creation; callers must use a finite donor transfer to add inventory. `/v1/runtime/conversations/*` and
 `/v1/runtime/talk` serve private conversation sessions under observation, the `conversation`
 category and a resolved persona, and they need the `ARTIFACT_KEYRING` secret, without which they
-answer `503 conversation_unavailable`. `/v1/runtime/say` is public scripted speech that stores
+answer `503 conversation_unavailable`. A Talk turn's actor may propose only the world commands its world's pack declares in a `clockgrove.actor-command-policy`, one a turn (the declaration's `callsPerTurn` must be 1, since a turn carries one command), with a payload of one to four identifier fields and one unit, and none when the pack declares none ([capabilities](../protocols/capabilities.md#grants-budgets-and-revocation)). Changing the declaration is a pack change under a new pack version, installed with the pack; a world keeps the artifact it was born with, so a world born on `clockgrove.fixture-hall@1.3.0` holds no declaration and its actors propose nothing, while one born on `1.4.0` may propose `resource.offer`. `/v1/runtime/say` is public scripted speech that stores
 nothing. Talk turns, `/v1/runtime/turns/status` and `/v1/runtime/turns/cancel` run in the session
 actor's `ActorAgentDO`; see [recoverable turn fibers](../protocols/conversation-fibers.md),
 [private conversations](../protocols/conversations.md) and
@@ -1376,9 +1376,10 @@ published-head Quality/browser/artifact evidence are still required before integ
 `AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives what the
 actor perceives within the member's authorized public scene
 ([context assembly](../protocols/context-assembly.md)), asks for a structured `{reply, command}`, and the turn's
-`proposal_validating` phase decides the command against the member-bounded grants and submits a
-proposed `resource.offer` to the world owner, where the closed-world kernel refuses unbacked
-creation ([capabilities](../protocols/capabilities.md)). The
+`proposal_validating` phase decides the command against the member-bounded grants and the world's
+`clockgrove.actor-command-policy`, and submits the proposed command, of a type that declaration names,
+to the world owner, which decides it (the closed-world kernel refuses an unbacked `resource.offer`); a
+world whose pack declares no actor commands submits nothing ([capabilities](../protocols/capabilities.md)). The
 owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
 abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
 [the Stevie pilot](https://github.com/clockgrove/raccoon-world/blob/main/docs/runbooks/stevie-pilot.md).

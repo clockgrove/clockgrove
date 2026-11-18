@@ -320,18 +320,18 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
       });
       expect(await reader.dueSchedules(provisioned.authorization, scope, 10022400000n)).toEqual([
         {
-          scheduleId: "scheduleid_27753948ae71de6b",
-          idempotencyKey: "scheduleid_27753948ae71de6b:8640000000",
+          scheduleId: "scheduleid_93360caba352b1f8",
+          idempotencyKey: "scheduleid_93360caba352b1f8:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_205c4d0caaffa7f4",
-          idempotencyKey: "scheduleid_205c4d0caaffa7f4:8640000000",
+          scheduleId: "scheduleid_15679150d48a784f",
+          idempotencyKey: "scheduleid_15679150d48a784f:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_c76a5b667f04580d",
-          idempotencyKey: "scheduleid_c76a5b667f04580d:8640000000",
+          scheduleId: "scheduleid_b07a902bdd96e4ce",
+          idempotencyKey: "scheduleid_b07a902bdd96e4ce:8640000000",
           dueAt: 10022400000n,
         },
       ]);
@@ -352,9 +352,9 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
           priority: item.priority,
         })),
       ).toEqual([
-        { id: "scheduleid_27753948ae71de6b", dueAt: 9976186047n, priority: 2 },
-        { id: "scheduleid_205c4d0caaffa7f4", dueAt: 9976186047n, priority: 10 },
-        { id: "scheduleid_c76a5b667f04580d", dueAt: 10022400000n, priority: 2 },
+        { id: "scheduleid_93360caba352b1f8", dueAt: 9976186047n, priority: 2 },
+        { id: "scheduleid_15679150d48a784f", dueAt: 9976186047n, priority: 10 },
+        { id: "scheduleid_b07a902bdd96e4ce", dueAt: 10022400000n, priority: 2 },
       ]);
     });
   });

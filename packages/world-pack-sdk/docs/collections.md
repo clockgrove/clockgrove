@@ -67,6 +67,25 @@ type and version (`CAPABILITY_COMMAND_UNDECLARED` at `type`). It returns `{ ok: 
 version, kind } }` or `{ ok: false, error: { code, path, message } }`, with paths naming the request field.
 It does not authorize the submitter; the scenario runner uses it for `via` steps.
 
+**Actor command policy.** A policy resource `{ type: "clockgrove.actor-command-policy",
+schemaVersion: 1, callsPerTurn, commands }` declares the world commands the world's actors may propose
+on their own. `callsPerTurn` must be `1`. `commands` is a list of unique command
+types, possibly empty, and each must be declared in the `commands` of one of the pack's capabilities
+(any version). Other keys, a wrong `schemaVersion` or a bad field are `INVALID_POLICY` at
+`manifest.policies[i].<field>`. A second one is `DUPLICATE_POLICY`. A pack with no such policy lets its
+actors propose no world command. It is checked only and is not part of the validated pack.
+The runtime builds an actor's proposal into a fixed payload shape: `{ schemaVersion: 1, quantity: 1 }`
+plus one to four fields the actor names (lower camel case of at most 64 characters, not
+`schemaVersion` or `quantity`), each an identifier (`[A-Za-z0-9][A-Za-z0-9._:-]{0,255}`). Four is a
+decision: the widest catalogue payload the shape fits without naming an actor or a boundary has three
+fields (`resource.transfer`), and one more leaves room for a pack command of the same kind; `boundary.exchange`, which names the acting actor, needs five and stays out of reach.
+64 is well above the longest catalogue field name (`fromContainerId`, 15) and bounds a proposal's keys. Declare only commands whose payload that shape can
+satisfy, such as `resource.offer` or `resource.transfer`: the SDK cannot see a command's payload schema,
+so it accepts any command a capability declares, but one that needs free text, another number, no
+`quantity` or more fields is offered to the actor and then always refused by the world's validator.
+A turn carries one command, so any other `callsPerTurn` is `INVALID_POLICY`: the field is kept so a
+later multi-command turn can raise the bound under a new rule.
+
 **Behaviour policy.** A policy resource `{ type: "clockgrove.world-behavior-policy", policy }`
 whose `policy` is a domain `WorldBehaviorPolicy` accepted by `validateWorldBehaviorPack`
 (`INVALID_POLICY` at `manifest.policies[i]#policy...`). The policy sections are closed: an unknown or

@@ -39,6 +39,7 @@ export interface WorldPackPorts {
 }
 
 export const BEHAVIOR_POLICY_TYPE = "clockgrove.world-behavior-policy";
+export const ACTOR_COMMAND_POLICY_TYPE = "clockgrove.actor-command-policy";
 export const CAPABILITY_KINDS = [
   "inspect",
   "embodied-dialogue",
