@@ -13,13 +13,14 @@ package re-exports and the WorldState adapter belong to the integration consumer
 | `clockgrove.archetype` | 1 | `archetype: {id: string, version: number}`, `traits: readonly {id: string, version: number}[]` |
 | `clockgrove.spatial-transform` | 1 | `spaceId: SpaceId`, `pose: SemanticPose`, optional `locationId: ObjectId` |
 | `clockgrove.needs` | 1 | Existing `WorldNeeds`: `hunger`, `wetness`, `integratedAt`, `hungerRemainder`, `wetnessRemainder` |
-| `clockgrove.weather-exposure` | 1 | `rainProtection: number`, the existing shelter protection quantity |
+| `clockgrove.weather-exposure` | 1 | `rainProtection: number` (basis points): the object's own protection, such as a coat. It protects the object itself in rain (the larger of it and its shelter's protection applies) and never makes it a shelter |
 | `clockgrove.containment` | 1 | `kind: "object" \| "persona-inventory"`, `capacity: number`, optional `containerId: ObjectId` |
 | `clockgrove.resource` | 1 | `kind: "food" \| "water"`, `quantity: number` |
 | `clockgrove.lifecycle` | 1 | `status: "active" \| "retired" \| "dead"` |
 | `clockgrove.portal` | 1 | `status: "open" \| "closed"`, `endpoints`: a tuple of two places (see [Portal component](#portal-component-rw-0104)) |
 | `clockgrove.presentation` | 1 | `assetId`: kebab-case string, `animationFamily`: `idle`, `walk`, `sniff`, `eat`, `play`, `shelter`, `static` or `loop`, `accessibilityLabel: string` |
 | `clockgrove.conversation-mode` | 1 | `mode: "cognitive" \| "interpreted" \| "canonical"` (see [Conversation mode component](#conversation-mode-component-rw-0501)) |
+| `clockgrove.shelter` | 1 | `rainProtection: number` (basis points), optional `coverRadius: bigint` (fixed point, nonnegative): declares the object a shelter. Without `coverRadius` it covers only its own coordinates; with it, every position in its space and frame within that exact Euclidean distance (inclusive). An object is a shelter only when its pack declares this component |
 
 All object schemas are closed, including nested references and poses. Missing required
 fields, extra fields, explicit undefined, accessors, symbols, cyclic values and non-data

@@ -49,6 +49,10 @@ export const UTILITY_FEATURE_SCALES: Readonly<Record<string, UtilityFeatureScale
     meaning:
       "the actor currently perceives the target; otherwise it is only believed or remembered",
   }),
+  remembered: Object.freeze({
+    unit: "flag",
+    meaning: "the actor holds a memory of the target, so it is familiar even out of view",
+  }),
   expectation: share(
     "candidate",
     "the strength of the actor's belief or memory that the target serves the need",

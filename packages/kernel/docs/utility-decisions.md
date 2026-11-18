@@ -26,7 +26,8 @@ registry (`stay@1`, `seek-food@1`, `seek-water@1`, `seek-shelter@1`, scorer `clo
 instead of `chooseRoutine`. Candidates are `stay`, then one seek per active food holder, water holder and
 shelter, in object-id order. Features are bigints: `hunger`, `thirst`, `wetness`, `rain`, `health`,
 `uncomfortable` (10000 or 0) and `U` (10000 when comfortable, else `20000 - health`); a seek adds `travelMs`,
-`perceived` (10000 or 0) and `expectation` (the sum of the effective scripted values for the actor and target,
+`perceived` (10000 or 0), `remembered` (10000 when an effective scripted entry for the target is a `memory`,
+else 0) and `expectation` (the sum of the effective scripted values for the actor and target,
 capped at 10000); food adds `freshness`, shelter `protection`. `UTILITY_FEATURE_SCALES` gives each
 feature's unit (basis points with a range, flag or milliseconds), its `level` (`actor` for the features recorded on every candidate, `candidate` for the rest; required, so a new feature must declare it) and meaning, for readers outside the
 kernel such as the decision-shadow prompt. `utilityFeatureBand(name, value)` gives the quarter (`0` to `3`) of a
@@ -51,8 +52,8 @@ only for policy-declared ambiguity or novelty (Wave 1 plan §5.7). Under `policy
 decision is checked after its trace is final; a `reflex` decision never is. The declared conditions are tried
 in kind order and the first that holds is recorded: `score-margin` when at least two candidates are eligible
 and the best score minus the second best (in selection order) is at most `maxMargin`; `unperceived-target`
-when the selected action is a seek whose target's `perceived` feature is 0, so the choice rests on scripted
-evidence alone. The decision then pushes a second decision draft, kind `planning-request`, directly after its
+when the selected action is a seek whose target's `perceived` feature is 0 and `remembered` feature is not 10000, so the target was never
+confirmed and the choice rests on belief alone; a remembered target out of view is not novel. The decision then pushes a second decision draft, kind `planning-request`, directly after its
 `routine` draft, with the decision `{schemaVersion: 1, requestId, status: "recorded", objectId,
 simulationTime, commandId, policyVersion, ambiguityVersion: 1, condition, candidates, fallbackAction}`:
 `commandId` is the dispatched `world.decision` command of the trace it belongs to and `requestId` is
