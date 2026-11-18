@@ -5,7 +5,7 @@ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertNoSecretValues } from "../check-secrets.mjs";
+import { assertNoSecretValues, maskSecretValues } from "../check-secrets.mjs";
 import { ownedSubprocess } from "../lib/subprocess.mjs";
 import {
   assertPassingReceiptFacts,
@@ -294,6 +294,13 @@ export async function validateEvidence(manifest) {
   await validateChecklist(manifest, root);
   return manifest;
 }
+// A command log is held to what recordCommand masks (secret values, not secret-shaped test
+// fixtures); every other artifact to the full secret-value check.
+function assertNoSecretArtifact(text, name) {
+  if (!name.endsWith(".log")) assertNoSecretValues(text, name);
+  else if (maskSecretValues(text, process.env) !== text)
+    throw new Error(`${name}: secret-shaped value detected`);
+}
 export async function fileInventory(directory) {
   const files = [];
   async function walk(relative) {
@@ -307,7 +314,7 @@ export async function fileInventory(directory) {
           "sensitive state or plan artifact refused",
         );
         const bytes = await readFile(path.join(directory, name));
-        assertNoSecretValues(bytes.toString("utf8"), name);
+        assertNoSecretArtifact(bytes.toString("utf8"), name);
         files.push({ path: name, digest: digest(bytes) });
       }
     }
@@ -469,7 +476,7 @@ export async function collectEvidence(directory, execution, buildDirectory) {
     );
     const file = path.join(directory, name);
     const bytes = await readFile(file);
-    assertNoSecretValues(bytes.toString("utf8"), name);
+    assertNoSecretArtifact(bytes.toString("utf8"), name);
     manifest.artifacts.push({ path: name, digest: digest(bytes), commit, buildDigest });
   }
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -654,12 +661,9 @@ export async function recordCommand(directory, name, command, options = {}) {
     maxBuffer: 128 * 1024 * 1024,
     env: { ...process.env, CI_EVIDENCE_DIR: directory },
   });
-  let output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  try {
-    assertNoSecretValues(output, "CI command output");
-  } catch {
-    output = "Command output withheld: secret-shaped values detected\n";
-  }
+  // The log is kept with only the secret values masked: the job's own secrets and high-signal
+  // secret material. A fixture password or synthetic credential in test output stays readable.
+  const output = maskSecretValues(`${result.stdout ?? ""}${result.stderr ?? ""}`, process.env);
   process.stdout.write(output);
   await writeFile(path.join(directory, `${name}.log`), output);
   await writeFile(

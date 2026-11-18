@@ -189,6 +189,28 @@ function syntaxObservation(source, location, match, rule) {
   return false;
 }
 
+/** Secret-holding environment variable names; their values are the job's own secrets. */
+const secretNames = /TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL|DATABASE_URL/iu;
+
+/**
+ * `text` with each secret value replaced by `***` (GitHub's mask): the values of `env`'s
+ * secret-named variables, and every span of the high-signal patterns (private keys, cloud and
+ * GitHub tokens, JWTs, credentialed URLs, long bearer tokens). Decision: values under 8 characters
+ * are not masked; they are flags or ports, and masking them would hide ordinary output.
+ */
+export function maskSecretValues(text, env = {}) {
+  const values = Object.entries(env)
+    .filter(([name, value]) => secretNames.test(name) && typeof value === "string")
+    .map(([, value]) => value)
+    .filter((value) => value.length >= 8)
+    .sort((left, right) => right.length - left.length);
+  let masked = text;
+  for (const value of values) masked = masked.replaceAll(value, "***");
+  for (const pattern of patterns.slice(0, 7))
+    masked = masked.replace(new RegExp(pattern.source, `${pattern.flags}g`), "***");
+  return masked;
+}
+
 export function assertNoSecretValues(source, location = "configuration") {
   const fail = () => {
     // Never include the matching value in diagnostics.
