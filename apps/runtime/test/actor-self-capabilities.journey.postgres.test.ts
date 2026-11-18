@@ -177,6 +177,35 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ).status,
         ).toBe(200);
 
+      // Two objects at the keeper's spot: an acorn whose id sorts before the keeper's, and an
+      // umbrella shelter (the keeper now stands in it) whose id sorts after the trash-can's, created
+      // while the world is still paused at its birth time. The perception listing below ranks them.
+      for (const [objectId, archetypeId, shelter] of [
+        ["fixture.acorn", "fixture.food-source-kind@1", undefined],
+        ["fixture.umbrella", "fixture.porch-kind@1", { rainProtection: 5000 }],
+      ] as const) {
+        const revision = BigInt(
+          await owner.sql("SELECT revision::text FROM clockgrove.partition_states"),
+        );
+        const created = await owner.submit({
+          ...advanceCommand(owner.world, `create-${objectId}`, 0n, revision),
+          type: "object.create",
+          payload: {
+            schemaVersion: 1,
+            object: {
+              objectId,
+              archetypeId,
+              spatial: {
+                spaceId: "fixture.neighborhood",
+                pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [15000n, 8000n] },
+              },
+              ...(shelter === undefined ? {} : { shelter }),
+            },
+          },
+        });
+        expect(created.status, JSON.stringify(created.body)).toBe(200);
+      }
+
       // Subscribe: the call is recorded with its grant, arguments and result, and the operator
       // sees the actor's own subscription.
       const subscribed = await use("subscription.create", {
@@ -292,9 +321,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(listed.status).toBe("succeeded");
       const entities = listed.evidence.result.entities as { objectId: string }[];
       // Issue 364: what matters first, so the listing's bound never cuts it for a late-sorting id:
-      // the actor, then what it is involved with, then the nearest; other frames last, by id.
+      // the actor, then what it is involved with, then the nearest; other frames last, by id. The
+      // keeper leads the acorn at the same spot, and its umbrella leads the acorn and trash-can.
       expect(entities.map((entity) => entity.objectId)).toEqual([
         "fixture.keeper",
+        "fixture.umbrella",
+        "fixture.acorn",
         "fixture.trash-can",
         "fixture.porch",
         "fixture.water-bowl",

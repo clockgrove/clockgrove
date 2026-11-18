@@ -127,4 +127,24 @@ describe("seedGenesis", () => {
     });
     expect(called).toBe(false);
   });
+
+  it("seeds a pack over a default size limit only with the world owner's raise", async () => {
+    const raised = { ...ports, packLimits: { resources: 2048 } };
+    const source = await buildLampHallSource({
+      edit: ({ manifest }) => {
+        for (let n = 0; n < 1100; n++)
+          manifest.assets.push({
+            ...manifest.assets[0],
+            id: `lamp.a${n}`,
+            path: `assets/a${n}.svg`,
+          });
+      },
+    });
+    const built = await buildWorldPack(source, createSimulatorPackPorts(raised));
+    if (!built.ok) throw new Error(`raised build failed: ${JSON.stringify(built.error)}`);
+    const input = { artifact: built.value.artifact, source };
+    expect(await refusal(input)).toEqual({ code: "LIMIT_EXCEEDED", path: "source.resources" });
+    const seeded = await seedGenesis(input, raised);
+    expect(seeded.ok ? "seeded" : seeded.error).toBe("seeded");
+  });
 });

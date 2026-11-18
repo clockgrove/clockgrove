@@ -12,7 +12,11 @@ import {
 import type { RunId } from "@clockgrove/contracts";
 import { sha256Hex } from "@clockgrove/kernel";
 import { createSimulatorPackPorts, seedGenesis } from "@clockgrove/simulator";
-import { type ResourceEntry, validateWorldPack } from "@clockgrove/world-pack-sdk";
+import {
+  type ResourceEntry,
+  validateWorldPack,
+  type WorldPackLimits,
+} from "@clockgrove/world-pack-sdk";
 
 import { stableWorkflowInstanceId } from "./routing.js";
 
@@ -67,12 +71,19 @@ export class TransferRecoveryWorkflow extends WorkflowShell {
   protected override readonly workflowName = "TransferRecoveryWorkflow";
 }
 
-/** Seeds a pack's world birth, as the application's genesis port returns it. */
+/**
+ * Seeds a pack's world birth, as the application's genesis port returns it. `packLimits` are the world
+ * owner's raises of the pack size limits; the artifact must have been built with the same raises.
+ */
 export async function seedProvisioningBirth(
   artifact: ProvisioningArtifact,
   source: unknown,
+  packLimits?: Partial<WorldPackLimits>,
 ): ReturnType<WorldGenesisPort["seed"]> {
-  const hashPorts = { sha256: async (bytes: Uint8Array) => sha256Hex(bytes) };
+  const hashPorts = {
+    sha256: async (bytes: Uint8Array) => sha256Hex(bytes),
+    ...(packLimits === undefined ? {} : { packLimits }),
+  };
   const seeded = await seedGenesis({ artifact, source }, hashPorts);
   if (!seeded.ok) {
     const { code, path, message } = seeded.error;

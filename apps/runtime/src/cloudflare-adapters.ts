@@ -81,7 +81,7 @@ import {
   PostgreSqlWorldProvisioningStore,
   withClientTransaction,
 } from "@clockgrove/persistence";
-import { decodeResource } from "@clockgrove/world-pack-sdk";
+import { decodeResource, type WorldPackLimits } from "@clockgrove/world-pack-sdk";
 import { Agent, type FiberRecoveryContext } from "agents";
 import {
   ActivationGateBlockedError,
@@ -2656,6 +2656,11 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
     return birthWorkflowStepConfig;
   }
 
+  /** The world owner's raises of the pack size limits; a deployment overrides this to raise them. */
+  protected packLimits(): Partial<WorldPackLimits> | undefined {
+    return undefined;
+  }
+
   protected createProvisioningStore(
     client: PostgreSqlClient,
     _envelope: LifecycleWorkflowEnvelope,
@@ -2674,7 +2679,8 @@ abstract class BirthWorkflowAdapter extends WorkflowEntrypoint<
           {
             store: this.createProvisioningStore(client, envelope),
             genesis: {
-              seed: ({ artifact, source }) => workflows.seedProvisioningBirth(artifact, source),
+              seed: ({ artifact, source }) =>
+                workflows.seedProvisioningBirth(artifact, source, this.packLimits()),
             },
             decodeResource,
           },

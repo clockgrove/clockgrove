@@ -78,6 +78,13 @@ source. The world's owner raises one by passing `limits: { name: value }` in the
 the composition root hands to `buildWorldPack`. A value below the default, a non-integer or an
 unknown name is `MALFORMED_SOURCE` at `ports.limits.<name>`. Limits are not part of the artifact.
 
+The simulator takes the same raises as `packLimits` on its `SimulatorPorts`, and
+`createSimulatorPackPorts` passes them on, so `seedGenesis`, `previewSeedProjection` and
+`runScenario` build, validate and seed under them. The runtime's birth workflow seeds with the
+raises its `packLimits()` returns (none by default); a deployment that hosts larger packs overrides
+it. Build and seed a pack with the same raises: a pack over a default that is seeded without its
+raise is `LIMIT_EXCEEDED`.
+
 | Limit | Default | Reason |
 | --- | --- | --- |
 | `resources` | 1024 | About 80 actors and 100 assets plus their archetypes, traits, policies and spaces, with room to spare; bounds memory and hashing work. |
