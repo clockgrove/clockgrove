@@ -259,8 +259,8 @@ for the time it passes, other than `time.advanced`. The mover's movement events 
 when the mover's `lifecycle.died` follows it at the same time. Other objects' movement events come
 from the world time. `movement.events-ordered-and-unique@3` requires
 time order and no repeated event (same type, time and payload). The one exception is
-`resource.consumed`: two actors eating from one holder at one time each journal the same
-consumption. `movement.scope@4` refuses:
+`resource.consumed`: two actors eating from one holder at one time journaled the same
+consumption before it named its eater (`consumerId`), and replay still reads those journals. `movement.scope@4` refuses:
 
 - spoilage at a time its ecology does not own (`events[i].simulationTime`);
 - no movement event of the mover, or a movement event of another object that is not a needs actor

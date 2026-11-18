@@ -1,3 +1,4 @@
+import { worldEventRole } from "@clockgrove/domain";
 import { describe, expect, it } from "vitest";
 import { executeWorldKernel, REFUSAL_CODES } from "../src/index.js";
 import { executorEvidence } from "./executor.scenario.js";
@@ -37,5 +38,34 @@ describe("kernel executor over the world registry", () => {
   // The Node half of the long-run differential: the fuzz throws on a refused valid command.
   it("runs the executor goldens and fuzz with current command payloads", async () => {
     expect((await executorEvidence()).fuzz.entries.length).toBeGreaterThan(0);
+  });
+});
+
+// Perception's actor and target come from the vocabulary's declared roles; containment keeps the
+// roles it had before they were declared: the contained object, and its container.
+describe("world event roles", () => {
+  it("names the contained object as actor and its container as target", () => {
+    const attribution = { effectiveActorId: "fixture.keeper" };
+    const put = {
+      type: "containment.put",
+      payload: { objectId: "fixture.apple", containerId: "fixture.basket" },
+      attribution,
+    };
+    expect(worldEventRole(put, "actor")).toBe("fixture.apple");
+    expect(worldEventRole(put, "target")).toBe("fixture.basket");
+    const removed = { ...put, type: "containment.removed" };
+    expect(worldEventRole(removed, "actor")).toBe("fixture.apple");
+    expect(worldEventRole(removed, "target")).toBe("fixture.basket");
+    const transferred = {
+      type: "containment.transferred",
+      payload: {
+        objectId: "fixture.apple",
+        fromContainerId: "fixture.basket",
+        toContainerId: "fixture.crate",
+      },
+      attribution,
+    };
+    expect(worldEventRole(transferred, "actor")).toBe("fixture.apple");
+    expect(worldEventRole(transferred, "target")).toBe("fixture.crate");
   });
 });
