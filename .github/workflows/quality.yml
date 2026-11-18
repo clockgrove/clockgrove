@@ -3,7 +3,8 @@ name: Quality
 # Per-PR and main gate: one pass of the canonical commands. The disposal/re-bootstrap journey,
 # pnpm test:long-run and full Wave qualification run in qualification.yml (manual dispatch).
 # Parallel jobs run shares of the canonical commands, each recording its receipts; test:runtime runs
-# as shards (scripts/ci/runtime-shards.mjs). The required quality job merges every receipt into one
+# as shards (scripts/ci/runtime-shards.mjs), the browser journeys too (scripts/ci/browser-shards.mjs),
+# and the candidate build runs once in its own share. The required quality job merges every receipt into one
 # evidence manifest, and fails unless every job passed.
 on:
   pull_request:
@@ -40,8 +41,23 @@ jobs:
             commands: test
           - share: database
             commands: test-db,test-replay,db-verify
-          - share: browser-build
+          # The immutable candidate build runs once, apart from the browser journeys.
+          - share: build
             commands: ""
+          # One job per browser journey shard, 1 to browserShardCount (scripts/ci/browser-shards.mjs);
+          # the quality job counts the browser journey as passed only with every shard's passing receipt.
+          - share: browser-1
+            commands: ""
+            browser: 1
+          - share: browser-2
+            commands: ""
+            browser: 2
+          - share: browser-3
+            commands: ""
+            browser: 3
+          - share: browser-4
+            commands: ""
+            browser: 4
           # One job per test:runtime shard, 1 to runtimeShardCount (scripts/ci/runtime-shards.mjs);
           # without every shard's receipt the quality job counts test:runtime as missing and fails.
           - share: runtime-1
@@ -106,16 +122,25 @@ jobs:
         if: ${{ matrix.shard }}
         run: node scripts/bootstrap.mjs "$CI_EVIDENCE_DIR" --runtime-shard "${{ matrix.shard }}"
 
+      # Every browser shard needs the lockfile's pinned Chromium; the shards share one cached
+      # download, and toolchain.sh fetches it only when the restored one does not launch.
+      - name: Restore the pinned Chromium
+        if: ${{ matrix.browser }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install pinned real browser
-        if: ${{ matrix.share == 'browser-build' }}
+        if: ${{ matrix.browser }}
         run: scripts/ci/toolchain.sh browser-deps browser
 
-      - name: Browser smoke and accessibility journey
-        if: ${{ matrix.share == 'browser-build' }}
-        run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" browser node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts
+      - name: Browser journey shard ${{ matrix.browser }}
+        if: ${{ matrix.browser }}
+        run: node scripts/ci/evidence.mjs browser-shard "$CI_EVIDENCE_DIR" "${{ matrix.browser }}"
 
       - name: Build immutable candidate artifacts
-        if: ${{ always() && !cancelled() && matrix.share == 'browser-build' }}
+        if: ${{ matrix.share == 'build' }}
         run: node scripts/ci/evidence.mjs run "$CI_EVIDENCE_DIR" build node scripts/ci/build.mjs "$CI_EVIDENCE_DIR/build"
 
       - name: Retain this share's receipts for the quality job
@@ -200,10 +225,11 @@ jobs:
           retention-days: 30
 
       # A canonical command no share recorded, or a test:runtime shard that did not run, stays in
-      # the manifest's missingCommands.
+      # the manifest's missingCommands; the browser journey passes only with every shard's receipt.
       - name: Require every share to pass
         env:
           RESULT: ${{ needs.commands.result }}
         run: |
           test "$RESULT" = success
           jq -e '.extensions.missingCommands == []' "$CI_EVIDENCE_DIR/evidence-manifest.json"
+          jq -e '.browser.status == "passed"' "$CI_EVIDENCE_DIR/evidence-manifest.json"

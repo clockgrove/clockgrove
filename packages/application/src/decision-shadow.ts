@@ -18,7 +18,9 @@ import {
   type PlanningRequest,
   planningRequestFor,
   sha256Hex,
+  UTILITY_ACTOR_FEATURES,
   UTILITY_FEATURE_SCALES,
+  utilityFeatureBand,
 } from "@clockgrove/kernel";
 import { allowDecision, TRUSTED_ID_PREFIX } from "./authority-decision.js";
 import { DECISION_SHADOW_RECORDED } from "./event-registry.js";
@@ -304,8 +306,9 @@ export function marginBucket(
 
 /**
  * Time-independent identity of a decision situation: the point, the actor (or its archetype), the
- * sorted candidate option ids, the utility choice and the margin bucket. Scores and feature values
- * drift every tick and stay out of the hash, so a recurring kind of situation repeats the value.
+ * sorted candidate option ids, the utility choice, the margin bucket and the band of every
+ * actor-level feature (`actorBands`, name to band). Scores and exact feature values drift every
+ * tick and stay out of the hash, so a recurring kind of situation repeats the value.
  */
 export function decisionSignature(
   pointId: string,
@@ -313,9 +316,11 @@ export function decisionSignature(
   candidates: readonly ShadowCandidate[],
   utilityChoice: string,
   bucket: MarginBucket,
+  actorBands: Readonly<Record<string, string>>,
 ): string {
   const options = candidates.map((candidate) => candidate.key).sort();
-  return `sig_${sha256Hex(canonicalBytes(["clockgrove-decision-signature-v2", pointId, scopeId, options, utilityChoice, bucket])).slice(0, 32)}`;
+  const bands = Object.entries(actorBands).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `sig_${sha256Hex(canonicalBytes(["clockgrove-decision-signature-v3", pointId, scopeId, options, utilityChoice, bucket, bands])).slice(0, 32)}`;
 }
 
 function shownCandidate(candidate: RoutineCandidate, features: readonly string[]): ShadowCandidate {
@@ -325,6 +330,12 @@ function shownCandidate(candidate: RoutineCandidate, features: readonly string[]
     if (value !== undefined) shown[name] = value.toString();
   }
   return { key: actionKey(candidate), score: candidate.score.toString(), features: shown };
+}
+
+/** Feature names in case-insensitive order, so `U` sits beside `uncomfortable`, not first. */
+function byFeatureName(a: string, b: string): number {
+  const [x, y] = [a.toLowerCase(), b.toLowerCase()];
+  return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0;
 }
 
 const INSTRUCTIONS =
@@ -446,8 +457,17 @@ export async function runDecisionShadow(input: {
     };
     const actorFeatures = request.candidates[0]?.features ?? {};
     const actorState = Object.fromEntries(
-      ["health", "hunger", "rain", "thirst", "uncomfortable", "wetness"].flatMap((key) =>
-        actorFeatures[key] === undefined ? [] : [[key, actorFeatures[key].toString()]],
+      [...UTILITY_ACTOR_FEATURES]
+        .sort(byFeatureName)
+        .flatMap((key) =>
+          actorFeatures[key] === undefined ? [] : [[key, actorFeatures[key].toString()]],
+        ),
+    );
+    const actorBands = Object.fromEntries(
+      UTILITY_ACTOR_FEATURES.flatMap((key) =>
+        actorFeatures[key] === undefined
+          ? []
+          : [[key, utilityFeatureBand(key, actorFeatures[key])]],
       ),
     );
     const utilityChoice = `${request.fallbackAction.kind}:${request.fallbackAction.targetObjectId ?? ""}`;
@@ -464,6 +484,7 @@ export async function runDecisionShadow(input: {
         candidates,
         utilityChoice,
         marginBucket(candidates, point.marginBuckets),
+        actorBands,
       ),
       objectId: request.objectId,
       commandId: request.commandId,
@@ -504,7 +525,7 @@ export async function runDecisionShadow(input: {
         ...Object.keys(actorState),
         ...candidates.flatMap((candidate) => Object.keys(candidate.features)),
       ]),
-    ].sort();
+    ].sort(byFeatureName);
     const outcome = await decider.pick({
       alias: point.modelAlias,
       callId: `${request.requestId}:${request.objectId}:${request.simulationTime}:${point.id}`,

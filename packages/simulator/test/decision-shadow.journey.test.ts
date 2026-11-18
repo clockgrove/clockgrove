@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { UTILITY_FEATURE_SCALES } from "@clockgrove/kernel";
+import { UTILITY_ACTOR_FEATURES, UTILITY_FEATURE_SCALES } from "@clockgrove/kernel";
 import { expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -364,4 +364,81 @@ it("states a scale for every feature the native scorer records", async () => {
     ),
   );
   expect([...names].sort()).toEqual(Object.keys(UTILITY_FEATURE_SCALES).sort());
+});
+
+it("states every actor-level feature once and groups disagreements only within the same feature bands", async () => {
+  const { simulate } = await import(runnerUrl);
+  const { runDecisionShadow } = await import(applicationUrl);
+  const simulation = await simulate(fixturePack, 86400000n);
+  // The level each scale declares matches what the scorer records: actor features on every candidate.
+  const candidates = simulation.subjects.flatMap(
+    (subject: { trace: { candidates: { features: Record<string, bigint> }[] } }) =>
+      subject.trace.candidates,
+  );
+  const everywhere = Object.keys(UTILITY_FEATURE_SCALES).filter((name) =>
+    candidates.every(
+      (candidate: { features: Record<string, bigint> }) => name in candidate.features,
+    ),
+  );
+  expect(UTILITY_ACTOR_FEATURES.toSorted()).toEqual(everywhere.sort());
+  // One decision three times: hunger 1000, 2000 (same band) and 9000 (another band).
+  const subject = simulation.subjects[0];
+  const withHunger = (hunger: bigint) => ({
+    ...subject,
+    trace: {
+      ...subject.trace,
+      candidates: subject.trace.candidates.map((candidate: { features: object }) => ({
+        ...candidate,
+        features: { ...candidate.features, hunger },
+      })),
+    },
+  });
+  const states: string[] = [];
+  const records = await runDecisionShadow({
+    subjects: [withHunger(1000n), withHunger(2000n), withHunger(9000n)],
+    declarations: {
+      ambiguity: {
+        schemaVersion: 1,
+        conditions: [{ kind: "score-margin", maxMargin: 10n ** 12n }],
+      },
+      decisionPoints: {
+        schemaVersion: 1,
+        points: [
+          {
+            id: "test.point",
+            trigger: { kind: "declared-ambiguity" },
+            candidates: "kernel-valid",
+            signatureScope: "actor",
+            marginBuckets: { noneMax: 0n, smallMax: 1n },
+            features: ["travelMs"],
+            modelAlias: "test.shadow",
+            confidenceThreshold: 0,
+            budget: { maxCalls: 100, maxMicrousd: 1_000_000 },
+            fallback: "utility-top-pick",
+          },
+        ],
+      },
+    },
+    decider: {
+      pick: async (request: { state: string }) => {
+        states.push(request.state);
+        return {
+          status: "completed",
+          label: "cant_tell",
+          confidence: 0.9,
+          model: "m",
+          latencyMs: 1,
+          costMicrousd: 1,
+        };
+      },
+    },
+  });
+  const [low, lowToo, high] = records.map((record: { signature: string }) => record.signature);
+  expect(lowToo).toBe(low);
+  expect(high).not.toBe(low);
+  for (const state of states) {
+    const line = state.split("\n")[0] ?? "";
+    for (const name of UTILITY_ACTOR_FEATURES)
+      expect(line.match(new RegExp(`(?<=: |, )${name} `, "g")), name).toHaveLength(1);
+  }
 });

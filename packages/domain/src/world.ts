@@ -712,6 +712,8 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       const payload = event.payload;
       if (!Number.isSafeInteger(payload.quantity) || payload.quantity <= 0)
         throw new DomainValidationError("event.quantity", "expected positive material units");
+      if (event.type === "resource.consumed" && event.payload.consumerId !== undefined)
+        requireEntity(state, event.payload.consumerId);
       const changes =
         event.type === "resource.transferred"
           ? ([

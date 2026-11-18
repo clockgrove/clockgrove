@@ -4,16 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createSimulatorPackPorts } from "../../src/index.js";
 import { DigestStream, STREAM_BATCH } from "../../src/scenario/summary.js";
 import { loadPack, WORLDS_ROOT } from "../conformance/pack-source.js";
-import {
-  advance,
-  hall,
-  MATERIAL_TYPES,
-  ports,
-  rain,
-  runOk,
-  SECTION_EPOCH,
-  scenario,
-} from "./harness.js";
+import { advance, hall, ports, rain, runOk, SECTION_EPOCH, scenario } from "./harness.js";
 
 // No committed golden records `summarised`; the qualification long runs do. This file keeps the
 // property that a summarised recording keeps every outcome of the full one and digests its streams.
@@ -36,8 +27,8 @@ function hallDocument(recording: "full" | "summarised"): Rec {
         id: "small-vs-aggregate",
         left: "main",
         right: "aggregate",
+        // Every event type: the runs differ only in integration bookkeeping, which is not material.
         fields: ["events", "eventCounts"],
-        eventTypes: MATERIAL_TYPES,
       },
       {
         id: "dry-vs-rainy",
@@ -77,6 +68,11 @@ describe("summarised recording", () => {
     const full = (await runOk({ artifact, source, scenario: hallDocument("full") })).bundle;
     const summarised = (await runOk({ artifact, source, scenario: hallDocument("summarised") }))
       .bundle;
+    // Integration bookkeeping alone leaves live and fast-forward equal; rain is a real difference.
+    expect(full.equivalences.map((entry: Rec) => [entry.id, entry.equivalent])).toEqual([
+      ["small-vs-aggregate", true],
+      ["dry-vs-rainy", false],
+    ]);
     expect(summarised.equivalences).toEqual(full.equivalences);
     expect(summarised.assertions).toEqual(full.assertions);
     expect(summarised.replayVerified).toBe(true);
