@@ -2674,13 +2674,18 @@ const observeHall = async (backend) => {
               .map(({ category, value }) => [category, value]),
           ),
         ).toEqual([["duplicate", 1]]);
-        // Without reduced motion a one-metre move interpolates and a 20 m move snaps.
+        // Without reduced motion a move the entity's movement record carries is walked (interpolated)
+        // and a move with no movement record, a teleport, is cut (snapped), whatever their lengths.
         const interpolated = await kin.viewer.evaluate(async () => {
           const adapter = globalThis.hallAdapter;
           const committed = globalThis.hallSession.getSnapshot().projection;
           const [entity] = committed.entities;
-          const shifted = (metres) => ({
-            ...committed,
+          const { movements: _movements, ...still } = committed;
+          const shifted = (metres, walked = true) => ({
+            ...still,
+            ...(walked && {
+              movements: [{ objectId: entity.objectId, startedAt: committed.simulationTime }],
+            }),
             entities: [
               {
                 ...entity,
@@ -2712,7 +2717,7 @@ const observeHall = async (backend) => {
           while (adapter.motions.has(body) && performance.now() < deadline)
             await new Promise((resolve) => setTimeout(resolve, 50));
           const settled = body.position.x;
-          adapter.loadSnapshot(shifted(21));
+          adapter.loadSnapshot(shifted(21, false));
           const snapped = [Number(adapter.motions.has(body)), body.position.x];
           adapter.loadSnapshot(committed);
           return [start, tweening, settled, snapped, retained];

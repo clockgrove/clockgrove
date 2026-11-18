@@ -683,6 +683,8 @@ export function createThreeAdapter(
     setReducedMotion(enabled) {
       reduced = enabled;
     },
+    // The spike draws no day/night cycle.
+    setDayLength() {},
     onIntent(handler): Unsubscribe {
       intentHandlers.add(handler);
       return () => {

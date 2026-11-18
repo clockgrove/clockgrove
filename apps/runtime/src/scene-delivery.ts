@@ -23,11 +23,16 @@ import {
 import { OwnerMailboxError } from "./mailbox.js";
 import type { SceneAudienceDecision } from "./scene-audience.js";
 
-/** Engineering budgets: one existing four-command owner activation's worth of outstanding frames
- * and lag turns (`OWNER_ACTIVATION_BUDGET` in owner-activation.ts).
+/** Engineering budgets.
+ * `unacknowledged` is one existing four-command owner activation's worth of outstanding frames
+ * (`OWNER_ACTIVATION_BUDGET` in owner-activation.ts).
+ * `stalledMs` is a decision: 30 s, the client's own wait for progress on an outstanding request
+ * (`SCENE_RECOVERY.requestTimeoutMs` in apps/web/src/projection.ts, the owner mailbox's
+ * `SPACE_MAILBOX_BOUNDS.requestDeadlineMs`), so a client is dropped only after it has made no
+ * progress for as long as it would itself wait. A burst of commits never counts, only silence.
  * Each connection retains one replaceable projection; the PostgreSQL reader bounds history separately.
  */
-export const SCENE_DELIVERY_BOUNDS = { unacknowledged: 4, lagTurns: 4 } as const;
+export const SCENE_DELIVERY_BOUNDS = { unacknowledged: 4, stalledMs: 30_000 } as const;
 
 /**
  * Resident scene sockets one SpaceDO admits. Decisions:
@@ -115,6 +120,15 @@ export function scenePatchOperations(
         ? []
         : [{ op: "set_lighting", lighting: null } satisfies ScenePatchOperation]
       : [{ op: "set_lighting", lighting: projection.lighting } satisfies ScenePatchOperation]),
+    // Like lighting: only a projection that has, or had, movements carries the operation.
+    ...(projection.movements === undefined && previous?.movements === undefined
+      ? []
+      : [
+          {
+            op: "set_movements",
+            movements: projection.movements ?? [],
+          } satisfies ScenePatchOperation,
+        ]),
     { op: "set_feed_cursor", feedCursor: projection.feedCursor },
     { op: "set_compatibility", compatibility: projection.compatibility },
     ...(projection.privateCognition === undefined
@@ -169,7 +183,8 @@ interface DeliveryIntent {
   projection: SceneProjection | undefined;
   pending: boolean;
   dirty: boolean;
-  lagTurns: number;
+  /** When a publication turn first found the frame ledger full; any acknowledgement clears it. */
+  stalledSince: number | undefined;
   /** The fanout turn whose read last decided an audience including the operator interest. */
   operator: SceneReads | undefined;
   /** Each unacknowledged sent revision's audience hash, and the acknowledged revision's. */
@@ -195,6 +210,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     ) => Promise<SceneReadResult>,
     private readonly obsoleteError: (error: unknown) => void,
     private readonly metrics: () => RuntimeMetrics = () => NO_METRICS,
+    private readonly now: () => number = Date.now,
   ) {}
 
   /** Admission times of sockets that have not yet been sent their first projection frame. */
@@ -320,7 +336,8 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       projection: undefined,
       pending: false,
       dirty: false,
-      lagTurns: 0,
+      // After memory loss the attachment alone knows when the ledger first stalled.
+      stalledSince: attachment.stalledSince,
       operator: undefined,
       audiences: new Map(),
       // After memory loss the attachment alone knows which audience the client acknowledged.
@@ -336,7 +353,11 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
     const previous = this.intents.get(socket);
     const debt = previous === undefined ? 0 : previous.debt + previous.delivered.length;
-    if (debt >= SCENE_DELIVERY_BOUNDS.unacknowledged) {
+    const stalledSince = previous?.stalledSince ?? stored.stalledSince;
+    if (
+      debt >= SCENE_DELIVERY_BOUNDS.unacknowledged ||
+      (stalledSince !== undefined && this.now() - stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs)
+    ) {
       this.backpressure(socket);
       return;
     }
@@ -346,6 +367,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       connectionVersion: stored.connectionVersion + (replacing ? 1 : 0),
     };
     const intent = this.intend(socket, attachment, debt);
+    intent.stalledSince = stalledSince;
     if (previous !== undefined) intent.acknowledgedAudience = previous.acknowledgedAudience;
     socket.serializeAttachment(attachment);
     // A client sent a changed audience has discarded its acknowledged state: only a snapshot helps.
@@ -369,7 +391,10 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       ) {
         // Memory loss dropped the delivery ledger, not the delivery: the PostgreSQL read bounds
         // the acknowledged revision instead, then delivery continues from it.
-        await this.deliver(socket, this.intend(socket, stored, 0), control.revision, true);
+        const restored = this.intend(socket, stored, 0);
+        // An acknowledgement is progress: the stall `record` clears from the attachment ends here too.
+        restored.stalledSince = undefined;
+        await this.deliver(socket, restored, control.revision, true);
         return;
       }
     }
@@ -395,7 +420,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
     intent.acknowledgedAudience = audience;
     for (const revision of intent.audiences.keys())
       if (revision <= control.revision) intent.audiences.delete(revision);
-    intent.lagTurns = 0;
+    intent.stalledSince = undefined;
     intent.debt = 0;
     await this.flush(socket, intent);
   }
@@ -403,6 +428,7 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
   /**
    * Stores an acknowledgement on its own connection version, never moving the cursor back, with
    * the acknowledged frame's audience hash when known; an unknown one keeps the stored hash.
+   * Any acknowledgement on the current connection version clears a stored stall.
    */
   private record(
     socket: SceneSocket,
@@ -411,12 +437,14 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
   ) {
     const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
     if (stored.connectionVersion !== control.connectionVersion) return false;
+    const { stalledSince, ...unstalled } = stored;
     if (stored.acknowledgedRevision === null || control.revision > stored.acknowledgedRevision)
       socket.serializeAttachment({
-        ...stored,
+        ...unstalled,
         acknowledgedRevision: control.revision,
         ...(audience === undefined ? {} : { acknowledgedAudienceHash: audience }),
       });
+    else if (stalledSince !== undefined) socket.serializeAttachment(unstalled);
     return true;
   }
 
@@ -443,12 +471,25 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
       return;
     }
     const full = intent.debt + intent.delivered.length >= SCENE_DELIVERY_BOUNDS.unacknowledged;
+    // Only a full frame ledger is the client's lag; a pending read is the server's own latency.
+    const now = this.now();
+    if (full && intent.stalledSince === undefined) {
+      intent.stalledSince = now;
+      // The attachment outlives hibernation, so a silent client's wait survives the owner idling.
+      const stored = decodeSceneConnectionAttachment(socket.deserializeAttachment());
+      socket.serializeAttachment({ ...stored, stalledSince: now });
+    }
+    // A stall ends only with an acknowledgement, even when memory loss emptied the ledger since.
+    if (
+      intent.stalledSince !== undefined &&
+      now - intent.stalledSince >= SCENE_DELIVERY_BOUNDS.stalledMs
+    ) {
+      this.backpressure(socket);
+      return;
+    }
     if (intent.pending || full) {
       // No audience is decided for this socket this turn, so the operator lane skips it.
       intent.dirty = true;
-      // Only a full frame ledger is the client's lag; a pending read is the server's own latency.
-      if (full) intent.lagTurns += 1;
-      if (intent.lagTurns >= SCENE_DELIVERY_BOUNDS.lagTurns) this.backpressure(socket);
       return;
     }
     await this.deliver(socket, intent, intent.lastSent, false, reads);

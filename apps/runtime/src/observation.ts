@@ -535,6 +535,18 @@ export class PostgreSqlSceneStreamReader {
     const audienceHash = decision.hash;
     const projected = new Set(scene.entities.map((entity) => entity.objectId));
     const privateCognition = privateCognitionOf(stored.document.state, decision, projected);
+    // Each projected entity's committed movement record, so the scene walks the moves it carried.
+    const movements = stored.document.state.entities.flatMap(({ objectId, movement }) =>
+      movement === undefined || !projected.has(objectId)
+        ? []
+        : [
+            {
+              objectId,
+              startedAt: movement.segment.startTime,
+              ...(movement.endedAt === undefined ? {} : { endedAt: movement.endedAt }),
+            },
+          ],
+    );
     const effects = sceneEffects(
       stored,
       stored.document.state,
@@ -582,6 +594,7 @@ export class PostgreSqlSceneStreamReader {
       audienceHash,
       ...(privateCognition === undefined ? {} : { privateCognition }),
       ...(effects.length === 0 ? {} : { effects }),
+      ...(movements.length === 0 ? {} : { movements }),
     });
     const snapshot = { projection, patch: null, authorityEpoch: stored.routingEpoch, decision };
     if (fromRevision === null || fromRevision < 0n || fromRevision >= projection.revision)

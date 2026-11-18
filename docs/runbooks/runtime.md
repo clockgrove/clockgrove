@@ -1366,7 +1366,8 @@ abandons its attempt and the client's retry resumes. The pilot's rubric and cost
 The native `/v1/projection` stream resumes from the acknowledged native attachment and PostgreSQL.
 The [delivery contract](../protocols/realtime-projection.md#bounded-native-delivery-and-recovery)
 records the 64-event history budget, four outstanding projection frames and
-four lagging publication turns. Clients apply only compatible contiguous patches, then acknowledge
+the 30 s a full frame ledger may go unacknowledged (`SCENE_DELIVERY_BOUNDS.stalledMs`, kept in the
+socket attachment as `stalledSince` so hibernation does not restart it). Clients apply only compatible contiguous patches, then acknowledge
 the delivered endpoint with their connection version. Snapshot fallback is normal after a gap,
 unsupported history or excessive lag. A `recovery/backpressure` notice followed by close 1013,
 sent for a full frame ledger or a refused owner mailbox read, requires reconnect/resume; sending

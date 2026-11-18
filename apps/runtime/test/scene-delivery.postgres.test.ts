@@ -13,6 +13,7 @@ import {
 import { canonicalBytes } from "@clockgrove/kernel";
 import type { HydratedWorldOwner } from "@clockgrove/persistence";
 import { describe, expect, it } from "vitest";
+import { SCENE_DELIVERY_BOUNDS } from "../src/scene-delivery.js";
 import { advanceCommand, truthOf } from "./world-fixture.js";
 import {
   inspectNativeWorldOwner,
@@ -168,6 +169,21 @@ function expectedOperations(canonical: HydratedWorldOwner): ScenePatchOperation[
     { op: "set_clock", simulationTime: state.simulationTime },
     { op: "set_weather", weather: state.weather },
     { op: "set_effects", effects: [] },
+    // #363: the subject's committed movement record, so its walk is drawn walking.
+    {
+      op: "set_movements",
+      movements: state.entities.flatMap(({ objectId, spaceId, movement: m }) =>
+        m === undefined || spaceId !== canonical.spaceId
+          ? []
+          : [
+              {
+                objectId,
+                startedAt: m.segment.startTime,
+                ...(m.endedAt && { endedAt: m.endedAt }),
+              },
+            ],
+      ),
+    },
     { op: "set_feed_cursor", feedCursor: canonical.coveredHeadSequence.toString() },
     {
       op: "set_compatibility",
@@ -184,6 +200,7 @@ describe("native recoverable bounded scene delivery", () => {
         "apps/runtime/test/scene-delivery.postgres.test.ts",
         "fixture",
         {
+          timeoutMs: 240_000,
           prepare: async (fixture) => {
             await truthOf(fixture)(
               "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe')",
@@ -192,7 +209,7 @@ describe("native recoverable bounded scene delivery", () => {
         },
       );
     },
-    180_000,
+    300_000,
   );
 
   it.skipIf(!isNativeWorldOwnerChild())(
@@ -643,7 +660,31 @@ describe("native recoverable bounded scene delivery", () => {
         const coalescedCanonical = (await inspectNativeWorldOwner(owner)).partition;
         expect(coalesced.payload.operations).toEqual(expectedOperations(coalescedCanonical));
         const closed = lagging.received.closed();
+        const burstBegan = Date.now();
         for (let index = 0; index < 8; index++) await commit(`scene-pressure-${index}`);
+        // A burst is not silence: the full ledger alone does not close the client.
+        expect(lagging.received.frames.map((wire) => JSON.parse(wire).type)).not.toContain(
+          "recovery",
+        );
+        // The server's stall clock is in the attachment, so it outlives the owner's memory loss.
+        const stalledSince = (await attachments()).find(
+          ({ stalledSince: since }) => since !== undefined,
+        )?.stalledSince;
+        if (stalledSince === undefined) throw new Error("expected a stored stall");
+        expect(stalledSince).toBeGreaterThanOrEqual(burstBegan);
+        // Drop the delivery ledger as hibernation does: the restored socket is still stalled.
+        expect(await owner.request(`/scene/reset?${query}`, null)).toEqual({
+          status: 200,
+          body: { reset: true },
+        });
+        await commit("scene-silent");
+        expect(await Promise.race([closed, "open"])).toBe("open");
+        // Wait out the bound from the server's own clock, with no commit keeping the owner awake.
+        await new Promise((resolve) =>
+          setTimeout(resolve, stalledSince + SCENE_DELIVERY_BOUNDS.stalledMs + 1_000 - Date.now()),
+        );
+        expect(await Promise.race([closed, "open"])).toBe("open");
+        await commit("scene-stalled");
         expect(await closed).toEqual({ code: 1013, reason: "backpressure" });
         expect(lagging.received.frames.map((wire) => JSON.parse(wire))).toContainEqual({
           protocolVersion: 1,
@@ -1033,6 +1074,6 @@ describe("native recoverable bounded scene delivery", () => {
         ]);
       });
     },
-    120_000,
+    240_000,
   );
 });
