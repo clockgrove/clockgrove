@@ -10,6 +10,7 @@ import {
   utilityWorld,
   WITH,
 } from "./decisions.scenario.js";
+import { composeComponentFixture } from "./component-fixtures/index.js";
 import { CEDAR_SPEC, ecologyWorld } from "./ecology.scenario.js";
 import {
   advanceInput,
@@ -424,13 +425,19 @@ it("treats a coat as the wearer's own protection and a shelter's cover radius as
       items: [shelter("den", [9000, 0])],
     }),
   );
+  // The dog's coat is pack data: `clockgrove.weather-exposure` projects to its own protection.
+  const coated = composeComponentFixture("weather", false, false, 5000).scenario.initialState;
+  const dog = coated.entities.find((entity) => entity.objectId === "subject")!;
+  expect(dog.weatherProtection).toEqual({ rainProtection: 5000 });
+  expect(dog.shelter).toBeUndefined();
+  expect(coated.entities.filter((entity) => entity.shelter !== undefined).length).toBe(2);
   const world = {
     ...base,
     state: {
       ...base.state,
       entities: base.state.entities.map((entity) =>
         entity.objectId === "b-dog"
-          ? { ...entity, weatherProtection: { rainProtection: 5000 } }
+          ? { ...entity, weatherProtection: dog.weatherProtection! }
           : entity,
       ),
     },
@@ -468,4 +475,18 @@ it("treats a coat as the wearer's own protection and a shelter's cover radius as
   expect(wet(created.world, "c-near")).toBe(1225);
   // Under the porch's cover c-near dries; d-far, outside it, keeps getting wetter.
   expect([wet(after.world, "c-near"), wet(after.world, "d-far")]).toEqual([1125, 1375]);
+
+  // A walk that stays within the cover keeps c-near under the porch the whole way; one that leaves
+  // it unlocates the walker as it sets out.
+  const within = move(created.world, "c-near", -400n, "walk-under-porch");
+  expect(changes(within.events)).toEqual([]);
+  const walked = runChain(within.world, "walk-under-after", 2500n);
+  expect(changes(walked.events)).toEqual([]);
+  expect(walked.world.state.entities.find((entity) => entity.objectId === "c-near")).toMatchObject(
+    { locationId: "porch", pose: { coordinates: [-400n, 0n] } },
+  );
+  expect(wet(walked.world, "c-near")).toBe(1125);
+  expect(replayWorldEvents(created.world.state, within.events)).toEqual(within.world.state);
+  const out = move(created.world, "c-near", 900n, "walk-out-of-porch");
+  expect(changes(out.events)).toEqual([[1500n, "c-near", null]]);
 });

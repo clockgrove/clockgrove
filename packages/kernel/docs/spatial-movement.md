@@ -220,12 +220,14 @@ Three things differ from `world.advance`:
   The handler's later events are dropped, and nothing after that time is emitted.
 
 A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
-does. A location is a shelter's pose in the mover's space and frame; regions are not locations, so
+does. A location is a shelter covering the mover in its space and frame: at the shelter's exact
+coordinates or, when it declares `coverRadius`, anywhere within that Euclidean distance of them
+([containment](containment.md)); regions are not locations, so
 crossings do not change it. An active movement is not a standing shelter: its persisted starting pose does not protect
 objects left behind. Shelter creation, departure, stopping and retirement apply the same
 space, frame, pose, active-component and self-exclusion rule to affected occupants. On departure
 they stay at their own poses and select another shelter there or open ground; on arrival or
-creation objects already at the shelter’s pose enter it, preserving an existing matching shelter.
+creation objects it covers enter it, preserving an existing matching shelter.
 Every affected occupant is integrated under its old protection before its location changes,
 including a shelter that is itself a needs actor or a plant.
 
@@ -234,14 +236,16 @@ other object):
 
 - **Leaving.** When the movement it starts or replans leaves its starting point, a located mover
   journals `location.changed` to null just before `movement.started` or `movement.replanned`. A
-  zero-length movement does not leave.
+  zero-length movement does not leave, and neither does one whose every waypoint lies within the
+  cover of the shelter the mover is in (a cover is a ball, so the straight legs between waypoints
+  stay inside it): such a mover stays under that shelter for the whole walk.
 - **Stopping.** Where it stops (`movement.completed` or `movement.interrupted`), it journals
-  `location.changed` to the active shelter standing there (the one it is in, else the first by
+  `location.changed` to the active shelter covering that point (the one it is in, else the first by
   object id) or to null on open ground, unless that is where it already is.
 
 So a located mover that leaves and stops where it began (replanned back, or interrupted before it
 has moved) journals two changes: to null as it leaves, back to the shelter where it stops. A
-zero-length move by an unlocated mover standing at a shelter's pose enters that shelter; a located
+zero-length move by an unlocated mover a shelter covers enters that shelter; a located
 mover's zero-length move changes nothing. Whatever shelter protects is integrated under the old
 location first: a needs actor's needs and wellbeing (its exposure is then re-seeded under the new
 one) and a plant's growth (the world time then continues under the new protection). The change's
