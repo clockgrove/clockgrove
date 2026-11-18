@@ -48,7 +48,8 @@ export function isWorldPath(value, config) {
  * A world identifier as a whole word, not inside another word ("yard" is not in "courtyard"). A
  * dotted namespace matches at its start, in any case. A name matches as a word of its own in lower
  * or upper case (`name`, `NAME_WORLD`, `name-world`), or capitalised as a camel-case part
- * (`NameWorld`, `useNameView`), with an optional plural `s`.
+ * (`NameWorld`, `useNameView`), with an optional plural `s`. A digit is no other word, so `name2.png`
+ * and `NAME2` match.
  */
 function identifierPattern(identifier) {
   const name = escapePattern(identifier);
@@ -57,7 +58,7 @@ function identifierPattern(identifier) {
   const upper = name.toUpperCase();
   const capital = lower[0].toUpperCase() + lower.slice(1);
   return new RegExp(
-    `(?<![A-Za-z0-9])${lower}s?(?![a-z0-9])|(?<![A-Z])${capital}s?(?![a-z0-9])|(?<![A-Za-z0-9])${upper}S?(?![A-Z0-9])`,
+    `(?<![A-Za-z])${lower}s?(?![a-z])|(?<![A-Z])${capital}s?(?![a-z])|(?<![A-Za-z])${upper}S?(?![A-Z])`,
     "u",
   );
 }
@@ -144,7 +145,14 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     ),
     [],
   );
-  for (const named of [`use${capital}View`, `${name.toUpperCase()}_WORLD`, `${name}s-world`])
+  for (const named of [
+    `use${capital}View`,
+    `${name.toUpperCase()}_WORLD`,
+    `${name}s-world`,
+    `${name}2.png`,
+    `${capital}2`,
+    `${name.toUpperCase()}2`,
+  ])
     assert.equal(worldNameProblems("apps/web/src/example.ts", named, config).length, 1, named);
   assert.equal(
     worldImportProblems(
