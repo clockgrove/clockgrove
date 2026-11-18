@@ -1,5 +1,6 @@
 import { replayWorldEvents, type WorldEvent } from "@clockgrove/domain";
 import { expect, it } from "vitest";
+import { composeComponentFixture } from "./component-fixtures/index.js";
 import {
   DEFAULT_UTILITY,
   food,
@@ -400,4 +401,293 @@ it("forces shelter at the pack's reflex threshold, 9000 when it declares none", 
   };
   expect(tier({})).toBe("reflex");
   expect(tier({ shelterReflexThreshold: 10000 })).toBe("utility");
+});
+
+it("treats a coat as the wearer's own protection and a shelter's cover radius as shelter for everyone inside it", async () => {
+  const base = await utilityWorld(
+    WITH({
+      ...RAIN,
+      intervalMs: 10000,
+      hunger: 0,
+      actors: [
+        ["a-bare", null],
+        ["b-dog", null],
+        ["c-near", null],
+        ["d-far", null],
+      ],
+      initial: [needs(0, 1000, 0), needs(0, 1000, 0), needs(0, 1000, 0), needs(0, 1000, 0)],
+      starts: [
+        [5000, 0],
+        [5000, 0],
+        [300, 0],
+        [800, 0],
+      ],
+      items: [shelter("den", [9000, 0])],
+    }),
+  );
+  // The dog's coat is pack data: `clockgrove.weather-exposure` projects to its own protection.
+  const coated = composeComponentFixture("weather", false, false, 5000).scenario.initialState;
+  const dog = coated.entities.find((entity) => entity.objectId === "subject")!;
+  expect(dog.weatherProtection).toEqual({ rainProtection: 5000 });
+  expect(dog.shelter).toBeUndefined();
+  expect(coated.entities.filter((entity) => entity.shelter !== undefined).length).toBe(2);
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "b-dog"
+          ? { ...entity, weatherProtection: dog.weatherProtection! }
+          : entity,
+      ),
+    },
+  };
+  const wet = (w: EnvironmentWorld, id: string) =>
+    w.state.entities.find((entity) => entity.objectId === id)!.needs!.wetness;
+  const settled = runChain(world, "coat", 1500n);
+  expect([wet(settled.world, "a-bare"), wet(settled.world, "b-dog")]).toEqual([1225, 1037]);
+  const targets = tracesOf(settled)
+    .flatMap((trace) => trace.candidates as { action: { kind: string; targetObjectId: string } }[])
+    .filter((candidate) => candidate.action.kind === "seek-shelter")
+    .map((candidate) => candidate.action.targetObjectId);
+  expect(new Set(targets)).toEqual(new Set(["den"]));
+
+  const den = settled.world.state.entities.find((entity) => entity.objectId === "den")!;
+  const created = execute(
+    settled.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "porch",
+        archetypeId: den.archetypeId,
+        spatial: {
+          spaceId: den.spaceId,
+          pose: { ...den.pose, coordinates: [0n, 0n] },
+        },
+        shelter: { rainProtection: 10000, coverRadius: 500n },
+      },
+    },
+    "porch",
+  );
+  expect(changes(created.events)).toEqual([[1500n, "c-near", "porch"]]);
+  const after = runChain(created.world, "porch-after", 2500n);
+  expect(wet(created.world, "c-near")).toBe(1225);
+  // Under the porch's cover c-near dries; d-far, outside it, keeps getting wetter.
+  expect([wet(after.world, "c-near"), wet(after.world, "d-far")]).toEqual([1125, 1375]);
+
+  // A walk that stays within the cover keeps c-near under the porch the whole way; one that leaves
+  // it unlocates the walker where it crosses the boundary (500 units, 201 ms after it sets out).
+  const within = move(created.world, "c-near", -400n, "walk-under-porch");
+  expect(changes(within.events)).toEqual([]);
+  const walked = runChain(within.world, "walk-under-after", 2500n);
+  expect(changes(walked.events)).toEqual([]);
+  expect(walked.world.state.entities.find((entity) => entity.objectId === "c-near")).toMatchObject({
+    locationId: "porch",
+    pose: { coordinates: [-400n, 0n] },
+  });
+  expect(wet(walked.world, "c-near")).toBe(1125);
+  expect(replayWorldEvents(created.world.state, within.events)).toEqual(within.world.state);
+  const out = move(created.world, "c-near", 900n, "walk-out-of-porch");
+  expect(changes(out.events)).toEqual([[1701n, "c-near", null]]);
+});
+
+it("keeps a walker under a shelter's cover until its walk crosses the cover's boundary", async () => {
+  const base = await rainy(true);
+  // The den, where the actor stands in the rain, declares a cover of 500 units around it.
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const wetness = (events: readonly WorldEvent[]) =>
+    events
+      .filter((event) => event.type === "needs.changed")
+      .map((event) => [event.simulationTime, event.payload.wetness]);
+  const walk = (x: bigint, id: string) => {
+    const started = move(world, actor, x, id);
+    const finished = runChain(started.world, `${id}-after`, 3000n);
+    expect(replayWorldEvents(world.state, started.events)).toEqual(started.world.state);
+    expect(replayWorldEvents(started.world.state, finished.events)).toEqual(finished.world.state);
+    return [...started.events, ...finished.events];
+  };
+
+  // From the den's centre to (400, 0), inside the cover: it stays in the den and dries all the way.
+  const within = walk(400n, "walk-within");
+  expect(changes(within)).toEqual([]);
+  expect(wetness(within).every(([, value]) => (value as number) < 1000)).toBe(true);
+
+  // To (900, 0) at 1 unit/ms: under the den, drying, until it passes 500 units at 501 ms; from
+  // there it is on open ground and gets wetter. Its decision walks it back, and it is in the den
+  // again where it re-enters the cover (2 units/ms: 200 ms after 900).
+  const out = walk(900n, "walk-out");
+  expect(changes(out)).toEqual([
+    [501n, actor, null],
+    [1100n, actor, "den"],
+  ]);
+  expect(wetness(out).slice(0, 3)).toEqual([
+    [501n, 949],
+    [900n, 1009],
+    [1100n, 1039],
+  ]);
+});
+
+it("enters the cover a walk starts under, even from open ground", async () => {
+  // The actor stands unlocated at the den's centre in the rain; the den declares a 500-unit cover.
+  const base = await rainy(false);
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const started = move(world, actor, 900n, "walk-from-open");
+  const finished = runChain(started.world, "walk-from-open-after", 3000n);
+  expect(replayWorldEvents(world.state, started.events)).toEqual(started.world.state);
+  expect(replayWorldEvents(started.world.state, finished.events)).toEqual(finished.world.state);
+  // Its first millisecond is under the den's cover: it is in the den as it sets out, and on open
+  // ground from the boundary (501 ms) on.
+  expect(changes([...started.events, ...finished.events]).slice(0, 2)).toEqual([
+    [world.state.simulationTime, actor, "den"],
+    [501n, actor, null],
+  ]);
+});
+
+it("unlocates a mover the world time does not follow as it sets out, even under a cover", async () => {
+  // A plant is no needs actor, so the world time does not follow its walk past the command's
+  // events: walking out of its shelter's cover, it leaves the shelter as it sets out.
+  const base = await ecologyWorld(CEDAR_SPEC);
+  const home = base.state.entities.find((entity) => entity.objectId === "sheltered-cedar")!
+    .locationId!;
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === home
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const settled = applyCommand(
+    world,
+    commandInput(world, "world.advance", "cover-plant-before", {
+      targetTime: 3500n,
+      maxInputs: 1024,
+      maxEvents: 4096,
+      lazy: true,
+    }),
+  ).world;
+  const pose = settled.state.entities.find((entity) => entity.objectId === "sheltered-cedar")!.pose;
+  const moved = execute(
+    settled,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "sheltered-cedar",
+      destination: { kind: "pose", pose: { ...pose, coordinates: [2000n, 0n] } },
+      unitsPerSecond: 1000n,
+      observeUntil: 3500n,
+    },
+    "cover-plant-move",
+  );
+  const after = runChain(moved.world, "cover-plant-after", 9000n);
+  expect(changes([...moved.events, ...after.events])).toEqual([[3500n, "sheltered-cedar", null]]);
+  expect(
+    after.world.state.ecology!.plants.find((entry) => entry.objectId === "sheltered-cedar")!
+      .wetness,
+  ).toBeGreaterThan(0);
+  expect(replayWorldEvents(settled.state, [...moved.events, ...after.events])).toEqual(
+    after.world.state,
+  );
+});
+
+it("locates a walker under a cover created over it, and unlocates it when that shelter sets out or is retired", async () => {
+  const base = await rainy(true);
+  // The den, where the actor stands in the rain, declares a cover of 500 units around it.
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  // It walks out to (900, 0); its decision walks it back toward the den at 2 units/ms from 900 ms.
+  const out = move(world, actor, 900n, "walk-past-porch");
+  const midway = runChain(out.world, "walk-past-porch-mid", 1000n);
+  const walker = midway.world.state.entities.find((entity) => entity.objectId === actor)!;
+  expect([walker.movement?.status, walker.locationId ?? null]).toEqual(["active", null]);
+  const den = midway.world.state.entities.find((entity) => entity.objectId === "den")!;
+  const created = execute(
+    midway.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "porch",
+        archetypeId: den.archetypeId,
+        spatial: {
+          spaceId: den.spaceId,
+          pose: { ...den.pose, coordinates: [700n, 0n] },
+        },
+        shelter: { rainProtection: 10000, coverRadius: 100n },
+      },
+    },
+    "porch-over-walker",
+  );
+  // At (700, 0) the walker is inside the new porch's cover: it is under the porch from its
+  // creation, on open ground where its walk leaves that cover (600 units, 1051 ms), and in the den
+  // where it enters the den's (1100 ms).
+  expect(changes(created.events)).toEqual([[1000n, actor, "porch"]]);
+  const after = runChain(created.world, "porch-over-walker-after", 1200n);
+  expect(changes(after.events)).toEqual([
+    [1051n, actor, null],
+    [1100n, actor, "den"],
+  ]);
+  expect(replayWorldEvents(midway.world.state, [...created.events, ...after.events])).toEqual(
+    after.world.state,
+  );
+
+  // A walker under the porch leaves it the moment the porch sets out, or is retired.
+  const porch = created.world.state.entities.find((entity) => entity.objectId === "porch")!;
+  const departed = execute(
+    created.world,
+    "movement.start",
+    {
+      schemaVersion: 1,
+      objectId: "porch",
+      destination: {
+        kind: "pose",
+        pose: { ...porch.pose, coordinates: [700n, 2000n] },
+      },
+      unitsPerSecond: 1000n,
+    },
+    "porch-sets-out",
+  );
+  expect(changes(departed.events)[0]).toEqual([1000n, actor, null]);
+  expect(replayWorldEvents(created.world.state, departed.events)).toEqual(departed.world.state);
+  const retired = execute(
+    created.world,
+    "object.retire",
+    { schemaVersion: 1, objectId: "porch", disposition: "discard" },
+    "porch-retired",
+  );
+  expect(changes(retired.events)).toEqual([[1000n, actor, null]]);
+  expect(replayWorldEvents(created.world.state, retired.events)).toEqual(retired.world.state);
 });

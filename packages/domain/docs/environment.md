@@ -6,7 +6,7 @@ strictly increasing starts below the day length, unique names), 1 to 64 `weather
 (`{durationMs, rainIntensity, temperatureBand}`, repeating as a cycle) and `wetThreshold` and
 `discomfortThreshold` (basis points 1 to 10000), plus an optional `shelterReflexThreshold` (basis points
 1 to 10000, default 9000 when absent and then never encoded): the wetness at which an actor drops
-everything to seek shelter. A pack that sets it higher lets an actor stay at its food while wetter (10000 fires only at full saturation). Both cycles are anchored at simulation time 0 and
+everything to seek shelter (the reference fixture declares 9000 explicitly). A pack that sets it higher lets an actor stay at its food while wetter (10000 fires only at full saturation). Both cycles are anchored at simulation time 0 and
 all names are pack data. `WorldState.environment` (`EnvironmentState`: `phase`, `lightBand`,
 `nextPhaseBoundary`, `segmentIndex`, `temperatureBand`, `nextWeatherBoundary`) is present exactly when
 the policy has one. Absent fields leave the canonical encoding and hash of policies and states

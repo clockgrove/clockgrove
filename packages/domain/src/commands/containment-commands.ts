@@ -4,6 +4,7 @@ import {
   containmentSchema,
   materialQuantitySchema,
   resourceSchema,
+  shelterSchema,
   spatialTransformSchema,
   weatherExposureSchema,
 } from "../components/catalog/index.js";
@@ -23,7 +24,8 @@ export const fixtureObjectSchema = z
     spatial: spatialTransformSchema,
     containment: containmentSchema.optional(),
     resource: resourceSchema.optional(),
-    shelter: weatherExposureSchema.optional(),
+    shelter: shelterSchema.optional(),
+    weatherProtection: weatherExposureSchema.optional(),
   })
   .readonly();
 export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({

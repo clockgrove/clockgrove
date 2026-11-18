@@ -1207,6 +1207,7 @@ export type PublicRoutineFeatureName =
   | "U"
   | "travelMs"
   | "perceived"
+  | "remembered"
   | "expectation"
   | "freshness";
 export type PublicRoutineExclusion =
@@ -1455,6 +1456,7 @@ export function decodePublicRoutineFeatureName(
     value !== "U" &&
     value !== "travelMs" &&
     value !== "perceived" &&
+    value !== "remembered" &&
     value !== "expectation" &&
     value !== "freshness"
   )

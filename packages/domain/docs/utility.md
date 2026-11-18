@@ -51,8 +51,9 @@ encoding and hash and no planning request is ever produced. It is `{schemaVersio
 and sorted by kind: `{kind: "score-margin", maxMargin}` (a bigint from 0 to `FIXED_POINT_LIMIT`, the bound
 every fixed-point policy bigint carries: the two best eligible candidates are ambiguous when their scores differ
 by at most it, so 0 declares exact ties, broken only by the action key, ambiguous) and `{kind:
-"unperceived-target"}` (a novelty condition: the selected seek's target is not perceived, so the choice rests
-on scripted evidence alone). `validateUtilityPolicy` refuses a malformed declaration with
+"unperceived-target"}` (a novelty condition: the selected seek's target is neither perceived nor remembered,
+so it was never confirmed and the choice rests on belief alone; a familiar target out of view, such as the actor's
+own den, is not novel). `validateUtilityPolicy` refuses a malformed declaration with
 `UtilityValidationError` at `policy.utility.ambiguity` or below: a missing or extra field, an unknown
 `schemaVersion`, an empty, sparse or over-long `conditions` (`...conditions`), a condition that is not an
 object (`...conditions[i]`), an unknown, repeated or out-of-order kind (`...conditions[i].kind`) and a

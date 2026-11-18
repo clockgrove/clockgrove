@@ -284,14 +284,14 @@ it("uses durable schedule boundaries independently of caps, admission grouping a
   }
   expect(outcomes.slice(1)).toEqual([outcomes[0], outcomes[0], outcomes[0]]);
   expect(outcomes[0]).toEqual({
-    hash: "93faca26317161ba398d1bf480877c16c024728eaeae86cebd81c7626355c202",
+    hash: "40e0969cadea3eee697d82e43bb5913ac0fee0661d267a8fc6c3d39a76a014ca",
     revision: 25n,
     simulationTime: 220000n,
     targets: [100000n, 160000n, 220000n],
     commands: [
-      "trusted:advance:timelineid_21da1c246db4adf3:partitionid_e385ad233fad07f4:beacon.hall:0:100000",
-      "trusted:advance:timelineid_21da1c246db4adf3:partitionid_e385ad233fad07f4:beacon.hall:4:160000",
-      "trusted:advance:timelineid_21da1c246db4adf3:partitionid_e385ad233fad07f4:beacon.hall:14:220000",
+      "trusted:advance:timelineid_fc67e3c3c701016c:partitionid_b70122de024901fd:beacon.hall:0:100000",
+      "trusted:advance:timelineid_fc67e3c3c701016c:partitionid_b70122de024901fd:beacon.hall:4:160000",
+      "trusted:advance:timelineid_fc67e3c3c701016c:partitionid_b70122de024901fd:beacon.hall:14:220000",
     ],
   });
 }, 120_000);
@@ -320,18 +320,18 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
       });
       expect(await reader.dueSchedules(provisioned.authorization, scope, 10022400000n)).toEqual([
         {
-          scheduleId: "scheduleid_cc09a6f5542938eb",
-          idempotencyKey: "scheduleid_cc09a6f5542938eb:8640000000",
+          scheduleId: "scheduleid_93360caba352b1f8",
+          idempotencyKey: "scheduleid_93360caba352b1f8:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_c4f0bab950b70274",
-          idempotencyKey: "scheduleid_c4f0bab950b70274:8640000000",
+          scheduleId: "scheduleid_15679150d48a784f",
+          idempotencyKey: "scheduleid_15679150d48a784f:8640000000",
           dueAt: 9976186047n,
         },
         {
-          scheduleId: "scheduleid_6bfec91324bbb28d",
-          idempotencyKey: "scheduleid_6bfec91324bbb28d:8640000000",
+          scheduleId: "scheduleid_b07a902bdd96e4ce",
+          idempotencyKey: "scheduleid_b07a902bdd96e4ce:8640000000",
           dueAt: 10022400000n,
         },
       ]);
@@ -352,9 +352,9 @@ it("orders indexed deadlines and priorities numerically across decimal digit bou
           priority: item.priority,
         })),
       ).toEqual([
-        { id: "scheduleid_cc09a6f5542938eb", dueAt: 9976186047n, priority: 2 },
-        { id: "scheduleid_c4f0bab950b70274", dueAt: 9976186047n, priority: 10 },
-        { id: "scheduleid_6bfec91324bbb28d", dueAt: 10022400000n, priority: 2 },
+        { id: "scheduleid_93360caba352b1f8", dueAt: 9976186047n, priority: 2 },
+        { id: "scheduleid_15679150d48a784f", dueAt: 9976186047n, priority: 10 },
+        { id: "scheduleid_b07a902bdd96e4ce", dueAt: 10022400000n, priority: 2 },
       ]);
     });
   });

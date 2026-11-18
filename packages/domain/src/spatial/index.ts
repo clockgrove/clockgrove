@@ -22,6 +22,7 @@ export {
 } from "./hierarchy.js";
 export {
   type CrossingRecord,
+  coverIntervals,
   currentInside,
   expectedCrossings,
   isRegionCrossing,

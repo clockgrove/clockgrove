@@ -2344,7 +2344,7 @@ const EXCLUSIONS = [
 export const DECISIONS_GOLDEN = {
   name: "favorite-snack-house",
   materialEventHash: "f5d3895045f6183481893a9447a54e074a62634107a2f5e20f60d1d6fe05c3db",
-  traceHash: "f4fd76a538132ee6fc0e90f34a63b614ae2d9ca098370f7f7848a5f80605ca9e",
+  traceHash: "2ab47c3e28099545192816a083f1a1ace65211f87d8e86bd5f64249a36a5dfa9",
   finalStateHash: "782d938a93353e05bc0f6784ce26f3b5ee2cbbe5b2365bba0a31b5bf587a7deb",
 } as const;
 

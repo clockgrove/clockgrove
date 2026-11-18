@@ -91,7 +91,7 @@ it("runs the supported CLI on a selected external pack with models off and prese
     });
     expect(report.reference).toMatchObject({ total: 3, correct: 0, accuracy: null });
     expect(report.finalStateHash).toBe(
-      "65835961d84ed602aed1c1ad399a804ee65ec53897eeef5ba9d680334ec6f3c5",
+      "1e107908008c2ba4edce4c51abdbe3d35a8c35cc627b316d8441b4d0df300b6a",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -197,7 +197,7 @@ it("scores labelled fixture state variations through a scripted provider indepen
   expect(report.measuredCostMicrousd).toBe(0);
   expect(report.replay.matches).toBe(true);
   expect(report.finalStateHash).toBe(
-    "65835961d84ed602aed1c1ad399a804ee65ec53897eeef5ba9d680334ec6f3c5",
+    "1e107908008c2ba4edce4c51abdbe3d35a8c35cc627b316d8441b4d0df300b6a",
   );
 });
 
@@ -235,16 +235,17 @@ it("classifies within and outside the pack's declared margin apart from sampling
   const stated = await run({ cohortMargin: "5000000" });
   expect(stated.cohortMargin).toEqual({ margin: "5000000", source: "operator" });
   expect(cohorts(stated)).toEqual({ within: 4, outside: 28 });
-  // At the pack's own margin the two unperceived-target decisions are sampled too; the rest are
-  // counted as skipped, none silently dropped.
+  // At the pack's own margin the one unperceived-target decision (a target never confirmed; the
+  // keeper's remembered snack dish is not novel) is sampled too; the rest are counted as skipped,
+  // none silently dropped.
   const declared = await run({ margin: "0" });
-  expect(declared.records).toHaveLength(3);
+  expect(declared.records).toHaveLength(2);
   expect(
     declared.records.filter((record: ShadowRecord) => record.trigger.margin === null),
-  ).toHaveLength(2);
+  ).toHaveLength(1);
   expect(declared.utilityAgreement.skipped.reasons).toMatchObject({
     "single-candidate": 1,
-    "no-ambiguity-condition": 29,
+    "no-ambiguity-condition": 30,
     "trigger-not-met": 0,
   });
 });

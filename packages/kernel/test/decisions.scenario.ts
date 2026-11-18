@@ -128,6 +128,7 @@ export interface UtilitySpec extends WellbeingSpec {
   readonly starts?: readonly (readonly [number, number])[];
   readonly located?: readonly (string | null)[];
   readonly utility: UtilityValues;
+  readonly ambiguity?: unknown;
   readonly scripted?: readonly ScriptedSpec[];
   readonly graph?: "items" | "none" | GraphSpec;
   readonly regions?: readonly (readonly [string, number, number, number, number])[];
@@ -230,6 +231,7 @@ export function utilitySample(spec: UtilitySpec): Loose {
     hungerReliefPerUnit: u.hungerReliefPerUnit,
     thirstReliefPerUnit: u.thirstReliefPerUnit,
   };
+  if (spec.ambiguity !== undefined) sample.pack.policy.utility.ambiguity = spec.ambiguity;
   const actors = sample.initialState.entities as Loose[];
   actors.forEach((actor, index) => {
     const start = spec.starts?.[index] ?? [0, 0];
@@ -615,6 +617,14 @@ export function assertTrace(
     const reason = candidate.excludedReason as string | undefined;
     if (f.perceived === 10000n)
       refs.push(`perceived:${candidate.action.targetObjectId}@${trace.simulationTime}`);
+    const memory = scripted.some(
+      (item) =>
+        item.actorId === trace.objectId &&
+        item.targetObjectId === candidate.action.targetObjectId &&
+        item.kind === "memory" &&
+        (item.effectiveAt as bigint) <= (trace.simulationTime as bigint),
+    );
+    if (f.remembered !== (memory ? 10000n : 0n)) fail(`${what}: remembered`, candidate);
     if (reason === "not-perceived" && (f.perceived !== 0n || f.expectation !== 0n))
       fail(`${what}: not-perceived`, candidate);
     if (reason === undefined && f.perceived === 0n && f.expectation === 0n)
