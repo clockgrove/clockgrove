@@ -122,7 +122,8 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
     if (t.scope.tenantId !== a.tenantId) throw new DeliveryRefusedError("delivery_target_invalid");
     const result = await this.client.query(
       `SELECT tl.kind FROM clockgrove.conversation_sessions s
-      JOIN clockgrove.channel_bindings b USING (tenant_id,session_id)
+      JOIN clockgrove.channel_bindings b ON b.tenant_id=s.tenant_id
+        AND b.session_id=COALESCE(s.wake_of,s.session_id)
       JOIN clockgrove.timelines tl ON tl.tenant_id=s.tenant_id AND tl.world_id=s.world_id AND tl.timeline_id=s.timeline_id
       WHERE s.tenant_id=$1 AND s.world_id=$2 AND s.timeline_id=$3 AND s.space_id=$4
         AND s.actor_id=$5 AND s.session_id=$6 AND b.principal_id=$7 AND s.state<>'deleted'
@@ -280,11 +281,13 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
   ): Promise<DeliveryResult | undefined> {
     const binding = await this.client.query(
       `SELECT b.channel,b.thread_id,
-         'response:'||encode(sha256(convert_to(octet_length(b.session_id)::text||':'||b.session_id||$4,'UTF8')),'hex') AS response_key
-       FROM clockgrove.channel_bindings b
-       WHERE b.tenant_id=$1 AND b.session_id=$2 AND b.principal_id=$3
+         'response:'||encode(sha256(convert_to(octet_length(s.session_id)::text||':'||s.session_id||$4,'UTF8')),'hex') AS response_key
+       FROM clockgrove.conversation_sessions s
+       JOIN clockgrove.channel_bindings b ON b.tenant_id=s.tenant_id
+         AND b.session_id=COALESCE(s.wake_of,s.session_id)
+       WHERE s.tenant_id=$1 AND s.session_id=$2 AND b.principal_id=$3
          AND NOT EXISTS (SELECT 1 FROM clockgrove.actor_activations aa
-           WHERE aa.tenant_id=b.tenant_id AND aa.session_id=b.session_id AND aa.message_id=$4)`,
+           WHERE aa.tenant_id=s.tenant_id AND aa.session_id=s.session_id AND aa.message_id=$4)`,
       [a.tenantId, target.sessionId, a.principalId, messageId],
     );
     const row = binding.rows[0] as Row | undefined;
@@ -372,10 +375,13 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
         input: row.delivery_intent,
       });
       if (!decision.accepted) throw new DeliveryRefusedError("delivery_policy_invalid");
+      // A wake session delivers on its configured session's thread, the person's own (0075).
       const source = await this.client.query(
         `SELECT cm.content_artifact_id,b.channel,b.thread_id,c.version
          FROM clockgrove.conversation_messages cm
-         JOIN clockgrove.channel_bindings b USING(tenant_id,session_id)
+         JOIN clockgrove.conversation_sessions s USING(tenant_id,session_id)
+         JOIN clockgrove.channel_bindings b ON b.tenant_id=s.tenant_id
+           AND b.session_id=COALESCE(s.wake_of,s.session_id)
          LEFT JOIN clockgrove.delivery_consent c ON c.tenant_id=b.tenant_id AND c.world_id=b.world_id
            AND c.timeline_id=b.timeline_id AND c.actor_id=$4 AND c.principal_id=b.principal_id
          WHERE cm.tenant_id=$1 AND cm.session_id=$2 AND cm.message_id=$3 AND cm.role='actor'

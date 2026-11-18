@@ -1453,8 +1453,9 @@ refuses `conversation_full` and wake sessions rotate at the same value. A value 
 fails every conversation and activation request. Wake sessions are bounded by model wakes, so they are not
 counted in the 100 sessions a participant may open, and the conversation list shows only the newest
 generation of each configured session; older generations stay readable by ID. A wake's turn reads
-its wake session's history; its proactive delivery comes from that session through its channel
-binding, which has the configured session's channel. A configured session that is archived or
+its wake session's history; its proactive delivery carries the reply from that session to the
+configured session's channel and thread, the person's own: every delivery of a wake session is
+addressed through its configured session's binding. A configured session that is archived or
 deleted gets no wake session: its wakes are refused as before. Upgrading to migration 0075 moves no
 message: a deferred activation that has not run moves to a wake session when it is next admitted,
 and one already running finishes in the session it started in.

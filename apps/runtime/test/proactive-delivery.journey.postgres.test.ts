@@ -155,6 +155,12 @@ it("delivers a canonical proactive reply once with snapshotted intent, consent a
         "SELECT receipt->>'status'||'/'||(request->>'urgency')||'/'||(request->>'quietHoursBehavior')||'/'||(receipt->>'sink') FROM clockgrove.deliveries",
       ),
     ).toBe("approved/normal/delay/fake");
+    // The wake's reply is delivered on the person's own thread, not the wake session's.
+    expect(
+      await owner.sql(
+        "SELECT (request->'channelBinding'->>'channel')||'/'||(request->'channelBinding'->>'threadId') FROM clockgrove.deliveries",
+      ),
+    ).toBe("fake/proactive-thread");
     expect(
       await owner.sql(`SELECT count(*) FROM clockgrove.deliveries d JOIN clockgrove.conversation_messages m
       ON m.tenant_id=d.tenant_id AND m.session_id=d.session_id AND m.content_artifact_id=d.content_artifact_id
