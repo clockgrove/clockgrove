@@ -691,7 +691,7 @@ Amended (2026-10-19): the hosted half of W0-004, W0-005, W0-007, W0-008, W0-009 
 - [ ] Browser diagnostic shell has readiness, reconnect, renderer-neutral projection and text fallback.
 - [ ] CI checks types, boundaries, contracts, migrations, security, supply chain and browser smoke tests.
 - [ ] No secret/private deployment material exists in repository source.
-- [ ] `development`/`staging`/`production` environment and release-manifest contracts are defined.
+- [ ] Development/staging/production environment and release-manifest contracts are defined.
 - [ ] Clean Linux bootstrap and recovery qualification pass.
 - [ ] Wave 0 evidence manifest is accepted before Wave 1 product work begins.
 
