@@ -18,6 +18,7 @@ import {
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
 import { ImageUtils } from "@gltf-transform/core";
 import { atlasLocationProblems, buildAtlases, packAtlas, reviewedFiles } from "./atlas.js";
+import { loadKtx2Encoder } from "./ktx2.js";
 import { licenseReport } from "./license-report.js";
 import { inspectModel, sideImageUris, validateModel } from "./model.js";
 import {
@@ -54,10 +55,35 @@ export interface AssetsCliResult {
 }
 
 /**
- * Runs one `clockgrove-assets` command (`argv` without the node and script paths) in this process.
- * The executable writes the result and exits with its status; tests call it directly.
+ * Runs one `clockgrove-assets` command (`argv` without the node and script paths) in this process,
+ * with the KTX2 encoder already loaded (the library entry and the test model fixture load it). Tests
+ * call it directly.
  */
 export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
+  const steps = assetsCli(argv);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+/**
+ * The executable's form of `runAssetsCli`: it loads the KTX2 encoder only once the command's
+ * preflight has passed. Loading it is about half of a short command's start, so a command refused
+ * at its preflight exits without paying for it. The executable writes the result and exits with its
+ * status.
+ */
+export async function runAssetsCommand(argv: readonly string[]): Promise<AssetsCliResult> {
+  const steps = assetsCli(argv);
+  let step = steps.next();
+  while (!step.done) {
+    await loadKtx2Encoder();
+    step = steps.next();
+  }
+  return step.value;
+}
+
+/** One command; it yields once its preflight passes, before work that may encode KTX2. */
+function* assetsCli(argv: readonly string[]): Generator<void, AssetsCliResult, void> {
   const stdout: string[] = [];
   const stderr: string[] = [];
   let status = 0;
@@ -390,12 +416,15 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
         status = 1;
       } else if (command === "validate") {
         status = 0;
-      } else if (command === "check") {
-        const problems = check();
-        for (const problem of problems) stderr.push(problem);
-        status = problems.length > 0 ? 1 : 0;
-      } else if (command === "build") build();
-      else updateGolden();
+      } else {
+        yield;
+        if (command === "check") {
+          const problems = check();
+          for (const problem of problems) stderr.push(problem);
+          status = problems.length > 0 ? 1 : 0;
+        } else if (command === "build") build();
+        else updateGolden();
+      }
       if (external && !status) stdout.push(JSON.stringify({ status: "ok", command }));
     } catch (error) {
       const internal =

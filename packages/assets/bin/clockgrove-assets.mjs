@@ -10,8 +10,8 @@ import "./typescript-hooks.mjs";
 // wasm module is compiled; the encoded bytes are the same on either tier.
 setFlagsFromString("--wasm-tiering-budget=130000000");
 
-const { runAssetsCli } = await import("../src/cli.ts");
-const { status, stdout, stderr } = runAssetsCli(process.argv.slice(2));
+const { runAssetsCommand } = await import("../src/cli.ts");
+const { status, stdout, stderr } = await runAssetsCommand(process.argv.slice(2));
 process.stdout.write(stdout);
 process.stderr.write(stderr);
 process.exitCode = status;
