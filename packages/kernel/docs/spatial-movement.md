@@ -228,6 +228,11 @@ objects left behind. Shelter creation, departure, stopping and retirement apply 
 space, frame, pose, active-component and self-exclusion rule to affected occupants. On departure
 they stay at their own poses and select another shelter there or open ground; on arrival or
 creation objects it covers enter it, preserving an existing matching shelter.
+A walker caught mid-walk by one of these is placed at that millisecond by the crossing rule below:
+a followed walker is in the shelter whose declared cover its path is under then (the one it is in,
+else the first by object id) or on open ground, so a cover created over it locates it and a shelter
+that sets out or is retired leaves it; any other walker keeps its shelter only while that shelter,
+still standing, covers its walk.
 Every affected occupant is integrated under its old protection before its location changes,
 including a shelter that is itself a needs actor or a plant.
 
