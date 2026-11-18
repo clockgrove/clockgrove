@@ -1414,8 +1414,18 @@ before 0072 keeps waking at the per-period rate between the migration and the de
 rollback.
 
 Receipts are never deleted, so `actor_activations` grows for each actor's life by up to
-`wakeLimit` rows per period (about 1,440 rows a day for one once-a-minute heartbeat). Inspection
-reads each kind of receipt in index order with a fixed limit, so its cost does not grow with them.
+`wakeLimit` rows per period (about 1,440 rows a day for one once-a-minute heartbeat). The per-turn
+reads that find a receipt by its turn or its activation use indexes from 0072, and inspection reads
+each kind of receipt in index order with a fixed limit, so neither cost grows with the history.
+Inspection's `activations` list holds:
+
+| Bucket | Limit | Why |
+| --- | --- | --- |
+| pending | all | at most one turn joins them |
+| deferred scheduled wakes | all | at most one per configuration's next wake, and an actor has at most 64 configurations; the planner must see each to hold that wake back |
+| deferred `budget_exhausted` event wakes, oldest first | 64 | decision: one journal page, the 64 unread events one scheduled check admits; the check retries every deferred wake it inspects, so a 65th waits until an older one settles |
+| other deferred wakes, oldest first (`policy_denied`, for example) | 64 | decision: the same page size; kept apart so wakes no period renews never hide one it does |
+| completed and no-op, newest first | 256 | decision: four pages of recent history for the inspector panel; no retry reads them |
 
 ## Wake-triage shadow report
 

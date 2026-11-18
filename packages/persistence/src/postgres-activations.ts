@@ -91,7 +91,9 @@ export class PostgreSqlActivations {
         ON CONFLICT DO NOTHING`,
         [...values(a), a.participant.principalId, a.scope.spaceId],
       );
-      const row = await this.policy(a);
+      // A period that has passed is closed first, on its own length: its counts must not be
+      // charged to the window a new `budgetPeriodMs` starts below.
+      const row = await this.roll(a);
       if (row.space_id !== a.scope.spaceId) throw new Error("activation policy not found");
       const configs = row.configurations as ActivationConfiguration[];
       if (config !== undefined) {
@@ -530,6 +532,9 @@ export class PostgreSqlActivations {
     // turn joins them), every deferred scheduled wake (at most one per configuration's next wake,
     // which the planner must see to hold that wake back), the oldest budget-exhausted event
     // deferrals (the ones a period renews), the oldest other deferrals and the newest settled.
+    // Decision (runbook, Proactive actor activation): each deferred bucket holds one journal page,
+    // the events one scheduled check admits, and the settled bucket four pages of history for the
+    // inspector; a later deferral is retried once an older one settles.
     const records = await this.client.query(
       `SELECT * FROM (
         (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='pending')
@@ -538,13 +543,13 @@ export class PostgreSqlActivations {
           AND left(causal_root,9)='schedule:')
         UNION ALL
         (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='deferred'
-          AND left(causal_root,9)<>'schedule:' AND outcome='budget_exhausted' ORDER BY admitted_at, causal_root LIMIT 64)
+          AND left(causal_root,9)<>'schedule:' AND outcome='budget_exhausted' ORDER BY admitted_at, causal_root LIMIT ${ACTIVATION_EVENT_PAGE})
         UNION ALL
         (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status='deferred'
-          AND left(causal_root,9)<>'schedule:' AND outcome<>'budget_exhausted' ORDER BY admitted_at, causal_root LIMIT 64)
+          AND left(causal_root,9)<>'schedule:' AND outcome<>'budget_exhausted' ORDER BY admitted_at, causal_root LIMIT ${ACTIVATION_EVENT_PAGE})
         UNION ALL
         (SELECT * FROM clockgrove.actor_activations WHERE ${KEY} AND status IN ('completed','noop')
-          ORDER BY admitted_at DESC, causal_root LIMIT 256)
+          ORDER BY admitted_at DESC, causal_root LIMIT ${4 * ACTIVATION_EVENT_PAGE})
       ) inspected ORDER BY activation_id, causal_root`,
       values(a),
     );

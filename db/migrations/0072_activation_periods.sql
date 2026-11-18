@@ -23,6 +23,14 @@ CREATE INDEX actor_activations_deferred ON clockgrove.actor_activations
   WHERE status = 'deferred' AND outcome <> 'budget_exhausted' AND left(causal_root, 9) <> 'schedule:';
 CREATE INDEX actor_activations_settled ON clockgrove.actor_activations
   (tenant_id, world_id, timeline_id, actor_id, admitted_at) WHERE status IN ('completed', 'noop');
+-- Receipts are no longer capped at 1,000 per actor, so the per-turn reads that find a receipt by
+-- its turn or its activation are served by an index instead of scanning the actor's (or, without
+-- an actor, the timeline's) whole receipt history: the model gate (activation_model_gate),
+-- wake triage (reserve_wake_triage), MCP admission and approval, and settle's lookup by activation.
+CREATE INDEX actor_activations_turn ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, session_id, message_id);
+CREATE INDEX actor_activations_activation ON clockgrove.actor_activations
+  (tenant_id, world_id, timeline_id, actor_id, activation_id);
 GRANT UPDATE (budget_period_ms, wake_limit, period_index, period_wakes)
   ON clockgrove.actor_activation_policies TO clockgrove_runtime;
 

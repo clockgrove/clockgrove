@@ -8,7 +8,7 @@ import { connect, holdCluster, truthOf } from "./world-fixture.js";
 
 // Issue 358: wakes and model opportunities are limited per wall-clock period, not per lifetime.
 const BASE = { tenantId: "tenant-p", principalId: "principal-p", worldId: "world-p" };
-const ACTORS = ["beat", "hourly", "capped", "budgeted", "inspected"];
+const ACTORS = ["beat", "hourly", "capped", "budgeted", "inspected", "reshaped"];
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const START = 1_924_992_000_000; // 2031-01-01T00:00:00Z, an hour boundary
@@ -202,4 +202,32 @@ it("still inspects, and so retries, a budget-exhausted wake behind many wakes th
   expect(listed.filter((r) => r.outcome === "budget_exhausted").map((r) => r.causalRoot)).toEqual([
     "exhausted",
   ]);
+});
+
+it("charges no ended period's wakes to the window a new period length starts", async () => {
+  const policy = { allowModel: true, modelBudget: 10, wakeLimit: 3, budgetPeriodMs: HOUR };
+  vi.setSystemTime(START + 400 * HOUR + 50 * MINUTE);
+  await activations.configure(at("reshaped"), config("reshaped", MINUTE), policy);
+  for (const n of [1, 2, 3]) {
+    const admitted = await activations.admit(at("reshaped"), wake("reshaped", `root-${n}`));
+    await activations.settle(at("reshaped"), admitted.activationId, "done");
+  }
+  await expect(activations.admit(at("reshaped"), wake("reshaped", "root-4"))).rejects.toThrow(
+    "activation wake limit reached",
+  );
+  // Three hours after that period ended, the operator moves to a daily period.
+  vi.setSystemTime(START + 403 * HOUR);
+  await activations.configure(at("reshaped"), config("reshaped", MINUTE), {
+    ...policy,
+    budgetPeriodMs: 24 * HOUR,
+  });
+  expect(await activations.admit(at("reshaped"), wake("reshaped", "root-4"))).toMatchObject({
+    status: "pending",
+  });
+  expect((await activations.inspect(at("reshaped"))).period).toEqual({
+    periodMs: 24 * HOUR,
+    wakeLimit: 3,
+    wakes: 1,
+    endsAt: START + 408 * HOUR,
+  });
 });

@@ -235,7 +235,8 @@ risking duplicate execution. Receipts are never forgotten, so a causal root that
 refused. A scheduled wake refused at the limit waits for the period's end, and an event stays
 unread until then. Inspection answers `period` (`periodMs`, `wakeLimit`, `wakes`, `endsAt`) and
 a bounded `activations` list: every pending and every deferred scheduled receipt, the 64 oldest
-other deferred ones and the 256 newest settled ones.
+budget-exhausted deferred event wakes, the 64 oldest other deferred ones and the 256 newest
+settled ones (the runbook's Proactive actor activation section gives each limit's reason).
 
 A compiled `noop` decision disables that configuration and clears its next wake, suppressing
 repeated empty opportunities until an operator reconfigures it. Subscriptions and thresholds wake on
