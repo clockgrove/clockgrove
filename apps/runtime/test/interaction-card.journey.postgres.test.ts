@@ -6,6 +6,7 @@ import {
   decodePrivacyCeiling,
   decodeRecordedWhy,
   decodeSayReceipt,
+  INTERACTION_DISCLOSURES,
   type SceneConnectionAttachment,
 } from "@clockgrove/contracts";
 import { PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
@@ -256,6 +257,32 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           ],
         },
       ]);
+      // A declared `canonical` mode is disclosed in that voice, with the same actions as cognitive.
+      const canonicalVoice = {
+        ...canonical,
+        entities: canonical.entities.map((entity) =>
+          entity.objectId === "fixture.keeper"
+            ? { ...entity, conversationMode: "canonical" as const }
+            : entity,
+        ),
+      };
+      const [canonicalCard] = interactionsOf(canonicalVoice, new Set(["fixture.keeper"]), {
+        talk: true,
+        influence: true,
+      });
+      expect(canonicalCard).toEqual({
+        entityId: "fixture.keeper",
+        mode: "canonical",
+        actions: [
+          { kind: "inspect", availability: "enabled" },
+          { kind: "history", availability: "enabled" },
+          { kind: "why", availability: "enabled" },
+          { kind: "talk", availability: "enabled" },
+        ],
+      });
+      expect(INTERACTION_DISCLOSURES[canonicalCard?.mode ?? "inspectable"]).toBe(
+        "Authorized explanation from world evidence",
+      );
       const observerOnly = await scene({ categories: ["public_scene"], command: false });
       expect([
         observerOnly["fixture.keeper"]?.[1]?.[3],
