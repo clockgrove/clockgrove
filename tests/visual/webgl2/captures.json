@@ -444,9 +444,7 @@
       "announced": "Observation: ready. Observing revision 73. Canonical time 8719200000. Rain intensity 9000. fixture.cedar, fixture.cedar, position 22000, 20000; fixture.cedar-hollow, fixture.cedar-hollow, position 22000, 20000; fixture.companion, fixture.companion, position 8000, 22000; fixture.den, fixture.den, position 8000, 22000; fixture.den-stash, fixture.den-stash, position 8000, 22000; fixture.dependent, fixture.dependent, position 8000, 22000; fixture.fence-gate, fixture.fence-gate, position 27000, 15000; fixture.herb, fixture.herb, position 23000, 8000; fixture.keeper, fixture.keeper, position 15000, 8000; fixture.pantry-bin, fixture.pantry-bin, position 38000, 28000; fixture.porch, fixture.porch, position 8000, 8000; fixture.sky, fixture.sky, position 20000, 15000; fixture.snack-dish, fixture.snack-dish, position 30000, 13000; fixture.trash-can, fixture.trash-can, position 15000, 8000; fixture.water-bowl, fixture.water-bowl, position 22000, 8000"
     }
   ],
-  "rendererBackends": [
-    "webgl2"
-  ],
+  "rendererBackends": ["webgl2"],
   "tierComparisons": [
     {
       "state": "dusk",
@@ -462,31 +460,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 11868568,
-      "renderSize": [
-        427,
-        299
-      ],
-      "canvasSize": [
-        854,
-        599
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [427, 299],
+      "canvasSize": [854, 599],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -509,31 +488,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 7182212,
-      "renderSize": [
-        334,
-        230
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [334, 230],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -556,31 +516,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 4914228,
-      "renderSize": [
-        179,
-        292
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [179, 292],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -603,31 +544,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 16389972,
-      "renderSize": [
-        861,
-        604
-      ],
-      "canvasSize": [
-        861,
-        604
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -650,31 +572,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 9740836,
-      "renderSize": [
-        669,
-        460
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -697,31 +600,12 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 6652868,
-      "renderSize": [
-        358,
-        584
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -744,108 +628,29 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 27824660,
-      "renderSize": [
-        861,
-        604
-      ],
-      "canvasSize": [
-        861,
-        604
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
@@ -867,108 +672,29 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 16507556,
-      "renderSize": [
-        669,
-        460
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
@@ -990,108 +716,29 @@
       "lights": 0,
       "backend": "webgl2",
       "textureBytes": 11249284,
-      "renderSize": [
-        358,
-        584
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
@@ -1122,31 +769,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 11868568,
-      "renderSize": [
-        427,
-        299
-      ],
-      "canvasSize": [
-        854,
-        599
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [427, 299],
+      "canvasSize": [854, 599],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1178,31 +806,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 7182212,
-      "renderSize": [
-        334,
-        230
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [334, 230],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1234,31 +843,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 4914228,
-      "renderSize": [
-        179,
-        292
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [179, 292],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshLambertNodeMaterial"
-      ],
-      "puddleRoughness": [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "litMaterials": ["MeshLambertNodeMaterial"],
+      "puddleRoughness": [null, null, null, null, null, null, null],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1290,31 +880,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 16389972,
-      "renderSize": [
-        861,
-        604
-      ],
-      "canvasSize": [
-        861,
-        604
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1346,31 +917,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 9740836,
-      "renderSize": [
-        669,
-        460
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1402,31 +954,12 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 6652868,
-      "renderSize": [
-        358,
-        584
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [],
       "reflectionUvs": true,
@@ -1458,108 +991,29 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 27824660,
-      "renderSize": [
-        861,
-        604
-      ],
-      "canvasSize": [
-        861,
-        604
-      ],
-      "hostSize": [
-        861,
-        604
-      ],
+      "renderSize": [861, 604],
+      "canvasSize": [861, 604],
+      "hostSize": [861, 604],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
@@ -1590,108 +1044,29 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 16507556,
-      "renderSize": [
-        669,
-        460
-      ],
-      "canvasSize": [
-        669,
-        460
-      ],
-      "hostSize": [
-        669,
-        460
-      ],
+      "renderSize": [669, 460],
+      "canvasSize": [669, 460],
+      "hostSize": [669, 460],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
@@ -1722,108 +1097,29 @@
       "lights": 2,
       "backend": "webgl2",
       "textureBytes": 11249284,
-      "renderSize": [
-        358,
-        584
-      ],
-      "canvasSize": [
-        358,
-        584
-      ],
-      "hostSize": [
-        358,
-        584
-      ],
+      "renderSize": [358, 584],
+      "canvasSize": [358, 584],
+      "hostSize": [358, 584],
       "dpr": 1,
-      "litMaterials": [
-        "MeshStandardNodeMaterial"
-      ],
-      "puddleRoughness": [
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08,
-        0.08
-      ],
+      "litMaterials": ["MeshStandardNodeMaterial"],
+      "puddleRoughness": [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
       "atlasShared": true,
       "reflectionBlending": [
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ],
-        [
-          true,
-          0.22,
-          true
-        ]
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true],
+        [true, 0.22, true]
       ],
       "reflectionUvs": true,
       "adapter": {
