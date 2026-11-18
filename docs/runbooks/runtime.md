@@ -2072,8 +2072,10 @@ A started attempt is lost only when its executor is gone: the executor writes th
 `heartbeat_at` every 15 seconds (`ATTEMPT_HEARTBEAT_MS`, `research.ts`) from its claim until its
 completion is written, and the sweep reconciles an attempt only when neither its last heartbeat
 nor, if it never beat, its `started_at` is within 60 seconds (`ATTEMPT_RECONCILIATION_MS`, four
-beats). A slow write or a slow persistence under database contention therefore completes as it
-ran. Trusted composition may shorten the beat with `attemptHeartbeatMs` (tests use it); composition
+beats). The sweep's terminal write rechecks that lease under the intent lock a heartbeat also
+takes, in the same statement as the outcome (`PostgreSqlEffects.complete`, `leaseExpiredMs`), so a
+beat that commits after the sweep judged the attempt stale leaves it started for its executor. A
+slow write or a slow persistence under database contention therefore completes as it ran. Trusted composition may shorten the beat with `attemptHeartbeatMs` (tests use it); composition
 refuses a value that is not a whole number of milliseconds above 0 and at most 15 seconds, and the
 60-second window is fixed. The attempt guard accepts a heartbeat only on a started attempt, only forward and never past
 the database's own clock (migration 0074). A sealed result can be reused; an absent result becomes

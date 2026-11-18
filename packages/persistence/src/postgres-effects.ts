@@ -342,14 +342,23 @@ export class PostgreSqlEffects {
     });
   }
 
+  /**
+   * Records an attempt's outcome. With `leaseExpiredMs`, a started attempt is completed only if its
+   * lease (last heartbeat, else start) is at least that old, judged under the intent lock that
+   * heartbeat() also takes; otherwise it stays started and the record is returned unchanged.
+   */
   async complete(
     address: EffectAddress,
     attemptId: string,
     completion: EffectCompletion,
+    options: { readonly leaseExpiredMs?: number } = {},
   ): Promise<RecordedEffect> {
     const values = addressValues(address);
     completion = { ...completion };
     if (!identity(attemptId)) throw new Error("Invalid effect attempt");
+    const lease = options.leaseExpiredMs;
+    if (lease !== undefined && (!Number.isSafeInteger(lease) || lease <= 0))
+      throw new Error("Invalid effect lease");
     const outcome = completionValues(completion);
     return this.transaction(async () => {
       const disposition = await this.lock(values);
@@ -358,12 +367,16 @@ export class PostgreSqlEffects {
         throw new Error("Effect attempt unavailable");
       }
       if (record.attemptDisposition === "started") {
-        await this.client.query(
+        const updated = await this.client.query(
           `UPDATE clockgrove.effect_attempts SET disposition=$6,outcome_code=$7,
           result_artifact_id=$8,cost_microusd=$9,ended_at=statement_timestamp()
-          WHERE ${predicate} AND attempt_id=$5`,
-          [...values, attemptId, ...outcome],
+          WHERE ${predicate} AND attempt_id=$5 AND ($10::integer IS NULL
+            OR coalesce(heartbeat_at,started_at)<=statement_timestamp()-$10::integer*interval '1 millisecond')
+          RETURNING attempt_id`,
+          [...values, attemptId, ...outcome, lease ?? null],
         );
+        // A heartbeat committed after the caller judged the lease stale: the executor is alive.
+        if (updated.rows.length === 0) return record;
       } else if (
         record.attemptDisposition !== completion.disposition ||
         record.outcomeCode !== completion.outcomeCode ||

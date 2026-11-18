@@ -1279,7 +1279,11 @@ export function composeResearch(configuration: ResearchConfiguration) {
       }
     }
     try {
-      return await effects.complete(intent, existing.attemptId, completion);
+      // The stale query above is advisory: complete() rechecks the lease under the intent lock, so
+      // a heartbeat that commits in between leaves the attempt started for its live executor.
+      return await effects.complete(intent, existing.attemptId, completion, {
+        leaseExpiredMs: ATTEMPT_RECONCILIATION_MS,
+      });
     } catch {
       return effects.reconcile(intent);
     }

@@ -52,7 +52,7 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       expect(req.headers.authorization).toBe(
         q === "anonymous-other-space" ? undefined : `Bearer ${canary}`,
       );
-      if (q === "slow") await slowGate;
+      if (q === "slow" || q === "racing") await slowGate;
       if (q === "redirect") {
         res.writeHead(307, { location: "https://other.example/mcp" });
         res.end();
@@ -558,6 +558,86 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       await slowRun;
       expect(
         await research.executeTool(participant, slow.fiber, slow.proposal, slow.call),
+      ).toMatchObject({ status: "succeeded", code: "ok" });
+      // A heartbeat that commits after the sweep's stale query but before its completion keeps the
+      // attempt for its live executor. The 15 s beat means the executor itself doesn't beat during
+      // this case; the interleaved beat stands in for the one that arrives at that moment.
+      let interleave: (() => Promise<void>) | null = null;
+      let interleaved = 0;
+      const withInterleaving = <T>(operation: (client: ReturnType<typeof connect>) => Promise<T>) =>
+        withAdmin((client) =>
+          operation(
+            new Proxy(client, {
+              get(target, property) {
+                if (property === "query")
+                  return async (text: string, values?: readonly unknown[]) => {
+                    const result = await target.query(text, values);
+                    if (
+                      interleave &&
+                      text.includes("coalesce(heartbeat_at,started_at)") &&
+                      !text.includes("UPDATE") &&
+                      result.rows.length > 0
+                    ) {
+                      interleaved++;
+                      await interleave();
+                    }
+                    return result;
+                  };
+                const value = Reflect.get(target, property, target) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }),
+          ),
+        );
+      const leased = composeResearch({
+        environment: "local",
+        attemptHeartbeatMs: 15_000,
+        withClient: withInterleaving,
+        network,
+        artifacts: (client) => new PostgreSqlArtifactStore(client, { keyring }),
+        adapter: { execute, executeWrite: execute },
+        publish: async (message) => {
+          queued.push(message);
+        },
+        wake: async () => {},
+      });
+      const racing = await prepare("racing");
+      await leased.executeTool(participant, racing.fiber, racing.proposal, racing.call);
+      const racingQueue = queued.shift()!;
+      let openRacing = () => {};
+      slowGate = new Promise((resolve) => {
+        openRacing = resolve;
+      });
+      const racingRun = leased.consumer.consume(racingQueue, (v) => v);
+      await expect.poll(() => calls.includes("racing"), { timeout: 30_000 }).toBe(true);
+      await sql(
+        `ALTER TABLE clockgrove.effect_intents DISABLE TRIGGER effect_intent_guard; UPDATE clockgrove.effect_intents SET created_at=statement_timestamp()-interval '62 seconds' WHERE effect_id='${racing.call.effectId}'; ALTER TABLE clockgrove.effect_intents ENABLE TRIGGER effect_intent_guard; ALTER TABLE clockgrove.effect_attempts DISABLE TRIGGER effect_attempt_guard; UPDATE clockgrove.effect_attempts SET started_at=statement_timestamp()-interval '61 seconds' WHERE effect_id='${racing.call.effectId}'; ALTER TABLE clockgrove.effect_attempts ENABLE TRIGGER effect_attempt_guard`,
+      );
+      const racingAttempt = await sql(
+        `SELECT attempt_id FROM clockgrove.effect_attempts WHERE effect_id='${racing.call.effectId}' AND heartbeat_at IS NULL`,
+      );
+      interleave = async () => {
+        expect(
+          await withAdmin((client) =>
+            new PostgreSqlEffects(client).heartbeat(
+              { ...scope, effectId: racing.call.effectId },
+              racingAttempt,
+            ),
+          ),
+        ).toBe(true);
+      };
+      await leased.sweep();
+      interleave = null;
+      expect(interleaved).toBe(1);
+      expect(
+        await sql(
+          `SELECT disposition FROM clockgrove.effect_attempts WHERE effect_id='${racing.call.effectId}'`,
+        ),
+      ).toBe("started");
+      openRacing();
+      await racingRun;
+      expect(
+        await leased.executeTool(participant, racing.fiber, racing.proposal, racing.call),
       ).toMatchObject({ status: "succeeded", code: "ok" });
       const dead = await prepare("dead-letter");
       await research.executeTool(participant, dead.fiber, dead.proposal, dead.call);
