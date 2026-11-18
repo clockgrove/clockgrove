@@ -50,7 +50,7 @@ describe("pack validate", () => {
       refusal: null,
       result: {
         packId: "clockgrove.test-world",
-        version: "1.1.0",
+        version: "1.2.0",
         findings: [{ code: "SUPERSEDED_EVENT_VERSION" }],
       },
     });
@@ -65,7 +65,7 @@ describe("pack build", () => {
     const result = envelope.result as { artifact: Record<string, string>; bundleHash: string };
     expect(result.artifact).toMatchObject({
       packId: "clockgrove.test-world",
-      version: "1.1.0",
+      version: "1.2.0",
       buildToolVersion: WORLD_PACK_BUILD_TOOL_VERSION,
     });
     const decoded = decodeCanonicalBytes(new Uint8Array(await readFile(out)));

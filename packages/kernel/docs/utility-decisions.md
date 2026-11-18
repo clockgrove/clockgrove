@@ -79,7 +79,10 @@ state, only its artifact hashes and recorded decisions.
 The malformed declarations are named refusal cases of the decisions evidence.
 
 **Plans and arrival.** An actor already at the target's coordinates arrives immediately. Otherwise the
-decision emits `location.changed` to null when the actor is located, then `movement.started` through
+decision emits the set-out `location.changed` when the shelter the actor is in as it sets out differs from its
+location (spatial-movement.md's Leaving rule: the declared cover around its start, its own first, else the first by
+object id, else null), so a located actor leaving cover goes to null and an unlocated one starting under a declared
+cover goes to that shelter; then `movement.started` through
 `planMovement` (anchor-at-target destination, else the target pose; `unitsPerSecond`; `movementIdFor` of the
 dispatch command id). The same action continues silently, a different seek replans
 (`movement.replanned`) and `stay` interrupts (`movement.interrupted`). `world.advance` registers one movement
@@ -166,8 +169,9 @@ emitted. Decision group at time t for due actor a: 0 for an unchanged decision, 
 `integrationEvents(a, t) + pendingPlants(t) + 1 + planEvents`.
 `integrationEvents(a, t)` is 0 to `perActor` for the due actor only (`needs.changed` when its needs change, plus
 `wellbeing.integrated` when its entry is not already integrated at t); `pendingPlants(t)` counts the active plants
-not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the unlocate (1 when a seek
-starts or replans and the actor has a location whose declared cover does not cover its start, else 0) plus the movement event (1 for `movement.started`,
+not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the set-out location event (1 when a seek
+starts or replans a walk that leaves its start and the shelter covering that start, its location's first, else the
+first by object id, else open ground, differs from the actor's location, else 0) plus the movement event (1 for `movement.started`,
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
 stopping location (1 when a `stay` interrupts a walk where the shelter covering that point, or open ground, differs
 from the actor's location, else 0) plus the immediate-arrival events (a walk stopped at its target counts its

@@ -28,13 +28,16 @@ without entities; the optional registry defaults to the initial production regis
 The adapter checks tenant/world/timeline/object identity, simulation time, expected pins,
 component keys/versions, space, frame and ownership. Identity supplies `objectId`, Archetype
 supplies the legacy `id@version` identifier, SpatialTransform supplies space/pose/location,
-Needs supplies existing needs, and WeatherExposure supplies shelter protection. Identity,
-Archetype and SpatialTransform are required; Needs and WeatherExposure are optional.
+Needs supplies existing needs, Shelter (`clockgrove.shelter`) makes the object a declared
+shelter with its rain protection and cover, and WeatherExposure (`clockgrove.weather-exposure`)
+supplies the object's own `weatherProtection` (a coat), which never makes it a shelter for
+other actors. Identity, Archetype and SpatialTransform are required; Needs, Shelter and
+WeatherExposure are optional.
 The resulting complete world is validated and copied by `createWorldState`, including
 duplicate identities and cross-object shelter references. Registry/composition refusals expose
 code, path and message; final world validation retains existing `DomainValidationError` diagnostics.
 
-This adapter accepts the ten supported version-one components; Portal projects to the optional
+This adapter accepts the twelve supported version-one components; Portal projects to the optional
 `entity.portal` field ([portal component](component-catalog.md#portal-component-rw-0104)). Explicit Containment and
 Lifecycle state must agree with timeline parentage and lifecycle metadata. Legacy objects
 without those components retain their byte-identical projection; absent optional state never

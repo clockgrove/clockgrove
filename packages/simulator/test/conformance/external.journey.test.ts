@@ -31,7 +31,7 @@ it(
         JSON.stringify({
           presentationVersion: 1,
           assetManifestVersion: 2,
-          pack: { id: "clockgrove.test-world", version: "1.1.0" },
+          pack: { id: "clockgrove.test-world", version: "1.2.0" },
           bindings: [
             {
               objectId: "beacon.master",
