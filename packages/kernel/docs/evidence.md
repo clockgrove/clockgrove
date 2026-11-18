@@ -5,8 +5,10 @@ Both Node and local workerd instantiate the domain's production initial catalog 
 resolve explicit archetype/trait version pins, and project effective objects through
 `projectEffectiveObjectsToWorldState`. Kernel routines consume that validated physical
 projection; historical schema-v1 JSON continues through the separate existing decoder.
-Whole-component WeatherExposure overrides reduce primary shelter protection from 10000
-to 1000 and change the selected shelter to the secondary cover without changing sources.
+Whole-component Shelter (`clockgrove.shelter`) overrides reduce primary shelter protection
+from 10000 to 1000 and change the selected shelter to the secondary cover without changing
+sources. A WeatherExposure override is the resident's own coat (`weatherProtection`); it
+protects the resident and makes no object a shelter.
 Archetype defaults precede recursive pinned traits, typed instance replacements and timeline
 state. Conflicting trait writers require identical canonical versioned values or an explicit
 participating pinned writer; traversal order supplies no precedence. Versions never float.

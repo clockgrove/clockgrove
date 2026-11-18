@@ -102,7 +102,7 @@ describe("conformance negative controls", () => {
       checkPresentationBindings({ ...pack, directory }, assetsRoot),
     );
     expect(failure.problems.map(({ check, detail }) => `${check}: ${detail}`)).toEqual([
-      "presentation-bindings: presentation names clockgrove.test-world@9.0.0, the pack is clockgrove.test-world@1.1.0",
+      "presentation-bindings: presentation names clockgrove.test-world@9.0.0, the pack is clockgrove.test-world@1.2.0",
       "presentation-bindings: bindings[0]: beacon.ghost is not an actor of the pack",
       "presentation-bindings: bindings[1]: manifest fixture-critter/idle depicts beacon.master, not beacon.larder",
     ]);

@@ -134,7 +134,7 @@ have no goldens and they are not in the pack artifact.
 `decodeResource`: key-sorted JSON, bigints written as `{"$bigint":"n"}`). Resource files are the bytes the
 manifest `sha256` values cover, stored under `resources/` at the manifest `path`. A golden is not JSON text
 but the kernel `canonicalBytes` of the scenario bundle, byte for byte. The committed packs are
-`worlds/fixture/` (`clockgrove.test-world@1.1.0`) and `worlds/fixture/reference/`
+`worlds/fixture/` (`clockgrove.test-world@1.2.0`) and `worlds/fixture/reference/`
 (`clockgrove.fixture-hall@1.5.0`).
 
 ## Discovery

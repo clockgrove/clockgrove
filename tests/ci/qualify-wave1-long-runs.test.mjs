@@ -78,7 +78,7 @@ afterAll(async () => {
 it("short horizons pass every observable check with identical Node and workerd bundles", async () => {
   expect(result.runs.map((run) => [run.pack, run.horizonMs])).toEqual([
     ["clockgrove.fixture-hall@1.5.0", String(72n * HOUR)],
-    ["clockgrove.test-world@1.1.0", String(HOUR)],
+    ["clockgrove.test-world@1.2.0", String(HOUR)],
   ]);
   for (const run of result.runs) {
     expect(run.checks.filter((check) => check.status === "failed")).toEqual([]);
