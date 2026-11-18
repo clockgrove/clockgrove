@@ -328,11 +328,12 @@ export class ActorAgentDO extends ProductionActorAgentDO {
       configuration: breakerConfiguration,
     });
     const through = (respond: ConversationResponder): ConversationResponder => {
-      return async (session, count, input, prompt) => {
-        if (!input.startsWith("fixture:breaker ")) return respond(session, count, input, prompt);
+      return async (session, count, input, prompt, turn) => {
+        if (!input.startsWith("fixture:breaker "))
+          return respond(session, count, input, prompt, turn);
         if (input === "fixture:breaker recover") breakerClockSkewMs += 31_000;
         try {
-          return await breaker(session, count, input, prompt);
+          return await breaker(session, count, input, prompt, turn);
         } catch {
           return { text: "Scripted route unavailable." };
         }

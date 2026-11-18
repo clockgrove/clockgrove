@@ -350,13 +350,15 @@ export class PostgreSqlRunRecorder {
   }
 
   /**
-   * The breaker changes one model call caused, under the participant's authorization. They belong
-   * to the session's open run when there is one; a retried write of the same call adds nothing.
+   * The breaker changes one model call caused, under the participant's authorization, on the run
+   * that made the call; the guard (0074) refuses a run that is not running in this session and
+   * world. A retried write of the same call adds nothing.
    */
   async breakerTransitions(
     tenantId: string,
     worldId: string,
     sessionId: string,
+    runId: string,
     call: { readonly callId: string; readonly alias: string },
     transitions: readonly (Omit<RunBreakerTransition, "alias" | "recordedAt"> & {
       readonly at: number;
@@ -367,16 +369,14 @@ export class PostgreSqlRunRecorder {
         `INSERT INTO clockgrove.model_breaker_transitions (
            tenant_id, world_id, session_id, run_id, call_id, ordinal, route_id, alias, from_state,
            to_state, consecutive_failures, recorded_at
-         ) VALUES ($1, $2, $3,
-           (SELECT run_id FROM clockgrove.agent_runs
-             WHERE tenant_id = $1 AND session_id = $3 AND status = 'running'
-             ORDER BY started_at DESC LIMIT 1),
-           $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::double precision / 1000))
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+           to_timestamp($12::double precision / 1000))
          ON CONFLICT DO NOTHING`,
         [
           tenantId,
           worldId,
           sessionId,
+          runId,
           call.callId,
           ordinal,
           move.routeId,

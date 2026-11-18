@@ -16,7 +16,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import type { WorldState } from "@clockgrove/domain";
-import { resolveAudience } from "@clockgrove/kernel";
+import { RESOLVER_VERSION, resolveAudience } from "@clockgrove/kernel";
 import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js";
 
 /** The reader's authority that interaction policy evaluates, as its decided audience records it. */
@@ -164,7 +164,8 @@ export const SAY_SOUND_RANGE = 20000;
 /**
  * Who hears a Say: the kernel resolver over a synthetic, never-recorded `sound` event at the
  * state's revision. The speaker is listed when the resolver includes it (as `event-actor`). A
- * refused resolution fails closed to an empty audience.
+ * speaker missing from the state or a refused resolution fails closed: the kernel's resolver
+ * version with no observers, which the receipt's decoder accepts.
  */
 export function sayAudience(
   state: WorldState,
@@ -212,7 +213,7 @@ export function sayAudience(
             : [],
         ),
       }
-    : { resolverVersion: "", observers: [] };
+    : { resolverVersion: RESOLVER_VERSION, observers: [] };
 }
 
 /**

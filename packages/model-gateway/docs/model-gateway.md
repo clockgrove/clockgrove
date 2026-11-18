@@ -137,12 +137,18 @@ Three consecutive failures open the breaker. One or two failures are ordinary pr
 While the breaker is open, calls skip the route and record `skipped_breaker_open`. After 30 s the
 breaker is half-open and lets one trial call through. A success closes it; a failure opens it again.
 `inspect(alias)` reports each route's breaker state and consecutive failures. Breaker state is
-in-memory execution state, one entry per route. Each change of it (`closed` to `open`, `open` to
-`half_open` when a trial is admitted, `half_open` to `closed` or back to `open`) is reported on the
-`RouteAttempt` that caused it as `breakerTransitions` (`routeId`, `from`, `to`,
-`consecutiveFailures`, `at`), absent when the attempt changed nothing; `generateObject` and `stream`
-report them, `decide` does not. The runtime records each one durably (issue 374): see
-[runs](../../../docs/protocols/runs.md).
+in-memory execution state, one entry per route. Its recorded state is `half_open` only while the
+one admitted trial is in flight: once the cooldown has elapsed `inspect` says `half_open`, but the
+record moves only when a call changes it. Each change (`closed` to `open` at the third consecutive
+failure, `open` to `half_open` when the trial is admitted, then `half_open` to `closed` on the
+trial's success, or back to `open` when it fails or ends without a verdict, and `open` to `closed`
+when a call admitted before the breaker opened succeeds) is reported by the call that caused it as
+`breakerTransitions` (`routeId`, `from`, `to`, `consecutiveFailures`, `at`), absent when it changed
+nothing: on the `RouteAttempt` for `generateObject` and `stream`, and on the `DecisionCallRecord`
+for `decide`, so each `open>half_open` is answered by the same trial's end. The runtime records the
+actor's model calls durably on their run (issue 374): see [runs](../../../docs/protocols/runs.md).
+Its decision gateways (wake triage, moderation shadows) are built for one turn and so carry a fresh
+breaker each time; their records report what changed within that turn.
 
 ## Budget
 

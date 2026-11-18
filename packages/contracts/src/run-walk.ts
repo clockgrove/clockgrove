@@ -1,6 +1,7 @@
 import {
   type ProtectedPayload,
   RUN_STATUSES,
+  type RunBreakerTransition,
   type RunEntry,
   type RunStepView,
   type RunView,
@@ -108,6 +109,18 @@ function step(value: unknown, path: string): RunStepView {
         }),
   };
 }
+const BREAKER_STATES = ["closed", "open", "half_open"] as const;
+function breakerTransition(value: unknown, path: string): RunBreakerTransition {
+  const v = record(value, path);
+  return {
+    routeId: string(v.routeId, `${path}.routeId`),
+    alias: string(v.alias, `${path}.alias`),
+    from: literal(v.from, BREAKER_STATES, `${path}.from`),
+    to: literal(v.to, BREAKER_STATES, `${path}.to`),
+    consecutiveFailures: nonNegativeInteger(v.consecutiveFailures, `${path}.consecutiveFailures`),
+    recordedAt: string(v.recordedAt, `${path}.recordedAt`),
+  };
+}
 function run(value: unknown, path: string): RunView {
   const v = record(value, path);
   return {
@@ -133,6 +146,17 @@ function run(value: unknown, path: string): RunView {
     endedAt: nullable(v.endedAt, `${path}.endedAt`, string),
     prompt: nullable(v.prompt, `${path}.prompt`, payload),
     steps: list(v.steps, `${path}.steps`, 32, step),
+    // At most 64 per run (guard_breaker_transition, 0074).
+    ...(v.breakerTransitions === undefined
+      ? {}
+      : {
+          breakerTransitions: list(
+            v.breakerTransitions,
+            `${path}.breakerTransitions`,
+            64,
+            breakerTransition,
+          ),
+        }),
   };
 }
 function entry(value: unknown): RunEntry {

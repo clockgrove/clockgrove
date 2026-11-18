@@ -302,10 +302,14 @@ export interface ActorModelDeps {
     participant: ConversationSessionParticipant,
     session: ConversationSession,
   ) => Promise<readonly StandingConfiguration[]>;
-  /** Records the breaker changes a step's model call caused, before the step's outcome is used. */
+  /**
+   * Records the breaker changes a step's model call caused on the run that made the call, before
+   * the step's outcome is used.
+   */
   readonly breakerTransitions?: (
     participant: ConversationSessionParticipant,
     session: ConversationSession,
+    runId: string,
     record: ModelCallRecord,
   ) => Promise<void>;
   /** The actor's newest recorded self capability results in this session (issue 322). */
@@ -396,7 +400,7 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
   const configuration = deps.configuration ?? DEFAULT_ACTOR_MODEL;
   const alias = actorAlias(configuration);
   const jsonSchema = z.toJSONSchema(OUTPUT) as Readonly<Record<string, unknown>>;
-  return async (session, caretakerMessages, input, prompt) => {
+  return async (session, caretakerMessages, input, prompt, turn) => {
     const participant = session.participants[0];
     const grants = participant === undefined ? undefined : await deps.grants(participant, session);
     if (participant === undefined || grants === undefined)
@@ -460,7 +464,10 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
       reserveMicrousd,
       send: (reserveFallback) =>
         sendActorStep(deps, scene, request, reserveFallback, (record) =>
-          deps.breakerTransitions?.(participant, session, record),
+          // A call outside any run has no run to carry its evidence (none does in a turn fiber).
+          turn === undefined
+            ? undefined
+            : deps.breakerTransitions?.(participant, session, turn.runId, record),
         ),
     };
   };

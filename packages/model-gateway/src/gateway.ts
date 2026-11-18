@@ -12,7 +12,7 @@ import {
   requestCostCeilingMicrousd,
   routeCostCeilingMicrousd,
 } from "./aliases.js";
-import { RouteBreaker } from "./breaker.js";
+import { type BreakerMove, RouteBreaker } from "./breaker.js";
 import type {
   DecisionAdapter,
   DecisionAliasDefinition,
@@ -21,7 +21,6 @@ import type {
   DecisionRequest,
 } from "./decision.js";
 import type {
-  BreakerState,
   BreakerTransition,
   ModelAccountingSink,
   ModelBudgetPort,
@@ -150,10 +149,24 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       throw new Error("invalid decision question name");
     if (outer?.aborted) return fail("cancelled", true);
     const routeBreaker = breaker(route);
-    if (!routeBreaker.admit(started)) return fail("unavailable", true);
+    const admission = routeBreaker.admit(started);
+    if (admission === undefined) return fail("unavailable", true);
+    const { ticket } = admission;
+    const transitions: BreakerTransition[] = [];
+    const moved = (move: BreakerMove | undefined, at: number) => {
+      if (move !== undefined) transitions.push({ routeId: route.id, ...move, at });
+    };
+    moved(admission.move, started);
+    // The breaker changes this call caused, on its record, so a decision route's breaker is
+    // reported as a model route's is.
+    const withMoves = (fields: Partial<DecisionCallRecord>): Partial<DecisionCallRecord> =>
+      transitions.length === 0 ? fields : { ...fields, breakerTransitions: [...transitions] };
     const scope = `${request.attribution.tenantId}/${request.attribution.worldId}`;
     const reservation = options.budget.reserve(scope, alias.maxCostMicrousd);
-    if (reservation === undefined) return fail("budget_exceeded", true);
+    if (reservation === undefined) {
+      moved(routeBreaker.released(ticket), now());
+      return fail("budget_exceeded", true, withMoves({}));
+    }
     const adapter = options.decisionAdapters?.[route.provider] as DecisionAdapter;
     const controller = new AbortController();
     const abortFromOuter = () => controller.abort(outer?.reason);
@@ -172,25 +185,28 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       const reserved = { reservedMicrousd: reservation.microusd };
       if (reply === TIMED_OUT) {
         controller.abort(new Error("decision timed out"));
-        routeBreaker.failed(now());
+        moved(routeBreaker.failed(now(), ticket), now());
         options.budget.settle(reservation, reservation.microusd);
-        return await fail("timeout", true, { costMicrousd: null, ...reserved });
+        return await fail("timeout", true, withMoves({ costMicrousd: null, ...reserved }));
       }
       const cost = decisionCost(alias, reply);
       options.budget.settle(reservation, cost ?? reservation.microusd);
       // A named question left unanswered is a malformed answer: the call billed, the outcome fails.
       if (names.some((name) => reply.answers?.[name] === undefined)) {
-        routeBreaker.released();
-        return await fail("unavailable", false, { costMicrousd: cost, ...reserved });
+        moved(routeBreaker.released(ticket), now());
+        return await fail("unavailable", false, withMoves({ costMicrousd: cost, ...reserved }));
       }
-      routeBreaker.succeeded();
-      const record = recordOf("completed", {
-        responseModel: reply.responseModel,
-        label: reply.answer.label,
-        confidence: reply.answer.confidence,
-        costMicrousd: cost,
-        ...reserved,
-      });
+      moved(routeBreaker.succeeded(ticket), now());
+      const record = recordOf(
+        "completed",
+        withMoves({
+          responseModel: reply.responseModel,
+          label: reply.answer.label,
+          confidence: reply.answer.confidence,
+          costMicrousd: cost,
+          ...reserved,
+        }),
+      );
       await options.accounting.recordDecision?.(record);
       return {
         status: "completed",
@@ -217,14 +233,19 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         : error instanceof ProviderFailure
           ? error.kind
           : "unavailable";
-      if (kind === "rate_limited" || kind === "unavailable") routeBreaker.failed(now());
-      else routeBreaker.released();
+      moved(
+        kind === "rate_limited" || kind === "unavailable"
+          ? routeBreaker.failed(now(), ticket)
+          : routeBreaker.released(ticket),
+        now(),
+      );
       const code = kind === "credential_missing" ? "unavailable" : kind;
       const retryable = error instanceof ProviderFailure ? error.retryable : kind === "cancelled";
-      return await fail(code, retryable, {
-        costMicrousd: cost,
-        reservedMicrousd: reservation.microusd,
-      });
+      return await fail(
+        code,
+        retryable,
+        withMoves({ costMicrousd: cost, reservedMicrousd: reservation.microusd }),
+      );
     } finally {
       outer?.removeEventListener("abort", abortFromOuter);
     }
@@ -400,24 +421,19 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       ...fields,
     });
     if (outer?.aborted) return { attempt: attempt("cancelled"), text: "", retryable: true };
-    if (!routeBreaker.admit(started)) {
+    const admission = routeBreaker.admit(started);
+    if (admission === undefined) {
       return { attempt: attempt("skipped_breaker_open"), text: "", retryable: true };
     }
+    const { ticket } = admission;
     const adapter = options.adapters[route.provider];
     if (adapter === undefined) throw new Error(`no adapter for model provider: ${route.provider}`);
     const transitions: BreakerTransition[] = [];
-    const moved = (from: BreakerState, to: BreakerState, at: number) => {
-      if (from !== to)
-        transitions.push({
-          routeId: route.id,
-          from,
-          to,
-          consecutiveFailures: routeBreaker.consecutiveFailures,
-          at,
-        });
+    const moved = (move: BreakerMove | undefined, at: number) => {
+      if (move !== undefined) transitions.push({ routeId: route.id, ...move, at });
     };
-    // Admitting a half-open route is the trial; `admit` only said yes, so the state before it was open.
-    if (routeBreaker.state(started) === "half_open") moved("open", "half_open", started);
+    // Admitting the half-open route's one trial is `open>half_open`; the trial's own end answers it.
+    moved(admission.move, started);
 
     const controller = new AbortController();
     const abortFromOuter = () => controller.abort(outer?.reason);
@@ -487,11 +503,14 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       outer?.removeEventListener("abort", abortFromOuter);
     }
     const verdictAt = now();
-    const before = routeBreaker.state(verdictAt);
-    if (BREAKER_FAILURES.has(result.attempt.outcome)) routeBreaker.failed(verdictAt);
-    else if (result.attempt.outcome === "completed") routeBreaker.succeeded();
-    else routeBreaker.released();
-    moved(before, routeBreaker.state(verdictAt), verdictAt);
+    moved(
+      BREAKER_FAILURES.has(result.attempt.outcome)
+        ? routeBreaker.failed(verdictAt, ticket)
+        : result.attempt.outcome === "completed"
+          ? routeBreaker.succeeded(ticket)
+          : routeBreaker.released(ticket),
+      verdictAt,
+    );
     return transitions.length === 0
       ? result
       : { ...result, attempt: { ...result.attempt, breakerTransitions: transitions } };

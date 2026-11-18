@@ -2429,7 +2429,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       grants: (participant, session) =>
         this.grants(participant, session.scope, session.actorId, session.sessionId),
       perceive: this.perceive,
-      breakerTransitions: async (participant, session, record) => {
+      breakerTransitions: async (participant, session, runId, record) => {
         const context = this.#talkContext(participant);
         if (context === undefined) return;
         const authorization = { ...worldAuthorization(context), personaId: participant.personaId };
@@ -2440,6 +2440,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
               session.scope.tenantId,
               session.scope.worldId,
               session.sessionId,
+              runId,
               record,
               transitions,
             ),

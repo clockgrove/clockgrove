@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { decodeConversationSession, decodeTalkReceipt, type RunWalk } from "@clockgrove/contracts";
+import {
+  decodeConversationSession,
+  decodeRunWalk,
+  decodeTalkReceipt,
+  type RunWalk,
+} from "@clockgrove/contracts";
 import { canonicalBytes } from "@clockgrove/kernel";
 import { expect, it } from "vitest";
 import {
@@ -53,7 +58,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
       const inspect = async (entry: object) => {
         const answer = await post("/v1/runtime/runs/inspect", entry, INSPECTOR);
         expect(answer.status).toBe(200);
-        return answer.body as RunWalk;
+        // Read as the browser inspector reads it (apps/web/src/scene-api.ts).
+        return decodeRunWalk(answer.body);
       };
       const session = decodeConversationSession(
         (await post("/v1/runtime/conversations/create", { actorId: "fixture.keeper" })).body,

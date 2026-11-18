@@ -1,13 +1,19 @@
 import { readFile } from "node:fs/promises";
 import {
+  type BrowserScope,
   decodeConversationList,
   decodeConversationSession,
   decodeConversationTranscript,
   decodeSayReceipt,
   decodeTalkReceipt,
+  type ObjectId,
+  type WorldPersonaId,
 } from "@clockgrove/contracts";
+import type { WorldState } from "@clockgrove/domain";
 import { expect, it } from "vitest";
 import { CONVERSATION_ROUTES } from "../src/conversations.js";
+import { sayAudience, scriptedSay } from "../src/interactions.js";
+import { trustedTestContext } from "./trusted-context.js";
 import {
   isNativeWorldOwnerChild,
   runNativeWorldOwnerProcess,
@@ -277,4 +283,33 @@ it.skipIf(!isNativeWorldOwnerChild())(
     });
   },
   180_000,
+);
+
+it.skipIf(isNativeWorldOwnerChild())(
+  "fails a Say's audience closed to no observers, in a receipt its own decoder accepts",
+  () => {
+    // A speaker the canonical state does not hold: the resolver is never asked.
+    const state = { revision: 7n, entities: [] } as unknown as WorldState;
+    const audience = sayAudience(state, "actor-gone", "say-1");
+    expect(audience).toEqual({ resolverVersion: "clockgrove-audience-resolver@2", observers: [] });
+    const context = trustedTestContext();
+    const receipt = scriptedSay(
+      {
+        scope: {
+          tenantId: context.tenantId,
+          worldId: context.worldId,
+          timelineId: context.timelineId,
+          spaceId: context.spaceId,
+        } as BrowserScope,
+        messageId: "say-1",
+        actorId: "actor-gone" as ObjectId,
+        text: "hello",
+      },
+      { ...context, personaId: "persona-runtime" as WorldPersonaId },
+      "2026-11-18T00:00:00.000Z",
+      undefined,
+      audience,
+    );
+    expect(decodeSayReceipt(JSON.parse(JSON.stringify(receipt))).audience).toEqual(audience);
+  },
 );
