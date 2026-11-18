@@ -204,6 +204,7 @@ export function scoreUtility(
     if (expectation > 10000n) expectation = 10000n;
     const perceived =
       sameFrame && distanceFloor(position, target.pose.coordinates) <= utility.perceptionRange;
+    const remembered = effective.some((item) => item.kind === "memory");
     let travelMs = 0n;
     let planned = true;
     if (sameFrame && !sameCoordinates(position, target.pose.coordinates)) {
@@ -224,6 +225,7 @@ export function scoreUtility(
       ...base,
       travelMs,
       perceived: perceived ? 10000n : 0n,
+      remembered: remembered ? 10000n : 0n,
       expectation,
     };
     let need: bigint;

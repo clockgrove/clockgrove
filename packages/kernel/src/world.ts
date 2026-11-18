@@ -3795,9 +3795,11 @@ function waterAt(
 /** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
-  return location !== undefined && shelterMatches(actor, location)
-    ? (location.shelter?.rainProtection ?? 0)
-    : 0;
+  const sheltered =
+    location !== undefined && shelterMatches(actor, location)
+      ? (location.shelter?.rainProtection ?? 0)
+      : 0;
+  return Math.max(actor.weatherProtection?.rainProtection ?? 0, sheltered);
 }
 /**
  * The world's single needs/wetness arithmetic, given the rain intensity and shelter protection in

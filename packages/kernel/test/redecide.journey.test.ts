@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { food, utilityWorld, WITH } from "./decisions.scenario.js";
+import { food, SNACK_SPEC, utilityWorld, WITH } from "./decisions.scenario.js";
 import {
   applyCommand,
   commandInput,
@@ -64,4 +64,36 @@ it("keeps advancing a rule-based policy once a shelter an actor selected is reti
     .map((event) => (event.payload as { action: { targetObjectId?: string } }).action)
     .filter((action) => action.targetObjectId === "shelter-10000");
   expect(sheltered).toEqual([]);
+});
+
+it("flags an unperceived target as novel only when the actor holds no memory of it", async () => {
+  const requests = async (kind: "memory" | "belief") => {
+    const world = await utilityWorld({
+      ...SNACK_SPEC,
+      ambiguity: { schemaVersion: 1, conditions: [{ kind: "unperceived-target" }] },
+      items: [food("snack-house", [8000, 0], 6)],
+      scripted: [
+        {
+          ref: `scripted:${kind}:snack-house`,
+          kind,
+          actorId: "resident-x",
+          targetObjectId: "snack-house",
+          value: 6000,
+          effectiveAt: 0n,
+        },
+      ],
+    });
+    const { calls } = runChain(world, kind, 500n);
+    return calls.flatMap((call) =>
+      call.outcome.ok
+        ? call.outcome.result.decisionDrafts
+            .filter((draft) => draft.kind === "planning-request")
+            .map((draft) => (draft.decision as unknown as { condition: unknown }).condition)
+        : [],
+    );
+  };
+  expect(await requests("memory")).toEqual([]);
+  expect(await requests("belief")).toEqual([
+    { kind: "unperceived-target", targetObjectId: "snack-house" },
+  ]);
 });

@@ -401,3 +401,71 @@ it("forces shelter at the pack's reflex threshold, 9000 when it declares none", 
   expect(tier({})).toBe("reflex");
   expect(tier({ shelterReflexThreshold: 10000 })).toBe("utility");
 });
+
+it("treats a coat as the wearer's own protection and a shelter's cover radius as shelter for everyone inside it", async () => {
+  const base = await utilityWorld(
+    WITH({
+      ...RAIN,
+      intervalMs: 10000,
+      hunger: 0,
+      actors: [
+        ["a-bare", null],
+        ["b-dog", null],
+        ["c-near", null],
+        ["d-far", null],
+      ],
+      initial: [needs(0, 1000, 0), needs(0, 1000, 0), needs(0, 1000, 0), needs(0, 1000, 0)],
+      starts: [
+        [5000, 0],
+        [5000, 0],
+        [300, 0],
+        [800, 0],
+      ],
+      items: [shelter("den", [9000, 0])],
+    }),
+  );
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "b-dog"
+          ? { ...entity, weatherProtection: { rainProtection: 5000 } }
+          : entity,
+      ),
+    },
+  };
+  const wet = (w: EnvironmentWorld, id: string) =>
+    w.state.entities.find((entity) => entity.objectId === id)!.needs!.wetness;
+  const settled = runChain(world, "coat", 1500n);
+  expect([wet(settled.world, "a-bare"), wet(settled.world, "b-dog")]).toEqual([1225, 1037]);
+  const targets = tracesOf(settled)
+    .flatMap((trace) => trace.candidates as { action: { kind: string; targetObjectId: string } }[])
+    .filter((candidate) => candidate.action.kind === "seek-shelter")
+    .map((candidate) => candidate.action.targetObjectId);
+  expect(new Set(targets)).toEqual(new Set(["den"]));
+
+  const den = settled.world.state.entities.find((entity) => entity.objectId === "den")!;
+  const created = execute(
+    settled.world,
+    "object.create",
+    {
+      schemaVersion: 1,
+      object: {
+        objectId: "porch",
+        archetypeId: den.archetypeId,
+        spatial: {
+          spaceId: den.spaceId,
+          pose: { ...den.pose, coordinates: [0n, 0n] },
+        },
+        shelter: { rainProtection: 10000, coverRadius: 500n },
+      },
+    },
+    "porch",
+  );
+  expect(changes(created.events)).toEqual([[1500n, "c-near", "porch"]]);
+  const after = runChain(created.world, "porch-after", 2500n);
+  expect(wet(created.world, "c-near")).toBe(1225);
+  // Under the porch's cover c-near dries; d-far, outside it, keeps getting wetter.
+  expect([wet(after.world, "c-near"), wet(after.world, "d-far")]).toEqual([1125, 1375]);
+});
