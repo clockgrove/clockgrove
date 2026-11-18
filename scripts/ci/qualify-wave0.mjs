@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { canonicalCommands, verifyLfs } from "../bootstrap.mjs";
+import { recordedBrowserShards } from "./browser-shards.mjs";
 import {
   browserCommand,
   localRecoveryCommand,
@@ -40,7 +41,11 @@ if (strictCi) {
     "actual CI run attempt required",
   );
   assert.equal(process.env.GITHUB_SHA, commit, "actual CI candidate identity required");
-  await readPassingReceipt(directory, "browser", { commit, tree }, browserCommand);
+  const { commands: browserShardCommands } = await recordedBrowserShards(directory);
+  for (const [name, command] of browserShardCommands.length
+    ? browserShardCommands
+    : [["browser", browserCommand]])
+    await readPassingReceipt(directory, name, { commit, tree }, command);
   await readPassingReceipt(directory, "build", { commit, tree }, [
     "node",
     "scripts/ci/build.mjs",

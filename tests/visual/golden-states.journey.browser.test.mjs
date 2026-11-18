@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { expect, it } from "vitest";
+import { expect, it, onTestFailed } from "vitest";
 import {
   advanceCommand,
   provisionTestWorld,
@@ -1946,11 +1946,24 @@ function scriptDevice({ memory, identity, fallback = false, maxDimension }) {
     });
 }
 
-it("chooses the starting tier from device limits and changes it on sustained frame time on both backends", async () => {
-  if (isNativeWorldOwnerChild()) return;
-  const [shell, wire] = await rendererFixture();
-  const apple = { identity: "Apple M2", memory: 8 };
-  for (const backend of ["webgpu", "webgl2"]) {
+// #401: one test per backend, each judged against its own limit. Every scripted frame renders under
+// SwiftShader, so the work is frame-bound: about 2,700 rendered frames per backend, 45 s at a
+// steady 60 Hz. On the ubuntu-26.04 runner both backends in one test reached 240 s: it passed under
+// that limit on most runs and timed out at it on main push run 44160374795. Each half does less work
+// than that whole, so 720 s per half is over three times its runner figure. The runner's per-test
+// log needs admin rights to read, so no per-half runner figure was available. For scale, a
+// developer host pinned to 4 and to 2 CPUs under load took 94-108 s for WebGPU, 79-102 s for WebGL2
+// and 177-225 s for both.
+for (const backend of ["webgpu", "webgl2"])
+  it(`chooses the starting tier from device limits and changes it on sustained frame time on ${backend}`, async () => {
+    if (isNativeWorldOwnerChild()) return;
+    let step = "renderer fixture";
+    onTestFailed(({ task }) => {
+      for (const error of task.result?.errors ?? [])
+        error.message = `${backend} step "${step}": ${error.message}`;
+    });
+    const [shell, wire] = await rendererFixture();
+    const apple = { identity: "Apple M2", memory: 8 };
     await withRendererProof(backend, shell, async (browser, origin) => {
       const start = async (device, viewport = { width: 320, height: 200 }, content) => {
         const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
@@ -2001,6 +2014,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
         [{ ...apple, maxDimension: 2048 }, "low", { width: 3000, height: 150 }],
       ];
       for (const [device, tier, viewport] of starts) {
+        step = `starting tier for ${JSON.stringify(device)}`;
         const page = await start(device, viewport);
         const result = await state(page);
         expect(result.tier, `${backend} ${JSON.stringify(device)}`).toBe(tier);
@@ -2009,6 +2023,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
         await page.close();
       }
       // 24 MiB of content fits medium and high, not low's 16 MiB.
+      step = "slow frames while content loads";
       const page = await start(apple, undefined, 24 * 1024 * 1024);
       // While content loads, sustained slow rendered frames change nothing.
       await page.evaluate(async () => {
@@ -2025,6 +2040,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
       });
       await expect.poll(() => state(page)).toMatchObject({ tier: "high", content: "ready" });
       expect((await state(page)).tiers).toEqual([]);
+      step = "bursts of one-time work";
       // Bursts of one-time work (90 frames at 120 ms) keep the tier wherever they fall in the
       // judged windows: right after content is ready, and 47 frames off that alignment.
       await page.evaluate(async () => {
@@ -2034,6 +2050,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
         await runTrace(16.7, 300);
       });
       expect(await state(page)).toMatchObject({ tier: "high", tiers: [] });
+      step = "sustained 50 ms frames step down";
       // Sustained 50 ms frames step down once (within 180 frames); low would retire the loaded content, so it stays.
       await page.evaluate(() => runTrace(50, 600));
       expect(await state(page)).toMatchObject({
@@ -2041,6 +2058,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
         tiers: ["medium"],
         content: "ready",
       });
+      step = "sustained 10 ms frames step back up";
       // Sustained 10 ms frames step back up (within 628 frames, plus a margin).
       await page.evaluate(() => runTrace(10, 900));
       expect(await state(page)).toMatchObject({
@@ -2050,8 +2068,7 @@ it("chooses the starting tier from device limits and changes it on sustained fra
       });
       await page.close();
     });
-  }
-}, 240_000);
+  }, 720_000);
 
 it("sways, darkens and walks by the pack's declarations and the world's facts on both backends", async () => {
   if (isNativeWorldOwnerChild()) return;

@@ -36,6 +36,7 @@ export default defineConfig({
           environment: "node",
           include: [
             "tests/ci/regressions.test.mjs",
+            "tests/ci/journey-steps.test.mjs",
             "tests/ci/qualify-wave1-long-runs.test.mjs",
             "tests/ci/qualify-wave1.test.mjs",
             "tests/ci/qualify-wave2.test.mjs",
