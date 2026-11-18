@@ -457,6 +457,30 @@ describe("journal-backed native timeline clock", () => {
           body: { error: "world_catching_up" },
         });
         expect(await commandCounts(sql, "too-far-behind")).toBe("0|0|0");
+        // A world ten times larger: each step takes 300 ms. The latency budget refuses the command
+        // after the first step, long before the mailbox deadline.
+        const steps = () =>
+          sql(
+            "SELECT count(*) FROM clockgrove.command_receipts WHERE command_id LIKE 'trusted:advance:%'",
+          );
+        const stepsBefore = Number(await steps());
+        await sql(
+          "CREATE FUNCTION clockgrove.slow_step_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.3); RETURN NEW; END $$; CREATE TRIGGER slow_step_test BEFORE INSERT ON clockgrove.command_receipts FOR EACH ROW WHEN (NEW.command_id LIKE 'trusted:advance:%') EXECUTE FUNCTION clockgrove.slow_step_test()",
+        );
+        try {
+          const started = performance.now();
+          expect(await owner.submit(weather("slow-steps"))).toEqual({
+            status: 503,
+            body: { error: "world_catching_up" },
+          });
+          expect(performance.now() - started).toBeLessThan(1_500);
+          expect(Number(await steps()) - stepsBefore).toBeLessThan(3);
+          expect(await commandCounts(sql, "slow-steps")).toBe("0|0|0");
+        } finally {
+          await sql(
+            "DROP TRIGGER slow_step_test ON clockgrove.command_receipts; DROP FUNCTION clockgrove.slow_step_test()",
+          );
+        }
         // Across a weather boundary (3600000) with no deadline due: the boundary is processed as
         // its own step, then the command runs at earned time rather than stopping before it.
         await owner.reset();
