@@ -28,6 +28,12 @@ is returned and its `check` field names it. The reducers for `weather.changed`,
 `src/reducers/world.ts` and are equivalent to `reduceWorldEvent`. Each world event type is
 registered at its current version only (`routine.selected@2`, every other type `@1`); historic
 versions reach the reducers through `upcastWorldEvent` (see [utility decisions](utility-decisions.md)).
+The same vocabulary (`WORLD_EVENT_DECLARATIONS` in `@clockgrove/domain`) declares each type's roles,
+`actor` (who performed it) and `target` (what it was done to), each a path into the payload or the
+attribution's effective actor, and `integration`: whether it is integration bookkeeping that a run
+journals once per step, with the payload quantities that make one such event material when non-zero.
+Evidence that asks who acted, or whether an event is bookkeeping, reads `worldEventRole`,
+`isIntegrationEventType` and `materialWorldEvent` rather than payload key names.
 
 ## Expected-revision policy kinds
 

@@ -6,60 +6,113 @@ export interface VersionedDefinition {
   readonly version: number;
 }
 
+/** Where an event names an object playing a role: a path into its payload, or its attribution's actor. */
+export type WorldEventRolePath =
+  | readonly ["payload", ...string[]]
+  | readonly ["attribution", "effectiveActorId"];
+
 /**
- * Exhaustive by construction: adding a WorldEvent type without a version here fails to compile.
- * Each entry is the type's current version, the only one the reducers accept; a historic version
- * reaches them through `upcastWorldEvent`.
+ * What a world event type declares about itself beyond its version. `actor` performed the event and
+ * `target` is what it was done to; either is null when the type names none. `integration` marks
+ * integration bookkeeping, which advances a continuous quantity by however many steps the run took
+ * (a live and a fast-forwarded run journal different numbers of it); its `quantities` are the payload
+ * counts that, when any is non-zero, make one such event a material change all the same.
  */
-const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["schemaVersion"]>> = {
-  "boundary.departed": 1,
-  "boundary.returned": 1,
-  "resource.boundary-exchanged": 1,
-  "process.command-attempted": 1,
-  "needs.changed": 1,
+export interface WorldEventDeclaration {
+  readonly type: string;
+  /** The type's current version, the only one the reducers accept. */
+  readonly version: number;
+  readonly actor: WorldEventRolePath | null;
+  readonly target: WorldEventRolePath | null;
+  readonly integration: Readonly<{ quantities: readonly string[] }> | null;
+}
+
+/** The performer named only by the event's attribution (the command's effective actor). */
+const BY_ATTRIBUTION = ["attribution", "effectiveActorId"] as const;
+
+function declare(
+  version: number,
+  actor: WorldEventRolePath | null,
+  target: WorldEventRolePath | null,
+  integration: WorldEventDeclaration["integration"],
+): Omit<WorldEventDeclaration, "type"> {
+  return { version, actor, target, integration };
+}
+
+/**
+ * The world event vocabulary. Exhaustive by construction: adding a WorldEvent type without its
+ * declaration here fails to compile. Each version is the type's current version, the only one the
+ * reducers accept; a historic version reaches them through `upcastWorldEvent`. Every check that asks
+ * who acted, what was acted on or whether an event is bookkeeping reads this table.
+ */
+const WORLD_EVENT_VOCABULARY: Readonly<
+  Record<WorldEvent["type"], Omit<WorldEventDeclaration, "type">>
+> = {
+  "boundary.departed": declare(1, ["payload", "actorId"], null, null),
+  "boundary.returned": declare(1, ["payload", "actorId"], null, null),
+  "resource.boundary-exchanged": declare(1, ["payload", "actorId"], ["payload", "objectId"], null),
+  "process.command-attempted": declare(1, BY_ATTRIBUTION, null, null),
+  "needs.changed": declare(1, null, ["payload", "objectId"], { quantities: [] }),
   /** Version 2: emitted only for a material decision; version 1 was emitted for every one. */
-  "routine.selected": 2,
-  "time.advanced": 1,
-  "weather.changed": 1,
-  "object.created": 1,
-  "object.retired": 1,
-  "containment.put": 1,
-  "containment.removed": 1,
-  "containment.transferred": 1,
-  "resource.offered": 1,
-  "resource.consumed": 1,
-  "resource.transferred": 1,
-  "movement.started": 1,
-  "movement.region-entered": 1,
-  "movement.region-exited": 1,
-  "movement.region-remained": 1,
-  "movement.portal-crossed": 1,
-  "movement.interrupted": 1,
-  "movement.replanned": 1,
-  "movement.completed": 1,
-  "portal.opened": 1,
-  "portal.closed": 1,
-  "environment.phase-changed": 1,
-  "weather.transitioned": 1,
-  "exposure.threshold-crossed": 1,
-  "resource.appeared": 1,
-  "resource.weather-integrated": 1,
-  "resource.spoiled": 1,
-  "growth.stage-changed": 1,
-  "growth.integrated": 1,
-  "wellbeing.integrated": 1,
-  "needs.threshold-crossed": 1,
-  "comfort.changed": 1,
-  "health.threshold-crossed": 1,
-  "location.changed": 1,
-  "needs.relieved": 1,
-  "lifecycle.conceived": 1,
-  "lifecycle.gestation-milestone": 1,
-  "lifecycle.born": 1,
-  "lifecycle.stage-changed": 1,
-  "lifecycle.died": 1,
-  "lifecycle.successor-intended": 1,
+  "routine.selected": declare(
+    2,
+    ["payload", "objectId"],
+    ["payload", "action", "targetObjectId"],
+    null,
+  ),
+  "time.advanced": declare(1, null, null, { quantities: [] }),
+  "weather.changed": declare(1, null, null, null),
+  "object.created": declare(1, BY_ATTRIBUTION, ["payload", "object", "objectId"], null),
+  "object.retired": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "containment.put": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "containment.removed": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "containment.transferred": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "resource.offered": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "resource.consumed": declare(1, BY_ATTRIBUTION, ["payload", "objectId"], null),
+  "resource.transferred": declare(1, ["payload", "fromObjectId"], ["payload", "toObjectId"], null),
+  "movement.started": declare(1, ["payload", "objectId"], null, null),
+  "movement.region-entered": declare(1, ["payload", "objectId"], null, null),
+  "movement.region-exited": declare(1, ["payload", "objectId"], null, null),
+  "movement.region-remained": declare(1, ["payload", "objectId"], null, null),
+  "movement.portal-crossed": declare(1, ["payload", "objectId"], ["payload", "portalId"], null),
+  "movement.interrupted": declare(1, ["payload", "objectId"], null, null),
+  "movement.replanned": declare(1, ["payload", "objectId"], null, null),
+  "movement.completed": declare(1, ["payload", "objectId"], null, null),
+  "portal.opened": declare(1, BY_ATTRIBUTION, ["payload", "portalId"], null),
+  "portal.closed": declare(1, BY_ATTRIBUTION, ["payload", "portalId"], null),
+  "environment.phase-changed": declare(1, null, null, null),
+  "weather.transitioned": declare(1, null, null, null),
+  "exposure.threshold-crossed": declare(1, null, ["payload", "objectId"], null),
+  "resource.appeared": declare(1, null, ["payload", "objectId"], null),
+  "resource.weather-integrated": declare(1, null, ["payload", "objectId"], {
+    quantities: ["collected", "evaporated"],
+  }),
+  "resource.spoiled": declare(1, null, ["payload", "objectId"], null),
+  "growth.stage-changed": declare(1, null, ["payload", "objectId"], null),
+  "growth.integrated": declare(1, null, ["payload", "objectId"], { quantities: [] }),
+  "wellbeing.integrated": declare(1, null, ["payload", "objectId"], { quantities: [] }),
+  "needs.threshold-crossed": declare(1, null, ["payload", "objectId"], null),
+  "comfort.changed": declare(1, null, ["payload", "objectId"], null),
+  "health.threshold-crossed": declare(1, null, ["payload", "objectId"], null),
+  "location.changed": declare(1, ["payload", "objectId"], ["payload", "locationId"], null),
+  "needs.relieved": declare(1, ["payload", "objectId"], ["payload", "sourceObjectId"], null),
+  "lifecycle.conceived": declare(1, ["payload", "objectId"], ["payload", "childId"], null),
+  "lifecycle.gestation-milestone": declare(1, null, ["payload", "objectId"], null),
+  "lifecycle.born": declare(1, ["payload", "gestatingParentId"], ["payload", "childId"], null),
+  "lifecycle.stage-changed": declare(1, null, ["payload", "objectId"], null),
+  "lifecycle.died": declare(1, null, ["payload", "objectId"], null),
+  "lifecycle.successor-intended": declare(
+    1,
+    ["payload", "objectId"],
+    ["payload", "successorId"],
+    null,
+  ),
 };
+
+const WORLD_EVENT_VERSIONS: Readonly<Record<WorldEvent["type"], WorldEvent["schemaVersion"]>> =
+  Object.fromEntries(
+    Object.entries(WORLD_EVENT_VOCABULARY).map(([type, entry]) => [type, entry.version]),
+  ) as Record<WorldEvent["type"], WorldEvent["schemaVersion"]>;
 
 /**
  * Exhaustive by construction: each world event type's feed category, or null when it is not
@@ -202,3 +255,62 @@ export function upcastEventRecord<E extends VersionedEventRecord>(event: E): E {
 export const WORLD_EVENT_DEFINITIONS: readonly VersionedDefinition[] = Object.freeze(
   Object.entries(WORLD_EVENT_VERSIONS).map(([type, version]) => Object.freeze({ type, version })),
 );
+
+/** Every world event type's declaration: version, roles and whether it is integration bookkeeping. */
+export const WORLD_EVENT_DECLARATIONS: readonly WorldEventDeclaration[] = Object.freeze(
+  Object.entries(WORLD_EVENT_VOCABULARY).map(([type, entry]) => Object.freeze({ type, ...entry })),
+);
+
+/** The declaration of a world event type, or `undefined` for a type outside the vocabulary. */
+export function worldEventDeclaration(type: string): WorldEventDeclaration | undefined {
+  return Object.hasOwn(WORLD_EVENT_VOCABULARY, type)
+    ? { type, ...WORLD_EVENT_VOCABULARY[type as WorldEvent["type"]] }
+    : undefined;
+}
+
+/** Whether a type is declared integration bookkeeping; a type outside the vocabulary is not. */
+export function isIntegrationEventType(type: string): boolean {
+  return worldEventDeclaration(type)?.integration != null;
+}
+
+/**
+ * Whether an event is a material change: anything but integration bookkeeping, and an integration
+ * event whose declared quantities are not all zero. A type outside the vocabulary is material.
+ */
+export function materialWorldEvent(event: {
+  readonly type: unknown;
+  readonly payload: unknown;
+}): boolean {
+  if (typeof event.type !== "string") return true;
+  const integration = worldEventDeclaration(event.type)?.integration;
+  if (integration == null) return true;
+  const payload = event.payload;
+  const field = (key: string): unknown =>
+    typeof payload === "object" && payload !== null
+      ? (payload as Readonly<Record<string, unknown>>)[key]
+      : undefined;
+  return integration.quantities.some((key) => {
+    const value = field(key);
+    return value !== 0 && value !== 0n;
+  });
+}
+
+/**
+ * The object id playing `role` in an event, read through its type's declaration: null when the type
+ * declares no such role or the event does not carry a non-empty string there.
+ */
+export function worldEventRole(
+  event: { readonly type: unknown; readonly payload: unknown; readonly attribution?: unknown },
+  role: "actor" | "target",
+): string | null {
+  if (typeof event.type !== "string") return null;
+  const path = worldEventDeclaration(event.type)?.[role];
+  if (path == null) return null;
+  let value: unknown = path[0] === "payload" ? event.payload : event.attribution;
+  for (const key of path.slice(1))
+    value =
+      typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Readonly<Record<string, unknown>>)[key]
+        : undefined;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
