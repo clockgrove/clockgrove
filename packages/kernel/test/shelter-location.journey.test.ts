@@ -1,5 +1,6 @@
 import { replayWorldEvents, type WorldEvent } from "@clockgrove/domain";
 import { expect, it } from "vitest";
+import { composeComponentFixture } from "./component-fixtures/index.js";
 import {
   DEFAULT_UTILITY,
   food,
@@ -10,7 +11,6 @@ import {
   utilityWorld,
   WITH,
 } from "./decisions.scenario.js";
-import { composeComponentFixture } from "./component-fixtures/index.js";
 import { CEDAR_SPEC, ecologyWorld } from "./ecology.scenario.js";
 import {
   advanceInput,
@@ -482,9 +482,10 @@ it("treats a coat as the wearer's own protection and a shelter's cover radius as
   expect(changes(within.events)).toEqual([]);
   const walked = runChain(within.world, "walk-under-after", 2500n);
   expect(changes(walked.events)).toEqual([]);
-  expect(walked.world.state.entities.find((entity) => entity.objectId === "c-near")).toMatchObject(
-    { locationId: "porch", pose: { coordinates: [-400n, 0n] } },
-  );
+  expect(walked.world.state.entities.find((entity) => entity.objectId === "c-near")).toMatchObject({
+    locationId: "porch",
+    pose: { coordinates: [-400n, 0n] },
+  });
   expect(wet(walked.world, "c-near")).toBe(1125);
   expect(replayWorldEvents(created.world.state, within.events)).toEqual(within.world.state);
   const out = move(created.world, "c-near", 900n, "walk-out-of-porch");
