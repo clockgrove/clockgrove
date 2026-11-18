@@ -11,6 +11,7 @@ import { expect, it, onTestFailed } from "vitest";
 import { encodePng, sha256Hex } from "../../packages/assets/src/index.ts";
 import { readPackDirectory, sdkSource } from "../../packages/simulator/cli/pack-source.ts";
 import { previewSeedProjection } from "../../packages/simulator/src/index.ts";
+import { journeyThenShutdown, namedSteps } from "./journey-steps.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 // The golden suite's SwiftShader flags (owner findings on #74): WebGPU and forced WebGL2 both draw.
@@ -79,15 +80,7 @@ async function buildPagedWorld(world) {
   return path.join(world, "assets/reviewed");
 }
 
-// #401: a failure, a timeout included, names the step it stopped in.
-function steps() {
-  const current = { step: "start" };
-  onTestFailed(({ task }) => {
-    for (const error of task.result?.errors ?? [])
-      error.message = `step "${current.step}": ${error.message}`;
-  });
-  return current;
-}
+const steps = () => namedSteps(onTestFailed);
 // #401: each Ctrl-C journey starts its own dev:world session (PostgreSQL, migrations, Vite) and a
 // browser. On the ubuntu-26.04 runner the journey reaches 240 s: it passed under that limit on most
 // runs and timed out at it on main push run 44160374795. 720 s is three times that runner figure.
@@ -118,39 +111,42 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
     hall.stderr.setEncoding("utf8").on("data", read);
   });
   let browser;
-  try {
-    const { url, credential } = await Promise.race([
-      printed,
-      exited.then((code) => Promise.reject(new Error(`dev:world exited ${code}\n${output}`))),
-    ]);
-    at.step = "world directory";
-    const directory = await fetch(new URL("/v1/runtime/world-directory", url), {
-      method: "POST",
-      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-      body: JSON.stringify({ version: 1 }),
-    }).then((response) => response.json());
-    const [{ tenantId, worldId, timelineId, spaceId }] = directory.entries;
-    expect([directory.entries.length, url.pathname, credential]).toEqual([
-      1,
-      `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
-      "hall-observer",
-    ]);
-    at.step = "browser signs in and the scene arrives";
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto(url.toString());
-    await page.getByLabel("Local session credential").fill(credential);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
-    expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
-      "Arrival: scene ready at revision 0.",
-    );
-    // Set only once the journey's steps passed, so a failure inside them keeps its own step.
-    at.step = "Ctrl-C stops dev:world";
-  } finally {
-    await browser?.close();
-    process.kill(-hall.pid, "SIGINT");
-  }
+  await journeyThenShutdown(
+    at,
+    async () => {
+      const { url, credential } = await Promise.race([
+        printed,
+        exited.then((code) => Promise.reject(new Error(`dev:world exited ${code}\n${output}`))),
+      ]);
+      at.step = "world directory";
+      const directory = await fetch(new URL("/v1/runtime/world-directory", url), {
+        method: "POST",
+        headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      }).then((response) => response.json());
+      const [{ tenantId, worldId, timelineId, spaceId }] = directory.entries;
+      expect([directory.entries.length, url.pathname, credential]).toEqual([
+        1,
+        `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
+        "hall-observer",
+      ]);
+      at.step = "browser signs in and the scene arrives";
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(url.toString());
+      await page.getByLabel("Local session credential").fill(credential);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+      expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
+        "Arrival: scene ready at revision 0.",
+      );
+    },
+    "Ctrl-C stops dev:world",
+    async () => {
+      await browser?.close();
+      process.kill(-hall.pid, "SIGINT");
+    },
+  );
   const database = /creating directory (\S+)\/data/u.exec(output)?.[1];
   expect([await exited, typeof database, database && existsSync(database)]).toEqual([
     0,
@@ -167,13 +163,15 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
   let exited;
   let browser;
   let output = "";
-  try {
-    await cp(path.join(root, "worlds/fixture"), path.join(external, "external pack"), {
-      recursive: true,
-    });
-    await writeFile(
-      path.join(external, "external pack/runtime.json"),
-      `{
+  await journeyThenShutdown(
+    at,
+    async () => {
+      await cp(path.join(root, "worlds/fixture"), path.join(external, "external pack"), {
+        recursive: true,
+      });
+      await writeFile(
+        path.join(external, "external pack/runtime.json"),
+        `{
       "presentationVersion": 1,
       "presentations": [{
         "presentation": {"presentationVersion": 1, "assetManifestVersion": 2,
@@ -187,181 +185,184 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
         "activity": {"families": [], "moving": "idle", "shelter": "idle", "arrived": "idle", "seeking": "idle"}
       }]
     }`,
-    );
-    const shell = JSON.parse(
-      await readFile(path.join(external, "external pack/shell.json"), "utf8"),
-    );
-    shell.name = "External Fixture";
-    shell.wordmark = "External Fixture";
-    shell.scene.atlases = true;
-    await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
-    at.step = "build the paged world";
-    const reviewed = await buildPagedWorld(path.join(external, "world"));
-    expect(JSON.parse(await readFile(path.join(reviewed, "atlases.json"), "utf8")).atlases).toEqual(
-      ["sheet", "sheet-page-2", "walker", "walker-page-2"],
-    );
-    await writeFile(path.join(reviewed, "fixture.txt"), "external fixture asset\n");
-    at.step = "refuse invalid arguments";
-    const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", reviewed];
-    for (const invalid of [
-      args.slice(0, 2),
-      [...args, "--pack", "external pack"],
-      [...args, "--unknown", "x"],
-      ["--pack", "missing", ...args.slice(2)],
-    ]) {
-      const refused = spawnSync(process.execPath, [launcher, ...invalid], {
+      );
+      const shell = JSON.parse(
+        await readFile(path.join(external, "external pack/shell.json"), "utf8"),
+      );
+      shell.name = "External Fixture";
+      shell.wordmark = "External Fixture";
+      shell.scene.atlases = true;
+      await writeFile(path.join(external, "shell.json"), JSON.stringify(shell));
+      at.step = "build the paged world";
+      const reviewed = await buildPagedWorld(path.join(external, "world"));
+      expect(
+        JSON.parse(await readFile(path.join(reviewed, "atlases.json"), "utf8")).atlases,
+      ).toEqual(["sheet", "sheet-page-2", "walker", "walker-page-2"]);
+      await writeFile(path.join(reviewed, "fixture.txt"), "external fixture asset\n");
+      at.step = "refuse invalid arguments";
+      const args = ["--pack", "external pack", "--shell", "shell.json", "--assets", reviewed];
+      for (const invalid of [
+        args.slice(0, 2),
+        [...args, "--pack", "external pack"],
+        [...args, "--unknown", "x"],
+        ["--pack", "missing", ...args.slice(2)],
+      ]) {
+        const refused = spawnSync(process.execPath, [launcher, ...invalid], {
+          cwd: external,
+          encoding: "utf8",
+          timeout: 30_000,
+        });
+        expect(refused.status, refused.stderr).toBe(2);
+        expect(refused.stderr).toContain("Usage:");
+        expect(refused.stdout).toBe("");
+      }
+      at.step = "dev:world prints its URL and credential";
+      session = spawn(process.execPath, [launcher, ...args], {
         cwd: external,
-        encoding: "utf8",
-        timeout: 30_000,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
       });
-      expect(refused.status, refused.stderr).toBe(2);
-      expect(refused.stderr).toContain("Usage:");
-      expect(refused.stdout).toBe("");
-    }
-    at.step = "dev:world prints its URL and credential";
-    session = spawn(process.execPath, [launcher, ...args], {
-      cwd: external,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    exited = new Promise((resolve) => session.on("exit", (code) => resolve(code)));
-    const printed = new Promise((resolve) => {
-      const read = (chunk) => {
-        output += chunk;
-        const url = /Open: +(\S+)/u.exec(output)?.[1];
-        const credential = /credential "([^"]+)"/u.exec(output)?.[1];
-        if (url && credential) resolve({ url: new URL(url), credential });
-      };
-      session.stdout.setEncoding("utf8").on("data", read);
-      session.stderr.setEncoding("utf8").on("data", read);
-    });
-    const { url, credential } = await Promise.race([
-      printed,
-      exited.then((code) =>
-        Promise.reject(new Error(`external session exited ${code}\n${output}`)),
-      ),
-    ]);
-    expect(output).toContain("Living world: clockgrove.test-world@1.1.0");
-    expect(await fetch(new URL("/fixture.txt", url)).then((response) => response.text())).toBe(
-      "external fixture asset\n",
-    );
-    const directory = await fetch(new URL("/v1/runtime/world-directory", url), {
-      method: "POST",
-      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-      body: JSON.stringify({ version: 1 }),
-    }).then((response) => response.json());
-    const [{ tenantId, worldId, timelineId, spaceId }] = directory.entries;
-    expect([directory.entries.length, url.pathname, credential]).toEqual([
-      1,
-      `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
-      "hall-observer",
-    ]);
-    // Issue 153: the same session under WebGPU and forced WebGL2, both on SwiftShader, as the
-    // golden suite runs them. A route rewrites the served renderer module to force the backend and
-    // expose the adapter, whose texture accounting must sum every page against the budgets.
-    const { budgets } = JSON.parse(
-      await readFile(path.join(root, "apps/web/scene-budgets.json"), "utf8"),
-    );
-    let pageBytes = 0;
-    for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"]) {
-      const png = await readFile(path.join(reviewed, `${name}.png`));
-      pageBytes += png.readUInt32BE(16) * png.readUInt32BE(20) * 4;
-    }
-    expect([pageBytes, pageBytes <= budgets.atlasTextureBytes.limit]).toEqual([17_040_000, true]);
-    browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
-    for (const backend of ["webgpu", "webgl2"]) {
-      at.step = `${backend}: sign in and arrive`;
-      const page = await browser.newPage();
-      await page.route(/\/src\/renderer\.ts(\?.*)?$/u, async (route) => {
-        const response = await route.fetch();
-        const code = await response.text();
-        const create = "new THREE.WebGPURenderer({";
-        await route.fulfill({
-          response,
-          body: `${backend === "webgl2" ? code.replace(create, `${create} forceWebGL: true,`) : code}
+      exited = new Promise((resolve) => session.on("exit", (code) => resolve(code)));
+      const printed = new Promise((resolve) => {
+        const read = (chunk) => {
+          output += chunk;
+          const url = /Open: +(\S+)/u.exec(output)?.[1];
+          const credential = /credential "([^"]+)"/u.exec(output)?.[1];
+          if (url && credential) resolve({ url: new URL(url), credential });
+        };
+        session.stdout.setEncoding("utf8").on("data", read);
+        session.stderr.setEncoding("utf8").on("data", read);
+      });
+      const { url, credential } = await Promise.race([
+        printed,
+        exited.then((code) =>
+          Promise.reject(new Error(`external session exited ${code}\n${output}`)),
+        ),
+      ]);
+      expect(output).toContain("Living world: clockgrove.test-world@1.1.0");
+      expect(await fetch(new URL("/fixture.txt", url)).then((response) => response.text())).toBe(
+        "external fixture asset\n",
+      );
+      const directory = await fetch(new URL("/v1/runtime/world-directory", url), {
+        method: "POST",
+        headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      }).then((response) => response.json());
+      const [{ tenantId, worldId, timelineId, spaceId }] = directory.entries;
+      expect([directory.entries.length, url.pathname, credential]).toEqual([
+        1,
+        `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
+        "hall-observer",
+      ]);
+      // Issue 153: the same session under WebGPU and forced WebGL2, both on SwiftShader, as the
+      // golden suite runs them. A route rewrites the served renderer module to force the backend and
+      // expose the adapter, whose texture accounting must sum every page against the budgets.
+      const { budgets } = JSON.parse(
+        await readFile(path.join(root, "apps/web/scene-budgets.json"), "utf8"),
+      );
+      let pageBytes = 0;
+      for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"]) {
+        const png = await readFile(path.join(reviewed, `${name}.png`));
+        pageBytes += png.readUInt32BE(16) * png.readUInt32BE(20) * 4;
+      }
+      expect([pageBytes, pageBytes <= budgets.atlasTextureBytes.limit]).toEqual([17_040_000, true]);
+      browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
+      for (const backend of ["webgpu", "webgl2"]) {
+        at.step = `${backend}: sign in and arrive`;
+        const page = await browser.newPage();
+        await page.route(/\/src\/renderer\.ts(\?.*)?$/u, async (route) => {
+          const response = await route.fetch();
+          const code = await response.text();
+          const create = "new THREE.WebGPURenderer({";
+          await route.fulfill({
+            response,
+            body: `${backend === "webgl2" ? code.replace(create, `${create} forceWebGL: true,`) : code}
 const load = ThreeWorldSceneAdapter.prototype.loadSnapshot;
 ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.hallAdapter = this; return load.apply(this, args); };`,
+          });
         });
-      });
-      const snapshots = [];
-      const requested = new Set();
-      page.on("request", (request) => requested.add(new URL(request.url()).pathname));
-      page.on("websocket", (socket) => {
-        if (new URL(socket.url()).pathname === "/v1/projection")
-          socket.on("framereceived", ({ payload }) => snapshots.push(JSON.parse(String(payload))));
-      });
-      await page.goto(url.toString());
-      expect(await page.title()).toBe("External Fixture");
-      await page.getByLabel("Local session credential").fill(credential);
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
-      expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
-        "Arrival: scene ready at revision 0.",
-      );
-      expect(
-        snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
-      ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
-      // The shell loads every page the index lists and draws each page's strip in its colour. Every
-      // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
-      // on its own page, across both wrapped rows and onto the continuation page.
-      for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
-        for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
-          expect(requested).toContain(`/${file}`);
-      at.step = `${backend}: sample every walk frame`;
-      const walked = new Set();
-      for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
-        const shot = (await page.locator("canvas").screenshot()).toString("base64");
-        const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
-          const image = new Image();
-          image.src = `data:image/png;base64,${encoded}`;
-          await image.decode();
-          const context = Object.assign(document.createElement("canvas"), {
-            width: image.width,
-            height: image.height,
-          }).getContext("2d");
-          context.drawImage(image, 0, 0);
-          const { data } = context.getImageData(0, 0, image.width, image.height);
-          const found = [0, 0, 0, image.width];
-          for (let i = 0; i < data.length; i += 4) {
-            const [r, g, b] = data.subarray(i, i + 3);
-            if (r > 2 * g + 40 && b > 2 * g + 40) {
-              found[0]++;
-              found[3] = Math.min(found[3], (i / 4) % image.width);
-            } else if (g > 2 * r + 40 && b > 2 * r + 40) found[1]++;
-            else if (b > 2 * (r + g) + 40) found[2]++;
-          }
-          return found;
-        }, shot);
+        const snapshots = [];
+        const requested = new Set();
+        page.on("request", (request) => requested.add(new URL(request.url()).pathname));
+        page.on("websocket", (socket) => {
+          if (new URL(socket.url()).pathname === "/v1/projection")
+            socket.on("framereceived", ({ payload }) =>
+              snapshots.push(JSON.parse(String(payload))),
+            );
+        });
+        await page.goto(url.toString());
+        expect(await page.title()).toBe("External Fixture");
+        await page.getByLabel("Local session credential").fill(credential);
+        await page.getByRole("button", { name: "Sign in", exact: true }).click();
+        await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+        expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
+          "Arrival: scene ready at revision 0.",
+        );
         expect(
-          [magenta, cyan, blue].every((count) => count >= 1200),
-          `${backend}: ${magenta} ${cyan} ${blue}`,
-        ).toBe(true);
-        walked.add(left);
+          snapshots.find((message) => message.type === "snapshot").payload.presentationBindings,
+        ).toMatchObject(STRIPS.map(([assetId, animationFamily]) => ({ assetId, animationFamily })));
+        // The shell loads every page the index lists and draws each page's strip in its colour. Every
+        // sample shows all three, and the walk's square reaches all 14 positions: each frame's own rect
+        // on its own page, across both wrapped rows and onto the continuation page.
+        for (const name of ["sheet", "sheet-page-2", "walker", "walker-page-2"])
+          for (const file of ["atlases.json", `${name}.animations.json`, `${name}.png`])
+            expect(requested).toContain(`/${file}`);
+        at.step = `${backend}: sample every walk frame`;
+        const walked = new Set();
+        for (let sample = 0; sample < 200 && walked.size < 14; sample++) {
+          const shot = (await page.locator("canvas").screenshot()).toString("base64");
+          const [magenta, cyan, blue, left] = await page.evaluate(async (encoded) => {
+            const image = new Image();
+            image.src = `data:image/png;base64,${encoded}`;
+            await image.decode();
+            const context = Object.assign(document.createElement("canvas"), {
+              width: image.width,
+              height: image.height,
+            }).getContext("2d");
+            context.drawImage(image, 0, 0);
+            const { data } = context.getImageData(0, 0, image.width, image.height);
+            const found = [0, 0, 0, image.width];
+            for (let i = 0; i < data.length; i += 4) {
+              const [r, g, b] = data.subarray(i, i + 3);
+              if (r > 2 * g + 40 && b > 2 * g + 40) {
+                found[0]++;
+                found[3] = Math.min(found[3], (i / 4) % image.width);
+              } else if (g > 2 * r + 40 && b > 2 * r + 40) found[1]++;
+              else if (b > 2 * (r + g) + 40) found[2]++;
+            }
+            return found;
+          }, shot);
+          expect(
+            [magenta, cyan, blue].every((count) => count >= 1200),
+            `${backend}: ${magenta} ${cyan} ${blue}`,
+          ).toBe(true);
+          walked.add(left);
+        }
+        expect([backend, walked.size]).toEqual([backend, 14]);
+        const measured = await page.evaluate(() => {
+          const { backend, metrics } = globalThis.hallAdapter;
+          return { backend, textureBytes: metrics.textureBytes, atlas: metrics.atlasTextureBytes };
+        });
+        expect(measured).toMatchObject({ backend, atlas: pageBytes });
+        expect(measured.textureBytes).toBeLessThanOrEqual(budgets.textureBytes.limit);
+        await page.close();
       }
-      expect([backend, walked.size]).toEqual([backend, 14]);
-      const measured = await page.evaluate(() => {
-        const { backend, metrics } = globalThis.hallAdapter;
-        return { backend, textureBytes: metrics.textureBytes, atlas: metrics.atlasTextureBytes };
-      });
-      expect(measured).toMatchObject({ backend, atlas: pageBytes });
-      expect(measured.textureBytes).toBeLessThanOrEqual(budgets.textureBytes.limit);
-      await page.close();
-    }
-    // Set only once the journey's steps passed, so a failure inside them keeps its own step.
-    at.step = "Ctrl-C stops dev:world";
-  } finally {
-    await browser?.close();
-    if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");
-    if (exited) {
-      const database = /creating directory (\S+)\/data/u.exec(output)?.[1];
-      expect([await exited, typeof database, database && existsSync(database)]).toEqual([
-        0,
-        "string",
-        false,
-      ]);
-    }
-    await rm(external, { recursive: true, force: true });
-  }
+    },
+    "Ctrl-C stops dev:world",
+    async () => {
+      await browser?.close();
+      if (session?.exitCode === null) process.kill(-session.pid, "SIGINT");
+      if (exited) {
+        const database = /creating directory (\S+)\/data/u.exec(output)?.[1];
+        expect([await exited, typeof database, database && existsSync(database)]).toEqual([
+          0,
+          "string",
+          false,
+        ]);
+      }
+      await rm(external, { recursive: true, force: true });
+    },
+  );
 }, 720_000);
 
 it("captures an external world's full matrix and retains digest-specific approvals there", async () => {
