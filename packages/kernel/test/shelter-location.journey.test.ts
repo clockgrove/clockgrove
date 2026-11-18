@@ -477,7 +477,7 @@ it("treats a coat as the wearer's own protection and a shelter's cover radius as
   expect([wet(after.world, "c-near"), wet(after.world, "d-far")]).toEqual([1125, 1375]);
 
   // A walk that stays within the cover keeps c-near under the porch the whole way; one that leaves
-  // it unlocates the walker as it sets out.
+  // it unlocates the walker where it crosses the boundary (500 units, 201 ms after it sets out).
   const within = move(created.world, "c-near", -400n, "walk-under-porch");
   expect(changes(within.events)).toEqual([]);
   const walked = runChain(within.world, "walk-under-after", 2500n);
@@ -489,5 +489,51 @@ it("treats a coat as the wearer's own protection and a shelter's cover radius as
   expect(wet(walked.world, "c-near")).toBe(1125);
   expect(replayWorldEvents(created.world.state, within.events)).toEqual(within.world.state);
   const out = move(created.world, "c-near", 900n, "walk-out-of-porch");
-  expect(changes(out.events)).toEqual([[1500n, "c-near", null]]);
+  expect(changes(out.events)).toEqual([[1701n, "c-near", null]]);
+});
+
+it("keeps a walker under a shelter's cover until its walk crosses the cover's boundary", async () => {
+  const base = await rainy(true);
+  // The den, where the actor stands in the rain, declares a cover of 500 units around it.
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const wetness = (events: readonly WorldEvent[]) =>
+    events
+      .filter((event) => event.type === "needs.changed")
+      .map((event) => [event.simulationTime, event.payload.wetness]);
+  const walk = (x: bigint, id: string) => {
+    const started = move(world, actor, x, id);
+    const finished = runChain(started.world, `${id}-after`, 3000n);
+    expect(replayWorldEvents(world.state, started.events)).toEqual(started.world.state);
+    expect(replayWorldEvents(started.world.state, finished.events)).toEqual(finished.world.state);
+    return [...started.events, ...finished.events];
+  };
+
+  // From the den's centre to (400, 0), inside the cover: it stays in the den and dries all the way.
+  const within = walk(400n, "walk-within");
+  expect(changes(within)).toEqual([]);
+  expect(wetness(within).every(([, value]) => (value as number) < 1000)).toBe(true);
+
+  // To (900, 0) at 1 unit/ms: under the den, drying, until it passes 500 units at 501 ms; from
+  // there it is on open ground and gets wetter. Its decision walks it back, and it is in the den
+  // again where it re-enters the cover (2 units/ms: 200 ms after 900).
+  const out = walk(900n, "walk-out");
+  expect(changes(out)).toEqual([
+    [501n, actor, null],
+    [1100n, actor, "den"],
+  ]);
+  expect(wetness(out).slice(0, 3)).toEqual([
+    [501n, 949],
+    [900n, 1009],
+    [1100n, 1039],
+  ]);
 });

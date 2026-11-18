@@ -17,17 +17,20 @@ export function movementSystemKind(objectId: string): string {
 /**
  * The continuous system of one actor's active routine movement. It carries no numeric state: its
  * thresholds are the movement's region crossings and completion, derived from the immutable
- * record with the domain's `expectedCrossings` and `movementCompletionTime`.
+ * record with the domain's `expectedCrossings` and `movementCompletionTime`, and the times
+ * (`coverChanges`) at which its walk enters or leaves a shelter's declared cover.
  */
 export function createMovementSystem(
   objectId: string,
   movement: MovementRecord,
   regions: readonly SpatialRegion[],
+  coverChanges: readonly bigint[] = [],
 ): ContinuousSystem {
   const times = [
     ...new Set([
       ...expectedCrossings(movement, regions).map((crossing) => crossing.time),
       movementCompletionTime(movement.segment),
+      ...coverChanges,
     ]),
   ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   const system: ContinuousSystem = {
