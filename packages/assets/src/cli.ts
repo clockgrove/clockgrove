@@ -237,11 +237,30 @@ export function runAssetsCli(argv: readonly string[]): AssetsCliResult {
         problems.push(
           `${assetRoot}/reviewed/${name}: stale, run \`pnpm --filter @clockgrove/assets run build\``,
         );
+    // A refused asset still shipped in reviewed/ is named by its animation's fields, whatever the
+    // key order or formatting of the animations file.
+    const shippedAnimations = actual
+      .filter((n) => n.endsWith(".animations.json"))
+      .map((name) => {
+        let animations: unknown;
+        try {
+          ({ animations } = JSON.parse(readFileSync(join(reviewedDir, name), "utf8")));
+        } catch {
+          animations = undefined;
+        }
+        return { name, animations: Array.isArray(animations) ? animations : [] };
+      });
     for (const f of files) {
       const refusals = assetDeployRefusals(f.manifest);
-      const entry = `"assetId":"${f.manifest.assetId}","animationFamily":"${f.manifest.animationFamily}"`;
-      for (const name of actual.filter((n) => n.endsWith(".animations.json")))
-        if (refusals.length > 0 && readFileSync(join(reviewedDir, name), "utf8").includes(entry))
+      if (refusals.length === 0) continue;
+      for (const { name, animations } of shippedAnimations)
+        if (
+          animations.some(
+            (a) =>
+              a?.assetId === f.manifest.assetId &&
+              a?.animationFamily === f.manifest.animationFamily,
+          )
+        )
           for (const r of refusals)
             problems.push(`${assetRoot}/reviewed/${name}: ${r.code} ${r.asset}: ${r.detail}`);
     }

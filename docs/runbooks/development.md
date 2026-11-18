@@ -279,6 +279,8 @@ sudo, unless that Chromium is already installed and launches. Pendulum's setup s
 This runs the retained browser/RuntimeWorker/PostgreSQL smoke and accessibility journey.
 A private browser cache or locally excluded test is not CI browser evidence.
 
+Before pushing, run `pnpm run journey:scope` (`scripts/journey-scope.mjs`). It diffs your branch against `origin/main`, with uncommitted and untracked files, and says whether the browser journey is required. The journey covers `apps/web`, `apps/runtime`, every workspace package they depend on (the scene protocol in `packages/contracts` among them), `worlds/fixture/`, `tests/e2e/`, the browser config and its journey tests, and the root manifest and lockfile. It also follows what those sources and the journey tests load: relative imports, workspace packages by name, and repository paths they name in code (not comments), such as `scripts/dev-world.mjs`, which the dev-world journey spawns, and `db/migrations`, which the native harness applies. Another suite's test or vitest config named in a shard list is not followed. Markdown never counts. When it is required, run `env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts`.
+
 Quality keeps its required `quality` job, minimum read permissions and all previous checks.
 `recordCommand` captures actual candidate-bound command outcomes; the schema-validated
 manifest binds their output hashes, browser outcome, migration inventory, security outcomes,

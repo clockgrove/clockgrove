@@ -112,8 +112,9 @@ export async function checkDependencyPolicy(directory) {
   }
 }
 // The SBOM licence entries of the locked component `key` (name@version), from its registry
-// metadata: the SPDX `license` string; else npm's legacy `licenses` array, whose types are the
-// alternatives of one OR expression; else the verified record for exactly that key. A malformed
+// metadata: the SPDX `license` string; else npm's legacy `licenses` array, whose types all apply
+// (one AND expression), so the allowlist fails closed: the list says which licences the package is
+// under, not that a user may choose one; else the verified record for exactly that key. A malformed
 // array (empty, or an entry whose type is not one SPDX identifier) declares nothing.
 export function componentLicenses(key, metadata) {
   if (metadata.license) return [{ expression: metadata.license }];
@@ -128,7 +129,7 @@ export function componentLicenses(key, metadata) {
         !spdxOperators.includes(entry.type),
     )
   )
-    return [{ expression: legacy.map((entry) => entry.type).join(" OR ") }];
+    return [{ expression: legacy.map((entry) => entry.type).join(" AND ") }];
   const verified = verifiedLicenses.get(key);
   return verified ? [{ expression: verified.license, acknowledgement: "concluded" }] : [];
 }
