@@ -8,6 +8,11 @@ A world's physical facts (weather, food, movement, growth) come from a determini
 
 Clockgrove is the platform, not a particular world. [Raccoon World](https://github.com/clockgrove/raccoon-world), the first reference world, lives in its own repository; this one carries only a plain fixture world for testing.
 
+Clockgrove is an engine you deploy yourself, not a hosted service. The unit of deployment is a world: your world pack plus a pinned Clockgrove, deployed into your own cloud account. Nobody signs in to Clockgrove itself. It has two kinds of user:
+
+- **Developers** clone Clockgrove, write a world pack and configure their own cloud and identity provider. Clockgrove supplies the runtime (one Cloudflare Worker with World, Space and ActorAgent Durable Objects, queues, workflows, a Neon PostgreSQL journal and R2), the default React + Three.js web client and the world MCP server. Its deploy tooling targets only this repository's qualified commit, for the `development` and validation environments; deploying a developer's world pack, and any `production` deployment, are not built yet.
+- **Players** will sign in to a world's deployment. Google is the decided first sign-in provider, through the Better Auth reference adapter, with Clerk as an optional adapter. Neither Google sign-in nor the Clerk adapter is built yet: today the Better Auth adapter only verifies sessions (bearer tokens, the MCP OAuth provider and API keys). Owner tools such as approvals and run inspection live inside that deployment, for its owner role.
+
 > Build persistent worlds from deterministic physical truth plus subjective, agentic cognition.
 
 **Before you go further:**
@@ -225,7 +230,7 @@ Canonical repository content is written as if it may be public. Personal deploym
 
 ## Status
 
-There is no release line and no version to depend on yet: the root package is `0.0.0` and private, and a world repository pins a Clockgrove commit. The foundation, deterministic kernel, journal and replay, and actor runtime (Waves 0 to 3) are built. The visual projection and web client (Wave 4) are underway, and hosted qualification is still pending. Conversations, models, capabilities and MCP (Wave 5) are in progress, and not yet part of the local world. Later waves add memory and learning, authoring, the reference-world demo and optional hosted-world features. GitHub Issues hold the live state of each wave.
+There is no release line and no version to depend on yet: the root package is `0.0.0` and private, and a world repository pins a Clockgrove commit. The foundation, deterministic kernel, journal and replay, and actor runtime (Waves 0 to 3) are built. The visual projection and web client (Wave 4) are underway, and qualification on the validation deployment is still pending. Conversations, models, capabilities and MCP (Wave 5) are in progress, and not yet part of the local world. Later waves add memory and learning, authoring, the reference-world demo and the open-source release. GitHub Issues hold the live state of each wave.
 
 ## Help, security, contributing and license
 

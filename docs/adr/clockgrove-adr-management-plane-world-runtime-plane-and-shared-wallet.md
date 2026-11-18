@@ -10,14 +10,18 @@
 
 ## 1. Decision
 
+Clockgrove is the engine inside every world's deployment: a developer deploys their world pack with a pinned Clockgrove into their own cloud account. Clockgrove runs no hosted service. Each world's deployment contains both logical planes, and its owner role operates them.
+
 Clockgrove formalizes two **logical planes now**:
 
-1. the **Management Plane**, which manages principals, tenants, world catalog and desired lifecycle, immutable pack artifacts, provisioning and upgrade cases, quotas, sponsorship/wallet admission, and administrative operations; and
+1. the **Management Plane**, which manages principals, identity links, tenants, memberships and grants, world catalog and desired lifecycle, immutable pack artifacts, provisioning and upgrade cases, quotas, and administrative operations for the deployment's owner; and
 2. the **World Runtime Plane**, which owns each world's canonical journal, simulation, timelines, actors, cognition, conversations, spatial authority, in-world membership/personas/inventory, scene projection, and causal evidence.
 
 Clockgrove does **not require two physical deployments, two databases, or a distributed control protocol on day one**. It begins with explicit package/API/schema/role boundaries in one repository and, where operationally useful, one process/CLI, one Worker surface, and one PostgreSQL cluster. The same contracts preserve the ability to split compute, credentials, database roles or clusters, queues, and release cadence later.
 
 The initial implementation is a modular monolith. The `clockgrove` CLI is a composition root that may invoke both planes in-process, but plane modules communicate through the same typed ports used by later HTTP, Queue, or Workflow adapters. CLI convenience never authorizes cross-plane persistence writes.
+
+**Parked with Waves 10–12 (owner decision 2026-11-14):** hosted multitenant signup, billing accounts, the shared wallet, prepaid credits, sponsorship, world credit leases, rating, and payment-provider integration. Sections 7.1–7.4 and the rows and invariants marked *parked* below describe these. They are not planned and bind no current wave.
 
 The term **Management Plane** is preferred over “control plane” in product-runtime documentation because external development tooling also uses that term. If “control plane” is used, it must be qualified as **world-management control plane**.
 
@@ -32,12 +36,12 @@ The end-to-end Raccoon World path reveals two different kinds of work:
 
 The first is desired-state and lifecycle orchestration. The second is world truth. Separating their ownership:
 
-- lets ready worlds continue if signup, billing, or administrative services are degraded;
+- lets ready worlds continue if sign-in or administrative services are degraded;
 - prevents an admin UI or pack registry from mutating simulation state directly;
 - gives provisioning, upgrades, export, archival, and deletion durable resumable cases;
-- keeps tenant quotas and credit admission outside deterministic simulation;
-- supports later regional placement, dedicated worlds, enterprise isolation, and independent runtime scaling;
-- makes it possible to replace Better Auth, Stripe, Redis, or a management UI without rewriting world semantics;
+- keeps quotas and budgets outside deterministic simulation;
+- supports later regional placement and independent runtime scaling;
+- makes it possible to replace Better Auth, Clerk, or a management UI without rewriting world semantics;
 - gives each fact one authoritative owner and one reconciliation direction.
 
 ---
@@ -51,8 +55,8 @@ The first is desired-state and lifecycle orchestration. The second is world trut
 | World catalog, owning tenant, desired lifecycle | Management Plane | Runtime reports applied lifecycle and health |
 | Pack artifact registry, signatures, licenses, provenance | Management Plane | Runtime pins immutable artifact hash/install receipt |
 | Provisioning and upgrade case | Management Plane orchestration | Runtime commits genesis/migrations and returns receipts |
-| Billing accounts, shared wallets, grants, rate cards, sponsorship, money and Stripe | Management Plane | Bounded world credit lease and execution entitlement |
-| World-local quota/lease consumption | World Runtime Plane | Usage/capture/release receipts returned to Management |
+| *Parked:* billing accounts, shared wallets, credit grants, rate cards, sponsorship, money and Stripe | Management Plane | Bounded world credit lease and execution entitlement |
+| World-local quota consumption (*parked:* credit-lease consumption) | World Runtime Plane | Usage receipts returned to Management (*parked:* capture/release receipts) |
 | World/timeline journal and physical truth | World Runtime Plane | Read models and status exposed to management/UI |
 | Simulation time, schedules, rules, spatial state | World Runtime Plane | Operational health only to Management Plane |
 | Actor cognition, conversations, memories, relationships | World Runtime Plane | Metered resource events and redacted admin status |
@@ -123,7 +127,7 @@ Archive and deletion are sagas, not direct table operations. Management owns req
 
 The browser may use one public gateway while the logical APIs remain distinct:
 
-- Management API: signup, workspaces, world list/create/status, invitations, pack registry, upgrades, quotas, billing, archive/export/delete.
+- Management API: workspaces, world list/create/status, invitations, pack registry, upgrades, quotas, archive/export/delete. It serves the deployment's owner role; Clockgrove runs no console of its own. Hosted multitenant signup is parked (see above).
 - Runtime gateway: world entry, projection WebSocket, conversations, commands, inspection, authoring previews, timelines, presence, and inventory.
 
 After authenticating, the gateway resolves the canonical principal and creates a short-lived, audience- and world-scoped runtime assertion. Runtime verifies the assertion and its own world-membership/policy state. A valid provider session alone never grants world access.
@@ -142,16 +146,18 @@ route_resolving → identity_resolved → membership_authorized
 Usage and causal attribution flow in opposite directions without becoming the same concept:
 
 - Runtime commits who acted, which authority allowed or denied it, what work occurred, and the causal consequences.
-- Runtime emits immutable, deduplicated raw resource-usage events referencing that evidence.
-- Management resolves sponsor policy, rates usage, allocates wallet authority, and accounts for captured credits.
+- Runtime emits immutable, deduplicated raw resource-usage events referencing that evidence. The deployment's budgets, quotas and cost reports consume them.
+- *Parked:* Management resolves sponsor policy, rates usage, allocates wallet authority, and accounts for captured credits.
 
-### 7.1 One shared wallet per billing account
+Sections 7.1–7.4 are parked. The owner's pause and read-only controls for a world belong to the deployment's administration (Wave 9), not to a credit entitlement.
+
+### 7.1 One shared wallet per billing account (parked)
 
 Each Clockgrove `BillingAccount` maps to at most one provider customer per provider environment and owns one authoritative credit wallet. A personal or shared workspace normally points to one billing account. Its worlds do not receive independent Stripe Customers, Stripe subscriptions, or authoritative wallets merely to separate usage.
 
 The shared wallet may sponsor many worlds. World, actor, action, initiator, beneficiary, and sponsor remain separate attributed dimensions. World-local reports, budgets, alerts, and suspension do not require separate provider billing objects.
 
-### 7.2 Hierarchical credit leases
+### 7.2 Hierarchical credit leases (parked)
 
 Management atomically reserves a bounded portion of the shared wallet and issues it to a world as a short-lived, epoch-fenced `WorldCreditLease`:
 
@@ -174,7 +180,7 @@ Runtime may reserve and consume locally only within that lease, its resource cei
 
 This is not a mirrored global balance. Runtime knows authorized credits, applicable quota and effective execution mode. It does not know dollars, prices paid, invoices, cards, provider customers, tax, refunds, disputes, or why a payment failed.
 
-### 7.3 Runtime execution entitlement
+### 7.3 Runtime execution entitlement (parked)
 
 Management projects an epoch/versioned world execution entitlement with one effective mode:
 
@@ -190,7 +196,7 @@ active | credit_restricted | frozen | read_only | archived
 
 An empty prepaid wallet normally yields `credit_restricted`; nonpayment, risk, or administrative suspension may yield `frozen` or `read_only` according to policy. The runtime receives a safe reason code and entitlement epoch, not commercial details. Frozen time does not silently accrue an unbounded catch-up obligation.
 
-### 7.4 Accounting and Stripe boundary
+### 7.4 Accounting and Stripe boundary (parked)
 
 PostgreSQL in Management owns immutable raw/rated usage copies, double-entry credits, grants, purchases, refunds, disputes, reconciliation, and rebuild authority. Redis in Management is a reconstructible atomic allocator for the shared wallet and outstanding leases. The runtime's local lease counters are also reconstructible from leases, run evidence, and receipts.
 
@@ -204,14 +210,14 @@ A failed wallet service or payment provider may block new leases and costly work
 
 | Failure | Required behavior |
 | --- | --- |
-| Management Plane unavailable | Existing ready worlds continue; signup, provisioning, upgrades and admin changes pause safely |
+| Management Plane unavailable | Existing ready worlds continue; sign-in, provisioning, upgrades and admin changes pause safely |
 | World Runtime Plane unavailable | Management shows degraded/applied status; it never reports false readiness |
 | Provisioning dispatch duplicated | Runtime deduplicates by case/request IDs; one genesis and one ready event |
 | Receipt lost after runtime commit | Reconciler redelivers/re-reads applied receipt without rerunning genesis |
 | Auth provider unavailable | Existing valid assertions may continue for bounded duration; no new implied access |
-| Wallet allocator/Redis unavailable | New leases stop; worlds may consume only valid outstanding leases, then apply their execution mode |
-| Shared wallet depleted | No new leases; each world independently applies its configured restricted/frozen policy |
-| Nonpayment or provider dispute | Management changes entitlement epoch/mode; Runtime never interprets Stripe state directly |
+| *Parked:* wallet allocator/Redis unavailable | New leases stop; worlds may consume only valid outstanding leases, then apply their execution mode |
+| *Parked:* shared wallet depleted | No new leases; each world independently applies its configured restricted/frozen policy |
+| *Parked:* nonpayment or provider dispute | Management changes entitlement epoch/mode; Runtime never interprets Stripe state directly |
 | Management desired state differs from runtime applied state | Reconciler surfaces drift; no direct database repair across ownership boundary |
 | Runtime region/placement changes | Stable world/timeline identity and routing epoch hide physical placement from domain contracts |
 
@@ -238,7 +244,7 @@ packages/
   credit-lease-handler/
 ```
 
-The exact repository layout may differ, but dependency direction must be enforced. Management packages cannot import runtime persistence adapters. Runtime packages cannot import auth-provider, Stripe, or management database adapters. Shared packages contain identifiers and messages, not a second copy of domain authority.
+The credit-lease packages are parked with section 7. The exact repository layout may differ, but dependency direction must be enforced. Management packages cannot import runtime persistence adapters. Runtime packages cannot import auth-provider, Stripe, or management database adapters. Shared packages contain identifiers and messages, not a second copy of domain authority.
 
 In PostgreSQL, begin with distinct schemas and least-privilege roles even if one cluster is used. Cross-plane reads use explicit views or APIs; writes use commands/cases. Use separate queue topics and correlation fields. Maintain one local developer command that starts both planes so the boundary does not damage contributor ergonomics.
 
@@ -251,10 +257,10 @@ The Wave 3 phrase **“WorldDO control plane”** becomes **“WorldDO runtime c
 Keep the initial logical boundary, then split only when evidence supports one or more of:
 
 - independent availability or deployment cadence is required;
-- world runtime load harms signup/admin latency or vice versa;
-- dedicated/enterprise worlds need regional, network, or compliance isolation;
+- world runtime load harms sign-in/admin latency or vice versa;
+- a deployment needs regional, network, or compliance isolation between its planes;
 - database write patterns or RLS blast radius warrant separate clusters;
-- runtime credentials must exclude billing/identity systems at infrastructure level;
+- runtime credentials must exclude identity systems at infrastructure level;
 - multiple runtime regions or substrates need one global world catalog;
 - incident data shows correlated failure is materially costly.
 
@@ -296,15 +302,15 @@ This ADR freezes:
 - failure matrix and “ready worlds continue” qualification;
 - local monolith/modular-deploy path and physical split triggers;
 - migration of Wave 3 terminology and work-packet ownership;
-- one shared wallet per billing account, with world-local leased authority rather than per-world provider billing objects;
-- Management-only money, customer, invoice, payment, refund, dispute, tax and Stripe integration;
-- Runtime-only local lease enforcement, raw usage origination, causal attribution and world execution-mode application;
-- frozen-time semantics that do not create unbounded catch-up debt.
+- Runtime-only raw usage origination and causal attribution;
+- *parked:* one shared wallet per billing account, with world-local leased authority rather than per-world provider billing objects;
+- *parked:* Management-only money, customer, invoice, payment, refund, dispute, tax and Stripe integration;
+- *parked:* Runtime-only local lease enforcement and credit-driven execution-mode application, with frozen-time semantics that do not create unbounded catch-up debt.
 
 ---
 
 ## 13. Final assessment
 
-A formal Management Plane / World Runtime Plane distinction clarifies provisioning and world management while protecting the most important Clockgrove invariant: administrative intent, billing, and provider state may request or constrain work, but only the runtime's authorized journal path can create world truth.
+A formal Management Plane / World Runtime Plane distinction clarifies provisioning and world management while protecting the most important Clockgrove invariant: administrative intent and provider state may request or constrain work, but only the runtime's authorized journal path can create world truth.
 
-The best greenfield choice is a **modular monolith with a hard logical plane boundary**, durable asynchronous lifecycle handshakes, and least-privilege schemas. That gives Clockgrove the operational simplicity needed for the demo and the architectural escape hatch needed for millions of logical actors, regional placement, dedicated worlds, and later commercial hosting.
+The best greenfield choice is a **modular monolith with a hard logical plane boundary**, durable asynchronous lifecycle handshakes, and least-privilege schemas. That gives each world's deployment the operational simplicity needed for the demo and the architectural escape hatch needed for millions of logical actors and regional placement.

@@ -163,7 +163,7 @@ text and ended without usage (a timeout, a cancellation or a mid-stream error) h
 unknown count: the call's `costMicrousd` is then `null` and the whole reservation stays spent. Nothing in a prompt can
 change a reservation or a breaker.
 
-`InMemoryModelBudget` is the local ledger. A durable, tenant-wide ledger is Wave 12 metering. This
+`InMemoryModelBudget` is the local ledger. A durable ledger is Wave 9's resource ledger (RW-0903). This
 gateway owns model spend only; world commands have no quota yet (Wave 3 audit).
 
 ## Accounting

@@ -573,7 +573,7 @@ Wave 8 does not implement:
 - [ ] Product thesis evaluation meets predeclared demo thresholds or records approved limitations.
 - [ ] Main remains deployable and clean setup remains reproducible.
 
-The manifest records commit, world-pack/schema/policy/model/asset versions, scenario seeds/hashes, north-star trace manifest including document/policy/evaluation versions and external observation/research provenance, visual captures, provenance/license report, soak/ecology/cost data, fault results, accessibility/performance reports, product-eval findings, known limitations, staging URL reference, and exit decision.
+The manifest records commit, world-pack/schema/policy/model/asset versions, scenario seeds/hashes, north-star trace manifest including document/policy/evaluation versions and external observation/research provenance, visual captures, provenance/license report, soak/ecology/cost data, fault results, accessibility/performance reports, product-eval findings, known limitations, the URL of the validation deployment, and exit decision.
 
 ---
 

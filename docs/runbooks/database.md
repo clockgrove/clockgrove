@@ -576,8 +576,8 @@ composed store stores `public_scene` only and refuses every other class with
 `test:runtime`) runs the composed store in the native workerd/PostgreSQL harness against a Miniflare
 R2 bucket: a JSON artifact one byte over the inline limit spills to its content-addressed key and
 round-trips, a rewritten object is `ArtifactIntegrityError('hash')`, another tenant's read is
-`ArtifactNotFoundError` and a private put is refused. The staging round trip stays pending on
-issue 3.
+`ArtifactNotFoundError` and a private put is refused. The round trip on the validation deployment
+stays pending on issue 3.
 
 ### Artifact key rotation
 

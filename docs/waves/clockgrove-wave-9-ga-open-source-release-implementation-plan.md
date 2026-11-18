@@ -13,15 +13,15 @@
 
 ## 1. Outcome
 
-Wave 9 proves Clockgrove can be trusted, reproduced, extended, and operated as an open-source project with a hosted reference deployment. It implements administration, privacy lifecycle, resource controls, production observability, backup/restore/DR, capacity qualification, security review, public documentation, release engineering, and the final evidence gate.
+Wave 9 proves Clockgrove can be trusted, reproduced, extended, and operated as an open-source engine that developers deploy with their own worlds in their own cloud accounts. It implements administration, privacy lifecycle, resource controls, production observability, backup/restore/DR, capacity qualification, security review, public documentation, release engineering, and the final evidence gate.
 
 The wave exits only when:
 
-> A clean contributor can reproduce the stack and demo; an operator can detect, contain, recover, export, delete, and explain failures; the hosted reference meets declared SLO/security/cost bounds; and the public repository ships with complete provenance, documentation, and no unresolved invariant failure.
+> A clean contributor can reproduce the stack and demo; an operator can detect, contain, recover, export, delete, and explain failures; the validation deployment meets declared SLO/security/cost bounds; and the public repository ships with complete provenance, documentation, and no unresolved invariant failure.
 
 “GA” is a technical quality gate, not a commitment to monetize, form a company, add enterprise features, or collect payment.
 
-GA ships the Clockgrove platform. Raccoon World ships beside it as a separate reference world from [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), pinned to the released Clockgrove commit, and the hosted reference deployment runs that pinned pair. Clockgrove's own release evidence runs on its fixture world, `worlds/fixture`; the reference world's evidence runs in its repository. Every release obligation below still holds, each proven in the repository that owns it.
+GA ships the Clockgrove platform. Raccoon World ships beside it as a separate reference world from [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), pinned to the released Clockgrove commit, and that repository deploys the pinned pair into its own accounts. Clockgrove's deploy tooling deploys only this repository's qualified commit, to `development` and the validation deployment (`staging`); deploying a developer's world pack, and any `production` deployment, are not built yet. Clockgrove has no production deployment of its own: its release evidence runs on its fixture world, `worlds/fixture`, on the validation deployment; the reference world's evidence runs in its repository. Every release obligation below still holds, each proven in the repository that owns it.
 
 ---
 
@@ -35,7 +35,7 @@ Deliver security/privacy lifecycle, clean restore/replay, runbooks/SLOs, support
 
 Use focused checks while implementing/repairing; run the full applicable release gate at the stable candidate boundary and rerun invalidated evidence after change. Share compatible evidence without relabeling it. The maintenance cadence below applies to operation of the accepted release and is not a demand to rerun every broad suite during every intermediate fix.
 
-Waves 10–11 remain the separate hosted/shared-world continuation; Wave 12 is optional commercial hosting. They do not block technical/open-source GA or pull Redis/Stripe into its local stack.
+Waves 10–12 are parked. Nothing in this wave depends on them, and Redis and Stripe stay out of its stack.
 
 ---
 
@@ -47,7 +47,7 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - All ten scenario manifests and the north-star trace are green.
 - Wave 0 clean-room provenance, repository, environments, reproducibility, and source/asset evidence remain intact.
 - No private code, assets, prompts, infrastructure, credentials, or product identity from unrelated projects are present.
-- Hosted deployment has development/staging/production isolation, but production contains no irreplaceable manual state outside documented stores/configuration.
+- The validation deployment (environment `staging`) is isolated from development and holds no irreplaceable manual state outside documented stores/configuration.
 - SLOs, retention, cost, privacy, browser, support, and release targets are proposed and reviewable.
 
 ---
@@ -129,9 +129,9 @@ Generated public docs derive from versioned OpenAPI/Zod/world-pack/MCP contracts
 
 All mutations use application commands, require idempotency, and create operator audit evidence. Admin UI never writes provider or database state directly.
 
-### 5.2 Default hosted deployment
+### 5.2 Deployment owner
 
-The initial hosted reference may be operated by a small maintainer group with invited testers. Multi-tenant contracts and tests remain real because they are security boundaries, not because enterprise sales are planned.
+Each world's deployment is operated by its owner role, inside that deployment; Clockgrove runs no console of its own. The validation deployment is operated by the maintainers with invited testers. Multi-tenant contracts and tests remain real because they are security boundaries, not because a hosted service is planned.
 
 Enterprise SSO, procurement, invoicing, CRM, sales analytics, and customer-specific deployment modes remain out of scope.
 
@@ -199,9 +199,9 @@ Canonical replay never depends on deleted raw model/tool payloads; retained sema
 
 ### 7.2 Resource ledger
 
-Meter compute, storage, egress, model tokens/cost, tool calls, ingestion, embeddings, consolidation, preview, external delivery, and active/dormant actor work by tenant/world/timeline/actor/session where feasible.
+Meter compute, storage, egress, model tokens/cost, tool calls, ingestion, embeddings, consolidation, preview, external delivery, and active/dormant actor work in a durable ledger, by tenant/world/timeline/actor/session where feasible.
 
-The ledger supports quotas, cost attribution, anomaly detection, and future optional pricing analysis. It does not collect money, import Stripe, or change kernel behavior based on a billing vendor.
+The ledger backs the deployment's quotas and budgets (model spend included), cost attribution, anomaly detection, and future optional pricing analysis. It does not collect money, import Stripe, or change kernel behavior based on a billing vendor.
 
 ---
 
@@ -235,7 +235,7 @@ Zero-tolerance invariants:
 
 Amended (2026-10-19): "unreconciled ambiguous ownership after transfer" moves to Wave 11 with cross-space transfer. GA runs one space owner per world partition (parent §35).
 
-Targets are pinned in release policy after staging/load baselines, not invented in prose.
+Targets are pinned in release policy after validation-deployment and load baselines, not invented in prose.
 
 ### 8.3 Alerts
 
@@ -368,7 +368,7 @@ Release pipeline pins lockfile/toolchain/runtime/compatibility/schema/world-pack
 
 Amended (2026-10-27): the release pipeline inherits from Wave 1 (Wave 1 RW-0102 step 7) the world-pack compatibility matrix, which Wave 1 did not build. Wave 1 provides the pack conformance entrypoint and each pack's `engineCompatibility` range.
 
-The reference world's repository moves its pin to the release candidate's commit and passes its own CI before the hosted reference deploys. Release candidate deploys to staging, runs full cloud qualification, restores a clean environment, then promotes the same verified commit/artifacts. No manual production edit exists outside audited configuration.
+Release candidate deploys to the validation deployment, runs full cloud qualification and restores a clean environment. The verified commit is then tagged as the release, and world repositories, the reference world's included, repin to it and pass their own CI. No manual production edit exists outside audited configuration.
 
 ---
 
@@ -396,7 +396,7 @@ Required:
 - malicious content/abuse/moderation;
 - secret/dependency/supply-chain compromise.
 
-At least P0/P1 runbooks are rehearsed in staging with time-stamped evidence.
+At least P0/P1 runbooks are rehearsed on the validation deployment with time-stamped evidence.
 
 ---
 
@@ -485,7 +485,7 @@ Safe lanes: admin/privacy; budgets/observability; backup/capacity; security; doc
 ## 17. Qualification cadence
 
 - Per PR: contracts, unit/property, package integration, security lint, docs/code sample, asset/provenance deltas.
-- Per main deploy: staging smoke, migrations, north-star core, browser/accessibility smoke, replay sample.
+- Per release candidate: validation-deployment smoke, migrations, north-star core, browser/accessibility smoke, replay sample.
 - Nightly: long simulation, replay/fuzz, memory/authoring eval, dependency drift.
 - Weekly: load/soak, DLQ/reconciliation, provider failures, schema/world-pack upgrade.
 - Monthly: clean restore, replay bundle, credential rotation, deletion/export.
@@ -582,12 +582,6 @@ At the end of Wave 9, Clockgrove has one coherent proof:
 
 > A deterministic and inspectable living world can host durable subjective actors, learning, governed tools, safe language-based authoring, multiple interface portals, and a polished realtime presentation while preserving canonical truth, privacy, replay, and operational recovery.
 
-Further work—additional worlds, richer messaging/voice adapters, a complete murder mystery, multiplayer embodiment, creator ecosystem, or a future paid hosted platform—begins only from measured use and a new approved plan. None is required to validate the original project thesis.
+Further work—additional worlds, richer messaging/voice adapters, a complete murder mystery, multiplayer embodiment or a creator ecosystem—begins only from measured use and a new approved plan. None is required to validate the original project thesis.
 
-The approved hosted/shared-world continuation and optional commercial track are specified separately:
-
-- **Wave 10:** provider-neutral identity, self-service multitenancy, signup, workspaces, invitations, and onboarding, with Better Auth as the OSS reference adapter;
-- **Wave 11:** MUD/MOO-style world membership, durable world personas, presence, immutable action attribution, world-local personal inventory, and inherited object-mobility policy;
-- **Wave 12:** usage metering, Redis-backed prepaid admission, PostgreSQL accounting, automatic recharge, payment collection, and commercial reconciliation built on—but kept distinct from—Wave 11 attribution.
-
-Wave 9 remains independently complete. A public open-source/demo release does not require Waves 10–12, and their hosted, multiuser, and commercial concerns may not leak backward into world semantics or the local stack.
+Wave 9 is the last planned wave. Waves 10–12 are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Hosted, multiuser and commercial concerns may not leak backward into world semantics or the local stack.

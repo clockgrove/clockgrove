@@ -37,7 +37,7 @@ First qualify the ordinary runtime ownership path: authenticated routing, curren
 
 Then deliver cross-space transfer, Queue reconciliation/DLQ, typed Workflow linkage, broader failure scenarios and measured capacity as separate complete capabilities with real dependencies. These remain full-wave obligations. A rare combined outage does not expand the first ownership Objective merely because it was discovered during qualification.
 
-Use one owner for shared runtime/staging resources. Run independent capability work concurrently only when edits and resources are isolated; do not invoke the entire fault/load matrix after each repair.
+Use one owner for shared runtime and validation-deployment resources. Run independent capability work concurrently only when edits and resources are isolated; do not invoke the entire fault/load matrix after each repair.
 
 ---
 
@@ -51,12 +51,12 @@ These are the full-wave/default entry conditions. A named local-development Obje
 - Worker, three DO namespace bindings/classes, Queue/Workflow bindings, Wrangler environments, and authenticated no-op path exist from Wave 0.
 - Cloudflare compatibility date and exact Agents SDK/Wrangler versions are pinned in the release manifest.
 - Authentication-provider verification and internal principal mapping are available at the Worker boundary.
-- Local Wrangler/Miniflare tests and a staging Cloudflare environment are operational.
+- Local Wrangler/Miniflare tests and the validation deployment (environment `staging`) on Cloudflare are operational.
 - OTel/correlation helpers and structured safe logging exist.
 
 Amended (2026-10-19):
 
-- The Wave 0 hosted half is an entry condition: real staging deploy, authenticated staging browser path, Queue/webhook duplicate safety and an accepted Wave 0 manifest. It delivers the staging environment and hosted no-op path listed above.
+- The Wave 0 hosted half is an entry condition: the real validation deployment, an authenticated browser path on it, Queue/webhook duplicate safety and an accepted Wave 0 manifest. It delivers the validation deployment and hosted no-op path listed above.
 - RW-0209 migration and upcaster compatibility is an entry condition, landing before the first deploy. Delivered: `test:db` migrates each prior-release fixture (`db/fixtures/prior`) to head and replays it to its recorded hashes.
 - Wave 2 delivers dispatch intents with a preview gate, not effect intents; those are built in Wave 5.
 - The live metrics exporter deferred from Wave 2 §16 lands in this wave.
@@ -94,7 +94,7 @@ Do not add SessionDO, PresenceDO, RuleDO, ObjectDO, SchedulerDO, or one DO per p
 
 ### 3.3 Ownership
 
-`WorldDO` is the **world runtime coordinator**. It owns applied runtime lifecycle, clock/catch-up policy, spatial directory, routing epoch, global configuration/rule activation, branch barriers, transfer coordination, future world-credit-lease/execution-entitlement application, and the operator runtime channel. The Management Plane owns desired lifecycle, pack/provisioning cases, billing accounts, global wallets, rating and Stripe; it reaches WorldDO only through typed application commands and receipts.
+`WorldDO` is the **world runtime coordinator**. It owns applied runtime lifecycle, clock/catch-up policy, spatial directory, routing epoch, global configuration/rule activation, branch barriers, transfer coordination, future world-credit-lease/execution-entitlement application, and the operator runtime channel. The Management Plane owns desired lifecycle and pack/provisioning cases (billing accounts, global wallets, rating and Stripe are parked with Waves 10–12); it reaches WorldDO only through typed application commands and receipts.
 
 WorldDO is addressable for ordinary runtime work only after PostgreSQL reports `WorldReady` and runtime-routable placement. Before readiness, entry/scene/actor routes return a typed `world_not_ready` result; an authorized provisioning inspector remains available through the application API.
 
@@ -708,7 +708,7 @@ Real Cloudflare tests verify behavior local emulation cannot prove:
 - OTel trace propagation/export;
 - bundle size, CPU, memory, subrequest, and wall-time limits.
 
-Qualification creates isolated tenant/world/timeline IDs and cleans up through audited commands. It never targets production user worlds.
+Qualification creates isolated tenant/world/timeline IDs and cleans up through audited commands. It never targets a world that players use.
 
 ### 18.3 Scenario parity
 

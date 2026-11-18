@@ -2,7 +2,7 @@ import type { ModelBudgetPort, ModelBudgetReservation } from "./port.js";
 
 /**
  * In-memory spend ledger: one limit per scope, in microdollars. Reservations hold spend until
- * settled with the actual cost. A durable, tenant-wide ledger is Wave 12 metering.
+ * settled with the actual cost. A durable ledger is Wave 9's resource ledger (RW-0903).
  */
 export class InMemoryModelBudget implements ModelBudgetPort {
   private readonly spent = new Map<string, number>();

@@ -318,7 +318,7 @@ These are account-independent implementation checks. Final Objective acceptance 
 requires actual exact-candidate CI logs/artifacts proving license enforcement, SBOM,
 vulnerability/tree-secret scanning, generated validated evidence and the installed real
 browser journey, plus verified external independent focused review. Owner setup (issue 1),
-the authenticated staging path and full Wave 0 exit (issue 2) remain pending.
+the authenticated path on the validation deployment and full Wave 0 exit (issue 2) remain pending.
 
 ## W0-010 local bootstrap and qualification
 
@@ -392,8 +392,9 @@ not from per-PR Quality.
 
 The authentication composition packet is account-independent preparation. Controlled local rows
 exercise stored-session and authority readers only. Enrollment/World-participation handoff, hosted
-configuration, authenticated staging and full Wave 0 qualification remain pending until an authorized
-bounded enrollment/provisioning path declares grants/privacy, or the planned provisioning path exists.
+configuration, authenticated qualification on the validation deployment and full Wave 0 qualification
+remain pending until an authorized bounded enrollment/provisioning path declares grants/privacy, or the
+planned provisioning path exists.
 Before integration, the operator must supply a passing independent review of the exact collected
 commit/tree covering every changed credential, authority and schema boundary. Missing review prevents
 integration; a negative review refuses integration. Final Objective review also requires fresh protected
@@ -407,4 +408,4 @@ implementation checkout can run behavior checks but cannot claim candidate-bound
 Native local evidence never supplies external review, published CI or hosted acceptance facts.
 
 When those whole-Objective facts remain unavailable, retain their pending dispositions and ask:
-"Which retained, authenticated, candidate-bound receipts satisfy each still-pending whole-Objective criterion, including real missed/duplicate Queue or webhook effects, approved owner setup and enrollment/World-grant/privacy handoff, protected staging deployment, authenticated staging correlation and the complete Wave 0 evidence manifest?"
+"Which retained, authenticated, candidate-bound receipts satisfy each still-pending whole-Objective criterion, including real missed/duplicate Queue or webhook effects, approved owner setup and enrollment/World-grant/privacy handoff, protected validation deployment, authenticated correlation on the validation deployment and the complete Wave 0 evidence manifest?"
