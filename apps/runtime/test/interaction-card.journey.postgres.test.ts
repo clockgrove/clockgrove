@@ -335,6 +335,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           perceived: "10000",
           protection: "5000",
           rain: "9000",
+          remembered: "0",
           thirst: "100",
           travelMs: "0",
           uncomfortable: "0",
