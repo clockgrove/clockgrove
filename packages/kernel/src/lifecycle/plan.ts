@@ -1,6 +1,7 @@
 import type { ObjectId } from "@clockgrove/contracts";
 import {
   deriveLifecycleSeason,
+  LIFECYCLE_MAX_ENTRIES,
   type LifecycleEntry,
   type LifecycleKind,
   type LifecyclePolicy,
@@ -78,6 +79,16 @@ export interface LifecyclePlan {
   readonly births: readonly ObjectId[];
 }
 
+/**
+ * The entity budget a birth needs room in: `entities` is `state.entities.length`; `removable`
+ * counts the dead a birth would move to the lineage (`removableLifecycleDead`), read only when the
+ * budget could bind.
+ */
+export interface LifecycleOccupancy {
+  readonly entities: number;
+  readonly removable: () => number;
+}
+
 interface Overlay {
   readonly objectId: ObjectId;
   readonly householdId: string;
@@ -110,6 +121,7 @@ export function planLifecycleAt(
   time: bigint,
   healthDeaths: ReadonlySet<string>,
   random: NamedRandomState,
+  occupancy: LifecycleOccupancy,
 ): LifecyclePlan {
   const kindOf = (archetypeId: string | undefined): LifecycleKind | undefined =>
     archetypeId === undefined ? undefined : lifecycleForKind(policy, archetypeId);
@@ -139,6 +151,8 @@ export function planLifecycleAt(
   const births: ObjectId[] = [];
   const decisions: { decision: ConceptionDecision; draws: readonly RandomDrawMetadata[] }[] = [];
   let stream = random;
+  let removableCount: number | undefined;
+  const removable = (): number => (removableCount ??= occupancy.removable());
 
   for (const actor of ordered()) {
     if (actor.dead || actor.kind === undefined) continue;
@@ -265,7 +279,9 @@ export function planLifecycleAt(
       exclusion = "no-co-parent";
     else if (
       sameKind.length + pending >= reproduction.maxPopulation ||
-      overlay.size + allPending >= 128
+      // The 128 bound counts what a birth cannot free: the living, objects and pinned dead (#358).
+      (occupancy.entities + births.length + allPending >= LIFECYCLE_MAX_ENTRIES &&
+        occupancy.entities - removable() + births.length + allPending >= LIFECYCLE_MAX_ENTRIES)
     )
       exclusion = "population-cap";
     const base = {

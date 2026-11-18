@@ -3,8 +3,10 @@ import { Document, NodeIO } from "@gltf-transform/core";
 import { EXTMeshoptCompression, KHRTextureBasisu } from "@gltf-transform/extensions";
 import { MeshoptEncoder } from "meshoptimizer";
 import sharp from "sharp";
-import { encodeKtx2Uastc } from "../src/ktx2.js";
+import { encodeKtx2Uastc, loadKtx2Encoder } from "../src/ktx2.js";
 import { encodePng } from "../src/png.js";
+
+await loadKtx2Encoder();
 
 // biome-ignore lint/suspicious/noExplicitAny: the fixture edits raw glTF extension JSON independently of the reader.
 export function rewriteModelJson(bytes: Uint8Array, change: (json: Record<string, any>) => void) {

@@ -38,8 +38,10 @@ for each living actor in object-id order. The first applicable exclusion wins, i
 `not-fertile-stage`, `gestating`, `cooldown`, `out-of-season`, `no-co-parent`, `population-cap`. A required
 co-parent is the first living actor in object-id order, other than the actor, of the same household and archetype,
 fertile under its kind, that is not the actor's parent or child and shares no parent with it (a sibling); a founder
-has no siblings. `maxPopulation` counts the living and the gestating of the actor's own kind (the 128-entry cap
-stays global), and the conception interval is the actor's kind's. An excluded
+has no siblings. `maxPopulation` counts the living and the gestating of the actor's own kind, and the conception interval is
+the actor's kind's. The global 128 bound (issue 358) counts what a birth cannot free: every entity, less the dead
+that `removableLifecycleDead` lists, plus this time's births and every pending gestation. The cumulative number
+of lives never stops reproduction. An excluded
 candidate draws nothing; every other candidate draws exactly one value from the `lifecycle` stream and conceives
 exactly when `BigInt.asUintN(32, rawValue) % 10000n < BigInt(conceptionChance)`. Every attempt is a
 `lifecycle.conception` decision draft recording the candidate, its exclusion or draw and the outcome. Health
@@ -48,7 +50,12 @@ death happens at the first millisecond health is at or below `deathHealth`; life
 schedule item, interrupts an active movement (`movement.interrupted` immediately before `lifecycle.died`) and
 removes the actor from every later system. Each birth upserts the child's `world.decision` item due at
 `bornAt + decisionIntervalMs`. The dead stay in `state.entities` with unchanged `objectId` and `archetypeId`
-and their lifecycle entry is kept. Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
+and their lifecycle entry is kept until a birth finds the lifecycle record or the entities at 128: that
+`lifecycle.born` first moves every dead actor nothing else names to `state.lifecycle.lineage` (at most 1,024, the
+earliest unnamed dead leaving first; the journal keeps their events), and Why's attribution and family links read
+the lineage. This is a recorded state contract change of issue 358: no event or reducer version changed, every
+committed golden kept its hash, and a journal written before it replays to the same state: a birth onto a full
+record was refused before, and one onto 128 or more entities left a world whose every later command was refused. `object.immutable-scope@1` lets an entity leave only as a dead actor: into the lineage, or out of the state while the lineage is full (one `world.advance` call can move a dead actor at one birth and evict it at a later one). `movement.scope@5` makes the same exception for a movement or portal command whose passed time crosses such a birth; `movement.scope@4` refused it, so the command returned `invariant-violated`. Only the `lifecycle` stream advances; without `policy.lifecycle` the returned
 random state equals the input. A movement or portal command that moves the world time plans the lifecycle times it
 passes the same way and in the same stream order, and a mover's death ends its move: `movement.interrupted`
 (without a cause), then `lifecycle.died` with the cause, both at the time of death
@@ -98,7 +105,9 @@ is bounded by living actors times decision intervals. Since issue 629 only a mat
 | `invariant-violated` | `events[i].payload.successorId` (a successor id names an entity) | `lifecycle.successor-distinct@1` |
 | `reducer-failed` | `events[i]` (a birth onto a state that already has the child) | - |
 
-**Evidence.** Targeted exact-time tests with one-millisecond-earlier negatives, the `material-lifecycle`
+**Evidence.** `test/lifecycle-generations.test.ts` runs one line of descent past 128 cumulative births (more than
+200 in 600 s) with at most six living, resolves the latest child's ancestry through the lineage and replays the
+journaled events to the same final state. Targeted exact-time tests with one-millisecond-earlier negatives, the `material-lifecycle`
 equivalence with the pairs `live-steps-vs-fast-forward`, `bounded-continuation-vs-unbounded`,
 `single-season-vs-no-hook` and `weather-perturbed-vs-baseline`, the test-owned `household-generations` golden
 (committed material-event and final-state hash literals) and the long runs `lifecycle-30-day` and

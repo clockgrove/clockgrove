@@ -31,6 +31,7 @@ import {
   environmentDisagreement,
   expectedCrossings,
   isRegionCrossing,
+  LIFECYCLE_MAX_LINEAGE,
   lifecycleDisagreement,
   lifecycleForKind,
   MOVEMENT_COMMAND_TYPES,
@@ -54,6 +55,7 @@ import {
   type RoutineCandidate,
   reduceWorldEvent,
   regionsContaining,
+  removableLifecycleDead,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
@@ -311,7 +313,7 @@ const OWN_MOVEMENT_TYPES: Readonly<Record<MovementCommandType | "portal.use", re
   });
 /**
  * The entity fields each event a moving command journals may change on the object its `objectId`
- * names (`movement.scope@4`). An event type not listed changes no entity field: its state, if any,
+ * names (`movement.scope@5`). An event type not listed changes no entity field: its state, if any,
  * lives in the world's wellbeing, lifecycle, ecology or environment records. `lifecycle.born` adds
  * the entity its `childId` names instead.
  */
@@ -1986,6 +1988,10 @@ function runWorld(
             at,
             new Set(group.deaths),
             lifecycleRandom,
+            {
+              entities: current().entities.length,
+              removable: () => removableLifecycleDead(current()).length,
+            },
           );
     const dying = new Set<string>(plan?.dying ?? []);
     const involved = new Set<string>([
@@ -4376,7 +4382,7 @@ function registerMovementChecks(
     }),
     invariants.register({
       name: "movement.scope",
-      version: 4,
+      version: 5,
       commands: moving,
       check: ({ initial, state, events, payload }) => {
         // The command moves one object: its own events name its mover, and the only other objects
@@ -4385,8 +4391,9 @@ function registerMovementChecks(
         // passes changes, on each object an event names, only the fields that event type owns
         // (`MOVING_ENTITY_FIELDS`); the mover's movement and pose change only through movement
         // events. Food appears and spoils only at the times its ecology owns. The frames, regions
-        // and anchor graphs never change, and the weather only at a weather transition. No entity
-        // is removed, and the only new ones are those born.
+        // and anchor graphs never change, and the weather only at a weather transition. An entity
+        // leaves only as a dead actor moved to the lifecycle lineage, or evicted from a full one
+        // (#358), and the only new ones are those born.
         const unowned = passedTimeDisagreement(initial, events);
         if (unowned !== undefined) return unowned;
         const mover = (payload as { readonly objectId?: string }).objectId;
@@ -4436,9 +4443,7 @@ function registerMovementChecks(
           for (const field of fields) set.add(field);
           released.set(objectId, set);
         }
-        for (const before of initial.entities)
-          if (!state.entities.some((entity) => entity.objectId === before.objectId))
-            return "state.entities";
+        if (removedEntityDisagreement(initial, state)) return "state.entities";
         for (const entity of state.entities) {
           const before = initial.entities.find(
             (candidate) => candidate.objectId === entity.objectId,
@@ -4459,6 +4464,22 @@ function registerMovementChecks(
     }),
   ];
   return results.find((result) => !result.ok) ?? { ok: true };
+}
+
+/**
+ * Whether `state` lost an entity of `initial` other than the way #358 lets one leave: a dead actor
+ * moved to the lifecycle lineage, or, while that lineage is at its bound, gone altogether (one call
+ * can move a dead actor at one birth and evict it from the full lineage at a later birth). Shared by
+ * `object.immutable-scope@1` and `movement.scope@5`.
+ */
+function removedEntityDisagreement(initial: WorldState, state: WorldState): boolean {
+  const kept = new Set(state.entities.map((entity) => entity.objectId));
+  const lineage = state.lifecycle?.lineage ?? [];
+  for (const dead of lineage) kept.add(dead.objectId);
+  const full = lineage.length >= LIFECYCLE_MAX_LINEAGE;
+  return initial.entities.some(
+    (entity) => !kept.has(entity.objectId) && !(full && entity.lifecycle?.status === "dead"),
+  );
 }
 
 /**
@@ -4956,9 +4977,7 @@ function registerContainmentChecks(
       check: ({ initial, state }) => {
         for (const key of ["tenantId", "worldId", "timelineId", "partitionId"] as const)
           if (initial[key] !== state[key]) return `state.${key}`;
-        for (const entity of initial.entities)
-          if (!state.entities.some((candidate) => candidate.objectId === entity.objectId))
-            return "state.entities";
+        if (removedEntityDisagreement(initial, state)) return "state.entities";
         // Entity scope is inherited exclusively from its immutable partition envelope.
         for (const entity of state.entities)
           for (const key of ["tenantId", "worldId", "timelineId", "partitionId"])

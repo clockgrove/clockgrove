@@ -2,10 +2,23 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, onTestFailed } from "vitest";
 import { encodePng, repositoryRoot, sha256Hex } from "../src/index.js";
 
-it("preflights the declared profile for every CLI action before changing reviewed or golden output", () => {
+// #358: on the ubuntu-26.04 runner this test reached its 30 s limit and timed out at it on run
+// 44394054837, with the assets suite taking 80 s beside the other packages' suites. It starts eleven
+// CLI processes, ten of them refused at the preflight. Those no longer load the Basis encoder's wasm
+// (`runAssetsCommand`), which cut a refused process from 0.62 s to 0.22 s on a developer host and the
+// test from 5.2 s to 3.4–4.1 s on one of its CPUs. 120 s is four times the runner figure, as #401 set
+// for the material pipeline; each process keeps its own 30 s limit.
+it("preflights the declared profile for every CLI action before changing reviewed or golden output", {
+  timeout: 120_000,
+}, () => {
+  let step = "fixture world";
+  onTestFailed(({ task }) => {
+    for (const error of task.result?.errors ?? [])
+      error.message = `step "${step}": ${error.message}`;
+  });
   const root = fs.mkdtempSync(join(tmpdir(), "asset-preflight-"));
   const assetPackage = join(root, "packages/assets");
   const world = join(root, "worlds/fixture");
@@ -63,6 +76,7 @@ it("preflights the declared profile for every CLI action before changing reviewe
         fs.writeFileSync(profilePath, JSON.stringify(profile));
       }
       for (const command of ["check", "build", "update-golden"]) {
+        step = `${command} refused with ${failure}`;
         const result = run(command);
         expect(result.error).toBeUndefined();
         expect(result.status).toBe(1);
@@ -71,6 +85,7 @@ it("preflights the declared profile for every CLI action before changing reviewe
         expect(fs.readFileSync(goldenPath, "utf8")).toBe("golden sentinel");
       }
     }
+    step = "build with a fitting profile";
     profile.sizes.actor.maxWidth = 256;
     fs.writeFileSync(profilePath, JSON.stringify(profile));
     expect(run("build").status).toBe(0);

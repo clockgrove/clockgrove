@@ -25,11 +25,23 @@ interface BasisEncoder {
   delete(): void;
 }
 
+type BasisModule = { BasisEncoder: new () => BasisEncoder };
+
 // The pinned ktx2-encoder package bundles a single-threaded Basis Universal wasm build and loads it
 // from its own install, never the network. One instance serves every encode in this process.
-const basis = (await new NodeBasisEncoder().init()) as unknown as {
-  BasisEncoder: new () => BasisEncoder;
-};
+// Loading it compiles and initialises the wasm, the largest part of a short CLI command's start
+// (about half of one on a quiet host), so it is loaded only by work that encodes: a command that
+// stops at its preflight refusal never pays for it.
+let basis: BasisModule | undefined;
+let loading: Promise<void> | undefined;
+
+/** Loads the KTX2 encoder once per process; `encodeKtx2Uastc` needs it loaded first. */
+export function loadKtx2Encoder(): Promise<void> {
+  loading ??= new NodeBasisEncoder().init().then((module) => {
+    basis = module as unknown as BasisModule;
+  });
+  return loading;
+}
 
 /**
  * KTX2 holding Basis Universal UASTC LDR 4×4 with Zstandard supercompression: one file per page that
@@ -38,6 +50,7 @@ const basis = (await new NodeBasisEncoder().init()) as unknown as {
  * the bytes a function of the image and encoding alone.
  */
 export function encodeKtx2Uastc(image: RgbaImage, encoding: "srgb" | "linear"): Uint8Array {
+  if (!basis) throw new Error("KTX2 encoder not loaded: await loadKtx2Encoder() before encoding");
   const encoder = new basis.BasisEncoder();
   try {
     encoder.setStatusOutput(false);

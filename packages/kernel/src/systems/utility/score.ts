@@ -4,6 +4,7 @@ import {
   deriveComfort,
   distanceFloor,
   entityIsActive,
+  findLifecycleLife,
   foodFreshnessBasisPoints,
   type MovementDestination,
   type MovementRecord,
@@ -112,7 +113,7 @@ function attributionHolds(
   effectiveAt: SimTimeMs,
 ): boolean {
   if (attributedTo === undefined) return true;
-  const death = state.lifecycle?.entries.find((entry) => entry.objectId === attributedTo)?.death;
+  const death = findLifecycleLife(state.lifecycle, attributedTo)?.death;
   return death === null || death === undefined || effectiveAt <= death.diedAt;
 }
 
