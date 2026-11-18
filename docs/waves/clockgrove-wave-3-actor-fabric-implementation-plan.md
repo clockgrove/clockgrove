@@ -94,7 +94,7 @@ Do not add SessionDO, PresenceDO, RuleDO, ObjectDO, SchedulerDO, or one DO per p
 
 ### 3.3 Ownership
 
-`WorldDO` is the **world runtime coordinator**. It owns applied runtime lifecycle, clock/catch-up policy, spatial directory, routing epoch, global configuration/rule activation, branch barriers, transfer coordination, future world-credit-lease/execution-entitlement application, and the operator runtime channel. The Management Plane owns desired lifecycle, pack/provisioning cases, billing accounts, global wallets, rating and Stripe; it reaches WorldDO only through typed application commands and receipts.
+`WorldDO` is the **world runtime coordinator**. It owns applied runtime lifecycle, clock/catch-up policy, spatial directory, routing epoch, global configuration/rule activation, branch barriers, transfer coordination, future world-credit-lease/execution-entitlement application, and the operator runtime channel. The Management Plane owns desired lifecycle and pack/provisioning cases (billing accounts, global wallets, rating and Stripe are parked with Waves 10–12); it reaches WorldDO only through typed application commands and receipts.
 
 WorldDO is addressable for ordinary runtime work only after PostgreSQL reports `WorldReady` and runtime-routable placement. Before readiness, entry/scene/actor routes return a typed `world_not_ready` result; an authorized provisioning inspector remains available through the application API.
 

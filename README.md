@@ -10,8 +10,8 @@ Clockgrove is the platform, not a particular world. [Raccoon World](https://gith
 
 Clockgrove is an engine you deploy yourself, not a hosted service. The unit of deployment is a world: your world pack plus a pinned Clockgrove, deployed into your own cloud account. Nobody signs in to Clockgrove itself. It has two kinds of user:
 
-- **Developers** clone Clockgrove, write a world pack, configure their own cloud and identity provider, and deploy their world. Clockgrove supplies the runtime (one Cloudflare Worker with World, Space and ActorAgent Durable Objects, queues, workflows, a Neon PostgreSQL journal and R2), the default React + Three.js web client, the world MCP server and the deploy tooling.
-- **Players** sign in to a world's deployment, such as Raccoon World's site, through the Better Auth reference adapter (Google sign-in first; Clerk is an optional adapter). Owner tools such as approvals, moderation, budgets and run inspection live inside that deployment, for its owner role.
+- **Developers** clone Clockgrove, write a world pack and configure their own cloud and identity provider. Clockgrove supplies the runtime (one Cloudflare Worker with World, Space and ActorAgent Durable Objects, queues, workflows, a Neon PostgreSQL journal and R2), the default React + Three.js web client and the world MCP server. Its deploy tooling targets only this repository's qualified commit, for the `development` and validation environments; deploying a developer's world pack, and any `production` deployment, are not built yet.
+- **Players** will sign in to a world's deployment. Google is the decided first sign-in provider, through the Better Auth reference adapter, with Clerk as an optional adapter. Neither Google sign-in nor the Clerk adapter is built yet: today the Better Auth adapter only verifies sessions (bearer tokens, the MCP OAuth provider and API keys). Owner tools such as approvals and run inspection live inside that deployment, for its owner role.
 
 > Build persistent worlds from deterministic physical truth plus subjective, agentic cognition.
 

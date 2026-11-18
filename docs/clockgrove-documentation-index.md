@@ -4,7 +4,7 @@
 **Baseline date:** October 01, 2026  
 **Product baseline:** PRD v0.5.10  
 **Architecture baseline:** Cloudflare-native implementation plan v3.12  
-**Delivery baseline:** Product Waves 0–9; Waves 10–12 parked
+**Delivery baseline:** Product Waves 0–9; Waves 10–12 hosted work parked; Wave 11 engine items planned post-GA
 
 ---
 
@@ -107,7 +107,7 @@ For contributor workflow (required tools, acceptance commands, workspace and run
 | 8 | `clockgrove-wave-8-living-neighborhood-demo-implementation-plan.md` | 1.6 | Complete provisioned Raccoon World demo with Caretaker persona, delivered in clockgrove/raccoon-world against the platform |
 | 9 | `clockgrove-wave-9-ga-open-source-release-implementation-plan.md` | 1.9 | Technical/open-source GA of the platform, with Raccoon World as a separate reference world |
 | 10 | `clockgrove-wave-10-self-service-multitenancy-signup-implementation-plan.md` | 1.6 | Parked, not planned: provider-neutral Management Plane, workspaces, billing-account seam and starter-world provisioning |
-| 11 | `clockgrove-wave-11-multiuser-attribution-portable-objects-implementation-plan.md` | 2.5 | Parked, not planned: multiuser worlds, personas, attribution and world-local inventory |
+| 11 | `clockgrove-wave-11-multiuser-attribution-portable-objects-implementation-plan.md` | 2.5 | Hosted and social parts parked; engine items (per-space split, cross-space transfer, fidelity tiers, object mobility) planned post-GA |
 | 12 | `clockgrove-wave-12-metering-prepaid-credits-billing-implementation-plan.md` | 1.5 | Parked, not planned: shared-wallet leases, Runtime-local admission and Management-only commercial billing |
 
 The Wave 11 filename is retained for historical identity. Its current content explicitly rejects cross-world runtime object portability.
@@ -124,9 +124,9 @@ GitHub retains current Objective/Work Item status and exact evidence. This index
 
 Produces a secure, reproducible, demo-quality, open-source Clockgrove engine that developers deploy with their own worlds. The reference world is delivered and deployed from its own repository. It does not require self-service commercialization, customer billing or public MMO operations.
 
-### Parked: Waves 10–12
+### Parked: Waves 10–12 hosted work
 
-Waves 10–11 (self-service identity/tenancy and shared hosted worlds) and Wave 12 (metering, prepaid credits and billing) are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. They are not planned. Their plan files carry the parked status.
+Wave 10 (self-service identity/tenancy), Wave 11's hosted and social parts (shared hosted worlds) and Wave 12 (metering, prepaid credits and billing) are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. They are not planned. Wave 11's engine items (per-space state split, cross-space transfer, fidelity tiers, the one-million-actor fixture, object mobility) are planned post-GA engine work. The plan files carry this status.
 
 ### Development tooling
 

@@ -13,7 +13,7 @@
 
 ---
 
-**Parked (owner decision 2026-11-14):** Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Not planned.
+**Partly parked (owner decisions 2026-11-14 and 2026-11-17):** Clockgrove is an engine that developers deploy and host themselves, not a hosted service. This wave's hosted and social parts are parked and not planned. Its engine sections, §3's 2026-10-19 amendment (per-space state split, cross-space transfer saga, fidelity tiers, quadtree promotion, one-million-actor fixture) and §7 (object mobility and personal inventory), are the planned post-GA engine work.
 
 ## 1. Outcome
 

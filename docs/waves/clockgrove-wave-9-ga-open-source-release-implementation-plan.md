@@ -21,7 +21,7 @@ The wave exits only when:
 
 “GA” is a technical quality gate, not a commitment to monetize, form a company, add enterprise features, or collect payment.
 
-GA ships the Clockgrove platform. Raccoon World ships beside it as a separate reference world from [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), pinned to the released Clockgrove commit, and that repository deploys the pinned pair into its own accounts. Clockgrove deploys nothing of its own: its release evidence runs on its fixture world, `worlds/fixture`, deployed the way any developer deploys a world; the reference world's evidence runs in its repository. Every release obligation below still holds, each proven in the repository that owns it.
+GA ships the Clockgrove platform. Raccoon World ships beside it as a separate reference world from [clockgrove/raccoon-world](https://github.com/clockgrove/raccoon-world), pinned to the released Clockgrove commit, and that repository deploys the pinned pair into its own accounts. Clockgrove's deploy tooling deploys only this repository's qualified commit, to `development` and the validation deployment (`staging`); deploying a developer's world pack, and any `production` deployment, are not built yet. Clockgrove has no production deployment of its own: its release evidence runs on its fixture world, `worlds/fixture`, on the validation deployment; the reference world's evidence runs in its repository. Every release obligation below still holds, each proven in the repository that owns it.
 
 ---
 
@@ -199,9 +199,9 @@ Canonical replay never depends on deleted raw model/tool payloads; retained sema
 
 ### 7.2 Resource ledger
 
-Meter compute, storage, egress, model tokens/cost, tool calls, ingestion, embeddings, consolidation, preview, external delivery, and active/dormant actor work by tenant/world/timeline/actor/session where feasible.
+Meter compute, storage, egress, model tokens/cost, tool calls, ingestion, embeddings, consolidation, preview, external delivery, and active/dormant actor work in a durable ledger, by tenant/world/timeline/actor/session where feasible.
 
-The ledger supports quotas, cost attribution, anomaly detection, and future optional pricing analysis. It does not collect money, import Stripe, or change kernel behavior based on a billing vendor.
+The ledger backs the deployment's quotas and budgets (model spend included), cost attribution, anomaly detection, and future optional pricing analysis. It does not collect money, import Stripe, or change kernel behavior based on a billing vendor.
 
 ---
 
@@ -368,7 +368,7 @@ Release pipeline pins lockfile/toolchain/runtime/compatibility/schema/world-pack
 
 Amended (2026-10-27): the release pipeline inherits from Wave 1 (Wave 1 RW-0102 step 7) the world-pack compatibility matrix, which Wave 1 did not build. Wave 1 provides the pack conformance entrypoint and each pack's `engineCompatibility` range.
 
-The reference world's repository moves its pin to the release candidate's commit and passes its own CI before it deploys the reference world. Release candidate deploys to the validation deployment, runs full cloud qualification, restores a clean environment, then promotes the same verified commit/artifacts. No manual production edit exists outside audited configuration.
+Release candidate deploys to the validation deployment, runs full cloud qualification and restores a clean environment. The verified commit is then tagged as the release, and world repositories, the reference world's included, repin to it and pass their own CI. No manual production edit exists outside audited configuration.
 
 ---
 
@@ -485,7 +485,7 @@ Safe lanes: admin/privacy; budgets/observability; backup/capacity; security; doc
 ## 17. Qualification cadence
 
 - Per PR: contracts, unit/property, package integration, security lint, docs/code sample, asset/provenance deltas.
-- Per main deploy: validation-deployment smoke, migrations, north-star core, browser/accessibility smoke, replay sample.
+- Per release candidate: validation-deployment smoke, migrations, north-star core, browser/accessibility smoke, replay sample.
 - Nightly: long simulation, replay/fuzz, memory/authoring eval, dependency drift.
 - Weekly: load/soak, DLQ/reconciliation, provider failures, schema/world-pack upgrade.
 - Monthly: clean restore, replay bundle, credential rotation, deletion/export.

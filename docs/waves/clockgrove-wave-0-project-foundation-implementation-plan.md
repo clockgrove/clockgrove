@@ -6,7 +6,7 @@
 **Parent plan:** `clockgrove-cloudflare-implementation-plan.md` v3.9  
 **Product source:** `clockgrove-prd-v0.5.md` v0.5.8  
 **Development tooling:** `clockgrove/pendulum` may operate this repository but is not a product/runtime dependency
-**Wave:** 0 of 13 — foundation workstream for product implementation waves 1–9
+**Wave:** 0 of 10 (Waves 10–12 hosted work is parked) — foundation workstream for product implementation waves 1–9
 
 ---
 
@@ -571,7 +571,7 @@ Amended (2026-11-09): the owner's required-reviewer approval on the protected `s
 
 ### Production
 
-The Clockgrove repository has no `production` deployment of its own; the deploy tooling keeps the `production` environment for a developer's world. Deploying to it requires the release policy in force at that time, including explicit human approval until a later accepted ADR narrows that gate.
+The Clockgrove repository has no `production` deployment of its own. The deploy tooling deploys this repository's candidate to `development` and the validation deployment only; deploying a developer's world pack, and any `production` deployment, are not built yet, and `production` is disabled. When built, deploying to `production` requires the release policy in force at that time, including explicit human approval until a later accepted ADR narrows that gate.
 
 Amended (2026-11-09): `production`, still disabled, keeps the stricter design the validation-deployment amendment drops: an independent reviewer's signed review of the exact candidate, verified against an offline Ed25519 acceptance key; signed recovery evidence for persisted state; and OpenTofu state and plans encrypted with a managed key, pinned by a configuration digest.
 

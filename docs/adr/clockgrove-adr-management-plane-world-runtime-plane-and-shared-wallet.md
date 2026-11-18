@@ -127,7 +127,7 @@ Archive and deletion are sagas, not direct table operations. Management owns req
 
 The browser may use one public gateway while the logical APIs remain distinct:
 
-- Management API: signup, workspaces, world list/create/status, invitations, pack registry, upgrades, quotas, archive/export/delete. It serves the deployment's owner role; Clockgrove runs no console of its own.
+- Management API: workspaces, world list/create/status, invitations, pack registry, upgrades, quotas, archive/export/delete. It serves the deployment's owner role; Clockgrove runs no console of its own. Hosted multitenant signup is parked (see above).
 - Runtime gateway: world entry, projection WebSocket, conversations, commands, inspection, authoring previews, timelines, presence, and inventory.
 
 After authenticating, the gateway resolves the canonical principal and creates a short-lived, audience- and world-scoped runtime assertion. Runtime verifies the assertion and its own world-membership/policy state. A valid provider session alone never grants world access.
@@ -210,7 +210,7 @@ A failed wallet service or payment provider may block new leases and costly work
 
 | Failure | Required behavior |
 | --- | --- |
-| Management Plane unavailable | Existing ready worlds continue; signup, provisioning, upgrades and admin changes pause safely |
+| Management Plane unavailable | Existing ready worlds continue; sign-in, provisioning, upgrades and admin changes pause safely |
 | World Runtime Plane unavailable | Management shows degraded/applied status; it never reports false readiness |
 | Provisioning dispatch duplicated | Runtime deduplicates by case/request IDs; one genesis and one ready event |
 | Receipt lost after runtime commit | Reconciler redelivers/re-reads applied receipt without rerunning genesis |
@@ -257,7 +257,7 @@ The Wave 3 phrase **“WorldDO control plane”** becomes **“WorldDO runtime c
 Keep the initial logical boundary, then split only when evidence supports one or more of:
 
 - independent availability or deployment cadence is required;
-- world runtime load harms signup/admin latency or vice versa;
+- world runtime load harms sign-in/admin latency or vice versa;
 - a deployment needs regional, network, or compliance isolation between its planes;
 - database write patterns or RLS blast radius warrant separate clusters;
 - runtime credentials must exclude identity systems at infrastructure level;

@@ -35,7 +35,7 @@ The v3.8 baseline incorporated the accepted post-v3.0 product/runtime decisions,
 - Personal inventory and object mobility are world- and timeline-local; cross-world runtime object portability is explicitly out of scope.
 - Mobility policy inherits from world to space to role/persona to archetype to instance; children may narrow but not silently widen, and deny wins.
 - One million logical actors per world is a qualification target. A loose quadtree and activity tiers prevent total population from implying total activation.
-- Waves 0–9 are the delivery plan. Waves 10–12 (self-service signup and tenancy, shared hosted worlds, metering, prepaid credits and billing) are parked and not planned.
+- Waves 0–9 are the delivery plan. Waves 10 and 12 (self-service signup and tenancy, metering, prepaid credits and billing) and Wave 11's hosted and social parts are parked and not planned. Wave 11's engine items (per-space state split, cross-space transfer saga, fidelity tiers, quadtree promotion, the one-million-actor fixture, and object mobility) are planned post-GA engine work.
 - Shared wallets, credit leases, rating, accounting and payment-provider integration are parked with Waves 10–12.
 - Inside each world's deployment, Management owns identity/tenancy, world catalog/desired lifecycle, pack registry, provisioning cases and quotas. World Runtime owns journals, simulation, cognition, world participation, attribution and projection. They initially compose as a modular monolith/CLI and may split physically later without changing contracts.
 
@@ -1373,7 +1373,7 @@ The reference world's `green-lake-yard@1` pack, committed in [clockgrove/raccoon
 
 The pack contains no Cloudflare, PostgreSQL, React or Three.js implementation imports. The web shell consumes its presentation inputs (§20.8) and the kernel consumes only its validated engine-facing manifest.
 
-Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.2.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
+Clockgrove's fixture world under `worlds/fixture` has two packs. The tiny `clockgrove.test-world@1.1.0` beacon pack deliberately differs in theme and nouns while exercising one space, mobile subject, stationary conversational object, resource, need, memory, rule and capability. The neutral `clockgrove.fixture-hall@1.3.0` variant under `worlds/fixture/reference` carries the reference scenarios' platform obligations with neutral identities. Their job is to prove the engine runs any world and to catch accidental reference-world assumptions, not to become a second content project.
 
 Do not build a marketplace, dependency solver, public registry, arbitrary plugin host, or community trust/signing system until those become product requirements.
 
@@ -3011,7 +3011,7 @@ The inspector is built through authorized application APIs, not direct productio
 | Staging | Production-equivalent qualification | Dedicated account/resources/project/app and sanitized fixtures |
 | Production | A developer's live world | Isolated resources, protected credentials and release controls |
 
-These are the environments the deploy tooling defines for a world's deployment in the developer's own accounts. The Clockgrove repository deploys nothing of its own: its hosted proof is the validation deployment (environment `staging`), and it has no `production` deployment.
+These are the environments a world's deployment uses in the developer's own accounts. The deploy tooling deploys only this repository's qualified main commit: main pushes to `development`, release candidates to the validation deployment (environment `staging`). Deploying a developer's world pack, and any `production` deployment, are not built yet; `production` is disabled. Clockgrove has no production deployment of its own; its hosted proof is the validation deployment, with release evidence on the fixture world.
 
 Pull-request web previews use fixture data. Full stateful cloud qualification uses the `development` and `staging` environments with unique test tenants/worlds; do not create a fragile production-like infrastructure stack per PR.
 
@@ -3992,7 +3992,7 @@ Exit:
 
 GA ships the platform. Raccoon World ships beside it as a separate reference world from its own repository, pinned to the released Clockgrove commit; that repository deploys it into its own accounts.
 
-**Parked (owner decision 2026-11-14):** Waves 10–12 below are not planned. Clockgrove is an engine that developers deploy and host themselves, not a hosted service.
+**Parked (owner decisions 2026-11-14 and 2026-11-17):** Waves 10 and 12 below, and Wave 11's hosted and social parts, are not planned. Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Wave 11's engine items are planned post-GA engine work (see the Wave 11 plan).
 
 ### Wave 10 — Self-service multitenancy, signup, and workspace onboarding (parked)
 
@@ -4004,7 +4004,7 @@ Exit:
 
 > A new principal can create or join a workspace and provision a bounded starter world without any provider-specific identifier becoming a domain key.
 
-### Wave 11 — Multiuser worlds, personas, attribution, and world-local inventory (parked)
+### Wave 11 — Multiuser worlds, personas, attribution, and world-local inventory (hosted and social parts parked)
 
 **Purpose:** Make a world a durable social place with MUD/MOO-style participation.
 

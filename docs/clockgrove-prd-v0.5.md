@@ -41,7 +41,7 @@ The following decisions resolve earlier open questions and control if later hist
 7. **Object mobility uses sparse inherited policy.** Effective permission is the intersection of world defaults, space restrictions, role/persona restrictions, archetype ceilings, and instance restrictions. Descendants may narrow policy but may not silently widen a parent. Deny wins. Pickup, drop, give, move-within-space, cross-space, place, remove, and object-use capabilities are evaluated separately.
 8. **Scale is activity-driven.** One million logical actors in a world is a qualification target, not a promise of one million simultaneously active or visible actors. The initial 2D/isometric runtime uses a loose quadtree with epoch-scoped opaque cell references, hot/warm/dormant tiers, leaf summaries, scoped event cursors, and measured promotion of hot leaves. An octree or another 3D index is deferred until a world requires authoritative 3D movement; no quadtree code enters durable actor/object identity.
 9. **Canonical truth remains in PostgreSQL.** Durable Objects serialize active work but are reconstructible. Runtime instance identifiers are Clockgrove diagnostic identifiers, not Cloudflare platform identities.
-10. **Clockgrove is an engine, not a hosted service.** The unit of deployment is a world: a world pack plus a pinned Clockgrove, deployed into the developer's own cloud account. No one signs in to Clockgrove itself; players sign in to a world's deployment, and owner tools (approvals, moderation case review, budgets, run inspection) live inside that deployment for its owner role. Waves 0–9 are the delivery plan. Waves 10–12 (self-service signup, shared hosted worlds, metering, prepaid credits and billing) are parked.
+10. **Clockgrove is an engine, not a hosted service.** The unit of deployment is a world: a world pack plus a pinned Clockgrove, deployed into the developer's own cloud account. No one signs in to Clockgrove itself; players sign in to a world's deployment, and owner tools (approvals, moderation case review, budgets, run inspection) live inside that deployment for its owner role. Waves 0–9 are the delivery plan. Waves 10 and 12 (self-service signup, metering, prepaid credits and billing) and Wave 11's hosted and social parts (shared hosted worlds) are parked. Wave 11's engine items (per-space state split, cross-space transfer, fidelity tiers, quadtree promotion, the one-million-actor fixture, object mobility) are planned post-GA engine work.
 11. **Variable-cost work runs inside the deployment's budgets.** The deployment's owner sets quotas and budgets for simulation, model and tool work. The shared wallet, prepaid credits, credit leases and payment-provider integration are parked with Wave 12.
 12. **Failure is explicit.** Exhausted budgets stop variable-cost work within declared bounds, and the owner may pause a world or make it read-only. The credit-driven execution modes (`credit_restricted`, and `frozen` for nonpayment) are parked with Wave 12.
 13. **A world has an explicit birth.** A validated immutable pack installs through an idempotent `WorldProvisioningCase`; it pins provenance, commits genesis/seed commands, verifies projections, and emits `WorldReady` before ordinary entry or simulation begins.
@@ -3161,10 +3161,10 @@ The detailed wave documents, not the older product-sequencing sketch retained be
 | 8 | Complete living neighborhood and demo-quality web application | Technical/OSS |
 | 9 | GA operations and open-source release | Technical/OSS |
 | 10 | Self-service multitenancy, signup, workspaces, and onboarding | Parked, not planned |
-| 11 | Multiuser worlds, world personas, action attribution, inventory, and mobility | Parked, not planned |
+| 11 | Multiuser worlds, world personas, action attribution, inventory, and mobility | Hosted and social parts parked; engine items planned post-GA |
 | 12 | Optional usage metering, Redis-backed prepaid admission, accounting, and billing | Parked, not planned |
 
-Waves 10–12 are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service.
+Waves 10 and 12, and Wave 11's hosted and social parts, are parked: Clockgrove is an engine that developers deploy and host themselves, not a hosted service. Wave 11's engine items are planned post-GA engine work.
 
 Attribution schema begins in Waves 0–2 even though full multiuser behavior belongs to the parked Wave 11. This avoids a retroactive journal migration and makes human, agent, system, rule, and tool causation inspectable from the first mutation.
 
@@ -3766,7 +3766,7 @@ This is a capability sequence, not a live status board or a fixed number of Obje
 8. **Wave 7:** first qualify typed changeset validation, isolated preview, diff, live-head revalidation and promotion; then add one bounded deterministic counterfactual Why capability, natural-language compilation, broader rules and complete scenario coverage.
 9. **Wave 8:** integrate the earlier checkpoints with a provenance-recorded live observation feed, actor-initiated MCP research, the complete learning/policy causal chain, field-guide learning and counterfactual Why journeys, richer ecology/lifecycle and demo art.
 10. **Wave 9:** qualify one stable technical/open-source candidate through security/privacy, clean restore, provenance, supported capacity, runbooks and release evidence. Ordinary acceptance, fault injection and load are distinct scenarios.
-11. **Waves 10–12:** parked; not planned.
+11. **Waves 10–12:** parked and not planned, except Wave 11's engine items, which are planned post-GA engine work.
 
 The bounded policy compiler is required cognition, not arbitrary generated executable code. Full 3D engines, broad provider orchestration, approximate vector indexing and extra services wait for a concrete consumer or measurement; their compatibility seams remain protected.
 
