@@ -13,6 +13,7 @@ import {
   MAX_ACTOR_ACTIVATIONS,
   MAX_REVOKED_CAPABILITIES,
 } from "@clockgrove/application";
+import { CONVERSATION_MESSAGE_LIMIT, openWakeSession } from "./postgres-conversations.js";
 import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
@@ -60,7 +61,11 @@ const activation = (r: Row): ActorActivation => ({
 
 /** Canonical bounded actor activation receipts; the policy row serializes causal admission. */
 export class PostgreSqlActivations {
-  constructor(private readonly client: PostgreSqlClient) {}
+  constructor(
+    private readonly client: PostgreSqlClient,
+    /** The session message limit wake sessions rotate at: the conversation store's own. */
+    private readonly messageLimit: number = CONVERSATION_MESSAGE_LIMIT,
+  ) {}
 
   /**
    * Writes one configuration and the actor's policy. Without a configuration (issue 323) only the
@@ -294,7 +299,57 @@ export class PostgreSqlActivations {
         status === "pending" && pending.rows[0] ? activation(pending.rows[0] as Row) : undefined;
       if (prior && joined) return prior;
       const id = prior?.activationId ?? joined?.activationId ?? crypto.randomUUID();
-      const sessionId = prior?.sessionId ?? joined?.sessionId ?? config.sessionId;
+      const hasFiber = async (session: string, message: string) =>
+        (
+          await this.client.query(
+            `SELECT 1 FROM clockgrove.conversation_turn_fibers
+              WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3`,
+            [a.scope.tenantId, session, message],
+          )
+        ).rows.length > 0;
+      // Issue 366: a model wake runs in a wake session of the configured session, so wakes never fill
+      // the person's conversation; a wake session is reused until it nears the limit. Nothing is deleted.
+      const wakeSession = async (): Promise<string> => {
+        // A configured session the person archived or deleted refuses the turn, as it always has.
+        const configured = await this.client.query(
+          `SELECT 1 FROM clockgrove.conversation_sessions
+            WHERE tenant_id=$1 AND session_id=$2 AND state='active'`,
+          [a.scope.tenantId, config.sessionId],
+        );
+        if (configured.rows.length !== 1) return config.sessionId;
+        const latest = (
+          await this.client.query(
+            `SELECT session_id, wake_generation, message_count, state,
+                    (SELECT count(*) FROM clockgrove.conversation_turn_fibers f
+                      WHERE f.tenant_id=s.tenant_id AND f.session_id=s.session_id) AS fibers
+               FROM clockgrove.conversation_sessions s
+              WHERE tenant_id=$1 AND wake_of=$2 ORDER BY wake_generation DESC LIMIT 1`,
+            [a.scope.tenantId, config.sessionId],
+          )
+        ).rows[0] as Row | undefined;
+        if (
+          latest !== undefined &&
+          latest.state === "active" &&
+          Number(latest.message_count) + 2 <= this.messageLimit &&
+          Number(latest.fibers) < this.messageLimit / 2
+        )
+          return String(latest.session_id);
+        return openWakeSession(
+          this.client,
+          a.participant,
+          { tenantId: a.scope.tenantId, sessionId: config.sessionId },
+          Number(latest?.wake_generation ?? 0) + 1,
+        );
+      };
+      const sessionId =
+        joined?.sessionId ??
+        (prior
+          ? status === "pending" && !(await hasFiber(prior.sessionId, prior.messageId))
+            ? await wakeSession()
+            : prior.sessionId
+          : status === "pending"
+            ? await wakeSession()
+            : config.sessionId);
       const messageId = prior?.messageId ?? joined?.messageId ?? `activation:${id}`;
       const input = prior?.input ?? joined?.input ?? config.input;
       if (status === "pending" && !joined && !prior)
@@ -313,11 +368,11 @@ export class PostgreSqlActivations {
       }
       if (prior) {
         await this.client.query(
-          `UPDATE clockgrove.actor_activations SET status=$6,outcome=$7
+          `UPDATE clockgrove.actor_activations SET status=$6,outcome=$7,session_id=$8
           WHERE ${KEY} AND causal_root=$5`,
-          [...values(a), wake.causalRoot, status, outcome],
+          [...values(a), wake.causalRoot, status, outcome, sessionId],
         );
-        return { ...prior, status, outcome };
+        return { ...prior, status, outcome, sessionId };
       }
       const result = await this.client.query(
         `INSERT INTO clockgrove.actor_activations

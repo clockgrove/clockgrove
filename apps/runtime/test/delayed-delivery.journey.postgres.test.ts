@@ -109,7 +109,8 @@ it("automatically resumes quiet-hour delivery after actor replacement without an
     const replay = await owner.withSqlClient((client) =>
       new PostgreSqlGovernedDelivery(client).replay(
         participant,
-        target,
+        // The wake's reply, and so its delivery, is in the configured session's wake session.
+        { ...target, sessionId: (first as { sessionId: string }).sessionId },
         `activation:${(first as { activationId: string }).activationId}`,
       ),
     );

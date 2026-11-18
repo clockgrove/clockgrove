@@ -44,6 +44,7 @@ import {
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
 import {
   activationEventSubscribers,
+  conversationMessageLimit,
   type EffectIntentMetadata,
   PostgreSqlActivations,
   PostgreSqlActorProcesses,
@@ -333,7 +334,14 @@ const keyrings = new Map<string, Promise<WebCryptoKeyring>>();
  * artifacts sealed under the environment's keyring, imported once per isolate and secret value.
  */
 export function composeConversations(
-  env: Pick<RuntimeEnvironment, "ARTIFACT_KEYRING" | "ARTIFACTS_BUCKET" | "METRICS" | "HYPERDRIVE">,
+  env: Pick<
+    RuntimeEnvironment,
+    | "ARTIFACT_KEYRING"
+    | "ARTIFACTS_BUCKET"
+    | "METRICS"
+    | "HYPERDRIVE"
+    | "CONVERSATION_MESSAGE_LIMIT"
+  >,
   model?: string,
   contextTokenBudget?: number,
   historyWindow?: number,
@@ -362,6 +370,7 @@ export function composeConversations(
           model,
           contextTokenBudget,
           historyWindow,
+          conversationMessageLimit(env.CONVERSATION_MESSAGE_LIMIT),
         ),
       );
     });
@@ -464,11 +473,13 @@ export function withActorProcesses<T>(
 
 /** Proactive activation metadata over canonical PostgreSQL, never local owner storage. */
 export function withActivations<T>(
-  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE" | "CONVERSATION_MESSAGE_LIMIT">,
   operation: (activations: PostgreSqlActivations) => Promise<T>,
 ): Promise<T> {
   return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
-    operation(new PostgreSqlActivations(client)),
+    operation(
+      new PostgreSqlActivations(client, conversationMessageLimit(env.CONVERSATION_MESSAGE_LIMIT)),
+    ),
   );
 }
 
@@ -785,6 +796,8 @@ export interface RuntimeEnvironment {
    * without it every conversation route answers `503 conversation_unavailable`.
    */
   readonly ARTIFACT_KEYRING?: string;
+  /** Messages a conversation session takes, 2 to 1,000; unset is 1,000 (issue 366). */
+  readonly CONVERSATION_MESSAGE_LIMIT?: string;
   /** The production model route's keys (the actor); without either, the actor answers from the scripted fixture. */
   readonly ANTHROPIC_API_KEY?: string;
   readonly AI_GATEWAY_API_KEY?: string;

@@ -139,7 +139,12 @@ it("delivers a canonical proactive reply once with snapshotted intent, consent a
     const transcript = decodeConversationTranscript(
       await post("/v1/runtime/conversations/read", { sessionId: session.sessionId }),
     );
-    expect(transcript.messages.map((message) => message.text)).toEqual([
+    // The wake ran in the configured session's wake session, leaving the person's session empty.
+    expect(transcript.messages).toEqual([]);
+    const woken = decodeConversationTranscript(
+      await post("/v1/runtime/conversations/read", { sessionId: String(sent.sessionId) }),
+    );
+    expect(woken.messages.map((message) => message.text)).toEqual([
       "Please send a private note",
       "Scripted fixture reply: you have said 1 thing to me in this conversation.",
     ]);
