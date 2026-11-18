@@ -93,10 +93,16 @@ past its 540-second bound is stopped the same way and exits 1.
 ## Review and approval
 
 Inspect each PNG at its declared viewport and backend. A person approves it in a reviewed world
-repository change. An agent may approve only on the owner's explicit delegation, recorded in
-that change. Neither the capture command nor CI may approve an image.
+repository change. An agent may approve only on the owner's explicit delegation. Neither the
+capture command nor CI may approve an image.
 
-Use the same approval format as the fixture, with paths relative to the visual output directory:
+An external world's capture approvals use the fixture's `approvals` entries only, with paths
+relative to the visual output directory. They carry no `review` block: `clockgrove-assets check`
+judges an approver only in Clockgrove's own fixture record above, never in a world's capture
+output, so the person's or delegated agent's approval of external captures is recorded in the
+reviewed world repository change itself. The world's own `approvers.json` is where `check --world`
+recognises the approver of its asset golden scene
+([Golden approval](../../packages/assets/docs/pipeline.md#golden-approval)).
 
 ```json
 {

@@ -193,9 +193,11 @@ under `worlds/fixture/assets/source`, and updates content hashes and atlas place
 `pnpm --filter @clockgrove/assets run build` rebuilds the fixture atlas and license report;
 `update-golden` renders its scene and resets changed approval as usual.
 
-The manifests and scene record use the synthetic `fixture-reviewer` identity already used by
-contract fixtures. These records test the approved branch of the deploy gate; they do not
-represent a human review of external world artwork. Unreviewed and unlicensed negative controls,
+The manifests use the synthetic `fixture-reviewer` identity already used by contract fixtures.
+They test the approved branch of the manifest review gate; they do not represent a human review
+of external world artwork. The scene record's approval is not synthetic: it names the agent and
+the delegation it acted under, as [Golden approval](#golden-approval) describes, and a
+`fixture-reviewer` name there is refused with `GOLDEN_APPROVER_REQUIRED`. Unreviewed and unlicensed negative controls,
 source validation, exact atlas rebuilding and golden refusal checks remain enabled.
 
 ## World style data
@@ -389,7 +391,8 @@ Stable refusals include `MODEL_GLB_INVALID`, `MODEL_HASH_MISMATCH`,
 `MODEL_SIDE_IMAGE_*` codes of [side images](#side-images).
 Manifest decoder failures retain `ASSET_MANIFEST_INVALID`. Licence and provider
 output-grant refusals retain the existing deploy codes. Pending human review is
-accepted by `validate`; `check` and shipping retain the human approval gate.
+accepted by `validate`; `check` and shipping retain the manifest's human review gate and the
+golden's approver rule (a listed person, or an agent under a recorded delegation).
 The inspector has a 60-second local process deadline so malformed media cannot
 hold the synchronous validation hook indefinitely.
 
