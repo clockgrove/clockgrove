@@ -18,7 +18,7 @@ import {
   decodeOpaqueId,
   type LivingScene,
 } from "@clockgrove/contracts";
-import { compareUtf16, type WorldState } from "@clockgrove/domain";
+import { CONTAINMENT_PAYLOAD_SCHEMAS, compareUtf16, type WorldState } from "@clockgrove/domain";
 import {
   AiSdkRouteAdapter,
   createModelGateway,
@@ -236,6 +236,19 @@ const OUTPUT = z.object({
     .nullish(),
 });
 
+/** The identifier fields a declared world command takes, named for the model; the runtime adds the rest. */
+function commandFieldHint(type: string): string {
+  const schemas: Readonly<Record<string, z.ZodReadonly<z.ZodObject>>> = CONTAINMENT_PAYLOAD_SCHEMAS;
+  const schema = Object.hasOwn(schemas, type) ? schemas[type] : undefined;
+  const fields =
+    schema === undefined
+      ? []
+      : Object.keys(schema.unwrap().shape).filter((key) => key !== "schemaVersion" && key !== "quantity");
+  return fields.length === 0
+    ? "<the command's object fields>"
+    : fields.map((field) => `"${field}":<${field} from the scene>`).join(",");
+}
+
 /** The actor's standing instructions. Retrieved text is data: it never adds a capability or a grant. */
 export function actorSystem(
   grants: CapabilityGrants,
@@ -247,9 +260,13 @@ export function actorSystem(
     ? (grants.grants.find((grant) => grant.capability === "world.command")?.commandTypes ?? [])
     : [];
   const offer = declared.length > 0;
-  const example = declared.includes("resource.offer")
-    ? '{"capability":"world.command","input":{"type":"resource.offer","objectId":<an offerable object id from the scene>,"kind":<its resource kind>}}'
-    : `{"capability":"world.command","input":{"type":"${declared[0] ?? ""}",<the command's object fields, such as fromObjectId, toObjectId and kind>}}`;
+  // Each declared type's own fields (issue 359): the runtime adds schemaVersion and the one unit.
+  const examples = declared.map((type) =>
+    type === "resource.offer"
+      ? '{"capability":"world.command","input":{"type":"resource.offer","objectId":<an offerable object id from the scene>,"kind":<its resource kind>}}'
+      : `{"capability":"world.command","input":{"type":"${type}",${commandFieldHint(type)}}}`,
+  );
+  const example = examples.join(" or ");
   return [
     configuration.identity,
     "Answer in one to three short sentences, grounded only in the scene below and the conversation. Never claim to have seen what is not described.",

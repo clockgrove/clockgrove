@@ -1374,9 +1374,10 @@ published-head Quality/browser/artifact evidence are still required before integ
 `AI_GATEWAY_API_KEY` is bound, and from the scripted fixture otherwise. The responder perceives what the
 actor perceives within the member's authorized public scene
 ([context assembly](../protocols/context-assembly.md)), asks for a structured `{reply, command}`, and the turn's
-`proposal_validating` phase decides the command against the member-bounded grants and submits a
-proposed `resource.offer` to the world owner, where the closed-world kernel refuses unbacked
-creation ([capabilities](../protocols/capabilities.md)). The
+`proposal_validating` phase decides the command against the member-bounded grants and the world's
+`clockgrove.actor-command-policy`, and submits the proposed command, of a type that declaration names,
+to the world owner, which decides it (the closed-world kernel refuses an unbacked `resource.offer`); a
+world whose pack declares no actor commands submits nothing ([capabilities](../protocols/capabilities.md)). The
 owner holds the latest Talk request's trusted context only in memory: a recovered turn without it
 abandons its attempt and the client's retry resumes. The pilot's rubric and cost envelope are in
 [the Stevie pilot](https://github.com/clockgrove/raccoon-world/blob/main/docs/runbooks/stevie-pilot.md).
