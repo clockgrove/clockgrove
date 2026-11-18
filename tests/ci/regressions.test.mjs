@@ -227,6 +227,12 @@ it(
         ],
       });
       await expect(validateEvidence(stopped([timedOut]))).resolves.toBeDefined();
+      // Failed migrations may have applied some files: their effect is unknown, never a clean failure.
+      const migrations = { ...publication("unknown"), command: ["database migrations"] };
+      await expect(validateEvidence(stopped([migrations]))).resolves.toBeDefined();
+      await expect(
+        validateEvidence(stopped([{ ...migrations, status: "failed" }])),
+      ).rejects.toThrow("execution outcome mismatch");
       await expect(
         validateEvidence(
           stopped([timedOut, { ...publication("passed"), command: ["Hyperdrive identity"] }]),

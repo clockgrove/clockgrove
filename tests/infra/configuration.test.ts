@@ -884,6 +884,23 @@ describe("provision retry", () => {
     }
   });
 
+  it("records failed migrations, which may have applied some files, as an unknown effect, and failed grants as failed", async () => {
+    const result = { phases: [] as Phase[] };
+    const candidate = { commit: "a".repeat(40), tree: "b".repeat(40) };
+    for (const name of ["reviewed database-role grants", "database migrations"])
+      await expect(
+        recordDeploymentPhase(result, candidate, name, process.execPath, ["-e", "process.exit(1)"]),
+      ).rejects.toThrow(`${name} failed`);
+    expect(
+      result.phases.map(({ command, status, exitCode }) => [command[0], status, exitCode]),
+    ).toEqual([
+      ["reviewed database-role grants", "failed", 1],
+      ["database migrations", "unknown", 1],
+    ]);
+    expect(failedDeploymentStatus(result.phases.slice(0, 1), true)).toBe("failed");
+    expect(failedDeploymentStatus(result.phases.slice(1), true)).toBe("unknown");
+  });
+
   it("records a call the budget refuses as a failed phase that ends the deploy, retrying nothing", async () => {
     const { refused } = tofuBounds(["apply"], (tofuLimits.budgetSeconds - 100) * 1000);
     const run = await provision([], undefined, {}, { executable: "tofu", options: { refused } });

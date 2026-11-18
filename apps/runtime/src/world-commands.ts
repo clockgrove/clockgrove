@@ -385,7 +385,7 @@ export class PostgreSqlCommandOwner {
   ): Promise<WorldCommandResult> {
     if (input.clockCommand !== undefined || isClockCommand(input.command.type))
       return this.submitAt(input, context, trustedWallTime, ownerGeneration);
-    const budget = { used: 0 };
+    const budget = newCatchUpBudget();
     for (;;) {
       const run = await this.catchUpToEarned(
         input.scope,
@@ -499,7 +499,7 @@ export class PostgreSqlCommandOwner {
     scope: RuntimeScope,
     wallTime: bigint,
     ownerGeneration?: bigint,
-    budget = { used: 0 },
+    budget = newCatchUpBudget(),
   ) {
     let owner = await this.reader.clockOwner(scope, ownerGeneration);
     for (;;) {
@@ -509,9 +509,12 @@ export class PostgreSqlCommandOwner {
         return earned > owner.simulationTime
           ? { earned, policyVersion: owner.policy.version }
           : undefined;
-      if (budget.used++ >= OVERDUE_DEADLINE_LIMIT) throw new WorldCatchingUpError();
+      if (spent(budget)) throw new WorldCatchingUpError();
       try {
-        await this.dueWorkStep(owner, scope, ownerGeneration, nextThrough(owner));
+        const current = owner;
+        await timed(budget, () =>
+          this.dueWorkStep(current, scope, ownerGeneration, nextThrough(current)),
+        );
       } catch (error) {
         // Another writer got there first: re-read below and decide on what is left.
         if (
@@ -536,9 +539,9 @@ export class PostgreSqlCommandOwner {
     scope: RuntimeScope,
     wallTime: bigint,
     ownerGeneration: bigint | undefined,
-    budget: { used: number },
+    budget: CatchUpBudget,
   ) {
-    if (budget.used++ >= OVERDUE_DEADLINE_LIMIT) throw new WorldCatchingUpError();
+    if (spent(budget)) throw new WorldCatchingUpError();
     // Earned time comes from the same policy read the step runs under. A clock-policy conflict
     // (pause or speed change since the read) retries once with a fresh read, as the command step does.
     let result: Awaited<ReturnType<typeof this.dueWorkStep>>;
@@ -547,7 +550,9 @@ export class PostgreSqlCommandOwner {
       if (owner === undefined || !owner.policy.running) return;
       const earned = clockEarnedSimulationTime(owner.policy, wallTime);
       try {
-        result = await this.dueWorkStep(owner, scope, ownerGeneration, earned, true);
+        result = await timed(budget, () =>
+          this.dueWorkStep(owner, scope, ownerGeneration, earned, true),
+        );
         break;
       } catch (error) {
         if (
@@ -930,6 +935,54 @@ function nextThrough(owner: ClockOwnerState): bigint {
  * sleep ran 7 steps in 280 to 462 ms, and after 8 minutes it was refused after 8 (280 to 419 ms).
  */
 export const OVERDUE_DEADLINE_LIMIT = 8;
+
+/**
+ * Decision (issue 366): the latency budget of a client command's inline catch-up is 1,000 ms,
+ * twice the Wave 3 load curves' worst measured inline catch-up (7 steps, 462 ms, issue 851). A
+ * step is not started when the time spent plus the slowest step so far would pass it. The
+ * headroom keeps the measured outcomes on the host that measured them: 7 steps plus even the
+ * slowest possible eighth (at most 462 + 462 ms) fit, so a command after 6 minutes of sleep still
+ * runs and one after 8 minutes is refused by `OVERDUE_DEADLINE_LIMIT`. A slower host can be refused
+ * by this budget after fewer steps, which the load curves accept. A world ten times
+ * larger, whose steps take ten times longer, is refused as catching up after a step or two instead
+ * of spending the deadline.
+ * The bound is not the budget alone: the first step always runs (nothing estimates it), and a
+ * step may be slower than every step before it. A command's catch-up therefore ends within the
+ * budget plus one step, and a world whose single step outlasts the budget runs exactly one step
+ * per command before refusing. Each step commits, so the next command finds that much less work.
+ */
+export const CATCH_UP_BUDGET_MS = 1_000;
+
+interface CatchUpBudget {
+  used: number;
+  startedAt: number;
+  slowestMs: number;
+}
+
+const newCatchUpBudget = (): CatchUpBudget => ({
+  used: 0,
+  startedAt: performance.now(),
+  slowestMs: 0,
+});
+
+/** Counts a step about to start and tells whether the step count or latency budget is spent. */
+function spent(budget: CatchUpBudget): boolean {
+  const over =
+    budget.used >= OVERDUE_DEADLINE_LIMIT ||
+    (budget.used > 0 &&
+      performance.now() - budget.startedAt + budget.slowestMs > CATCH_UP_BUDGET_MS);
+  budget.used++;
+  return over;
+}
+
+async function timed<T>(budget: CatchUpBudget, step: () => Promise<T>): Promise<T> {
+  const start = performance.now();
+  try {
+    return await step();
+  } finally {
+    budget.slowestMs = Math.max(budget.slowestMs, performance.now() - start);
+  }
+}
 
 /** Too much due work to run before a client command; retryable once the catch-up path drains it. */
 export class WorldCatchingUpError extends Error {

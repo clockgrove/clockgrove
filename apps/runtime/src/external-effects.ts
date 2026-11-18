@@ -28,6 +28,11 @@ export interface ExternalEffectPorts {
     intent: EffectIntentMetadata,
     evidence: McpReadEvidence,
   ) => Promise<string>;
+  /** Keeps a started attempt alive while the executor is slow; a missed beat only shortens the lease. */
+  readonly heartbeat?: {
+    readonly everyMs: number;
+    readonly beat: (intent: EffectIntentMetadata, attemptId: string) => Promise<unknown>;
+  };
   readonly attemptId: () => string;
   readonly knownCost?: (intent: EffectIntentMetadata) => number | null;
 }
@@ -46,73 +51,91 @@ export function externalEffectsConsumer(ports: ExternalEffectPorts): TypedQueueC
         await ports.completed?.(intent);
         return;
       }
-      let completion: EffectCompletion;
-      let request: AdmittedMcpExecution | null;
-      let argumentsChanged = false;
+      // The lease covers the executor's whole life: admission, the write and the completion write.
+      const beat = ports.heartbeat;
+      const timer = beat
+        ? setInterval(() => {
+            beat.beat(intent, attemptId).catch(() => undefined);
+          }, beat.everyMs)
+        : null;
       try {
-        const admitted = await ports.admit(structuredClone(intent));
-        request = admitted === null ? null : structuredClone(admitted);
-        if (request) {
-          if (mcpReadArgumentsHash(request.arguments) !== intent.argumentsHash) {
-            argumentsChanged = true;
-            request = null;
-          }
-        }
-      } catch {
-        // Nothing has reached the remote adapter, and exception text is private.
-        completion = {
-          disposition: "failed",
-          outcomeCode: "admission_unavailable",
-          resultArtifactId: null,
-          costMicrousd: null,
-        };
-        await ports.effects.complete(intent, attemptId, completion);
-        await ports.completed?.(intent);
-        return;
+        await executeClaimed(ports, intent, attemptId);
+      } finally {
+        if (timer) clearInterval(timer);
       }
-      if (!request) {
-        completion = {
-          disposition: "failed",
-          outcomeCode: argumentsChanged ? "arguments_changed" : "admission_refused",
-          resultArtifactId: null,
-          costMicrousd: null,
-        };
-      } else {
-        let resultReceived = false;
-        try {
-          const evidence = await ports.adapter.execute(request, intent);
-          resultReceived = true;
-          const resultArtifactId = await ports.persistResult(intent, evidence);
-          completion = {
-            disposition: evidence.status === "ok" ? "succeeded" : "failed",
-            outcomeCode: evidence.status === "ok" ? "ok" : "tool_error",
-            resultArtifactId,
-            costMicrousd: ports.knownCost?.(intent) ?? null,
-          };
-        } catch (error) {
-          const transportFailure =
-            !resultReceived && error instanceof McpReadFailure ? error : null;
-          completion = {
-            disposition:
-              transportFailure !== null &&
-              transportFailure.disposition !== "uncertain" &&
-              (request.admittedReadOnly || transportFailure.disposition === "not_sent")
-                ? "failed"
-                : "uncertain",
-            outcomeCode:
-              transportFailure?.disposition === "not_sent"
-                ? "tool_not_sent"
-                : request.admittedReadOnly && transportFailure?.disposition === "result_refused"
-                  ? "tool_result_refused"
-                  : "tool_uncertain",
-            resultArtifactId: null,
-            costMicrousd: null,
-          };
-        }
-      }
-      // A storage failure must reach Queue retry, which can reconcile but never resend.
-      await ports.effects.complete(intent, attemptId, completion);
-      await ports.completed?.(intent);
     },
   });
+}
+
+async function executeClaimed(
+  ports: ExternalEffectPorts,
+  intent: EffectIntentMetadata,
+  attemptId: string,
+): Promise<void> {
+  let completion: EffectCompletion;
+  let request: AdmittedMcpExecution | null;
+  let argumentsChanged = false;
+  try {
+    const admitted = await ports.admit(structuredClone(intent));
+    request = admitted === null ? null : structuredClone(admitted);
+    if (request) {
+      if (mcpReadArgumentsHash(request.arguments) !== intent.argumentsHash) {
+        argumentsChanged = true;
+        request = null;
+      }
+    }
+  } catch {
+    // Nothing has reached the remote adapter, and exception text is private.
+    completion = {
+      disposition: "failed",
+      outcomeCode: "admission_unavailable",
+      resultArtifactId: null,
+      costMicrousd: null,
+    };
+    await ports.effects.complete(intent, attemptId, completion);
+    await ports.completed?.(intent);
+    return;
+  }
+  if (!request) {
+    completion = {
+      disposition: "failed",
+      outcomeCode: argumentsChanged ? "arguments_changed" : "admission_refused",
+      resultArtifactId: null,
+      costMicrousd: null,
+    };
+  } else {
+    let resultReceived = false;
+    try {
+      const evidence = await ports.adapter.execute(request, intent);
+      resultReceived = true;
+      const resultArtifactId = await ports.persistResult(intent, evidence);
+      completion = {
+        disposition: evidence.status === "ok" ? "succeeded" : "failed",
+        outcomeCode: evidence.status === "ok" ? "ok" : "tool_error",
+        resultArtifactId,
+        costMicrousd: ports.knownCost?.(intent) ?? null,
+      };
+    } catch (error) {
+      const transportFailure = !resultReceived && error instanceof McpReadFailure ? error : null;
+      completion = {
+        disposition:
+          transportFailure !== null &&
+          transportFailure.disposition !== "uncertain" &&
+          (request.admittedReadOnly || transportFailure.disposition === "not_sent")
+            ? "failed"
+            : "uncertain",
+        outcomeCode:
+          transportFailure?.disposition === "not_sent"
+            ? "tool_not_sent"
+            : request.admittedReadOnly && transportFailure?.disposition === "result_refused"
+              ? "tool_result_refused"
+              : "tool_uncertain",
+        resultArtifactId: null,
+        costMicrousd: null,
+      };
+    }
+  }
+  // A storage failure must reach Queue retry, which can reconcile but never resend.
+  await ports.effects.complete(intent, attemptId, completion);
+  await ports.completed?.(intent);
 }

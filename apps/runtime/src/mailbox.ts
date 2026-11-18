@@ -30,8 +30,13 @@ export interface OwnerMailboxBounds {
  *   entry is answered `owner_mailbox_timeout` and runs on, so its caller loses only a retry.
  *   Measured: the oldest entry of a full mailbox waited 1.4 to 1.7 s.
  * - `maxDepth` 32, decision: a client command runs at most 8 overdue steps inline
- *   (`OVERDUE_DEADLINE_LIMIT`, 280 to 419 ms measured), so 32 such entries drain in under 14 s,
- *   well inside the deadline. A deeper queue would mostly admit entries that expire waiting.
+ *   (`OVERDUE_DEADLINE_LIMIT`, 280 to 419 ms measured). Its catch-up ends within the 1,000 ms
+ *   latency budget (`CATCH_UP_BUDGET_MS`) plus one step: the first step always runs, and a step
+ *   may be slower than those before it. The steps commit, so entries behind it find less overdue
+ *   work, but the depth does not bound the queue's wait when single steps are slow: where one step
+ *   takes 1 s, 32 entries can spend 32 s, and the later ones are answered
+ *   `owner_mailbox_timeout` while their steps still advance the world (see `requestDeadlineMs`).
+ *   A deeper queue would mostly admit entries that expire waiting.
  *   Measured: a burst of 32 concurrent clients fills it unrefused; 48, the next level, is refused.
  * - `retryAfterSeconds` 1, decision: the hint `world_catching_up` already gives (`worker.ts`).
  *   Measured: a full mailbox frees about 24 entries a second.
