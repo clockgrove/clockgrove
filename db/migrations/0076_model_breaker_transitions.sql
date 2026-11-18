@@ -27,7 +27,9 @@ CREATE INDEX model_breaker_transitions_run ON clockgrove.model_breaker_transitio
 -- transitions on a run is one of that run's model-attempt steps (each claim of a turn opens its own
 -- run; its first model call is step 2 and each later one, after a tool, inserts a new step), a run
 -- has at most 32 steps (`run_steps.step BETWEEN 1 AND 32`, 0036), and a call at most 16 transitions
--- (`ordinal BETWEEN 0 AND 15`): 32 x 16 = 512. A real step therefore never reaches the guard after
+-- (`ordinal BETWEEN 0 AND 15`; the model gateway refuses an alias of more than 8 routes, a call
+-- tries each route once, and one attempt moves the breaker at most twice): 32 x 16 = 512. The
+-- gateway also refuses a route id or alias name over 256 bytes, the bound of those columns. A real step therefore never reaches the guard after
 -- its model call has been paid for.
 CREATE FUNCTION clockgrove.guard_breaker_transition()
 RETURNS trigger

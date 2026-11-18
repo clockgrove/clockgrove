@@ -5,6 +5,17 @@
 export const BREAKER_FAILURE_THRESHOLD = 3;
 export const BREAKER_COOLDOWN_MS = 30_000;
 
+/**
+ * Issue 374: the bounds that make a call's breaker record finite, so the durable record (migration
+ * 0075: a call's `ordinal BETWEEN 0 AND 15`, `route_id` and `alias` at most 256 bytes) never
+ * refuses a call's transitions after the call has been paid for. A call tries each route of its
+ * alias at most once, and one attempt moves the record at most twice (its admission's
+ * `open>half_open`, then the end of that trial), so an alias of at most 8 routes gives a call at
+ * most 8 x 2 = 16 transitions. A gateway refuses an alias beyond these bounds when it is composed.
+ */
+export const MAX_ALIAS_ROUTES = 8;
+export const MAX_ROUTE_NAME_BYTES = 256;
+
 export type RecordedBreakerState = "closed" | "open" | "half_open";
 
 /** One change of the breaker's recorded state, caused by the call that holds the ticket. */

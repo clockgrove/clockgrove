@@ -12,7 +12,12 @@ import {
   requestCostCeilingMicrousd,
   routeCostCeilingMicrousd,
 } from "./aliases.js";
-import { type BreakerMove, RouteBreaker } from "./breaker.js";
+import {
+  type BreakerMove,
+  MAX_ALIAS_ROUTES,
+  MAX_ROUTE_NAME_BYTES,
+  RouteBreaker,
+} from "./breaker.js";
 import type {
   DecisionAdapter,
   DecisionAliasDefinition,
@@ -74,8 +79,15 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
   const now = options.now ?? Date.now;
   const aliases = new Map(options.aliases.map((alias) => [alias.alias, alias]));
   // A missing adapter is a composition error: refuse it here, before any call reserves budget.
+  const bytes = (text: string) => new TextEncoder().encode(text).length;
   for (const alias of options.aliases) {
+    if (alias.routes.length > MAX_ALIAS_ROUTES)
+      throw new Error(`model alias ${alias.alias} has more than ${MAX_ALIAS_ROUTES} routes`);
+    if (bytes(alias.alias) > MAX_ROUTE_NAME_BYTES)
+      throw new Error(`model alias name exceeds ${MAX_ROUTE_NAME_BYTES} bytes`);
     for (const route of alias.routes) {
+      if (bytes(route.id) > MAX_ROUTE_NAME_BYTES)
+        throw new Error(`model route id exceeds ${MAX_ROUTE_NAME_BYTES} bytes`);
       if (options.adapters[route.provider] === undefined) {
         throw new Error(`no adapter for model provider: ${route.provider}`);
       }

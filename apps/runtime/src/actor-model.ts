@@ -24,6 +24,8 @@ import {
   createModelGateway,
   InMemoryModelBudget,
   inputTokenBound,
+  MAX_ALIAS_ROUTES,
+  MAX_ROUTE_NAME_BYTES,
   type ModelAliasDefinition,
   type ModelCallRecord,
   type ModelGateway,
@@ -502,6 +504,11 @@ export function fittedCatalog(entries: readonly unknown[], room: number): string
   return `[${[...kept, ...(omitted === 0 ? [] : [note(omitted)])].join(",")}]`;
 }
 
+/** Issue 374: an alias or route name the durable breaker record can hold (`MAX_ROUTE_NAME_BYTES`). */
+function fitsRouteName(name: string): boolean {
+  return new TextEncoder().encode(name).length <= MAX_ROUTE_NAME_BYTES;
+}
+
 async function sendActorStep(
   deps: ActorModelDeps,
   scene: ActorScene | undefined,
@@ -523,8 +530,22 @@ async function sendActorStep(
           },
         }),
   });
+  // The call is paid for and its outcome decided, so a failed evidence write (a lost connection, a
+  // run closed or fenced meanwhile) never discards the answer or pays for a second call: it is
+  // reported, and the turn goes on (issue 374).
   if (outcome.record.attempts.some((attempt) => attempt.breakerTransitions !== undefined))
-    await recordBreaker?.(outcome.record);
+    await Promise.resolve(recordBreaker?.(outcome.record)).catch((error: unknown) => {
+      console.warn(
+        JSON.stringify({
+          event: "breaker_transitions_not_recorded",
+          callId: outcome.record.callId,
+          // A database error's code (CG020, 23514) or the error's name: never its message's values.
+          reason:
+            (error as { code?: unknown } | null)?.code ??
+            (error instanceof Error ? error.name : "unknown"),
+        }),
+      );
+    });
   if (outcome.status === "failed") {
     if (fallbackRefused)
       return {
@@ -710,7 +731,7 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
       aliases: z
         .array(
           z.object({
-            alias: z.string().min(1),
+            alias: z.string().min(1).refine(fitsRouteName),
             policyVersion: z.string().min(1),
             maxInputTokens: z.number().int().positive(),
             maxOutputTokens: z.number().int().positive(),
@@ -722,7 +743,7 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
             routes: z
               .array(
                 z.object({
-                  id: z.string().min(1),
+                  id: z.string().min(1).refine(fitsRouteName),
                   provider: z.enum(["scripted", "vercel-ai-gateway", "anthropic"]),
                   model: z.string().min(1),
                   credential: z.string().nullable(),
@@ -733,7 +754,8 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
                   }),
                 }),
               )
-              .min(1),
+              .min(1)
+              .max(MAX_ALIAS_ROUTES),
           }),
         )
         .min(1),

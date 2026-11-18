@@ -148,7 +148,11 @@ nothing: on the `RouteAttempt` for `generateObject` and `stream`, and on the `De
 for `decide`, so each `open>half_open` is answered by the same trial's end. The runtime records the
 actor's model calls durably on their run (issue 374): see [runs](../../../docs/protocols/runs.md).
 Its decision gateways (wake triage, moderation shadows) are built for one turn and so carry a fresh
-breaker each time; their records report what changed within that turn.
+breaker each time; their records report what changed within that turn. So that a call's record
+always fits the durable table, a gateway refuses an alias of more than 8 routes
+(`MAX_ALIAS_ROUTES`) and an alias name or route id over 256 bytes (`MAX_ROUTE_NAME_BYTES`) when
+it is composed: a call tries each route once and one attempt moves the breaker at most twice, so a
+call reports at most 16 transitions.
 
 ## Budget
 

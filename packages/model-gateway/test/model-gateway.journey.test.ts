@@ -381,6 +381,27 @@ describe("model gateway with the scripted provider", () => {
     expect(records.map((record) => record.callId)).toEqual(["s-1", "s-2", "s-3", "s-4"]);
     const unwired = { aliases: [alias], adapters: {}, budget, accounting: { record: () => {} } };
     expect(() => createModelGateway(unwired)).toThrow(/no adapter/u);
+    // Issue 374: an alias the durable breaker record can hold. 8 routes x 2 moves = 16 a call.
+    const routes = (count: number, id = (i: number) => `scripted/${i}`) =>
+      Array.from({ length: count }, (_, i) => ({ ...alias.routes[0]!, id: id(i) }));
+    const composed = (aliasRoutes: ReturnType<typeof routes>, name = alias.alias) =>
+      createModelGateway({
+        aliases: [{ ...alias, alias: name, routes: aliasRoutes }],
+        adapters: { scripted },
+        budget,
+        accounting: { record: () => {} },
+      });
+    expect(() => composed(routes(8))).not.toThrow();
+    expect(() => composed(routes(9))).toThrow(
+      "model alias resident.scripted has more than 8 routes",
+    );
+    expect(() => composed(routes(1, () => "r".repeat(256)))).not.toThrow();
+    expect(() => composed(routes(1, () => "é".repeat(129)))).toThrow(
+      "model route id exceeds 256 bytes",
+    );
+    expect(() => composed(routes(1), "a".repeat(257))).toThrow(
+      "model alias name exceeds 256 bytes",
+    );
   });
 
   it("ends a call whose fallback the caller refuses or cannot decide, keeping the evidence", async () => {

@@ -123,8 +123,10 @@ they are refused here with `403 authorization_refused`.
   after the call on the run that made it, and readable by that participant or an inspector holding
   `operator_evidence`. Its guard holds each row to a running run of the row's own session and world
   and a run to at most 512 rows (a run has at most 32 steps, each of its calls is one of them, and a
-  call records at most 16 transitions), so the breaker's opening and closing outlives the gateway's memory
-  (issue 374). The Wave 5 qualification samples the rows (`breakerTransitions` in its §18
+  call records at most 16 transitions: an alias has at most 8 routes, each tried once a call and
+  moving the breaker at most twice), so the breaker's opening and closing outlives the gateway's
+  memory (issue 374). A failed write of the rows is logged (`breaker_transitions_not_recorded`)
+  and never discards the paid call's answer. The Wave 5 qualification samples the rows (`breakerTransitions` in its §18
   measurement).
 
   The walk shows payload `text` only when the inspector is a participant of the run's session
