@@ -98,8 +98,8 @@ export function fixtureContent(options: { failure?: string; workMs?: number; lig
       map.colorSpace = THREE.SRGBColorSpace;
       const spriteMaterial = new THREE.MeshStandardNodeMaterial({ map, normalMap, alphaTest: 0.5, roughness: 0.8 });
       // Three r187 ViewportDepthNode.viewZToOrthographicDepth: (viewZ + near) / (near - far).
-      // Decision: the fixture bump shifts fragments toward the camera by up to .04 depth units.
-      spriteMaterial.depthNode = TSL.positionView.z.add(TSL.texture(depthMap).r.mul(0.04))
+      // Decision: the fixture bump shifts fragments toward the camera by up to the floor depth of 4 m of x - y.
+      spriteMaterial.depthNode = TSL.positionView.z.add(TSL.texture(depthMap).r.mul(4 * 6.25 * Math.sqrt(3)))
         .add(TSL.cameraNear).div(TSL.cameraNear.sub(TSL.cameraFar));
       const spriteGeometry = new THREE.PlaneGeometry(2.4, 2.4);
       spriteGeometry.translate(0, 1.2, 0);
@@ -115,14 +115,17 @@ export function fixtureContent(options: { failure?: string; workMs?: number; lig
       }));
       let shadowCaster: any, shadowReceiver: any;
       if (options.lighting) {
-        shadowReceiver = new THREE.Mesh(new THREE.PlaneGeometry(180, 180),
+        shadowReceiver = new THREE.Mesh(new THREE.PlaneGeometry(100, 180),
           new THREE.MeshStandardNodeMaterial({ color: 0xcccccc, roughness: 1 }));
-        shadowReceiver.position.set(-100, 80, -30);
+        const floorZ = -Math.sqrt(3) * 80 + 1;
+        shadowReceiver.rotation.x = -Math.PI / 3;
+        shadowReceiver.position.set(-100, 80, floorZ);
         shadowReceiver.receiveShadow = true;
         root.add(shadowReceiver);
         shadowCaster = new THREE.Mesh(new THREE.BoxGeometry(36, 36, 36),
           new THREE.MeshStandardNodeMaterial({ color: 0xdd6666, roughness: 1 }));
-        shadowCaster.position.set(-100, 80, 10);
+        shadowCaster.rotation.x = -Math.PI / 3;
+        shadowCaster.position.set(-100, 80 + 18 * Math.sin(Math.PI / 3), floorZ + 18 * Math.cos(Math.PI / 3));
         shadowCaster.castShadow = true;
         shadowCaster.receiveShadow = true;
         root.add(shadowCaster);

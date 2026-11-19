@@ -31,6 +31,7 @@ Clockgrove is an engine you deploy yourself, not a hosted service. The unit of d
 | Keep a world's history in PostgreSQL and replay it | `packages/persistence`, `db/migrations` | Built |
 | Run a world on the actor runtime (Cloudflare Workers; workerd locally) | `apps/runtime` | Built locally; hosted qualification pending |
 | Watch a world in a browser and ask why something happened | `apps/web`, `pnpm dev:world` | Wave 4, underway |
+| Try a world pack locally as its owner, in the neutral playground or with your own pack | `pnpm playground`, `worlds/playground` | Underway (#327): the local host; the world debugger, pack panel and coding-agent chat follow |
 | Talk with inhabitants and connect tools over MCP | `apps/runtime`, `packages/model-gateway` | Wave 5, in progress; not in the local world below |
 | Memory and learning, authoring through preview timelines, the Raccoon World demo, hosted and shared worlds | See the wave plans | Planned, Waves 6 to 12 |
 
@@ -122,6 +123,17 @@ Living world: <pack>@<version> (<world> / <space>)
 Open the URL and sign in with `hall-observer`. Success is the status line `Arrival: scene ready at revision 0.` with the scene below it. If port 5173 is taken, the URL names the next free port.
 
 This is a local checkpoint with firm limits. The credential can only observe: it cannot send commands, run the clock or start a conversation, and a new world starts paused. Nothing persists after Ctrl-C, and a session ends after 4 hours (`CLOCKGROVE_DEV_WORLD_HOURS` sets another bound). The [development reference](docs/runbooks/development.md#local-living-yard-checkpoint) has the details.
+
+### The playground
+
+`pnpm playground` is the local host for world packs. It serves the neutral playground pack (`worlds/playground`: a plane, a rock that carries a weather exposure and the capability its scenario changes the weather through, a cube and a puddle) and signs you in as the world's owner. Talking to the rock comes in a later part of issue 327: the owner's privacy ceiling has no `conversation` category yet, and the pack declares no model. It needs the same PostgreSQL set as `pnpm dev:world`, and no cloud account or model key; on a fresh clone it installs the workspace first.
+
+```bash
+pnpm playground
+pnpm playground --pack path/to/your-pack   # your own pack, as a fresh world from its declared seed
+```
+
+It prints the URL and the owner credential, `playground-owner`. The [development reference](docs/runbooks/development.md#playground) has the details.
 
 <img src="tests/visual/dusk-rain-high@1280x720.png" width="640" alt="The web client showing the fixture world at dusk in heavy rain: a clock and weather bar, a scene of placeholder shapes, and a feed of events such as a water bowl collecting rain">
 

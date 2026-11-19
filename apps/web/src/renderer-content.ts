@@ -181,13 +181,20 @@ export function placeContent(
   object.position.set(
     (at.x + at.y) * 12.5,
     -(at.x - at.y) * 6.25 + elevation * 12.5,
-    contentDepth(at.x, at.y, elevation),
+    sceneDepth(at.x, at.y, elevation),
   );
-  // Match the existing 80 mm/pixel camera. Compress local depth to coexist with atlas billboards.
-  object.scale.set(12.5, 12.5, 0.01);
+  // Match the existing 80 mm/pixel camera. Local axes stay screen-aligned, so depth is real and uncompressed.
+  object.scale.set(12.5, 12.5, 12.5);
 }
-export function contentDepth(x: number, y: number, elevation: number): number {
-  return (x - y) * 0.01 + elevation * 0.005;
+// The 2:1 isometric mapping is a 30 degree camera pitch: ground distance d spans d/2 on screen
+// (sin 30) and sqrt(3)/2 d in depth, so depth = sqrt(3) * screen-vertical distance. The floor is the
+// plane through the origin with normal (0, sin 60, cos 60); a metre of elevation lifts depth by 12.5/sqrt(3).
+export function sceneDepth(x: number, y: number, elevation: number): number {
+  return (x - y) * 6.25 * Math.sqrt(3) + (elevation * 12.5) / Math.sqrt(3);
+}
+/** Depth of the floor beneath scene-space vertical position `sceneY`. */
+export function floorDepth(sceneY: number): number {
+  return -Math.sqrt(3) * sceneY;
 }
 
 export function validateContent(root: THREE.Group): boolean {

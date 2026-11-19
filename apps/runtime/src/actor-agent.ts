@@ -73,7 +73,15 @@ export interface TurnResearchHost {
     fiber: TurnFiber,
     proposal: StoredCommandProposal,
     call: TurnToolCall,
-  ): Promise<"not_required" | "waiting" | "approved" | "denied" | "expired" | "revoked">;
+  ): Promise<
+    | "not_required"
+    | "waiting"
+    | "approved"
+    | "denied"
+    | "expired"
+    | "revoked"
+    | "approver_unconfigured"
+  >;
   /** Presentation only: observes the canonical attempt without dispatching or invoking cognition. */
   waitForToolStart?(
     participant: ConversationParticipant,
@@ -569,13 +577,19 @@ export class TurnFibers {
               }
               return { refused: "conversation_busy" };
             }
-            if (approval === "denied" || approval === "expired" || approval === "revoked") {
+            if (
+              approval === "denied" ||
+              approval === "expired" ||
+              approval === "revoked" ||
+              approval === "approver_unconfigured"
+            ) {
+              const code = approval === "approver_unconfigured" ? approval : `approval_${approval}`;
               next = await this.store((store) =>
                 store.completeTool!(participant, current, {
                   ...call,
                   status: "refused",
-                  code: `approval_${approval}`,
-                  text: `Tool refused: approval_${approval}`,
+                  code,
+                  text: `Tool refused: ${code}`,
                   costMicrousd: 0,
                 }),
               );

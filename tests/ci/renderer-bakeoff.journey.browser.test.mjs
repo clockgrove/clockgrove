@@ -424,7 +424,8 @@ it.each(["webgpu", "webgl2"])(
           changed(dark, bright, -150, 120, -30),
           changed(dark, bright, 70, -40, -100),
           changed(before, after, -50, 80, -30, true),
-          changed(before, after, 10, 80, -100, true),
+          // #266: the receiver lies on the real floor, so the caster's shadow runs off it onto the ground.
+          changed(before, after, -25, 112, -Math.sqrt(3) * 112, true),
         ];
         const oldMaps = adapter.sky.map((light) => light.shadow.map);
         let retired = 0;
@@ -465,6 +466,34 @@ it.each(["webgpu", "webgl2"])(
           f.diagnostics.root.parent === null,
           document.querySelector("#status").textContent,
         ];
+        // #266: the unkeyed marker's bottom meets its anchor, and a placed lamp's light stays 35
+        // units in front of the lamp's real depth (floor depth -√3·y at 12 units below the light).
+        const marker = adapter.drawn.get("object-fixture");
+        marker.body.geometry.computeBoundingBox();
+        const projection = adapter.projection;
+        const [entity] = projection.entities;
+        adapter.drawEnvironment({
+          ...projection,
+          lighting: {
+            ...projection.lighting,
+            placed: [
+              {
+                pose: { ...entity.pose, coordinates: ["400", "800", "0"] },
+                colour: "#ffb966",
+                intensity: 1500,
+                rangeMetres: 14.4,
+              },
+            ],
+          },
+        });
+        const [lamp] = adapter.lights;
+        const projected = {
+          key: marker.key ?? null,
+          markerBottom: marker.body.geometry.boundingBox.min.y,
+          markerDepth: marker.body.position.z + Math.sqrt(3) * marker.body.position.y,
+          lampOffset: Math.abs(lamp.position.y - 12) > 10,
+          lampDepth: lamp.position.z - 35 + Math.sqrt(3) * (lamp.position.y - 12),
+        };
         f.destroy();
         return {
           status,
@@ -476,8 +505,14 @@ it.each(["webgpu", "webgl2"])(
           failureRetired,
           failure,
           disposed: adapter.contentLights.length === 0,
+          projected,
         };
       });
+      expect(lighting.projected.key).toBeNull();
+      expect(lighting.projected.markerBottom).toBeCloseTo(0, 4);
+      expect(lighting.projected.markerDepth).toBeCloseTo(0, 3);
+      expect(lighting.projected.lampOffset).toBe(true);
+      expect(lighting.projected.lampDepth).toBeCloseTo(0, 3);
       expect(lighting.counts.map((row) => row.slice(0, 3))).toEqual([
         [2, 0, 0],
         [4, 1, 3_145_728],
@@ -638,10 +673,29 @@ it.each(["webgpu", "webgl2"])(
         f.setDepthEnabled(false);
         f.setContentAnchor(0, 0);
         f.setModelAnchor(-0.8, 0.8);
+        // #266: the marker now stands on its anchor and reaches y = 184; this pair compares content
+        // with content, so the marker steps aside for it.
+        f.adapter.drawn.get("object-fixture").body.visible = false;
       });
       const spriteFront = await sample(184);
       await page.evaluate(() => globalThis.fixtureRenderer.setModelAnchor(0.2, -0.2));
       const modelFront = await sample(184);
+      // #266: content sits in real depth: its anchor is unscaled in depth, and a nearer anchor is
+      // nearer the camera by the floor's slope (6.25√3 scene units per metre of x - y).
+      const depth = await page.evaluate(() => {
+        const f = globalThis.fixtureRenderer;
+        const anchor = f.diagnostics.model.parent;
+        const front = anchor.position.z;
+        f.setModelAnchor(-0.8, 0.8);
+        const back = anchor.position.z;
+        f.setModelAnchor(0.2, -0.2);
+        return { scale: anchor.scale.toArray(), front, back };
+      });
+      await page.evaluate(() => {
+        globalThis.fixtureRenderer.adapter.drawn.get("object-fixture").body.visible = true;
+      });
+      expect(depth.scale).toEqual([12.5, 12.5, 12.5]);
+      expect(depth.front - depth.back).toBeCloseTo(2 * 6.25 * Math.sqrt(3), 5);
       expect(spriteFront[2]).toBeGreaterThan(spriteFront[0]);
       expect(modelFront[0]).toBeGreaterThan(modelFront[2]);
       expect(

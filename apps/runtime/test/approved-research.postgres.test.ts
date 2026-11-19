@@ -96,6 +96,7 @@ it("composes exact human approvals with real actor waits, single dispatch, revoc
       },
       wake: async () => {},
       adapter: { execute, executeWrite: execute },
+      approver: { principal: "principal-a" },
     };
     let research = composeResearch(configuration);
     const stores = async <T>(operation: (store: PostgreSqlConversationStore) => Promise<T>) =>
