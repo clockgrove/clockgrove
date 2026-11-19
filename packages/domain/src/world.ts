@@ -79,6 +79,14 @@ import {
   validateSpatialFrame,
 } from "./spatial.js";
 import {
+  reduceSurfaceEvent,
+  type SurfaceEventData,
+  type SurfacePolicy,
+  type SurfaceState,
+  validateSurfacePolicy,
+  validateSurfaceState,
+} from "./surface.js";
+import {
   type ScriptedCognitionState,
   type UtilityEventData,
   type UtilityPolicy,
@@ -114,6 +122,8 @@ export interface WorldBehaviorPack {
 /** Need/exposure values and policy weights use integer basis points (0..10,000). */
 export interface WorldBehaviorPolicy {
   readonly processes?: readonly WorldProcess[];
+  /** Optional graded surface memory (scratches, worn paths); absent keeps the canonical encoding. */
+  readonly surfaces?: SurfacePolicy;
   readonly boundaryExchanges?: readonly BoundaryExchange[];
   readonly schemaVersion: 1;
   readonly version: string;
@@ -175,6 +185,8 @@ export interface WorldNeeds {
 
 export interface WorldState {
   readonly processes?: readonly WorldProcessState[];
+  /** Present exactly when the policy declares `surfaces`. */
+  readonly surfaces?: SurfaceState;
   readonly boundaryExchanges?: readonly BoundaryExchangeState[];
   readonly schemaVersion: 1;
   readonly tenantId: TenantId;
@@ -256,6 +268,7 @@ export type WorldEvent = WorldEventScope &
           | Readonly<{ type: "time.advanced"; payload: Readonly<Record<string, never>> }>
           | BoundaryExchangeEventData
           | ProcessCommandEventData
+          | SurfaceEventData
           | ContainmentEventData
           | MovementEventData
           | PortalEventData
@@ -305,6 +318,7 @@ const POLICY_SECTIONS: readonly string[] = [
   "utility",
   "lifecycle",
   "processes",
+  "surfaces",
   "boundaryExchanges",
 ] satisfies readonly (keyof WorldBehaviorPolicy)[];
 
@@ -346,6 +360,7 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   if (Object.hasOwn(policy, "boundaryExchanges"))
     validateBoundaryExchanges(policy.boundaryExchanges);
   if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
+  if (Object.hasOwn(policy, "surfaces")) validateSurfacePolicy(policy.surfaces);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))
@@ -368,6 +383,7 @@ export function validateWorldState(state: WorldState): void {
   if (Object.hasOwn(state, "boundaryExchanges"))
     validateBoundaryExchangeState(state.boundaryExchanges);
   if (Object.hasOwn(state, "processes")) validateWorldProcessState(state.processes);
+  if (Object.hasOwn(state, "surfaces")) validateSurfaceState(state.surfaces);
   if (Object.hasOwn(state, "environment")) validateEnvironmentState(state.environment);
   if (Object.hasOwn(state, "ecology")) validateEcologyState(state.ecology);
   if (Object.hasOwn(state, "wellbeing")) validateWellbeingState(state.wellbeing);
@@ -538,6 +554,12 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
     simulationTime: event.simulationTime,
   };
   switch (event.type) {
+    case "surface.interacted":
+      requireEntity(state, event.payload.actorId);
+      return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
+    case "surface.band-crossed":
+    case "surface.repaired":
+      return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
     case "boundary.departed":
     case "boundary.returned":
       requireEntity(state, event.payload.actorId);
