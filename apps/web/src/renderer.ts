@@ -206,7 +206,56 @@ const WIDTH = 640,
   HEIGHT = 400;
 const CAMERA_DISTANCE = 10000;
 const FLOOR_TILT = Math.PI / 3;
+/**
+ * Decals and a sprite's floor-lying pixels sit this far toward the camera so they never share the
+ * depth-writing ground's plane. Orthographic depth is linear: a 24-bit buffer over the camera's
+ * 20,000-unit near/far span resolves 0.0012 units, so 0.5 is about 400 steps, while it is only
+ * 46 mm of world depth (0.5 / 6.25√3 m), under one 80 mm sprite pixel.
+ */
 const FLOOR_DECAL_LIFT = 0.5;
+/**
+ * A sprite's quad: 4×4 cells as before, plus a row at its anchor (y = 0) when the anchor falls
+ * inside it. Every pixel row is kept; rows below the anchor lie on the tilted floor (√3 of depth
+ * per unit down the screen), and the whole quad is lifted FLOOR_DECAL_LIFT off the floor.
+ */
+function spriteGeometry(
+  width: number,
+  height: number,
+  anchor: { x: number; y: number },
+): THREE.BufferGeometry {
+  const top = anchor.y,
+    bottom = anchor.y - height,
+    columns = 5;
+  const rows = Array.from({ length: 5 }, (_, i) => top - (i * height) / 4);
+  if (bottom < 0 && top > 0 && !rows.includes(0)) rows.push(0);
+  rows.sort((a, b) => b - a);
+  const position: number[] = [],
+    normal: number[] = [],
+    uv: number[] = [],
+    index: number[] = [];
+  for (const y of rows)
+    for (let c = 0; c < columns; c++) {
+      position.push(
+        -anchor.x + (c * width) / 4,
+        y,
+        Math.max(0, -y) * Math.sqrt(3) + FLOOR_DECAL_LIFT,
+      );
+      normal.push(0, 0, 1);
+      uv.push(c / 4, (y - bottom) / height);
+    }
+  for (let r = 0; r < rows.length - 1; r++)
+    for (let c = 0; c < columns - 1; c++) {
+      const a = r * columns + c,
+        b = a + columns;
+      index.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normal, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  return geometry;
+}
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
 const ZOOM = {
   min: worldShell.scene.camera?.minZoom ?? 0.75,
@@ -1390,7 +1439,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private sprite(key: string, name = ""): Native {
     const animation = this.atlas.get(key);
     const frame = animation?.frames[0];
-    if (!animation || !frame) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
+    if (!animation || !frame) {
+      // #266: the stand-in's bottom meets the anchor, so the floor in front of it never hides it.
+      const standIn = this.ellipse(16, 16, 0xe3ce8b, 1, name);
+      standIn.geometry.translate(0, 8, FLOOR_DECAL_LIFT);
+      return standIn;
+    }
     const material = this.litMaterial({
       map: frame.texture,
       transparent: true,
@@ -1401,28 +1455,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const density = animation.density ?? 1;
     const logicalWidth = frame.width / density,
       logicalHeight = frame.height / density;
-    const geometry = new THREE.PlaneGeometry(logicalWidth, logicalHeight, 4, 4);
-    geometry.translate(
-      logicalWidth / 2 - animation.anchor.x,
-      animation.anchor.y - logicalHeight / 2,
-      0,
-    );
-    // Snap the row nearest the anchor onto y = 0 (keeping its texel), then lay pixels below the
-    // anchor on the tilted floor so it never clips them.
-    const vertices = geometry.getAttribute("position"),
-      uvs = geometry.getAttribute("uv");
-    const bottom = animation.anchor.y - logicalHeight;
-    let nearest = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < vertices.count; i++)
-      if (Math.abs(vertices.getY(i)) < Math.abs(nearest)) nearest = vertices.getY(i);
-    if (bottom <= 0 && animation.anchor.y >= 0)
-      for (let i = 0; i < vertices.count; i++)
-        if (vertices.getY(i) === nearest) {
-          vertices.setY(i, 0);
-          uvs.setY(i, -bottom / logicalHeight);
-        }
-    for (let i = 0; i < vertices.count; i++)
-      vertices.setZ(i, Math.max(0, -vertices.getY(i)) * Math.sqrt(3));
+    const geometry = spriteGeometry(logicalWidth, logicalHeight, animation.anchor);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
     mesh.frustumCulled = false;
@@ -1468,7 +1501,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const body = key
       ? this.sprite(key, String(visual.placement.objectId))
       : new THREE.Mesh(
-          new THREE.CircleGeometry(8, 32),
+          // #266: the circle's bottom meets the anchor, so the floor in front of it never hides it.
+          new THREE.CircleGeometry(8, 32).translate(0, 8, FLOOR_DECAL_LIFT),
           this.litMaterial({ color: 0xe3ce8b, roughness: 1 }),
         );
     body.position.set(x, -y, floorDepth(-y));
@@ -1654,7 +1688,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       light.color.set(effect.colour);
       light.intensity = effect.intensity;
       light.distance = effect.rangeMetres * PX_PER_METRE;
-      light.position.set(x, -y + 12, 35);
+      // #266: the offset is from the source's real depth, so the light stays 35 units in front of it.
+      light.position.set(x, -y + 12, sceneDepth(at.x, at.y, at.elevation) + 35);
     }
     while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();
     this.syncContentLighting();

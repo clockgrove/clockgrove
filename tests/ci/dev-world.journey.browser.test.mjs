@@ -345,6 +345,41 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
         });
         expect(measured).toMatchObject({ backend, atlas: pageBytes });
         expect(measured.textureBytes).toBeLessThanOrEqual(budgets.textureBytes.limit);
+        // #266: each strip's anchor is 1 px above its bottom edge. The sprite keeps that bottom row,
+        // gains a row at the anchor, and lays the pixels below the anchor on the floor (√3 of depth
+        // per unit down the screen), 0.5 units off it.
+        const sprites = await page.evaluate(() => {
+          const adapter = globalThis.hallAdapter;
+          return [...adapter.drawn.values()]
+            .filter((drawn) => drawn.key)
+            .map(({ key, body }) => {
+              const animation = adapter.atlas.get(key);
+              const height = animation.frames[0].height / (animation.density ?? 1);
+              const position = body.geometry.getAttribute("position");
+              const ys = Array.from({ length: position.count }, (_, i) => position.getY(i));
+              let floorError = 0;
+              for (let i = 0; i < position.count; i++)
+                floorError = Math.max(
+                  floorError,
+                  Math.abs(position.getZ(i) - (Math.max(0, -ys[i]) * Math.sqrt(3) + 0.5)),
+                );
+              const bottom = Math.min(...ys) - (animation.anchor.y - height);
+              return {
+                key,
+                bottom: Math.round(bottom * 1e4) / 1e4 + 0,
+                anchored: ys.includes(0),
+                below: Math.min(...ys) < 0,
+                floor: floorError < 1e-4,
+              };
+            });
+        });
+        expect(sprites.map(({ key }) => key).sort()).toEqual([
+          "tall-a/idle",
+          "tall-b/idle",
+          "walker/walk",
+        ]);
+        for (const sprite of sprites)
+          expect(sprite).toMatchObject({ bottom: 0, anchored: true, below: true, floor: true });
         await page.close();
       }
     },

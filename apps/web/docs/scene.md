@@ -133,9 +133,14 @@ committed data. Legacy projections without lighting retain their existing enviro
   it; the orthographic camera stays 10,000 units from the floor under the view centre (near 0.1, far
   20,000), so screen positions, picking and pan are unchanged and only depth is real. Linear fog
   from 0 to 90,000 keeps the 11% veil at the view centre and varies a few percent with depth across
-  the view. Every projected body sits at its real depth on every path, and a sprite's pixels below
-  its anchor lie on the floor, so the floor never clips them. Ground shadows, puddles and puddle
-  reflections lie on the floor; labels, selection, cues and rain draw without depth testing.
+  the view. Every projected body's anchor sits at its real depth on every path. A sprite's quad keeps
+  every pixel row and gains a row at its anchor; the rows below the anchor lie on the floor, so the
+  floor never clips them. A body without a sprite (the fallback circle or ellipse) stands with its
+  bottom at the anchor. Ground shadows, puddles and puddle reflections lie on the floor. Sprites and
+  these decals sit 0.5 units toward the camera off the floor, about 400 steps of a 24-bit depth
+  buffer over the 20,000-unit range but only 46 mm of world depth, so they never share the ground's
+  depth. A projected lamp's point light sits 12 units up the screen from the lamp and 35 units in
+  front of its real depth. Labels, selection, cues and rain draw without depth testing.
   Contact shadows, ambient occlusion and shadow maps can therefore read real distances.
 - **Visual entity.** Each drawn entity has explicit geometry:
   - **Footprint** in millimetres, drawn as a ground shadow.
