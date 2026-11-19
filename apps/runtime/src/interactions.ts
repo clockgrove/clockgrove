@@ -15,7 +15,7 @@ import {
   type WorldPersonaId,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
-import type { WorldState } from "@clockgrove/domain";
+import { placeOf, type WorldState } from "@clockgrove/domain";
 import { RESOLVER_VERSION, resolveAudience, sha256Hex } from "@clockgrove/kernel";
 import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js";
 
@@ -155,15 +155,21 @@ export function influenceReceipt(
 }
 
 /**
- * Decision: a Say carries 20,000 position units, the range the reference fixture's sight example
- * uses, so a voice carries as far as a glance: the speaker's surroundings hear it, while an entity
- * farther off in the same space (the fixture's pantry bin) or in another space does not.
+ * A Say's `sound` range: no distance bound, so the speaker's space is its range. This is the
+ * runtime's existing perception rule (`perceivedEntities` in `actor-model.ts`): a runtime world
+ * declares no perception policy, so no modality range is declared, and the space stands in for one
+ * until a world can declare it. The resolver still range-checks every location-derived observer,
+ * so an observer in another frame is never in range; the bound is the largest the resolver
+ * accepts.
  */
-export const SAY_SOUND_RANGE = 20000;
+export const SAY_SOUND_RANGE = Number.MAX_SAFE_INTEGER;
 
 /**
  * Who hears a Say: the kernel resolver over a synthetic, never-recorded `sound` event at the
- * state's revision. Its event id is a digest of the message id, so any message id the request
+ * state's revision, in the speaker's space and the place it stands in (`placeOf` its pose), so the
+ * observers in the space (`space-contents`), in that place (`nearby-peer`) and in its ancestor
+ * places (`ancestor-space`) hear it: those in and near the space. The world records no occlusion
+ * or access rule for sound, so the policy declares none. Its event id is a digest of the message id, so any message id the request
  * accepts (up to 1,024 bytes) fits the resolver's 256-character id bound. The speaker is listed
  * when the resolver includes it (as `event-actor`). A speaker missing from the state or a refused
  * resolution fails closed: the kernel's resolver version with no observers, which the receipt's
@@ -174,7 +180,17 @@ export function sayAudience(
   speakerId: string,
   messageId: string,
 ): NonNullable<SayReceipt["audience"]> {
-  const spaceId = state.entities.find((entity) => entity.objectId === speakerId)?.spaceId;
+  const speaker = state.entities.find((entity) => entity.objectId === speakerId);
+  const spaceId = speaker?.spaceId;
+  const place =
+    speaker === undefined
+      ? undefined
+      : placeOf(
+          state.spatialRegions ?? [],
+          speaker.pose.frameId,
+          speaker.pose.frameVersion,
+          speaker.pose.coordinates,
+        );
   const outcome =
     spaceId === undefined
       ? undefined
@@ -188,7 +204,7 @@ export function sayAudience(
             spaceId,
             actorId: speakerId,
             targetId: null,
-            regionIds: [],
+            regionIds: place === undefined ? [] : [place],
           },
           state,
           {

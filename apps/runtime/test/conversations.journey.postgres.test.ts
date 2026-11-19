@@ -132,6 +132,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         { principalId: "principal-runtime", personaId: "persona-runtime" },
       ]);
       // Say's spatial audience: observers in and near the space hear it, and no one else.
+      // The whole space hears it (the runtime declares no sound range); another space's store does not.
       const heard = spoken.audience?.observers.map((o) => `${o.observerId}:${o.reason}`);
       expect(heard).toEqual([
         "fixture.cedar:space-contents",
@@ -143,6 +144,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "fixture.fence-gate:space-contents",
         "fixture.herb:space-contents",
         "fixture.keeper:event-actor",
+        "fixture.pantry-bin:space-contents",
         "fixture.porch:space-contents",
         "fixture.sky:space-contents",
         "fixture.snack-dish:space-contents",

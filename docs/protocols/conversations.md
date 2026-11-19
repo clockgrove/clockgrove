@@ -91,7 +91,7 @@ instead, so the next message follows it. Talk can stream its reply, and a turn c
 the caller. It is the explicit public action, and it is never stored in a session. The receipt's
 optional `audience` names who hears it (issue 374): the kernel resolver's version and its included
 observers (`observerId`, `reason`, `detailLevel`), resolved for a synthetic `sound` event of the
-speaker within `SAY_SOUND_RANGE`; see [channels](channels.md). Delivering the speech into each
+speaker in its space and place, with the space as its range; see [channels](channels.md). Delivering the speech into each
 observer's perception or memory is Wave 6 cognition.
 
 ## Storage, limits and retention

@@ -199,7 +199,7 @@
           "marker": "\"fixture.keeper:event-actor\","
         }
       ],
-      "note": "The receipt names the audience the kernel's resolveAudience decides for a synthetic sound event of the speaker at SAY_SOUND_RANGE (apps/runtime/src/interactions.ts): the speaker and the entities in its space within range; the pantry bin, in the same space but out of range, and the household store, in another space, are not in it."
+      "note": "The receipt names the audience the kernel's resolveAudience decides for a synthetic sound event of the speaker in its space and place, with no sound range declared (apps/runtime/src/interactions.ts, the runtime's rule that the space is the range): the speaker, every active entity of its space (the pantry bin too) and any observer in the speaker's place or its ancestor places hear it; the household store, in another space, does not."
     },
     {
       "id": "S7",
