@@ -149,6 +149,16 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "fixture.trash-can:space-contents",
         "fixture.water-bowl:space-contents",
       ]);
+      // The longest message id the request accepts (1,024 bytes) reaches the same audience.
+      const longSay = await post("/v1/runtime/say", {
+        actorId: "fixture.keeper",
+        messageId: "s".repeat(1024),
+        text: "Speak up, Keeper!",
+      });
+      expect([
+        longSay.status,
+        decodeSayReceipt(longSay.body).audience?.observers.map((o) => o.observerId),
+      ]).toEqual([200, spoken.audience?.observers.map((o) => o.observerId)]);
 
       // Talk is never projected: the scene and the journal carry none of its words.
       const scene = await post("/v1/runtime/scene", {});

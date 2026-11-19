@@ -16,7 +16,7 @@ import {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import type { WorldState } from "@clockgrove/domain";
-import { RESOLVER_VERSION, resolveAudience } from "@clockgrove/kernel";
+import { RESOLVER_VERSION, resolveAudience, sha256Hex } from "@clockgrove/kernel";
 import type { BuiltCommandFields, WorldCommandInput } from "./world-commands.js";
 
 /** The reader's authority that interaction policy evaluates, as its decided audience records it. */
@@ -163,9 +163,11 @@ export const SAY_SOUND_RANGE = 20000;
 
 /**
  * Who hears a Say: the kernel resolver over a synthetic, never-recorded `sound` event at the
- * state's revision. The speaker is listed when the resolver includes it (as `event-actor`). A
- * speaker missing from the state or a refused resolution fails closed: the kernel's resolver
- * version with no observers, which the receipt's decoder accepts.
+ * state's revision. Its event id is a digest of the message id, so any message id the request
+ * accepts (up to 1,024 bytes) fits the resolver's 256-character id bound. The speaker is listed
+ * when the resolver includes it (as `event-actor`). A speaker missing from the state or a refused
+ * resolution fails closed: the kernel's resolver version with no observers, which the receipt's
+ * decoder accepts.
  */
 export function sayAudience(
   state: WorldState,
@@ -180,7 +182,7 @@ export function sayAudience(
           {
             version: 1,
             type: "object.created",
-            eventId: `say:${messageId}`,
+            eventId: `say:${sha256Hex(new TextEncoder().encode(messageId))}`,
             modality: "sound",
             sourceRevision: state.revision,
             spaceId,
