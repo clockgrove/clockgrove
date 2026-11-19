@@ -146,12 +146,20 @@ export class PostgreSqlRunRecorder {
     tenantId: string,
     runId: string,
     outputArtifactId: string,
-    usage: ModelUsage = { inputTokens: 0, outputTokens: 0, costMicrousd: 0 },
+    usage: ModelUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicrousd: 0,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      calls: 1,
+    },
   ): Promise<void> {
     await this.client.query(
       `UPDATE clockgrove.run_steps
           SET status = 'succeeded', output_artifact_id = $3, cost_microusd = $4,
-              input_tokens = $5, output_tokens = $6, summary = 'Model answered'
+              input_tokens = $5, output_tokens = $6,
+              cached_input_tokens = $7, reasoning_tokens = $8, model_calls = $9, summary = 'Model answered'
         WHERE tenant_id = $1 AND run_id = $2 AND kind='model_attempt' AND status='running'`,
       [
         tenantId,
@@ -160,6 +168,9 @@ export class PostgreSqlRunRecorder {
         usage.costMicrousd,
         usage.inputTokens,
         usage.outputTokens,
+        usage.cachedInputTokens ?? null,
+        usage.reasoningTokens ?? null,
+        usage.calls ?? null,
       ],
     );
   }

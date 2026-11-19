@@ -133,6 +133,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'effect_attempts', 'operator_read'),
   ('clockgrove', 'effect_approvals', 'operator_read'),
   ('clockgrove', 'effect_resolutions', 'operator_read'),
+  ('clockgrove', 'usage_events', 'operator_read'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -294,7 +295,8 @@ BEGIN
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
         'clockgrove.effect_intents', 'clockgrove.effect_attempts', 'clockgrove.effect_approvals', 'clockgrove.effect_resolutions',
-        'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow'
+        'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
+        'clockgrove.usage_events'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;

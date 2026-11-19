@@ -63,6 +63,10 @@ export interface ModelUsage {
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
   readonly costMicrousd: number | null;
+  readonly cachedInputTokens?: number | null;
+  readonly reasoningTokens?: number | null;
+  /** Provider calls the gateway made across every route attempt. */
+  readonly calls?: number | null;
 }
 
 /** A capability the model proposes to call, undecided: the registry's grants decide it. */
