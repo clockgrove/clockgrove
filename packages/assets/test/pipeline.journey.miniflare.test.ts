@@ -8,10 +8,14 @@ import {
 } from "@clockgrove/contracts";
 import { afterAll, expect, it } from "vitest";
 import {
+  type ApproverRegistry,
   type AssetEntry,
   buildAtlases,
   encodePng,
+  type GoldenApproval,
   r2AssetStore,
+  readApprovers,
+  repositoryRoot,
   reviewedFiles,
   sha256Hex,
   uploadReviewedAssets,
@@ -77,11 +81,18 @@ const entries = [
   entry("critter-b", 1, 8),
   entry("critter-c", 1, 0, "other"),
 ];
-const golden = {
+// Test-only approvers: this registry exists only in this test, so the repository's
+// approvers.json refuses both outside it.
+const approvers: ApproverRegistry = {
+  people: [{ login: "synthetic-person" }],
+  delegations: [{ id: "test-delegation", owner: "test", date: "2026-11-18", grant: "test runs" }],
+};
+const golden: GoldenApproval = {
+  file: "goldens/test.scene.json",
   sceneSha256: "scene",
   approval: {
-    status: "approved" as const,
-    reviewer: "synthetic-reviewer",
+    status: "approved",
+    approver: { kind: "agent", agent: "synthetic-agent", delegation: "test-delegation" },
     approvedSceneSha256: "scene",
   },
 };
@@ -114,7 +125,7 @@ it("builds identical atlases in any order and uploads every page and its index o
 
   const bucket = await mf.getR2Bucket("ASSETS_BUCKET");
   const store = r2AssetStore(bucket);
-  const first = await uploadReviewedAssets(store, { entries, golden });
+  const first = await uploadReviewedAssets(store, { entries, golden, approvers });
   for (const key of first.uploaded) {
     const object = await bucket.get(key);
     expect(
@@ -138,7 +149,7 @@ it("builds identical atlases in any order and uploads every page and its index o
       JSON.parse((await read(files[`${page}.animations.json`])).toString()).image.sha256,
     );
   expect(first.uploaded).toEqual([...Object.values(files), first.directory].sort());
-  expect(await uploadReviewedAssets(store, { entries, golden })).toEqual({
+  expect(await uploadReviewedAssets(store, { entries, golden, approvers })).toEqual({
     uploaded: [],
     skipped: first.uploaded,
     directory: first.directory,
@@ -150,14 +161,39 @@ it("builds identical atlases in any order and uploads every page and its index o
     uploadReviewedAssets(store, {
       entries: [...entries, { manifest: refused, bytes: entries[0]?.bytes ?? new Uint8Array() }],
       golden,
+      approvers,
     }),
   ).rejects.toThrow(/REVIEW_NOT_APPROVED/u);
-  for (const reviewer of [null, "github-actions[bot]"])
+  // A listed person approves too; a bare name, a bot, an unlisted person and an agent citing no
+  // recorded delegation are refused, naming the golden's file.
+  const withApprover = (approver: unknown) => ({
+    ...golden,
+    approval: { ...golden.approval, approver } as GoldenApproval["approval"],
+  });
+  await expect(
+    uploadReviewedAssets(store, {
+      entries,
+      golden: withApprover({ kind: "person", login: "synthetic-person" }),
+      approvers,
+    }),
+  ).resolves.toMatchObject({ uploaded: [], directory: first.directory });
+  for (const [approver, code] of [
+    [null, "GOLDEN_APPROVER_REQUIRED"],
+    ["synthetic-person", "GOLDEN_APPROVER_REQUIRED"],
+    [{ kind: "person", login: "github-actions[bot]" }, "GOLDEN_REVIEWER_NOT_HUMAN"],
+    [{ kind: "person", login: "someone-else" }, "GOLDEN_APPROVER_UNRECOGNISED"],
+    [{ kind: "agent", agent: "synthetic-agent" }, "GOLDEN_DELEGATION_UNRECOGNISED"],
+    [
+      { kind: "agent", agent: "synthetic-agent", delegation: "other" },
+      "GOLDEN_DELEGATION_UNRECOGNISED",
+    ],
+  ] as const)
     await expect(
-      uploadReviewedAssets(store, {
-        entries,
-        golden: { ...golden, approval: { ...golden.approval, reviewer } },
-      }),
-    ).rejects.toThrow(/GOLDEN_REVIEWER_NOT_HUMAN/u);
+      uploadReviewedAssets(store, { entries, golden: withApprover(approver), approvers }),
+    ).rejects.toThrow(`${code}: goldens/test.scene.json:`);
+  // The repository's own registry does not record the test approvers.
+  await expect(
+    uploadReviewedAssets(store, { entries, golden, approvers: readApprovers(repositoryRoot) }),
+  ).rejects.toThrow(/GOLDEN_DELEGATION_UNRECOGNISED/u);
   expect((await bucket.list()).objects.length).toBe(before);
 });
