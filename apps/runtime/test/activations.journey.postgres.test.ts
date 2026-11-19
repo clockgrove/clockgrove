@@ -22,7 +22,7 @@ it.skipIf(isNativeWorldOwnerChild())(
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
           `UPDATE clockgrove.world_memberships
-            SET grants = array_append(grants, 'runtime:world-observe'),
+            SET grants = ARRAY(SELECT DISTINCT unnest(grants || ARRAY['runtime:world-observe', 'runtime:world-command'])),
                 privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","conversation"]}'`,
         );
       },
@@ -641,6 +641,31 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*)::text FROM clockgrove.actor_activations WHERE configuration_id = 'dependent-hunger'",
         ),
       ).toBe("0");
+
+      // The same scheduled-intention wake sent twice: one activation, one message and one effect.
+      // Its turn proposes the pack's `resource.offer`: one command receipt per turn.
+      const offer = "fixture:offer fixture.water-bowl water";
+      await configure("twice", "scheduled_intention", { input: offer });
+      // A command is decided under the owner's trusted talk context, which a direct message sets.
+      const hello = { version: 1, ...owner.scope, sessionId, messageId: "twice-hello", text: "Hi" };
+      expect((await owner.request("/v1/runtime/talk", hello, MEMBER)).status).toBe(200);
+      const effects = async () =>
+        Number(await owner.sql("SELECT count(*) FROM clockgrove.command_receipts"));
+      const before = (await counts()).split("/");
+      const e0 = await effects();
+      const twice = { kind: "scheduled_intention", scheduleId: "twice" };
+      const first = await wake("twice", "twice-root", twice);
+      const second = await wake("twice", "twice-root", twice);
+      expect(second.activationId).toBe(first.activationId);
+      const after = (await counts()).split("/");
+      // One turn: its inbound message and its reply.
+      expect(after.map((n, i) => Number(n) - Number(before[i]))).toEqual([1, 1, 2]);
+      expect((await effects()) - e0).toBe(1);
+      expect(
+        await owner.sql(
+          `SELECT count(*) FROM clockgrove.actor_activations WHERE causal_root = 'twice-root'`,
+        ),
+      ).toBe("1");
     });
   },
   240_000,

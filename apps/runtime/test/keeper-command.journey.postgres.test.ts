@@ -116,6 +116,58 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(
         await rows(`SELECT count(*) FROM clockgrove.command_receipts WHERE command_id LIKE '%:m5'`),
       ).toBe("0");
+
+      // One journey, three authorities: an influence, Keeper's physical offer and an operator action each keep their own receipt.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships SET grants = grants ||
+           ARRAY['runtime:world-inspect', 'runtime:world-operate']`,
+      );
+      const influenced = await post("/v1/runtime/influence", {
+        intentId: "journey-offer",
+        objectId: "fixture.snack-dish",
+        resourceKind: "food",
+        expectedRevision: "0",
+      });
+      const influenceId = (influenced.body as { commandId: string }).commandId;
+      const operated = await owner.request(
+        "/v1/runtime/actions",
+        {
+          schemaVersion: 1,
+          ...owner.scope,
+          action: "replay-message",
+          messageId: "no-such-message",
+        },
+        MEMBER,
+      );
+      expect([influenced.status, operated.status]).toEqual([409, 404]);
+      const ids = [influenceId, commandId as string, "no-such-message"];
+      expect(new Set(ids).size).toBe(3);
+      expect(influenceId).toMatch(/^influence:principal-runtime:/);
+      const count = (table: string, column: string, id: string) =>
+        rows(`SELECT count(*) FROM clockgrove.${table} WHERE ${column} = '${id}'`);
+      const kinds = async (id: string) =>
+        [
+          await count("command_receipts", "command_id", id),
+          await count("events", "command_id", id),
+          await count("run_steps", "command_id", id),
+          await count("runtime_operator_actions", "message_id", id),
+        ].join(",");
+      expect(await kinds(influenceId)).toBe("1,0,0,0");
+      expect(await kinds(commandId as string)).toBe("1,0,1,0");
+      expect(await kinds("no-such-message")).toBe("0,0,0,1");
+      expect(
+        await rows(
+          `SELECT status || ' ' || (attribution->>'personaId') || ' ' ||
+                  coalesce(attribution->>'effectiveActorId', 'none')
+             FROM clockgrove.command_receipts WHERE command_id = '${influenceId}'`,
+        ),
+      ).toBe("rejected persona-caretaker principal-runtime");
+      expect(
+        await rows(
+          `SELECT principal_id || ' ' || action || ' ' || decision || ' ' || reason_code
+             FROM clockgrove.runtime_operator_actions`,
+        ),
+      ).toBe("principal-runtime replay-message allow not-found");
     });
   },
   240_000,
