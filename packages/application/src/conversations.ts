@@ -43,6 +43,8 @@ export type ConversationResponder = (
   input: string,
   /** The turn's assembled prompt: its protected, governed and untrusted context sections. */
   prompt: string,
+  /** The run the turn's attempt records, when it has one; its model calls' evidence names it. */
+  turn?: { readonly runId: string },
 ) => ConversationResponse | Promise<ConversationResponse>;
 
 /**

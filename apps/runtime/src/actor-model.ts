@@ -24,6 +24,8 @@ import {
   createModelGateway,
   InMemoryModelBudget,
   inputTokenBound,
+  MAX_ALIAS_ROUTES,
+  MAX_ROUTE_NAME_BYTES,
   type ModelAliasDefinition,
   type ModelCallRecord,
   type ModelGateway,
@@ -302,6 +304,16 @@ export interface ActorModelDeps {
     participant: ConversationSessionParticipant,
     session: ConversationSession,
   ) => Promise<readonly StandingConfiguration[]>;
+  /**
+   * Records the breaker changes a step's model call caused on the run that made the call, before
+   * the step's outcome is used.
+   */
+  readonly breakerTransitions?: (
+    participant: ConversationSessionParticipant,
+    session: ConversationSession,
+    runId: string,
+    record: ModelCallRecord,
+  ) => Promise<void>;
   /** The actor's newest recorded self capability results in this session (issue 322). */
   readonly selfResults?: (
     participant: ConversationSessionParticipant,
@@ -390,7 +402,7 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
   const configuration = deps.configuration ?? DEFAULT_ACTOR_MODEL;
   const alias = actorAlias(configuration);
   const jsonSchema = z.toJSONSchema(OUTPUT) as Readonly<Record<string, unknown>>;
-  return async (session, caretakerMessages, input, prompt) => {
+  return async (session, caretakerMessages, input, prompt, turn) => {
     const participant = session.participants[0];
     const grants = participant === undefined ? undefined : await deps.grants(participant, session);
     if (participant === undefined || grants === undefined)
@@ -452,7 +464,13 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
     );
     return {
       reserveMicrousd,
-      send: (reserveFallback) => sendActorStep(deps, scene, request, reserveFallback),
+      send: (reserveFallback) =>
+        sendActorStep(deps, scene, request, reserveFallback, (record) =>
+          // A call outside any run has no run to carry its evidence (none does in a turn fiber).
+          turn === undefined
+            ? undefined
+            : deps.breakerTransitions?.(participant, session, turn.runId, record),
+        ),
     };
   };
 }
@@ -486,11 +504,17 @@ export function fittedCatalog(entries: readonly unknown[], room: number): string
   return `[${[...kept, ...(omitted === 0 ? [] : [note(omitted)])].join(",")}]`;
 }
 
+/** Issue 374: an alias or route name the durable breaker record can hold (`MAX_ROUTE_NAME_BYTES`). */
+function fitsRouteName(name: string): boolean {
+  return new TextEncoder().encode(name).length <= MAX_ROUTE_NAME_BYTES;
+}
+
 async function sendActorStep(
   deps: ActorModelDeps,
   scene: ActorScene | undefined,
   request: Pick<ModelRequest, "alias" | "callId" | "attribution" | "system" | "messages">,
   reserveFallback?: (microusd: number) => Promise<boolean>,
+  recordBreaker?: (record: ModelCallRecord) => Promise<void> | undefined,
 ): Promise<ConversationResponse> {
   let fallbackRefused = false;
   const outcome = await deps.gateway.generateObject({
@@ -506,6 +530,22 @@ async function sendActorStep(
           },
         }),
   });
+  // The call is paid for and its outcome decided, so a failed evidence write (a lost connection, a
+  // run closed or fenced meanwhile) never discards the answer or pays for a second call: it is
+  // reported, and the turn goes on (issue 374).
+  if (outcome.record.attempts.some((attempt) => attempt.breakerTransitions !== undefined))
+    await Promise.resolve(recordBreaker?.(outcome.record)).catch((error: unknown) => {
+      console.warn(
+        JSON.stringify({
+          event: "breaker_transitions_not_recorded",
+          callId: outcome.record.callId,
+          // A database error's code (CG020, 23514) or the error's name: never its message's values.
+          reason:
+            (error as { code?: unknown } | null)?.code ??
+            (error instanceof Error ? error.name : "unknown"),
+        }),
+      );
+    });
   if (outcome.status === "failed") {
     if (fallbackRefused)
       return {
@@ -691,7 +731,7 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
       aliases: z
         .array(
           z.object({
-            alias: z.string().min(1),
+            alias: z.string().min(1).refine(fitsRouteName),
             policyVersion: z.string().min(1),
             maxInputTokens: z.number().int().positive(),
             maxOutputTokens: z.number().int().positive(),
@@ -703,7 +743,7 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
             routes: z
               .array(
                 z.object({
-                  id: z.string().min(1),
+                  id: z.string().min(1).refine(fitsRouteName),
                   provider: z.enum(["scripted", "vercel-ai-gateway", "anthropic"]),
                   model: z.string().min(1),
                   credential: z.string().nullable(),
@@ -714,7 +754,8 @@ export function actorModelConfiguration(source: string | undefined): ActorModelC
                   }),
                 }),
               )
-              .min(1),
+              .min(1)
+              .max(MAX_ALIAS_ROUTES),
           }),
         )
         .min(1),

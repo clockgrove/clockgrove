@@ -180,7 +180,7 @@
     {
       "id": "S6",
       "scenario": "explicit public Say reaches only its authorized spatial audience and remains distinct from Talk",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
@@ -189,9 +189,17 @@
         {
           "file": "apps/runtime/test/interaction-card.journey.postgres.test.ts",
           "marker": "Chitters aloud (scripted fixture line)."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Say's spatial audience: observers in and near the space hear it, and no one else."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "\"fixture.keeper:event-actor\","
         }
       ],
-      "deviation": "Say being a distinct command with its own attributed receipt, never entering a session, is proven. No test asserts the spatial audience, i.e. which observers in or outside the space receive the Say speech, so 'only its authorized audience' is unproven."
+      "note": "The receipt names the audience the kernel's resolveAudience decides for a synthetic sound event of the speaker in its space and place, with no sound range declared (apps/runtime/src/interactions.ts, the runtime's rule that the space is the range): the speaker, every active entity of its space (the pantry bin too) and any observer in the speaker's place or its ancestor places hear it; the household store, in another space, does not."
     },
     {
       "id": "S7",
@@ -1071,13 +1079,33 @@
         }
       ],
       "note": "The outage is the fixture's: a model-down turn and a down MCP tool, then a world.advance commits exactly; wake triage keeps physical state unchanged on model errors and autonomous alarms need no model. A provider-wide outage on staging is part of the hosted items on issue 3."
+    },
+    {
+      "id": "O-breaker",
+      "item": "Provider breaker state is recorded durably for qualification and the run inspector",
+      "coverage": "full",
+      "evidence": [
+        {
+          "file": "apps/runtime/test/runs.journey.postgres.test.ts",
+          "marker": "// The model route's breaker opening and closing is recorded durably and the run inspector shows it."
+        },
+        {
+          "file": "apps/runtime/test/runs.journey.postgres.test.ts",
+          "marker": ").toBe(\"closed>open:3:b2,open>half_open:3:b4,half_open>closed:0:b4\");"
+        },
+        {
+          "file": "packages/model-gateway/test/model-gateway.journey.test.ts",
+          "marker": "opens the breaker after three overloads and routes around it visibly"
+        }
+      ],
+      "note": "Scripted overloads through a real ModelGateway in the native owner, no real model call: three overloaded turns open the route's breaker, a later turn after the cooldown is the half-open trial that closes it, and each transition is a clockgrove.model_breaker_transitions row (migration 0076) the run inspector returns and the §18 sample measures."
     }
   ],
   "exitItems": [
     {
       "id": "X2",
       "item": "Governed cognitive documents/versioned atomic change sets enforce write classes, authority, limits, provenance, inspector and retention policy.",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/context.journey.postgres.test.ts",
@@ -1094,9 +1122,16 @@
         {
           "file": "apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts",
           "marker": "// Document write: an actor-writable document commits with the turn, with model provenance."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Document limits: a write past its size or count limit is refused with its typed reason."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// Retention: every version is kept for the world's life, as the document inspector states."
         }
-      ],
-      "deviation": "Atomic versioned change sets, authority (governing grant), write class (protected policy refused, governed document refused to the actor), provenance and the inspector's manifest are proven. Document size/count limits and a retention policy for cognitive documents are not directly proven (retention is tested only for conversation title/archive/delete)."
+      ]
     },
     {
       "id": "X3",

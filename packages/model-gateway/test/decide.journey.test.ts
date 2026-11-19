@@ -309,4 +309,82 @@ describe("decide on the model gateway port", () => {
     const exhausted = await models.decide({ ...request, callId: "c3" });
     expect(exhausted).toMatchObject({ status: "failed", code: "unavailable" });
   });
+
+  it("records each breaker change on the decision that caused it, a trial answered by its own end", async () => {
+    let clock = 1_000_000;
+    const records: DecisionCallRecord[] = [];
+    const answer = { type: "choice", label: "stay", confidence: null } as const;
+    const decider = new ScriptedDecider({
+      [alias.route.id]: [
+        { kind: "answer", answer, delayMs: 50 },
+        { kind: "http", status: 529 },
+        { kind: "http", status: 529 },
+        { kind: "http", status: 529 },
+        { kind: "refusal" },
+        { kind: "answer", answer },
+      ],
+    });
+    const models = createModelGateway({
+      aliases: [],
+      adapters: {},
+      decisionAliases: [alias],
+      decisionAdapters: { "vercel-ai-gateway": decider },
+      budget: new InMemoryModelBudget(() => 1_000_000),
+      accounting: {
+        record: () => undefined,
+        recordDecision: (record) => void records.push(record),
+      },
+      now: () => clock,
+    });
+    const ask = (callId: string) =>
+      models.decide({ alias: "shadow.default", callId, attribution, state: "resting", question });
+    const moves = (callId: string) =>
+      (records.find((record) => record.callId === callId)?.breakerTransitions ?? []).map(
+        (move) => `${move.from}>${move.to} ${move.consecutiveFailures}`,
+      );
+    // Admitted while closed, it answers only after three overloads opened the route and its
+    // cooldown elapsed: its success closes an open breaker; no trial ran.
+    const straggler = ask("straggler");
+    for (const callId of ["o-1", "o-2", "o-3"]) await ask(callId);
+    clock += 31_000;
+    await straggler;
+    expect(["o-1", "o-2", "o-3", "straggler"].map(moves)).toEqual([
+      [],
+      [],
+      ["closed>open 3"],
+      ["open>closed 0"],
+    ]);
+    // Open again; a trial that ends without a verdict returns it to open, and the next is a trial.
+    const reopen = new ScriptedDecider({
+      [alias.route.id]: [
+        { kind: "http", status: 529 },
+        { kind: "http", status: 529 },
+        { kind: "http", status: 529 },
+        { kind: "refusal" },
+        { kind: "answer", answer },
+      ],
+    });
+    const again = createModelGateway({
+      aliases: [],
+      adapters: {},
+      decisionAliases: [alias],
+      decisionAdapters: { "vercel-ai-gateway": reopen },
+      budget: new InMemoryModelBudget(() => 1_000_000),
+      accounting: {
+        record: () => undefined,
+        recordDecision: (record) => void records.push(record),
+      },
+      now: () => clock,
+    });
+    for (const callId of ["r-1", "r-2", "r-3"])
+      await again.decide({ alias: "shadow.default", callId, attribution, state: "s", question });
+    clock += 31_000;
+    for (const callId of ["trial-refused", "trial-answered"])
+      await again.decide({ alias: "shadow.default", callId, attribution, state: "s", question });
+    expect(["r-3", "trial-refused", "trial-answered"].map(moves)).toEqual([
+      ["closed>open 3"],
+      ["open>half_open 3", "half_open>open 3"],
+      ["open>half_open 3", "half_open>closed 0"],
+    ]);
+  });
 });

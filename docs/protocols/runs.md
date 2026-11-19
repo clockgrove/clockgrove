@@ -116,6 +116,19 @@ they are refused here with `403 authorization_refused`.
   - A message reaches the run that read it or the run that produced it.
   - A command reaches the run whose step proposed it.
 
+  A run whose model call changed a route's breaker carries `breakerTransitions`: `routeId`,
+  `alias`, `from`, `to` (`closed`, `open`, `half_open`), `consecutiveFailures` and `recordedAt`,
+  oldest first; absent when none changed. Each is one immutable row of
+  `clockgrove.model_breaker_transitions` (migration 0076), written by the turn's participant right
+  after the call on the run that made it, and readable by that participant or an inspector holding
+  `operator_evidence`. Its guard holds each row to a running run of the row's own session and world
+  and a run to at most 512 rows (a run has at most 32 steps, each of its calls is one of them, and a
+  call records at most 16 transitions: an alias has at most 8 routes, each tried once a call and
+  moving the breaker at most twice), so the breaker's opening and closing outlives the gateway's
+  memory (issue 374). A failed write of the rows is logged (`breaker_transitions_not_recorded`)
+  and never discards the paid call's answer. The Wave 5 qualification samples the rows (`breakerTransitions` in its §18
+  measurement).
+
   The walk shows payload `text` only when the inspector is a participant of the run's session
   whose ceiling also holds `conversation` and the payload's own class: a `private_cognition`
   prompt needs both. A conversation-only participant still reads that turn's context manifest

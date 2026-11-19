@@ -137,7 +137,22 @@ Three consecutive failures open the breaker. One or two failures are ordinary pr
 While the breaker is open, calls skip the route and record `skipped_breaker_open`. After 30 s the
 breaker is half-open and lets one trial call through. A success closes it; a failure opens it again.
 `inspect(alias)` reports each route's breaker state and consecutive failures. Breaker state is
-in-memory execution state, one entry per route.
+in-memory execution state, one entry per route. Its recorded state is `half_open` only while the
+one admitted trial is in flight: once the cooldown has elapsed `inspect` says `half_open`, but the
+record moves only when a call changes it. Each change (`closed` to `open` at the third consecutive
+failure, `open` to `half_open` when the trial is admitted, then `half_open` to `closed` on the
+trial's success, or back to `open` when it fails or ends without a verdict, and `open` to `closed`
+when a call admitted before the breaker opened succeeds) is reported by the call that caused it as
+`breakerTransitions` (`routeId`, `from`, `to`, `consecutiveFailures`, `at`), absent when it changed
+nothing: on the `RouteAttempt` for `generateObject` and `stream`, and on the `DecisionCallRecord`
+for `decide`, so each `open>half_open` is answered by the same trial's end. The runtime records the
+actor's model calls durably on their run (issue 374): see [runs](../../../docs/protocols/runs.md).
+Its decision gateways (wake triage, moderation shadows) are built for one turn and so carry a fresh
+breaker each time; their records report what changed within that turn. So that a call's record
+always fits the durable table, a gateway refuses an alias of more than 8 routes
+(`MAX_ALIAS_ROUTES`) and an alias name or route id over 256 bytes (`MAX_ROUTE_NAME_BYTES`) when
+it is composed: a call tries each route once and one attempt moves the breaker at most twice, so a
+call reports at most 16 transitions.
 
 ## Budget
 

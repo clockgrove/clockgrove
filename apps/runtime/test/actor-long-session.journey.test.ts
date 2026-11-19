@@ -328,6 +328,24 @@ it("a smaller route limit lowers the context budget, and one with no room is ref
     expect(() => actorModelConfiguration(configured(limit))).toThrow(
       `world model alias actor.small maxInputTokens ${limit} leaves no context room beside the actor request's fixed parts (311920); the minimum is 311944`,
     );
+  // Issue 374: at most 8 routes an alias and 256-byte names, so a call's breaker record fits 0076.
+  const reshaped = (change: (alias: { routes: { id: string }[] }) => void) => {
+    const value = JSON.parse(configured(314_320));
+    change(value.aliases[0]);
+    return JSON.stringify(value);
+  };
+  const widened = (count: number) =>
+    reshaped((alias) => {
+      alias.routes = Array.from({ length: count }, (_, i) => ({
+        ...alias.routes[0]!,
+        id: `r/${i}`,
+      }));
+    });
+  expect(actorModelConfiguration(widened(8)).aliases[0]?.routes).toHaveLength(8);
+  expect(() => actorModelConfiguration(widened(9))).toThrow();
+  expect(() =>
+    actorModelConfiguration(reshaped((alias) => void (alias.routes[0]!.id = "é".repeat(129)))),
+  ).toThrow();
   // No caller is clamped to a budget of one: the measure itself refuses a limit with no room.
   expect(() => contextTokenBudget(311_943, 311_920)).toThrow(
     "input limit 311943 leaves no context room beside the request's fixed parts (311920); the minimum is 311944",
@@ -774,4 +792,64 @@ it("names the fields of each declared world command in the actor's instructions"
   );
   expect(system).not.toContain('"schemaVersion"');
   expect(system).not.toContain('"quantity"');
+});
+
+it("keeps a paid step's answer when its breaker evidence cannot be written (issue 374)", async () => {
+  const route = "vercel-ai-gateway/claude-opus-5.5";
+  const provider = new ScriptedModelProvider({
+    [route]: [
+      {
+        kind: "reply" as const,
+        chunks: [JSON.stringify({ reply: "Still here.", command: null })],
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    ],
+  });
+  const real = createModelGateway({
+    aliases: PRODUCTION_ALIASES,
+    adapters: { "vercel-ai-gateway": provider, anthropic: provider },
+    budget: new InMemoryModelBudget(() => 5_000_000),
+    accounting: { record: () => undefined },
+  });
+  // The call reports a breaker move, as a trial's success does.
+  const moved = { routeId: route, from: "half_open", to: "closed", consecutiveFailures: 0, at: 1 };
+  const gateway = {
+    ...real,
+    generateObject: (async (request: Parameters<typeof real.generateObject>[0]) => {
+      const outcome = await real.generateObject(request);
+      return {
+        ...outcome,
+        record: {
+          ...outcome.record,
+          attempts: outcome.record.attempts.map((attempt) => ({
+            ...attempt,
+            breakerTransitions: [moved],
+          })),
+        },
+      };
+    }) as typeof real.generateObject,
+  };
+  const recorded: string[] = [];
+  const prepare = actorPreparedResponder({
+    gateway,
+    grants: () => CAPABILITY_REGISTRY.grantsFor(["runtime:world-observe"]),
+    perceive: async () => undefined,
+    breakerTransitions: async (_participant, _session, runId) => {
+      recorded.push(runId);
+      throw Object.assign(new Error("run closed"), { code: "CG020" });
+    },
+  });
+  const session = {
+    sessionId: "session-breaker",
+    actorId: "actor-breaker",
+    participants: [{ principalId: "principal-breaker", personaId: "persona-breaker" }],
+    scope: { tenantId: "tenant-breaker", worldId: "world-breaker" },
+  } as unknown as ConversationSession;
+  const step = await prepare(session, 1, "Hello?", "Hello?", { runId: "run-breaker" });
+  const answer = await step.send();
+  expect(recorded).toEqual(["run-breaker"]);
+  expect(answer.text).toBe("Still here.");
+  expect(answer.usage).toMatchObject({ inputTokens: 10, outputTokens: 3 });
+  expect(provider.calls).toHaveLength(1);
 });
