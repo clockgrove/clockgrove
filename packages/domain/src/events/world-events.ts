@@ -52,6 +52,9 @@ const WORLD_EVENT_VOCABULARY: Readonly<
   "boundary.returned": declare(1, ["payload", "actorId"], null, null),
   "resource.boundary-exchanged": declare(1, ["payload", "actorId"], ["payload", "objectId"], null),
   "process.command-attempted": declare(1, BY_ATTRIBUTION, null, null),
+  "surface.interacted": declare(1, ["payload", "actorId"], null, null),
+  "surface.band-crossed": declare(1, null, null, null),
+  "surface.repaired": declare(1, BY_ATTRIBUTION, null, null),
   "needs.changed": declare(1, null, ["payload", "objectId"], { quantities: [] }),
   /** Version 2: emitted only for a material decision; version 1 was emitted for every one. */
   "routine.selected": declare(
@@ -130,6 +133,9 @@ const WORLD_EVENT_FEED: Readonly<Record<WorldEvent["type"], WorldFeedCategory | 
   "boundary.returned": null,
   "resource.boundary-exchanged": "resource",
   "process.command-attempted": null,
+  "surface.interacted": null,
+  "surface.band-crossed": null,
+  "surface.repaired": null,
   "needs.changed": null,
   "routine.selected": "routine",
   "time.advanced": null,
