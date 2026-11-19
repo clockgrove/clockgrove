@@ -48,7 +48,7 @@ env:
   # pnpm check runs alone first (pnpm test reruns its turbo check tasks); the rest are independent and run together in local mode.
   PENDULUM_VALIDATION: "pnpm check, parallel: pnpm test, parallel: pnpm run test:db, parallel: pnpm run test:runtime, parallel: pnpm run db:verify, parallel: pnpm run verify:docs, parallel: env CI=true node node_modules/vitest/vitest.mjs run --config tests/ci/vitest.browser.config.ts"
   PENDULUM_BUDGET_COMMAND: node scripts/check-test-budget.mjs
-  PENDULUM_REGENERATE: pnpm run goldens:regenerate # writes the paths .gitattributes marks pendulum-generated, in place (docs/INSTALL.md, Generated files); empty: none
+  PENDULUM_REGENERATE: pnpm run goldens:regenerate && node scripts/contract-drift.mjs . --generate # writes the paths .gitattributes marks pendulum-generated, in place (docs/INSTALL.md, Generated files); empty: none
   PENDULUM_PROTECTED_PATHS: scripts/test-budget.json, scripts/ci/toolchain.sh, scripts/ci/browser-toolchain.mjs
   PENDULUM_CI_CHECKS: quality
   PENDULUM_NODE_VERSION: 24.21.0 # the Node.js your CI uses
