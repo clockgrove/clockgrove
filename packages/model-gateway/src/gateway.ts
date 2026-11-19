@@ -392,6 +392,8 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       firstByteMs: null,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      reasoningTokens: null,
       costMicrousd: null,
       reportedCostUsd: null,
       finishReason: null,
@@ -485,6 +487,8 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
           firstByteMs: firstByteAt === null ? null : firstByteAt - started,
           inputTokens,
           outputTokens,
+          cachedInputTokens: finish?.cachedInputTokens ?? null,
+          reasoningTokens: finish?.reasoningTokens ?? null,
           costMicrousd:
             inputTokens === null || outputTokens === null
               ? null

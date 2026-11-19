@@ -79,6 +79,8 @@ export class AiSdkRouteAdapter implements RouteAdapter {
           finishReason: part.finishReason,
           inputTokens: part.usage.inputTokens ?? null,
           outputTokens: part.usage.outputTokens ?? null,
+          cachedInputTokens: part.usage.inputTokenDetails.cacheReadTokens ?? null,
+          reasoningTokens: part.usage.outputTokenDetails.reasoningTokens ?? null,
           reportedCostUsd: reportedCost(part.providerMetadata),
           responseModel: part.response.modelId ?? null,
         };

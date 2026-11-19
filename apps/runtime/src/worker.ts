@@ -56,6 +56,7 @@ import {
   decodeRuntimeNoOpRequest,
   decodeSayRequest,
   decodeSceneInterest,
+  decodeUsageQueryRequest,
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
@@ -72,6 +73,8 @@ import {
   SCENE_CREDENTIAL_PREFIX,
   SCENE_PROTOCOL,
   type SceneInterest,
+  type UsagePage,
+  type UsageQueryRequest,
   type VoiceMode,
   type WorldDirectory,
   type WorldPersonaId,
@@ -251,6 +254,8 @@ export interface RuntimeOwnerBindings {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
     readonly search: AuditedPort<RunSearchRequest, RunSearch>;
   };
+  /** Usage events by player and time window (0076), under the inspector's grant, limit and audit. */
+  readonly usage?: AuditedPort<UsageQueryRequest, UsagePage>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -503,6 +508,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/runs/search")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeRunSearchRequest, this.bindings.runs?.search),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/usage/query")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeUsageQueryRequest, this.bindings.usage),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
       return this.answer("causal_chain_inspection_answered", (note) =>

@@ -356,10 +356,24 @@ export interface SelfCapabilityResult {
 }
 
 function usageOf(record: ModelCallRecord): ModelUsage {
-  const attempt = record.attempts.at(-1);
+  const counted = record.attempts.filter(
+    (a) => a.outcome !== "skipped_breaker_open" && a.outcome !== "credential_missing",
+  );
+  const total = (pick: (a: (typeof counted)[number]) => number | null | undefined) => {
+    let sum = 0;
+    for (const a of counted) {
+      const n = pick(a);
+      if (n === null || n === undefined) return null;
+      sum += n;
+    }
+    return sum;
+  };
   return {
-    inputTokens: attempt?.inputTokens ?? null,
-    outputTokens: attempt?.outputTokens ?? null,
+    inputTokens: total((a) => a.inputTokens),
+    outputTokens: total((a) => a.outputTokens),
+    cachedInputTokens: total((a) => a.cachedInputTokens),
+    reasoningTokens: total((a) => a.reasoningTokens),
+    calls: counted.length,
     costMicrousd: record.costMicrousd,
   };
 }
