@@ -23,6 +23,8 @@ export default defineConfig({
       "tests/load/realtime/fanout.journey.browser.test.mjs",
       // pnpm dev:world: the local checkpoint command serves and tears down.
       "tests/ci/dev-world.journey.browser.test.mjs",
+      // Issue 327: pnpm playground serves the playground pack to its owner and tears down.
+      "tests/ci/playground.journey.browser.test.mjs",
       // Issue 67: the renderer bake-off measurement page and script, under SwiftShader.
       "tests/ci/renderer-bakeoff.journey.browser.test.mjs",
     ],
