@@ -12,5 +12,6 @@
   "allowSegments": ["test", "tests", "negative-boundaries"],
   "allowFilePattern": "\\.(?:test|spec)\\.",
   "worldRoot": "worlds",
-  "platformWorlds": ["fixture", "playground"]
+  "platformWorlds": ["fixture", "playground"],
+  "neutralWorlds": ["worlds/playground"]
 }

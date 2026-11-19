@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { expect, it, onTestFailed } from "vitest";
@@ -12,14 +14,14 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 // and no model key, prints how to open it as the world's owner, signs that owner in with the
 // owner-only inspection the dev:world observer lacks, and Ctrl-C removes its database. The 720 s
 // bound is dev:world's (#401): it is the same session.
-it("serves the playground pack to its owner and removes it on Ctrl-C", async () => {
+async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title }) {
   const at = namedSteps(onTestFailed);
   at.step = "playground prints its URL and owner credential";
   // No model key and no cloud account reach the command.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !/API_KEY|CLOUDFLARE|NEON/u.test(name)),
   );
-  const playground = spawn(process.execPath, ["scripts/playground.mjs"], {
+  const playground = spawn(process.execPath, ["scripts/playground.mjs", ...args], {
     cwd: root,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -45,7 +47,7 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
         printed,
         exited.then((code) => Promise.reject(new Error(`playground exited ${code}\n${output}`))),
       ]);
-      expect(output).toContain("Playground: clockgrove.playground@1.0.0");
+      expect(output).toContain(`Playground: ${pack} (`);
       expect(output).toContain(`credential "${credential}" (the world's owner)`);
       at.step = "the owner's world and inspection";
       const post = (route, body) =>
@@ -62,7 +64,7 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
         1,
         `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
         "playground-owner",
-        "playground.plane",
+        expectedSpace,
       ]);
       // The runtime-state inspector needs runtime:world-inspect, which dev:world's observer lacks.
       const inspected = await post("/v1/runtime/runtime-state", {
@@ -74,13 +76,10 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
       });
       expect(inspected.status).toBe(200);
       at.step = "browser signs in and the scene arrives";
-      const shell = JSON.parse(
-        await readFile(new URL("worlds/playground/shell.json", `file://${root}`), "utf8"),
-      );
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
       await page.goto(url.toString());
-      expect(await page.title()).toBe(shell.name);
+      expect(await page.title()).toBe(title);
       await page.getByLabel("Local session credential").fill(credential);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
@@ -100,4 +99,37 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
     "string",
     false,
   ]);
+}
+
+it("serves the playground pack to its owner and removes it on Ctrl-C", async () => {
+  const shell = JSON.parse(await readFile(path.join(root, "worlds/playground/shell.json"), "utf8"));
+  await servesToItsOwner({
+    args: [],
+    pack: "clockgrove.playground@1.0.0",
+    spaceId: "playground.plane",
+    title: shell.name,
+  });
+}, 720_000);
+
+// `--pack <dir>` serves the named pack in the playground's place as a fresh world from its declared
+// seed (revision 0) in its own database. The pack here is a copy of worlds/fixture without its
+// shell.json, so the neutral shell ("Clockgrove") is used, and `--assets` names its static directory.
+it("serves a pack named with --pack, without a shell of its own, as a fresh world", async () => {
+  const scratch = await mkdtemp(path.join(tmpdir(), "playground-pack-"));
+  try {
+    const pack = path.join(scratch, "pack");
+    await cp(path.join(root, "worlds/fixture"), pack, {
+      recursive: true,
+      filter: (source) => source !== path.join(root, "worlds/fixture/shell.json"),
+    });
+    expect(existsSync(path.join(pack, "shell.json"))).toBe(false);
+    await servesToItsOwner({
+      args: ["--pack", pack, "--assets", path.join(pack, "assets/reviewed")],
+      pack: "clockgrove.test-world@1.1.0",
+      spaceId: "beacon.hall",
+      title: "Clockgrove",
+    });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }, 720_000);

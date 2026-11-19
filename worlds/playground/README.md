@@ -3,9 +3,13 @@
 ## Purpose
 
 The neutral default world, in the spirit of a 3D editor's default plane and cube: simple and quiet, so the
-engine is easy to see and nothing distracts. It is little more than a rock that weather changes and that you
-can talk to through the disclosed object (interpreted) perspective, plus the smallest neutral set the shared
-conformance suite requires of every committed pack (a cube with a need and a puddle it drinks from). It has
+engine is easy to see and nothing distracts. It is little more than a rock, declared in the disclosed object (interpreted)
+Conversation mode, with a fixed weather exposure and the capability its scenario changes the weather through,
+plus the smallest neutral set the shared conformance suite requires of every committed pack (a cube with a
+need and a puddle it drinks from). Weather does not change the rock's own properties, and talking to it is
+not served yet: the playground owner's privacy ceiling has no `conversation` category and the pack declares
+no model, so the rock's Talk action is refused `conversation_not_permitted`. A later part of issue 327
+delivers both. It has
 nothing to do with any other world, and it is separate from `worlds/fixture`, which exists to catch
 reference-world assumptions. Every identity uses the `playground.` prefix.
 

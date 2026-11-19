@@ -126,7 +126,7 @@ This is a local checkpoint with firm limits. The credential can only observe: it
 
 ### The playground
 
-`pnpm playground` is the local host for world packs. It serves the neutral playground pack (`worlds/playground`: a plane, a rock the weather changes and you can talk to, a cube and a puddle) and signs you in as the world's owner. It needs the same PostgreSQL set as `pnpm dev:world`, and no cloud account or model key; on a fresh clone it installs the workspace first.
+`pnpm playground` is the local host for world packs. It serves the neutral playground pack (`worlds/playground`: a plane, a rock that carries a weather exposure and the capability its scenario changes the weather through, a cube and a puddle) and signs you in as the world's owner. Talking to the rock comes in a later part of issue 327: the owner's privacy ceiling has no `conversation` category yet, and the pack declares no model. It needs the same PostgreSQL set as `pnpm dev:world`, and no cloud account or model key; on a fresh clone it installs the workspace first.
 
 ```bash
 pnpm playground

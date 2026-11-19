@@ -240,6 +240,22 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     worldNameProblems("scripts/world-boundaries.json", config.identifiers.join(" "), config),
     [],
   );
+  // A neutral world (the playground pack) is exempt from the platform scan above so platform code may
+  // name it, but its own files are scanned with no exemption: it never carries another world's names.
+  const strict = { ...config, allowPaths: [], allowSegments: [], allowFilePattern: "$^" };
+  assert.equal(
+    worldNameProblems(
+      "worlds/playground/resources/actors/rock.json",
+      config.identifiers.join(" "),
+      strict,
+    ).length,
+    config.identifiers.length,
+  );
+  const neutral = [];
+  for (const world of config.neutralWorlds ?? [])
+    neutral.push(...(await scanWorldNames(repositoryRoot, world, strict)));
+  assert.deepEqual(neutral, [], `neutral world names another world:\n${neutral.join("\n")}`);
+  console.log(`neutral worlds: ${(config.neutralWorlds ?? []).join(", ")} name no other world`);
   const names = [];
   const dependencies = [];
   for (const sourceRoot of config.sourceRoots) {
