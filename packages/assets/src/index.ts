@@ -1,5 +1,6 @@
 import { loadKtx2Encoder } from "./ktx2.js";
 
+export * from "./approval.js";
 export * from "./atlas.js";
 export { loadKtx2Encoder } from "./ktx2.js";
 export * from "./license-report.js";

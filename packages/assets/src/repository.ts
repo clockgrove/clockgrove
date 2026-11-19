@@ -19,6 +19,7 @@ import {
   type AssetStyleProfile,
   decodeAssetStyleProfile,
 } from "@clockgrove/contracts/asset-style-profile";
+import type { GoldenApprover } from "./approval.js";
 import type { AssetEntry } from "./atlas.js";
 import type { SceneCamera } from "./scene.js";
 
@@ -32,7 +33,7 @@ export interface GoldenRecord {
   sceneSha256: string;
   approval: {
     status: "pending" | "approved";
-    reviewer: string | null;
+    approver: GoldenApprover | null;
     approvedSceneSha256: string | null;
   };
 }

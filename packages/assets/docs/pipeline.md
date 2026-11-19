@@ -15,7 +15,7 @@ Manifest and presentation shapes are owned by the
 5. Check the declared licence, generated provenance/provider grant and reviewer against the deploy gate.
 6. Pack approved assets into atlases and write `worlds/fixture/assets/reviewed`.
 7. Regenerate `worlds/fixture/assets/license-report.md`.
-8. Render the golden scene and get its diff approved by a human.
+8. Render the golden scene and get its diff approved by a listed person or a delegated agent.
 9. Upload the reviewed output content-addressed to the asset store.
 
 ## Layout
@@ -134,26 +134,46 @@ an asset's declared licence, and provenance never replaces human review.
 rain effects, integer math only). Each sprite pixel is composited source-over the opaque scene
 with integer arithmetic, `(src * a + dst * (255 - a) + 127) / 255` rounded down per channel, and
 the output alpha stays 255; alpha 0 leaves the scene unchanged and alpha 255 copies the colour, so
-binary-alpha art renders as before. If the scene hash changed it resets approval to `pending`. A
-human edits `approval` to `approved` with their `reviewer` login and `approvedSceneSha256`. `check`
-fails on any rendering difference ("visual diff"), on a pack with `presentation.json` but no golden,
-on a world with manifests but no presentation metadata (`GOLDEN_SCENE_REQUIRED`), on a golden that
-is not approved for its current `sceneSha256` (`GOLDEN_NOT_APPROVED`), and on an approval whose
-reviewer is null, blank or a GitHub `[bot]` account (`GOLDEN_REVIEWER_NOT_HUMAN`), so a
-re-rendered golden cannot merge without a human edit. The scene renders only deployable manifests,
+binary-alpha art renders as before. If the scene hash changed it resets approval to
+`{"status": "pending", "approver": null, "approvedSceneSha256": null}`. An approver then sets
+`status` to `approved`, `approvedSceneSha256` to the current hash and `approver` to who approved:
+
+- a person, `{"kind": "person", "login": "<GitHub login>"}`, whose login is listed under `people`
+  in `approvers.json`;
+- an agent, `{"kind": "agent", "agent": "<which agent>", "delegation": "<id>"}`, citing the `id` of
+  an owner's delegation recorded under `delegations` (`id`, `owner`, `date`, `grant`) in
+  `approvers.json`.
+
+`approvers.json` sits at the root of the repository being checked: the Clockgrove checkout, or the
+world directory under `--world`. A missing file recognises nobody; a malformed one is refused
+(`APPROVERS_INVALID`). People and delegations are added in a reviewed change, and the check reads
+them offline, with no GitHub call. `check` fails on any rendering difference ("visual diff"), on a
+pack with `presentation.json` but no golden, on a world with manifests but no presentation metadata
+(`GOLDEN_SCENE_REQUIRED`), and on a golden not approved for its current `sceneSha256`
+(`GOLDEN_NOT_APPROVED`). It refuses an approval that names no approver, such as a bare `reviewer`
+name (`GOLDEN_APPROVER_REQUIRED`), a person whose login is blank or a GitHub `[bot]` account
+(`GOLDEN_REVIEWER_NOT_HUMAN`), a person `approvers.json` does not list
+(`GOLDEN_APPROVER_UNRECOGNISED`), and an agent citing no delegation or one `approvers.json` does not
+record (`GOLDEN_DELEGATION_UNRECOGNISED`). Each refusal names the golden record's file, so a
+re-rendered golden cannot merge without a recognised approver's edit. For the fixture world,
+`check` applies the same approver rule to the `review.approver` of
+`tests/visual/approved-captures.json`, the visual-golden captures' approval record.
+The scene renders only deployable manifests,
 the ones upload ships; a binding to a pending or refused manifest fails the render.
 
 The fixture scene retains the issue 813 camera and effects coverage: origin (-2000 mm,
 3000 mm), 80 mm per pixel, 480 x 270 pixels, simulation time 79,200,000 ms (22:00),
 rain intensity 6000 and `fixture.keeper` selected. Its geometric placeholder image exercises
-night, rain, lighting and selection rendering. The approval is synthetic test data; external
-world artwork still requires its own human approval.
+night, rain, lighting and selection rendering. An agent approved it under Kirk's standing
+delegation of 2026-11-16 (`kirk-2026-11-16-fixture-goldens`); external world artwork needs its own
+approver, recognised by that world's `approvers.json`. Tests approve with people and delegations
+that only the registry the test builds records, so the repository refuses them.
 
 ## Upload
 
 `uploadReviewedAssets` throws, uploading nothing, if any manifest is refused or the golden is not
-approved by a human for its current hash (the same `GOLDEN_NOT_APPROVED` and
-`GOLDEN_REVIEWER_NOT_HUMAN` rule as `check`). It stores every file `build` writes to `reviewed/`
+approved for its current hash by an approver the given registry (`approvers`, read with
+`readApprovers`) recognises: the same `GOLDEN_*` rule as `check`, naming the golden's `file`. It stores every file `build` writes to `reviewed/`
 (page PNGs as `image/png`, animation manifests, `materials.json` and the `atlases.json` page index
 as `application/json`, material pages as `image/png` and `image/ktx2`) at `sha256/<hex of its bytes>`; existing keys are skipped.
 The store's keys are content hashes, while the shell requests files by name, so upload stores one
@@ -173,9 +193,11 @@ under `worlds/fixture/assets/source`, and updates content hashes and atlas place
 `pnpm --filter @clockgrove/assets run build` rebuilds the fixture atlas and license report;
 `update-golden` renders its scene and resets changed approval as usual.
 
-The manifests and scene record use the synthetic `fixture-reviewer` identity already used by
-contract fixtures. These records test the approved branch of the deploy gate; they do not
-represent a human review of external world artwork. Unreviewed and unlicensed negative controls,
+The manifests use the synthetic `fixture-reviewer` identity already used by contract fixtures.
+They test the approved branch of the manifest review gate; they do not represent a human review
+of external world artwork. The scene record's approval is not synthetic: it names the agent and
+the delegation it acted under, as [Golden approval](#golden-approval) describes, and a
+`fixture-reviewer` name there is refused with `GOLDEN_APPROVER_REQUIRED`. Unreviewed and unlicensed negative controls,
 source validation, exact atlas rebuilding and golden refusal checks remain enabled.
 
 ## World style data
@@ -224,7 +246,8 @@ on refusal, 0 on success. Invalid command usage or world directory exits 2, as d
 the world (`ASSET_PATH_INVALID`). Unexpected internal errors exit 70. External success prints a
 JSON object with `status: "ok"` and the command name. `check` also refuses
 undeployable external assets, stale reviewed output, stale licence reporting,
-missing or changed goldens and pending or non-human golden approval. Deploy refusals print as
+missing or changed goldens and pending golden approval or an approver the world's
+`approvers.json` does not recognise. Deploy refusals print as
 `<code> <assetId>/<animationFamily>: <detail>`.
 
 Malformed world input exits 1 with a stable code that names the file: `JSON_INVALID` for
@@ -233,7 +256,7 @@ unparseable JSON, `ASSET_MANIFEST_INVALID` and `PRESENTATION_INVALID` for decode
 cannot read (coordinates that are not integer `$bigint` values, or an edge naming an undeclared
 anchor). `build` includes only
 deployable assets; human review is still required. A changed golden resets to
-pending until a human records approval for the new scene hash. Existing
+pending until a recognised approver records approval for the new scene hash. Existing
 external local sessions serve the world's reviewed directory; the shell loads every
 page its `atlases.json` lists.
 
@@ -368,7 +391,8 @@ Stable refusals include `MODEL_GLB_INVALID`, `MODEL_HASH_MISMATCH`,
 `MODEL_SIDE_IMAGE_*` codes of [side images](#side-images).
 Manifest decoder failures retain `ASSET_MANIFEST_INVALID`. Licence and provider
 output-grant refusals retain the existing deploy codes. Pending human review is
-accepted by `validate`; `check` and shipping retain the human approval gate.
+accepted by `validate`; `check` and shipping retain the manifest's human review gate and the
+golden's approver rule (a listed person, or an agent under a recorded delegation).
 The inspector has a 60-second local process deadline so malformed media cannot
 hold the synchronous validation hook indefinitely.
 

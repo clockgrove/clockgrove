@@ -116,14 +116,21 @@
     {
       "id": "S2",
       "scenario": "cognitive actor versus interpreted tree disclosure",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
           "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Each voice mode opens with its own disclosure on the session and the reply: cognitive, interpreted, canonical."
+        },
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// Each voice mode's disclosure shows in the browser: Keeper cognitive, the cedar interpreted, the gate canonical."
         }
-      ],
-      "deviation": "Only the cognitive (Actor's subjective communication) disclosure on a conversation session is proven. No test opens a session or reply with the interpreted or canonical voice mode, so the interpreted-tree disclosure and its contrast with the cognitive actor is unproven."
+      ]
     },
     {
       "id": "S3",
@@ -189,7 +196,7 @@
     {
       "id": "S7",
       "scenario": "Influence, gift/physical command, and operator action each preserve their distinct receipts and authority",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/accessibility/text-path.journey.browser.test.mjs",
@@ -202,9 +209,12 @@
         {
           "file": "apps/runtime/test/world-mcp-operations.postgres.test.ts",
           "marker": "keeps MCP operator authority canonical and changesets unavailable"
+        },
+        {
+          "file": "apps/runtime/test/keeper-command.journey.postgres.test.ts",
+          "marker": "// One journey, three authorities: an influence, Keeper's physical offer and an operator action each keep their own receipt."
         }
-      ],
-      "deviation": "Each of Influence (attributed influence: receipt), Keeper's gift/physical command (journaled receipt with initiator/executor attribution) and the operator repair action (runtime_operator_actions audit) is proven separately. No single test contrasts the three receipt kinds or proves one cannot be mistaken for another."
+      ]
     },
     {
       "id": "S8",
@@ -631,7 +641,7 @@
     {
       "id": "W-schedule",
       "item": "Duplicate scheduled_intention wake never duplicates an activation, message or effect",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/activations.journey.postgres.test.ts",
@@ -640,9 +650,12 @@
         {
           "file": "apps/runtime/test/activations.journey.postgres.test.ts",
           "marker": "const blocked = await wake(\"blocked\", \"budget-root\", {"
+        },
+        {
+          "file": "apps/runtime/test/activations.journey.postgres.test.ts",
+          "marker": "// The same scheduled-intention wake sent twice: one activation, one message and one effect."
         }
-      ],
-      "deviation": "Wake dedupe is keyed by causal_root for every kind (migration 0039 primary key) and a scheduled alarm recovers after a crash; no test sends the same scheduled_intention wake twice. The migration line is a structural citation, not a test."
+      ]
     }
   ],
   "securityFixtures": [
@@ -830,7 +843,7 @@
     {
       "id": "G1",
       "item": "Protected policy/grants never enter untrusted prompt sections",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/context.journey.postgres.test.ts",
@@ -839,9 +852,16 @@
         {
           "file": "apps/runtime/test/context.journey.postgres.test.ts",
           "marker": "// in the protected section, untrusted parts labelled."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "// No member grant or capability set enters any prompt section, protected or untrusted."
+        },
+        {
+          "file": "apps/runtime/test/context.journey.postgres.test.ts",
+          "marker": "the actor's model request carries no member grant, and no capability in a prompt section"
         }
-      ],
-      "deviation": "Protected policy.md/identity.md appear only in the protected prompt section and caretaker/actor text is untrusted; no test asserts member grants/capability sets are absent from every prompt section."
+      ]
     },
     {
       "id": "G2",
@@ -1104,14 +1124,21 @@
     {
       "id": "X4",
       "item": "Cognitive/interpreted/canonical voice disclosure is visible.",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
           "marker": "// Two conversations on different topics, each opened with its voice-mode disclosure."
+        },
+        {
+          "file": "apps/runtime/test/conversations.journey.postgres.test.ts",
+          "marker": "// Each voice mode opens with its own disclosure on the session and the reply: cognitive, interpreted, canonical."
+        },
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// Each voice mode's disclosure shows in the browser: Keeper cognitive, the cedar interpreted, the gate canonical."
         }
-      ],
-      "deviation": "Cognitive voice-mode disclosure is asserted on the session and reply. Interpreted and canonical voice disclosure, and its visibility in the browser UI, have no conversation-level test (only the Wave 4 scene 'interpreted' mode in contracts)."
+      ]
     },
     {
       "id": "X6",
@@ -1285,7 +1312,7 @@
     {
       "id": "X14",
       "item": "(UI/accessibility) the conversation, approval and capability UI journeys and their accessibility checks.",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
@@ -1302,9 +1329,20 @@
         {
           "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
           "marker": "// 7. The open conversation panel has no accessibility violations."
+        },
+        {
+          "file": "tests/e2e/research.journey.browser.test.mjs",
+          "marker": "// The approval panel passes axe and is operable by keyboard."
+        },
+        {
+          "file": "tests/e2e/mcp-installation.journey.browser.test.mjs",
+          "marker": "// The MCP operator screen passes axe and is operable by keyboard."
+        },
+        {
+          "file": "tests/e2e/conversation-states.journey.browser.test.mjs",
+          "marker": "// The internal-grants view passes axe and is operable by keyboard."
         }
-      ],
-      "deviation": "Journeys exist for conversation, approval (Call approvals) and MCP/capability UI. Accessibility checks cover only the conversation panel (axe); the approval panel, MCP operator screen and grants view have no axe or keyboard check, and tests/accessibility text-path covers Wave 4 journeys only."
+      ]
     }
   ]
 }
