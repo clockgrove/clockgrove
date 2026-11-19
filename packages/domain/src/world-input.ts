@@ -16,6 +16,17 @@ import {
   type SemanticPose,
   type SpatialFrame,
 } from "./spatial.js";
+import {
+  type SurfaceCarried,
+  type SurfaceChannel,
+  type SurfaceEffect,
+  type SurfaceMark,
+  type SurfacePolicy,
+  type SurfaceState,
+  type SurfaceZone,
+  validateSurfacePolicy,
+  validateSurfaceState,
+} from "./surface.js";
 import type {
   AmbiguityCondition,
   AmbiguityDeclaration,
@@ -33,17 +44,6 @@ import {
   type WorldEntity,
   type WorldState,
 } from "./world.js";
-import {
-  type SurfaceCarried,
-  type SurfaceChannel,
-  type SurfaceEffect,
-  type SurfaceMark,
-  type SurfacePolicy,
-  type SurfaceState,
-  type SurfaceZone,
-  validateSurfacePolicy,
-  validateSurfaceState,
-} from "./surface.js";
 import type { WorldProcess, WorldProcessState } from "./world-process.js";
 
 /** First-slice input, not the complete WorldPackManifest or an installation/genesis receipt. */

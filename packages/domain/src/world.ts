@@ -79,6 +79,14 @@ import {
   validateSpatialFrame,
 } from "./spatial.js";
 import {
+  reduceSurfaceEvent,
+  type SurfaceEventData,
+  type SurfacePolicy,
+  type SurfaceState,
+  validateSurfacePolicy,
+  validateSurfaceState,
+} from "./surface.js";
+import {
   type ScriptedCognitionState,
   type UtilityEventData,
   type UtilityPolicy,
@@ -93,14 +101,6 @@ import {
   type WellbeingPolicy,
   type WellbeingState,
 } from "./wellbeing/wellbeing.js";
-import {
-  reduceSurfaceEvent,
-  type SurfaceEventData,
-  type SurfacePolicy,
-  type SurfaceState,
-  validateSurfacePolicy,
-  validateSurfaceState,
-} from "./surface.js";
 import {
   type ProcessCommandEventData,
   validateWorldProcesses,
