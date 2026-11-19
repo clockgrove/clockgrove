@@ -301,13 +301,16 @@ it("validates generated fixture-style actor and prop images through CLI, packing
         entries,
         profile,
         golden: {
+          file: "goldens/test.scene.json",
           sceneSha256: "a".repeat(64),
           approval: {
             status: "approved",
-            reviewer: "reviewer",
+            approver: { kind: "person", login: "test-person" },
             approvedSceneSha256: "a".repeat(64),
           },
         },
+        // A test-only registry; the repository's approvers.json does not list this person.
+        approvers: { people: [{ login: "test-person" }], delegations: [] },
       },
     );
     expect(result.uploaded.length).toBe(stored.size);

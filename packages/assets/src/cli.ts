@@ -17,6 +17,7 @@ import {
 } from "@clockgrove/contracts";
 import { assetDeployRefusals, decodeAssetManifest } from "@clockgrove/contracts/asset-manifest";
 import { ImageUtils } from "@gltf-transform/core";
+import { approverRefusal, readApprovers } from "./approval.js";
 import { atlasLocationProblems, buildAtlases, packAtlas, reviewedFiles } from "./atlas.js";
 import { loadKtx2Encoder } from "./ktx2.js";
 import { licenseReport } from "./license-report.js";
@@ -104,7 +105,7 @@ function* assetsCli(argv: readonly string[]): Generator<void, AssetsCliResult, v
   const referenceRoot = external ? "reference" : "worlds/fixture/reference";
   const fixtures = "packages/contracts/test/fixtures/asset-manifest";
   const regenerate =
-    "run `pnpm --filter @clockgrove/assets run update-golden` and get human approval";
+    "run `pnpm --filter @clockgrove/assets run update-golden` and get it approved by a listed person or a delegated agent";
   let files: ManifestFile[] = [];
   let models: ModelManifestFile[] = [];
   let deployable: ManifestFile[] = [];
@@ -298,6 +299,17 @@ function* assetsCli(argv: readonly string[]): Generator<void, AssetsCliResult, v
     )
       problems.push(`${assetRoot}/license-report.md: stale, run the asset build command`);
 
+    const approvers = readApprovers(root);
+    // The fixture world's visual-golden captures: one review block approves the whole file.
+    if (!external) {
+      const captures = "tests/visual/approved-captures.json";
+      const refusal = approverRefusal(
+        readJson(join(root, captures)).review?.approver,
+        approvers,
+        captures,
+      );
+      if (refusal !== null) problems.push(refusal);
+    }
     const scenes = readPackScenes(root, worldRoot);
     if (scenes.length === 0 && files.length > 0)
       problems.push("GOLDEN_SCENE_REQUIRED: world presentation metadata is missing");
@@ -310,7 +322,10 @@ function* assetsCli(argv: readonly string[]): Generator<void, AssetsCliResult, v
       }
       try {
         const png = render(scene, golden);
-        const refusal = goldenApprovalRefusal(golden);
+        const refusal = goldenApprovalRefusal(
+          { ...golden, file: relative(root, paths.record) },
+          approvers,
+        );
         if (!same(read(paths.image), png) || sha256Hex(png) !== golden.sceneSha256)
           problems.push(`visual diff: ${scene.packDir} golden scene changed; ${regenerate}`);
         else if (refusal !== null) problems.push(`golden ${scene.packDir}: ${refusal}`);
@@ -339,14 +354,14 @@ function* assetsCli(argv: readonly string[]): Generator<void, AssetsCliResult, v
         rainIntensity: 0,
         selectedObjectId: scene.presentation.bindings[0]?.objectId ?? null,
         sceneSha256: "",
-        approval: { status: "pending", reviewer: null, approvedSceneSha256: null },
+        approval: { status: "pending", approver: null, approvedSceneSha256: null },
       };
       const png = render(scene, record);
       const sceneSha256 = sha256Hex(png);
       const approval =
         sceneSha256 === record.sceneSha256
           ? record.approval
-          : { status: "pending" as const, reviewer: null, approvedSceneSha256: null };
+          : { status: "pending" as const, approver: null, approvedSceneSha256: null };
       mkdirSync(join(root, assetRoot, "goldens"), { recursive: true });
       writeFileSync(paths.image, png);
       writeFileSync(

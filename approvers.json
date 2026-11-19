@@ -1,0 +1,12 @@
+{
+  "note": "Who may approve Clockgrove's goldens, read offline by `clockgrove-assets check` and the asset deploy gate (packages/assets/docs/pipeline.md#golden-approval). A golden approval names an approver: {\"kind\": \"person\", \"login\"} with a login listed under people, or {\"kind\": \"agent\", \"agent\", \"delegation\"} citing the id of a delegation recorded here. People and delegations are added only in a reviewed change; CI never approves.",
+  "people": [],
+  "delegations": [
+    {
+      "id": "kirk-2026-11-16-fixture-goldens",
+      "owner": "Kirk",
+      "date": "2026-11-16",
+      "grant": "Standing: an agent may approve Clockgrove's fixture-world golden captures at their exact digests, after inspecting each one at its declared viewport and backend."
+    }
+  ]
+}
