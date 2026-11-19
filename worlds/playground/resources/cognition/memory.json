@@ -1,0 +1,1 @@
+{"entries":[{"actorId":"playground.cube","effectiveAt":{"$bigint":"1000"},"kind":"memory","ref":"scripted:puddle-memory","targetObjectId":"playground.puddle","value":4000}],"schemaVersion":1,"type":"clockgrove.scripted-cognition"}

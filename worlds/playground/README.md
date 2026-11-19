@@ -1,0 +1,36 @@
+# Playground pack (`clockgrove.playground@1.0.0`)
+
+## Purpose
+
+The neutral default world, in the spirit of a 3D editor's default plane and cube: simple and quiet, so the
+engine is easy to see and nothing distracts. It is little more than a rock that weather changes and that you
+can talk to through the disclosed object (interpreted) perspective, plus the smallest neutral set the shared
+conformance suite requires of every committed pack (a cube with a need and a puddle it drinks from). It has
+nothing to do with any other world, and it is separate from `worlds/fixture`, which exists to catch
+reference-world assumptions. Every identity uses the `playground.` prefix.
+
+## Contents
+
+- space `playground.plane` (one rectangular region);
+- `playground.cube`, a placed mobile subject with needs (archetype `playground.cube-kind`, trait
+  `playground.thirst`);
+- `playground.rock`, a stationary object (archetype `playground.rock-kind`, `interpreted` Conversation mode,
+  weather exposure), bound to the `playground.voice` embodied-dialogue capability;
+- `playground.puddle`, a water resource holder the cube drinks from;
+- a scripted memory of the puddle for the cube (`cognition/memory.json`);
+- rule `playground.drizzle` (schedule trigger) emitting a weather command intent;
+- clock and behaviour policies, and a `weather` random stream.
+
+There is no art: the manifest lists no assets.
+
+## Scenario
+
+`scenarios/weathered-rock.json` submits one weather command through the rock's `playground.voice` binding,
+two commands that binding refuses, then advances 70 seconds. It asserts: the weather command is accepted
+through `playground.rock`'s `playground.voice@1` and its one `weather.changed` event is attributed to the
+rock, initiated by the scenario; a `movement.interrupt` through the same binding is refused
+`CAPABILITY_COMMAND_UNDECLARED`; the same weather command by `playground.cube`, which holds no such binding,
+is refused `CAPABILITY_NOT_HELD`; the cube uses the scripted memory of the puddle, chooses to seek water,
+reaches the puddle and drinks twice, leaving it with 3 units; the `playground.drizzle` rule records a weather
+intent at 120000, recorded and not executed; and replay reproduces the final state. Its reviewed golden is
+`goldens/weathered-rock.json`.

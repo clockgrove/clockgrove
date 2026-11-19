@@ -1,0 +1,19 @@
+{
+  "shellVersion": 1,
+  "name": "Clockgrove Playground",
+  "wordmark": "Clockgrove Playground",
+  "copy": {
+    "worldLabel": "Playground world",
+    "chooseWorld": "Choose a playground world",
+    "stopped": "Clockgrove Playground stopped",
+    "provisioning": "This world is still being provisioned, so no scene is shown yet. The scene opens once the world is ready.",
+    "ready": "The world is ready. Opening the scene."
+  },
+  "tokens": {},
+  "scene": {
+    "atlases": false,
+    "accent": 10206432,
+    "panel": 2106928,
+    "text": "#edf1f5"
+  }
+}

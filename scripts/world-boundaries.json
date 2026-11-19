@@ -1,11 +1,16 @@
 {
   "enforceNames": true,
-  "activation": "Platform identifiers are enforced; only the neutral fixture world is allowed.",
+  "activation": "Platform identifiers are enforced; only the neutral fixture and playground worlds are allowed.",
   "identifiers": ["raccoon", "stevie", "juniper", "gracie", "grove."],
   "sourceRoots": ["apps", "packages", "scripts", "tools"],
-  "allowPaths": ["worlds/fixture/", "tests/", "scripts/world-boundaries.json"],
+  "allowPaths": [
+    "worlds/fixture/",
+    "worlds/playground/",
+    "tests/",
+    "scripts/world-boundaries.json"
+  ],
   "allowSegments": ["test", "tests", "negative-boundaries"],
   "allowFilePattern": "\\.(?:test|spec)\\.",
   "worldRoot": "worlds",
-  "fixture": "fixture"
+  "platformWorlds": ["fixture", "playground"]
 }

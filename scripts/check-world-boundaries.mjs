@@ -38,8 +38,9 @@ async function filesUnder(directory) {
 
 export function isWorldPath(value, config) {
   const normalized = value.replaceAll("\\", "/");
+  const platform = config.platformWorlds.map(escapePattern).join("|");
   return new RegExp(
-    `(?:^|/)${escapePattern(config.worldRoot)}/(?!${escapePattern(config.fixture)}(?:/|$))[^/]+(?:/|$)`,
+    `(?:^|/)${escapePattern(config.worldRoot)}/(?!(?:${platform})(?:/|$))[^/]+(?:/|$)`,
     "u",
   ).test(normalized);
 }
@@ -131,6 +132,10 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     config.identifiers.length,
   );
   assert.equal(
+    worldNameProblems("worlds/playground/example.ts", config.identifiers.join(" "), config).length,
+    0,
+  );
+  assert.equal(
     worldNameProblems("worlds/fixture/example.ts", config.identifiers.join(" "), config).length,
     0,
   );
@@ -166,6 +171,14 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     worldImportProblems(
       "apps/web/src/example.ts",
       'import("../../worlds/fixture/pack.json")',
+      config,
+    ).length,
+    0,
+  );
+  assert.equal(
+    worldImportProblems(
+      "apps/web/src/example.ts",
+      'import("../../worlds/playground/pack.json")',
       config,
     ).length,
     0,
