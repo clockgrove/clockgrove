@@ -33,14 +33,23 @@ export interface FeedSummary {
   readonly sourceEventIds: readonly EventId[];
 }
 
-export type InteractionMode = "inspectable" | "reactive" | "cognitive" | "interpreted";
+export type InteractionMode =
+  | "inspectable"
+  | "reactive"
+  | "cognitive"
+  | "interpreted"
+  | "canonical";
 
-/** The §10 mode disclosures; a card renders the one its summary's mode names, never its own. */
+/**
+ * The §10 mode disclosures; a card renders the one its summary's mode names, never its own.
+ * `canonical` is Wave 5 §6.3's authorized explanation from world evidence.
+ */
 export const INTERACTION_DISCLOSURES: Readonly<Record<InteractionMode, string>> = Object.freeze({
   inspectable: "Inspection from world evidence",
   reactive: "Deterministic/reactive object",
   cognitive: "Actor's subjective perspective",
   interpreted: "Interpretation; object is not sentient",
+  canonical: "Authorized explanation from world evidence",
 });
 
 export const INTERACTION_ACTION_KINDS = [
@@ -150,7 +159,11 @@ export function decodeInteractionSummary(
   const kinds = new Set<string>();
   return Object.freeze({
     entityId: decodeOpaqueId(v.entityId, "ObjectId", `${path}.entityId`),
-    mode: literal(v.mode, ["inspectable", "reactive", "cognitive", "interpreted"], `${path}.mode`),
+    mode: literal(
+      v.mode,
+      ["inspectable", "reactive", "cognitive", "interpreted", "canonical"],
+      `${path}.mode`,
+    ),
     actions: array(v.actions, `${path}.actions`, (action, p) => {
       const a = record(action, p);
       const kind = literal(a.kind, INTERACTION_ACTION_KINDS, `${p}.kind`);

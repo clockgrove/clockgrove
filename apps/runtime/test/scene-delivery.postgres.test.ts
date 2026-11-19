@@ -157,7 +157,7 @@ function expectedOperations(canonical: HydratedWorldOwner): ScenePatchOperation[
       op: "upsert_interaction",
       interaction: {
         entityId: decodeOpaqueId("beacon.master", "ObjectId"),
-        mode: "reactive",
+        mode: "cognitive",
         actions: [
           { kind: "inspect", availability: "enabled" },
           { kind: "history", availability: "enabled" },

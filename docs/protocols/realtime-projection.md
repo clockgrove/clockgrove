@@ -293,7 +293,8 @@ crosses authority spaces, so `followed` is reached across nested regions.
 Feed summaries and interaction summaries expose declared public meaning rather than raw event
 payloads. Public spatial speech and private attributed Caretaker talk are distinct contracts.
 Interaction modes disclose inspection from evidence, deterministic/reactive operation, an actor's
-subjective perspective, or interpreted modeled state without implying that an object is sentient.
+subjective perspective, interpreted modeled state without implying that an object is sentient, or
+an authorized explanation from world evidence.
 
 ### Interaction cards
 
@@ -301,15 +302,19 @@ Every projected entity has one `InteractionSummary`: its `mode` and its effectiv
 the server's policy evaluation computes on each scene read from canonical components and the reader's
 current grants and ceiling. The card renders `INTERACTION_DISCLOSURES[mode]`: `inspectable`
 "Inspection from world evidence", `reactive` "Deterministic/reactive object", `cognitive` "Actor's
-subjective perspective", `interpreted` "Interpretation; object is not sentient". An action is
+subjective perspective", `interpreted` "Interpretation; object is not sentient", `canonical`
+"Authorized explanation from world evidence". An action is
 `{ kind, availability: "enabled" }` or `{ kind, availability: "disabled", reason }`. A kind is one of
 `talk`, `observe`, `inspect`, `remember`, `history`, `influence` and `why`, and each is listed at most once. A
 capability the entity lacks is absent, never disabled. `reason` is `command_grant_required` or
 `conversation_not_permitted`, with the readable text in `INTERACTION_DENIAL_REASONS`. Nothing is inferred
 from ownership, proximity or selection.
 
-Wave 4 has no cognition: actors decide by deterministic utility, so actors, plants and resources
-are `reactive`, and other entities are `inspectable`. Every entity has `inspect` and `history`
+An entity that declares a Conversation mode (`clockgrove.conversation-mode`) has that mode,
+`cognitive`, `interpreted` or `canonical` (issue 396); the mode comes only from that declared
+component, never from needs, resources or a name, and changes no action. An entity that declares
+none keeps Wave 4's rule: actors, plants and resources are `reactive`, and other entities are
+`inspectable`. Every entity has `inspect` and `history`
 (issue 800's entity read, whose history reads the journal until Wave 6). Actors have `why`, issue 800's
 recorded Why of their newest `routine.selected` command, and `talk`, which needs the `conversation`
 category. Resource holders have `influence`, which needs `runtime:world-command`. The reader's
