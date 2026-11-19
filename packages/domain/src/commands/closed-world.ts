@@ -26,6 +26,8 @@ const CREATES_RESOURCE: Readonly<Record<ContainmentCommandType, Refusal | null>>
   "resource.offer": () => "payload.quantity",
   "resource.consume": null,
   "resource.transfer": null,
+  "surface.interact": null,
+  "surface.repair": null,
 };
 
 /**
