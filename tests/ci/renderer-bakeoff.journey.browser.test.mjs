@@ -424,7 +424,8 @@ it.each(["webgpu", "webgl2"])(
           changed(dark, bright, -150, 120, -30),
           changed(dark, bright, 70, -40, -100),
           changed(before, after, -50, 80, -30, true),
-          changed(before, after, 10, 80, -100, true),
+          // #266: the receiver lies on the real floor, so the caster's shadow runs off it onto the ground.
+          changed(before, after, -25, 112, -Math.sqrt(3) * 112, true),
         ];
         const oldMaps = adapter.sky.map((light) => light.shadow.map);
         let retired = 0;
@@ -642,6 +643,19 @@ it.each(["webgpu", "webgl2"])(
       const spriteFront = await sample(184);
       await page.evaluate(() => globalThis.fixtureRenderer.setModelAnchor(0.2, -0.2));
       const modelFront = await sample(184);
+      // #266: content sits in real depth: its anchor is unscaled in depth, and a nearer anchor is
+      // nearer the camera by the floor's slope (6.25√3 scene units per metre of x - y).
+      const depth = await page.evaluate(() => {
+        const f = globalThis.fixtureRenderer;
+        const anchor = f.diagnostics.model.parent;
+        const front = anchor.position.z;
+        f.setModelAnchor(-0.8, 0.8);
+        const back = anchor.position.z;
+        f.setModelAnchor(0.2, -0.2);
+        return { scale: anchor.scale.toArray(), front, back };
+      });
+      expect(depth.scale).toEqual([12.5, 12.5, 12.5]);
+      expect(depth.front - depth.back).toBeCloseTo(2 * 6.25 * Math.sqrt(3), 5);
       expect(spriteFront[2]).toBeGreaterThan(spriteFront[0]);
       expect(modelFront[0]).toBeGreaterThan(modelFront[2]);
       expect(

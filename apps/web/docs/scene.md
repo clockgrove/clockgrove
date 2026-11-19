@@ -125,6 +125,18 @@ committed data. Legacy projections without lighting retain their existing enviro
   The fixture allows up to 96×: its 390×844 portrait view has logical height about 1385,
   requiring about 74× for that same half-metre subject to occupy one third of the viewport. Zoom changes the
   orthographic projection continuously; geometry stays at its native rendering resolution.
+- **Real depth (#266).** The 2:1 mapping is read as a 30° camera pitch, so the scene has real
+  world-space depth: a metre of `x − y` toward the viewer is 6.25 px down the screen and
+  6.25√3 scene units nearer the camera, and a metre of elevation is 12.5 px up and 12.5/√3 nearer
+  (`sceneDepth` in `renderer-content.ts`). The floor is a real plane through the origin with normal
+  (0, sin 60°, cos 60°): at elevation 0 its depth is −√3 times the scene Y. The ground mesh lies on
+  it; the orthographic camera stays 10,000 units from the floor under the view centre (near 0.1, far
+  20,000), so screen positions, picking and pan are unchanged and only depth is real. Linear fog
+  from 0 to 90,000 keeps the 11% veil at the view centre and varies a few percent with depth across
+  the view. Every projected body sits at its real depth on every path, and a sprite's pixels below
+  its anchor lie on the floor, so the floor never clips them. Ground shadows, puddles and puddle
+  reflections lie on the floor; labels, selection, cues and rain draw without depth testing.
+  Contact shadows, ambient occlusion and shadow maps can therefore read real distances.
 - **Visual entity.** Each drawn entity has explicit geometry:
   - **Footprint** in millimetres, drawn as a ground shadow.
   - **Anchor**, the frame pixel that stands on the pose.
@@ -321,10 +333,12 @@ updates adapt detail to the selected tier rather than choosing another light rig
 The configured GLTF loader converts decoded materials to lit node materials before attachment.
 
 `place` uses the existing fixed camera: scene X is `(x + y) * 12.5`, scene Y is
-`-(x - y) * 6.25 + elevation * 12.5`, and depth is `(x - y) * 0.01 + elevation * 0.005`.
-It sets local scale to `(12.5, 12.5, 0.01)`. Local content geometry therefore uses screen-aligned
-metres, Y upward and shallow local Z depth; rotate model geometry within an anchor group when
-needed. Local Y zero is the feet/ground anchor, not a separate physical ground simulation.
+`-(x - y) * 6.25 + elevation * 12.5`, and depth is the real depth
+`(x - y) * 6.25√3 + elevation * 12.5/√3` (see Real depth above). It sets local scale to
+`(12.5, 12.5, 12.5)`. Local content geometry therefore uses screen-aligned metres on all three
+axes, Y upward and Z toward the camera, with no depth compression (#266 removed the earlier 0.01
+local depth scale); rotate model geometry within an anchor group when needed. Local Y zero is the
+feet/ground anchor, not a separate physical ground simulation.
 With content attached, projected bodies write anchor depth too, so opaque and alpha-tested
 content interleaves with projected sprites through the same depth buffer. Normal maps affect the
 shared lighting; a TSL `depthNode` can apply a world-supplied per-fragment depth map. Content is
@@ -374,7 +388,7 @@ the renderer owns the actual lights, tier selection and GPU resource retirement.
 
 The instance's optional `lights` array contains `{ position: [x, y, z], colour,
 intensity, rangeMetres }` descriptors. Positions are screen-aligned metres relative to the scene
-origin, with all three axes scaled by 12.5; unlike `place`, their depth is not compressed.
+origin, with all three axes scaled by 12.5, the same real depth as `place`.
 `colour` is `#rrggbb`, intensity is nonnegative, and range is positive. All numbers must be
 finite. Admission uses array order, up to the active tier's cap; extra valid descriptors remain
 inactive. At most 64 descriptors are accepted. Absolute position components and intensity are
@@ -398,8 +412,9 @@ Shadow storage conservatively reserves 12 bytes per map pixel before choosing vi
 and counts in `textureBytes`: 3,145,728 bytes at medium and 25,165,824 at high when both scene
 directional sources are present. `metrics.contentLights`, `shadowMaps` and `shadowTextureBytes`
 report active admission and reserved storage. Shadow coverage follows the fixed camera and zoom
-using the visible rectangle’s diagonal radius and 128 logical pixels of caster margin. The light
-target sits at depth -50 between content and ground (-100); the source distance is the larger of
+using the radius of the visible floor (the visible rectangle's half-width and twice its half-height,
+since the tilted floor adds √3 of depth per unit of height) and 128 logical pixels of caster margin.
+The light target sits on the floor under the view centre; the source distance is the larger of
 1000 or coverage radius plus 128, with near 0.1 and far distance plus radius plus 128. Bias is -0.0001.
 These are explicit renderer presentation choices for #184, bounding coverage while limiting acne.
 Tier changes, content failure and destruction retire unused light and shadow resources. The

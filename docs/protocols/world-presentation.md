@@ -339,4 +339,7 @@ scene clock convention), normalized for negative times, smooth daylight transiti
 The two-hour transition and colour palette are visual policy decisions for #184, not simulation
 rules or hardware performance claims. Callers may supply their own validated lighting/environment.
 Content shares the scene's continuous ambient and directional lights through its attached root,
-without a per-world renderer branch. Its `update` frame retains the existing time/weather fields.
+without a per-world renderer branch. It also shares the scene's real depth (#266): `place` anchors
+content at the floor's real world-space depth and scales its local axes 12.5 on all three, so a
+pinned world whose models were authored against the earlier 0.01 local depth scale rechecks them
+on updating its pin ([scene: real depth](../../apps/web/docs/scene.md#isometric-rules-92)). Its `update` frame retains the existing time/weather fields.
