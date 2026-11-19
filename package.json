@@ -58,6 +58,7 @@
     "qualify:wave4": "node scripts/ci/qualify-wave4.mjs",
     "qualify:wave5": "node scripts/ci/qualify-wave5.mjs",
     "dev:world": "node scripts/dev-world.mjs",
+    "playground": "node scripts/playground.mjs",
     "shadow:decision": "node scripts/decision-shadow.mjs"
   },
   "devDependencies": {

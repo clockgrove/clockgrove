@@ -38,8 +38,9 @@ async function filesUnder(directory) {
 
 export function isWorldPath(value, config) {
   const normalized = value.replaceAll("\\", "/");
+  const platform = config.platformWorlds.map(escapePattern).join("|");
   return new RegExp(
-    `(?:^|/)${escapePattern(config.worldRoot)}/(?!${escapePattern(config.fixture)}(?:/|$))[^/]+(?:/|$)`,
+    `(?:^|/)${escapePattern(config.worldRoot)}/(?!(?:${platform})(?:/|$))[^/]+(?:/|$)`,
     "u",
   ).test(normalized);
 }
@@ -131,6 +132,10 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     config.identifiers.length,
   );
   assert.equal(
+    worldNameProblems("worlds/playground/example.ts", config.identifiers.join(" "), config).length,
+    0,
+  );
+  assert.equal(
     worldNameProblems("worlds/fixture/example.ts", config.identifiers.join(" "), config).length,
     0,
   );
@@ -166,6 +171,14 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     worldImportProblems(
       "apps/web/src/example.ts",
       'import("../../worlds/fixture/pack.json")',
+      config,
+    ).length,
+    0,
+  );
+  assert.equal(
+    worldImportProblems(
+      "apps/web/src/example.ts",
+      'import("../../worlds/playground/pack.json")',
       config,
     ).length,
     0,
@@ -227,6 +240,22 @@ export async function checkWorldBoundaries(repositoryRoot = root) {
     worldNameProblems("scripts/world-boundaries.json", config.identifiers.join(" "), config),
     [],
   );
+  // A neutral world (the playground pack) is exempt from the platform scan above so platform code may
+  // name it, but its own files are scanned with no exemption: it never carries another world's names.
+  const strict = { ...config, allowPaths: [], allowSegments: [], allowFilePattern: "$^" };
+  assert.equal(
+    worldNameProblems(
+      "worlds/playground/resources/actors/rock.json",
+      config.identifiers.join(" "),
+      strict,
+    ).length,
+    config.identifiers.length,
+  );
+  const neutral = [];
+  for (const world of config.neutralWorlds ?? [])
+    neutral.push(...(await scanWorldNames(repositoryRoot, world, strict)));
+  assert.deepEqual(neutral, [], `neutral world names another world:\n${neutral.join("\n")}`);
+  console.log(`neutral worlds: ${(config.neutralWorlds ?? []).join(", ")} name no other world`);
   const names = [];
   const dependencies = [];
   for (const sourceRoot of config.sourceRoots) {
