@@ -277,6 +277,7 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.appeared",
   "resource.weather-integrated",
   "surface.band-crossed",
+  "surface.carried-drained",
   "process.command-attempted",
   "resource.transferred",
   "growth.integrated",
@@ -2352,6 +2353,17 @@ function runWorld(
               health: entry.health,
             }),
           );
+          const carried = (current().surfaces?.carried ?? []).filter(
+            (row) => row.objectId === action.objectId,
+          );
+          if (carried.length > 0)
+            emit(
+              event("surface.carried-drained", at, {
+                actorId: action.objectId,
+                removed: carried.map(({ channel, amount }) => ({ channel, amount })),
+                cause: "died",
+              }),
+            );
           const queued = decisionsOf(schedules).find(
             (candidate) => candidate.payload.objectId === action.objectId,
           );
@@ -4721,6 +4733,40 @@ function surfaceJournalDisagreement(
           canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
         )
           return `events[${index}]`;
+      } else if (event.type === "surface.carried-drained") {
+        const held = (state.surfaces?.carried ?? [])
+          .filter((row) => row.objectId === event.payload.actorId)
+          .map(({ channel, amount }) => ({ channel, amount }));
+        // The drain follows its actor's death at the same instant (a shelter change may sit between).
+        const died = events
+          .slice(0, index)
+          .some(
+            (prior) =>
+              prior.type === "lifecycle.died" &&
+              prior.simulationTime === event.simulationTime &&
+              prior.payload.objectId === event.payload.actorId,
+          );
+        if (
+          held.length === 0 ||
+          event.payload.cause !== "died" ||
+          canonicalSerialize(held) !== canonicalSerialize(event.payload.removed) ||
+          !died
+        )
+          return `events[${index}]`;
+      } else if (event.type === "lifecycle.died") {
+        const drained = events
+          .slice(index + 1)
+          .some(
+            (later) =>
+              later.type === "surface.carried-drained" &&
+              later.simulationTime === event.simulationTime &&
+              later.payload.actorId === event.payload.objectId,
+          );
+        if (
+          state.surfaces?.carried.some((row) => row.objectId === event.payload.objectId) === true &&
+          !drained
+        )
+          return `events[${index}]`;
       } else if (event.type === "movement.region-entered") {
         const planned = planSurfaceTraffic(
           surfaces,
@@ -4964,6 +5010,7 @@ function registerContainmentChecks(
                 "exposure.threshold-crossed",
                 "resource.weather-integrated",
                 "surface.band-crossed",
+                "surface.carried-drained",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",

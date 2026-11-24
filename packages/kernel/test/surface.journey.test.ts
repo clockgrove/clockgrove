@@ -19,6 +19,12 @@ import {
   runChain,
   runLive,
 } from "./environment.scenario.js";
+import {
+  lifeChain,
+  lifecycleSample,
+  lifeWorldFromSample,
+  SURE_SPEC,
+} from "./lifecycle.scenario.js";
 import { movementInput } from "./spatial.scenario.js";
 import { scenarioInput, scenarios, stateHash } from "./weather-needs.scenario.js";
 
@@ -509,4 +515,31 @@ it("wears a porch and tracks mud onto it as an actor walks in, one entry per reg
     [{ objectId: "subject", channel: "mud", amount: 3 }],
   ]);
   expect(events.reduce(reduceWorldEvent, world.state).surfaces).toEqual(final);
+});
+
+it("drains what a dying actor carries in the same instant, right after its death", async () => {
+  const strings = (value: unknown): unknown =>
+    JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v)));
+  const sample = lifecycleSample(SURE_SPEC);
+  const carried = [{ objectId: "a-resident", channel: "mud", amount: 8 }];
+  sample.pack.policy.surfaces = strings(surfaces);
+  sample.initialState.surfaces = strings({
+    ...initialSurfaceState(surfaces, 0n as SimTimeMs),
+    carried,
+  });
+  const world = await lifeWorldFromSample(sample);
+  const run = lifeChain(world, "dying", 13000n);
+  const types = run.events.map((event) => event.type);
+  const died = types.indexOf("lifecycle.died");
+  expect(run.events[died]!.simulationTime).toBe(10000n);
+  expect(run.events[died + 1]).toMatchObject({
+    type: "surface.carried-drained",
+    simulationTime: 10000n,
+    payload: { actorId: "a-resident", removed: [{ channel: "mud", amount: 8 }], cause: "died" },
+  });
+  expect(types.filter((type) => type.startsWith("surface."))).toEqual(["surface.carried-drained"]);
+  expect(run.world.state.surfaces!.carried).toEqual([]);
+  expect(run.events.reduce(reduceWorldEvent, world.state).surfaces).toEqual(
+    run.world.state.surfaces,
+  );
 });

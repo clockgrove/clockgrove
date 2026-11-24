@@ -114,7 +114,16 @@ export interface SurfaceRepairedPayload {
   readonly reason: string;
   readonly removed: readonly { readonly channel: string; readonly amount: number }[];
 }
+export interface SurfaceCarriedDrainedPayload {
+  readonly actorId: ObjectId;
+  readonly removed: readonly { readonly channel: string; readonly amount: number }[];
+  readonly cause: "died";
+}
 export type SurfaceEventData =
+  | {
+      readonly type: "surface.carried-drained";
+      readonly payload: SurfaceCarriedDrainedPayload;
+    }
   | {
       readonly type: "surface.interacted";
       readonly payload: SurfaceInteractedPayload;
@@ -830,6 +839,11 @@ export function reduceSurfaceEvent(
   const surfaces = state.surfaces;
   if (surfaces === undefined)
     throw new DomainValidationError("event", "the world declares no surfaces");
+  if (event.type === "surface.carried-drained")
+    return {
+      zones: surfaces.zones,
+      carried: surfaces.carried.filter((entry) => entry.objectId !== event.payload.actorId),
+    };
   const index = surfaces.zones.findIndex((zone) => zone.zoneId === event.payload.zoneId);
   const zone = surfaces.zones[index];
   if (zone === undefined) throw new DomainValidationError("event.zoneId", "unknown surface zone");
@@ -942,7 +956,8 @@ export function surfaceDisagreement(
     previous = entry;
     if (!surfaces.channels.some((c) => c.id === entry.channel && c.carried))
       return `${path}.channel`;
-    if (entry.amount <= 0 || !state.entities.some((e) => e.objectId === entry.objectId))
+    const holder = state.entities.find((e) => e.objectId === entry.objectId);
+    if (entry.amount <= 0 || holder === undefined || holder.lifecycle?.status === "dead")
       return path;
   }
   return undefined;

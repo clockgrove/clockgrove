@@ -570,6 +570,7 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       requireEntity(state, event.payload.actorId);
       return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
     case "surface.band-crossed":
+    case "surface.carried-drained":
     case "surface.repaired":
       return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
     case "boundary.departed":
