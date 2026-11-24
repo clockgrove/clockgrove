@@ -185,6 +185,49 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*) FROM clockgrove.events WHERE event_type='WakeTriageRecorded'",
         ),
       ).toBe("7");
+      // Each finished record is one model-call usage event with no run; replaying added none.
+      const usage = JSON.parse(
+        await owner.sql(
+          `SELECT jsonb_build_object(
+            'keyed', count(*) FILTER (WHERE EXISTS (SELECT 1 FROM clockgrove.wake_triage r WHERE u.event_id = 'wake_triage:' || encode(sha256(convert_to(jsonb_build_array(r.session_id, r.message_id)::text, 'UTF8')), 'hex'))),
+            'shared', jsonb_agg(DISTINCT jsonb_build_array(source, category, resource, principal_id,
+              persona_id, actor_id, run_id, root_run_id, outcome_code, world_time)),
+            'calls', jsonb_agg(jsonb_build_array(status, quantities) ORDER BY status, quantities::text))::text
+          FROM clockgrove.usage_events u WHERE source = 'wake_triage'`,
+        ),
+      );
+      const quantities = (calls: number) => ({
+        inputTokens: null,
+        cachedInputTokens: null,
+        cacheWriteInputTokens: null,
+        outputTokens: null,
+        reasoningTokens: null,
+        calls,
+      });
+      expect(usage.shared).toEqual([
+        [
+          "wake_triage",
+          "model_call",
+          "perplexity/pplx-decider-v1.2",
+          "principal-runtime",
+          "persona-runtime",
+          "fixture.keeper",
+          null,
+          null,
+          null,
+          8640000000,
+        ],
+      ]);
+      expect(usage.keyed).toBe(usage.calls.length);
+      expect(usage.calls).toEqual([
+        ["cant_tell", quantities(1)],
+        ["failed", quantities(1)],
+        ["low_confidence", quantities(1)],
+        ["low_confidence", quantities(1)],
+        ["over_budget", quantities(0)],
+        ["picked", quantities(1)],
+        ["picked", quantities(1)],
+      ]);
       const companion = await owner.request(
         "/v1/runtime/conversations/create",
         { version: 1, ...owner.scope, actorId: "fixture.companion" },
