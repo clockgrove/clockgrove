@@ -53,6 +53,9 @@ import { decideSceneAudience } from "./scene-audience.js";
 import type { ScenePresentationInput } from "./scene-presentation.js";
 import { PostgreSqlCommandOwner } from "./world-commands.js";
 
+/** A flashback's audited entry: an event or a command, and for a command the entity it follows. */
+export type FlashbackInput = CausalEntryInput & { readonly objectId?: ObjectId };
+
 /** The audited access a flashback's causes and moment come from (`PostgreSqlCausalInspector`). */
 export interface FlashbackEvidenceSource {
   flashbackEvidence(
@@ -100,12 +103,15 @@ export class PostgreSqlFlashbackReader {
   ) {}
 
   /** The Worker's audited port: an event or command entry, refused like Why when it is neither. */
-  inspect(input: CausalEntryInput, context: TrustedExecutionContext): Promise<Flashback> {
+  inspect(input: FlashbackInput, context: TrustedExecutionContext): Promise<Flashback> {
     const entry =
       "eventId" in input
         ? { eventId: input.eventId }
         : "commandId" in input
-          ? { commandId: input.commandId }
+          ? {
+              commandId: input.commandId,
+              ...(input.objectId === undefined ? {} : { objectId: input.objectId }),
+            }
           : undefined;
     if (entry === undefined) throw new RangeError("a flashback entry is an event or a command");
     return this.read({ version: 1, ...input.scope, ...entry }, context);
@@ -152,7 +158,10 @@ export class PostgreSqlFlashbackReader {
         : new InspectedCommandNotFoundError(entry.commandId);
     const entryEvent =
       "eventId" in entry ? own.find((event) => event.eventId === entry.eventId) : undefined;
+    // A followed entity ("and before that…" for the same actor) wins over the command's first.
+    const followed = "commandId" in request ? request.objectId : undefined;
     const objectId =
+      followed ??
       (entryEvent === undefined ? null : concernedObjectId(entryEvent)) ??
       own.map(concernedObjectId).find((id) => id !== null) ??
       null;
@@ -287,9 +296,9 @@ export class PostgreSqlFlashbackReader {
   }
 
   /**
-   * The command blocks of at most `windowEvents` partition events around the moment. A block cut by
-   * the read's upper end is dropped, because its last event read is not its command's last; the
-   * moment's own block is always whole.
+   * The command blocks of at most `windowEvents` partition events around the moment
+   * (`flashbackWindowRange`). A block cut by the read's upper end is dropped, because its last event
+   * read is not its command's last; the moment's own block always ends in the window.
    */
   private async window(
     reader: JournalRangeReader,
@@ -298,12 +307,12 @@ export class PostgreSqlFlashbackReader {
     first: StoredEvent,
     last: StoredEvent,
   ): Promise<{ blocks: CommandBlock[]; truncated: boolean }> {
-    const half = BigInt(FLASHBACK_BOUNDS.windowEvents / 2);
-    const from = first.partitionSequence - half > 0n ? first.partitionSequence - half : 1n;
     const head = stored.coveredHeadSequence;
-    const span = last.partitionSequence - first.partitionSequence + 1n;
-    const after = half - span > 0n ? half - span : 0n;
-    const to = last.partitionSequence + after < head ? last.partitionSequence + after : head;
+    const { from, to, cut } = flashbackWindowRange(
+      first.partitionSequence,
+      last.partitionSequence,
+      head,
+    );
     const read = await reader.readPartition(partition, { from, to });
     const blocks: { commandId: CommandId; events: StoredEvent[]; end: bigint }[] = [];
     for (const event of read) {
@@ -317,6 +326,7 @@ export class PostgreSqlFlashbackReader {
     if (to < head && blocks.at(-1)?.end !== last.partitionSequence) blocks.pop();
     const momentIndex = blocks.findIndex((block) => block.end === last.partitionSequence);
     const truncated =
+      cut ||
       (from > 1n && momentIndex < FLASHBACK_BOUNDS.framesBefore) ||
       (to < head && blocks.length - momentIndex - 1 < FLASHBACK_BOUNDS.framesAfter);
     return { blocks, truncated };
@@ -337,10 +347,20 @@ export class PostgreSqlFlashbackReader {
     },
   ): Promise<ReplayStart | undefined> {
     const pack = stored.packContentHash;
+    const since = target - BigInt(FLASHBACK_BOUNDS.catchUpEvents);
+    // Newest first, only within the catch-up bound and at most `snapshotRefs` of them.
     const latest =
       pack === undefined
         ? undefined
-        : (await ports.snapshots.list(authorization, scope, target)).findLast(
+        : (
+            await ports.snapshots.listRecent(
+              authorization,
+              scope,
+              target,
+              since > 0n ? since : 0n,
+              FLASHBACK_BOUNDS.snapshotRefs,
+            )
+          ).find(
             (ref) =>
               ref.coveredPartitionSequence <= target &&
               isSnapshotCompatible(ref.compatibility, snapshotCompatibility(pack)),
@@ -396,6 +416,29 @@ export class PostgreSqlFlashbackReader {
   }
 }
 
+/**
+ * The partition range a flashback reads (issue 273), at most `windowEvents` events: half the bound
+ * before the moment command's first event, the command, and the rest of the bound after it. A
+ * command longer than the rest is read from its tail, so the read never exceeds the bound; `cut`
+ * says the command's start or the half before it was left out.
+ */
+export function flashbackWindowRange(
+  first: bigint,
+  last: bigint,
+  head: bigint,
+): { from: bigint; to: bigint; cut: boolean } {
+  const size = BigInt(FLASHBACK_BOUNDS.windowEvents);
+  const half = size / 2n;
+  const wanted = first - half > 0n ? first - half : 1n;
+  const span = last - first + 1n;
+  const after = half - span > 0n ? half - span : 0n;
+  const to = last + after < head ? last + after : head;
+  // The command's end is kept; a longer command loses its earliest events, which replay still
+  // applies from the start but which get no frame of their own.
+  const from = wanted > to - size + 1n ? wanted : to - size + 1n;
+  return { from, to, cut: from > wanted };
+}
+
 /** The replayed state at the moment: time, weather, who was in the space and the actor's state. */
 function contextOf(
   scope: Parameters<typeof livingSceneOf>[0],
@@ -411,7 +454,7 @@ function contextOf(
     objectId === null ? undefined : state.entities.find((item) => item.objectId === objectId);
   const wellbeing = state.wellbeing?.entries.find((entry) => entry.objectId === objectId);
   const actor: FlashbackActorState | null =
-    entity === undefined || entity.spaceId !== scope.spaceId
+    entity === undefined || entity.spaceId !== scope.spaceId || !labels.has(entity.objectId)
       ? null
       : {
           objectId: entity.objectId,
@@ -549,9 +592,12 @@ function summaryOf(input: {
     }
   }
   const recorded = why.traces.status === "available" ? why.traces.drafts : [];
-  // The moment's entity's own decisions when it has any; a step decides for many actors.
-  const mine = recorded.filter((draft) => draft.objectId === objectId);
-  const drafts = (mine.length > 0 ? mine : recorded).slice(0, SUMMARY_EVENTS);
+  // Only the moment entity's own decisions and resource causes: another actor's choice in the same
+  // step is not this moment's cause, so without its own the cause is unknown.
+  const drafts = recorded.filter((draft) => draft.objectId === objectId).slice(0, SUMMARY_EVENTS);
+  const causes = (why.resourceCauses ?? []).filter(
+    (cause) => cause.objectId === objectId || cause.fromObjectId === objectId,
+  );
   for (const draft of drafts) {
     const cite = [`draft:${why.commandId}#${draft.draftIndex}`];
     const action = draft.selectedAction;
@@ -576,7 +622,7 @@ function summaryOf(input: {
         cites: cite,
       });
   }
-  for (const cause of why.resourceCauses ?? [])
+  for (const cause of causes)
     lines.push({
       kind: "cause",
       text: `${cause.quantity} ${cause.kind} at ${nameOf(cause.objectId)} came from ${words(cause.cause)}${
@@ -584,13 +630,15 @@ function summaryOf(input: {
       }.`,
       cites: [`event:${cause.eventId}`],
     });
-  if (recorded.length === 0 && (why.resourceCauses ?? []).length === 0)
+  if (drafts.length === 0 && causes.length === 0)
     lines.push({
       kind: "unknown",
       text:
-        why.traces.status === "available"
-          ? "No decision was recorded for this moment; its cause is unknown."
-          : "The reason was not recorded; its cause is unknown.",
+        why.traces.status !== "available"
+          ? "The reason was not recorded; its cause is unknown."
+          : objectId === null
+            ? "No decision was recorded for this moment; its cause is unknown."
+            : `No decision or resource cause was recorded for ${nameOf(objectId)} at this moment; its cause is unknown.`,
       cites: [`command:${why.commandId}`],
     });
   lines.push(

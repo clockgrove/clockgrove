@@ -441,7 +441,8 @@ The destination's ordinary selection authorization still applies when opening th
 event or command, rebuilt from the journal by deterministic replay, with its recorded context and
 causes (issue 273). It accepts exactly `FlashbackRequest` (`@clockgrove/contracts`, `flashback.ts`):
 version 1, the four scope IDs and one entry, `eventId` (a feed item's `sourceEventIds`, a recorded
-action) or `commandId` (a Why's `links.parents`). It has Why's authority and admission: the scoped
+action) or `commandId` (a Why's `links.parents`). A `commandId` entry may also carry `objectId`,
+the entity the flashback follows, so "and before that…" stays with the same actor. It has Why's authority and admission: the scoped
 `runtime:world-observe` grant, the ceiling narrowed to `public_scene`, one audited inspector access
 under the inspector rate limit (`PostgreSqlCausalInspector.flashbackEvidence`, the same access as
 `recordedWhy`), and the same codes: 400 `invalid_inspection_request`, 401 `authentication_refused`,
@@ -456,11 +457,15 @@ every level, and `encodeFlashback` writes its JSON form. It contains the scope, 
 
 - `moment`: the entry command, its readable events in the space, the moment's partition sequence
   and simulation time (the entry event's, else the command's last event's) and the entity it
-  concerns (`objectId`, as the feed names it, or null).
+  concerns (`objectId`: the request's, else the entry event's as the feed names it, else the
+  command's first event's, or null).
 - `bounds`: `FLASHBACK_BOUNDS`, echoed in every response. Up to 8 frames before and 8 after the
   moment's command; a window read of at most 2,000 partition events (one replay page; one advance
-  of the reference fixture journals about 70); and a catch-up of at most 4,000 events between the
-  replay start and the first frame (twice the snapshot sweep's 2,000-event cadence).
+  of the reference fixture journals about 70); a catch-up of at most 4,000 events between the
+  replay start and the first frame (twice the snapshot sweep's 2,000-event cadence); and at most 16
+  snapshot refs read, newest first and only within the catch-up bound, to find that start. A
+  command longer than the window's half after it is read from its tail, so the read never exceeds
+  2,000 events, and `truncated` says so.
 - `replay`: `replayed` with its `start` (`birth` or the snapshot ID), `eventsReplayed`, `truncated`
   (the window read cut the frames short) and `positionsBetweenFrames: "not-recorded"`. Two other
   statuses carry no frames and no context. `beyond-catch-up-bound`: the latest compatible snapshot
@@ -479,14 +484,16 @@ every level, and `encodeFlashback` writes its JSON form. It contains the scope, 
 - `why`: the moment command's `RecordedWhy` with `resourceCauses`, exactly as `POST /v1/runtime/why`
   answers it.
 - `before`: the Why's admitted `links.parents`. Each one is the `commandId` of the next "and before
-  that…" flashback. An empty list means the record goes back no further.
+  that…" flashback, requested with this flashback's `moment.objectId` to follow the same entity.
+  An empty list means the record goes back no further.
 - `summary`: lines of kind `context`, `cause`, `influence`, `unknown` or `limit`. The server fills
   closed sentence templates from the moment's events (the feed's sentences, at most 8), the
   replayed context, the moment entity's recorded routine drafts (the chosen action, its score and
-  the number of other candidates, then the features it weighed, at most 8) and the resource causes.
+  the number of other candidates, then the features it weighed, at most 8) and the resource causes
+  that name that entity. Another actor's decision in the same step is never given as the cause.
   Every line cites what it used: `event:<id>`, `command:<id>`, `draft:<commandId>#<draftIndex>` or
-  `frame:<partitionSequence>`. With no recorded decision or resource cause, the summary says the
-  cause is unknown. It never infers one.
+  `frame:<partitionSequence>`. With no recorded decision or resource cause of the moment's entity,
+  the summary says the cause is unknown. It never infers one.
 
 `apps/runtime/test/flashback.journey.postgres.test.ts` checks the read through the Worker route and
 PostgreSQL:
@@ -495,6 +502,7 @@ PostgreSQL:
 - each frame equals an independent replay from the stored birth;
 - the last frame is the stored head;
 - every citation resolves to a journal event, receipt or retained draft;
-- chaining reaches the provisioning record, where the cause is unknown;
+- causes are the moment entity's own; an entity that decided nothing in the step gets `unknown`;
+- chaining follows the same actor and reaches the provisioning record, where the cause is unknown;
 - no canonical row changes;
 - unknown entries and a revoked grant are refused.

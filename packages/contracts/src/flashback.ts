@@ -33,13 +33,21 @@ export const FLASHBACK_BOUNDS = Object.freeze({
   framesAfter: 8,
   windowEvents: 2_000,
   catchUpEvents: 4_000,
+  snapshotRefs: 16,
 });
 export type FlashbackBounds = typeof FLASHBACK_BOUNDS;
 
 /** A flashback starts at one journal event (a feed item, a recorded action) or one command (a Why link). */
 export type FlashbackEntry = { readonly eventId: EventId } | { readonly commandId: CommandId };
 
-export type FlashbackRequest = BrowserScope & { readonly version: 1 } & FlashbackEntry;
+/**
+ * A command entry may name the entity the flashback follows (`objectId`), so "and before that…"
+ * stays with the same actor: pass the previous flashback's `moment.objectId` with a `before` link.
+ */
+export type FlashbackRequest = BrowserScope & { readonly version: 1 } & (
+    | { readonly eventId: EventId }
+    | { readonly commandId: CommandId; readonly objectId?: ObjectId }
+  );
 
 /** The moment: the entry command's readable events in the observed space's partition. */
 export interface FlashbackMoment {
@@ -48,7 +56,10 @@ export interface FlashbackMoment {
   /** The moment's event: the entry event, else the command's last. Its frame shows the state after it. */
   readonly partitionSequence: string;
   readonly simulationTime: string;
-  /** The entity the moment concerns (the entry event's, else the command's first that names one). */
+  /**
+   * The entity the moment concerns: the request's `objectId`, else the entry event's, else the
+   * command's first event that names one.
+   */
   readonly objectId: ObjectId | null;
 }
 
@@ -146,7 +157,13 @@ function decodeEntry(v: Record<string, unknown>): FlashbackEntry {
 /** Exactly one entry: `eventId` or `commandId`. */
 export function decodeFlashbackRequest(value: unknown): FlashbackRequest {
   const v = record(value, "flashback");
-  exactKeys(v, [...SCOPE_KEYS, "eventId" in v ? "eventId" : "commandId"], [], "flashback");
+  const command = !("eventId" in v);
+  exactKeys(
+    v,
+    [...SCOPE_KEYS, command ? "commandId" : "eventId"],
+    command ? ["objectId"] : [],
+    "flashback",
+  );
   const scope = decodeObservationRequest({
     version: v.version,
     tenantId: v.tenantId,
@@ -155,6 +172,7 @@ export function decodeFlashbackRequest(value: unknown): FlashbackRequest {
     spaceId: v.spaceId,
   });
   const entry = decodeEntry(v);
+  const followed = command && v.objectId !== undefined ? { objectId: objectId(v.objectId) } : {};
   // Inspector audit ID bound, as for Why (migration 0022).
   for (const id of [
     scope.tenantId,
@@ -162,10 +180,11 @@ export function decodeFlashbackRequest(value: unknown): FlashbackRequest {
     scope.timelineId,
     scope.spaceId,
     ...Object.values(entry),
+    ...Object.values(followed),
   ])
     if (new TextEncoder().encode(id).length > 1024)
       throw new ContractDecodeError("flashback", "inspector ID length out of range");
-  return { ...scope, ...entry };
+  return { ...scope, ...entry, ...followed };
 }
 
 const decimal = (value: unknown, path: string): string => unsignedDecimal(value, path).toString();

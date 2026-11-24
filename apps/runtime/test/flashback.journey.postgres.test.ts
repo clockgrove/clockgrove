@@ -7,7 +7,12 @@ import {
   replayBirth,
   replayPartition,
 } from "@clockgrove/application";
-import { decodeFlashback, decodeOpaqueId, type Flashback } from "@clockgrove/contracts";
+import {
+  decodeFlashback,
+  decodeOpaqueId,
+  FLASHBACK_BOUNDS,
+  type Flashback,
+} from "@clockgrove/contracts";
 import {
   PostgreSqlArtifactStore,
   PostgreSqlJournalRangeSource,
@@ -22,7 +27,7 @@ import {
   withDisposableDatabase,
   // @ts-expect-error -- repository-local JavaScript helper has no declaration file.
 } from "../../../scripts/database/lib.mjs";
-import { PostgreSqlFlashbackReader } from "../src/flashback.js";
+import { flashbackWindowRange, PostgreSqlFlashbackReader } from "../src/flashback.js";
 import { PostgreSqlCausalInspector } from "../src/inspector.js";
 import { livingSceneOf } from "../src/observation.js";
 import { RuntimeWorker } from "../src/worker.js";
@@ -178,6 +183,21 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
         momentFrame.projection.entities.map((entity) => entity.objectId),
       );
       expect(flashback.summary.map((line) => line.kind)).toContain("cause");
+      // Causes are the moment entity's own: another entity of the same step, which decided nothing
+      // there, gets no borrowed reason, only "unknown".
+      const actor = flashback.moment.objectId!;
+      const drafted = new Set(
+        flashback.why.traces.status === "available"
+          ? flashback.why.traces.drafts.map((draft) => draft.objectId)
+          : [],
+      );
+      const bystander = flashback.context!.present.find((item) => !drafted.has(item.objectId))!;
+      const unrelated = await read({ commandId: "flashback-10", objectId: bystander.objectId });
+      expect(unrelated.moment.objectId).toBe(bystander.objectId);
+      expect(unrelated.summary.filter((line) => line.kind === "unknown")).toHaveLength(1);
+      expect(
+        unrelated.summary.flatMap((line) => line.cites).filter((c) => c.startsWith("draft:")),
+      ).toEqual([]);
       for (const line of flashback.summary) {
         expect(line.cites.length).toBeGreaterThan(0);
         for (const cite of line.cites) {
@@ -205,16 +225,35 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
               ),
             ) as readonly unknown[];
             expect(drafts.length).toBeGreaterThan(Number(index));
+            expect(
+              flashback.why.traces.status === "available" &&
+                flashback.why.traces.drafts.find((draft) => `${draft.draftIndex}` === index)
+                  ?.objectId,
+            ).toBe(actor);
           }
         }
       }
 
-      // "And before that…": each cause is a further flashback, until the record goes no further.
+      // "And before that…": each cause is a further flashback following the same actor, until the
+      // record goes no further.
       let chained = flashback;
       const walked: string[] = [];
       while (chained.before.length > 0 && walked.length < 16) {
-        chained = await read({ commandId: chained.before[0] });
+        chained = await read({ commandId: chained.before[0], objectId: chained.moment.objectId });
         walked.push(chained.moment.commandId);
+        expect(chained.moment.objectId).toBe(actor);
+        if (chained.context?.actor) expect(chained.context.actor.objectId).toBe(actor);
+        const drafts = chained.why.traces.status === "available" ? chained.why.traces.drafts : [];
+        const cited = chained.summary
+          .flatMap((line) => line.cites)
+          .filter((cite) => cite.startsWith("draft:"))
+          .map((cite) => drafts.find((draft) => `${draft.draftIndex}` === cite.split("#")[1]));
+        for (const draft of cited) expect(draft?.objectId).toBe(actor);
+        const ownCauses = (chained.why.resourceCauses ?? []).filter(
+          (cause) => cause.objectId === actor || cause.fromObjectId === actor,
+        );
+        if (!drafts.some((draft) => draft.objectId === actor) && ownCauses.length === 0)
+          expect(chained.summary.map((line) => line.kind)).toContain("unknown");
       }
       expect(walked.length).toBeGreaterThan(0);
       expect(chained.before).toEqual([]);
@@ -241,3 +280,18 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
     });
   });
 }, 300_000);
+
+// The window read the journey's fixture never stretches: a command longer than the bound.
+it("reads at most the declared window around a flashback's moment, and says when a long command was cut", () => {
+  const size = BigInt(FLASHBACK_BOUNDS.windowEvents);
+  const span = (range: { from: bigint; to: bigint }) => range.to - range.from + 1n;
+  // A short command: half the bound before it, the rest after, nothing cut.
+  const short = flashbackWindowRange(5_000n, 5_069n, 100_000n);
+  expect(short).toEqual({ from: 4_000n, to: 5_999n, cut: false });
+  // Near the partition's start and head the read shrinks; it never grows.
+  expect(flashbackWindowRange(10n, 20n, 30n)).toEqual({ from: 1n, to: 30n, cut: false });
+  // A command longer than the rest of the bound is read from its tail, ending at its last event.
+  const long = flashbackWindowRange(5_000n, 9_999n, 100_000n);
+  expect(long).toEqual({ from: 9_999n - size + 1n, to: 9_999n, cut: true });
+  expect(span(long)).toBe(size);
+});

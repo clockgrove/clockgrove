@@ -111,6 +111,7 @@ import {
   type TurnOwners,
 } from "./conversations.js";
 import { type DeliveryStores, deliveryConsentCall } from "./delivery-routes.js";
+import type { FlashbackInput } from "./flashback.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -256,7 +257,7 @@ export interface RuntimeOwnerBindings {
    * Flashbacks (issue 273): an entry's moment replayed read-only from the journal with its recorded
    * context and causes, under the observe grant and the inspector's audit and rate limit.
    */
-  readonly flashback?: AuditedPort<CausalEntryInput, Flashback>;
+  readonly flashback?: AuditedPort<FlashbackInput, Flashback>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
   readonly runs?: {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
@@ -1409,7 +1410,7 @@ export class RuntimeWorker {
   private recordedWhy(request: Request, note: RequestNote): Promise<Response> {
     const inspector = this.bindings.inspector;
     return this.audited(request, note, {
-      decode: (value): CausalEntryInput => {
+      decode: (value): FlashbackInput => {
         const {
           version: _version,
           tenantId,
@@ -1457,7 +1458,7 @@ export class RuntimeWorker {
   /** A flashback: the entry's moment replayed from the journal, its context and recorded causes. */
   private flashback(request: Request, note: RequestNote): Promise<Response> {
     return this.audited(request, note, {
-      decode: (value): CausalEntryInput => {
+      decode: (value): FlashbackInput => {
         const {
           version: _version,
           tenantId,
