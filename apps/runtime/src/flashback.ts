@@ -293,7 +293,7 @@ export class PostgreSqlFlashbackReader {
    */
   private async window(
     reader: JournalRangeReader,
-    partition: { tenantId: string; timelineId: string; partitionId: string },
+    partition: Parameters<JournalRangeReader["readPartition"]>[0],
     stored: HydratedWorldOwner,
     first: StoredEvent,
     last: StoredEvent,
@@ -304,7 +304,7 @@ export class PostgreSqlFlashbackReader {
     const span = last.partitionSequence - first.partitionSequence + 1n;
     const after = half - span > 0n ? half - span : 0n;
     const to = last.partitionSequence + after < head ? last.partitionSequence + after : head;
-    const read = await reader.readPartition(partition as never, { from, to });
+    const read = await reader.readPartition(partition, { from, to });
     const blocks: { commandId: CommandId; events: StoredEvent[]; end: bigint }[] = [];
     for (const event of read) {
       const open = blocks.at(-1);
