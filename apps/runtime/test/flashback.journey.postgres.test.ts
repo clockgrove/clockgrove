@@ -218,6 +218,7 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
       }
       expect(walked.length).toBeGreaterThan(0);
       expect(chained.before).toEqual([]);
+      expect(chained.summary.map((line) => line.kind)).toContain("unknown");
       expect(chained.summary.at(-2)).toMatchObject({
         kind: "limit",
         text: "The record goes back no further.",
