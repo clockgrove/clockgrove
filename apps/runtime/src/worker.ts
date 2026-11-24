@@ -47,6 +47,7 @@ import {
   decodeDocumentChangeRequest,
   decodeDocumentReadRequest,
   decodeEntitySelectionRequest,
+  decodeFlashbackRequest,
   decodeInfluenceRequest,
   decodeObservationRequest,
   decodeOpaqueId,
@@ -60,7 +61,9 @@ import {
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
+  encodeFlashback,
   encodeWorldStatus,
+  type Flashback,
   type FollowDisposition,
   type InfluenceRequest,
   type LivingScene,
@@ -249,6 +252,11 @@ export interface RuntimeOwnerBindings {
   readonly deliveries?: DeliveryStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
+  /**
+   * Flashbacks (issue 273): an entry's moment replayed read-only from the journal with its recorded
+   * context and causes, under the observe grant and the inspector's audit and rate limit.
+   */
+  readonly flashback?: AuditedPort<CausalEntryInput, Flashback>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
   readonly runs?: {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
@@ -447,6 +455,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/why")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.recordedWhy(request, note),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/flashback")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.flashback(request, note),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/view-trace")
       return this.answer("scene_observation_answered", (note) => this.viewTrace(request, note));
@@ -1437,6 +1449,41 @@ export class RuntimeWorker {
         return jsonResponse(view);
       },
       refuse: (error) => entryRefusal(note, error),
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "causal_chain_inspection_failed"],
+    });
+  }
+
+  /** A flashback: the entry's moment replayed from the journal, its context and recorded causes. */
+  private flashback(request: Request, note: RequestNote): Promise<Response> {
+    return this.audited(request, note, {
+      decode: (value): CausalEntryInput => {
+        const {
+          version: _version,
+          tenantId,
+          worldId,
+          timelineId,
+          spaceId,
+          ...entry
+        } = decodeFlashbackRequest(value);
+        return { scope: { tenantId, worldId, timelineId, spaceId }, ...entry };
+      },
+      invalid: "invalid_inspection_request",
+      port: this.bindings.flashback,
+      grant: OBSERVE_GRANT,
+      seed: entryIdentity,
+      ids: entryLogIds,
+      answer: (flashback) => {
+        note.outcome = "read";
+        return new Response(encodeFlashback(flashback), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+      refuse: (error) =>
+        error instanceof JournalRouteNotFoundError
+          ? refusal(note, "world_not_ready", 409)
+          : entryRefusal(note, error),
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "causal_chain_inspection_failed"],
     });

@@ -28,6 +28,7 @@ import {
   SCENE_CLIENT_VERSION,
   SCENE_PROJECTION_VERSION,
   type SceneConnectionAttachment,
+  type SceneProjection,
   SELECTION_EVIDENCE,
   type SelectionNeeds,
   type SelectionPlant,
@@ -56,6 +57,7 @@ import { interactionsOf } from "./interactions.js";
 import {
   decideSceneAudience,
   privateCognitionOf,
+  type SceneAudienceDecision,
   type SceneAuthorityFacts,
 } from "./scene-audience.js";
 import { type SceneReadResult, scenePatchOperations } from "./scene-delivery.js";
@@ -113,7 +115,7 @@ export class PostgreSqlLivingSceneReader {
 }
 
 /** The plain-words text of a feed item whose event lacks the fields its sentence needs. */
-const FEED_FALLBACKS: Readonly<Record<WorldFeedCategory, string>> = {
+export const FEED_FALLBACKS: Readonly<Record<WorldFeedCategory, string>> = {
   weather: "The weather changed.",
   routine: "A routine was chosen.",
   wellbeing: "An actor's wellbeing changed.",
@@ -126,7 +128,7 @@ const FEED_FALLBACKS: Readonly<Record<WorldFeedCategory, string>> = {
 };
 
 /** The kernel event's payload fields of a world-command journal event, when it has them. */
-function kernelPayloadOf(event: StoredEvent): object | undefined {
+export function kernelPayloadOf(event: StoredEvent): object | undefined {
   if (
     typeof event.payload !== "object" ||
     event.payload === null ||
@@ -143,7 +145,7 @@ function kernelPayloadOf(event: StoredEvent): object | undefined {
  * A plain sentence from the event's public payload fields, naming each entity by `nameOf` (its
  * scene label); the fixed `fallback` when the fields lack what it needs.
  */
-function feedSentence(
+export function feedSentence(
   type: string,
   payload: object | undefined,
   fallback: string,
@@ -274,7 +276,7 @@ function feedSentence(
 }
 
 /** A transfer concerns its receiving holder; other events name their actor, object or portal. */
-function concernedObjectId(event: StoredEvent): ObjectId | null {
+export function concernedObjectId(event: StoredEvent): ObjectId | null {
   const payload = kernelPayloadOf(event);
   const id =
     payload === undefined
@@ -512,6 +514,79 @@ const SCENE_BACKFILL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "resource.weather-integrated",
 ]);
 
+/**
+ * The scene projection of `state` for one audience decision: shared by the live scene stream and
+ * a flashback's replayed frames (issue 273), so both draw a state by the same rules. `stored`
+ * supplies the installed pack's presentation and routing; `feedCursor` is the partition sequence
+ * `state` covers.
+ */
+export function sceneProjectionOf(
+  stored: HydratedWorldOwner,
+  state: WorldState,
+  scene: LivingScene,
+  decision: SceneAudienceDecision,
+  presentations: readonly ScenePresentationInput[],
+  feedCursor: bigint,
+): SceneProjection {
+  const projected = new Set(scene.entities.map((entity) => entity.objectId));
+  const privateCognition = privateCognitionOf(state, decision, projected);
+  // Each projected entity's committed movement record, so the scene walks the moves it carried.
+  const movements = state.entities.flatMap(({ objectId, movement }) =>
+    movement === undefined || !projected.has(objectId)
+      ? []
+      : [
+          {
+            objectId,
+            startedAt: movement.segment.startTime,
+            ...(movement.endedAt === undefined ? {} : { endedAt: movement.endedAt }),
+          },
+        ],
+  );
+  const effects = sceneEffects(stored, state, scene.frames, projected, presentations);
+  const lighting = materialSceneLighting(
+    stored,
+    presentations,
+    BigInt(scene.simulationTime),
+    scene.weather,
+    effects,
+  );
+  return decodeSceneProjection({
+    tenantId: scene.tenantId,
+    worldId: scene.worldId,
+    timelineId: scene.timelineId,
+    spaceId: scene.spaceId,
+    privacyClass: scene.privacyClass,
+    compatibility: {
+      projectionVersion: SCENE_PROJECTION_VERSION,
+      assetManifestVersion: SCENE_ASSET_MANIFEST_VERSION,
+      clientVersion: SCENE_CLIENT_VERSION,
+    },
+    revision: BigInt(scene.revision),
+    simulationTime: BigInt(scene.simulationTime),
+    weather: scene.weather,
+    ...(lighting === undefined ? {} : { lighting }),
+    hierarchy: sceneHierarchyOf(scene.spaceId, state),
+    frames: scene.frames,
+    entities: scene.entities,
+    presentationBindings: scenePresentationBindings(
+      stored,
+      state.entities,
+      projected,
+      presentations,
+    ),
+    interactions: interactionsOf(
+      state,
+      projected,
+      decision.descriptor.actions ?? { talk: false, influence: false },
+    ),
+    feedCursor: feedCursor.toString(),
+    audienceHash: decision.hash,
+    ...(privateCognition === undefined ? {} : { privateCognition }),
+    ...(effects.length === 0 ? {} : { effects }),
+    ...(movements.length === 0 ? {} : { movements }),
+  });
+}
+
 /** Request-owned PostgreSQL recovery; no patch cache or additional durable projection. */
 export class PostgreSqlSceneStreamReader {
   constructor(
@@ -533,69 +608,14 @@ export class PostgreSqlSceneStreamReader {
     // Decided before serialization: the projection holds only what this audience allows.
     const decision = decideSceneAudience(stored.document.state, attachment.audience, facts);
     const audienceHash = decision.hash;
-    const projected = new Set(scene.entities.map((entity) => entity.objectId));
-    const privateCognition = privateCognitionOf(stored.document.state, decision, projected);
-    // Each projected entity's committed movement record, so the scene walks the moves it carried.
-    const movements = stored.document.state.entities.flatMap(({ objectId, movement }) =>
-      movement === undefined || !projected.has(objectId)
-        ? []
-        : [
-            {
-              objectId,
-              startedAt: movement.segment.startTime,
-              ...(movement.endedAt === undefined ? {} : { endedAt: movement.endedAt }),
-            },
-          ],
-    );
-    const effects = sceneEffects(
+    const projection = sceneProjectionOf(
       stored,
       stored.document.state,
-      scene.frames,
-      projected,
+      scene,
+      decision,
       this.presentations,
+      stored.coveredHeadSequence,
     );
-    const lighting = materialSceneLighting(
-      stored,
-      this.presentations,
-      BigInt(scene.simulationTime),
-      scene.weather,
-      effects,
-    );
-    const projection = decodeSceneProjection({
-      tenantId: scene.tenantId,
-      worldId: scene.worldId,
-      timelineId: scene.timelineId,
-      spaceId: scene.spaceId,
-      privacyClass: scene.privacyClass,
-      compatibility: {
-        projectionVersion: SCENE_PROJECTION_VERSION,
-        assetManifestVersion: SCENE_ASSET_MANIFEST_VERSION,
-        clientVersion: SCENE_CLIENT_VERSION,
-      },
-      revision: BigInt(scene.revision),
-      simulationTime: BigInt(scene.simulationTime),
-      weather: scene.weather,
-      ...(lighting === undefined ? {} : { lighting }),
-      hierarchy: sceneHierarchyOf(scene.spaceId, stored.document.state),
-      frames: scene.frames,
-      entities: scene.entities,
-      presentationBindings: scenePresentationBindings(
-        stored,
-        stored.document.state.entities,
-        projected,
-        this.presentations,
-      ),
-      interactions: interactionsOf(
-        stored.document.state,
-        projected,
-        decision.descriptor.actions ?? { talk: false, influence: false },
-      ),
-      feedCursor: stored.coveredHeadSequence.toString(),
-      audienceHash,
-      ...(privateCognition === undefined ? {} : { privateCognition }),
-      ...(effects.length === 0 ? {} : { effects }),
-      ...(movements.length === 0 ? {} : { movements }),
-    });
     const snapshot = { projection, patch: null, authorityEpoch: stored.routingEpoch, decision };
     if (fromRevision === null || fromRevision < 0n || fromRevision >= projection.revision)
       return snapshot;

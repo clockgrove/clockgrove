@@ -108,11 +108,13 @@ import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflar
 import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
 import { handleEffectEndpoint, isEffectRoute } from "./effect-endpoint.js";
+import { PostgreSqlFlashbackReader } from "./flashback.js";
 import {
   HyperdrivePostgreSqlClient,
   withHyperdrivePostgreSqlClient,
 } from "./hyperdrive-postgres.js";
 import {
+  type CausalEntryInput,
   PostgreSqlCausalInspector,
   PostgreSqlRuntimeOperator,
   PostgreSqlRuntimeStateInspector,
@@ -144,6 +146,7 @@ import {
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
+import { decodeScenePresentations } from "./scene-presentation.js";
 import {
   type RuntimeAuthenticationDependencies,
   TrustedRuntimeRequestAuthenticator,
@@ -1110,6 +1113,13 @@ export function composeResearchInternalRead(
   };
 }
 
+/** A flashback starts at an event or a command; the worker's decoder admits nothing else. */
+function flashbackEntry(input: CausalEntryInput) {
+  if ("eventId" in input) return { eventId: input.eventId };
+  if ("commandId" in input) return { commandId: input.commandId };
+  throw new RangeError("a flashback entry is an event or a command");
+}
+
 function composeGuardedResearch(
   env: RuntimeEnvironment,
   supplied: Pick<RuntimeComposition, "research" | "researchConfiguration" | "authentication">,
@@ -1594,6 +1604,18 @@ export default {
           return withHyperdrivePostgreSqlClient(connection, (client) =>
             readWorldReadiness(client, principalId, scope),
           );
+        },
+        flashback: {
+          inspect: (input, context) =>
+            withHyperdrivePostgreSqlClient(connection, (client) =>
+              new PostgreSqlFlashbackReader(client, new PostgreSqlCausalInspector(client), {
+                artifacts: composeArtifactStore(env, client),
+                decodeResource,
+                presentations: decodeScenePresentations(env.WORLD_PRESENTATION),
+              }).read({ version: 1, ...input.scope, ...flashbackEntry(input) }, context),
+            ),
+          deny: (input, principalId, denial) =>
+            inspector((owner) => owner.deny(input, principalId, denial)),
         },
         inspector: {
           inspect: (input, context) => inspector((owner) => owner.inspect(input, context)),
