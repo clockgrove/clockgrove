@@ -13,6 +13,7 @@ export {
   type ExecutionContext,
   type ExecutionContextRef,
 } from "./execution-context.js";
+export * from "./flashback.js";
 export * from "./ids.js";
 export * from "./journal-records.js";
 export * from "./material.js";
