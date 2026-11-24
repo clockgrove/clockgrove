@@ -18,6 +18,7 @@ import {
   ecologyDisagreement,
   environmentDisagreement,
   initialBoundaryExchanges,
+  initialSurfaceState,
   initialWorldProcesses,
   lifecycleDisagreement,
   lifecycleForKind,
@@ -29,6 +30,7 @@ import {
   type ScriptedCognitionState,
   type ScriptedEntry,
   scriptedCognitionDisagreement,
+  surfaceDisagreement,
   type TraitDefinition,
   validateScriptedCognition,
   type WorldBehaviorPack,
@@ -398,6 +400,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
   const extras: Record<string, unknown> = {};
   if (policy.boundaryExchanges !== undefined)
     extras.boundaryExchanges = initialBoundaryExchanges(policy.boundaryExchanges);
+  if (policy.surfaces !== undefined) extras.surfaces = initialSurfaceState(policy.surfaces, epoch);
   if (policy.processes !== undefined)
     extras.processes = initialWorldProcesses(policy.processes, epoch);
   const actors = state.entities.filter((entity) => entity.needs !== undefined);
@@ -515,6 +518,7 @@ function withSections(pack: ValidatedWorldPack, state: WorldState, facts: Source
     environmentDisagreement(policy, next) ??
     ecologyDisagreement(policy, next) ??
     worldProcessDisagreement(policy, next) ??
+    surfaceDisagreement(policy, next) ??
     boundaryExchangeDisagreement(policy, next) ??
     wellbeingDisagreement(policy, next) ??
     lifecycleDisagreement(policy, next);

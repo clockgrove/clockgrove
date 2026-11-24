@@ -38,6 +38,26 @@ export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({
       quantity: positive,
     })
     .readonly(),
+  "surface.interact": z
+    .strictObject({
+      schemaVersion: version,
+      actorId: objectId,
+      zoneId: objectId,
+      interactionId: objectId,
+      intensity: z.number().int().min(1).max(10000),
+      point: z.strictObject({
+        u: z.number().int().min(0).max(10000),
+        v: z.number().int().min(0).max(10000),
+      }),
+    })
+    .readonly(),
+  "surface.repair": z
+    .strictObject({
+      schemaVersion: version,
+      zoneId: objectId,
+      reason: objectId,
+    })
+    .readonly(),
   "object.create": z
     .strictObject({ schemaVersion: version, object: fixtureObjectSchema })
     .readonly(),

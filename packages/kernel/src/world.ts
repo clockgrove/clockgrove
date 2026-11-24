@@ -24,6 +24,7 @@ import {
   type DecisionTrace,
   deriveComfort,
   deriveEnvironmentState,
+  dueSurfaceCrossings,
   type EcologyPolicy,
   EnvironmentValidationError,
   ecologyDisagreement,
@@ -48,6 +49,9 @@ import {
   type PortalTogglePayload,
   parsePortalPayload,
   pendingPortalSteps,
+  planSurfaceCrossing,
+  planSurfaceInteraction,
+  planSurfaceRepair,
   plantStageIndex,
   portalIsOpen,
   positionAt,
@@ -56,10 +60,13 @@ import {
   reduceWorldEvent,
   regionsContaining,
   removableLifecycleDead,
+  type SurfaceInteractPayload,
+  type SurfaceRepairPayload,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
   shelterReflexThreshold,
+  surfaceDisagreement,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -268,6 +275,7 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.spoiled",
   "resource.appeared",
   "resource.weather-integrated",
+  "surface.band-crossed",
   "process.command-attempted",
   "resource.transferred",
   "growth.integrated",
@@ -374,6 +382,7 @@ const MAX_INPUTS_PER_CALL = 1024;
 
 const ENVIRONMENT_CHECK = "environment.state-matches-policy";
 const ECOLOGY_CHECK = "ecology.state-matches-policy";
+const SURFACE_CHECK = "surface.state-matches-policy";
 const WELLBEING_CHECK = "wellbeing.state-matches-policy";
 const LIFECYCLE_CHECK = "lifecycle.state-matches-policy";
 const FIRST_DUE_CHECK = "world.decision.first-due";
@@ -525,9 +534,9 @@ function decodeScheduledInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -608,9 +617,9 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -1253,6 +1262,23 @@ function runWorld(
       });
       if (nested.ok) for (const inner of nested.result.events) emit(inner);
     }
+    return true;
+  }
+  function fireSurface(at: SimTimeMs): boolean {
+    const surfaces = policy.surfaces;
+    const state = current().surfaces;
+    const due =
+      surfaces === undefined || state === undefined ? null : dueSurfaceCrossings(surfaces, state);
+    if (surfaces === undefined || state === undefined || due === null || due.time !== at)
+      return true;
+    if (context.eventCount() + due.crossings.length > payload.maxEvents) {
+      if (context.eventCount() === 0) invalid("payload.maxEvents");
+      return false;
+    }
+    const planned = due.crossings.map((c) =>
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at),
+    );
+    for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
   }
   function event<T extends WorldEvent["type"]>(
@@ -2475,15 +2501,26 @@ function runWorld(
             : earliest,
         undefined,
       );
+      const surfaceDue =
+        policy.surfaces === undefined || current().surfaces === undefined
+          ? null
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!);
+      const surfaceTime =
+        surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
+      // Surface crossings run after the instant's physical causes and before its processes.
+      const heldTime =
+        surfaceTime !== undefined && (processTime === undefined || surfaceTime <= processTime)
+          ? surfaceTime
+          : processTime;
       const nextBarrier =
-        processTime !== undefined && (lifeTime === undefined || processTime < lifeTime)
-          ? processTime
+        heldTime !== undefined && (lifeTime === undefined || heldTime < lifeTime)
+          ? heldTime
           : lifeTime;
       const barrier =
         nextBarrier !== undefined && nextBarrier <= target ? (nextBarrier as SimTimeMs) : undefined;
       // Processes run after the instant's physical causes and before its actor decisions.
       const processQueue = () =>
-        dispatchable().filter((item) => processTime === undefined || item.dueAt < processTime);
+        dispatchable().filter((item) => heldTime === undefined || item.dueAt < heldTime);
       // A queued dwell is a barrier like a lifecycle time: the drain stops there to fire it.
       const dwellAt = schedules.find(isDwellItem)?.dueAt;
       const dwellBarrier = dwellAt !== undefined && dwellAt <= dwellsThrough ? dwellAt : undefined;
@@ -2598,6 +2635,13 @@ function runWorld(
           ? undefined
           : schedules.find((candidate) => candidate.id === drain.dispatched?.scheduleId);
       if (item === undefined) {
+        if (surfaceTime !== undefined && drain.time === surfaceTime) {
+          if (!fireSurface(surfaceTime)) {
+            complete = false;
+            break;
+          }
+          continue;
+        }
         if (processTime !== undefined && drain.time === processTime) {
           if (!fireProcesses(processTime)) {
             complete = false;
@@ -2981,6 +3025,22 @@ function registerWorldChecks(
         activePolicy === undefined
           ? undefined
           : processJournalDisagreement(activePolicy, initial, state, events),
+    }),
+    preconditions.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state, input }) => surfaceDisagreement(input.pack.pack.policy, state),
+    }),
+    invariants.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state }) =>
+        activePolicy === undefined ? undefined : surfaceDisagreement(activePolicy, state),
+    }),
+    invariants.register({
+      name: "surface.journaled",
+      version: 1,
+      check: ({ initial, events }) => surfaceJournalDisagreement(initial, events),
     }),
     preconditions.register({
       name: ENVIRONMENT_CHECK,
@@ -4093,6 +4153,29 @@ function runContainmentCommand(
     case "resource.consume":
       emit({ type: "resource.consumed", payload: withoutVersion(payload) });
       break;
+    case "surface.interact": {
+      const p = payload as SurfaceInteractPayload;
+      const planned = planSurfaceInteraction(
+        input.pack.pack.policy.surfaces!,
+        state,
+        { ...p, actorId: p.actorId as ObjectId },
+        state.simulationTime,
+      );
+      if (!planned.ok) throw new RangeError("surface interaction was not validated");
+      emit({ type: "surface.interacted", payload: planned.payload });
+      break;
+    }
+    case "surface.repair": {
+      const planned = planSurfaceRepair(
+        input.pack.pack.policy.surfaces!,
+        state,
+        payload as SurfaceRepairPayload,
+        state.simulationTime,
+      );
+      if (!planned.ok) throw new RangeError("surface repair was not validated");
+      emit({ type: "surface.repaired", payload: planned.payload });
+      break;
+    }
     case "boundary.exchange": {
       const p = payload as BoundaryExchangePayload;
       const source = input.pack.pack.policy.boundaryExchanges!.find(
@@ -4546,6 +4629,89 @@ function withoutVersion(payload: ContainmentPayload): unknown {
   return rest;
 }
 
+function surfaceRefusal(
+  state: WorldState,
+  policy: WorldBehaviorPolicy,
+  type: "surface.interact" | "surface.repair",
+  payload: SurfaceInteractPayload | SurfaceRepairPayload,
+  effectiveActorId: string | undefined,
+): { readonly path: string; readonly check: string } | undefined {
+  const surfaces = policy.surfaces;
+  if (surfaces === undefined) return { path: "payload.zoneId", check: "surface.zone@1" };
+  if (type === "surface.repair") {
+    const planned = planSurfaceRepair(
+      surfaces,
+      state,
+      payload as SurfaceRepairPayload,
+      state.simulationTime,
+    );
+    return planned.ok ? undefined : planned;
+  }
+  const p = payload as SurfaceInteractPayload;
+  const planned = planSurfaceInteraction(
+    surfaces,
+    state,
+    { ...p, actorId: p.actorId as ObjectId },
+    state.simulationTime,
+  );
+  if (!planned.ok && planned.check !== "surface.reach@1") return planned;
+  const actor = state.entities.find((entry) => entry.objectId === p.actorId);
+  if (actor === undefined || !active(actor) || effectiveActorId !== p.actorId)
+    return { path: "payload.actorId", check: "surface.actor@1" };
+  return planned.ok ? undefined : planned;
+}
+
+function surfaceJournalDisagreement(
+  initial: WorldState,
+  events: readonly WorldSemanticEvent[],
+): string | undefined {
+  const first = events.findIndex((event) => event.type.startsWith("surface."));
+  if (first < 0) return undefined;
+  const surfaces = activePolicy?.surfaces;
+  if (surfaces === undefined) return `events[${first}]`;
+  let state = initial;
+  for (const [index, event] of events.entries()) {
+    try {
+      if (event.type === "surface.interacted") {
+        const planned = planSurfaceInteraction(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+        );
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.repaired") {
+        const planned = planSurfaceRepair(surfaces, state, event.payload, event.simulationTime);
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.band-crossed") {
+        const { zoneId, channel } = event.payload;
+        const due =
+          state.surfaces === undefined ? null : dueSurfaceCrossings(surfaces, state.surfaces);
+        if (
+          due?.time !== event.simulationTime ||
+          !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
+          canonicalSerialize(
+            planSurfaceCrossing(surfaces, state.surfaces!, zoneId, channel, event.simulationTime),
+          ) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      }
+      state = reduceWorldEvent(state, event);
+    } catch {
+      return `events[${index}]`;
+    }
+  }
+  return undefined;
+}
+
 function boundaryExchangeRefusal(
   state: WorldState,
   policy: WorldBehaviorPolicy,
@@ -4699,6 +4865,8 @@ function registerContainmentChecks(
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
   const authority: Record<ContainmentCommandType, readonly string[]> = {
     "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
+    "surface.interact": ["surface.interacted"],
+    "surface.repair": ["surface.repaired"],
     "object.create": [
       "object.created",
       "needs.changed",
@@ -4742,6 +4910,7 @@ function registerContainmentChecks(
                 "weather.transitioned",
                 "exposure.threshold-crossed",
                 "resource.weather-integrated",
+                "surface.band-crossed",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",
@@ -4787,6 +4956,20 @@ function registerContainmentChecks(
       version: 1,
       check: ({ state, input }) => boundaryExchangeDisagreement(input.pack.pack.policy, state),
     }),
+    ...["surface.zone", "surface.interaction", "surface.actor", "surface.reach"].map((name) =>
+      registerPre(name, ({ state, payload, input, command }) => {
+        if (command.type !== "surface.interact" && command.type !== "surface.repair")
+          return undefined;
+        const refused = surfaceRefusal(
+          state,
+          input.pack.pack.policy,
+          command.type,
+          payload as SurfaceInteractPayload | SurfaceRepairPayload,
+          input.attribution.effectiveActorId,
+        );
+        return refused?.check === `${name}@1` ? refused.path : undefined;
+      }),
+    ),
     registerPre("boundary.exchange", ({ state, payload, input, command }) =>
       command.type === "boundary.exchange"
         ? boundaryExchangeRefusal(
