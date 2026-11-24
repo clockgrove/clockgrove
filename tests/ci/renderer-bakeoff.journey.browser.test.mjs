@@ -432,6 +432,8 @@ it.each(["webgpu", "webgl2"])(
           // The marker shares the frame origin with the content sprite, which stands in front of it;
           // content is hidden here so the samples read the body, not the sprite.
           f.diagnostics.root.visible = false;
+          // The fixture's content lamps (60000 each) saturate the marker; the key light is measured alone.
+          f.setContentLights(false);
           const index = keyIndex();
           const original = adapter.sky[index].userData.shadowDirection;
           adapter.sky[index].userData.shadowDirection = original
@@ -479,6 +481,7 @@ it.each(["webgpu", "webgl2"])(
           sky.shadow.camera.layers.disable(1);
           sky.userData.shadowDirection = original;
           f.diagnostics.root.visible = true;
+          f.setContentLights(true);
           await capture();
           return {
             beside,
