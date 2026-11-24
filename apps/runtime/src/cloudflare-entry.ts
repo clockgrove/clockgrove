@@ -149,6 +149,7 @@ import {
   TrustedRuntimeRequestAuthenticator,
 } from "./trusted-composition.js";
 import type { RuntimeScope } from "./types.js";
+import { PostgreSqlUsageInspector } from "./usage.js";
 import { PostgreSqlClientViewInspector } from "./view-trace.js";
 import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
@@ -556,6 +557,21 @@ export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO"
         actorId,
         request,
       ),
+  };
+}
+
+/** Usage events by player and time window (0076); needs no artifact store. */
+export function composeUsageInspector(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+): RuntimeOwnerBindings["usage"] {
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) => inspector((usage) => usage.query(input, context)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
   };
 }
 
@@ -1475,6 +1491,7 @@ export default {
     const connection = env.HYPERDRIVE?.connectionString ?? "";
     const conversations = composeConversations(env);
     const runs = composeRunInspector(env);
+    const usage = composeUsageInspector(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1536,6 +1553,7 @@ export default {
               activations: composeActivationOwners(env),
             }),
         ...(runs === undefined ? {} : { runs }),
+        ...(usage === undefined ? {} : { usage }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>

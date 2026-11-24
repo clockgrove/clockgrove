@@ -201,6 +201,17 @@ it.skipIf(!isNativeWorldOwnerChild())(
           `SELECT status||'/'||outcome_code FROM clockgrove.agent_runs WHERE session_id='${modelDown}'`,
         ),
       ).toBe("failed/model_unavailable");
+      // Issue 329: the run committed the reply although it failed, so it is the delivery's run.
+      expect(
+        await owner.sql(
+          `SELECT string_agg(concat_ws('/', e.quantities->>'deliveries', e.run_id = r.run_id,
+                    e.root_run_id = r.root_run_id), ',')
+             FROM clockgrove.usage_events e
+             JOIN clockgrove.agent_runs r ON r.tenant_id = e.tenant_id
+              AND r.session_id = e.session_id
+            WHERE e.category = 'delivery' AND e.session_id = '${modelDown}'`,
+        ),
+      ).toBe("1/t/t");
       expect((await post("/v1/runtime/world-status", {})).status).toBe(200);
       const toolDown = await open();
       await talk(toolDown, 1, CAPABILITY, { q: "down" });

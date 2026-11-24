@@ -61,7 +61,12 @@ import {
   PostgreSqlContextManifests,
 } from "./postgres-actor-documents.js";
 import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
-import { PostgreSqlRunRecorder, SCRIPTED_MODEL, type TalkRunStart } from "./postgres-runs.js";
+import {
+  NO_CALL_USAGE,
+  PostgreSqlRunRecorder,
+  SCRIPTED_MODEL,
+  type TalkRunStart,
+} from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -541,12 +546,14 @@ export class PostgreSqlConversationStore implements ConversationStore {
             },
             start.manifest,
           );
-          // A checkpointed answer is not asked for again: this attempt commits it.
+          // A checkpointed answer is not asked for again: this attempt commits it, calling no
+          // provider, so its step counts no call (the abandoned run's step counted the real one).
           if (current.replyArtifactId !== null)
             await this.runs.modelAnswered(
               fiber.scope.tenantId,
               start.run.runId,
               current.replyArtifactId,
+              NO_CALL_USAGE,
             );
         }
         const claimed = await this.client.query(
@@ -682,6 +689,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
               fiber.sessionId,
               fiber.runId,
               response.outcomeCode,
+              response.usage,
             );
         }
         await this.client.query(
