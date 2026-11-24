@@ -22,15 +22,16 @@ import {
 /**
  * The declared bounds of one flashback, echoed in every response. Decisions (issue 273):
  * `framesBefore` and `framesAfter`: eight journaled states either side, a few seconds each way at
- * the browser's frame pace; `windowEvents`: one bounded read of the partition around the moment,
- * which holds 17 commands of a busy space; `catchUpEvents`: twice the snapshot sweep's 2,000-event
- * cadence (`SNAPSHOT_INTERVAL_EVENTS`), so every moment the sweep keeps up with is in reach. A
- * moment farther than that from its nearest compatible snapshot is never replayed from birth.
+ * the browser's frame pace; `windowEvents`: the partition read around the moment, one replay page
+ * (2,000 events, `REPLAY_PAGE`), since one advance of the reference fixture journals about 70;
+ * `catchUpEvents`: twice the snapshot sweep's 2,000-event cadence (`SNAPSHOT_INTERVAL_EVENTS`), so
+ * every moment the sweep keeps up with is in reach. A moment farther than that from its nearest
+ * compatible snapshot is never replayed from birth.
  */
 export const FLASHBACK_BOUNDS = Object.freeze({
   framesBefore: 8,
   framesAfter: 8,
-  windowEvents: 512,
+  windowEvents: 2_000,
   catchUpEvents: 4_000,
 });
 export type FlashbackBounds = typeof FLASHBACK_BOUNDS;
@@ -44,7 +45,7 @@ export type FlashbackRequest = BrowserScope & { readonly version: 1 } & Flashbac
 export interface FlashbackMoment {
   readonly commandId: CommandId;
   readonly eventIds: readonly EventId[];
-  /** The partition sequence of the command's last event: the state the moment's frame shows. */
+  /** The moment's event: the entry event, else the command's last. Its frame shows the state after it. */
   readonly partitionSequence: string;
   readonly simulationTime: string;
   /** The entity the moment concerns (the entry event's, else the command's first that names one). */

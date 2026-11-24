@@ -9,6 +9,7 @@ import {
   loadPartitionSnapshot,
   type PartitionReplayPorts,
   type ReplayStart,
+  type RuntimeAuthorizationDenial,
   replayBirth,
   replayPartition,
   type StoredEvent,
@@ -26,6 +27,7 @@ import {
   type FlashbackReplay,
   type FlashbackRequest,
   type ObjectId,
+  type PrincipalId,
   type RecordedWhy,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
@@ -57,6 +59,11 @@ export interface FlashbackEvidenceSource {
     input: CausalEntryInput,
     context: TrustedExecutionContext,
   ): Promise<{ readonly why: RecordedWhy; readonly events: readonly StoredEvent[] }>;
+  deny(
+    input: CausalEntryInput,
+    principalId: PrincipalId,
+    denial: RuntimeAuthorizationDenial | undefined,
+  ): Promise<void>;
 }
 
 export interface FlashbackReaderOptions {
@@ -91,6 +98,27 @@ export class PostgreSqlFlashbackReader {
     private readonly evidence: FlashbackEvidenceSource,
     private readonly options: FlashbackReaderOptions,
   ) {}
+
+  /** The Worker's audited port: an event or command entry, refused like Why when it is neither. */
+  inspect(input: CausalEntryInput, context: TrustedExecutionContext): Promise<Flashback> {
+    const entry =
+      "eventId" in input
+        ? { eventId: input.eventId }
+        : "commandId" in input
+          ? { commandId: input.commandId }
+          : undefined;
+    if (entry === undefined) throw new RangeError("a flashback entry is an event or a command");
+    return this.read({ version: 1, ...input.scope, ...entry }, context);
+  }
+
+  /** Records a refused access in the inspector audit, as Why does. */
+  deny(
+    input: CausalEntryInput,
+    principalId: PrincipalId,
+    denial: RuntimeAuthorizationDenial | undefined,
+  ): Promise<void> {
+    return this.evidence.deny(input, principalId, denial);
+  }
 
   async read(request: FlashbackRequest, context: TrustedExecutionContext): Promise<Flashback> {
     const scope = {
@@ -128,6 +156,8 @@ export class PostgreSqlFlashbackReader {
       (entryEvent === undefined ? null : concernedObjectId(entryEvent)) ??
       own.map(concernedObjectId).find((id) => id !== null) ??
       null;
+    // The moment is the entry event itself; a command entry's moment is its last event.
+    const momentEvent = entryEvent ?? last;
     const { policy } = await owner.behavior(authorization, scope);
     const dayLength = policy.environment?.dayLengthMs;
     const partitionScope = {
@@ -136,12 +166,12 @@ export class PostgreSqlFlashbackReader {
       timelineId: scope.timelineId,
       partitionId: stored.partitionId,
     };
-    const events_ = new JournalRangeReader(
+    const reader = new JournalRangeReader(
       new PostgreSqlJournalRangeSource(this.client, authorization),
       JOURNAL_EVENT_REGISTRY,
     );
     const ports = {
-      events: events_,
+      events: reader,
       birth: new PostgreSqlWorldProvisioningStore(this.client),
       decodeResource: this.options.decodeResource,
       snapshots: new PostgreSqlSnapshotStore(this.client),
@@ -152,7 +182,7 @@ export class PostgreSqlFlashbackReader {
     let frames: FlashbackFrame[] = [];
     let momentState: { state: WorldState; sequence: bigint } | undefined;
     try {
-      const window = await this.window(events_, partitionScope, stored, own[0]!, last);
+      const window = await this.window(reader, partitionScope, stored, own[0]!, last);
       const momentIndex = window.blocks.findIndex((block) => block.end === last.partitionSequence);
       const selected = window.blocks.slice(
         Math.max(0, momentIndex - FLASHBACK_BOUNDS.framesBefore),
@@ -164,14 +194,41 @@ export class PostgreSqlFlashbackReader {
       else {
         let reached: ReplayStart = start;
         let eventsReplayed = 0;
-        for (const block of selected) {
-          const result = await replayPartition(partitionScope, reached, block.end, ports);
+        const to = async (sequence: bigint) => {
+          const result = await replayPartition(partitionScope, reached, sequence, ports);
           eventsReplayed += result.eventsApplied;
-          reached = { state: result.state, coveredPartitionSequence: block.end };
-          if (block.end === last.partitionSequence)
-            momentState = { state: result.state, sequence: block.end };
+          reached = { state: result.state, coveredPartitionSequence: sequence };
+          return result.state;
+        };
+        for (const block of selected) {
+          const inBlock = block.commandId === momentEvent.commandId;
+          // An event inside its command is shown at its own journaled sequence, then the command's end.
+          if (inBlock && momentEvent.partitionSequence < block.end) {
+            const state = await to(momentEvent.partitionSequence);
+            momentState = { state, sequence: momentEvent.partitionSequence };
+            frames.push(
+              this.frame(
+                stored,
+                state,
+                momentEvent.partitionSequence,
+                block.commandId,
+                [momentEvent.eventId],
+                true,
+              ),
+            );
+          }
+          const state = await to(block.end);
+          const moment = inBlock && momentEvent.partitionSequence === block.end;
+          if (moment) momentState = { state, sequence: block.end };
           frames.push(
-            this.frame(stored, result.state, block, block.end === last.partitionSequence),
+            this.frame(
+              stored,
+              state,
+              block.end,
+              block.commandId,
+              block.events.map((event) => event.eventId),
+              moment,
+            ),
           );
         }
         replay = {
@@ -206,8 +263,8 @@ export class PostgreSqlFlashbackReader {
       moment: {
         commandId: last.commandId,
         eventIds: own.map((event) => event.eventId),
-        partitionSequence: last.partitionSequence.toString(),
-        simulationTime: last.simulationTime.toString(),
+        partitionSequence: momentEvent.partitionSequence.toString(),
+        simulationTime: momentEvent.simulationTime.toString(),
         objectId,
       },
       bounds: FLASHBACK_BOUNDS,
@@ -218,6 +275,8 @@ export class PostgreSqlFlashbackReader {
       before,
       summary: summaryOf({
         own,
+        entryEvent,
+        objectId,
         why,
         replay,
         context: contextView,
@@ -300,7 +359,9 @@ export class PostgreSqlFlashbackReader {
   private frame(
     stored: HydratedWorldOwner,
     state: WorldState,
-    block: CommandBlock,
+    sequence: bigint,
+    commandId: CommandId,
+    eventIds: readonly StoredEvent["eventId"][],
     moment: boolean,
   ): FlashbackFrame {
     const scope = {
@@ -319,9 +380,9 @@ export class PostgreSqlFlashbackReader {
       { ...REPLAY_AUDIENCE_FACTS, categories: [...REPLAY_AUDIENCE_FACTS.categories] },
     );
     return {
-      partitionSequence: block.end.toString(),
-      commandId: block.commandId,
-      eventIds: block.events.map((event) => event.eventId),
+      partitionSequence: sequence.toString(),
+      commandId,
+      eventIds,
       moment,
       projection: sceneProjectionOf(
         stored,
@@ -329,7 +390,7 @@ export class PostgreSqlFlashbackReader {
         livingSceneOf(scope, state),
         decision,
         this.options.presentations ?? [],
-        block.end,
+        sequence,
       ),
     };
   }
@@ -387,28 +448,57 @@ function contextOf(
 
 const words = (kind: string): string => kind.replaceAll("-", " ");
 
+/** Decision: at most eight event and eight decision sentences, so a busy step stays a short read. */
+const SUMMARY_EVENTS = 8;
+
 /**
  * The summary: closed sentence templates filled only from the replayed state, the moment's journal
  * events and the recorded Why, each citing what it used. A missing reason is said, never invented.
  */
 function summaryOf(input: {
   readonly own: readonly StoredEvent[];
+  readonly entryEvent: StoredEvent | undefined;
+  readonly objectId: ObjectId | null;
   readonly why: RecordedWhy;
   readonly replay: FlashbackReplay;
   readonly context: FlashbackContext | null;
   readonly momentSequence: bigint | undefined;
   readonly nameOf: (objectId: string) => string;
 }): FlashbackLine[] {
-  const { own, why, replay, context, nameOf } = input;
+  const { own, why, replay, context, nameOf, entryEvent, objectId } = input;
   const lines: FlashbackLine[] = [];
-  for (const event of own) {
+  const sentence = (event: StoredEvent): FlashbackLine => {
     const category = worldEventFeedCategory(event.type);
-    if (category === undefined) continue;
-    lines.push({
+    return {
       kind: "context",
-      text: feedSentence(event.type, kernelPayloadOf(event), FEED_FALLBACKS[category], nameOf),
+      text:
+        category === undefined
+          ? `A ${words(event.type.replaceAll(".", " "))} event was recorded.`
+          : feedSentence(event.type, kernelPayloadOf(event), FEED_FALLBACKS[category], nameOf),
       cites: [`event:${event.eventId}`],
+    };
+  };
+  if (entryEvent !== undefined) lines.push(sentence(entryEvent));
+  else {
+    // A command's material events as the feed shows them, those about the moment's entity first.
+    const shown = own.filter((event) => {
+      if (worldEventFeedCategory(event.type) === undefined) return false;
+      const payload = kernelPayloadOf(event) as Record<string, unknown> | undefined;
+      return !(
+        event.type === "resource.weather-integrated" &&
+        payload?.collected === 0 &&
+        payload?.evaporated === 0
+      );
     });
+    const about = shown.filter((event) => concernedObjectId(event) === objectId);
+    const told = (about.length > 0 ? about : shown).slice(0, SUMMARY_EVENTS);
+    lines.push(...told.map(sentence));
+    if (shown.length > told.length)
+      lines.push({
+        kind: "context",
+        text: `${shown.length - told.length} more recorded events happened in the same step.`,
+        cites: [`command:${why.commandId}`],
+      });
   }
   if (context !== null && input.momentSequence !== undefined) {
     const frame = [`frame:${input.momentSequence}`];
@@ -458,7 +548,10 @@ function summaryOf(input: {
         });
     }
   }
-  const drafts = why.traces.status === "available" ? why.traces.drafts : [];
+  const recorded = why.traces.status === "available" ? why.traces.drafts : [];
+  // The moment's entity's own decisions when it has any; a step decides for many actors.
+  const mine = recorded.filter((draft) => draft.objectId === objectId);
+  const drafts = (mine.length > 0 ? mine : recorded).slice(0, SUMMARY_EVENTS);
   for (const draft of drafts) {
     const cite = [`draft:${why.commandId}#${draft.draftIndex}`];
     const action = draft.selectedAction;
@@ -491,7 +584,7 @@ function summaryOf(input: {
       }.`,
       cites: [`event:${cause.eventId}`],
     });
-  if (drafts.length === 0 && (why.resourceCauses ?? []).length === 0)
+  if (recorded.length === 0 && (why.resourceCauses ?? []).length === 0)
     lines.push({
       kind: "unknown",
       text:

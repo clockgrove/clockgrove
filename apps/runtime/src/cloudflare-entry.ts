@@ -114,7 +114,6 @@ import {
   withHyperdrivePostgreSqlClient,
 } from "./hyperdrive-postgres.js";
 import {
-  type CausalEntryInput,
   PostgreSqlCausalInspector,
   PostgreSqlRuntimeOperator,
   PostgreSqlRuntimeStateInspector,
@@ -1113,13 +1112,6 @@ export function composeResearchInternalRead(
   };
 }
 
-/** A flashback starts at an event or a command; the worker's decoder admits nothing else. */
-function flashbackEntry(input: CausalEntryInput) {
-  if ("eventId" in input) return { eventId: input.eventId };
-  if ("commandId" in input) return { commandId: input.commandId };
-  throw new RangeError("a flashback entry is an event or a command");
-}
-
 function composeGuardedResearch(
   env: RuntimeEnvironment,
   supplied: Pick<RuntimeComposition, "research" | "researchConfiguration" | "authentication">,
@@ -1612,7 +1604,7 @@ export default {
                 artifacts: composeArtifactStore(env, client),
                 decodeResource,
                 presentations: decodeScenePresentations(env.WORLD_PRESENTATION),
-              }).read({ version: 1, ...input.scope, ...flashbackEntry(input) }, context),
+              }).inspect(input, context),
             ),
           deny: (input, principalId, denial) =>
             inspector((owner) => owner.deny(input, principalId, denial)),
