@@ -255,20 +255,15 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   ]);
 }
 
-// Part 3: the owner's World debugger, read-only, from recorded evidence: a journal event's cause,
-// the Talk run's steps and cost, the cube's recorded decision (perception, beliefs, goals and the
-// choice) and the pack checks. The dev:world journey checks that an observer never sees it.
+// Part 3: the owner's World debugger, read-only, from recorded evidence: the cube's recorded
+// decision (perception, beliefs, goals and the choice), the journal with every event type and its
+// cause, a replay to the journal head, the Talk run's steps and cost, and the pack checks. The
+// dev:world journey checks that an observer never sees it.
 async function debugsThePlayground(page, post, entry) {
   // A fresh world's clock starts paused; its owner runs it (×60, so the cube's 60 s decision
   // interval passes each wall second) through the existing clock commands and `runtime:world-clock`.
   const { tenantId, worldId, timelineId, spaceId } = entry;
-  for (const [type, payload] of [
-    [
-      "SetClockPolicy",
-      { schemaVersion: 1, simulationMillisecondsPerWallMillisecond: 60, catchUpCapMs: 86_400_000n },
-    ],
-    ["ResumeWorld", { schemaVersion: 1 }],
-  ]) {
+  const clock = async (type, payload) => {
     const key = `debugger-${type}`;
     const response = await post("/v1/runtime/commands", {
       schemaVersion: 1,
@@ -291,25 +286,14 @@ async function debugsThePlayground(page, post, entry) {
       }),
     });
     expect([type, response.status]).toEqual([type, 200]);
-  }
+  };
+  await clock("SetClockPolicy", {
+    schemaVersion: 1,
+    simulationMillisecondsPerWallMillisecond: 60,
+    catchUpCapMs: 86_400_000n,
+  });
+  await clock("ResumeWorld", { schemaVersion: 1 });
   await page.locator("summary", { hasText: /^World debugger$/u }).click();
-  const journal = page.getByRole("region", { name: "Debugger journal", exact: true });
-  const cause = journal.getByRole("button", { name: /^Cause of event /u }).first();
-  await cause.waitFor({ timeout: 60_000 });
-  await cause.click();
-  await journal
-    .getByText(/^Caused by command \S+; receipt committed; /u)
-    .first()
-    .waitFor();
-  const runs = page.getByRole("region", { name: "Debugger runs", exact: true });
-  await runs.getByRole("button", { name: "Load runs", exact: true }).click();
-  await runs
-    .getByRole("button", { name: /^Inspect run /u })
-    .first()
-    .click();
-  await runs.getByRole("list", { name: "Run steps" }).first().waitFor();
-  expect(await runs.getByText(/^Model calls: [1-9]/u).count()).toBeGreaterThan(0);
-  expect(await runs.getByText(/^Cost: (unknown|\$\d+\.\d{6})$/u).count()).toBeGreaterThan(0);
   const actors = page.getByRole("region", { name: "Debugger actors", exact: true });
   await actors.getByLabel("Actor").selectOption("playground.cube");
   // The cube decides as the clock runs; read again until its first decision is recorded.
@@ -330,6 +314,76 @@ async function debugsThePlayground(page, post, entry) {
     "Choice",
   ]);
   expect(await decision.getByText(/^Chose (stay|seek-[a-z]+) → \S+ \(tier /u).count()).toBe(1);
+  // Paused, the journal head stays put, so a replay to it can be compared with the live projection.
+  await clock("PauseWorld", { schemaVersion: 1 });
+  const journal = page.getByRole("region", { name: "Debugger journal", exact: true });
+  await journal.getByRole("button", { name: "Load journal", exact: true }).click();
+  const rows = journal.getByRole("list", { name: "Journal events" }).getByRole("listitem");
+  await rows.first().waitFor();
+  const types = new Set(
+    (await rows.allTextContents()).map((text) => /^#\d+ (\S+) /u.exec(text)?.[1]),
+  );
+  // Every type, not only the feed's: needs, the clock's policy and the world's genesis records.
+  expect([
+    types.has("needs.changed"),
+    types.has("ClockPolicyChanged"),
+    types.has("WorldGenesisCreated"),
+    types.has(undefined),
+  ]).toEqual([true, true, true, false]);
+  expect(await journal.getByText(/, back to the start of the journal\.$/u).count()).toBe(1);
+  expect(
+    await journal
+      .getByText(/^Recorded cause: command \S+; causation \S+; actor \S+; root action \S+/u)
+      .count(),
+  ).toBe(await rows.count());
+  const cause = journal.getByRole("button", { name: /^Cause of event /u }).first();
+  await cause.click();
+  await journal
+    .getByText(/^Caused by command \S+; receipt committed; /u)
+    .first()
+    .waitFor();
+  const timeline = page.getByRole("region", { name: "Debugger timeline", exact: true });
+  const head = /^Journal head (\d+);/u.exec(
+    await journal.getByText(/^Journal head \d+;/u).textContent(),
+  )?.[1];
+  await timeline.getByRole("button", { name: `Replay to #${head}`, exact: true }).click();
+  const replayed = timeline.getByRole("region", { name: "Replay result", exact: true });
+  await replayed.waitFor({ timeout: 60_000 });
+  expect(await replayed.getByRole("paragraph").textContent()).toMatch(
+    new RegExp(
+      `^Replayed to #${head} from \\S+: [1-9]\\d* events applied; revision \\d+; simulation time \\d+; rain \\d+; state hash [0-9a-f]{64}; matches the live projection\\.$`,
+      "u",
+    ),
+  );
+  expect(await replayed.getByText(/^playground\.cube: location /u).count()).toBe(1);
+  await timeline.getByRole("button", { name: "Go to Timeline", exact: true }).click();
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe("rw-timeline-earlier");
+  const runs = page.getByRole("region", { name: "Debugger runs", exact: true });
+  await runs.getByRole("button", { name: "Load runs", exact: true }).click();
+  await runs
+    .getByRole("button", { name: /^Inspect run /u })
+    .first()
+    .click();
+  const steps = runs.getByRole("list", { name: "Run steps" }).first();
+  await steps.waitFor();
+  // The scripted Talk to the rock: one run of three steps, its one model call priced at $0.
+  expect([
+    await runs
+      .getByText(
+        /^Run \S+: completed, model scripted-fixture-v1, actor playground\.rock, 3 steps Inspect run /u,
+      )
+      .count(),
+    await steps.getByRole("listitem").allTextContents(),
+    await runs.getByText(/^(Model calls|Tool calls|Approvals|Cost): /u).allTextContents(),
+  ]).toEqual([
+    1,
+    [
+      "context_retrieval · succeeded",
+      "model_attempt · succeeded · scripted-fixture-v1 · 0 in / 0 out tokens · $0.000000",
+      "commit · succeeded",
+    ],
+    ["Model calls: 1", "Tool calls: 0", "Approvals: 0", "Cost: $0.000000"],
+  ]);
   const checks = page.getByRole("region", { name: "Debugger checks", exact: true });
   await checks.getByRole("button", { name: "Load checks", exact: true }).click();
   await checks.getByText("Checks: passed", { exact: true }).waitFor();

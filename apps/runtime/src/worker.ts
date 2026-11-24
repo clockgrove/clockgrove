@@ -139,6 +139,7 @@ import {
   sayAudience,
   scriptedSay,
 } from "./interactions.js";
+import { decodeJournalInput, type JournalInput, type JournalPage } from "./journal-inspector.js";
 import { MemoryRuntimeLocalStorage } from "./local-storage.js";
 import { OwnerMailboxError } from "./mailbox.js";
 import {
@@ -273,6 +274,8 @@ export interface RuntimeOwnerBindings {
   };
   /** Usage events by player and time window (0076), under the inspector's grant, limit and audit. */
   readonly usage?: AuditedPort<UsageQueryRequest, UsagePage>;
+  /** The world debugger's journal window and replay (0079), under the inspector's grant and audit. */
+  readonly journalPages?: AuditedPort<JournalInput, JournalPage>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -550,6 +553,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/runs/search")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeRunSearchRequest, this.bindings.runs?.search),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/journal")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.journalPage(request, note),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/usage/query")
       return this.answer("causal_chain_inspection_answered", (note) =>
@@ -1695,6 +1702,31 @@ export class RuntimeWorker {
             : undefined,
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "runtime_action_failed"],
+    });
+  }
+
+  /** A journal window and replay: the runtime-state view's grant, codes and audit. */
+  private journalPage(request: Request, note: RequestNote): Promise<Response> {
+    return this.audited(request, note, {
+      decode: decodeJournalInput,
+      invalid: "invalid_inspection_request",
+      port: this.bindings.journalPages,
+      grant: INSPECT_GRANT,
+      // No command names this read: its request ID is its own.
+      seed: () => crypto.randomUUID(),
+      ids: (input) => ({ ...input.scope }),
+      answer: (page) => {
+        note.outcome = "read";
+        return jsonResponse(page);
+      },
+      refuse: (error) =>
+        error instanceof JournalRouteNotFoundError
+          ? refusal(note, "space_not_found", 404)
+          : error instanceof InspectorRateLimitedError
+            ? refusal(note, "inspection_rate_limited", 429)
+            : undefined,
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "causal_chain_inspection_failed"],
     });
   }
 

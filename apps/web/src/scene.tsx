@@ -664,7 +664,6 @@ export function WorldApp({
             key={`debugger:${worldRoutePath(entry)}`}
             session={session}
             scene={scene}
-            status={status}
           />
         )}
         {scene && shown && <RecordedWhyPanel session={session} />}

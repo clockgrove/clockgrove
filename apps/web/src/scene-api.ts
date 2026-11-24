@@ -283,6 +283,44 @@ export class PlaygroundRefusal extends ApiRefusal {
 }
 
 /** Coordinates authorized transport and transient intents; all read data/status live in Query. */
+/** The runtime's journal window (`/v1/runtime/journal`), as the world debugger reads it. */
+export interface DebuggerJournalPage {
+  readonly journalHead: string;
+  readonly events: readonly {
+    readonly eventId: EventId;
+    readonly type: string;
+    readonly partitionSequence: string;
+    readonly simulationTime: string;
+    readonly recordedAt: string;
+    readonly privacyClass: string;
+    readonly commandId: string;
+    readonly causationId: string | null;
+    readonly effectiveActorId: string;
+    readonly causalRootActionId: string;
+    readonly ruleFiringId: string | null;
+    readonly decisionTraceId: string | null;
+  }[];
+  readonly beforeSequence: string | null;
+  readonly replay?:
+    | {
+        readonly status: "replayed";
+        readonly to: string;
+        readonly start: string;
+        readonly eventsApplied: number;
+        readonly stateHash: string;
+        readonly revision: string;
+        readonly simulationTime: string;
+        readonly rainIntensity: number;
+        readonly matchesLive?: boolean;
+        readonly entities: readonly {
+          readonly objectId: string;
+          readonly locationId: string | null;
+          readonly selectedAction: string | null;
+        }[];
+      }
+    | { readonly status: "unavailable"; readonly to: string; readonly reason: string };
+}
+
 export class SceneSession {
   private intent = 0;
   // The input message IDs of the turns this tab is running now.
@@ -1023,21 +1061,49 @@ export class SceneSession {
     const answer = await this.postInteraction("/v1/runtime/runs/search", { sessionId, limit: 1 });
     return answer.status === 200;
   }
-  /** Whether the runtime-state read, the owner's evidence route, answers 200 for this session. */
-  async debuggerAccess(): Promise<boolean> {
+  /**
+   * Whether the runtime-state read, the owner's evidence route, admits this session: `allowed` on 200,
+   * `denied` on 401 or 403, otherwise the refusal (rate limit, unavailable runtime) to retry.
+   */
+  async debuggerAccess(): Promise<"allowed" | "denied" | { readonly unavailable: string }> {
+    const answer = await this.ownerRead("/v1/runtime/runtime-state", {});
+    if (answer.status === 200) return "allowed";
+    if (answer.status === 401 || answer.status === 403) return "denied";
+    return { unavailable: answer.refused };
+  }
+  /** One window of the space's journal, newest first, and optionally a replay to one position. */
+  async readJournal(
+    options: { readonly beforeSequence?: string; readonly replayTo?: string } = {},
+  ): Promise<DebuggerJournalPage | { readonly refused: string }> {
+    const answer = await this.ownerRead("/v1/runtime/journal", options);
+    const page = answer.body as DebuggerJournalPage | undefined;
+    if (answer.status !== 200 || !Array.isArray(page?.events)) return { refused: answer.refused };
+    return page;
+  }
+  /** An owner inspection read (`schemaVersion` 1 and the scope) under the signed-in credential. */
+  private async ownerRead(
+    endpoint: "/v1/runtime/runtime-state" | "/v1/runtime/journal",
+    body: object,
+  ): Promise<{ status: number; body: unknown; refused: string }> {
     const scope = this.getSnapshot().scope;
     const credential = this.account?.credential;
-    if (!scope || !credential) return false;
+    if (!scope || !credential) return { status: 401, body: undefined, refused: "not signed in" };
     try {
-      const response = await fetch(new URL("/v1/runtime/runtime-state", this.origin), {
+      const response = await fetch(new URL(endpoint, this.origin), {
         method: "POST",
         cache: "no-store",
         headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 1, ...scope }),
+        body: JSON.stringify({ schemaVersion: 1, ...scope, ...body }),
       });
-      return response.status === 200;
+      const json: unknown = await response.json().catch(() => undefined);
+      const error = (json as { error?: unknown } | undefined)?.error;
+      return {
+        status: response.status,
+        body: json,
+        refused: typeof error === "string" ? error : `status ${response.status}`,
+      };
     } catch {
-      return false;
+      return { status: 0, body: undefined, refused: "runtime unavailable" };
     }
   }
   /** Reads the Recorded Why of an event without opening the Why panel. */
@@ -1056,15 +1122,18 @@ export class SceneSession {
     if (!answers(request, value)) throw new ApiRefusal(403);
     return value;
   }
-  /** Reads an entity's selection without selecting it. */
-  async readEntity(objectId: ObjectId): Promise<EntitySelection> {
+  /** Reads an entity's selection without selecting it; `cursor` pages its history back. */
+  async readEntity(
+    objectId: ObjectId,
+    cursor?: EntitySelectionRequest["cursor"],
+  ): Promise<EntitySelection> {
     const scope = this.getSnapshot().scope;
     const credential = this.credential;
     if (!scope || !credential) throw new ApiRefusal(401);
     const value = await this.readObservation(
       "/v1/runtime/entity",
       credential,
-      { ...scope, objectId } as EntitySelectionRequest,
+      { ...scope, objectId, ...(cursor ? { cursor } : {}) } as EntitySelectionRequest,
       new AbortController().signal,
       decodeEntitySelection,
     );
