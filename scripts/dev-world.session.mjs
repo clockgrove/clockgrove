@@ -30,8 +30,8 @@ const CONFIG = "scripts/dev-world.vitest.config.ts";
 const SESSION_MS = Number(process.env.CLOCKGROVE_DEV_WORLD_HOURS ?? 4) * 60 * 60_000;
 /**
  * The playground signs in as the world's owner (issue 327): the existing observation, inspection,
- * command, clock and operator grants, with the public-scene and operator-evidence privacy categories
- * the harness already gives its member, and no private cognition. `pnpm dev:world` keeps its observer.
+ * command, clock and operator grants, and a privacy ceiling of the public-scene, operator-evidence and
+ * conversation categories on its membership, never private cognition. `pnpm dev:world` keeps its observer.
  */
 const OWNER = process.env.CLOCKGROVE_DEV_WORLD_ROLE === "owner";
 const CREDENTIAL = OWNER ? "playground-owner" : "hall-observer";
@@ -44,8 +44,71 @@ const GRANTS = OWNER
       "runtime:world-operate",
     ]
   : ["runtime:world-observe"];
+const OWNER_CEILING =
+  '{"version":1,"allowedCategories":["public_scene","operator_evidence","conversation"]}';
+/** The playground host's control server (issue 327); set only for `pnpm playground`. */
+const PLAYGROUND_HOST = process.env.CLOCKGROVE_PLAYGROUND_HOST;
+const PLAYGROUND_BODY_LIMIT = 64 * 1024;
 /** Names the file whose existence asks the session to stop; scripts/dev-world.mjs sets it. */
 const STOP_VARIABLE = "CLOCKGROVE_DEV_WORLD_STOP";
+
+/** Reads a request body, or null past the limit. */
+async function readBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > PLAYGROUND_BODY_LIMIT) return null;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+const reply = (response, status, body) => {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+};
+
+/**
+ * The browser's door to the playground host (issue 327): a request is forwarded only when the runtime
+ * accepts the caller's credential for this world, so the host never sees an unauthorized caller.
+ */
+function playgroundHandler(native) {
+  return async (request, response) => {
+    if (request.method !== "POST") return reply(response, 405, { error: "method_not_allowed" });
+    const body = await readBody(request);
+    if (body === null) return reply(response, 413, { error: "too_large" });
+    const authorization = request.headers.authorization;
+    const refused = () => reply(response, 403, { error: "playground_refused" });
+    if (authorization === undefined) return refused();
+    try {
+      const { tenantId, worldId, timelineId, spaceId } = native.scope;
+      const authorized = await fetch(`${await native.origin()}/v1/runtime/runtime-state`, {
+        method: "POST",
+        headers: { authorization, "content-type": "application/json" },
+        body: JSON.stringify({ schemaVersion: 1, tenantId, worldId, timelineId, spaceId }),
+      });
+      if (authorized.status !== 200) return refused();
+    } catch {
+      return refused();
+    }
+    try {
+      const forwarded = await fetch(`${PLAYGROUND_HOST}${request.url}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-playground-secret": process.env.CLOCKGROVE_PLAYGROUND_SECRET ?? "",
+          "x-playground-world": process.env.CLOCKGROVE_PLAYGROUND_WORLD ?? "",
+        },
+        body,
+      });
+      response.writeHead(forwarded.status, { "content-type": "application/json" });
+      response.end(Buffer.from(await forwarded.arrayBuffer()));
+    } catch {
+      reply(response, 502, { error: "playground_host_unavailable" });
+    }
+  };
+}
 
 /** Resolves when the launcher asks to stop (checked every 500 ms) or the session bound passes. */
 async function stopped() {
@@ -64,7 +127,7 @@ it("serves the living hall", async () => {
       // with one local credential.
       prepare: (fixture) =>
         truthOf(fixture)(
-          `UPDATE clockgrove.world_memberships SET grants=ARRAY[${GRANTS.map((grant) => `'${grant}'`).join(",")}] WHERE principal_id='principal-runtime';
+          `UPDATE clockgrove.world_memberships SET grants=ARRAY[${GRANTS.map((grant) => `'${grant}'`).join(",")}]${OWNER ? `, privacy_ceiling='${OWNER_CEILING}'` : ""} WHERE principal_id='principal-runtime';
           UPDATE clockgrove_auth.session SET token='${CREDENTIAL}', "expiresAt"=now() + interval '${Math.ceil(SESSION_MS / 60_000)} minutes' WHERE token='local-reader-session'`,
         ),
     });
@@ -77,6 +140,19 @@ it("serves the living hall", async () => {
     const server = await createServer({
       root: path.join(root, "apps/web"),
       configFile: path.join(root, "apps/web/vite.config.ts"),
+      // Inline plugins are added to those of the config file. The preferred port 5173 moves to the
+      // next free one (strictPort is off), so a second session can run beside the first.
+      plugins:
+        PLAYGROUND_HOST === undefined
+          ? []
+          : [
+              {
+                name: "clockgrove-playground",
+                configureServer(vite) {
+                  vite.middlewares.use("/playground/v1", playgroundHandler(native));
+                },
+              },
+            ],
       server: {
         host: "127.0.0.1",
         port: 5173,
