@@ -49,6 +49,25 @@ at `payload.maxEvents`.
 Because the math is closed-form and the barrier is the same at every step size, a one-call advance,
 a chain of advances and many small advances journal identical events and reach the same state.
 
+Rain and growth channels heal the same way: their clocks are closed-form over the environment's
+own cycles, so weather transitions and phase changes settle nothing and journal no surface event;
+the barrier only ever fires at a band crossing.
+
+## Wear by movement
+
+Every `movement.region-entered` the kernel journals, from a moving command, a `world.advance` or
+a time-passing move alike, passes one funnel that asks `planSurfaceTraffic` what the entry does to
+the region's `traffic` zones at the entry instant and, when anything, attaches it as the event's
+`surfaces` field. A walk therefore wears a path, or tracks mud from one region onto the next, with
+exactly the entry events the route already implies and no event per step.
+
+## Carried matter on death
+
+When an actor dies holding carried matter, one `surface.carried-drained` with `cause: "died"`
+follows its `lifecycle.died` at the same instant and removes every row it held, so lifecycle
+compaction can later remove the actor without leaving matter behind. A retired actor keeps its
+rows.
+
 ## Invariants
 
 - `surface.state-matches-policy@1`, both a precondition on the incoming partition and a post-state
@@ -57,17 +76,21 @@ a chain of advances and many small advances journal identical events and reach t
   but unjournaled.
 - `surface.journaled@1` replays every `surface.*` event a command emits from the policy and the
   prior state: each interaction and repair must equal its plan, and each crossing must be due at its
-  instant with the planned payload. A forged or reordered surface event is `invariant-violated` at
-  `events[i]`.
+  instant with the planned payload. Every `movement.region-entered` must carry exactly the
+  planned traffic (or none). A drain must remove exactly the actor's rows and follow its death at
+  the same instant, and a death of an actor holding matter must be followed by its drain. A forged,
+  missing or reordered surface effect is `invariant-violated` at `events[i]`.
 
 Replaying the journal through `reduceWorldEvent` reproduces the surface state exactly; the kernel
 journey test (`packages/kernel/test/surface.journey.test.ts`) proves the mark ring, attribution,
 every refusal above (reach for an object host in another space and for a ground region the actor
 stands outside, and a retired host), a scratch on a ground-region zone, healing in every advance
-shape, carried-matter conservation, repair, the budget refusal and scenario decoding.
+shape, rain and growth healing at hand-computed instants in every advance shape, a walk that wears
+a porch and tracks mud onto it, the drain of a dying actor's mud, carried-matter conservation,
+repair, the budget refusal and scenario decoding.
 
 ## Not yet here
 
-Rain and growth recovery drivers, wear carried by movement events, perception of a zone's state as
-a standing signal, the why path from a zone to its cause, the presentation binding, and the runtime's
-owner repair route are later parts of issue #267. No `surface.*` event is perceivable yet.
+Perception of a zone's state as a standing signal, the why path from a zone to its cause, the
+presentation binding, and the runtime's owner repair route are later parts of issue #267. No
+`surface.*` event is perceivable yet.

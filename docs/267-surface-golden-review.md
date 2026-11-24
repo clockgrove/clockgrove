@@ -22,3 +22,7 @@ Existing fixture and playground scenarios declare no surfaces. Their commands, e
 | walk-crossings | [worlds/fixture/reference/goldens/walk-crossings.json](../worlds/fixture/reference/goldens/walk-crossings.json) | Add surface command, event and reducer identity; recompute bundle hash; all physical outputs unchanged. |
 | walk-out-of-den | [worlds/fixture/reference/goldens/walk-out-of-den.json](../worlds/fixture/reference/goldens/walk-out-of-den.json) | Add surface command, event and reducer identity; recompute bundle hash; all physical outputs unchanged. |
 | weathered-rock (playground) | [worlds/playground/goldens/weathered-rock.json](../worlds/playground/goldens/weathered-rock.json) | Add surface command, event and reducer identity; recompute bundle hash; all physical outputs unchanged. |
+
+## Part 2: the carried-matter drain
+
+Part 2 adds one event, `surface.carried-drained@1`, and its reducer. The regenerated bundles were compared structurally after decoding the canonical form: each of the 16 goldens above differs only by that one entry added to `kernel.events` and `kernel.reducers` and by the derived `bundleHash`. No entry was removed, and commands, events, final state, assertions, material hashes, pack artifacts and equivalence results are unchanged. No scenario declares surfaces, so the rain and growth drivers, region traffic and the drain change no physical output.
