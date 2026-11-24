@@ -185,6 +185,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   const history = page.getByRole("list", { name: "Conversation history" });
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
+  await debugsThePlayground(page);
   // The playground world's identity, metadata and clock before another pack is loaded.
   const state = async () => {
     const { tenantId, worldId, timelineId, spaceId } = entry;
@@ -252,6 +253,53 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
     before.metadata,
     true,
   ]);
+}
+
+// Part 3: the owner's World debugger, read-only, from recorded evidence: a journal event's cause,
+// the Talk run's steps and cost, the cube's recorded decision (perception, beliefs, goals and the
+// choice) and the pack checks. The dev:world journey checks that an observer never sees it.
+async function debugsThePlayground(page) {
+  await page.locator("summary", { hasText: /^World debugger$/u }).click();
+  const journal = page.getByRole("region", { name: "Debugger journal", exact: true });
+  const cause = journal.getByRole("button", { name: /^Cause of event /u }).first();
+  await cause.waitFor({ timeout: 60_000 });
+  await cause.click();
+  await journal
+    .getByText(/^Caused by command \S+; receipt committed; /u)
+    .first()
+    .waitFor();
+  const runs = page.getByRole("region", { name: "Debugger runs", exact: true });
+  await runs.getByRole("button", { name: "Load runs", exact: true }).click();
+  await runs
+    .getByRole("button", { name: /^Inspect run /u })
+    .first()
+    .click();
+  await runs.getByRole("list", { name: "Run steps" }).first().waitFor();
+  expect(await runs.getByText(/^Model calls: [1-9]/u).count()).toBeGreaterThan(0);
+  expect(await runs.getByText(/^Cost: (unknown|\$\d+\.\d{6})$/u).count()).toBeGreaterThan(0);
+  const actors = page.getByRole("region", { name: "Debugger actors", exact: true });
+  await actors.getByLabel("Actor").selectOption("playground.cube");
+  // The cube decides as the clock runs; read again until its first decision is recorded.
+  const decision = actors.getByRole("region", { name: /^Decision at \d+$/u }).first();
+  await expect
+    .poll(
+      async () => {
+        await actors.getByRole("button", { name: "Show decisions", exact: true }).click();
+        return decision.isVisible().catch(() => false);
+      },
+      { timeout: 180_000, interval: 5_000 },
+    )
+    .toBe(true);
+  expect(await decision.getByRole("heading", { level: 5 }).allTextContents()).toEqual([
+    "Perception",
+    "Beliefs",
+    "Goals",
+    "Choice",
+  ]);
+  expect(await decision.getByText(/^Chose (stay|seek-[a-z]+) → \S+ \(tier /u).count()).toBe(1);
+  const checks = page.getByRole("region", { name: "Debugger checks", exact: true });
+  await checks.getByRole("button", { name: "Load checks", exact: true }).click();
+  await checks.getByText("Checks: passed", { exact: true }).waitFor();
 }
 
 // Two hosted worlds, each within dev:world's 720 s bound (#401).

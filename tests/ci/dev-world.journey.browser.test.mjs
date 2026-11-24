@@ -134,12 +134,21 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
       await page.goto(url.toString());
+      // Issue 327: the world debugger asks the owner-only runtime-state inspection once; the observer
+      // lacks runtime:world-inspect, so it is refused and the debugger never renders.
+      const gate = page.waitForResponse((response) =>
+        response.url().endsWith("/v1/runtime/runtime-state"),
+      );
       await page.getByLabel("Local session credential").fill(credential);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
       expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
         "Arrival: scene ready at revision 0.",
       );
+      expect([
+        (await gate).status(),
+        await page.locator("summary", { hasText: /^World debugger$/u }).count(),
+      ]).toEqual([403, 0]);
     },
     "Ctrl-C stops dev:world",
     async () => {

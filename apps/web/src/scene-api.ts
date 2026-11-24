@@ -33,6 +33,7 @@ import {
   type RecordedWhy,
   type RecordedWhyEntry,
   type RecordedWhyRequest,
+  type RunSummary,
   type SayReceipt,
   type SpaceId,
   type TalkReceipt,
@@ -1021,6 +1022,69 @@ export class SceneSession {
   async runAccess(sessionId: string): Promise<boolean> {
     const answer = await this.postInteraction("/v1/runtime/runs/search", { sessionId, limit: 1 });
     return answer.status === 200;
+  }
+  /** Whether the runtime-state read, the owner's evidence route, answers 200 for this session. */
+  async debuggerAccess(): Promise<boolean> {
+    const scope = this.getSnapshot().scope;
+    const credential = this.account?.credential;
+    if (!scope || !credential) return false;
+    try {
+      const response = await fetch(new URL("/v1/runtime/runtime-state", this.origin), {
+        method: "POST",
+        cache: "no-store",
+        headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+        body: JSON.stringify({ schemaVersion: 1, ...scope }),
+      });
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }
+  /** Reads the Recorded Why of an event without opening the Why panel. */
+  async readEventWhy(eventId: EventId): Promise<RecordedWhy> {
+    const scope = this.getSnapshot().scope;
+    const credential = this.credential;
+    if (!scope || !credential) throw new ApiRefusal(401);
+    const request: RecordedWhyRequest = { version: 1, ...scope, eventId };
+    const value = await this.readObservation(
+      "/v1/runtime/why",
+      credential,
+      request,
+      new AbortController().signal,
+      decodeRecordedWhy,
+    );
+    if (!answers(request, value)) throw new ApiRefusal(403);
+    return value;
+  }
+  /** Reads an entity's selection without selecting it. */
+  async readEntity(objectId: ObjectId): Promise<EntitySelection> {
+    const scope = this.getSnapshot().scope;
+    const credential = this.credential;
+    if (!scope || !credential) throw new ApiRefusal(401);
+    const value = await this.readObservation(
+      "/v1/runtime/entity",
+      credential,
+      { ...scope, objectId } as EntitySelectionRequest,
+      new AbortController().signal,
+      decodeEntitySelection,
+    );
+    if (value.objectId !== objectId) throw new ApiRefusal(403);
+    return value;
+  }
+  /** The scene's recent runs, newest page first; the server's role check decides access. */
+  async searchRuns(limit: number): Promise<readonly RunSummary[] | { readonly refused: string }> {
+    const answer = await this.postInteraction("/v1/runtime/runs/search", { limit });
+    const runs = (answer.body as { runs?: unknown } | undefined)?.runs;
+    if (answer.status !== 200 || !Array.isArray(runs)) return { refused: answer.refused };
+    return runs.filter(
+      (run): run is RunSummary =>
+        typeof run?.runId === "string" &&
+        typeof run.status === "string" &&
+        typeof run.model === "string",
+    );
+  }
+  inspectRun(runId: string) {
+    return this.conversationCall("/v1/runtime/runs/inspect", { runId }, decodeRunWalk);
   }
   async inspectActivations(
     actorId: ObjectId,
