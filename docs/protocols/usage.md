@@ -135,7 +135,7 @@ replaces its URL and keeps its ID, cursor and secret; `"url": null` disables it.
 `https`. A webhook posts only what its registrar may read, as the registrar: once they lose the
 grant or the ceiling, it stops. Registration is audited as subject `usage-events`.
 
-The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 404 and nothing is posted.
+The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 503 `inspector_unavailable` and nothing is posted.
 Each webhook's signing secret is derived from it and the webhook ID (`whsec_` and the base64 of
 HMAC-SHA256), so Clockgrove stores none; registering again returns the same secret.
 
