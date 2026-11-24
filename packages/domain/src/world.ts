@@ -81,6 +81,7 @@ import {
 } from "./spatial.js";
 import {
   reduceSurfaceEvent,
+  reduceSurfaceTraffic,
   type SurfaceEventData,
   type SurfacePolicy,
   type SurfaceState,
@@ -987,8 +988,17 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         },
       });
     }
+    case "movement.region-entered": {
+      const entities = reduceMovementEvent(state, event);
+      return createWorldState({
+        ...advanced,
+        entities,
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : { surfaces: reduceSurfaceTraffic({ ...state, entities }, event) }),
+      });
+    }
     case "movement.started":
-    case "movement.region-entered":
     case "movement.region-exited":
     case "movement.region-remained":
     case "movement.portal-crossed":

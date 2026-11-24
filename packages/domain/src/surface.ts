@@ -39,6 +39,8 @@ export interface SurfaceZone {
   readonly host: SurfaceHost;
   readonly channels: readonly SurfaceZoneChannel[];
   readonly markCapacity: number;
+  /** An interaction applied to every actor entering the region host (a worn path, tracked mud). */
+  readonly traffic?: string;
 }
 export interface SurfaceEffect {
   readonly channel: string;
@@ -250,9 +252,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
   const zones = array(raw.zones, 0, MAX_SURFACE_ZONES, `${root}.zones`);
   if (zones.length > zoneBudget) overBudget(`${root}.zones`);
   const zoneIds = new Set<string>();
+  const traffic: { path: string; zone: Record<string, unknown> }[] = [];
   zones.forEach((candidate, i) => {
     const path = `${root}.zones[${i}]`;
-    const entry = record(candidate, ["id", "host", "channels", "markCapacity"], path);
+    const withTraffic =
+      candidate !== null && typeof candidate === "object" && Object.hasOwn(candidate, "traffic");
+    const keys = ["id", "host", "channels", "markCapacity"];
+    const entry = record(candidate, withTraffic ? [...keys, "traffic"] : keys, path);
     const id = name(entry.id, `${path}.id`);
     if (zoneIds.has(id)) bad(`${path}.id`);
     zoneIds.add(id);
@@ -280,8 +286,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
     });
     const capacity = int(entry.markCapacity, 0, MAX_SURFACE_MARKS, `${path}.markCapacity`);
     if (capacity > markBudget) overBudget(`${path}.markCapacity`);
+    if (withTraffic) {
+      name(entry.traffic, `${path}.traffic`);
+      traffic.push({ path, zone: entry });
+    }
   });
   const interactionIds = new Set<string>();
+  const effectChannels = new Map<string, readonly string[]>();
   array(raw.interactions, 0, MAX_SURFACE_INTERACTIONS, `${root}.interactions`).forEach(
     (candidate, i) => {
       const path = `${root}.interactions[${i}]`;
@@ -290,6 +301,12 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       if (interactionIds.has(id)) bad(`${path}.id`);
       interactionIds.add(id);
       if (typeof entry.leavesMark !== "boolean") bad(`${path}.leavesMark`);
+      effectChannels.set(
+        id,
+        (Array.isArray(entry.effects) ? entry.effects : []).map(
+          (effect) => (effect as { channel: string }).channel,
+        ),
+      );
       array(entry.effects, 1, MAX_SURFACE_EFFECTS, `${path}.effects`).forEach((effect, k) => {
         const effectPath = `${path}.effects[${k}]`;
         const e = record(effect, ["channel", "kind", "amount"], effectPath);
@@ -302,6 +319,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       });
     },
   );
+  for (const { path, zone } of traffic) {
+    const used = effectChannels.get(zone.traffic as string);
+    const host = zone.host as { kind: string };
+    const has = (zone.channels as { channel: string }[]).map((c) => c.channel);
+    if (host.kind !== "region" || used === undefined || used.some((c) => !has.includes(c)))
+      bad(`${path}.traffic`);
+  }
 }
 
 function stateBad(path: string): never {
@@ -552,7 +576,6 @@ export function planSurfaceInteraction(
   const index = policy.zones.findIndex((zone) => zone.id === payload.zoneId);
   if (surfaces === undefined || index < 0) return refuse("payload.zoneId", "surface.zone@1");
   const zone = policy.zones[index]!;
-  const zoneState = surfaces.zones[index]!;
   const interaction = policy.interactions.find(
     (candidate) => candidate.id === payload.interactionId,
   );
@@ -581,6 +604,36 @@ export function planSurfaceInteraction(
     )
       return refuse("payload.actorId", "surface.reach@1");
   }
+  return {
+    ok: true,
+    payload: applyInteraction(
+      policy,
+      state,
+      index,
+      interaction,
+      payload.actorId,
+      payload.intensity,
+      payload.point,
+      at,
+      environment,
+    ),
+  };
+}
+
+function applyInteraction(
+  policy: SurfacePolicy,
+  state: WorldState,
+  index: number,
+  interaction: SurfaceInteraction,
+  actorId: ObjectId,
+  intensity: number,
+  point: { readonly u: number; readonly v: number },
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): SurfaceInteractedPayload {
+  const surfaces = state.surfaces!;
+  const zone = policy.zones[index]!;
+  const zoneState = surfaces.zones[index]!;
   const values = new Map<string, { value: number; remainder: bigint }>();
   for (const entry of zoneState.channels)
     values.set(
@@ -591,12 +644,12 @@ export function planSurfaceInteraction(
   const touched: string[] = [];
   const held = (channel: string): number =>
     carried.get(channel) ??
-    surfaces.carried.find((c) => c.objectId === actor.objectId && c.channel === channel)?.amount ??
+    surfaces.carried.find((c) => c.objectId === actorId && c.channel === channel)?.amount ??
     0;
   for (const effect of interaction.effects) {
     const channel = declared(policy, effect.channel);
     const current = values.get(effect.channel)!;
-    const scaled = Math.max(1, Math.floor((effect.amount * payload.intensity) / MAX_INTENSITY));
+    const scaled = Math.max(1, Math.floor((effect.amount * intensity) / MAX_INTENSITY));
     if (effect.kind === "add") {
       current.value = Math.min(channel.max, current.value + scaled);
       continue;
@@ -625,28 +678,115 @@ export function planSurfaceInteraction(
   let folded: SurfaceMark | null = null;
   if (interaction.leavesMark && zone.markCapacity > 0) {
     mark = {
-      actorId: payload.actorId,
-      interactionId: payload.interactionId,
+      actorId: actorId,
+      interactionId: interaction.id,
       at,
-      intensity: payload.intensity,
-      point: { u: payload.point.u, v: payload.point.v },
+      intensity: intensity,
+      point: { u: point.u, v: point.v },
     };
     if (zoneState.marks.length >= zone.markCapacity) folded = zoneState.marks[0]!;
   }
   return {
-    ok: true,
-    payload: {
-      actorId: payload.actorId,
-      zoneId: payload.zoneId,
-      interactionId: payload.interactionId,
-      intensity: payload.intensity,
-      point: { u: payload.point.u, v: payload.point.v },
-      channels,
-      carried: touched.map((channel) => ({ channel, amount: held(channel) })),
-      mark,
-      folded,
-    },
+    actorId,
+    zoneId: zone.id,
+    interactionId: interaction.id,
+    intensity,
+    point: { u: point.u, v: point.v },
+    channels,
+    carried: touched.map((channel) => ({ channel, amount: held(channel) })),
+    mark,
+    folded,
   };
+}
+
+export interface SurfaceTrafficEntry {
+  readonly zoneId: string;
+  readonly interactionId: string;
+  readonly channels: readonly SurfaceChannelState[];
+  readonly carried: readonly { readonly channel: string; readonly amount: number }[];
+  readonly mark: SurfaceMark | null;
+  readonly folded: SurfaceMark | null;
+}
+
+const TRAFFIC_POINT = { u: 5000, v: 5000 };
+
+/** What an actor entering `regionId` does to the region's traffic zones, in declaration order. */
+export function planSurfaceTraffic(
+  policy: SurfacePolicy,
+  state: WorldState,
+  actorId: ObjectId,
+  regionId: string,
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): readonly SurfaceTrafficEntry[] {
+  const entries: SurfaceTrafficEntry[] = [];
+  let current = state;
+  for (const [index, zone] of policy.zones.entries()) {
+    if (
+      zone.traffic === undefined ||
+      zone.host.kind !== "region" ||
+      zone.host.regionId !== regionId
+    )
+      continue;
+    const interaction = policy.interactions.find((candidate) => candidate.id === zone.traffic);
+    if (interaction === undefined || current.surfaces === undefined) continue;
+    const planned = applyInteraction(
+      policy,
+      current,
+      index,
+      interaction,
+      actorId,
+      MAX_INTENSITY,
+      TRAFFIC_POINT,
+      at,
+      environment,
+    );
+    entries.push({
+      zoneId: planned.zoneId,
+      interactionId: planned.interactionId,
+      channels: planned.channels,
+      carried: planned.carried,
+      mark: planned.mark,
+      folded: planned.folded,
+    });
+    current = {
+      ...current,
+      surfaces: reduceSurfaceEvent(current, {
+        type: "surface.interacted",
+        simulationTime: at,
+        payload: planned,
+      }),
+    };
+  }
+  return entries;
+}
+
+export function reduceSurfaceTraffic(
+  state: WorldState,
+  event: {
+    readonly simulationTime: SimTimeMs;
+    readonly payload: {
+      readonly objectId: ObjectId;
+      readonly surfaces?: readonly SurfaceTrafficEntry[];
+    };
+  },
+): SurfaceState {
+  let current = state;
+  for (const entry of event.payload.surfaces ?? [])
+    current = {
+      ...current,
+      surfaces: reduceSurfaceEvent(current, {
+        type: "surface.interacted",
+        simulationTime: event.simulationTime,
+        payload: {
+          ...entry,
+          actorId: event.payload.objectId,
+          intensity: MAX_INTENSITY,
+          point: TRAFFIC_POINT,
+        },
+      }),
+    };
+  return current.surfaces!;
 }
 
 export function planSurfaceRepair(

@@ -52,6 +52,7 @@ import {
   planSurfaceCrossing,
   planSurfaceInteraction,
   planSurfaceRepair,
+  planSurfaceTraffic,
   plantStageIndex,
   portalIsOpen,
   positionAt,
@@ -1154,7 +1155,20 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent, reconcileShelter = true): void {
+  function withTraffic(event: WorldEvent): WorldEvent {
+    if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
+    const surfaces = planSurfaceTraffic(
+      policy.surfaces,
+      current(),
+      event.payload.objectId,
+      event.payload.regionId,
+      event.simulationTime,
+      policy.environment,
+    );
+    return surfaces.length === 0 ? event : { ...event, payload: { ...event.payload, surfaces } };
+  }
+  function emit(planned: WorldEvent, reconcileShelter = true): void {
+    const event = withTraffic(planned);
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
@@ -4671,10 +4685,13 @@ function surfaceJournalDisagreement(
   initial: WorldState,
   events: readonly WorldSemanticEvent[],
 ): string | undefined {
-  const first = events.findIndex((event) => event.type.startsWith("surface."));
-  if (first < 0) return undefined;
   const surfaces = activePolicy?.surfaces;
-  if (surfaces === undefined) return `events[${first}]`;
+  const first = events.findIndex(
+    (event) =>
+      event.type.startsWith("surface.") ||
+      (event.type === "movement.region-entered" && event.payload.surfaces !== undefined),
+  );
+  if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
   let state = initial;
   for (const [index, event] of events.entries()) {
     try {
@@ -4702,6 +4719,20 @@ function surfaceJournalDisagreement(
         if (
           !planned.ok ||
           canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "movement.region-entered") {
+        const planned = planSurfaceTraffic(
+          surfaces,
+          state,
+          event.payload.objectId,
+          event.payload.regionId,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
         )
           return `events[${index}]`;
       } else if (event.type === "surface.band-crossed") {

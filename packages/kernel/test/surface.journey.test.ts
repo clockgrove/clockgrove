@@ -12,7 +12,14 @@ import { expect, it } from "vitest";
 import { canonicalSerialize } from "../src/canonical.js";
 import { executeWorldKernel, type WorldSemanticEvent } from "../src/world.js";
 import { containmentInput } from "./containment.scenario.js";
-import { type EnvironmentWorld, runChain, runLive } from "./environment.scenario.js";
+import {
+  advanceInput,
+  applyCommand,
+  type EnvironmentWorld,
+  runChain,
+  runLive,
+} from "./environment.scenario.js";
+import { movementInput } from "./spatial.scenario.js";
 import { scenarioInput, scenarios, stateHash } from "./weather-needs.scenario.js";
 
 const HOUR = 3_600_000n;
@@ -391,4 +398,115 @@ it("decodes a scenario that declares surfaces and their state", async () => {
   const decoded = decodeWorldScenario(sample, await stateHash(sample));
   expect(decoded.pack.policy.surfaces).toEqual(surfaces);
   expect(decoded.initialState.surfaces).toEqual(state);
+});
+
+it("wears a porch and tracks mud onto it as an actor walks in, one entry per region and no event per step", async () => {
+  const region = (regionId: string, min: bigint, max: bigint) => ({
+    regionId,
+    version: 1,
+    frameId: "zone-ground",
+    frameVersion: 1,
+    shape: { kind: "rectangle", min: [min, -1000n], max: [max, 1000n] },
+  });
+  const ground = (
+    id: string,
+    channels: SurfacePolicy["zones"][number]["channels"],
+    traffic: string,
+  ) => ({
+    id,
+    host: { kind: "region", regionId: id } as const,
+    channels,
+    markCapacity: 1,
+    traffic,
+  });
+  const policy: SurfacePolicy = {
+    ...surfaces,
+    budgets: { zones: 8, marksPerZone: 2 },
+    zones: [
+      ...surfaces.zones,
+      ground("yard", [{ channel: "mud", initial: 20 }], "tread"),
+      ground(
+        "porch",
+        [
+          { channel: "mud", initial: 0 },
+          { channel: "wear", initial: 0 },
+        ],
+        "track",
+      ),
+    ],
+    interactions: [
+      ...surfaces.interactions,
+      {
+        id: "track",
+        effects: [
+          { channel: "mud", kind: "deposit", amount: 5 },
+          { channel: "wear", kind: "add", amount: 3 },
+        ],
+        leavesMark: true,
+      },
+    ],
+  };
+  const world = await surfaceWorld(policy, {
+    regions: [region("yard", 2000n, 4000n), region("porch", 6000n, 8000n)],
+  });
+  const pose = world.state.entities.find((entity) => entity.objectId === "subject")!.pose;
+  const destination = { kind: "pose", pose: { ...pose, coordinates: [9000n, 0n] } };
+  const started = applyCommand(
+    world,
+    movementInput(
+      advanceInput(world, "walk", world.state.simulationTime),
+      "movement.start",
+      { schemaVersion: 1, objectId: "subject", destination, unitsPerSecond: 1000n },
+      "walk",
+    ) as never,
+  );
+  const walked = runChain(started.world, "arrive", started.world.state.simulationTime + 20_000n);
+  const events = [...started.events, ...walked.events];
+  const entered = events.flatMap((event) =>
+    event.type === "movement.region-entered" ? [event] : [],
+  );
+  expect(entered.map((event) => [event.simulationTime, event.payload.regionId])).toEqual([
+    [2000n, "yard"],
+    [6000n, "porch"],
+  ]);
+  expect(entered.map((event) => event.payload.surfaces)).toEqual([
+    [
+      {
+        zoneId: "yard",
+        interactionId: "tread",
+        channels: [{ channel: "mud", value: 12, remainder: 0n, settledAt: 2000n }],
+        carried: [{ channel: "mud", amount: 8 }],
+        mark: null,
+        folded: null,
+      },
+    ],
+    [
+      {
+        zoneId: "porch",
+        interactionId: "track",
+        channels: [
+          { channel: "mud", value: 5, remainder: 0n, settledAt: 6000n },
+          { channel: "wear", value: 3, remainder: 0n, settledAt: 6000n },
+        ],
+        carried: [{ channel: "mud", amount: 3 }],
+        mark: {
+          actorId: "subject",
+          interactionId: "track",
+          at: 6000n,
+          intensity: 10000,
+          point: { u: 5000, v: 5000 },
+        },
+        folded: null,
+      },
+    ],
+  ]);
+  expect(surfaceEvents(events)).toEqual([]);
+  const final = walked.world.state.surfaces!;
+  const mud = (id: string) => final.zones.find((z) => z.zoneId === id)!.channels[0]!.value;
+  expect([mud("yard"), mud("porch"), final.carried]).toEqual([
+    12,
+    5,
+    [{ objectId: "subject", channel: "mud", amount: 3 }],
+  ]);
+  expect(events.reduce(reduceWorldEvent, world.state).surfaces).toEqual(final);
 });

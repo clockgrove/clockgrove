@@ -741,7 +741,7 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
       };
     }),
     zones: list(raw.zones, `${path}.zones`, (value, at): SurfaceZone => {
-      const zone = object(value, ["id", "host", "channels", "markCapacity"], at);
+      const zone = object(value, ["id", "host", "channels", "markCapacity"], at, ["traffic"]);
       const host = object(zone.host, ["kind"], `${at}.host`, ["objectId", "regionId"]);
       return {
         id: text(zone.id, `${at}.id`),
@@ -760,6 +760,7 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
           };
         }),
         markCapacity: integer(zone.markCapacity, `${at}.markCapacity`),
+        ...(zone.traffic === undefined ? {} : { traffic: text(zone.traffic, `${at}.traffic`) }),
       };
     }),
     interactions: list(raw.interactions, `${path}.interactions`, (value, at) => {
