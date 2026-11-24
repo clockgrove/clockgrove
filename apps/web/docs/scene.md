@@ -136,14 +136,14 @@ committed data. Legacy projections without lighting retain their existing enviro
   the view. Every projected body's anchor sits at its real depth on every path. A sprite's quad keeps
   every pixel row and gains a row at its anchor; the rows below the anchor lie on the floor, so the
   floor never clips them. A body without a sprite (the fallback circle or ellipse) stands with its
-  bottom at the anchor. Ground shadows, puddles and puddle reflections lie on the floor. Sprites and
+  bottom at the anchor. Contact shapes, puddles and puddle reflections lie on the floor. Sprites and
   these decals sit 0.5 units toward the camera off the floor, about 400 steps of a 24-bit depth
   buffer over the 20,000-unit range but only 46 mm of world depth, so they never share the ground's
   depth. A projected lamp's point light sits 12 units up the screen from the lamp and 35 units in
   front of its real depth. Labels, selection, cues and rain draw without depth testing.
-  Contact shadows, ambient occlusion and shadow maps can therefore read real distances.
+  Contact shapes, shadow maps and later ambient occlusion can therefore read real distances.
 - **Visual entity.** Each drawn entity has explicit geometry:
-  - **Footprint** in millimetres, drawn as a ground shadow.
+  - **Footprint** in millimetres, drawn as the body's contact shape (see Grounding and one picture).
   - **Anchor**, the frame pixel that stands on the pose.
   - **Elevation**, the z coordinate of a 3D frame, else 0.
   - **Occlusion group**: `ground` < `standing` < `weather` < `emphasis`. Every projected entity is
@@ -401,8 +401,16 @@ bounded by 1,000,000, and range by 100,000 metres. These defensive #184 presenta
 bound validation work and avoid overflow; invalid values fail the content contract.
 Descriptors can change during `update`; the renderer revalidates them before rendering.
 
+The instance's optional `contacts` array grounds content the same way projected bodies are
+grounded: `{ x, y, elevation?, widthMetres, depthMetres }` in frame metres, as `place`. At most 64
+are accepted. Coordinates and elevation are bounded by 1,000,000, and widths and depths are positive
+and at most 1000 m. The renderer revalidates them on every update, like `lights`; invalid values fail
+`content_contract`. Each draws the contact shape below on every tier and retires on content failure.
+`metrics.contactShadows` counts the projected bodies' and content's contact shapes. The fixture
+content grounds its model and sprite this way.
+
 The instance's optional `shadows: true` enables content mesh `castShadow` and `receiveShadow`
-flags and ground shadow reception. Meshes choose their flags individually; the renderer bounds
+flags and floor shadow reception. Meshes choose their flags individually; the renderer bounds
 scene directional shadow maps by tier. Omission or `false` disables participation. Point lights
 from descriptors illuminate surfaces but do not allocate point-light shadow cube maps.
 The standalone fixture opts in with `?lighting`.
@@ -428,6 +436,43 @@ backend fixtures establish correctness and bounded allocation. Per the owner’s
 decision in #184, software-GPU traversal plus these tier budgets as policy close this Objective.
 Physical desktop/recent-phone timing comes from the owner’s quality-lab runs in raccoon-world#45
 and the Clockgrove-renderer follow-up filed when it closes.
+
+### Grounding and one picture (#266)
+
+Every projected body has one renderer-drawn analytic contact shape on the floor under its anchor,
+the same on every tier including the low phone floor. It replaces the flat canvas ellipse, which
+ignored fog, tone mapping and depth. The radius comes from the footprint (span = width + depth).
+Opacity is a core of 0.3 fading out by 45% of the radius plus an ambient halo of 0.22 fading from
+25% of the radius to the rim, so 0.52 at the centre (`CONTACT` in `renderer.ts`). It is drawn with
+the scene's lit node material in black (Lambert at low, Standard above), so fog, tone mapping, the
+grade and the depth buffer treat it as they treat the set. Content in front hides it.
+
+| Tier | Grounding | Key-light shadow maps for cast and set | Per-body draws |
+| --- | --- | --- | --- |
+| low | contact shape | none | 1 contact shape |
+| medium | contact shape + key-light map | 1 × 512 when active | contact shape + 1 shadow pass |
+| high | contact shape + key-light maps | 2 × 1024 when active | contact shape + 2 shadow passes |
+
+Maps are active only when content opts in with `shadows: true`. Then every projected body casts into
+and receives the same key-light maps as the set. Its silhouette casts through the alpha-tested
+sprite, double-sided (`shadowSide`) so a camera-facing card casts from either side. Its received
+shadow lookup sits 6 shadow texels toward the camera (`BODY_SHADOW_LIFT_TEXELS`), so a card does not
+shadow itself. Floor and content keep bias -0.0001. With no active maps, neither cast nor set gets
+shadow maps. No tier treats them differently.
+
+Cast and set share ambient, directional and point lights, fog and the grade. The post pass (bloom,
+grade, low-tier label composite) applies to the whole scene, never to the set alone. Rim light is
+presentation data with a per-tier budget. The budget is none on every tier today, the renderer draws
+none, and content code may not add one, because the projection does not tell cast from set.
+Painterly worlds carry painterliness in their textures. No screen-space filter applies to the set
+and not the cast. The contract is in
+[one picture](../../../docs/protocols/world-presentation.md#one-picture).
+
+Later parts of #266 bring top-tier screen-space contact shadows, ambient occlusion and probe-lit
+indirect light (with #242's AO and probe pieces), and lamp (content light) character shadows.
+
+Deterministic captures change with grounding. They are re-approved through the capture review
+workflow (`tests/visual/approved-captures.json`), not by CI.
 
 ## Budgets (§9.3)
 
