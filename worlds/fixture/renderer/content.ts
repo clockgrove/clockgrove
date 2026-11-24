@@ -131,10 +131,21 @@ export function fixtureContent(options: { failure?: string; workMs?: number; lig
         root.add(shadowCaster);
       }
       Object.assign(diagnostics, { ready: true, model, sprite, root, normalMap, depthMap, lightSources, shadowCaster, shadowReceiver });
-      diagnostics.setAnchor = (x, y) => context.place(spriteAnchor, { x, y });
-      diagnostics.setModelAnchor = (x, y) => context.place(modelAnchor, { x, y });
+      const contacts = [
+        { x: -2, y: -2, widthMetres: 3, depthMetres: 3 },
+        { x: 0, y: 0, widthMetres: 3, depthMetres: 3 },
+      ];
+      diagnostics.setAnchor = (x, y) => {
+        context.place(spriteAnchor, { x, y });
+        Object.assign(contacts[1], { x, y });
+      };
+      diagnostics.setModelAnchor = (x, y) => {
+        context.place(modelAnchor, { x, y });
+        Object.assign(contacts[0], { x, y });
+      };
       return {
         root,
+        contacts,
         lights: options.lighting ? lightSources : undefined,
         shadows: options.lighting,
         update(frame) {

@@ -360,27 +360,6 @@ it.each(["webgpu", "webgl2"])(
           await new Promise(requestAnimationFrame);
           return f.capture();
         };
-        const counts = [];
-        for (const tier of ["low", "medium", "high"]) {
-          f.setQuality(tier);
-          adapter.updateContent(0);
-          await capture();
-          counts.push([
-            adapter.metrics.contentLights,
-            adapter.metrics.shadowMaps,
-            adapter.metrics.shadowTextureBytes,
-            adapter.metrics.textureBytes,
-          ]);
-        }
-        f.setContentShadows(false);
-        f.setContentLights(false);
-        const unlit = await capture();
-        f.setContentLights(true);
-        const local = await capture();
-        f.setContentLights(false);
-        const noShadow = await capture();
-        f.setContentShadows(true);
-        const shadow = await capture();
         const pixels = async (url) => {
           const image = new Image();
           image.src = url;
@@ -392,6 +371,69 @@ it.each(["webgpu", "webgl2"])(
           context.drawImage(image, 0, 0);
           return context.getImageData(0, 0, canvas.width, canvas.height).data;
         };
+        // Contact proof samples a floor point 40% of the radius toward the viewer: the model and sprite
+        // stand on the anchor and rise up the screen, so the floor in front of it is never covered by them.
+        const toward = Math.sqrt(3) / 2;
+        const darkening = (shown, hidden, mesh) => {
+          const point = mesh.getWorldPosition(adapter.camera.position.clone());
+          mesh.geometry.computeBoundingBox();
+          const box = mesh.geometry.boundingBox;
+          const offset = 0.4 * ((box.max.x - box.min.x) / 2) * mesh.getWorldScale(point.clone()).x;
+          point.y -= offset / 2;
+          point.z += offset * toward;
+          point.project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          const cx = Math.round(((point.x + 1) * width) / 2),
+            cy = Math.round(((1 - point.y) * height) / 2);
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum +=
+                hidden[at] +
+                hidden[at + 1] +
+                hidden[at + 2] -
+                shown[at] -
+                shown[at + 1] -
+                shown[at + 2];
+            }
+          return sum / 9;
+        };
+        const counts = [];
+        const grounding = [];
+        for (const tier of ["low", "medium", "high"]) {
+          f.setQuality(tier);
+          adapter.updateContent(0);
+          await capture();
+          counts.push([
+            adapter.metrics.contentLights,
+            adapter.metrics.shadowMaps,
+            adapter.metrics.shadowTextureBytes,
+            adapter.metrics.textureBytes,
+          ]);
+          const body = adapter.drawn.get("object-fixture");
+          const meshes = [body.shadow, ...adapter.contentContacts];
+          const shown = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = false;
+          const hidden = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = true;
+          grounding.push({
+            contacts: adapter.metrics.contactShadows,
+            flags: [body.body.castShadow, body.body.receiveShadow],
+            shadowSides: [].concat(body.body.material).map((material) => material.shadowSide),
+            darkening: meshes.map((mesh) => darkening(shown, hidden, mesh)),
+          });
+        }
+        f.setContentShadows(false);
+        f.setContentLights(false);
+        const unlit = await capture();
+        f.setContentLights(true);
+        const local = await capture();
+        f.setContentLights(false);
+        const noShadow = await capture();
+        f.setContentShadows(true);
+        const shadow = await capture();
         const dark = await pixels(unlit),
           bright = await pixels(local);
         const before = await pixels(noShadow),
@@ -498,6 +540,7 @@ it.each(["webgpu", "webgl2"])(
         return {
           status,
           counts,
+          grounding,
           surfaceChanges,
           retired,
           low,
@@ -520,6 +563,17 @@ it.each(["webgpu", "webgl2"])(
       ]);
       for (let i = 0; i < 3; i++)
         expect(lighting.counts[i][3]).toBeLessThanOrEqual([16, 64, 192][i] * 1024 * 1024);
+      expect(lighting.grounding.map((row) => row.contacts)).toEqual([3, 3, 3]);
+      expect(lighting.grounding.map((row) => row.flags)).toEqual([
+        [false, false],
+        [true, true],
+        [true, true],
+      ]);
+      for (const row of lighting.grounding) {
+        expect(row.shadowSides.every((side) => side === 2)).toBe(true);
+        expect(row.darkening).toHaveLength(3);
+        for (const darker of row.darkening) expect(darker).toBeGreaterThan(10);
+      }
       expect(lighting.status).toBe("ready");
       for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);
       expect(lighting.retired).toBeGreaterThanOrEqual(2);
