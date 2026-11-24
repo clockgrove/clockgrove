@@ -62,6 +62,7 @@ import {
   decodeSayRequest,
   decodeSceneInterest,
   decodeUsageQueryRequest,
+  decodeUsageWebhookRequest,
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
@@ -84,6 +85,8 @@ import {
   type SceneInterest,
   type UsagePage,
   type UsageQueryRequest,
+  type UsageWebhookRegistration,
+  type UsageWebhookRequest,
   type VoiceMode,
   type WorldDirectory,
   type WorldPersonaId,
@@ -282,6 +285,8 @@ export interface RuntimeOwnerBindings {
   readonly usage?: AuditedPort<UsageQueryRequest, UsagePage>;
   /** The world debugger's journal window and replay (0080), under the inspector's grant and audit. */
   readonly journalPages?: AuditedPort<JournalInput, JournalPage>;
+  /** Registers the caller's signed usage webhook; absent without `USAGE_WEBHOOK_SECRET`. */
+  readonly usageWebhooks?: AuditedPort<UsageWebhookRequest, UsageWebhookRegistration>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -572,6 +577,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/usage/query")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeUsageQueryRequest, this.bindings.usage),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/usage/webhook")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeUsageWebhookRequest, this.bindings.usageWebhooks),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
       return this.answer("causal_chain_inspection_answered", (note) =>

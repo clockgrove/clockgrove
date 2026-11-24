@@ -194,6 +194,10 @@ it.skipIf(!isNativeWorldOwnerChild())(
         (await usage({})).page.events.map((event) => event.eventId),
       ]).toEqual([[step("m1", 2)], true, ids, ids]);
 
+      // The feed: no window, after a sequence, in sequence order.
+      const feed = await post("/v1/runtime/usage/query", { after: first.page.next }, INSPECTOR);
+      expect((feed.body as UsagePage).events.map((event) => event.eventId)).toEqual(ids.slice(1));
+
       // Another player and a window before the talk see none of it.
       expect([
         (await usage({ principalId: "principal-outsider" })).page.events,
@@ -210,7 +214,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           )
         ).trim(),
       ).toBe(
-        "allow:served,allow:served,allow:served,allow:served,allow:served,allow:served,deny:runtime-grant-missing",
+        "allow:served,allow:served,allow:served,allow:served,allow:served,allow:served,allow:served,deny:runtime-grant-missing",
       );
       // The runtime role writes no usage itself.
       expect(

@@ -66,6 +66,9 @@ interface NativeRuntime {
   ): Promise<NativeUpgradeResponse>;
   getWorker(): Promise<{ scheduled(options: { readonly cron: string }): Promise<unknown> }>;
 }
+/** The deployment secret the native worker keys usage webhook signing secrets with. */
+export const NATIVE_USAGE_WEBHOOK_SECRET = "native-usage-webhook-secret";
+
 export interface NativeResponse {
   readonly status: number;
   readonly body: unknown;
@@ -477,6 +480,7 @@ export async function withNativeWorldOwner(
           MANAGEMENT_DATABASE_URL: connection("clockgrove_management_reader"),
           WORLD_AUTHORIZATION_DATABASE_URL: connection("clockgrove_world_reader"),
           BETTER_AUTH_SECRET: fixtureSecret,
+          USAGE_WEBHOOK_SECRET: NATIVE_USAGE_WEBHOOK_SECRET,
           ARTIFACT_KEYRING: JSON.stringify({
             version: 1,
             current: "native-kek-1",

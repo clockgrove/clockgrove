@@ -71,6 +71,8 @@ COMMIT;
 --                   moderation-shadow reservation and completion functions (0047)
 --   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
 --                   through the wake-triage reservation and completion functions (0041)
+--   registrar       SELECT, INSERT and UPDATE, each row only of the principal who registered it and
+--                   only while they read the space's usage (usage webhooks, 0078)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -80,7 +82,7 @@ CREATE TEMP TABLE attack_surface (
   runtime_privilege text NOT NULL
     CHECK (runtime_privilege IN (
       'dml', 'append_only', 'insert_update', 'insert_delete', 'journal_append', 'journal_receipt',
-      'key_rewrap', 'participant', 'participant_read', 'process', 'operator_read', 'none'
+      'key_rewrap', 'participant', 'participant_read', 'process', 'operator_read', 'registrar', 'none'
     )),
   PRIMARY KEY (schema_name, table_name)
 );
@@ -137,6 +139,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'usage_events', 'operator_read'),
   ('clockgrove', 'actor_mutes', 'operator_read'),
   ('clockgrove', 'actor_mute_changes', 'operator_read'),
+  ('clockgrove', 'usage_webhooks', 'registrar'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -299,7 +302,8 @@ BEGIN
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
         'clockgrove.effect_intents', 'clockgrove.effect_attempts', 'clockgrove.effect_approvals', 'clockgrove.effect_resolutions',
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
-        'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes'
+        'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes',
+        'clockgrove.usage_webhooks'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2850,5 +2854,48 @@ BEGIN
     RAISE EXCEPTION 'actor mute state leaked or forged';
   END IF;
 END;
+$$;
+ROLLBACK;
+
+-- Usage webhooks (0078): a row is its registrar's alone, and only while the registrar reads the space's
+-- usage. A member without the inspect grant, a ceiling without operator evidence and another tenant
+-- can register, see and move none; no role deletes or re-attributes one. The registrar's own
+-- reads and writes are proved through the runtime journey (apps/runtime/test/usage-webhooks.journey).
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+DO $$
+DECLARE
+  affected bigint;
+  context text;
+BEGIN
+  FOREACH context IN ARRAY ARRAY['tenant-a', 'tenant-b'] LOOP
+    PERFORM pg_temp.act_as(context, 'principal-a',
+      '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+    BEGIN
+      INSERT INTO clockgrove.usage_webhooks (tenant_id, world_id, timeline_id, space_id, principal_id,
+        webhook_id, url)
+      VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'principal-a', 'hook-forged',
+        'https://evil.example/hook');
+      RAISE EXCEPTION 'a member without the inspect grant registered a webhook' USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    IF (SELECT count(*) FROM clockgrove.usage_webhooks) <> 0
+       OR (SELECT count(*) FROM clockgrove.due_usage_webhooks(10)) <> 0 THEN
+      RAISE EXCEPTION 'a webhook was visible to %', context;
+    END IF;
+    UPDATE clockgrove.usage_webhooks SET attempts = 99, url = 'https://evil.example/hook';
+    GET DIAGNOSTICS affected = ROW_COUNT;
+    IF affected <> 0 THEN
+      RAISE EXCEPTION 'a webhook was moved by %', context;
+    END IF;
+  END LOOP;
+  BEGIN
+    DELETE FROM clockgrove.usage_webhooks;
+    RAISE EXCEPTION 'a webhook was deleted' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    UPDATE clockgrove.usage_webhooks SET principal_id = 'principal-b', webhook_id = 'taken';
+    RAISE EXCEPTION 'a webhook changed registrar' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END
 $$;
 ROLLBACK;

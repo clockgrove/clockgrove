@@ -9,7 +9,7 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
 /**
  * Reads usage events for an inspector. Row visibility is the policy of 0076 (a member of the exact
  * space holding `runtime:world-inspect` under an `operator_evidence` ceiling); this adds the world,
- * timeline and space scope, the player, the half-open window and the sequence cursor.
+ * timeline and space scope, the player, the optional half-open window (none is the feed) and the sequence cursor.
  */
 export class PostgreSqlUsageReader {
   constructor(private readonly client: PostgreSqlClient) {}
@@ -29,7 +29,8 @@ export class PostgreSqlUsageReader {
            FROM clockgrove.usage_events
           WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4
             AND ($5::text IS NULL OR principal_id = $5)
-            AND occurred_at >= $6::timestamptz AND occurred_at < $7::timestamptz
+            AND ($6::timestamptz IS NULL OR occurred_at >= $6::timestamptz)
+            AND ($7::timestamptz IS NULL OR occurred_at < $7::timestamptz)
             AND ($8::bigint IS NULL OR sequence > $8::bigint)
           ORDER BY sequence LIMIT $9`,
         [
@@ -38,8 +39,8 @@ export class PostgreSqlUsageReader {
           scope.timelineId,
           scope.spaceId,
           input.principalId ?? null,
-          input.from,
-          input.to,
+          input.from ?? null,
+          input.to ?? null,
           input.after ?? null,
           input.limit,
         ],

@@ -1,0 +1,77 @@
+-- Issue 329, part 2: usage reaches the developer's own code as signed, retried webhooks. One row
+-- per registrar and space holds where to post (an https URL; NULL is disabled), the cursor into the
+-- usage feed (`usage_events.sequence`) and the retry state. The sweep acts as the registrar, so a
+-- webhook only ever reads usage its registrar may read (`runtime_usage_reader`). No price, cost,
+-- currency or account is stored.
+CREATE TABLE clockgrove.usage_webhooks (
+  tenant_id text NOT NULL,
+  world_id text NOT NULL,
+  timeline_id text NOT NULL,
+  space_id text NOT NULL,
+  -- The registrar: the sweep reads and settles as this principal.
+  principal_id text NOT NULL,
+  -- Random at first registration and kept on re-registration; the signing secret derives from it.
+  webhook_id text NOT NULL CHECK (octet_length(webhook_id) BETWEEN 1 AND 128),
+  url text CHECK (url ~ '^https://' AND octet_length(url) <= 2048),
+  -- Every usage event with a sequence up to this one has been delivered.
+  delivered_through bigint NOT NULL DEFAULT 0 CHECK (delivered_through >= 0),
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+  -- A sweep that claimed the webhook holds it until then, so two sweeps never post at once.
+  lease_until timestamptz,
+  last_status text CHECK (last_status ~ '^[a-z0-9_]{1,64}$'),
+  created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+  PRIMARY KEY (tenant_id, world_id, timeline_id, space_id, principal_id),
+  UNIQUE (tenant_id, webhook_id),
+  FOREIGN KEY (tenant_id, world_id, timeline_id)
+    REFERENCES clockgrove.timelines (tenant_id, world_id, timeline_id)
+);
+
+ALTER TABLE clockgrove.usage_webhooks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clockgrove.usage_webhooks FORCE ROW LEVEL SECURITY;
+CREATE POLICY usage_webhooks_registrar_select ON clockgrove.usage_webhooks FOR SELECT USING (
+  clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
+  AND principal_id = clockgrove.runtime_principal_id());
+CREATE POLICY usage_webhooks_registrar_insert ON clockgrove.usage_webhooks FOR INSERT WITH CHECK (
+  clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
+  AND principal_id = clockgrove.runtime_principal_id());
+CREATE POLICY usage_webhooks_registrar_update ON clockgrove.usage_webhooks FOR UPDATE USING (
+  clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
+  AND principal_id = clockgrove.runtime_principal_id())
+  WITH CHECK (
+  clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
+  AND principal_id = clockgrove.runtime_principal_id());
+REVOKE ALL ON clockgrove.usage_webhooks FROM PUBLIC;
+GRANT SELECT, INSERT ON clockgrove.usage_webhooks TO clockgrove_runtime;
+GRANT UPDATE (url, delivered_through, attempts, next_attempt_at, lease_until, last_status,
+  updated_at) ON clockgrove.usage_webhooks TO clockgrove_runtime;
+CREATE TRIGGER usage_webhooks_no_delete BEFORE DELETE ON clockgrove.usage_webhooks
+  FOR EACH ROW EXECUTE FUNCTION clockgrove.reject_journal_mutation();
+CREATE TRIGGER usage_webhooks_no_truncate BEFORE TRUNCATE ON clockgrove.usage_webhooks
+  FOR EACH STATEMENT EXECUTE FUNCTION clockgrove.reject_journal_mutation();
+
+-- The scheduled sweep finds due webhooks with no member at hand, as the snapshot sweep does
+-- (0030). It returns identities only; every read and write the sweep then makes runs as the
+-- registrar under row-level security.
+CREATE FUNCTION clockgrove.due_usage_webhooks(lim integer)
+RETURNS TABLE (tenant_id text, principal_id text, world_id text, timeline_id text, space_id text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
+  SELECT w.tenant_id, w.principal_id, w.world_id, w.timeline_id, w.space_id
+    FROM clockgrove.usage_webhooks AS w
+   WHERE w.url IS NOT NULL AND w.next_attempt_at <= statement_timestamp()
+     AND (w.lease_until IS NULL OR w.lease_until <= statement_timestamp())
+     -- Only while the registrar may still read the usage (`runtime_usage_reader`'s grant and
+     -- ceiling): a webhook whose registrar lost them is not due, so it never crowds out the rest.
+     AND EXISTS (
+       SELECT 1 FROM clockgrove.world_memberships m
+        WHERE m.tenant_id = w.tenant_id AND m.world_id = w.world_id
+          AND m.timeline_id = w.timeline_id AND m.space_id = w.space_id
+          AND m.principal_id = w.principal_id AND m.revoked_at IS NULL
+          AND 'runtime:world-inspect' = ANY(m.grants)
+          AND m.privacy_ceiling->'allowedCategories' ? 'operator_evidence')
+   ORDER BY w.next_attempt_at
+   LIMIT greatest(lim, 0)
+$$;
+REVOKE ALL ON FUNCTION clockgrove.due_usage_webhooks(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clockgrove.due_usage_webhooks(integer) TO clockgrove_runtime;

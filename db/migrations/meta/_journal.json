@@ -568,6 +568,20 @@
       "when": 1796162400021,
       "tag": "0081_surface_birth",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1796162400022,
+      "tag": "0077_shadow_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796162400023,
+      "tag": "0078_usage_webhooks",
+      "breakpoints": true
     }
   ]
 }

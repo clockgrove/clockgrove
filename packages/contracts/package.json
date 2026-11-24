@@ -31,6 +31,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "devDependencies": {
+    "cloudevents": "10.0.0",
     "vitest": "5.1.0"
   }
 }
