@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { expect, it, onTestFailed } from "vitest";
+import { decodeCanonicalNode } from "../../packages/application/src/index.ts";
 import { journeyThenShutdown, namedSteps } from "./journey-steps.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -195,7 +196,8 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
       spaceId,
     });
     expect(response.status).toBe(200);
-    const { scope, clock } = await response.json();
+    // The runtime-state view is a kernel canonical node (bigints preserved).
+    const { scope, clock } = decodeCanonicalNode(await response.json());
     const [directory, metadata] = await Promise.all([
       post("/v1/runtime/world-directory", { version: 1 }).then((answer) => answer.json()),
       pack(credential)
@@ -206,7 +208,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
       scope,
       entries: directory.entries,
       metadata,
-      time: BigInt(clock.value.simulationTime),
+      time: clock.value.simulationTime,
     };
   };
   const before = await state();
