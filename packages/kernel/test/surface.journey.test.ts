@@ -2,6 +2,8 @@ import type { ObjectId, SimTimeMs } from "@clockgrove/contracts";
 import {
   createWorldState,
   decodeWorldScenario,
+  deriveEnvironmentState,
+  type EnvironmentPolicy,
   initialSurfaceState,
   reduceWorldEvent,
   type SurfacePolicy,
@@ -29,6 +31,7 @@ import { movementInput } from "./spatial.scenario.js";
 import { scenarioInput, scenarios, stateHash } from "./weather-needs.scenario.js";
 
 const HOUR = 3_600_000n;
+const host = (objectId: string) => ({ kind: "object" as const, objectId: objectId as ObjectId });
 const surfaces: SurfacePolicy = {
   schemaVersion: 1,
   budgets: { zones: 4, marksPerZone: 2 },
@@ -84,14 +87,25 @@ const surfaces: SurfacePolicy = {
 
 async function surfaceWorld(
   policy: SurfacePolicy = surfaces,
-  extra: { readonly hosts?: readonly object[]; readonly regions?: readonly object[] } = {},
+  extra: {
+    readonly hosts?: readonly object[];
+    readonly regions?: readonly object[];
+    readonly environment?: EnvironmentPolicy;
+  } = {},
 ): Promise<EnvironmentWorld> {
   const decoded = decodeWorldScenario(scenarios.weather, await stateHash(scenarios.weather));
-  const pack = { ...decoded.pack, policy: { ...decoded.pack.policy, surfaces: policy } };
+  const environment = extra.environment;
+  const pack = {
+    ...decoded.pack,
+    policy: { ...decoded.pack.policy, surfaces: policy, ...(environment && { environment }) },
+  };
   const actor = decoded.initialState.entities.find((entity) => entity.objectId === "subject")!;
   const state = createWorldState({
     ...decoded.initialState,
     surfaces: initialSurfaceState(policy, decoded.initialState.simulationTime),
+    ...(environment && {
+      environment: deriveEnvironmentState(environment, decoded.initialState.simulationTime),
+    }),
     ...(extra.regions === undefined ? {} : { spatialRegions: extra.regions as never }),
     entities: [
       ...decoded.initialState.entities,
@@ -252,6 +266,93 @@ it("journals only band crossings while a scratched surface heals, identically in
     value: 0,
     remainder: 0n,
   });
+  const replayed = [...aggregate.events].reduce(reduceWorldEvent, world.state);
+  expect(replayed.surfaces).toEqual(aggregate.world.state.surfaces);
+});
+
+it("heals by rain and by growing light in closed form, journaling only crossings in every advance shape", async () => {
+  const bands = (...names: [string, number, number][]) =>
+    names.map(([name, min, max]) => ({ name, min, max }));
+  const drivers: SurfacePolicy = {
+    schemaVersion: 1,
+    budgets: { zones: 2, marksPerZone: 0 },
+    channels: [
+      {
+        id: "grime",
+        max: 100,
+        carried: false,
+        bands: bands(["clean", 0, 0], ["spotted", 1, 49], ["soaked", 50, 100]),
+        recovery: { driver: "rain", amount: 1, periodMs: HOUR },
+      },
+      {
+        id: "scar",
+        max: 10,
+        carried: false,
+        bands: bands(["healed", 0, 4], ["scarred", 5, 10]),
+        recovery: { driver: "growth", amount: 1, periodMs: 4n * HOUR, lightBands: ["bright"] },
+      },
+    ],
+    zones: [
+      {
+        id: "sill",
+        host: host("post-object"),
+        channels: [{ channel: "grime", initial: 60 }],
+        markCapacity: 0,
+      },
+      {
+        id: "bark",
+        host: host("bed-object"),
+        channels: [{ channel: "scar", initial: 10 }],
+        markCapacity: 0,
+      },
+    ],
+    interactions: [],
+  };
+  // Rain at half intensity for the first 12 h of every day (6 grime a day); bright light from 6 h
+  // to 18 h (3 scar a day).
+  const environment: EnvironmentPolicy = {
+    schemaVersion: 1,
+    dayLengthMs: 24n * HOUR,
+    phases: [
+      { name: "night", startMs: 0n, lightBand: "dark" },
+      { name: "day", startMs: 6n * HOUR, lightBand: "bright" },
+      { name: "dusk", startMs: 18n * HOUR, lightBand: "dark" },
+    ],
+    weatherSegments: [
+      { durationMs: 12n * HOUR, rainIntensity: 5000, temperatureBand: "mild" },
+      { durationMs: 12n * HOUR, rainIntensity: 0, temperatureBand: "mild" },
+    ],
+    wetThreshold: 5000,
+    discomfortThreshold: 8000,
+  };
+  const world = await surfaceWorld(drivers, { environment });
+  const end = 240n * HOUR;
+  const aggregate = runChain(world, "drivers-one", end);
+  const bounded = runChain(world, "drivers-bounded", end, 4, 8);
+  const live = runLive(world, "drivers-live", end, 7n * HOUR);
+  const crossing = (
+    time: bigint,
+    zoneId: string,
+    channel: string,
+    value: number,
+    b: string[],
+    p: string[],
+  ) => ({
+    type: "surface.band-crossed",
+    simulationTime: time,
+    payload: { zoneId, channel, value, remainder: 0n, bands: b, previousBands: p },
+  });
+  const expected = [
+    crossing(34n * HOUR, "sill", "grime", 49, ["spotted"], ["soaked"]),
+    crossing(42n * HOUR, "bark", "scar", 4, ["healed"], ["scarred"]),
+    crossing(228n * HOUR, "sill", "grime", 0, ["clean"], ["spotted"]),
+  ];
+  for (const result of [aggregate, bounded, live]) {
+    expect(surfaceEvents(result.events)).toEqual(expected);
+    expect(canonicalSerialize(result.world.state.surfaces)).toBe(
+      canonicalSerialize(aggregate.world.state.surfaces),
+    );
+  }
   const replayed = [...aggregate.events].reduce(reduceWorldEvent, world.state);
   expect(replayed.surfaces).toEqual(aggregate.world.state.surfaces);
 });
