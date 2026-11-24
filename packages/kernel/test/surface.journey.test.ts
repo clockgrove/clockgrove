@@ -6,6 +6,7 @@ import {
   reduceWorldEvent,
   type SurfacePolicy,
   surfaceValueAt,
+  validateSurfacePolicy,
 } from "@clockgrove/domain";
 import { expect, it } from "vitest";
 import { canonicalSerialize } from "../src/canonical.js";
@@ -266,5 +267,33 @@ it("conserves carried mud across tread and wipe, and journals what a repair remo
     refusal(wiped.world, "surface.interact", { ...interact("step", "wipe"), zoneId: "post" }),
   ).toMatchObject({
     check: "surface.interaction@1",
+  });
+});
+
+it("refuses a pack whose surfaces exceed its own declared budget, dropping nothing", async () => {
+  const world = await surfaceWorld();
+  const overBudget = (budgets: SurfacePolicy["budgets"]) => {
+    const policy = { ...surfaces, budgets };
+    const input = command(world, "surface.interact", interact("post", "scratch"));
+    const pack = input.pack.pack;
+    const result = executeWorldKernel(
+      {
+        ...input,
+        pack: { ...input.pack, pack: { ...pack, policy: { ...pack.policy, surfaces: policy } } },
+      },
+      { mode: "test" },
+    );
+    expect(() => validateSurfacePolicy(policy)).toThrow(
+      "surface budget exceeded (surface.budget@1)",
+    );
+    return result.ok ? undefined : result.error;
+  };
+  expect(overBudget({ zones: 2, marksPerZone: 2 })).toEqual({
+    code: "invalid-input",
+    path: "pack.pack.policy.surfaces.zones",
+  });
+  expect(overBudget({ zones: 4, marksPerZone: 1 })).toEqual({
+    code: "invalid-input",
+    path: "pack.pack.policy.surfaces.zones[0].markCapacity",
   });
 });
