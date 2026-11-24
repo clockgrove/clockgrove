@@ -35,6 +35,7 @@ Each contract lives in its own document under [`docs/`](docs/):
 - [Utility decisions](docs/utility-decisions.md): scored decisions and movement choice (RW-0108b).
 - [Lifecycle](docs/lifecycle.md): reproduction, aging and death (RW-0109).
 - [Rule evaluation](docs/rules.md): rule firing, cooldowns and intents (RW-0110).
+- [Graded surface state](docs/surfaces.md): surface marks, closed-form healing and repair (#267).
 
 ## Documentation convention
 
