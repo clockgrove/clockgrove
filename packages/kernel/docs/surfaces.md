@@ -23,7 +23,7 @@ Refusals are `precondition-failed` with these checks (version 1), and change not
 
 | Check | Path and condition |
 | --- | --- |
-| `surface.zone@1` | `payload.zoneId`: the world declares no surfaces, the zone is undeclared, or its host object is gone |
+| `surface.zone@1` | `payload.zoneId`: the world declares no surfaces, the zone is undeclared, or its host object is gone or no longer active (retired) |
 | `surface.interaction@1` | `payload.interactionId`: undeclared, or an effect names a channel the zone lacks |
 | `surface.actor@1` | `payload.actorId`: unknown or inactive actor, or not the effective actor |
 | `surface.reach@1` | `payload.actorId`: the actor cannot reach the zone |
@@ -31,8 +31,9 @@ Refusals are `precondition-failed` with these checks (version 1), and change not
 Malformed payloads are `invalid-input` at `payload.<field>`. A pack whose surface declarations
 exceed its own budget is refused before any command runs: `invalid-input` at
 `pack.pack.policy.surfaces.zones` (more zones than `budgets.zones`) or
-`pack.pack.policy.surfaces.zones[i].markCapacity` (more than `budgets.marksPerZone`); the domain
-validation error behind it names `surface.budget@1`. Nothing is silently dropped.
+`pack.pack.policy.surfaces.zones[i].markCapacity` (more than `budgets.marksPerZone`), carrying
+`check: "surface.budget@1"` so a caller can tell an exceeded budget from a malformed declaration at
+the same path (which carries no check). Nothing is silently dropped.
 
 ## Healing under the catch-up contract
 
@@ -61,8 +62,9 @@ a chain of advances and many small advances journal identical events and reach t
 
 Replaying the journal through `reduceWorldEvent` reproduces the surface state exactly; the kernel
 journey test (`packages/kernel/test/surface.journey.test.ts`) proves the mark ring, attribution,
-refusals, healing in every advance shape, carried-matter conservation, repair and the budget
-refusal.
+every refusal above (reach for an object host in another space and for a ground region the actor
+stands outside, and a retired host), a scratch on a ground-region zone, healing in every advance
+shape, carried-matter conservation, repair, the budget refusal and scenario decoding.
 
 ## Not yet here
 

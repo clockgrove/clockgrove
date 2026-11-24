@@ -79,7 +79,6 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "environment",
       "ecology",
       "wellbeing",
-      "surfaces",
       "utility",
       "lifecycle",
       "processes",
@@ -181,6 +180,7 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "lifecycle",
       "processes",
       "boundaryExchanges",
+      "surfaces",
     ],
   );
   version(raw, "initialState");

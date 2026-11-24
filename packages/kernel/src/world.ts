@@ -534,9 +534,9 @@ function decodeScheduledInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -617,9 +617,9 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);

@@ -69,13 +69,17 @@ const surfaces: SurfacePolicy = {
   ],
 };
 
-async function surfaceWorld(): Promise<EnvironmentWorld> {
+async function surfaceWorld(
+  policy: SurfacePolicy = surfaces,
+  extra: { readonly hosts?: readonly object[]; readonly regions?: readonly object[] } = {},
+): Promise<EnvironmentWorld> {
   const decoded = decodeWorldScenario(scenarios.weather, await stateHash(scenarios.weather));
-  const pack = { ...decoded.pack, policy: { ...decoded.pack.policy, surfaces } };
+  const pack = { ...decoded.pack, policy: { ...decoded.pack.policy, surfaces: policy } };
   const actor = decoded.initialState.entities.find((entity) => entity.objectId === "subject")!;
   const state = createWorldState({
     ...decoded.initialState,
-    surfaces: initialSurfaceState(surfaces, decoded.initialState.simulationTime),
+    surfaces: initialSurfaceState(policy, decoded.initialState.simulationTime),
+    ...(extra.regions === undefined ? {} : { spatialRegions: extra.regions as never }),
     entities: [
       ...decoded.initialState.entities,
       ...["post-object", "bed-object", "step-object"].map((objectId) => ({
@@ -84,7 +88,13 @@ async function surfaceWorld(): Promise<EnvironmentWorld> {
         spaceId: actor.spaceId,
         pose: actor.pose,
       })),
-    ],
+      ...(extra.hosts ?? []).map((host) => ({
+        archetypeId: actor.archetypeId,
+        spaceId: actor.spaceId,
+        pose: actor.pose,
+        ...host,
+      })),
+    ] as never,
   });
   const template = await scenarioInput(undefined, 0, 32, {}, 32, { pack, initialState: state });
   return { template, state, schedules: template.schedules };
@@ -291,9 +301,94 @@ it("refuses a pack whose surfaces exceed its own declared budget, dropping nothi
   expect(overBudget({ zones: 2, marksPerZone: 2 })).toEqual({
     code: "invalid-input",
     path: "pack.pack.policy.surfaces.zones",
+    check: "surface.budget@1",
   });
   expect(overBudget({ zones: 4, marksPerZone: 1 })).toEqual({
     code: "invalid-input",
     path: "pack.pack.policy.surfaces.zones[0].markCapacity",
+    check: "surface.budget@1",
   });
+  // A malformed declaration at the same path carries no check, so the two stay distinguishable.
+  const input = command(world, "surface.interact", interact("post", "scratch"));
+  const malformed = { ...surfaces, zones: [{ ...surfaces.zones[0]!, markCapacity: 33 }] };
+  const result = executeWorldKernel(
+    {
+      ...input,
+      pack: {
+        ...input.pack,
+        pack: { ...input.pack.pack, policy: { ...input.pack.pack.policy, surfaces: malformed } },
+      },
+    },
+    { mode: "test" },
+  );
+  expect(result.ok ? undefined : result.error).toEqual({
+    code: "invalid-input",
+    path: "pack.pack.policy.surfaces.zones[0].markCapacity",
+  });
+});
+
+it("reaches ground-region zones by standing in them, and refuses distant and retired hosts", async () => {
+  const square = (regionId: string, min: bigint, max: bigint) => ({
+    regionId,
+    version: 1,
+    frameId: "zone-ground",
+    frameVersion: 1,
+    shape: { kind: "rectangle", min: [min, min], max: [max, max] },
+  });
+  const wear = (id: string, host: SurfacePolicy["zones"][number]["host"]) => ({
+    id,
+    host,
+    channels: [{ channel: "wear", initial: 0 }],
+    markCapacity: 1,
+  });
+  const policy: SurfacePolicy = {
+    ...surfaces,
+    budgets: { zones: 8, marksPerZone: 2 },
+    zones: [
+      ...surfaces.zones,
+      wear("patch", { kind: "region", regionId: "patch" }),
+      wear("yonder", { kind: "region", regionId: "yonder" }),
+      wear("across", { kind: "object", objectId: "across-object" as ObjectId }),
+      wear("discarded", { kind: "object", objectId: "discarded-object" as ObjectId }),
+    ],
+  };
+  const world = await surfaceWorld(policy, {
+    regions: [square("patch", -1000n, 1000n), square("yonder", 5000n, 6000n)],
+    hosts: [
+      { objectId: "across-object", spaceId: "elsewhere" },
+      { objectId: "discarded-object", lifecycle: { status: "retired" } },
+    ],
+  });
+  const scratched = run(world, "surface.interact", interact("patch", "scratch"));
+  expect(surfaceEvents(scratched.events)).toMatchObject([
+    {
+      type: "surface.interacted",
+      payload: { zoneId: "patch", channels: [{ channel: "wear", value: 30 }] },
+    },
+  ]);
+  expect(scratched.events.reduce(reduceWorldEvent, world.state)).toEqual(scratched.world.state);
+  const reach = { code: "precondition-failed", path: "payload.actorId", check: "surface.reach@1" };
+  expect(refusal(world, "surface.interact", interact("yonder", "scratch"))).toEqual(reach);
+  expect(refusal(world, "surface.interact", interact("across", "scratch"))).toEqual(reach);
+  expect(refusal(world, "surface.interact", interact("discarded", "scratch"))).toEqual({
+    code: "precondition-failed",
+    path: "payload.zoneId",
+    check: "surface.zone@1",
+  });
+});
+
+it("decodes a scenario that declares surfaces and their state", async () => {
+  const strings = (value: unknown): unknown =>
+    JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v)));
+  const sample = structuredClone(scenarios.weather) as {
+    pack: { policy: Record<string, unknown> };
+    initialState: Record<string, unknown>;
+  };
+  const decodedBase = decodeWorldScenario(scenarios.weather, await stateHash(scenarios.weather));
+  const state = initialSurfaceState(surfaces, decodedBase.initialState.simulationTime);
+  sample.pack.policy.surfaces = strings(surfaces);
+  sample.initialState.surfaces = strings(state);
+  const decoded = decodeWorldScenario(sample, await stateHash(sample));
+  expect(decoded.pack.policy.surfaces).toEqual(surfaces);
+  expect(decoded.initialState.surfaces).toEqual(state);
 });

@@ -130,10 +130,14 @@ const MAX_CHANNEL_VALUE = 1_000_000;
 const MAX_INTENSITY = 10_000;
 const MAX_TIME = (1n << 63n) - 1n;
 const MAX_DURATION = 1n << 53n;
-const BUDGET_MESSAGE = "surface budget exceeded (surface.budget@1)";
+const BUDGET_CHECK = "surface.budget@1";
+const BUDGET_MESSAGE = `surface budget exceeded (${BUDGET_CHECK})`;
 
 function bad(path: string, message = "invalid surface declaration"): never {
   throw new EnvironmentValidationError(path, message);
+}
+function overBudget(path: string): never {
+  throw new EnvironmentValidationError(path, BUDGET_MESSAGE, BUDGET_CHECK);
 }
 function record(value: unknown, keys: readonly string[], path: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) bad(path);
@@ -216,7 +220,7 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
     channels.set(id, entry as unknown as SurfaceChannel);
   });
   const zones = array(raw.zones, 0, MAX_SURFACE_ZONES, `${root}.zones`);
-  if (zones.length > zoneBudget) bad(`${root}.zones`, BUDGET_MESSAGE);
+  if (zones.length > zoneBudget) overBudget(`${root}.zones`);
   const zoneIds = new Set<string>();
   zones.forEach((candidate, i) => {
     const path = `${root}.zones[${i}]`;
@@ -247,7 +251,7 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       int(c.initial, 0, channel.max, `${zcPath}.initial`);
     });
     const capacity = int(entry.markCapacity, 0, MAX_SURFACE_MARKS, `${path}.markCapacity`);
-    if (capacity > markBudget) bad(`${path}.markCapacity`, BUDGET_MESSAGE);
+    if (capacity > markBudget) overBudget(`${path}.markCapacity`);
   });
   const interactionIds = new Set<string>();
   array(raw.interactions, 0, MAX_SURFACE_INTERACTIONS, `${root}.interactions`).forEach(
@@ -454,7 +458,9 @@ export function planSurfaceInteraction(
   if (zone.host.kind === "object") {
     const hostId = zone.host.objectId;
     const host = state.entities.find((entity) => entity.objectId === hostId);
-    if (host === undefined) return refuse("payload.zoneId", "surface.zone@1");
+    // A retired host stays in `entities`; its zone is gone for interactions all the same.
+    if (host === undefined || (host.lifecycle !== undefined && host.lifecycle.status !== "active"))
+      return refuse("payload.zoneId", "surface.zone@1");
     if (host.spaceId !== actor.spaceId) return refuse("payload.actorId", "surface.reach@1");
   } else {
     const regionId = zone.host.regionId;
