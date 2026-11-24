@@ -400,6 +400,88 @@ it.each(["webgpu", "webgl2"])(
             }
           return sum / 9;
         };
+        // #266 one picture: a body casts into and receives the set's key-light map, through the real
+        // shadow pass. A side key light (37 degrees off the card's normal) throws the body's shadow
+        // beside it; a caster on a layer only the shadow camera sees shades the body from the light.
+        const pixelAt = (point) => {
+          const at = point.clone().project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          return [Math.round(((at.x + 1) * width) / 2), Math.round(((1 - at.y) * height) / 2)];
+        };
+        const meanDarkening = (from, to, [cx, cy]) => {
+          const width = adapter.renderer.domElement.width;
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum += from[at] + from[at + 1] + from[at + 2] - to[at] - to[at + 1] - to[at + 2];
+            }
+          return sum / 9;
+        };
+        // The key is the brightest shadow-casting light, as the renderer chooses it.
+        const keyIndex = () =>
+          adapter.sky.reduce(
+            (best, light, index) =>
+              light.castShadow && light.intensity > (adapter.sky[best]?.intensity ?? -1)
+                ? index
+                : best,
+            -1,
+          );
+        const sharedShadows = async (body) => {
+          const index = keyIndex();
+          const original = adapter.sky[index].userData.shadowDirection;
+          adapter.sky[index].userData.shadowDirection = original
+            .clone()
+            .set(0.6, 0.1, 0.8)
+            .normalize();
+          await capture();
+          body.geometry.computeBoundingBox();
+          const box = body.geometry.boundingBox;
+          const centre = body.localToWorld(box.getCenter(original.clone()));
+          const corners = [];
+          for (const x of [box.min.x, box.max.x])
+            for (const y of [box.min.y, box.max.y])
+              for (const z of [box.min.z, box.max.z])
+                corners.push(pixelAt(body.localToWorld(original.clone().set(x, y, z))));
+          const left = Math.min(...corners.map(([x]) => x)) - 1,
+            right = Math.max(...corners.map(([x]) => x)) + 1,
+            top = Math.min(...corners.map(([, y]) => y)) - 1,
+            bottom = Math.max(...corners.map(([, y]) => y)) + 1;
+          body.castShadow = false;
+          const uncast = await pixels(await capture());
+          body.castShadow = true;
+          const cast = await pixels(await capture());
+          const width = adapter.renderer.domElement.width;
+          let beside = 0;
+          for (let at = 0; at < cast.length; at += 4) {
+            const px = (at / 4) % width,
+              py = Math.floor(at / 4 / width);
+            if (px >= left && px <= right && py >= top && py <= bottom) continue;
+            const delta =
+              cast[at] + cast[at + 1] + cast[at + 2] - uncast[at] - uncast[at + 1] - uncast[at + 2];
+            if (delta < -10) beside++;
+          }
+          const sky = adapter.sky[index];
+          const toLight = sky.position.clone().sub(sky.target.position).normalize();
+          const blocker = f.diagnostics.shadowCaster.clone();
+          blocker.layers.set(1);
+          blocker.rotation.set(0, 0, 0);
+          blocker.position.copy(centre).addScaledVector(toLight, 60);
+          blocker.castShadow = true;
+          adapter.scene.add(blocker);
+          sky.shadow.camera.layers.enable(1);
+          const shaded = await pixels(await capture());
+          blocker.removeFromParent();
+          sky.shadow.camera.layers.disable(1);
+          sky.userData.shadowDirection = original;
+          await capture();
+          return {
+            beside,
+            self: meanDarkening(uncast, cast, pixelAt(centre)),
+            received: meanDarkening(cast, shaded, pixelAt(centre)),
+          };
+        };
         const counts = [];
         const grounding = [];
         for (const tier of ["low", "medium", "high"]) {
@@ -423,6 +505,7 @@ it.each(["webgpu", "webgl2"])(
             flags: [body.body.castShadow, body.body.receiveShadow],
             shadowSides: [].concat(body.body.material).map((material) => material.shadowSide),
             darkening: meshes.map((mesh) => darkening(shown, hidden, mesh)),
+            shared: tier === "low" ? null : await sharedShadows(body.body),
           });
         }
         f.setContentShadows(false);
@@ -573,6 +656,14 @@ it.each(["webgpu", "webgl2"])(
         expect(row.shadowSides.every((side) => side === 2)).toBe(true);
         expect(row.darkening).toHaveLength(3);
         for (const darker of row.darkening) expect(darker).toBeGreaterThan(10);
+      }
+      // #266 one picture, at the tiers with active maps: the body's silhouette darkens the floor
+      // beside it, a caster between it and the light darkens it, and its own card does not.
+      expect(lighting.grounding[0].shared).toBeNull();
+      for (const { shared } of lighting.grounding.slice(1)) {
+        expect(shared.beside).toBeGreaterThan(8);
+        expect(shared.received).toBeGreaterThan(10);
+        expect(shared.self).toBeLessThan(10);
       }
       expect(lighting.status).toBe("ready");
       for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);

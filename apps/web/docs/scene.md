@@ -402,8 +402,10 @@ bound validation work and avoid overflow; invalid values fail the content contra
 Descriptors can change during `update`; the renderer revalidates them before rendering.
 
 The instance's optional `contacts` array grounds content the same way projected bodies are
-grounded: `{ x, y, elevation?, widthMetres, depthMetres }` in frame metres, as `place`. At most 64
-are accepted. Coordinates and elevation are bounded by 1,000,000, and widths and depths are positive
+grounded: `{ x, y, elevation?, widthMetres, depthMetres }` in frame metres, as `place`: the shape lies at the
+point's real depth, elevation included, so it grounds content on a raised surface too. Projected
+bodies' contact shapes likewise lie at their placement's real depth. A contact moves only when its
+descriptor changes. At most 64 are accepted. Coordinates and elevation are bounded by 1,000,000, and widths and depths are positive
 and at most 1000 m. The renderer revalidates them on every update, like `lights`; invalid values fail
 `content_contract`. Each draws the contact shape below on every tier and retires on content failure.
 `metrics.contactShadows` counts the projected bodies' and content's contact shapes. The fixture
@@ -455,9 +457,12 @@ grade and the depth buffer treat it as they treat the set. Content in front hide
 
 Maps are active only when content opts in with `shadows: true`. Then every projected body casts into
 and receives the same key-light maps as the set. Its silhouette casts through the alpha-tested
-sprite, double-sided (`shadowSide`) so a camera-facing card casts from either side. Its received
-shadow lookup sits 6 shadow texels toward the camera (`BODY_SHADOW_LIFT_TEXELS`), so a card does not
-shadow itself. Floor and content keep bias -0.0001. With no active maps, neither cast nor set gets
+sprite, double-sided (`shadowSide`) so a camera-facing card casts from either side. A card
+stands for a body of its footprint depth, so its received-shadow lookup moves toward the key light
+(the brightest shadow-casting light) by half that depth, at least 0.5 m
+(`BODY_SHADOW_MIN_LIFT_METRES`), in scene units. The lift is the same on every tier and zoom, and
+moving along the light keeps the lookup over the body's own floor point, so a shadow crossing the
+floor at its feet falls on it while its own card does not shadow it. Floor and content keep bias -0.0001. With no active maps, neither cast nor set gets
 shadow maps. No tier treats them differently.
 
 Cast and set share ambient, directional and point lights, fog and the grade. The post pass (bloom,
