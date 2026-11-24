@@ -32,6 +32,9 @@ const SESSION_MS = Number(process.env.CLOCKGROVE_DEV_WORLD_HOURS ?? 4) * 60 * 60
  * The playground signs in as the world's owner (issue 327): the existing observation, inspection,
  * command, clock and operator grants, and a privacy ceiling of the public-scene, operator-evidence and
  * conversation categories on its membership, never private cognition. `pnpm dev:world` keeps its observer.
+ * With command and operate, `conversation` admits what the existing rules give any such member: Talk,
+ * actor activations, operator effect approval and retry, delivery consent, and conversation reassembly
+ * in the cognition inspector. The world is local and disposable and the owner is its only member.
  */
 const OWNER = process.env.CLOCKGROVE_DEV_WORLD_ROLE === "owner";
 const CREDENTIAL = OWNER ? "playground-owner" : "hall-observer";
@@ -49,6 +52,13 @@ const OWNER_CEILING =
 /** The playground host's control server (issue 327); set only for `pnpm playground`. */
 const PLAYGROUND_HOST = process.env.CLOCKGROVE_PLAYGROUND_HOST;
 const PLAYGROUND_BODY_LIMIT = 64 * 1024;
+/**
+ * How long a credential the runtime accepted stays accepted here. The runtime-state inspection that
+ * authorizes it is rate-limited to 300 per principal per trailing hour and audited
+ * (db/migrations/0028_inspector_rate_limit_routed_space.sql, `inspector_access_admitted`); one check a
+ * minute spends at most 60 of those, however often the panel polls.
+ */
+const PLAYGROUND_AUTHORIZED_MS = 60_000;
 /** Names the file whose existence asks the session to stop; scripts/dev-world.mjs sets it. */
 const STOP_VARIABLE = "CLOCKGROVE_DEV_WORLD_STOP";
 
@@ -74,6 +84,23 @@ const reply = (response, status, body) => {
  * accepts the caller's credential for this world, so the host never sees an unauthorized caller.
  */
 function playgroundHandler(native) {
+  /** Credential -> time its acceptance lapses; only accepted credentials are kept. */
+  const accepted = new Map();
+  /** The runtime's answer for this credential: 200 accepts, 429 is passed on, all else refuses. */
+  const authorize = async (authorization) => {
+    const now = Date.now();
+    if ((accepted.get(authorization) ?? 0) > now) return 200;
+    accepted.delete(authorization);
+    const { tenantId, worldId, timelineId, spaceId } = native.scope;
+    const authorized = await fetch(`${await native.origin()}/v1/runtime/runtime-state`, {
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: JSON.stringify({ schemaVersion: 1, tenantId, worldId, timelineId, spaceId }),
+    });
+    await authorized.body?.cancel();
+    if (authorized.status === 200) accepted.set(authorization, now + PLAYGROUND_AUTHORIZED_MS);
+    return authorized.status;
+  };
   return async (request, response) => {
     if (request.method !== "POST") return reply(response, 405, { error: "method_not_allowed" });
     const body = await readBody(request);
@@ -82,13 +109,13 @@ function playgroundHandler(native) {
     const refused = () => reply(response, 403, { error: "playground_refused" });
     if (authorization === undefined) return refused();
     try {
-      const { tenantId, worldId, timelineId, spaceId } = native.scope;
-      const authorized = await fetch(`${await native.origin()}/v1/runtime/runtime-state`, {
-        method: "POST",
-        headers: { authorization, "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 1, tenantId, worldId, timelineId, spaceId }),
-      });
-      if (authorized.status !== 200) return refused();
+      const status = await authorize(authorization);
+      if (status === 429)
+        return reply(response, 429, {
+          error: "playground_rate_limited",
+          message: "The runtime's inspection limit for this credential is spent; try again later.",
+        });
+      if (status !== 200) return refused();
     } catch {
       return refused();
     }

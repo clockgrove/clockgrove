@@ -15,6 +15,11 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const CLI = path.join(root, "packages/simulator/cli/clockgrove.mjs");
 const PREVIEW = path.join(root, "scripts/playground-migration-preview.mjs");
 const MAX_BODY = 64 * 1024;
+/**
+ * Each hosted world runs its own PostgreSQL, workerd and Vite, so the host runs at most this many at
+ * once; the owner stops one (`/stop`) before loading another. A chosen local default.
+ */
+export const MAX_RUNNING_WORLDS = 3;
 
 function readManifest(directory) {
   try {
@@ -154,6 +159,11 @@ export function createPlaygroundHost({ directory, shell, assets, spawnLauncher =
     status: world.status,
     url: world.url,
     current: world.id === caller,
+    // The build refusal of a pack whose session never came up reaches the panel here.
+    checks: {
+      status: world.checks.status,
+      ...(world.checks.refusal === undefined ? {} : { refusal: world.checks.refusal }),
+    },
   });
 
   function addWorld(worldDirectory, extra) {
@@ -247,7 +257,30 @@ export function createPlaygroundHost({ directory, shell, assets, spawnLauncher =
             error: "not_a_pack",
             message: "Not a world pack directory (no readable manifest.json).",
           });
+        const live = [...worlds.values()].filter((world) => world.status !== "stopped");
+        if (live.some((world) => world.directory === target))
+          return send(response, 409, {
+            error: "already_hosted",
+            message: "That pack directory is already hosted; open it from the list.",
+          });
+        if (live.length >= MAX_RUNNING_WORLDS)
+          return send(response, 409, {
+            error: "too_many_worlds",
+            message: `At most ${MAX_RUNNING_WORLDS} worlds run at once; stop one first.`,
+          });
         return send(response, 200, { world: entryOf(addWorld(target), caller.id) });
+      }
+      case "/stop": {
+        const target = typeof body.world === "string" ? worlds.get(body.world) : undefined;
+        if (target === undefined) return send(response, 404, { error: "unknown_world" });
+        if (target.id === caller.id)
+          return send(response, 409, {
+            error: "current_world",
+            message: "Stop this world from the terminal (Ctrl-C), or from another hosted world.",
+          });
+        // The launcher turns SIGTERM into its stop file; its session removes its own database.
+        if (target.status !== "stopped") target.child.kill("SIGTERM");
+        return send(response, 202, { world: entryOf(target, caller.id) });
       }
       case "/migration-preview": {
         if (typeof body.directory !== "string" || body.directory === "")

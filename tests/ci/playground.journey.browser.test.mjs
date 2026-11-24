@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 // and no model key, prints how to open it as the world's owner, signs that owner in with the
 // owner-only inspection the dev:world observer lacks, and Ctrl-C removes its database. The 720 s
 // bound is dev:world's (#401): it is the same session.
-async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, owner }) {
+async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, owner, worlds = 1 }) {
   const at = namedSteps(onTestFailed);
   at.step = "playground prints its URL and owner credential";
   // No model key and no cloud account reach the command.
@@ -87,7 +87,7 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
       expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
         "Arrival: scene ready at revision 0.",
       );
-      await owner?.({ at, page, url, credential });
+      await owner?.({ at, page, url, credential, post, entry: directory.entries[0] });
     },
     "Ctrl-C stops the playground",
     async () => {
@@ -95,20 +95,21 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
       process.kill(-playground.pid, "SIGINT");
     },
   );
-  // Every hosted world's database is removed.
+  // Every hosted world had its own database, and each is removed.
   const databases = [...output.matchAll(/creating directory (\S+)\/data/gu)].map(([, at]) => at);
-  expect([await exited, databases.length > 0, databases.filter((at) => existsSync(at))]).toEqual([
-    0,
-    true,
-    [],
-  ]);
+  expect([
+    await exited,
+    new Set(databases).size,
+    databases.length,
+    databases.filter((at) => existsSync(at)),
+  ]).toEqual([0, worlds, worlds, []]);
 }
 
 // Part 2: the owner's Pack panel. Its API answers the owner only; it shows the pack's metadata and
 // conformance checks, previews a newer version's migration, and loads another pack from a local
 // directory as a fresh world beside this one, which the owner switches to and back from. The owner
 // also Talks to the rock in its disclosed object voice, answered by the scripted fixture (no key).
-async function ownsThePlayground({ at, page, url, credential }, scratch) {
+async function ownsThePlayground({ at, page, url, credential, post, entry }, scratch) {
   at.step = "the playground API answers its owner only";
   const pack = (token) =>
     fetch(new URL("/playground/v1/pack", url), {
@@ -183,6 +184,32 @@ async function ownsThePlayground({ at, page, url, credential }, scratch) {
   const history = page.getByRole("list", { name: "Conversation history" });
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
+  // The playground world's identity, metadata and clock before another pack is loaded.
+  const state = async () => {
+    const { tenantId, worldId, timelineId, spaceId } = entry;
+    const response = await post("/v1/runtime/runtime-state", {
+      schemaVersion: 1,
+      tenantId,
+      worldId,
+      timelineId,
+      spaceId,
+    });
+    expect(response.status).toBe(200);
+    const { scope, clock } = await response.json();
+    const [directory, metadata] = await Promise.all([
+      post("/v1/runtime/world-directory", { version: 1 }).then((answer) => answer.json()),
+      pack(credential)
+        .then((answer) => answer.json())
+        .then((answer) => answer.metadata),
+    ]);
+    return {
+      scope,
+      entries: directory.entries,
+      metadata,
+      time: BigInt(clock.value.simulationTime),
+    };
+  };
+  const before = await state();
   at.step = "load another pack as a fresh world and switch to it";
   const other = path.join(scratch, "fixture");
   await cp(path.join(root, "worlds/fixture"), other, { recursive: true });
@@ -214,6 +241,15 @@ async function ownsThePlayground({ at, page, url, credential }, scratch) {
     .getByRole("region", { name: "Pack metadata", exact: true })
     .getByText("clockgrove.playground 1.0.0", { exact: true })
     .waitFor();
+  // Loading the other pack left this world as it was: the same world, pack and content, and a clock
+  // that only went on.
+  const after = await state();
+  expect([after.scope, after.entries, after.metadata, after.time >= before.time]).toEqual([
+    before.scope,
+    before.entries,
+    before.metadata,
+    true,
+  ]);
 }
 
 // Two hosted worlds, each within dev:world's 720 s bound (#401).
@@ -227,6 +263,7 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
       spaceId: "playground.plane",
       title: shell.name,
       owner: (journey) => ownsThePlayground(journey, scratch),
+      worlds: 2,
     });
   } finally {
     await rm(scratch, { recursive: true, force: true });

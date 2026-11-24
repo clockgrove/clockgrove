@@ -6,7 +6,7 @@ import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { McpCapabilities } from "./mcp-capabilities.js";
 import { clientMeasurements, measure, measurePoint } from "./measurements.js";
-import { PlaygroundPack } from "./playground-pack.js";
+import { PlaygroundPack, playgroundHosted } from "./playground-pack.js";
 import { ArrivalReadiness, CompatibilityRecovery } from "./recovery.js";
 import type { RendererContent } from "./renderer-content.js";
 import { SceneSession, type ViewTraceProjection } from "./scene-api.js";
@@ -502,7 +502,9 @@ export function WorldApp({
           <McpCapabilities key={worldRoutePath(entry)} session={session} scope={entry} />
         )}
         {signedIn && entry && <OperatorEffects key={worldRoutePath(entry)} session={session} />}
-        {signedIn && entry && <PlaygroundPack key={worldRoutePath(entry)} session={session} />}
+        {playgroundHosted && signedIn && entry && (
+          <PlaygroundPack key={`playground:${worldRoutePath(entry)}`} session={session} />
+        )}
         <p className="rw-observation-details">
           Observe an authorized world. This view grants no world mutation authority.
         </p>

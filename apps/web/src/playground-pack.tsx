@@ -1,5 +1,10 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { ApiRefusal } from "./api.js";
 import { PlaygroundRefusal, type SceneSession } from "./scene-api.js";
+
+declare const __PLAYGROUND__: unknown;
+/** True only in a shell built by a `pnpm playground` session (apps/web/vite.config.ts). */
+export const playgroundHosted = typeof __PLAYGROUND__ !== "undefined" && __PLAYGROUND__ === true;
 
 interface Refusal {
   readonly code: string;
@@ -14,6 +19,17 @@ interface WorldEntry {
   readonly status: "starting" | "ready" | "stopped";
   readonly url: string | null;
   readonly current: boolean;
+  readonly checks: { readonly status: Checks["status"]; readonly refusal?: Refusal };
+}
+interface Checks {
+  readonly status: "running" | "passed" | "failed" | "unavailable";
+  readonly results: readonly {
+    readonly name: string;
+    readonly scenario: string | null;
+    readonly status: "passed" | "failed" | "skipped";
+    readonly refusal: Refusal | null;
+  }[];
+  readonly refusal?: Refusal;
 }
 interface PackSummary {
   readonly world: WorldEntry;
@@ -24,16 +40,7 @@ interface PackSummary {
       Record<"entities" | "places" | "rules" | "scenarios" | "art", number>
     >;
   };
-  readonly checks: {
-    readonly status: "running" | "passed" | "failed" | "unavailable";
-    readonly results: readonly {
-      readonly name: string;
-      readonly scenario: string | null;
-      readonly status: "passed" | "failed" | "skipped";
-      readonly refusal: Refusal | null;
-    }[];
-    readonly refusal?: Refusal;
-  };
+  readonly checks: Checks;
 }
 interface MigrationPreview {
   readonly fromVersion: string;
@@ -46,6 +53,8 @@ interface MigrationPreview {
 }
 
 const pollMs = 2000;
+/** A failed poll is retried at this slower pace, so a refusing host is not pressed. */
+const retryMs = 10_000;
 const counts = [
   ["entities", "Entities"],
   ["places", "Places"],
@@ -56,6 +65,9 @@ const counts = [
 
 const failure = (error: unknown) =>
   error instanceof PlaygroundRefusal ? error.detail : "Request failed";
+/** A refusal of the caller itself (401, 403) is final; anything else (429, 5xx, network) is retried. */
+const retryable = (error: unknown) =>
+  !(error instanceof ApiRefusal && (error.status === 401 || error.status === 403));
 
 /** Owner-only pack inspector; renders nothing unless the local playground API answers. */
 export function PlaygroundPack({ session }: { readonly session: SceneSession }) {
@@ -72,7 +84,9 @@ export function PlaygroundPack({ session }: { readonly session: SceneSession }) 
           setPack(next);
           if (next.checks.status === "running") timer = setTimeout(load, pollMs);
         },
-        () => {},
+        (cause: unknown) => {
+          if (live && retryable(cause)) timer = setTimeout(load, retryMs);
+        },
       );
     void load();
     return () => {
@@ -127,6 +141,7 @@ function HostedWorlds({ session }: { readonly session: SceneSession }) {
   const [worlds, setWorlds] = useState<readonly WorldEntry[]>([]);
   const [directory, setDirectory] = useState("");
   const [error, setError] = useState<string>();
+  const [listError, setListError] = useState<string>();
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((value) => value + 1), []);
   const starting = worlds.some((world) => world.status === "starting");
@@ -140,11 +155,16 @@ function HostedWorlds({ session }: { readonly session: SceneSession }) {
         (next) => {
           if (!live) return;
           setWorlds(next.worlds);
+          setListError(undefined);
           if (next.worlds.some((world) => world.status === "starting")) {
             timer = setTimeout(load, pollMs);
           }
         },
-        () => {},
+        (cause: unknown) => {
+          if (!live) return;
+          setListError(failure(cause));
+          if (retryable(cause)) timer = setTimeout(load, retryMs);
+        },
       );
     void load();
     return () => {
@@ -160,21 +180,38 @@ function HostedWorlds({ session }: { readonly session: SceneSession }) {
       .playgroundRequest("load", { directory })
       .then(refresh, (cause: unknown) => setError(failure(cause)));
   };
+  const stop = (world: WorldEntry) => {
+    setError(undefined);
+    session
+      .playgroundRequest("stop", { world: world.id })
+      .then(refresh, (cause: unknown) => setError(failure(cause)));
+  };
 
   return (
     <section aria-label="Hosted worlds">
       <h3>Hosted worlds</h3>
+      {listError && <p role="alert">{listError}</p>}
       <ul>
         {worlds.map((world) => (
           <li key={world.id}>
-            {world.packId}@{world.version} — {world.status}
+            {world.packId}@{world.version} — {world.status}, checks {world.checks.status}
             {world.current && " (this world)"}
+            {world.checks.refusal &&
+              ` — ${world.checks.refusal.code} at ${world.checks.refusal.path}: ${world.checks.refusal.message}`}
             {world.url && !world.current && (
               <>
                 {" "}
                 <a href={world.url}>
                   Open {world.packId}@{world.version}
                 </a>
+              </>
+            )}
+            {!world.current && world.status !== "stopped" && (
+              <>
+                {" "}
+                <button type="button" onClick={() => stop(world)}>
+                  Stop {world.packId}@{world.version}
+                </button>
               </>
             )}
           </li>
