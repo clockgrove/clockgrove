@@ -41,6 +41,7 @@ import {
   type EnvironmentEventData,
   type EnvironmentPolicy,
   type EnvironmentState,
+  EnvironmentValidationError,
   validateEnvironmentPolicy,
   validateEnvironmentState,
 } from "./environment/environment.js";
@@ -360,7 +361,17 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   if (Object.hasOwn(policy, "boundaryExchanges"))
     validateBoundaryExchanges(policy.boundaryExchanges);
   if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
-  if (Object.hasOwn(policy, "surfaces")) validateSurfacePolicy(policy.surfaces);
+  if (Object.hasOwn(policy, "surfaces")) {
+    validateSurfacePolicy(policy.surfaces);
+    if (!Object.hasOwn(policy, "environment"))
+      policy.surfaces!.channels.forEach((channel, i) => {
+        if (channel.recovery.driver === "rain" || channel.recovery.driver === "growth")
+          throw new EnvironmentValidationError(
+            `policy.surfaces.channels[${i}].recovery.driver`,
+            "surface driver requires an environment",
+          );
+      });
+  }
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))

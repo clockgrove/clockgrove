@@ -1268,7 +1268,9 @@ function runWorld(
     const surfaces = policy.surfaces;
     const state = current().surfaces;
     const due =
-      surfaces === undefined || state === undefined ? null : dueSurfaceCrossings(surfaces, state);
+      surfaces === undefined || state === undefined
+        ? null
+        : dueSurfaceCrossings(surfaces, state, policy.environment);
     if (surfaces === undefined || state === undefined || due === null || due.time !== at)
       return true;
     if (context.eventCount() + due.crossings.length > payload.maxEvents) {
@@ -1276,7 +1278,7 @@ function runWorld(
       return false;
     }
     const planned = due.crossings.map((c) =>
-      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at),
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment),
     );
     for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
@@ -2504,7 +2506,7 @@ function runWorld(
       const surfaceDue =
         policy.surfaces === undefined || current().surfaces === undefined
           ? null
-          : dueSurfaceCrossings(policy.surfaces, current().surfaces!);
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment);
       const surfaceTime =
         surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
       // Surface crossings run after the instant's physical causes and before its processes.
@@ -4160,6 +4162,7 @@ function runContainmentCommand(
         state,
         { ...p, actorId: p.actorId as ObjectId },
         state.simulationTime,
+        input.pack.pack.policy.environment,
       );
       if (!planned.ok) throw new RangeError("surface interaction was not validated");
       emit({ type: "surface.interacted", payload: planned.payload });
@@ -4171,6 +4174,7 @@ function runContainmentCommand(
         state,
         payload as SurfaceRepairPayload,
         state.simulationTime,
+        input.pack.pack.policy.environment,
       );
       if (!planned.ok) throw new RangeError("surface repair was not validated");
       emit({ type: "surface.repaired", payload: planned.payload });
@@ -4644,6 +4648,7 @@ function surfaceRefusal(
       state,
       payload as SurfaceRepairPayload,
       state.simulationTime,
+      policy.environment,
     );
     return planned.ok ? undefined : planned;
   }
@@ -4653,6 +4658,7 @@ function surfaceRefusal(
     state,
     { ...p, actorId: p.actorId as ObjectId },
     state.simulationTime,
+    policy.environment,
   );
   if (!planned.ok && planned.check !== "surface.reach@1") return planned;
   const actor = state.entities.find((entry) => entry.objectId === p.actorId);
@@ -4678,6 +4684,7 @@ function surfaceJournalDisagreement(
           state,
           event.payload,
           event.simulationTime,
+          activePolicy?.environment,
         );
         if (
           !planned.ok ||
@@ -4685,7 +4692,13 @@ function surfaceJournalDisagreement(
         )
           return `events[${index}]`;
       } else if (event.type === "surface.repaired") {
-        const planned = planSurfaceRepair(surfaces, state, event.payload, event.simulationTime);
+        const planned = planSurfaceRepair(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
         if (
           !planned.ok ||
           canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
@@ -4694,12 +4707,21 @@ function surfaceJournalDisagreement(
       } else if (event.type === "surface.band-crossed") {
         const { zoneId, channel } = event.payload;
         const due =
-          state.surfaces === undefined ? null : dueSurfaceCrossings(surfaces, state.surfaces);
+          state.surfaces === undefined
+            ? null
+            : dueSurfaceCrossings(surfaces, state.surfaces, activePolicy?.environment);
         if (
           due?.time !== event.simulationTime ||
           !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
           canonicalSerialize(
-            planSurfaceCrossing(surfaces, state.surfaces!, zoneId, channel, event.simulationTime),
+            planSurfaceCrossing(
+              surfaces,
+              state.surfaces!,
+              zoneId,
+              channel,
+              event.simulationTime,
+              activePolicy?.environment,
+            ),
           ) !== canonicalSerialize(event.payload)
         )
           return `events[${index}]`;

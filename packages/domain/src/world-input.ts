@@ -708,6 +708,7 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
       const recovery = object(channel.recovery, ["driver"], `${at}.recovery`, [
         "amount",
         "periodMs",
+        "lightBands",
       ]);
       if (typeof channel.carried !== "boolean") fail(`${at}.carried`, "expected a boolean");
       return {
@@ -723,13 +724,20 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
           };
         }),
         recovery:
-          recovery.driver === "time"
+          recovery.driver === "time" || recovery.driver === "rain"
             ? {
-                driver: "time",
+                driver: recovery.driver,
                 amount: integer(recovery.amount, `${at}.recovery.amount`),
                 periodMs: decimal(recovery.periodMs, `${at}.recovery.periodMs`),
               }
-            : { driver: "none" },
+            : recovery.driver === "growth"
+              ? {
+                  driver: "growth",
+                  amount: integer(recovery.amount, `${at}.recovery.amount`),
+                  periodMs: decimal(recovery.periodMs, `${at}.recovery.periodMs`),
+                  lightBands: list(recovery.lightBands, `${at}.recovery.lightBands`, text),
+                }
+              : { driver: "none" },
       };
     }),
     zones: list(raw.zones, `${path}.zones`, (value, at): SurfaceZone => {

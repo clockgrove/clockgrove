@@ -1,7 +1,7 @@
 import { decodeOpaqueId, type ObjectId, type SimTimeMs } from "@clockgrove/contracts";
 import { DomainValidationError } from "./actor-process.js";
 import type { ContainmentPayload } from "./commands/containment-commands.js";
-import { EnvironmentValidationError } from "./environment/environment.js";
+import { type EnvironmentPolicy, EnvironmentValidationError } from "./environment/environment.js";
 import { regionContains } from "./spatial/region.js";
 import type { WorldBehaviorPolicy, WorldState } from "./world.js";
 
@@ -12,7 +12,14 @@ export interface SurfaceBand {
 }
 export type SurfaceRecovery =
   | { readonly driver: "none" }
-  | { readonly driver: "time"; readonly amount: number; readonly periodMs: bigint };
+  | { readonly driver: "time"; readonly amount: number; readonly periodMs: bigint }
+  | { readonly driver: "rain"; readonly amount: number; readonly periodMs: bigint }
+  | {
+      readonly driver: "growth";
+      readonly amount: number;
+      readonly periodMs: bigint;
+      readonly lightBands: readonly string[];
+    };
 export interface SurfaceChannel {
   readonly id: string;
   readonly max: number;
@@ -130,6 +137,10 @@ const MAX_CHANNEL_VALUE = 1_000_000;
 const MAX_INTENSITY = 10_000;
 const MAX_TIME = (1n << 63n) - 1n;
 const MAX_DURATION = 1n << 53n;
+// floor(2^53 / 10000): keeps the rain remainder (below periodMs * 10000) under the state bound.
+const MAX_RAIN_PERIOD = 900_719_925_474n;
+const FULL_RAIN = 10_000n;
+const MAX_LIGHT_BANDS = 64;
 const BUDGET_CHECK = "surface.budget@1";
 const BUDGET_MESSAGE = `surface budget exceeded (${BUDGET_CHECK})`;
 
@@ -208,11 +219,28 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       int(b.max, min, max, `${bandPath}.max`);
     });
     const recovery = entry.recovery as Record<string, unknown> | null;
-    if (recovery !== null && typeof recovery === "object" && recovery.driver === "time") {
-      const r = record(recovery, ["driver", "amount", "periodMs"], `${path}.recovery`);
+    const driver = recovery !== null && typeof recovery === "object" ? recovery.driver : undefined;
+    if (driver === "time" || driver === "rain" || driver === "growth") {
+      const r = record(
+        recovery,
+        driver === "growth"
+          ? ["driver", "amount", "periodMs", "lightBands"]
+          : ["driver", "amount", "periodMs"],
+        `${path}.recovery`,
+      );
       int(r.amount, 1, Number.MAX_SAFE_INTEGER, `${path}.recovery.amount`);
-      if (typeof r.periodMs !== "bigint" || r.periodMs <= 0n || r.periodMs > MAX_DURATION)
+      const limit = driver === "rain" ? MAX_RAIN_PERIOD : MAX_DURATION;
+      if (typeof r.periodMs !== "bigint" || r.periodMs <= 0n || r.periodMs > limit)
         bad(`${path}.recovery.periodMs`);
+      if (driver === "growth") {
+        const bandsPath = `${path}.recovery.lightBands`;
+        const seenBands = new Set<string>();
+        array(r.lightBands, 1, MAX_LIGHT_BANDS, bandsPath).forEach((band, k) => {
+          const bandName = name(band, `${bandsPath}[${k}]`);
+          if (seenBands.has(bandName)) bad(`${bandsPath}[${k}]`);
+          seenBands.add(bandName);
+        });
+      }
     } else {
       const r = record(recovery, ["driver"], `${path}.recovery`);
       if (r.driver !== "none") bad(`${path}.recovery.driver`);
@@ -338,25 +366,100 @@ export function surfaceBands(channel: SurfaceChannel, value: number): readonly s
   return channel.bands.filter((band) => value >= band.min && value <= band.max).map((b) => b.name);
 }
 
+interface RecoveryClock {
+  /** Recovery weight accrued over [0, t). */
+  readonly cumulative: (t: bigint) => bigint;
+  /** Smallest t with cumulative(t) >= target (target > 0), or null when never. */
+  readonly invert: (target: bigint) => bigint | null;
+  readonly divisor: bigint;
+}
+interface ClockSegment {
+  readonly duration: bigint;
+  readonly weight: bigint;
+}
+
+function cycleClock(segments: readonly ClockSegment[], divisor: bigint): RecoveryClock {
+  const length = segments.reduce((sum, s) => sum + s.duration, 0n);
+  const integral = segments.reduce((sum, s) => sum + s.duration * s.weight, 0n);
+  return {
+    divisor,
+    cumulative(t) {
+      let rest = t % length;
+      let total = (t / length) * integral;
+      for (const s of segments) {
+        const part = rest < s.duration ? rest : s.duration;
+        total += part * s.weight;
+        rest -= part;
+        if (rest === 0n) break;
+      }
+      return total;
+    },
+    invert(target) {
+      if (integral === 0n) return null;
+      const cycles = (target - 1n) / integral;
+      let rest = target - cycles * integral;
+      let at = cycles * length;
+      for (const s of segments) {
+        const span = s.duration * s.weight;
+        if (span >= rest) return at + (rest + s.weight - 1n) / s.weight;
+        rest -= span;
+        at += s.duration;
+      }
+      return null;
+    },
+  };
+}
+
+function recoveryClock(
+  recovery: Exclude<SurfaceRecovery, { readonly driver: "none" }>,
+  environment: EnvironmentPolicy | undefined,
+): RecoveryClock {
+  if (recovery.driver === "time")
+    return cycleClock([{ duration: 1n, weight: 1n }], recovery.periodMs);
+  if (environment === undefined)
+    throw new DomainValidationError("environment", "surface driver requires an environment");
+  if (recovery.driver === "rain")
+    return cycleClock(
+      environment.weatherSegments.map((s) => ({
+        duration: s.durationMs,
+        weight: BigInt(s.rainIntensity),
+      })),
+      recovery.periodMs * FULL_RAIN,
+    );
+  const phases = environment.phases;
+  return cycleClock(
+    phases.map((phase, i) => ({
+      duration: (phases[i + 1]?.startMs ?? environment.dayLengthMs) - phase.startMs,
+      weight: recovery.lightBands.includes(phase.lightBand) ? 1n : 0n,
+    })),
+    recovery.periodMs,
+  );
+}
+
 export function surfaceValueAt(
   channel: SurfaceChannel,
   entry: SurfaceChannelState,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): { value: number; remainder: bigint } {
   if (channel.recovery.driver === "none" || entry.value === 0)
     return { value: entry.value, remainder: 0n };
   if (at < entry.settledAt)
     throw new DomainValidationError("at", "surface cannot settle before its last settlement");
-  const total = (at - entry.settledAt) * BigInt(channel.recovery.amount) + entry.remainder;
-  const drop = total / channel.recovery.periodMs;
+  const clock = recoveryClock(channel.recovery, environment);
+  const total =
+    (clock.cumulative(at) - clock.cumulative(entry.settledAt)) * BigInt(channel.recovery.amount) +
+    entry.remainder;
+  const drop = total / clock.divisor;
   const value = BigInt(entry.value) - drop;
   if (value <= 0n) return { value: 0, remainder: 0n };
-  return { value: Number(value), remainder: total % channel.recovery.periodMs };
+  return { value: Number(value), remainder: total % clock.divisor };
 }
 
 export function nextSurfaceCrossing(
   channel: SurfaceChannel,
   entry: SurfaceChannelState,
+  environment?: EnvironmentPolicy,
 ): SimTimeMs | null {
   const recovery = channel.recovery;
   if (recovery.driver === "none" || entry.value === 0) return null;
@@ -365,21 +468,24 @@ export function nextSurfaceCrossing(
     for (const candidate of [band.min - 1, band.max])
       if (candidate >= 0 && candidate < entry.value && candidate > target) target = candidate;
   if (target < 0) return null;
-  const numerator = BigInt(entry.value - target) * recovery.periodMs - entry.remainder;
+  const clock = recoveryClock(recovery, environment);
   const amount = BigInt(recovery.amount);
-  const at = entry.settledAt + (numerator + amount - 1n) / amount;
-  return at > MAX_TIME ? null : (at as SimTimeMs);
+  const numerator = BigInt(entry.value - target) * clock.divisor - entry.remainder;
+  const weight = (numerator + amount - 1n) / amount;
+  const at = clock.invert(clock.cumulative(entry.settledAt) + weight);
+  return at === null || at > MAX_TIME ? null : (at as SimTimeMs);
 }
 
 export function dueSurfaceCrossings(
   policy: SurfacePolicy,
   state: SurfaceState,
+  environment?: EnvironmentPolicy,
 ): { time: SimTimeMs; crossings: readonly { zoneId: string; channel: string }[] } | null {
   const found: { time: SimTimeMs; zoneId: string; channel: string }[] = [];
   for (const [i, zone] of state.zones.entries())
     for (const entry of zone.channels) {
       const channel = policy.channels.find((candidate) => candidate.id === entry.channel);
-      const at = channel === undefined ? null : nextSurfaceCrossing(channel, entry);
+      const at = channel === undefined ? null : nextSurfaceCrossing(channel, entry, environment);
       if (at !== null)
         found.push({ time: at, zoneId: policy.zones[i]!.id, channel: entry.channel });
     }
@@ -412,13 +518,14 @@ export function planSurfaceCrossing(
   zoneId: string,
   channelId: string,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): SurfaceBandCrossedPayload {
   const zone = state.zones[zoneIndex(policy, state, zoneId)]!;
   const entry = zone.channels.find((candidate) => candidate.channel === channelId);
   if (entry === undefined)
     throw new DomainValidationError("channel", "surface channel is not on the zone");
   const channel = declared(policy, channelId);
-  const settled = surfaceValueAt(channel, entry, at);
+  const settled = surfaceValueAt(channel, entry, at, environment);
   return {
     zoneId,
     channel: channelId,
@@ -439,6 +546,7 @@ export function planSurfaceInteraction(
     readonly actorId: ObjectId;
   },
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): { ok: true; payload: SurfaceInteractedPayload } | Refusal {
   const surfaces = state.surfaces;
   const index = policy.zones.findIndex((zone) => zone.id === payload.zoneId);
@@ -475,7 +583,10 @@ export function planSurfaceInteraction(
   }
   const values = new Map<string, { value: number; remainder: bigint }>();
   for (const entry of zoneState.channels)
-    values.set(entry.channel, surfaceValueAt(declared(policy, entry.channel), entry, at));
+    values.set(
+      entry.channel,
+      surfaceValueAt(declared(policy, entry.channel), entry, at, environment),
+    );
   const carried = new Map<string, number>();
   const touched: string[] = [];
   const held = (channel: string): number =>
@@ -543,13 +654,14 @@ export function planSurfaceRepair(
   state: WorldState,
   payload: Pick<SurfaceRepairPayload, "zoneId" | "reason">,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): { ok: true; payload: SurfaceRepairedPayload } | Refusal {
   const index = policy.zones.findIndex((zone) => zone.id === payload.zoneId);
   const zoneState = state.surfaces?.zones[index];
   if (zoneState === undefined) return refuse("payload.zoneId", "surface.zone@1");
   const removed: { channel: string; amount: number }[] = [];
   for (const entry of zoneState.channels) {
-    const settled = surfaceValueAt(declared(policy, entry.channel), entry, at);
+    const settled = surfaceValueAt(declared(policy, entry.channel), entry, at, environment);
     if (settled.value > 0) removed.push({ channel: entry.channel, amount: settled.value });
   }
   return { ok: true, payload: { zoneId: payload.zoneId, reason: payload.reason, removed } };
@@ -670,11 +782,12 @@ export function surfaceDisagreement(
         channelState.remainder !== 0n &&
         (channel.recovery.driver === "none" ||
           channelState.value === 0 ||
-          channelState.remainder >= channel.recovery.periodMs)
+          channelState.remainder >=
+            channel.recovery.periodMs * (channel.recovery.driver === "rain" ? FULL_RAIN : 1n))
       )
         return `${at}.remainder`;
       if (channelState.settledAt > state.simulationTime) return `${at}.settledAt`;
-      const crossing = nextSurfaceCrossing(channel, channelState);
+      const crossing = nextSurfaceCrossing(channel, channelState, policy.environment);
       if (crossing !== null && crossing <= state.simulationTime) return at;
     }
     if (entry.marks.length > zone.markCapacity) return `${path}.marks`;
