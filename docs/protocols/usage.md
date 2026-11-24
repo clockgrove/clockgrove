@@ -34,7 +34,7 @@ run are not yet usage events; they come with part 2 of issue 329.
 | `status`, `outcomeCode` | The source's terminal disposition, so a failed or refused call is visible. A tool call refused before dispatch or simulated reads `refused` or `simulated`. |
 | `principalId` | The player the use is for: the run's initiating principal or the delivery's recipient.    |
 | `personaId`   | The player's persona in the run; `null` for a delivery.                                   |
-| `actorId`, `sessionId`, `runId`, `rootRunId` | The actor, session, run and the run's causal root. A response delivery's run is the completed run that answered the message it responds to; a delivery for no message has `null` run and root. |
+| `actorId`, `sessionId`, `runId`, `rootRunId` | The actor, session, run and the run's causal root. A response delivery's run is the run that committed the reply to the message it responds to, whether it completed or failed with an outcome code such as `model_unavailable`; a delivery for no message has `null` run and root. |
 | `quantities`  | Native quantities only, by category (below).                                              |
 | `occurredAt`  | Wall-clock time the use ended (the step's end, the receipt's write).                      |
 | `worldTime`   | The world's committed simulation time beside it, a decimal string; `null` without one.   |

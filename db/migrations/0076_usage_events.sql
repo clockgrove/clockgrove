@@ -150,8 +150,9 @@ CREATE CONSTRAINT TRIGGER run_steps_usage AFTER INSERT OR UPDATE OF status ON cl
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION clockgrove.record_step_usage();
 
--- One event per delivery its sink received. A response's run is the completed run that answered
--- the message it responds to; a delivery for no message has no run.
+-- One event per delivery its sink received. A response's run is the run whose commit step wrote the
+-- reply to the message it responds to, whether it completed or failed with an outcome code; a
+-- delivery for no message has no run.
 CREATE FUNCTION clockgrove.record_delivery_usage() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 DECLARE
@@ -165,8 +166,11 @@ BEGIN
   IF delivery.request->'reason'->>'kind' = 'response' THEN
     SELECT * INTO run FROM clockgrove.agent_runs r
      WHERE r.tenant_id = NEW.tenant_id AND r.session_id = delivery.session_id
-       AND r.input_message_id = delivery.request->'reason'->>'id' AND r.status = 'completed'
-     ORDER BY r.ended_at DESC, r.run_id LIMIT 1;
+       AND r.input_message_id = delivery.request->'reason'->>'id'
+       AND EXISTS (SELECT 1 FROM clockgrove.run_steps s
+                    WHERE s.tenant_id = r.tenant_id AND s.run_id = r.run_id
+                      AND s.kind = 'commit' AND s.status = 'succeeded')
+     ORDER BY r.ended_at DESC NULLS LAST, r.run_id LIMIT 1;
   END IF;
   PERFORM clockgrove.usage_feed_lock(NEW.tenant_id, NEW.world_id, NEW.timeline_id);
   INSERT INTO clockgrove.usage_events (

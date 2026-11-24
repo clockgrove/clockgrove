@@ -147,7 +147,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             null,
             "fixture.keeper",
             session,
-            // The response's run: the completed run that answered the message.
+            // The response's run: the run that committed the reply to the message.
             run(message),
             run(message),
             { deliveries: 1 },
