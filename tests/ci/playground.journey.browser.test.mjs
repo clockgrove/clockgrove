@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { expect, it, onTestFailed } from "vitest";
-import { decodeCanonicalNode } from "../../packages/application/src/index.ts";
+import { decodeCanonicalNode, encodeCanonicalNode } from "../../packages/application/src/index.ts";
 import { journeyThenShutdown, namedSteps } from "./journey-steps.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -185,7 +185,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   const history = page.getByRole("list", { name: "Conversation history" });
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
-  await debugsThePlayground(page);
+  await debugsThePlayground(page, post, entry);
   // The playground world's identity, metadata and clock before another pack is loaded.
   const state = async () => {
     const { tenantId, worldId, timelineId, spaceId } = entry;
@@ -258,7 +258,40 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
 // Part 3: the owner's World debugger, read-only, from recorded evidence: a journal event's cause,
 // the Talk run's steps and cost, the cube's recorded decision (perception, beliefs, goals and the
 // choice) and the pack checks. The dev:world journey checks that an observer never sees it.
-async function debugsThePlayground(page) {
+async function debugsThePlayground(page, post, entry) {
+  // A fresh world's clock starts paused; its owner runs it (×60, so the cube's 60 s decision
+  // interval passes each wall second) through the existing clock commands and `runtime:world-clock`.
+  const { tenantId, worldId, timelineId, spaceId } = entry;
+  for (const [type, payload] of [
+    [
+      "SetClockPolicy",
+      { schemaVersion: 1, simulationMillisecondsPerWallMillisecond: 60, catchUpCapMs: 86_400_000n },
+    ],
+    ["ResumeWorld", { schemaVersion: 1 }],
+  ]) {
+    const key = `debugger-${type}`;
+    const response = await post("/v1/runtime/commands", {
+      schemaVersion: 1,
+      tenantId,
+      worldId,
+      timelineId,
+      spaceId,
+      routingEpoch: "1",
+      authorityEpoch: "1",
+      command: encodeCanonicalNode({
+        schemaVersion: 1,
+        commandId: key,
+        type,
+        target: { version: 1, tenantId, worldId, timelineId, kind: "world", id: worldId },
+        expected: {},
+        issuedAt: new Date().toISOString(),
+        context: { version: 1, correlationId: `correlation-${key}`, requestId: key },
+        attribution: { effectiveActorId: "playground-owner", causalRootActionId: `action-${key}` },
+        payload,
+      }),
+    });
+    expect([type, response.status]).toEqual([type, 200]);
+  }
   await page.locator("summary", { hasText: /^World debugger$/u }).click();
   const journal = page.getByRole("region", { name: "Debugger journal", exact: true });
   const cause = journal.getByRole("button", { name: /^Cause of event /u }).first();
