@@ -31,7 +31,7 @@ Clockgrove is an engine you deploy yourself, not a hosted service. The unit of d
 | Keep a world's history in PostgreSQL and replay it | `packages/persistence`, `db/migrations` | Built |
 | Run a world on the actor runtime (Cloudflare Workers; workerd locally) | `apps/runtime` | Built locally; hosted qualification pending |
 | Watch a world in a browser and ask why something happened | `apps/web`, `pnpm dev:world` | Wave 4, underway |
-| Try a world pack locally as its owner, in the neutral playground or with your own pack | `pnpm playground`, `worlds/playground` | Underway (#327): the local host; the world debugger, pack panel and coding-agent chat follow |
+| Try a world pack locally as its owner, in the neutral playground or with your own pack | `pnpm playground`, `worlds/playground` | Underway (#327): the local host and its pack panel; the world debugger and coding-agent chat follow |
 | Talk with inhabitants and connect tools over MCP | `apps/runtime`, `packages/model-gateway` | Wave 5, in progress; not in the local world below |
 | Memory and learning, authoring through preview timelines, the Raccoon World demo, hosted and shared worlds | See the wave plans | Planned, Waves 6 to 12 |
 
@@ -126,7 +126,7 @@ This is a local checkpoint with firm limits. The credential can only observe: it
 
 ### The playground
 
-`pnpm playground` is the local host for world packs. It serves the neutral playground pack (`worlds/playground`: a plane, a rock that carries a weather exposure and the capability its scenario changes the weather through, a cube and a puddle) and signs you in as the world's owner. Talking to the rock comes in a later part of issue 327: the owner's privacy ceiling has no `conversation` category yet, and the pack declares no model. It needs the same PostgreSQL set as `pnpm dev:world`, and no cloud account or model key; on a fresh clone it installs the workspace first.
+`pnpm playground` is the local host for world packs. It serves the neutral playground pack (`worlds/playground`: a plane, a rock that carries a weather exposure and the capability its scenario changes the weather through, a cube and a puddle) and signs you in as the world's owner. You can Talk to the rock through its disclosed object perspective; with no model key a scripted reply answers. The shell's **Pack** panel shows the loaded pack's metadata and conformance checks, loads another pack from a local directory as a fresh world beside it, switches between them and previews what a newer version's migration would change. It needs the same PostgreSQL set as `pnpm dev:world`, and no cloud account or model key; on a fresh clone it installs the workspace first.
 
 ```bash
 pnpm playground

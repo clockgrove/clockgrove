@@ -2,9 +2,10 @@
 // pack (worlds/playground) on localhost and signs its one local credential in as the world's owner;
 // `--pack <directory>` loads the developer's own pack in its place as a fresh world from that pack's
 // declared seed. No cloud account and no model key are needed. It installs the workspace on a fresh
-// clone, then runs scripts/dev-world.mjs, the living-hall launcher, which owns the session, Ctrl-C and
-// clean-up. This file imports only Node built-ins, so it runs before the install.
-import { spawn, spawnSync } from "node:child_process";
+// clone, then hands over to scripts/playground-host.mjs, which runs scripts/dev-world.mjs, the
+// living-hall launcher, which owns the session, Ctrl-C and clean-up. This file imports only Node
+// built-ins, so it runs before the install.
+import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,16 +59,14 @@ if (!existsSync(path.join(root, "node_modules/.modules.yaml"))) {
   if (installed.status !== 0) process.exit(installed.status ?? 1);
 }
 
-// The launcher shares this process group, so Ctrl-C reaches it directly; this process only waits
-// for it and passes on a SIGTERM or SIGHUP sent to this process alone.
-const host = spawn(process.execPath, [path.join(root, "scripts/dev-world.mjs")], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, ...inputs },
-});
-process.on("SIGINT", () => undefined);
-for (const signal of ["SIGTERM", "SIGHUP"]) process.on(signal, () => host.kill(signal));
-const [code, signal] = await new Promise((resolve) =>
-  host.on("exit", (exitCode, exitSignal) => resolve([exitCode, exitSignal])),
+// The host runs the launcher in this process group, so Ctrl-C reaches it directly, and serves the
+// control routes the playground's panel uses (scripts/playground-host.mjs). It exits with the first
+// world's exit code once every launcher has gone.
+const { runPlaygroundHost } = await import("./playground-host.mjs");
+process.exit(
+  await runPlaygroundHost({
+    directory: inputs.CLOCKGROVE_DEV_WORLD_PACK,
+    shell: inputs.CLOCKGROVE_WORLD_SHELL,
+    assets: inputs.CLOCKGROVE_WORLD_ASSETS,
+  }),
 );
-process.exit(code ?? (signal === null ? 1 : 128));
