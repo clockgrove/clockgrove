@@ -8,6 +8,7 @@ import {
   replayPartition,
 } from "@clockgrove/application";
 import {
+  ContractDecodeError,
   decodeFlashback,
   decodeOpaqueId,
   FLASHBACK_BOUNDS,
@@ -21,7 +22,7 @@ import {
   PostgreSqlWorldProvisioningStore,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   applyMigrations,
   withDisposableDatabase,
@@ -82,11 +83,15 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
       for (let n = 2; n <= 11; n += 1) await advance(n);
 
       const inspector = new PostgreSqlCausalInspector(client);
+      const flashbackReader = new PostgreSqlFlashbackReader(client, inspector, {
+        artifacts,
+        decodeResource,
+      });
       const worker = new RuntimeWorker(auth.authenticator, {
         getSpace: () => {
           throw new Error("a flashback cannot route a command");
         },
-        flashback: new PostgreSqlFlashbackReader(client, inspector, { artifacts, decodeResource }),
+        flashback: flashbackReader,
       });
       const post = (fields: object) =>
         worker.fetch(
@@ -153,6 +158,7 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
         decodeResource,
       };
       let reached = await replayBirth(provisioned.authorization, partition, ports);
+      let atMoment: Awaited<ReturnType<typeof replayPartition>>["state"] | undefined;
       for (const frame of flashback.frames) {
         const replayed = await replayPartition(
           partition,
@@ -164,6 +170,7 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
           state: replayed.state,
           coveredPartitionSequence: BigInt(frame.partitionSequence),
         };
+        if (frame.moment) atMoment = replayed.state;
         const scene = livingSceneOf(auth.scope, replayed.state);
         expect([frame.projection.revision, frame.projection.simulationTime]).toEqual([
           replayed.state.revision,
@@ -182,7 +189,154 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
       expect(flashback.context?.present.map((entity) => entity.objectId)).toEqual(
         momentFrame.projection.entities.map((entity) => entity.objectId),
       );
-      expect(flashback.summary.map((line) => line.kind)).toContain("cause");
+      // Exact values: the context is the independently replayed moment state, and the cause and
+      // influence lines are the actor's retained draft of the moment's command, read from its receipt.
+      const actorId = flashback.moment.objectId!;
+      const state = atMoment!;
+      const dayLength = world.behavior.policy.environment?.dayLengthMs;
+      expect(dayLength).toBeDefined();
+      const time = state.simulationTime;
+      const momentScene = livingSceneOf(auth.scope, state);
+      const label = (id: string) =>
+        momentScene.entities.find((entity) => entity.objectId === id)?.presentation.label ?? id;
+      const entity = state.entities.find((item) => item.objectId === actorId)!;
+      const wellbeing = state.wellbeing?.entries.find((entry) => entry.objectId === actorId);
+      expect(flashback.context).toEqual({
+        revision: state.revision.toString(),
+        simulationTime: time.toString(),
+        day: (time / dayLength! + 1n).toString(),
+        timeOfDayMs: (time % dayLength!).toString(),
+        rainIntensity: state.weather.rainIntensity,
+        present: momentScene.entities.map((item) => ({
+          objectId: item.objectId,
+          label: item.presentation.label,
+        })),
+        actor: {
+          objectId: actorId,
+          label: label(actorId),
+          needs:
+            entity.needs === undefined
+              ? null
+              : { hunger: entity.needs.hunger, wetness: entity.needs.wetness },
+          wellbeing:
+            wellbeing === undefined
+              ? null
+              : { thirst: wellbeing.thirst, health: wellbeing.health, comfort: wellbeing.comfort },
+          selectedAction:
+            entity.selectedAction === undefined
+              ? null
+              : {
+                  kind: entity.selectedAction.kind,
+                  targetObjectId: entity.selectedAction.targetObjectId ?? null,
+                },
+        },
+      });
+      const minutes = (time % dayLength!) / 60_000n;
+      const frameCite = [`frame:${momentFrame.partitionSequence}`];
+      const actorState = [
+        ...(entity.needs === undefined
+          ? []
+          : [`hunger ${entity.needs.hunger}`, `wetness ${entity.needs.wetness}`]),
+        ...(wellbeing === undefined
+          ? []
+          : [`thirst ${wellbeing.thirst}`, `health ${wellbeing.health}`, wellbeing.comfort]),
+      ];
+      expect(flashback.summary).toEqual(
+        expect.arrayContaining([
+          {
+            kind: "context",
+            text: `It was day ${time / dayLength! + 1n}, ${minutes / 60n}:${(minutes % 60n).toString().padStart(2, "0")} into the day.`,
+            cites: frameCite,
+          },
+          {
+            kind: "context",
+            text:
+              state.weather.rainIntensity > 0
+                ? `It was raining (intensity ${state.weather.rainIntensity} of 10000).`
+                : "It was dry.",
+            cites: frameCite,
+          },
+          {
+            kind: "context",
+            text: `Present: ${momentScene.entities.map((item) => item.presentation.label).join(", ")}.`,
+            cites: frameCite,
+          },
+          ...(actorState.length === 0
+            ? []
+            : [
+                {
+                  kind: "context",
+                  text: `${label(actorId)} had ${actorState.join(", ")}.`,
+                  cites: frameCite,
+                },
+              ]),
+        ]),
+      );
+      // The receipt's retained drafts: the actor's, recorded at or before the moment, are its causes.
+      type RetainedCandidate = {
+        readonly action: { readonly kind: string; readonly targetObjectId?: string };
+        readonly features: Readonly<Record<string, bigint>>;
+        readonly score: bigint;
+        readonly excludedReason?: string | null;
+      };
+      type RetainedDraft = {
+        readonly decision: {
+          readonly objectId: string;
+          readonly simulationTime: bigint;
+          readonly selectionTier: string;
+          readonly selectedAction: { readonly kind: string; readonly targetObjectId?: string };
+          readonly candidates: readonly RetainedCandidate[];
+        };
+      };
+      const retained = (
+        decodeCanonicalNode(
+          JSON.parse(
+            await truth(
+              "SELECT result->'projectionDelta'->'decisionTraces'->'drafts' FROM clockgrove.command_receipts WHERE command_id = 'flashback-10'",
+            ),
+          ),
+        ) as readonly RetainedDraft[]
+      )
+        .map((draft, index) => ({ draft: draft.decision, index }))
+        .filter(
+          ({ draft }) =>
+            draft.objectId === actorId &&
+            draft.simulationTime <= BigInt(flashback.moment.simulationTime),
+        );
+      expect(retained.length).toBeGreaterThan(0);
+      const expectedCauses = retained.flatMap(({ draft, index }) => {
+        const cites = [`draft:flashback-10#${index}`];
+        const action = draft.selectedAction;
+        const chosen = draft.candidates.find(
+          (candidate) =>
+            (candidate.excludedReason ?? null) === null &&
+            candidate.action.kind === action.kind &&
+            (candidate.action.targetObjectId ?? null) === (action.targetObjectId ?? null),
+        );
+        const others = draft.candidates.filter((candidate) => candidate !== chosen).length;
+        const features = Object.entries(chosen?.features ?? {});
+        return [
+          {
+            kind: "cause",
+            text: `${label(draft.objectId)} chose to ${action.kind.replaceAll("-", " ")}${
+              action.targetObjectId === undefined ? "" : ` at ${label(action.targetObjectId)}`
+            } (${draft.selectionTier}${chosen === undefined ? "" : `, score ${chosen.score}`}) over ${others} other option${others === 1 ? "" : "s"}.`,
+            cites,
+          },
+          ...(features.length === 0
+            ? []
+            : [
+                {
+                  kind: "influence",
+                  text: `It weighed ${features.map(([name, value]) => `${name} ${value}`).join(", ")}.`,
+                  cites,
+                },
+              ]),
+        ];
+      });
+      expect(
+        flashback.summary.filter((line) => line.cites.some((cite) => cite.startsWith("draft:"))),
+      ).toEqual(expectedCauses);
       // Causes are the moment entity's own: another entity of the same step, which decided nothing
       // there, gets no borrowed reason, only "unknown".
       const actor = flashback.moment.objectId!;
@@ -271,6 +425,23 @@ it("replays a past moment read-only from a snapshot, with cited context and caus
       expect([unknown.status, await unknown.json()]).toEqual([404, { error: "event_not_found" }]);
       const foreign = await post({ commandId: decodeOpaqueId("no-such-command", "CommandId") });
       expect([foreign.status, await foreign.json()]).toEqual([404, { error: "command_not_found" }]);
+      // A producer defect after the request decoded (a reader or encoder decode error) is the
+      // server's failure, never the caller's invalid request.
+      for (const failure of [
+        new ContractDecodeError("retained", "PRIVATE-INTERNAL-DEFECT"),
+        new SyntaxError("PRIVATE-INTERNAL-DEFECT"),
+      ]) {
+        const seam = vi.spyOn(flashbackReader, "inspect").mockRejectedValueOnce(failure);
+        try {
+          const failed = await post({ eventId });
+          expect([failed.status, await failed.json()]).toEqual([
+            500,
+            { error: "inspection_failed" },
+          ]);
+        } finally {
+          seam.mockRestore();
+        }
+      }
       auth.revoke();
       const refused = await post({ eventId });
       expect([refused.status, await refused.json()]).toEqual([
@@ -365,10 +536,54 @@ it("replays an event inside a command longer than the window from a start below 
       expect(flashback.replay.status === "replayed" && flashback.replay.start).not.toBe(
         snapshot.snapshotId,
       );
+      // The command's end lies more than the window past the moment event, so replay stops at the
+      // moment's frame: from the birth, only the long command's events up to the moment are replayed,
+      // and one flashback replays at most the catch-up bound plus the window.
+      const end = BigInt(
+        await truth("SELECT max(partition_sequence)::text FROM clockgrove.events"),
+      );
+      expect(end).toBeGreaterThan(BigInt(sequence!) + BigInt(FLASHBACK_BOUNDS.windowEvents));
       expect(flashback.frames.map((frame) => [frame.partitionSequence, frame.moment])).toEqual([
         [sequence, true],
-        [await truth("SELECT max(partition_sequence)::text FROM clockgrove.events"), false],
       ]);
+      expect(flashback.replay.status === "replayed" && flashback.replay.eventsReplayed).toBe(
+        Number(
+          await truth(
+            `SELECT count(*) FROM clockgrove.events WHERE command_id = 'flashback-long' AND partition_sequence <= ${sequence}`,
+          ),
+        ),
+      );
+      expect(
+        flashback.replay.status === "replayed" && flashback.replay.eventsReplayed,
+      ).toBeLessThanOrEqual(FLASHBACK_BOUNDS.catchUpEvents + FLASHBACK_BOUNDS.windowEvents);
+      // The long command holds many decisions by the moment's actor; those recorded after the moment
+      // event are not its causes, and the summary says how many it left out.
+      const actor = flashback.moment.objectId;
+      const momentTime = BigInt(flashback.moment.simulationTime);
+      const actorDrafts =
+        flashback.why.traces.status === "available"
+          ? flashback.why.traces.drafts.filter((draft) => draft.objectId === actor)
+          : [];
+      const later = actorDrafts.filter((draft) => BigInt(draft.simulationTime) > momentTime);
+      expect(later.length).toBeGreaterThan(0);
+      const cited = flashback.summary
+        .flatMap((line) => line.cites)
+        .filter((cite) => cite.startsWith("draft:"))
+        .map((cite) => actorDrafts.find((draft) => `${draft.draftIndex}` === cite.split("#")[1]));
+      for (const draft of cited)
+        expect(BigInt(draft!.simulationTime)).toBeLessThanOrEqual(momentTime);
+      expect(
+        flashback.summary.some(
+          (line) =>
+            line.kind === "limit" &&
+            line.text.includes(
+              `${later.length} decision${later.length === 1 ? "" : "s"} recorded after this moment`,
+            ),
+        ),
+      ).toBe(true);
+      expect(flashback.summary.at(-1)?.text).toContain(
+        `The window was cut at ${FLASHBACK_BOUNDS.windowEvents} events.`,
+      );
 
       // Each frame, and the moment's context, is the state a replay from birth reaches there.
       const ports = {

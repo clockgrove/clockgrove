@@ -387,6 +387,24 @@ function entryLogIds(input: CausalEntryInput): RuntimeLogIds {
 }
 
 /** An entry's stable refusals: each unknown entry kind has its own code. */
+/**
+ * Input decoding has already finished when an audited port runs or its answer is encoded, so a
+ * decode error then is a producer defect: a server failure (500, logged), never the caller's 400.
+ */
+async function producerDefectsFail<T>(work: () => T | Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (
+      error instanceof ContractDecodeError ||
+      error instanceof CanonicalNodeError ||
+      error instanceof SyntaxError
+    )
+      throw new Error("recorded evidence decoding failed", { cause: error });
+    throw error;
+  }
+}
+
 function entryRefusal(note: RequestNote, error: unknown): Response | undefined {
   if (error instanceof InspectedCommandNotFoundError)
     return refusal(note, "command_not_found", 404);
@@ -1427,20 +1445,8 @@ export class RuntimeWorker {
           ? undefined
           : {
               deny: (input, principalId, denial) => inspector.deny(input, principalId, denial),
-              inspect: async (input, context) => {
-                try {
-                  return await inspector.recordedWhy(input, context);
-                } catch (error) {
-                  // Input decoding has already finished; producer defects are server failures.
-                  if (
-                    error instanceof ContractDecodeError ||
-                    error instanceof CanonicalNodeError ||
-                    error instanceof SyntaxError
-                  )
-                    throw new Error("recorded evidence decoding failed", { cause: error });
-                  throw error;
-                }
-              },
+              inspect: (input, context) =>
+                producerDefectsFail(() => inspector.recordedWhy(input, context)),
             },
       grant: OBSERVE_GRANT,
       seed: entryIdentity,
@@ -1457,6 +1463,7 @@ export class RuntimeWorker {
 
   /** A flashback: the entry's moment replayed from the journal, its context and recorded causes. */
   private flashback(request: Request, note: RequestNote): Promise<Response> {
+    const flashback = this.bindings.flashback;
     return this.audited(request, note, {
       decode: (value): FlashbackInput => {
         const {
@@ -1470,13 +1477,23 @@ export class RuntimeWorker {
         return { scope: { tenantId, worldId, timelineId, spaceId }, ...entry };
       },
       invalid: "invalid_inspection_request",
-      port: this.bindings.flashback,
+      port:
+        flashback === undefined
+          ? undefined
+          : {
+              deny: (input, principalId, denial) => flashback.deny(input, principalId, denial),
+              inspect: (input, context) =>
+                // Encoded inside the port, so an encoder defect is a server failure too.
+                producerDefectsFail(async () =>
+                  encodeFlashback(await flashback.inspect(input, context)),
+                ),
+            },
       grant: OBSERVE_GRANT,
       seed: entryIdentity,
       ids: entryLogIds,
-      answer: (flashback) => {
+      answer: (body) => {
         note.outcome = "read";
-        return new Response(encodeFlashback(flashback), {
+        return new Response(body, {
           status: 200,
           headers: { "content-type": "application/json" },
         });

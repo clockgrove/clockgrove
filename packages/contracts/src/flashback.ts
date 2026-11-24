@@ -29,7 +29,9 @@ import {
  * compatible snapshot is never replayed from birth. `snapshotRefs`: the most snapshot refs read
  * newest-first within the catch-up bound to find the start; the sweep leaves about two there
  * (4,000 events at its 2,000-event cadence), and the rest is room for manual snapshots, so the
- * lookup's read is bounded without missing a sweep snapshot.
+ * lookup's read is bounded without missing a sweep snapshot. Past the start, replay stops
+ * `windowEvents` after the first frame shown (or the moment event before it), so one flashback
+ * replays at most `catchUpEvents + windowEvents` events; a frame beyond that is left out as cut.
  */
 export const FLASHBACK_BOUNDS = Object.freeze({
   framesBefore: 8,

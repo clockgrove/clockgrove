@@ -206,6 +206,11 @@ export class PostgreSqlFlashbackReader {
       const start = await this.start(authorization, partitionScope, stored, earliest, ports);
       if (start === undefined) replay = { status: "beyond-catch-up-bound" };
       else {
+        // Past the start, replay stops `windowEvents` after `earliest`: a frame ending later (the
+        // end of a command longer than the window, after an early moment event) is left out and the
+        // replay says it was cut, so one flashback replays at most `catchUpEvents + windowEvents`.
+        const limit = earliest + BigInt(FLASHBACK_BOUNDS.windowEvents);
+        let cut = false;
         let reached: ReplayStart = start;
         let eventsReplayed = 0;
         const to = async (sequence: bigint) => {
@@ -231,6 +236,10 @@ export class PostgreSqlFlashbackReader {
               ),
             );
           }
+          if (block.end > limit) {
+            cut = true;
+            break;
+          }
           const state = await to(block.end);
           const moment = inBlock && momentEvent.partitionSequence === block.end;
           if (moment) momentState = { state, sequence: block.end };
@@ -249,7 +258,7 @@ export class PostgreSqlFlashbackReader {
           status: "replayed",
           start: start.snapshotId ?? "birth",
           eventsReplayed,
-          truncated: window.truncated,
+          truncated: window.truncated || cut,
           positionsBetweenFrames: "not-recorded",
         };
       }
@@ -295,6 +304,7 @@ export class PostgreSqlFlashbackReader {
         replay,
         context: contextView,
         momentSequence: momentState?.sequence,
+        momentTime: momentEvent.simulationTime,
         nameOf,
       }),
     };
@@ -511,6 +521,7 @@ function summaryOf(input: {
   readonly replay: FlashbackReplay;
   readonly context: FlashbackContext | null;
   readonly momentSequence: bigint | undefined;
+  readonly momentTime: bigint;
   readonly nameOf: (objectId: string) => string;
 }): FlashbackLine[] {
   const { own, why, replay, context, nameOf, entryEvent, objectId } = input;
@@ -598,8 +609,12 @@ function summaryOf(input: {
   }
   const recorded = why.traces.status === "available" ? why.traces.drafts : [];
   // Only the moment entity's own decisions and resource causes: another actor's choice in the same
-  // step is not this moment's cause, so without its own the cause is unknown.
-  const drafts = recorded.filter((draft) => draft.objectId === objectId).slice(0, SUMMARY_EVENTS);
+  // step is not this moment's cause, so without its own the cause is unknown. A decision recorded
+  // after the moment (a command spanning several decision intervals) is not its cause either; of
+  // those at or before it, the latest eight are told, the ones nearest the moment.
+  const mine = recorded.filter((draft) => draft.objectId === objectId);
+  const prior = mine.filter((draft) => BigInt(draft.simulationTime) <= input.momentTime);
+  const drafts = prior.slice(-SUMMARY_EVENTS);
   const causes = (why.resourceCauses ?? []).filter(
     (cause) => cause.objectId === objectId || cause.fromObjectId === objectId,
   );
@@ -627,6 +642,25 @@ function summaryOf(input: {
         cites: cite,
       });
   }
+  const earlier = prior.length - drafts.length;
+  const later = mine.length - prior.length;
+  if (earlier > 0 || later > 0)
+    lines.push({
+      kind: "limit",
+      text: [
+        ...(earlier > 0
+          ? [
+              `${earlier} earlier decision${earlier === 1 ? "" : "s"} in the same step ${earlier === 1 ? "is" : "are"} not told.`,
+            ]
+          : []),
+        ...(later > 0
+          ? [
+              `${later} decision${later === 1 ? "" : "s"} recorded after this moment ${later === 1 ? "is" : "are"} not ${later === 1 ? "its cause" : "its causes"}.`,
+            ]
+          : []),
+      ].join(" "),
+      cites: [`command:${why.commandId}`],
+    });
   for (const cause of causes)
     lines.push({
       kind: "cause",
