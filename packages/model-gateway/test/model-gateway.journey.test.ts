@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   AiSdkRouteAdapter,
+  callUsage,
   createModelGateway,
   InMemoryModelBudget,
   type ModelAliasDefinition,
@@ -13,7 +14,14 @@ import {
 
 // A local stand-in for the Anthropic Messages API, so the real adapter runs offline.
 type Behaviour =
-  | { reply: string[]; input: number; output: number }
+  | {
+      reply: string[];
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      thinking?: number;
+    }
   | { stallAfter: string[] }
   | { overloadAfter: string[] }
   | { status: number };
@@ -52,7 +60,14 @@ beforeAll(async () => {
             content: [],
             stop_reason: null,
             stop_sequence: null,
-            usage: { input_tokens: input, output_tokens: 1 },
+            usage: {
+              input_tokens: input,
+              output_tokens: 1,
+              ...("cacheRead" in behaviour ? { cache_read_input_tokens: behaviour.cacheRead } : {}),
+              ...("cacheWrite" in behaviour
+                ? { cache_creation_input_tokens: behaviour.cacheWrite }
+                : {}),
+            },
           },
         }),
       );
@@ -83,7 +98,12 @@ beforeAll(async () => {
         sse({
           type: "message_delta",
           delta: { stop_reason: "end_turn", stop_sequence: null },
-          usage: { output_tokens: behaviour.output },
+          usage: {
+            output_tokens: behaviour.output,
+            ...(behaviour.thinking === undefined
+              ? {}
+              : { output_tokens_details: { thinking_tokens: behaviour.thinking } }),
+          },
         }),
       );
       response.end(sse({ type: "message_stop" }));
@@ -196,6 +216,86 @@ describe("model gateway through the AI SDK adapter", () => {
       expect(request?.body).not.toContain(secret);
       expect(JSON.stringify(outcome)).not.toContain(secret);
     }
+  });
+
+  it("reports a call's usage by token type, cached and reasoning tokens as parts of the totals", async () => {
+    // Issue 329: one completed attempt whose provider reported cache reads, cache writes and
+    // thinking tokens. The AI SDK's input total includes both cache counts; reasoning is a part of
+    // the output.
+    queues.primary = [
+      { reply: ["Hi"], input: 10, output: 9, cacheRead: 30, cacheWrite: 5, thinking: 4 },
+    ];
+    const cached = await localGateway([]).stream({
+      alias: "resident.local",
+      callId: "u-1",
+      attribution,
+      ...ask,
+    });
+    expect(callUsage(cached.record)).toEqual({
+      inputTokens: 45,
+      cachedInputTokens: 30,
+      cacheWriteInputTokens: 5,
+      outputTokens: 9,
+      reasoningTokens: 4,
+      calls: 1,
+      costMicrousd: 360, // 45 × 4 + 9 × 20
+    });
+    // Over two attempts: the primary reached its provider and timed out before first bytes without
+    // reporting usage, so every token total is unknown, never the fallback's alone.
+    queues.primary = [{ stallAfter: [] }];
+    queues.fallback = [{ reply: ["ok"], input: 5, output: 2, cacheRead: 0, cacheWrite: 0 }];
+    const fellBack = await localGateway([]).stream({
+      alias: "resident.local",
+      callId: "u-2",
+      attribution,
+      ...ask,
+    });
+    expect([fellBack.record.decision, callUsage(fellBack.record)]).toEqual([
+      "fallback",
+      {
+        inputTokens: null,
+        cachedInputTokens: null,
+        cacheWriteInputTokens: null,
+        outputTokens: null,
+        reasoningTokens: null,
+        calls: 2,
+        costMicrousd: 60, // the gateway's own cost record: 5 × 4 + 2 × 20
+      },
+    ]);
+    // An attempt that never reached a provider counts nothing: the fallback's reported tokens are
+    // the call's whole use. The provider reported no thinking tokens, so reasoning is unknown.
+    const breakerGateway = localGateway([]);
+    queues.primary = [{ status: 529 }, { status: 529 }, { status: 529 }];
+    queues.fallback = Array.from({ length: 4 }, () => ({
+      reply: ["ok"],
+      input: 3,
+      output: 2,
+      cacheRead: 1,
+      cacheWrite: 0,
+    }));
+    for (const callId of ["u-3", "u-4", "u-5"])
+      await breakerGateway.stream({ alias: "resident.local", callId, attribution, ...ask });
+    const skipped = await breakerGateway.stream({
+      alias: "resident.local",
+      callId: "u-6",
+      attribution,
+      ...ask,
+    });
+    expect([
+      skipped.record.attempts.map((attempt) => attempt.outcome),
+      callUsage(skipped.record),
+    ]).toEqual([
+      ["skipped_breaker_open", "completed"],
+      {
+        inputTokens: 4,
+        cachedInputTokens: 1,
+        cacheWriteInputTokens: 0,
+        outputTokens: 2,
+        reasoningTokens: null,
+        calls: 1,
+        costMicrousd: 56,
+      },
+    ]);
   });
 
   it("falls back after a timeout before first bytes, but not after first bytes", async () => {

@@ -9,8 +9,8 @@ accounts"). Rating and billing stay with the developer's own provider.
 ## Where usage comes from
 
 A usage event is derived only from the engine's own durable records, never from what a client
-claims. Database triggers in migration 0076 write it in the same transaction as the row that proves
-the use; no role, the runtime's included, may insert, update or delete one.
+claims. Deferred database triggers in migration 0076 write it when the transaction that wrote the
+row proving the use commits; no role, the runtime's included, may insert, update or delete one.
 
 | Category     | Written when                                                      | Source             |
 | ------------ | ----------------------------------------------------------------- | ------------------ |
@@ -26,25 +26,32 @@ run are not yet usage events; they come with part 2 of issue 329.
 | Field         | Meaning                                                                                   |
 | ------------- | ----------------------------------------------------------------------------------------- |
 | `eventId`     | Stable identity from the source row's key: `run_step:<runId>:<step>` or `delivery:<sha256>`. |
-| `sequence`    | The feed order, a decimal string. It only grows.                                          |
+| `sequence`    | The feed order, a decimal string. Within a timeline it is taken in commit order, so a reader paging by it never passes an event that commits later. |
 | `worldId`, `timelineId`, `spaceId` | The world it was used in.                                            |
 | `category`    | `model_call`, `tool_call` or `delivery`.                                                  |
 | `source`      | `run_step` or `delivery_receipt`: the durable record it came from.                        |
 | `resource`    | The model, the capability or the delivery sink.                                           |
-| `status`, `outcomeCode` | The source's terminal disposition, so a failed or refused call is visible.      |
+| `status`, `outcomeCode` | The source's terminal disposition, so a failed or refused call is visible. A tool call refused before dispatch or simulated reads `refused` or `simulated`. |
 | `principalId` | The player the use is for: the run's initiating principal or the delivery's recipient.    |
 | `personaId`   | The player's persona in the run; `null` for a delivery.                                   |
-| `actorId`, `sessionId`, `runId`, `rootRunId` | The actor, session, run and the run's causal root.         |
+| `actorId`, `sessionId`, `runId`, `rootRunId` | The actor, session, run and the run's causal root. A response delivery's run is the completed run that answered the message it responds to; a delivery for no message has `null` run and root. |
 | `quantities`  | Native quantities only, by category (below).                                              |
 | `occurredAt`  | Wall-clock time the use ended (the step's end, the receipt's write).                      |
 | `worldTime`   | The world's committed simulation time beside it, a decimal string; `null` without one.   |
 
 Quantities:
 
-- `model_call`: `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens` and `calls`,
-  summed over every route attempt of the call (a fallback route's attempt counts). An attempt that
-  never reached a provider (breaker open, credential missing) counts nothing.
-- `tool_call`: `calls` (1).
+- `model_call`: `inputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`, `outputTokens`,
+  `reasoningTokens` and `calls`, summed over every route attempt of the call (a fallback route's
+  attempt counts). An attempt that never reached a provider (breaker open, credential missing)
+  counts nothing, and an attempt that committed a checkpointed answer again counts no call.
+  **Parts, not siblings:** `inputTokens` is the whole input, and `cachedInputTokens` (read from the
+  provider's prompt cache) and `cacheWriteInputTokens` (written to it) are parts of it;
+  `reasoningTokens` is a part of `outputTokens`. Input not served from or written to the cache is
+  `inputTokens − cachedInputTokens − cacheWriteInputTokens`; visible output is
+  `outputTokens − reasoningTokens`. Never add a part to its total.
+- `tool_call`: `calls`: 1 for a tool the engine dispatched; 0 for one it refused before dispatch or
+  only simulated.
 - `delivery`: `deliveries` (1).
 
 **Unknown stays unknown.** A quantity is `null` when the engine does not know it: a provider that
@@ -57,7 +64,9 @@ ended without a call record. A `null` is never zero, and a consumer must not sum
 twice is one event. Forward it as the dedup key of the developer's meter:
 
 - Stripe meter events: `identifier` = `eventId`, `timestamp` = `occurredAt` (Stripe takes timestamps
-  within 35 days), one meter event per quantity the meter counts.
+  within 35 days), one meter event per quantity the meter counts. A meter that prices cached or
+  reasoning tokens apart meters the disjoint quantities (uncached input, cache read, cache write;
+  visible output, reasoning), never a total and its part, or those tokens bill twice.
 - OpenMeter (CloudEvents): `id` = `eventId`, `source` = the world (`clockgrove/<worldId>/<timelineId>`),
   `subject` = `principalId`, `time` = `occurredAt`, `data` = `quantities`; OpenMeter dedupes on
   `source` and `id`.

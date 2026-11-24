@@ -20,6 +20,7 @@ export type ProviderEvent =
       inputTokens: number | null;
       outputTokens: number | null;
       cachedInputTokens?: number | null;
+      cacheWriteInputTokens?: number | null;
       reasoningTokens?: number | null;
       reportedCostUsd: number | null;
       responseModel: string | null;
@@ -43,6 +44,7 @@ export type ProviderBilling =
       inputTokens: number | null;
       outputTokens: number | null;
       cachedInputTokens?: number | null;
+      cacheWriteInputTokens?: number | null;
       reasoningTokens?: number | null;
       reportedCostUsd: number | null;
     }>;

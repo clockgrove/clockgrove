@@ -5,27 +5,33 @@
 -- Quantities are native (tokens by type, calls, deliveries); a null quantity is unknown, never
 -- zero. No price, cost, currency, balance or account is part of an event (docs/protocols/usage.md).
 
--- A model step records what the whole call used: every route attempt, by token type.
+-- A model step records what the whole call used: every route attempt, by token type. Cached
+-- (read and written) input tokens are parts of `input_tokens`; reasoning tokens are a part of
+-- `output_tokens`.
 ALTER TABLE clockgrove.run_steps
   ADD COLUMN cached_input_tokens integer CHECK (cached_input_tokens >= 0),
+  ADD COLUMN cache_write_input_tokens integer CHECK (cache_write_input_tokens >= 0),
   ADD COLUMN reasoning_tokens integer CHECK (reasoning_tokens >= 0),
   ADD COLUMN model_calls integer CHECK (model_calls BETWEEN 0 AND 32);
-GRANT UPDATE (cached_input_tokens, reasoning_tokens, model_calls)
+GRANT UPDATE (cached_input_tokens, cache_write_input_tokens, reasoning_tokens, model_calls)
   ON clockgrove.run_steps TO clockgrove_runtime;
 
 CREATE TABLE clockgrove.usage_events (
   tenant_id text NOT NULL,
   -- Stable identity derived from the source row's key: deriving or forwarding twice is one event.
   event_id text NOT NULL CHECK (octet_length(event_id) BETWEEN 1 AND 2200),
-  -- The feed order: a reader pages by it and resumes after the last one it took.
+  -- The feed order: a reader pages by it and resumes after the last one it took. It is taken at
+  -- commit under the timeline's usage lock (`usage_feed_lock`), so within a timeline a lower
+  -- sequence is never committed after a higher one and a cursor never passes an unseen event.
   sequence bigint GENERATED ALWAYS AS IDENTITY,
   world_id text NOT NULL,
   timeline_id text NOT NULL,
   space_id text NOT NULL,
   category text NOT NULL CHECK (category IN ('model_call', 'tool_call', 'delivery')),
   source text NOT NULL CHECK (source IN ('run_step', 'delivery_receipt')),
-  -- The model, the capability or the delivery sink the use went to.
-  resource text CHECK (octet_length(resource) BETWEEN 1 AND 256),
+  -- The model, the capability or the delivery sink the use went to; as long as a capability ID
+  -- (run_steps.tool, 0060).
+  resource text CHECK (octet_length(resource) BETWEEN 1 AND 4096),
   status text NOT NULL CHECK (status ~ '^[a-z_]{1,64}$'),
   outcome_code text CHECK (outcome_code ~ '^[a-z_]{1,64}$'),
   -- Who and what it is for: the player (principal), their persona, the actor, the session, the
@@ -85,7 +91,18 @@ RETURNS bigint LANGUAGE sql STABLE SET search_path = pg_catalog, clockgrove AS $
 $$;
 REVOKE ALL ON FUNCTION clockgrove.usage_world_time(text, text, text, text) FROM PUBLIC;
 
--- One event per model attempt or tool execution step, when it ends.
+-- Usage is written by deferred triggers, at commit, after this lock: transactions on one timeline
+-- take their sequences in the order they commit, so a feed reader paging by sequence sees every
+-- event of a timeline in order and skips none.
+CREATE FUNCTION clockgrove.usage_feed_lock(t text, w text, tl text) RETURNS void
+LANGUAGE sql SET search_path = pg_catalog, clockgrove AS $$
+  SELECT pg_advisory_xact_lock(hashtextextended('usage-feed:' || jsonb_build_array(t, w, tl)::text, 0))
+$$;
+REVOKE ALL ON FUNCTION clockgrove.usage_feed_lock(text, text, text) FROM PUBLIC;
+
+-- One event per model attempt or tool execution step, when it ends. A tool call the engine refused
+-- before dispatch or only simulated (a preview) reached no tool: it keeps its own status and
+-- counts no call.
 CREATE FUNCTION clockgrove.record_step_usage() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 DECLARE
@@ -97,6 +114,7 @@ BEGIN
   END IF;
   SELECT * INTO STRICT run FROM clockgrove.agent_runs
    WHERE tenant_id = NEW.tenant_id AND run_id = NEW.run_id;
+  PERFORM clockgrove.usage_feed_lock(run.tenant_id, run.world_id, run.timeline_id);
   INSERT INTO clockgrove.usage_events (
     tenant_id, event_id, world_id, timeline_id, space_id, category, source, resource, status,
     outcome_code, principal_id, persona_id, actor_id, session_id, run_id, root_run_id, quantities,
@@ -105,14 +123,19 @@ BEGIN
     NEW.tenant_id, 'run_step:' || NEW.run_id || ':' || NEW.step, run.world_id, run.timeline_id,
     run.space_id,
     CASE NEW.kind WHEN 'model_attempt' THEN 'model_call' ELSE 'tool_call' END,
-    'run_step', coalesce(NEW.model, NEW.tool), NEW.status, NEW.outcome_code, run.principal_id,
+    'run_step', coalesce(NEW.model, NEW.tool),
+    CASE WHEN NEW.kind = 'tool_execution' AND NEW.tool_evidence->>'status' IN ('refused', 'simulated')
+      THEN NEW.tool_evidence->>'status' ELSE NEW.status END,
+    NEW.outcome_code, run.principal_id,
     run.persona_id, run.actor_id, NEW.session_id, NEW.run_id, run.root_run_id,
     CASE NEW.kind
       WHEN 'model_attempt' THEN jsonb_build_object(
         'inputTokens', NEW.input_tokens, 'cachedInputTokens', NEW.cached_input_tokens,
+        'cacheWriteInputTokens', NEW.cache_write_input_tokens,
         'outputTokens', NEW.output_tokens, 'reasoningTokens', NEW.reasoning_tokens,
         'calls', NEW.model_calls)
-      ELSE jsonb_build_object('calls', 1)
+      ELSE jsonb_build_object('calls',
+        CASE WHEN NEW.tool_evidence->>'status' IN ('refused', 'simulated') THEN 0 ELSE 1 END)
     END,
     coalesce(NEW.ended_at, statement_timestamp()),
     (SELECT simulation_time FROM clockgrove.partition_states AS p
@@ -123,29 +146,39 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION clockgrove.record_step_usage() FROM PUBLIC;
-CREATE TRIGGER run_steps_usage AFTER INSERT OR UPDATE OF status ON clockgrove.run_steps
+CREATE CONSTRAINT TRIGGER run_steps_usage AFTER INSERT OR UPDATE OF status ON clockgrove.run_steps
+  DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION clockgrove.record_step_usage();
 
--- One event per delivery its sink received.
+-- One event per delivery its sink received. A response's run is the completed run that answered
+-- the message it responds to; a delivery for no message has no run.
 CREATE FUNCTION clockgrove.record_delivery_usage() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 DECLARE
   delivery clockgrove.deliveries%ROWTYPE;
+  run clockgrove.agent_runs%ROWTYPE;
 BEGIN
   SELECT * INTO STRICT delivery FROM clockgrove.deliveries d
    WHERE d.tenant_id = NEW.tenant_id AND d.world_id = NEW.world_id
      AND d.timeline_id = NEW.timeline_id AND d.actor_id = NEW.actor_id
      AND d.principal_id = NEW.principal_id AND d.dedupe_key = NEW.dedupe_key;
+  IF delivery.request->'reason'->>'kind' = 'response' THEN
+    SELECT * INTO run FROM clockgrove.agent_runs r
+     WHERE r.tenant_id = NEW.tenant_id AND r.session_id = delivery.session_id
+       AND r.input_message_id = delivery.request->'reason'->>'id' AND r.status = 'completed'
+     ORDER BY r.ended_at DESC, r.run_id LIMIT 1;
+  END IF;
+  PERFORM clockgrove.usage_feed_lock(NEW.tenant_id, NEW.world_id, NEW.timeline_id);
   INSERT INTO clockgrove.usage_events (
     tenant_id, event_id, world_id, timeline_id, space_id, category, source, resource, status,
-    principal_id, actor_id, session_id, quantities, occurred_at, world_time
+    principal_id, actor_id, session_id, run_id, root_run_id, quantities, occurred_at, world_time
   ) VALUES (
     NEW.tenant_id,
     'delivery:' || encode(sha256(convert_to(jsonb_build_array(
       NEW.world_id, NEW.timeline_id, NEW.actor_id, NEW.principal_id, NEW.dedupe_key)::text,
       'UTF8')), 'hex'),
     NEW.world_id, NEW.timeline_id, NEW.space_id, 'delivery', 'delivery_receipt', NEW.sink,
-    'delivered', NEW.principal_id, NEW.actor_id, delivery.session_id,
+    'delivered', NEW.principal_id, NEW.actor_id, delivery.session_id, run.run_id, run.root_run_id,
     jsonb_build_object('deliveries', 1), statement_timestamp(),
     clockgrove.usage_world_time(NEW.tenant_id, NEW.world_id, NEW.timeline_id, NEW.space_id)
   ) ON CONFLICT (tenant_id, event_id) DO NOTHING;
@@ -153,7 +186,8 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION clockgrove.record_delivery_usage() FROM PUBLIC;
-CREATE TRIGGER delivery_sink_receipts_usage AFTER INSERT ON clockgrove.delivery_sink_receipts
+CREATE CONSTRAINT TRIGGER delivery_sink_receipts_usage
+  AFTER INSERT ON clockgrove.delivery_sink_receipts DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION clockgrove.record_delivery_usage();
 
 -- Usage reads are audited like every other inspector read.

@@ -73,6 +73,37 @@ export interface TalkRunStart {
  * Run evidence statements (migration 0036), each run inside the caller's transaction under the
  * participant's authorization. The guards in SQL hold the state machine; these only name moves.
  */
+/** The scripted fixture answers without a provider: one free call that counts no tokens. */
+const FIXTURE_USAGE: ModelUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  costMicrousd: 0,
+  cachedInputTokens: 0,
+  cacheWriteInputTokens: 0,
+  reasoningTokens: 0,
+  calls: 1,
+};
+
+/** A checkpointed answer committed again by a new attempt: no provider was called for it. */
+export const NO_CALL_USAGE: ModelUsage = { ...FIXTURE_USAGE, calls: 0 };
+
+/** Parameters $4 to $10 of a model step's end: what the call used, `null` when unknown. */
+const USAGE_COLUMNS = `cost_microusd = $4, input_tokens = $5, output_tokens = $6,
+  cached_input_tokens = $7, cache_write_input_tokens = $8, reasoning_tokens = $9,
+  model_calls = $10`;
+
+function usageValues(usage: ModelUsage | undefined): (number | null)[] {
+  return [
+    usage?.costMicrousd ?? null,
+    usage?.inputTokens ?? null,
+    usage?.outputTokens ?? null,
+    usage?.cachedInputTokens ?? null,
+    usage?.cacheWriteInputTokens ?? null,
+    usage?.reasoningTokens ?? null,
+    usage?.calls ?? null,
+  ];
+}
+
 export class PostgreSqlRunRecorder {
   constructor(private readonly client: PostgreSqlClient) {}
 
@@ -146,45 +177,33 @@ export class PostgreSqlRunRecorder {
     tenantId: string,
     runId: string,
     outputArtifactId: string,
-    usage: ModelUsage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      costMicrousd: 0,
-      cachedInputTokens: 0,
-      reasoningTokens: 0,
-      calls: 1,
-    },
+    usage: ModelUsage = FIXTURE_USAGE,
   ): Promise<void> {
     await this.client.query(
       `UPDATE clockgrove.run_steps
-          SET status = 'succeeded', output_artifact_id = $3, cost_microusd = $4,
-              input_tokens = $5, output_tokens = $6,
-              cached_input_tokens = $7, reasoning_tokens = $8, model_calls = $9, summary = 'Model answered'
+          SET status = 'succeeded', output_artifact_id = $3, ${USAGE_COLUMNS},
+              summary = 'Model answered'
         WHERE tenant_id = $1 AND run_id = $2 AND kind='model_attempt' AND status='running'`,
-      [
-        tenantId,
-        runId,
-        outputArtifactId,
-        usage.costMicrousd,
-        usage.inputTokens,
-        usage.outputTokens,
-        usage.cachedInputTokens ?? null,
-        usage.reasoningTokens ?? null,
-        usage.calls ?? null,
-      ],
+      [tenantId, runId, outputArtifactId, ...usageValues(usage)],
     );
   }
 
+  /**
+   * The step ended as a system disposition. A call that reached a provider still records what it
+   * used (issue 329); without a call record its usage stays unknown.
+   */
   async systemOutcome(
     tenantId: string,
     sessionId: string,
     runId: string,
     code: string,
+    usage?: ModelUsage,
   ): Promise<void> {
     await this.client.query(
-      `UPDATE clockgrove.run_steps SET status='failed',outcome_code=$3,summary='Model unavailable or research bound reached'
+      `UPDATE clockgrove.run_steps SET status='failed',outcome_code=$3,${USAGE_COLUMNS},
+              summary='Model unavailable or research bound reached'
         WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
-      [tenantId, runId, code],
+      [tenantId, runId, code, ...usageValues(usage)],
     );
     const found = await this.client.query(
       `SELECT coalesce(max(step),0)+1 AS step FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,

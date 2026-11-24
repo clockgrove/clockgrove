@@ -393,6 +393,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      cacheWriteInputTokens: null,
       reasoningTokens: null,
       costMicrousd: null,
       reportedCostUsd: null,
@@ -488,6 +489,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
           inputTokens,
           outputTokens,
           cachedInputTokens: finish?.cachedInputTokens ?? null,
+          cacheWriteInputTokens: finish?.cacheWriteInputTokens ?? null,
           reasoningTokens: finish?.reasoningTokens ?? null,
           costMicrousd:
             inputTokens === null || outputTokens === null
@@ -621,4 +623,44 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | type
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * What one model call used, by token type, summed over every route attempt that reached a provider
+ * (issue 329). An attempt skipped by an open breaker or a missing credential made no provider call
+ * and counts nothing; any other attempt that did not report a type makes that total unknown
+ * (`null`), never zero. Cached and reasoning tokens are parts of the input and output totals.
+ */
+export interface ModelCallUsage {
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly cacheWriteInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly reasoningTokens: number | null;
+  readonly calls: number;
+  readonly costMicrousd: number | null;
+}
+
+export function callUsage(record: ModelCallRecord): ModelCallUsage {
+  const counted = record.attempts.filter(
+    (a) => a.outcome !== "skipped_breaker_open" && a.outcome !== "credential_missing",
+  );
+  const total = (pick: (a: RouteAttempt) => number | null | undefined) => {
+    let sum = 0;
+    for (const a of counted) {
+      const n = pick(a);
+      if (n === null || n === undefined) return null;
+      sum += n;
+    }
+    return sum;
+  };
+  return {
+    inputTokens: total((a) => a.inputTokens),
+    cachedInputTokens: total((a) => a.cachedInputTokens),
+    cacheWriteInputTokens: total((a) => a.cacheWriteInputTokens),
+    outputTokens: total((a) => a.outputTokens),
+    reasoningTokens: total((a) => a.reasoningTokens),
+    calls: counted.length,
+    costMicrousd: record.costMicrousd,
+  };
 }

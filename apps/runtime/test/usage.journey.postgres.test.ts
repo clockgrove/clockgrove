@@ -89,8 +89,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // A delivery's ID is a digest of its key; its shape is what is stable to assert.
       const id = (eventId: string) =>
         /^delivery:[0-9a-f]{64}$/u.test(eventId) ? "delivery" : eventId;
-      const step = (message: string, n: number) =>
-        `run_step:${[...runs].find(([, input]) => input === message)?.[0]}:${n}`;
+      const run = (message: string) => [...runs].find(([, input]) => input === message)?.[0];
+      const step = (message: string, n: number) => `run_step:${run(message)}:${n}`;
       expect(all.status, JSON.stringify(all.page)).toBe(200);
       expect(
         all.page.events.map((event) => [
@@ -104,7 +104,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
           event.personaId,
           event.actorId,
           event.sessionId,
-          event.rootRunId === event.runId,
+          event.runId,
+          event.rootRunId,
           event.quantities,
           event.worldTime !== null,
         ]),
@@ -121,8 +122,17 @@ it.skipIf(!isNativeWorldOwnerChild())(
             "persona-runtime",
             "fixture.keeper",
             session,
-            true,
-            { calls: 1, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
+            // A Talk run is its own causal root.
+            run(message),
+            run(message),
+            {
+              calls: 1,
+              inputTokens: 0,
+              outputTokens: 0,
+              reasoningTokens: 0,
+              cachedInputTokens: 0,
+              cacheWriteInputTokens: 0,
+            },
             true,
           ],
           // The reply's governed delivery, which the fake sink received.
@@ -137,7 +147,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
             null,
             "fixture.keeper",
             session,
-            true,
+            // The response's run: the completed run that answered the message.
+            run(message),
+            run(message),
             { deliveries: 1 },
             true,
           ],
@@ -153,9 +165,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "persona-runtime",
           "fixture.keeper",
           session,
-          true,
+          "run-unreported",
+          "run-unreported",
           {
             calls: null,
+            cacheWriteInputTokens: null,
             inputTokens: null,
             outputTokens: null,
             reasoningTokens: null,
