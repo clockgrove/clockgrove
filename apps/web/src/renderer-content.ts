@@ -285,18 +285,37 @@ export function validateContentLighting(instance: RendererContentInstance): bool
   );
 }
 
+type ValueNode = { value?: unknown };
+/**
+ * A node graph's value-holding nodes, found by one traversal per graph. The scene counts texture
+ * bytes on every draw, and #266 gives every body and contact shape a node graph, so walking each
+ * graph per draw put patches over their budget. Values are read fresh, so a swapped texture counts.
+ */
+const graphValueNodes = new WeakMap<object, readonly ValueNode[]>();
+function valueNodes(node: {
+  traverse: (callback: (child: ValueNode) => void) => void;
+}): readonly ValueNode[] {
+  let found = graphValueNodes.get(node);
+  if (!found) {
+    const nodes: ValueNode[] = [];
+    node.traverse((child) => {
+      if ("value" in child) nodes.push(child);
+    });
+    graphValueNodes.set(node, (found = nodes));
+  }
+  return found;
+}
 export function materialTextures(material: THREE.Material): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
   for (const value of Object.values(material)) {
     if (value instanceof THREE.Texture) textures.add(value);
     const node = value as {
       isNode?: boolean;
-      traverse?: (callback: (child: { value?: unknown }) => void) => void;
+      traverse?: (callback: (child: ValueNode) => void) => void;
     } | null;
     if (node?.isNode && node.traverse)
-      node.traverse((child) => {
+      for (const child of valueNodes(node as Parameters<typeof valueNodes>[0]))
         if (child.value instanceof THREE.Texture) textures.add(child.value);
-      });
   }
   return textures;
 }
