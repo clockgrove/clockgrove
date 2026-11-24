@@ -198,7 +198,12 @@ export class PostgreSqlFlashbackReader {
         momentIndex + FLASHBACK_BOUNDS.framesAfter + 1,
       );
       const first = selected[0]!;
-      const start = await this.start(authorization, partitionScope, stored, first.end, ports);
+      // The start covers no event to be shown: not past the first frame's end, nor past the moment
+      // event when it lies inside its command (a cut command's block is the first, and a snapshot
+      // at its end would already hold the events after the moment).
+      const earliest =
+        momentEvent.partitionSequence < first.end ? momentEvent.partitionSequence : first.end;
+      const start = await this.start(authorization, partitionScope, stored, earliest, ports);
       if (start === undefined) replay = { status: "beyond-catch-up-bound" };
       else {
         let reached: ReplayStart = start;

@@ -26,7 +26,10 @@ import {
  * (2,000 events, `REPLAY_PAGE`), since one advance of the reference fixture journals about 70;
  * `catchUpEvents`: twice the snapshot sweep's 2,000-event cadence (`SNAPSHOT_INTERVAL_EVENTS`), so
  * every moment the sweep keeps up with is in reach. A moment farther than that from its nearest
- * compatible snapshot is never replayed from birth.
+ * compatible snapshot is never replayed from birth. `snapshotRefs`: the most snapshot refs read
+ * newest-first within the catch-up bound to find the start; the sweep leaves about two there
+ * (4,000 events at its 2,000-event cadence), and the rest is room for manual snapshots, so the
+ * lookup's read is bounded without missing a sweep snapshot.
  */
 export const FLASHBACK_BOUNDS = Object.freeze({
   framesBefore: 8,

@@ -295,3 +295,107 @@ it("reads at most the declared window around a flashback's moment, and says when
   expect(long).toEqual({ from: 9_999n - size + 1n, to: 9_999n, cut: true });
   expect(span(long)).toBe(size);
 });
+
+// A command longer than the window: the moment event inside it is replayed from a start at or below
+// it, never from the snapshot taken at the command's end, so no frame holds events twice or early.
+it("replays an event inside a command longer than the window from a start below it, never from that command's end", async () => {
+  await withDisposableDatabase(async (fixture: DatabaseFixture) => {
+    await applyMigrations(fixture.tools, fixture.environment);
+    const world = await testWorld("fixture/reference");
+    const provisioned = await provisionTestWorld(fixture, world, "principal-flashback-cut");
+    const auth = livingHallAuthentication(provisioned);
+    const truth = truthOf(fixture);
+    await withClient(fixture.environment, async (client) => {
+      const journal = new PostgreSqlWorldCommandJournal(client);
+      const step = world.behavior.policy.decisionIntervalMs;
+      const outcome = await executeWorldCommand(
+        commandRequest(
+          provisioned,
+          advanceCommand(
+            world,
+            "flashback-long",
+            world.birth.state.simulationTime + step * 40n,
+            null,
+            { maxInputs: 1_024, maxEvents: 4_096 },
+          ),
+        ),
+        { journal, behavior: provisioned.behavior },
+      );
+      expect(outcome.outcome).toBe("committed");
+      const span = Number(
+        await truth("SELECT count(*) FROM clockgrove.events WHERE command_id = 'flashback-long'"),
+      );
+      expect(span).toBeGreaterThan(FLASHBACK_BOUNDS.windowEvents);
+      const partition = {
+        ...provisioned.partition.target,
+        partitionId: provisioned.partition.route.partitionId,
+      };
+      const artifacts = new PostgreSqlArtifactStore(client);
+      // The snapshot the sweep would take: at the long command's own end.
+      const snapshot = await createPartitionSnapshot(provisioned.authorization, partition, {
+        snapshots: new PostgreSqlSnapshotStore(client),
+        artifacts,
+      });
+
+      const worker = new RuntimeWorker(auth.authenticator, {
+        getSpace: () => {
+          throw new Error("a flashback cannot route a command");
+        },
+        flashback: new PostgreSqlFlashbackReader(client, new PostgreSqlCausalInspector(client), {
+          artifacts,
+          decodeResource,
+        }),
+      });
+      // An early event of the long command, before the window read's tail.
+      const [eventId, sequence] = (
+        await truth(
+          "SELECT event_id || ',' || partition_sequence FROM clockgrove.events WHERE command_id = 'flashback-long' ORDER BY partition_sequence LIMIT 1 OFFSET 10",
+        )
+      ).split(",");
+      const response = await worker.fetch(
+        new Request("http://local.test/v1/runtime/flashback", {
+          method: "POST",
+          headers: { authorization: "Bearer hall-inspect", "content-type": "application/json" },
+          body: JSON.stringify({ version: 1, ...auth.scope, eventId }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const flashback = decodeFlashback(await response.json());
+      expect(flashback.replay).toMatchObject({ status: "replayed", truncated: true });
+      expect(flashback.replay.status === "replayed" && flashback.replay.start).not.toBe(
+        snapshot.snapshotId,
+      );
+      expect(flashback.frames.map((frame) => [frame.partitionSequence, frame.moment])).toEqual([
+        [sequence, true],
+        [await truth("SELECT max(partition_sequence)::text FROM clockgrove.events"), false],
+      ]);
+
+      // Each frame, and the moment's context, is the state a replay from birth reaches there.
+      const ports = {
+        events: new JournalRangeReader(
+          new PostgreSqlJournalRangeSource(client, provisioned.authorization),
+          JOURNAL_EVENT_REGISTRY,
+        ),
+        birth: new PostgreSqlWorldProvisioningStore(client),
+        decodeResource,
+      };
+      const birth = await replayBirth(provisioned.authorization, partition, ports);
+      for (const frame of flashback.frames) {
+        const replayed = await replayPartition(
+          partition,
+          birth,
+          BigInt(frame.partitionSequence),
+          ports,
+        );
+        expect([frame.projection.revision, frame.projection.simulationTime]).toEqual([
+          replayed.state.revision,
+          replayed.state.simulationTime,
+        ]);
+        expect(JSON.parse(JSON.stringify(frame.projection.entities))).toEqual(
+          livingSceneOf(auth.scope, replayed.state).entities,
+        );
+      }
+      expect(flashback.context?.revision).toBe(flashback.frames[0]!.projection.revision.toString());
+    });
+  });
+}, 300_000);

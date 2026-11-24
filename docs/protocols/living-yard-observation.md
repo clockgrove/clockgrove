@@ -462,14 +462,16 @@ every level, and `encodeFlashback` writes its JSON form. It contains the scope, 
 - `bounds`: `FLASHBACK_BOUNDS`, echoed in every response. Up to 8 frames before and 8 after the
   moment's command; a window read of at most 2,000 partition events (one replay page; one advance
   of the reference fixture journals about 70); a catch-up of at most 4,000 events between the
-  replay start and the first frame (twice the snapshot sweep's 2,000-event cadence); and at most 16
-  snapshot refs read, newest first and only within the catch-up bound, to find that start. A
+  replay start and the first frame shown (twice the snapshot sweep's 2,000-event cadence); and at
+  most 16 snapshot refs read, newest first and only within the catch-up bound, to find that start
+  (the sweep leaves about two there; the rest is room for manual snapshots). The start never lies
+  past the first frame shown: a moment event inside a cut command bounds it too. A
   command longer than the window's half after it is read from its tail, so the read never exceeds
   2,000 events, and `truncated` says so.
 - `replay`: `replayed` with its `start` (`birth` or the snapshot ID), `eventsReplayed`, `truncated`
   (the window read cut the frames short) and `positionsBetweenFrames: "not-recorded"`. Two other
   statuses carry no frames and no context. `beyond-catch-up-bound`: the latest compatible snapshot
-  at or below the first frame, else the birth, is more than `catchUpEvents` before it, so a distant
+  at or below the first frame shown, else the birth, is more than `catchUpEvents` before it, so a distant
   moment is never replayed from genesis. `not-visible`: a window event is outside the observer's
   ceiling, so nothing is replayed under a wider authority.
 - `frames`: one public `SceneProjection` per journal command in the window, in partition order,
