@@ -194,8 +194,9 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
 }, 900_000);
 
 // Product content uses the actual adapter, with no world runtime, database or authentication.
-// Decision: 360 s per backend bounds software shader compilation and two 90 s tier step downs
-// inside the existing browser job; these are correctness checks, never hardware timing claims.
+// Decision: 420 s per backend bounds software shader compilation, two 90 s tier step downs and
+// #266's occlusion pass at three tiers inside the existing browser job; these are correctness
+// checks, never hardware timing claims.
 it.each(["webgpu", "webgl2"])(
   "world content shares the product look, content lights and shadows, and contains failures (%s)",
   async (backend) => {
@@ -689,6 +690,213 @@ it.each(["webgpu", "webgl2"])(
       expect(lighting.failureRetired).toBeGreaterThanOrEqual(2);
       expect(lighting.disposed).toBe(true);
       await lit.close();
+      // #266 occlusion policy, at every tier: the fixture model is a solid occluder (a post) and the
+      // mapped sprite a fade occluder (a canopy). Each in turn stands half a metre nearer the viewer
+      // than the projected marker, on its screen position, so it covers the marker.
+      const occluded = await open("?occlusion");
+      await occluded.waitForFunction(
+        () => globalThis.fixtureRenderer.adapter.metrics.contentStatus === "ready",
+      );
+      const occlusion = [];
+      for (const tier of ["low", "medium", "high"])
+        occlusion.push(
+          await occluded.evaluate(async (tier) => {
+            const f = globalThis.fixtureRenderer;
+            const adapter = f.adapter;
+            const frame = () => new Promise(requestAnimationFrame);
+            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const pixels = async (url) => {
+              const image = new Image();
+              image.src = url;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = image.width;
+              canvas.height = image.height;
+              const context = canvas.getContext("2d");
+              context.drawImage(image, 0, 0);
+              return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            };
+            const capture = async () => {
+              await frame();
+              return pixels(f.capture());
+            };
+            const differing = (a, b) => {
+              let count = 0;
+              for (let at = 0; at < a.length; at += 4)
+                if (
+                  Math.abs(a[at] - b[at]) +
+                    Math.abs(a[at + 1] - b[at + 1]) +
+                    Math.abs(a[at + 2] - b[at + 2]) >
+                  6
+                )
+                  count++;
+              return count;
+            };
+            const body = () => adapter.drawn.get("object-fixture").body;
+            const silhouette = () => adapter.scene.getObjectByName("occlusion-silhouette");
+            const text = () => document.querySelector("#occlusion").textContent;
+            const until = async (done) => {
+              const started = performance.now();
+              while (!done() && performance.now() - started < 20_000) await frame();
+              await frame();
+            };
+            f.setReducedMotion(true);
+            f.setQuality(tier);
+            f.select(undefined);
+            f.moveMarker(0, 0);
+            f.setContentAnchor(4, 4);
+            f.setModelAnchor(0.5, -0.5);
+            const reveals = [];
+            const stop = adapter.onOcclusion((reveal) =>
+              reveals.push({ behind: reveal?.behind, at: performance.now() }),
+            );
+            // Depth-true by default: behind the post, the marker draws nothing.
+            const shown = await capture();
+            body().visible = false;
+            const hiddenBody = await capture();
+            body().visible = true;
+            const depthHidden = differing(shown, hiddenBody);
+            // Unselected, nobody is revealed, however long it stands there.
+            await wait(700);
+            await frame();
+            const unselected = [adapter.metrics.occlusion.revealed, !!silhouette(), text()];
+            const selectedAt = performance.now();
+            f.select("object-fixture");
+            await frame();
+            const early = [adapter.metrics.occlusion.hidden, adapter.metrics.occlusion.revealed];
+            await until(() => adapter.metrics.occlusion.revealed);
+            const revealedPost = await capture();
+            silhouette().visible = false;
+            const withoutSilhouette = await capture();
+            silhouette().visible = true;
+            const model = f.diagnostics.model.material;
+            const post = {
+              dwell: (reveals[0]?.at ?? 0) - selectedAt,
+              behind: adapter.metrics.occlusion.behind,
+              silhouette: adapter.metrics.occlusion.silhouette,
+              silhouettePixels: differing(revealedPost, withoutSilhouette),
+              faded: adapter.metrics.occlusion.faded,
+              untouched: [model.opacity, model.alphaHash],
+              text: text(),
+            };
+            // The canopy in front instead: it fades and the marker shows through, with no silhouette.
+            f.setModelAnchor(-2, -2);
+            f.setContentAnchor(0.5, -0.5);
+            await until(() => adapter.metrics.occlusion.behind === "the fixture canopy");
+            const revealedCanopy = await capture();
+            body().visible = false;
+            const canopyWithoutBody = await capture();
+            body().visible = true;
+            const sprite = f.diagnostics.sprite.material;
+            const canopy = {
+              silhouette: adapter.metrics.occlusion.silhouette,
+              silhouetteMesh: !!silhouette(),
+              faded: adapter.metrics.occlusion.faded,
+              seenThrough: differing(revealedCanopy, canopyWithoutBody),
+              sprite: [sprite.opacity, sprite.alphaHash],
+              text: text(),
+            };
+            // Behind a tree: the post and, nearer still, the canopy both cover the marker. The canopy
+            // fades, the post never changes, and the silhouette draws only inside the post's own
+            // pixels, never over the canopy's surviving pixels or the yard around them.
+            f.setModelAnchor(0.5, -0.5);
+            f.setContentAnchor(0.6, -0.6);
+            await until(
+              () =>
+                adapter.metrics.occlusion.silhouette === 0.35 &&
+                adapter.metrics.occlusion.faded === 1,
+            );
+            const tree = await capture();
+            silhouette().visible = false;
+            const treeWithoutSilhouette = await capture();
+            f.diagnostics.model.visible = false;
+            const treeWithoutPost = await capture();
+            f.diagnostics.model.visible = true;
+            await until(() => adapter.metrics.occlusion.silhouette === 0.35 && !!silhouette());
+            let drawn = 0;
+            let outsidePost = 0;
+            for (let at = 0; at < tree.length; at += 4) {
+              const differs = (a, b) =>
+                Math.abs(a[at] - b[at]) +
+                  Math.abs(a[at + 1] - b[at + 1]) +
+                  Math.abs(a[at + 2] - b[at + 2]) >
+                6;
+              if (!differs(tree, treeWithoutSilhouette)) continue;
+              drawn++;
+              if (!differs(treeWithoutSilhouette, treeWithoutPost)) outsidePost++;
+            }
+            // Standing still re-tests nothing: the rays run again only when something moves.
+            const tests = adapter.metrics.occlusion.rayTests;
+            for (let i = 0; i < 5; i++) await frame();
+            const both = {
+              behind: adapter.metrics.occlusion.behind,
+              faded: adapter.metrics.occlusion.faded,
+              drawn,
+              outsidePost,
+              post: [model.opacity, model.alphaHash],
+              sprite: [sprite.opacity, sprite.alphaHash],
+              stillTests: adapter.metrics.occlusion.rayTests - tests,
+            };
+            f.setModelAnchor(-2, -2);
+            f.setContentAnchor(0.5, -0.5);
+            await until(() => adapter.metrics.occlusion.silhouette === 0);
+            // Walking out of cover ends the reveal and restores the canopy.
+            f.moveMarker(2, -2);
+            await until(() => !adapter.metrics.occlusion.revealed);
+            await frame();
+            const out = {
+              revealed: adapter.metrics.occlusion.revealed,
+              faded: adapter.metrics.occlusion.faded,
+              sprite: [
+                f.diagnostics.sprite.material.opacity,
+                f.diagnostics.sprite.material.alphaHash,
+              ],
+              last: reveals.at(-1)?.behind ?? null,
+              text: text(),
+            };
+            stop();
+            f.select(undefined);
+            f.moveMarker(0, 0);
+            f.setContentAnchor(0, 0);
+            return { tier, depthHidden, unselected, early, post, canopy, both, out };
+          }, tier),
+        );
+      for (const row of occlusion) {
+        expect(row.depthHidden, row.tier).toBe(0);
+        expect(row.unselected, row.tier).toEqual([false, false, ""]);
+        expect(row.early, row.tier).toEqual([true, false]);
+        expect(row.post.dwell, row.tier).toBeGreaterThanOrEqual(500);
+        expect(row.post.behind, row.tier).toBe("the fixture post");
+        expect(row.post.silhouette, row.tier).toBe(0.35);
+        expect(row.post.silhouettePixels, row.tier).toBeGreaterThan(20);
+        expect(row.post.faded, row.tier).toBe(0);
+        expect(row.post.untouched, row.tier).toEqual([1, false]);
+        expect(row.post.text, row.tier).toBe("Projected marker is behind the fixture post.");
+        expect(row.canopy.silhouette, row.tier).toBe(0);
+        expect(row.canopy.silhouetteMesh, row.tier).toBe(false);
+        expect(row.canopy.faded, row.tier).toBe(1);
+        expect(row.canopy.sprite, row.tier).toEqual([0.25, true]);
+        expect(row.canopy.seenThrough, row.tier).toBeGreaterThan(20);
+        expect(row.canopy.text, row.tier).toBe("Projected marker is behind the fixture canopy.");
+        expect(["the fixture post", "the fixture canopy"], row.tier).toContain(row.both.behind);
+        expect(row.both.faded, row.tier).toBe(1);
+        expect(row.both.drawn, row.tier).toBeGreaterThan(20);
+        // Edge pixels may blend; a silhouette over the canopy would add hundreds outside the post.
+        expect(row.both.outsidePost, row.tier).toBeLessThanOrEqual(
+          Math.max(4, row.both.drawn * 0.05),
+        );
+        expect(row.both.post, row.tier).toEqual([1, false]);
+        expect(row.both.sprite, row.tier).toEqual([0.25, true]);
+        expect(row.both.stillTests, row.tier).toBe(0);
+        expect(row.out, row.tier).toEqual({
+          revealed: false,
+          faded: 0,
+          sprite: [1, false],
+          last: null,
+          text: "",
+        });
+      }
+      await occluded.close();
       const page = await open();
       await page.waitForFunction(
         () => globalThis.fixtureRenderer.adapter.metrics.contentStatus !== "loading",
@@ -952,7 +1160,7 @@ it.each(["webgpu", "webgl2"])(
       await rm(world, { recursive: true, force: true });
     }
   },
-  360_000,
+  420_000,
 );
 
 // Issue 281: generate, validate and render the same rigged GLB; no binary fixture is retained.

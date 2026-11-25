@@ -22,6 +22,7 @@ import {
   followEmphasis,
   useEntityFocus,
   useEntityRail,
+  useOcclusionView,
   useSceneView,
   useViewedSpace,
   useWorldBoot,
@@ -41,7 +42,12 @@ import { Timeline } from "./timeline.js";
 import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
 import { parseWorldRoute, worldRoutePath } from "./world-route.js";
-import { effectsText, pickOrder, type WorldSceneAdapter } from "./world-scene-adapter.js";
+import {
+  effectsText,
+  occlusionText,
+  pickOrder,
+  type WorldSceneAdapter,
+} from "./world-scene-adapter.js";
 
 /** The world-status read follows the scene's revision at most once per interval, per browser. */
 const STATUS_INTERVAL_MS = 1000;
@@ -113,6 +119,7 @@ function SceneCanvas({
       created?.destroy();
       created = undefined;
       adapter.current = undefined;
+      useOcclusionView.getState().show(undefined);
     };
     // Context loss (renderer) or a missing reviewed atlas (assets) falls back to the text path;
     // reducer state is untouched.
@@ -147,6 +154,9 @@ function SceneCanvas({
         );
         created = renderer;
         stops.push(renderer.onIntent(({ objectId }) => select(objectId)));
+        // #266: the renderer reports the selected character's reveal; the text path names it.
+        if (renderer.onOcclusion)
+          stops.push(renderer.onOcclusion((reveal) => useOcclusionView.getState().show(reveal)));
         // Selection and keyboard focus reach the renderer only through its adapter.
         stops.push(
           followEmphasis(({ selected, focused }) => {
@@ -396,6 +406,13 @@ export function WorldApp({
   const signedIn = directory.status === "ready";
   const scene = state.scene;
   const shown = scene && directory.entries.find((candidate) => sameSceneScope(candidate, scene));
+  const reveal = useOcclusionView((view) => view.reveal);
+  // #266: only the selected character is revealed, so only it is named as hidden.
+  const revealed =
+    reveal && reveal.objectId === selected
+      ? scene?.entities.find((entity) => entity.objectId === reveal.objectId)
+      : undefined;
+  const hidden = reveal && revealed && occlusionText(revealed.presentation.label, reveal.behind);
   const status = useWorldStatusQuery(
     session,
     state.scope,
@@ -594,6 +611,7 @@ export function WorldApp({
               {spaceSummary(scene, shown.worldLabel, shown.spaceLabel, viewing ?? shown.spaceLabel)}
             </p>
             <h3>Entities</h3>
+            {hidden && <p>{hidden}</p>}
             <TextSceneEntities
               scene={{ ...scene, entities: inPickOrder(scene) }}
               interactions={state.projection?.interactions ?? []}

@@ -23,7 +23,7 @@ export const diagnostics = {
   setModelAnchor: (_x: number, _y: number) => {},
 };
 
-export function fixtureContent(options: { failure?: string; workMs?: number; lighting?: boolean } = {}): RendererContent {
+export function fixtureContent(options: { failure?: string; workMs?: number; lighting?: boolean; occlusion?: boolean } = {}): RendererContent {
   return {
     version: 1,
     create(context) {
@@ -147,6 +147,13 @@ export function fixtureContent(options: { failure?: string; workMs?: number; lig
         root,
         contacts,
         lights: options.lighting ? lightSources : undefined,
+        // #266: the model stands in for a trunk or post, the mapped sprite for a canopy or roof.
+        occluders: options.occlusion
+          ? [
+              { object: model, kind: "solid" as const, label: "the fixture post" },
+              { object: sprite, kind: "fade" as const, label: "the fixture canopy" },
+            ]
+          : undefined,
         shadows: options.lighting,
         update(frame) {
           if (options.failure === "update") throw new Error("Fixture update failure");

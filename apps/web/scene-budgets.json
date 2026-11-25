@@ -138,7 +138,8 @@
         "shadowMaps": 0,
         "shadowMapSize": 0,
         "grounding": "contact",
-        "rimLight": 0
+        "rimLight": 0,
+        "occlusionReveal": "fade+silhouette"
       },
       "medium": {
         "maxOutputPixels": 1000000,
@@ -147,7 +148,8 @@
         "shadowMaps": 1,
         "shadowMapSize": 512,
         "grounding": "contact+keyShadowMap",
-        "rimLight": 0
+        "rimLight": 0,
+        "occlusionReveal": "fade+silhouette"
       },
       "high": {
         "maxOutputPixels": 3000000,
@@ -156,9 +158,10 @@
         "shadowMaps": 2,
         "shadowMapSize": 1024,
         "grounding": "contact+keyShadowMap",
-        "rimLight": 0
+        "rimLight": 0,
+        "occlusionReveal": "fade+silhouette"
       }
     },
-    "reason": "Canvas requests viewport CSS dimensions times DPR, capped uniformly by tier output pixels. Caps leave allocation headroom for content and labels after conservative renderer output, scene, label and bloom targets. Low retains the existing 16 MiB phone floor; medium/high permit desktop targets. Atlas budget remains separate. Hardware frame time remains an outstanding qualification. Issue #184 content policy bounds local point lights at 2/4/8 and opt-in directional shadow maps at 0/1/2 of side 0/512/1024; reserve shadow depth/color storage inside the same texture ceiling before sizing viewport targets. Low retains illumination without shadow passes. Grounding budget (#266): per projected body one contact-shape draw on every tier, with no texture because the per-body canvas texture is gone, plus one shadow-pass draw per active map at medium/high; no new render targets; shadow storage stays at the 12 B/px reserve. Rim light is none on every tier. Measured as software correctness in tests/ci/renderer-bakeoff.journey.browser.test.mjs (metrics.contactShadows, shadowMaps) on both SwiftShader backends; real-device frame cost awaits the owner quality lab named in issue #266, a later part."
+    "reason": "Canvas requests viewport CSS dimensions times DPR, capped uniformly by tier output pixels. Caps leave allocation headroom for content and labels after conservative renderer output, scene, label and bloom targets. Low retains the existing 16 MiB phone floor; medium/high permit desktop targets. Atlas budget remains separate. Hardware frame time remains an outstanding qualification. Issue #184 content policy bounds local point lights at 2/4/8 and opt-in directional shadow maps at 0/1/2 of side 0/512/1024; reserve shadow depth/color storage inside the same texture ceiling before sizing viewport targets. Low retains illumination without shadow passes. Grounding budget (#266): per projected body one contact-shape draw on every tier, with no texture because the per-body canvas texture is gone, plus one shadow-pass draw per active map at medium/high; no new render targets; shadow storage stays at the 12 B/px reserve. Rim light is none on every tier. Occlusion reveal (#266), the same on every tier: only while a character is selected and content declares occluders, five CPU rays against at most 64 occluders holding at most 65,536 triangles in all (bone-transformed for skinned meshes), only on frames where the body, the camera or an occluder moved, otherwise none; one silhouette draw (sharing the body geometry, no texture of its own) and no new render targets; a faded occluder keeps its draws and switches to an alpha-hashed variant of its material. Measured as software correctness in tests/ci/renderer-bakeoff.journey.browser.test.mjs (metrics.contactShadows, shadowMaps) on both SwiftShader backends; real-device frame cost awaits the owner quality lab named in issue #266, a later part."
   }
 }

@@ -304,6 +304,13 @@ painterliness in their textures. The rule is world-agnostic and names no cast or
 renderer's grounding, shadow and budget rules are in
 [Grounding and one picture](../../apps/web/docs/scene.md#grounding-and-one-picture-266).
 
+Occlusion is part of the same picture: it is depth-true by default, so a character behind a trunk
+is hidden like anything else behind it. Only the selected (or followed) character is revealed, after
+a short dwell. World content says what may fade (canopies, roofs: `kind: "fade"`) and what never
+does (trunks, posts, walls: `kind: "solid"`) through its `occluders`, each with the plain-text label
+the text path uses ("Ada is behind the cedar."). The rules are in
+[Occlusion and reveal](../../apps/web/docs/scene.md#occlusion-and-reveal-266).
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.

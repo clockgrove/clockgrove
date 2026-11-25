@@ -7,7 +7,7 @@ import type {
 } from "@clockgrove/contracts";
 import { create } from "zustand";
 import { reduceBoot, routeResolving, type WorldBootEvent } from "./world-boot.js";
-import type { SceneEmphasis } from "./world-scene-adapter.js";
+import type { SceneEmphasis, SceneOcclusionReveal } from "./world-scene-adapter.js";
 
 interface WorldBoot {
   /** The shell's one current boot state. */
@@ -70,6 +70,16 @@ export const useSceneView = create<SceneView>((set) => ({
     useWhyView.getState().explain(undefined);
     set({ selected });
   },
+}));
+
+interface OcclusionView {
+  /** #266: the selected character's reveal while it lasts; the text path names who is hidden. */
+  readonly reveal: SceneOcclusionReveal | undefined;
+  readonly show: (reveal: SceneOcclusionReveal | undefined) => void;
+}
+export const useOcclusionView = create<OcclusionView>((set) => ({
+  reveal: undefined,
+  show: (reveal) => set({ reveal }),
 }));
 
 interface EntityFocus {
