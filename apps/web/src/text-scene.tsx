@@ -144,12 +144,17 @@ export function TextSceneSurfaces({
       <h3>Surfaces</h3>
       <ul aria-label="Surfaces">
         {sentences.map((entry) => (
-          <li key={entry.zoneId}>
-            {entry.sentence}
-            {session && <ZoneMomentsButton session={session} zoneId={entry.zoneId} />}
-          </li>
+          <li key={entry.zoneId}>{entry.sentence}</li>
         ))}
       </ul>
+      {session && (
+        // The list holds only sentences; each zone's why opens from this group beside it.
+        <div role="group" aria-label="Surface moments">
+          {sentences.map((entry) => (
+            <ZoneMomentsButton key={entry.zoneId} session={session} zoneId={entry.zoneId} />
+          ))}
+        </div>
+      )}
       {session && <ZoneMoments session={session} />}
     </>
   );
