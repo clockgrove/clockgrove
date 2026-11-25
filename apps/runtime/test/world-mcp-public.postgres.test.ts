@@ -343,3 +343,93 @@ it.skipIf(!isNativeWorldOwnerChild())(
   },
   180_000,
 );
+it.skipIf(!isNativeWorldOwnerChild())(
+  "serves a 2025-11-25 client statelessly under the same member key",
+  async () => {
+    await withNativeWorldOwner(
+      async (owner) => {
+        await owner.reset();
+        const session = "local-reader-session";
+        const issued = await owner.fetch(
+          new Request(`${ORIGIN}/api/auth/api-key/create`, {
+            method: "POST",
+            headers: {
+              origin: ORIGIN,
+              authorization: `Bearer ${session}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ name: "Legacy client" }),
+          }),
+        );
+        expect(issued.status).toBe(200);
+        const member = (await issued.json()) as { key: string };
+        await owner.sql(
+          "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe')",
+        );
+        const requests: string[] = [];
+        const responses: { method: string; response: Response }[] = [];
+        const client = new Client(
+          { name: "legacy-client", version: "1.0.0" },
+          { versionNegotiation: { mode: "legacy" } },
+        );
+        try {
+          await client.connect(
+            new StreamableHTTPClientTransport(new URL(`${ORIGIN}/mcp`), {
+              authProvider: { token: async () => member.key },
+              fetch: async (url, init) => {
+                const request = new Request(url, init);
+                if (request.method === "POST") requests.push(await request.clone().text());
+                const response = await owner.fetch(request);
+                responses.push({ method: request.method, response: response.clone() });
+                return response;
+              },
+            }),
+          );
+          expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
+          expect(JSON.parse(requests[0]!)).toMatchObject({
+            method: "initialize",
+            params: { protocolVersion: "2025-11-25" },
+          });
+          expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+            expect.arrayContaining([
+              "world_status",
+              "world_journal",
+              "event_why",
+              "command_submit",
+            ]),
+          );
+          const scope = { version: 1, ...owner.scope };
+          const read = await client.callTool({ name: "world_status", arguments: scope });
+          expect(JSON.parse((read.content as { text: string }[])[0]!.text)).toMatchObject({
+            ok: true,
+            status: 200,
+            value: { ...scope },
+          });
+          // Initialize, initialized, tools/list and tools/call; the optional GET stream is refused.
+          expect(
+            responses.map(({ method, response }) => `${method} ${response.status}`).sort(),
+          ).toEqual(["GET 405", "POST 200", "POST 200", "POST 200", "POST 202"]);
+          for (const { response } of responses)
+            expect(response.headers.get("mcp-session-id")).toBeNull();
+          const outsider = await owner.fetch(
+            new Request(`${ORIGIN}/mcp`, {
+              method: "POST",
+              headers: {
+                origin: ORIGIN,
+                accept: "application/json, text/event-stream",
+                "content-type": "application/json",
+                "mcp-protocol-version": "2025-11-25",
+              },
+              body: requests[0]!,
+            }),
+          );
+          expect(outsider.status).toBe(401);
+        } finally {
+          await client.close();
+        }
+      },
+      { mcp: true },
+    );
+  },
+  180_000,
+);

@@ -1,6 +1,7 @@
 import { MAX_RUN_SEARCH_PAGE, RUN_STATUSES } from "@clockgrove/contracts";
 import { fromJsonSchema, type JsonSchemaType, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
+import { createParser } from "eventsource-parser";
 import { submitWorldMcpCommand, type WorldMcpApplication } from "./world-mcp-commands.js";
 import {
   operateWorldMcpTool,
@@ -11,6 +12,7 @@ import {
   readWorldMcpTool,
   WORLD_MCP_READ_TOOLS,
   type WorldMcpReadTool,
+  worldDebuggerLink,
 } from "./world-mcp-reads.js";
 
 // Engineering decision: 64 KiB application arguments plus room for the protocol envelope.
@@ -74,6 +76,42 @@ const schemas: Record<WorldMcpReadTool, JsonSchemaType> = {
     },
     Object.keys(scoped),
   ),
+  world_journal: envelope(
+    {
+      schemaVersion: version,
+      ...scope,
+      beforeSequence: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+      replayTo: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+    },
+    ["schemaVersion", ...Object.keys(scope)],
+  ),
+  event_why: {
+    ...envelope(
+      {
+        ...scoped,
+        eventId: id,
+        commandId: id,
+        scheduleId: id,
+        idempotencyKey: id,
+        includeResourceCauses: { type: "boolean", const: true },
+      },
+      Object.keys(scoped),
+    ),
+    oneOf: [["eventId"], ["commandId"], ["scheduleId", "idempotencyKey"]].map((required) => ({
+      required,
+      not: {
+        anyOf: ["eventId", "commandId", "scheduleId", "idempotencyKey"]
+          .filter((key) => !required.includes(key))
+          .map((key) => ({ required: [key] })),
+      },
+    })),
+  },
+};
+const readDescriptions: Partial<Record<WorldMcpReadTool, string>> = {
+  world_journal:
+    "Read a page of the world journal under the existing inspector authority (runtime:world-inspect).",
+  event_why:
+    "Explain why a recorded event, command or schedule happened, from public decision evidence only.",
 };
 const commandSchema = envelope({
   schemaVersion: version,
@@ -164,18 +202,31 @@ export async function handleWorldMcpRequest(
     let applicationErrorText: string | undefined;
     const handler = createMcpHandler(
       () => {
-        const server = new McpServer({ name: "clockgrove-world", version: "1.0.0" });
+        const server = new McpServer(
+          { name: "clockgrove-world", version: "1.0.0" },
+          {
+            instructions:
+              "Successful world reads carry `debugger`, a path into the world debugger on the origin serving this MCP endpoint. The debugger is owner-only and opens after signing in.",
+          },
+        );
         for (const name of WORLD_MCP_READ_TOOLS) {
           server.registerTool(
             name,
-            { inputSchema: fromJsonSchema(schemas[name]), annotations: { readOnlyHint: true } },
+            {
+              inputSchema: fromJsonSchema(schemas[name]),
+              annotations: { readOnlyHint: true },
+              ...(readDescriptions[name] && { description: readDescriptions[name] }),
+            },
             async (args) => {
               const result = await readWorldMcpTool(
                 application,
                 { name, arguments: args },
                 credential,
               );
-              const text = JSON.stringify(result);
+              const link = result.ok ? worldDebuggerLink(name, args) : undefined;
+              const text = JSON.stringify(
+                link === undefined ? result : { ...result, debugger: link },
+              );
               if (!result.ok) applicationErrorText = text;
               return { content: [{ type: "text", text }], ...(!result.ok && { isError: true }) };
             },
@@ -224,7 +275,10 @@ export async function handleWorldMcpRequest(
       {
         route: new URL(request.url).pathname,
         corsOptions: false,
-        legacy: "reject",
+        // Owner decision (#327, 2026-11-25): 2025-era clients connect through the SDK's
+        // stateless legacy lane, which retains no session; authentication, grants and
+        // tool envelopes are the same on both protocols.
+        legacy: "stateless",
         responseMode: "json",
         maxRequestBodySize: WORLD_MCP_MAX_REQUEST_BYTES,
       },
@@ -238,7 +292,25 @@ export async function handleWorldMcpRequest(
       }),
     );
     if (!response.body) return response;
-    const result = (await response.json()) as Record<string, unknown>;
+    const headers = new Headers(response.headers);
+    let result: Record<string, unknown>;
+    if (headers.get("content-type")?.includes("text/event-stream")) {
+      // The legacy lane answers one finite event stream; eventsource-parser reads it and
+      // its single JSON-RPC response (the message carrying an id) is returned as JSON.
+      const messages: Record<string, unknown>[] = [];
+      const parser = createParser({
+        onEvent: (event) => {
+          if (event.event === undefined || event.event === "message")
+            messages.push(JSON.parse(event.data) as Record<string, unknown>);
+        },
+      });
+      parser.feed(await response.text());
+      parser.reset({ consume: true });
+      const responses = messages.filter((message) => "id" in message);
+      if (responses.length !== 1) return refusal(400, "mcp_request_refused");
+      result = responses[0]!;
+      headers.set("content-type", "application/json");
+    } else result = (await response.json()) as Record<string, unknown>;
     if ("error" in result) {
       const error = result.error as { code?: unknown } | null;
       result.error = {
@@ -263,7 +335,7 @@ export async function handleWorldMcpRequest(
         ],
       };
     }
-    return Response.json(result, { status: response.status, headers: response.headers });
+    return Response.json(result, { status: response.status, headers });
   } catch {
     return refusal(400, "mcp_request_refused");
   }

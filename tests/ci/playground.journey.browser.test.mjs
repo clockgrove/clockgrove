@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { expect, it, onTestFailed } from "vitest";
 import { decodeCanonicalNode, encodeCanonicalNode } from "../../packages/application/src/index.ts";
@@ -36,7 +37,9 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
       output += chunk;
       const url = /Open: +(\S+)/u.exec(output)?.[1];
       const credential = /credential "([^"]+)"/u.exec(output)?.[1];
-      if (url && credential) resolve({ url: new URL(url), credential });
+      const [, mcp, token] =
+        /MCP: +(\S+) with header "Authorization: Bearer (\S+)"/u.exec(output) ?? [];
+      if (url && credential && token) resolve({ url: new URL(url), credential, mcp, token });
     };
     playground.stdout.setEncoding("utf8").on("data", read);
     playground.stderr.setEncoding("utf8").on("data", read);
@@ -45,12 +48,18 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
   await journeyThenShutdown(
     at,
     async () => {
-      const { url, credential } = await Promise.race([
+      const { url, credential, mcp, token } = await Promise.race([
         printed,
         exited.then((code) => Promise.reject(new Error(`playground exited ${code}\n${output}`))),
       ]);
       expect(output).toContain(`Playground: ${pack} (`);
       expect(output).toContain(`credential "${credential}" (the world's owner)`);
+      expect([new URL(mcp).origin, output]).toEqual([
+        url.origin,
+        expect.stringContaining(
+          `Agent:   claude mcp add --transport http clockgrove-playground ${mcp} --header "Authorization: Bearer ${token}"`,
+        ),
+      ]);
       at.step = "the owner's world and inspection";
       const post = (route, body) =>
         fetch(new URL(route, url), {
@@ -88,7 +97,7 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
       expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
         "Arrival: scene ready at revision 0.",
       );
-      await owner?.({ at, page, url, credential, post, entry: directory.entries[0] });
+      await owner?.({ at, page, url, credential, post, entry: directory.entries[0], mcp, token });
     },
     "Ctrl-C stops the playground",
     async () => {
@@ -110,7 +119,8 @@ async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, own
 // conformance checks, previews a newer version's migration, and loads another pack from a local
 // directory as a fresh world beside this one, which the owner switches to and back from. The owner
 // also Talks to the rock in its disclosed object voice, answered by the scripted fixture (no key).
-async function ownsThePlayground({ at, page, url, credential, post, entry }, scratch) {
+async function ownsThePlayground(journey, scratch) {
+  const { at, page, url, credential, post, entry } = journey;
   at.step = "the playground API answers its owner only";
   const pack = (token) =>
     fetch(new URL("/playground/v1/pack", url), {
@@ -186,6 +196,8 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
   await debugsThePlayground(page, post, entry);
+  at.step = "a coding agent asks over the playground's MCP server";
+  await asksOverMcp(journey);
   // The playground world's identity, metadata and clock before another pack is loaded.
   const state = async () => {
     const { tenantId, worldId, timelineId, spaceId } = entry;
@@ -422,6 +434,120 @@ async function debugsThePlayground(page, post, entry) {
   const checks = page.getByRole("region", { name: "Debugger checks", exact: true });
   await checks.getByRole("button", { name: "Load checks", exact: true }).click();
   await checks.getByText("Checks: passed", { exact: true }).waitFor();
+}
+
+// Part 4: the developer's coding agent asks why over the playground's MCP server with the printed
+// token. The official MCP SDK client (the protocol Claude Code, Codex and Copilot speak) reads the
+// world's own evidence, each answer with a link into the debugger, and the links open it there.
+async function asksOverMcp({ page: shell, url, credential, entry, mcp, token }) {
+  // The links open in a tab of their own, as from the agent's answer, beside the owner's shell.
+  const page = await shell.context().browser().newPage();
+  const runtime = createRequire(path.join(root, "apps/runtime/package.json"));
+  const { Client, StreamableHTTPClientTransport } = await import(
+    pathToFileURL(runtime.resolve("@modelcontextprotocol/client")).href
+  );
+  const anonymous = await fetch(mcp, { method: "POST", body: "{}" });
+  expect(anonymous.status).toBe(401);
+  // The journey pins the current protocol; the 2025-era stateless legacy lane is proved in
+  // apps/runtime/test/world-mcp-public.postgres.test.ts.
+  const client = new Client(
+    { name: "playground-journey", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(mcp), { authProvider: { token: async () => token } }),
+  );
+  const call = async (name, args) =>
+    JSON.parse((await client.callTool({ name, arguments: args })).content[0].text);
+  const { tenantId, worldId, timelineId, spaceId } = entry;
+  const scope = { tenantId, worldId, timelineId, spaceId };
+  try {
+    // The journal with each event's recorded cause, as the debugger shows it.
+    const journal = await call("world_journal", { schemaVersion: 1, ...scope });
+    expect([journal.ok, journal.debugger]).toEqual([true, `${url.pathname}?debugger=journal`]);
+    // The cube's recorded decision and why: perception, beliefs, goals and the choice.
+    // The cube's newest recorded decision, from its history as the debugger reads it (paused clock).
+    const cube = await call("entity_inspect", {
+      version: 1,
+      ...scope,
+      objectId: "playground.cube",
+    });
+    let { history } = cube.value;
+    let decided = history.actions.find((action) => action.decision === true);
+    for (
+      let page = 0;
+      decided === undefined && history.beforeSequence !== null && page < 20;
+      page++
+    ) {
+      const { observedRevision, beforeSequence } = history;
+      ({ history } = (
+        await call("entity_inspect", {
+          version: 1,
+          ...scope,
+          objectId: "playground.cube",
+          cursor: { observedRevision, beforeSequence },
+        })
+      ).value);
+      decided = history.actions.find((action) => action.decision === true);
+    }
+    const why = await call("event_why", { version: 1, ...scope, eventId: decided.eventId });
+    const draft = why.value.traces.drafts.find((trace) => trace.objectId === "playground.cube");
+    expect([why.debugger, why.value.traces.status, draft.selectedAction.kind]).toEqual([
+      `${url.pathname}?debugger=journal&event=${encodeURIComponent(decided.eventId)}`,
+      "available",
+      expect.stringMatching(/^(stay|seek-[a-z]+)$/u),
+    ]);
+    const shelter = draft.candidates.find(
+      (candidate) => candidate.action.targetObjectId === "playground.rock",
+    );
+    expect(shelter.features).toEqual(
+      expect.arrayContaining([
+        { name: "perceived", value: expect.any(String) },
+        { name: "expectation", value: "0" },
+      ]),
+    );
+    expect(cube.debugger).toBe(`${url.pathname}?debugger=actors&actor=playground.cube`);
+    // The Talk to the rock: its run, steps and cost.
+    const runs = await call("run_search", { version: 1, ...scope });
+    const [rock] = runs.value.runs.filter((run) => run.actorId === "playground.rock");
+    const run = await call("run_receipt", { version: 1, ...scope, runId: rock.runId });
+    expect([
+      runs.debugger,
+      run.debugger,
+      run.value.runs.find((view) => view.runId === rock.runId).steps.map((step) => step.kind),
+    ]).toEqual([
+      `${url.pathname}?debugger=runs`,
+      `${url.pathname}?debugger=runs&run=${encodeURIComponent(rock.runId)}`,
+      ["context_retrieval", "model_attempt", "commit"],
+    ]);
+    // Each link is a path on the origin serving the MCP endpoint, and opens the debugger there.
+    const open = async (link) => {
+      await page.goto(new URL(link, mcp).toString());
+      await page.getByLabel("Local session credential").fill(credential);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    };
+    await open(run.debugger);
+    const linkedRun = page.getByRole("region", { name: "Linked run", exact: true });
+    await linkedRun.getByText("Cost: $0.000000", { exact: true }).waitFor();
+    expect(await linkedRun.getByText(/^Linked run /u).textContent()).toBe(
+      `Linked run ${rock.runId}`,
+    );
+    await open(why.debugger);
+    const linkedEvent = page.getByRole("region", { name: "Linked event", exact: true });
+    await linkedEvent.getByText(/^Caused by command \S+; receipt committed; /u).waitFor();
+    await linkedEvent
+      .getByRole("button", { name: `Open Why for event ${decided.eventId}` })
+      .waitFor();
+    await open(cube.debugger);
+    await page
+      .getByRole("region", { name: "Debugger actors", exact: true })
+      .getByRole("region", { name: /^Decision at \d+$/u })
+      .first()
+      .waitFor();
+  } finally {
+    await client.close();
+    await page.close();
+  }
 }
 
 // Two hosted worlds, each within dev:world's 720 s bound (#401).

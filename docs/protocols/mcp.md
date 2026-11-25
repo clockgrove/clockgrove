@@ -13,8 +13,11 @@ durable principal admission and ordinary `RuntimeWorker` application dispatch.
 `world-mcp-server.ts` uses the current Agents `createMcpHandler` from
 `agents/mcp/server`, constructing a fresh MCP server for every request. No actor
 memory, conversation, credential cache, subscription or MCP session is retained.
-The current SDK stateless protocol returns finite JSON; legacy stateful transport
-is refused. OAuth protocol records are durable credential state, not MCP connection memory.
+The current SDK stateless protocol (`2026-07-28`) returns finite JSON. A 2025-era
+client (`2025-11-25`) is served through the SDK's stateless legacy lane: each exchange
+authenticates anew, gets the same tools, grants and envelopes, returns one finite JSON
+message and no `mcp-session-id`, and server-to-client requests and the GET stream are
+refused; no legacy session is retained. OAuth protocol records are durable credential state, not MCP connection memory.
 
 | Tool | Ordinary use case and authority |
 | --- | --- |
@@ -22,10 +25,20 @@ is refused. OAuth protocol records are durable credential state, not MCP connect
 | `world_status`, `entity_inspect` | Existing authorized observation and entity inspection, scoped to tenant/world/timeline/space. |
 | `command_receipt` | Existing causal inspector, `runtime:world-inspect` and privacy ceiling. |
 | `run_receipt`, `run_search` | Existing [run inspector](runs.md#inspector-api), including participant-only payload access, audit and rate limits. |
+| `world_journal` | Existing journal inspection, `runtime:world-inspect` and the `operator_evidence` privacy ceiling, with audit and rate limits. |
+| `event_why` | Existing Recorded Why for an event, command or schedule; public decision evidence only. |
 | `command_submit` | Typed ordinary [world commands](runtime-world-commands.md), validator and Journal. Requires `runtime:world-command`, or the distinct clock grant for clock controls. |
 | `runtime_state` | Existing runtime inspector under `runtime:world-inspect`, including privacy redaction and RLS. |
 | `runtime_action` | Ordinary `repair-publication` and `replay-message`, requiring scoped `runtime:world-operate`, audit and operator limits. |
 | `changeset_prepare`, `changeset_apply` | Declared Wave 7 placeholders. Strict versioned scope only; always `changesets_unavailable_until_wave_7`, without mutation. |
+
+Debugger links: a successful read of a single world carries a `debugger` field, a path
+into the owner-only world debugger on the origin serving this endpoint; it opens after
+signing in. It is `/worlds/{tenantId}/{worldId}/{timelineId}/{spaceId}` plus `?debugger`
+(`world_status`), `?debugger=journal` (`world_journal`, `command_receipt`, `event_why`,
+adding `&event=<eventId>` for an event), `?debugger=actors&actor=<objectId>`
+(`entity_inspect`) or `?debugger=runs` (`run_search`, `run_receipt`, adding `&run=<runId>`).
+`world_directory` and refusals carry none.
 
 There is no Talk tool. Conversation remains on the channel-neutral session path.
 MCP adapters issue no SQL and supply no grants. Each exchange authenticates anew;
