@@ -91,6 +91,31 @@ describe("repository secret-value guard", () => {
   });
 });
 
+describe("derived values", () => {
+  it("passes a secret derived from references by a method call and refuses one carrying material", () => {
+    const name = ["sec", "ret"].join("");
+    // The Standard Webhooks library strips its prefix this way.
+    expect(() =>
+      assertNoSecretValues(
+        `${name} = ${name}.substring(Webhook.prefix.length);`,
+        "node_modules/standardwebhooks/dist/index.js",
+      ),
+    ).not.toThrow();
+    for (const refused of [
+      `${name} = ${name}.concat("private-material");`,
+      `${name} = decode(${name});`,
+      `${name} = ${name}.concat(\`private-material\`);`,
+      `${name} = ${name}.concat(other + "private-material");`,
+      `${name} = String.fromCharCode(115, 107, 45, 108, 105, 118, 101);`,
+      `${name} = bytes.fill(0x7a3f9c2e5b1d);`,
+      `${name} = ${name}.slice(6, 12);`,
+    ])
+      expect(() => assertNoSecretValues(refused, "bundle.js"), refused).toThrow(
+        "bundle.js: secret-shaped value detected",
+      );
+  });
+});
+
 describe("error-code catalogs", () => {
   // better-auth's API-key plugin bundles a catalog like this one into the worker (issue 167). Entries are
   // built here, so this file never holds the scanned shape itself.

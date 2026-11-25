@@ -44,6 +44,7 @@ export * from "./postgres-schedules.js";
 export * from "./postgres-snapshots.js";
 export * from "./postgres-transaction.js";
 export * from "./postgres-usage.js";
+export * from "./postgres-usage-webhooks.js";
 export * from "./postgres-wake-triage.js";
 export * from "./postgres-world-command.js";
 export * from "./postgres-world-mcp-admission.js";

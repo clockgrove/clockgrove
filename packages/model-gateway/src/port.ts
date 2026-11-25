@@ -32,6 +32,9 @@ export interface ModelAttribution {
   readonly actorId: string;
   readonly sessionId?: string;
   readonly runId?: string;
+  /** The player and their persona the call is for. */
+  readonly principalId?: string;
+  readonly personaId?: string;
 }
 
 export interface ModelMessage {

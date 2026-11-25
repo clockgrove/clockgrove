@@ -155,6 +155,7 @@ import {
 } from "./trusted-composition.js";
 import type { RuntimeScope } from "./types.js";
 import { PostgreSqlUsageInspector } from "./usage.js";
+import { sweepUsageWebhooks } from "./usage-webhooks.js";
 import { PostgreSqlClientViewInspector } from "./view-trace.js";
 import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
@@ -604,6 +605,32 @@ export function composeUsageInspector(
   };
 }
 
+/** Registers signed usage webhooks (0083); absent without `USAGE_WEBHOOK_SECRET`. */
+export function composeUsageWebhooks(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE" | "USAGE_WEBHOOK_SECRET">,
+): RuntimeOwnerBindings["usageWebhooks"] {
+  const secret = env.USAGE_WEBHOOK_SECRET;
+  if (secret === undefined || secret === "") return undefined;
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) => inspector((usage) => usage.register(input, context, secret)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
+  };
+}
+
+/** Posts every due usage webhook's next events (0083), as the scheduled recovery. */
+export async function deliverUsageWebhooks(env: RuntimeEnvironment) {
+  const secret = env.USAGE_WEBHOOK_SECRET;
+  if (secret === undefined || secret === "") return undefined;
+  return withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+    sweepUsageWebhooks(client, { secret, fetch }),
+  );
+}
+
 /**
  * Run walks and search (0036) under the conversations' keyring: a walk decrypts a protected
  * payload for a reader whose ceiling holds its class. Absent without the keyring, so they fail
@@ -829,6 +856,8 @@ export interface RuntimeEnvironment {
   /** Optional actor-reply shadow judging (issue 271); absent, replies are not judged. */
   readonly ACTOR_REPLY_SHADOW_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
+  /** Keys each usage webhook's signing secret (0083); absent, webhooks cannot be registered or delivered. */
+  readonly USAGE_WEBHOOK_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   /** Dedicated credential writer; omitted means first-party MCP is unavailable. */
   readonly MCP_AUTH_DATABASE_URL?: string;
@@ -1525,6 +1554,7 @@ export default {
     const runs = composeRunInspector(env);
     const usage = composeUsageInspector(env);
     const journalPages = composeJournalInspector(env);
+    const usageWebhooks = composeUsageWebhooks(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1588,6 +1618,7 @@ export default {
         ...(runs === undefined ? {} : { runs }),
         ...(usage === undefined ? {} : { usage }),
         ...(journalPages === undefined ? {} : { journalPages }),
+        ...(usageWebhooks === undefined ? {} : { usageWebhooks }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
@@ -1836,21 +1867,24 @@ export default {
     if (controller.cron === runtimeBindingManifest.crons.snapshots)
       return { snapshots: await sweepPartitionSnapshots(env) };
     // Independent recoveries: one failing does not stop the others.
-    const [reactions, provisioning, catchUp, research] = await Promise.allSettled([
+    const [reactions, provisioning, catchUp, research, usageWebhooks] = await Promise.allSettled([
       processWorldReactionDispatches(env),
       reconcileOpenWorldProvisioning(env),
       reconcileOpenWorldCatchUp(env),
       composeRuntime(env).research?.sweep(),
+      deliverUsageWebhooks(env),
     ]);
     if (reactions.status === "rejected") throw reactions.reason;
     if (provisioning.status === "rejected") throw provisioning.reason;
     if (catchUp.status === "rejected") throw catchUp.reason;
     if (research.status === "rejected") throw research.reason;
+    if (usageWebhooks.status === "rejected") throw usageWebhooks.reason;
     return {
       reactions: reactions.value,
       provisioning: provisioning.value,
       catchUp: catchUp.value,
       research: research.value,
+      usageWebhooks: usageWebhooks.value,
     };
   },
 };

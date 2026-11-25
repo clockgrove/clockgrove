@@ -19,6 +19,9 @@ const script = [
     kind: "answer",
     answer: { type: "choice", label: "suppress", confidence: 0.9 },
     costUsd: 0.0001,
+    // The provider's reported tokens reach the usage event through the decision record.
+    inputTokens: 120,
+    outputTokens: 4,
   },
   {
     kind: "answer",
@@ -185,6 +188,75 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*) FROM clockgrove.events WHERE event_type='WakeTriageRecorded'",
         ),
       ).toBe("7");
+      // Each finished record is one model-call usage event with no run; replaying added none.
+      const usage = JSON.parse(
+        await owner.sql(
+          `SELECT jsonb_build_object(
+            'keyed', count(*) FILTER (WHERE EXISTS (SELECT 1 FROM clockgrove.wake_triage r WHERE u.event_id = 'wake_triage:' || encode(sha256(convert_to(jsonb_build_array(r.session_id, r.message_id)::text, 'UTF8')), 'hex'))),
+            'shared', jsonb_agg(DISTINCT jsonb_build_array(source, category, resource, principal_id,
+              persona_id, actor_id, run_id, root_run_id, outcome_code, world_time)),
+            'calls', jsonb_agg(jsonb_build_array(status, quantities) ORDER BY status, quantities::text))::text
+          FROM clockgrove.usage_events u WHERE source = 'wake_triage'`,
+        ),
+      );
+      // A call sent to the provider: its reported tokens, or null when it reported none.
+      const quantities = (
+        inputTokens: number | null = null,
+        outputTokens: number | null = null,
+      ) => ({
+        inputTokens,
+        cachedInputTokens: null,
+        cacheWriteInputTokens: null,
+        outputTokens,
+        reasoningTokens: null,
+        calls: 1,
+      });
+      // Nothing was sent: every quantity is a known zero.
+      const noCall = {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        calls: 0,
+      };
+      expect(usage.shared).toEqual([
+        [
+          "wake_triage",
+          "model_call",
+          "perplexity/pplx-decider-v1.2",
+          "principal-runtime",
+          "persona-runtime",
+          "fixture.keeper",
+          null,
+          null,
+          null,
+          8640000000,
+        ],
+      ]);
+      expect(usage.keyed).toBe(usage.calls.length);
+      expect(usage.calls).toEqual([
+        ["cant_tell", quantities()],
+        ["failed", quantities()],
+        ["low_confidence", quantities()],
+        ["low_confidence", quantities()],
+        ["over_budget", noCall],
+        ["picked", quantities(120, 4)],
+        ["picked", quantities()],
+      ]);
+      // finish_wake_triage checks only a record's size: a usage value that is no non-negative
+      // integer (or a `calls` other than 0 or 1) is unknown in the event, never a quantity.
+      expect(
+        JSON.parse(
+          await owner.sql(
+            `SELECT jsonb_build_array(
+              clockgrove.shadow_usage_quantities('{"usage":{"calls":7,"inputTokens":-3,"outputTokens":1.5}}'),
+              clockgrove.shadow_usage_quantities('{"usage":{"calls":"1","inputTokens":"9","outputTokens":9007199254740992}}'),
+              clockgrove.shadow_usage_quantities('{"usage":[1,2,3]}'),
+              clockgrove.shadow_usage_quantities('{"usage":{"calls":0,"inputTokens":0,"outputTokens":0}}'))::text`,
+          ),
+        ),
+      ).toEqual([...Array.from({ length: 3 }, () => ({ ...quantities(), calls: null })), noCall]);
       const companion = await owner.request(
         "/v1/runtime/conversations/create",
         { version: 1, ...owner.scope, actorId: "fixture.companion" },

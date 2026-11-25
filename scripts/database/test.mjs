@@ -276,6 +276,12 @@ await withDisposableDatabase(async ({ tools, environment }) => {
     resolutionsResult.includes("effect_resolutions_ok"),
     "effect resolution checks failed",
   );
+  const webhooks = await readFile(
+    new URL("../../tests/database/usage-webhooks.sql", import.meta.url),
+    "utf8",
+  );
+  const webhooksResult = await psqlQuery(tools, environment, webhooks, { viaStdin: true });
+  assertStrict.ok(webhooksResult.includes("usage_webhooks_ok"), "usage webhook checks failed");
   await testJournal(tools, environment);
   await testAttributedJournal(tools, environment);
   await testJournalImmutability(tools, environment);

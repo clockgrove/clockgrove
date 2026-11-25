@@ -64,11 +64,13 @@ it("a long session with a full summary and history keeps getting answers on the 
     reserved.push(microusd);
     return reserve(scope, microusd);
   };
+  // The gateway's call records, to show each call is attributed to its player and persona.
+  const records: ModelCallRecord[] = [];
   const gateway = createModelGateway({
     aliases: PRODUCTION_ALIASES,
     adapters: { "vercel-ai-gateway": provider, anthropic: provider },
     budget,
-    accounting: { record: () => undefined },
+    accounting: { record: (record) => void records.push(record) },
   });
   const prepare = actorPreparedResponder({
     gateway,
@@ -141,6 +143,15 @@ it("a long session with a full summary and history keeps getting answers on the 
   // Every turn reached the route with the whole summary and, once the session is long, the full
   // 16-message window: over 15 KB, which the old 7,000 bound refused from the first turn.
   expect(provider.calls).toHaveLength(TURNS);
+  expect(records).toHaveLength(TURNS);
+  expect(records[0]?.attribution).toEqual({
+    tenantId: "tenant-long",
+    worldId: "world-long",
+    actorId: "actor-long",
+    sessionId: SESSION,
+    principalId: "principal-long",
+    personaId: "persona-long",
+  });
   const last = provider.calls.at(-1)?.messages[0]?.text ?? "";
   expect(last).toContain(JSON.stringify(SUMMARY));
   expect(last).toContain(JSON.stringify(said(2 * TURNS - 17)));

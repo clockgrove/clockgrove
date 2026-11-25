@@ -169,6 +169,7 @@ dependencies must also pass pnpm's unchanged age, provenance and build controls 
 | [@typescript/typescript6](https://registry.npmjs.org/%40typescript%2Ftypescript6) | `6.0.2` | `2026-07-06T18:06:47.459Z` |
 | [ai](https://registry.npmjs.org/ai) | `7.0.163` | `2026-11-05T01:12:02.967Z` |
 | [better-auth](https://registry.npmjs.org/better-auth) | `1.7.15` | `2026-11-01T09:14:09.595Z` |
+| [cloudevents](https://registry.npmjs.org/cloudevents) | `10.0.0` | `2025-06-10T13:00:55.923Z` |
 | [dependency-cruiser](https://registry.npmjs.org/dependency-cruiser) | `18.7.1` | `2026-11-01T23:44:30.330Z` |
 | [drizzle-orm](https://registry.npmjs.org/drizzle-orm) | `0.45.4` | `2026-10-08T10:50:41.953Z` |
 | [kysely](https://registry.npmjs.org/kysely) | `0.29.8` | `2026-11-01T02:05:55.068Z` |
@@ -178,6 +179,7 @@ dependencies must also pass pnpm's unchanged age, provenance and build controls 
 | [pg](https://registry.npmjs.org/pg) | `8.23.1` | `2026-09-30T15:39:58.489Z` |
 | [react](https://registry.npmjs.org/react) | `19.3.1` | `2026-10-14T16:47:15.290Z` |
 | [react-dom](https://registry.npmjs.org/react-dom) | `19.3.1` | `2026-10-14T16:49:10.081Z` |
+| [standardwebhooks](https://registry.npmjs.org/standardwebhooks) | `1.3.0` | `2026-11-17T21:28:35.320Z` |
 | [turbo](https://registry.npmjs.org/turbo) | `2.11.10` | `2026-10-20T20:35:57.341Z` |
 | [typescript](https://registry.npmjs.org/typescript) | `7.0.2` | `2026-07-08T15:55:18.431Z` |
 | [vite](https://registry.npmjs.org/vite) | `8.3.5` | `2026-10-21T06:38:54.907Z` |
@@ -197,6 +199,13 @@ The driver swap reconfirmed official npm metadata at `2026-10-06T10:50:38Z`:
 `pg` and `@types/pg` latest stable releases remain 8.23.1. pg supplies no TypeScript
 declarations, so `@types/pg` is a runtime development dependency. The added closure
 has no install lifecycle scripts; unrelated locked versions and toolchain policy are retained.
+
+Issue 329 added `standardwebhooks` 1.3.0 (MIT, the Standard Webhooks reference library) to `apps/runtime` to sign usage webhooks
+(`docs/protocols/usage.md`) and, in the journey test, verify them. It was resolved on `2026-11-24` by `pnpm add --ignore-scripts` under the
+unchanged release-age and supply-chain policy. Its closure is `fast-sha256` 1.3.0 and `@stablelib/base64` 1.0.1; none declares an install script.
+
+Issue 329 added `cloudevents` 10.0.0 (Apache-2.0, the CloudEvents JavaScript SDK) as a development dependency of `packages/contracts` only, so the usage forwarding test validates the mapped event
+against the official SDK in strict mode. It was resolved on `2026-11-24` by `pnpm add -D --ignore-scripts` under the unchanged policy.
 
 Issue 16 added `ai` 7.0.163 and `@ai-sdk/anthropic` 4.0.97 to `packages/model-gateway`, with `zod` 4.6.6
 (already pinned) as a direct dependency. Their closure added `@ai-sdk/gateway` 4.0.136,

@@ -41,7 +41,8 @@ export type InspectorAccess = {
       readonly entryId?: undefined;
     }
   | {
-      readonly subject: "event" | "scheduled-action";
+      /** A usage webhook's registration names where its export now goes (origin or `disabled`). */
+      readonly subject: "event" | "scheduled-action" | "usage-webhook";
       readonly commandId?: undefined;
       readonly entryId: string;
     }

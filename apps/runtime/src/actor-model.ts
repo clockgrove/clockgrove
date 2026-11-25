@@ -441,6 +441,9 @@ export function actorPreparedResponder(deps: ActorModelDeps): PreparedResponder 
           worldId: session.scope.worldId,
           actorId: session.actorId,
           sessionId: session.sessionId,
+          ...(participant === undefined
+            ? {}
+            : { principalId: participant.principalId, personaId: participant.personaId }),
         },
         system,
         messages: [{ role: "user", text: `${prompt}${withCatalog(catalog)}` }],

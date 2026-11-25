@@ -117,6 +117,17 @@ function syntaxObservation(source, location, match, rule) {
   ) {
     const right = containing.right;
     if (referenceOrAbsent(right)) return true;
+    // A value derived from references by a method call (`secret = secret.substring(prefix.length)`
+    // in the Standard Webhooks library) carries no material of its own. Any literal argument (a
+    // string, or a number such as `String.fromCharCode(115, 107)` spells), or one that is not a
+    // reference, still refuses.
+    if (
+      ts.isCallExpression(right) &&
+      ts.isPropertyAccessExpression(right.expression) &&
+      reference(right.expression) &&
+      right.arguments.every((argument) => reference(argument))
+    )
+      return true;
     // The complete public development sentinel is not private material. This
     // recognizes only its reference fallback form, never a scalar binding.
     return (

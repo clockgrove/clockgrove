@@ -1,6 +1,11 @@
 import type { ModerationShadowJudgement } from "@clockgrove/contracts";
 import { canonicalBytes, sha256Hex } from "@clockgrove/kernel";
-import type { ShadowDecider } from "./decision-shadow.js";
+import {
+  SHADOW_NO_CALL,
+  SHADOW_USAGE_UNKNOWN,
+  type ShadowDecider,
+  type ShadowUsage,
+} from "./decision-shadow.js";
 import { MODERATION_CATEGORY_CODES, type ModerationCategoryCode } from "./moderation-categories.js";
 
 export interface ModerationShadowPolicy {
@@ -35,6 +40,8 @@ export interface ModerationShadowRecord extends ModerationShadowJudgement {
   readonly inputSha256: string;
   readonly signature: string;
   readonly detail: string | null;
+  /** The model call's usage, the source of its usage event; absent from records before it. */
+  readonly usage?: ShadowUsage;
 }
 export const moderationInputHash = (text: string): string =>
   sha256Hex(new TextEncoder().encode(text));
@@ -95,8 +102,11 @@ export async function judgeModeration(input: {
   let model: string | null = null;
   let latencyMs: number | null = null;
   let costMicrousd: number | null = input.interrupted ? null : 0;
+  // An interrupted decision's earlier owner may have reached the model: unknown, never zero.
+  let usage: ShadowUsage = input.interrupted ? SHADOW_USAGE_UNKNOWN : SHADOW_NO_CALL;
   if (input.interrupted) status = "failed";
   else if (input.decider !== undefined) {
+    usage = SHADOW_USAGE_UNKNOWN;
     try {
       const outcome = await input.decider.pick({
         alias: policy.modelAlias,
@@ -109,6 +119,7 @@ export async function judgeModeration(input: {
       model = outcome.model;
       latencyMs = outcome.latencyMs;
       costMicrousd = outcome.costMicrousd;
+      usage = outcome.usage ?? SHADOW_USAGE_UNKNOWN;
       if (outcome.status === "failed") {
         status = "failed";
         detail = outcome.code;
@@ -162,6 +173,7 @@ export async function judgeModeration(input: {
     inputSha256,
     signature: `moderation_${sha256Hex(canonicalBytes([policy.policyVersion, inputSha256, disposition, injection])).slice(0, 32)}`,
     detail,
+    usage,
   };
 }
 

@@ -15,17 +15,25 @@ const MAX_SEQUENCE = 2n ** 63n - 1n;
 
 export const USAGE_CATEGORIES = ["model_call", "tool_call", "delivery"] as const;
 export type UsageCategory = (typeof USAGE_CATEGORIES)[number];
-export const USAGE_SOURCES = ["run_step", "delivery_receipt"] as const;
+export const USAGE_SOURCES = [
+  "run_step",
+  "delivery_receipt",
+  "wake_triage",
+  "moderation_shadow",
+] as const;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
-/** The usage events of one player in a half-open window `[from, to)` of `occurredAt`. */
+/**
+ * The usage events of one player in a half-open window `[from, to)` of `occurredAt`. Without a
+ * window the query is the feed: every event of the scope after `after`, in sequence order.
+ */
 export interface UsageQueryRequest {
   readonly version: 1;
   readonly scope: BrowserScope;
   /** The player; absent means every player of the scope. */
   readonly principalId?: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from?: string;
+  readonly to?: string;
   /** A decimal sequence: only events after it. */
   readonly after?: string;
   readonly limit: number;
@@ -65,8 +73,8 @@ export function decodeUsageQueryRequest(value: unknown): UsageQueryRequest {
   const v = record(value, path);
   exactKeys(
     v,
-    ["version", "tenantId", "worldId", "timelineId", "spaceId", "from", "to"],
-    ["principalId", "after", "limit"],
+    ["version", "tenantId", "worldId", "timelineId", "spaceId"],
+    ["from", "to", "principalId", "after", "limit"],
     path,
   );
   if (v.version !== 1) throw new ContractDecodeError(`${path}.version`, "expected 1");
@@ -75,10 +83,16 @@ export function decodeUsageQueryRequest(value: unknown): UsageQueryRequest {
   const limit = v.limit === undefined ? MAX_USAGE_PAGE : nonNegativeInteger(v.limit, path);
   if (limit < 1 || limit > MAX_USAGE_PAGE)
     throw new ContractDecodeError(`${path}.limit`, "limit out of range");
-  const from = utcTimestamp(v.from, `${path}.from`);
-  const to = utcTimestamp(v.to, `${path}.to`);
-  if (Date.parse(from) > Date.parse(to))
-    throw new ContractDecodeError(`${path}.to`, "window ends before it starts");
+  if ((v.from === undefined) !== (v.to === undefined))
+    throw new ContractDecodeError(`${path}.from`, "give both from and to, or neither");
+  let from: string | undefined;
+  let to: string | undefined;
+  if (v.from !== undefined && v.to !== undefined) {
+    from = utcTimestamp(v.from, `${path}.from`);
+    to = utcTimestamp(v.to, `${path}.to`);
+    if (Date.parse(from) > Date.parse(to))
+      throw new ContractDecodeError(`${path}.to`, "window ends before it starts");
+  }
   let after: string | undefined;
   if (v.after !== undefined) {
     const text = string(v.after, `${path}.after`);
@@ -100,8 +114,7 @@ export function decodeUsageQueryRequest(value: unknown): UsageQueryRequest {
     version: 1,
     scope,
     ...(principalId === undefined ? {} : { principalId }),
-    from,
-    to,
+    ...(from === undefined || to === undefined ? {} : { from, to }),
     ...(after === undefined ? {} : { after }),
     limit,
   });

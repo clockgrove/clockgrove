@@ -15,7 +15,8 @@ interface ModelGateway {
 ```
 
 A request names an `alias` and gives a caller-chosen `callId`, its `attribution` (tenant, world,
-actor, and optionally session and run), a `system` text and `messages`. `generateObject` also takes
+actor, and optionally session, run, and the player the call is for: `principalId` and `personaId`),
+a `system` text and `messages`. `generateObject` also takes
 a Zod `schema`.
 
 Each call resolves to exactly one outcome. It is either `completed`, with the value, or `failed`,
@@ -253,7 +254,9 @@ It is not a generation call: no streaming, no structured output, no fallback cha
   Observed confidences run 0.5 to 0.8 even when correct, so callers set a threshold per decision, not a global one.
 - **Record.** Every call records `DecisionCallRecord` through `ModelAccountingSink.recordDecision`: model,
   response model, outcome, label, confidence, latency, cost in microusd (reported cost, else tokens times price,
-  else null), the reserved ceiling (`reservedMicrousd`, 0 when refused before reserving) and the request hash. Null means unknown, not zero. `decisionAlias` leaves price
+  else null), the reserved ceiling (`reservedMicrousd`, 0 when refused before reserving), the request hash,
+  `providerCalled` (false for a refusal before the provider: input too large, breaker open, budget, cancelled first)
+  and the provider's reported `inputTokens` and `outputTokens` (0 when not called, null when unknown). Null means unknown, not zero. `decisionAlias` leaves price
   unconfigured unless `priceUsdPerMTok` is supplied: token usage alone then cannot establish cost.
   An explicitly configured zero price is zero. Reported cost takes precedence over configured pricing.
   Unknown cost settles the full reserved ceiling; it is never treated as free budget.

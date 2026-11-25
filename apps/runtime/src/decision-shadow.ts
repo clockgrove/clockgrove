@@ -1,5 +1,5 @@
 import type { ShadowDecider } from "@clockgrove/application";
-import type { ModelGateway } from "@clockgrove/model-gateway";
+import type { ModelAttribution, ModelGateway } from "@clockgrove/model-gateway";
 
 /**
  * Adapts the ModelGateway `decide` port to the application's shadow decider. Every call is
@@ -10,7 +10,10 @@ import type { ModelGateway } from "@clockgrove/model-gateway";
  */
 export function gatewayShadowDecider(
   gateway: Pick<ModelGateway, "decide">,
-  attribution: Readonly<{ tenantId: string; worldId: string; actorId: string }>,
+  attribution: Pick<
+    ModelAttribution,
+    "tenantId" | "worldId" | "actorId" | "principalId" | "personaId"
+  >,
 ): ShadowDecider {
   return {
     async pick(request) {
@@ -41,6 +44,11 @@ export function gatewayShadowDecider(
         latencyMs: record.latencyMs,
         costMicrousd: record.costMicrousd,
         reservedMicrousd: record.reservedMicrousd,
+        usage: {
+          calls: record.providerCalled ? (1 as const) : (0 as const),
+          inputTokens: record.inputTokens,
+          outputTokens: record.outputTokens,
+        },
       };
       if (outcome.status === "failed")
         return { status: "failed", code: outcome.code, ...accounting };

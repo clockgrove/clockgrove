@@ -61,6 +61,8 @@ export type ShadowModelOutcome =
       latencyMs: number;
       costMicrousd: number | null;
       reservedMicrousd?: number;
+      /** The call's usage; absent from a decider that does not report it (unknown). */
+      usage?: ShadowUsage;
     }>
   | Readonly<{
       status: "failed";
@@ -69,7 +71,34 @@ export type ShadowModelOutcome =
       latencyMs: number;
       costMicrousd: number | null;
       reservedMicrousd?: number;
+      /** The call's usage; absent from a decider that does not report it (unknown). */
+      usage?: ShadowUsage;
     }>;
+
+/**
+ * What a shadow decision's model call used, for its usage event: `calls` 1 when the call was sent
+ * to the provider, 0 when it was refused before (its tokens then 0), and null with null tokens
+ * when unknown (an interrupted decision, a decider that threw).
+ */
+export interface ShadowUsage {
+  readonly calls: 0 | 1 | null;
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+}
+
+/** Nothing was sent to a model. */
+export const SHADOW_NO_CALL: ShadowUsage = Object.freeze({
+  calls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+});
+
+/** Whether and what a model was called is not known. */
+export const SHADOW_USAGE_UNKNOWN: ShadowUsage = Object.freeze({
+  calls: null,
+  inputTokens: null,
+  outputTokens: null,
+});
 
 /** The failure code of a call a budget refused before any provider call. */
 export const SHADOW_BUDGET_REFUSED = "budget_exceeded";

@@ -100,6 +100,8 @@ export function moderationShadowDecider(
     tenantId: fiber.scope.tenantId,
     worldId: fiber.scope.worldId,
     actorId: fiber.actorId,
+    principalId: fiber.principalId,
+    personaId: fiber.personaId,
   });
 }
 export async function shadowActorMessage(
