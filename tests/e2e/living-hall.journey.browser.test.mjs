@@ -1451,10 +1451,14 @@ const observeHall = async (backend) => {
             );
             await feedFlashback.click();
             const feedMoment = decodeFlashback(await (await feedShown).json());
+            // Issue 457: every direct read closes its connection. Playwright's request context
+            // pools keep-alive sockets with no idle timeout of its own, and Vite's server closes an
+            // idle one after its keepAliveTimeout (5 s, plus Node's 1 s buffer); a read written on
+            // that socket as the server closes it is reset (ECONNRESET), as on a slow runner.
             const feedDirect = await page.request.post(
               `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
               {
-                headers: { authorization: "Bearer hall-inspect" },
+                headers: { authorization: "Bearer hall-inspect", connection: "close" },
                 data: { version: 1, ...auth.scope, eventId: feedEvent },
               },
             );
@@ -1731,7 +1735,7 @@ const observeHall = async (backend) => {
           const answer = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
             {
-              headers: { authorization: "Bearer hall-inspect" },
+              headers: { authorization: "Bearer hall-inspect", connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
@@ -2388,7 +2392,7 @@ const observeHall = async (backend) => {
           const observed = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/${endpoint}`,
             {
-              headers: { authorization: "Bearer hall-inspect" },
+              headers: { authorization: "Bearer hall-inspect", connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
@@ -2413,7 +2417,7 @@ const observeHall = async (backend) => {
           const rejected = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/why`,
             {
-              headers: { authorization: `Bearer ${credential}` },
+              headers: { authorization: `Bearer ${credential}`, connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
