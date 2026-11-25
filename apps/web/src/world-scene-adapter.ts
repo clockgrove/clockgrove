@@ -327,13 +327,20 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     ...(effects && { effects }),
     ...(lighting && { lighting }),
     ...(moving && moving.length > 0 && { movements: moving }),
-    // A zone on an object the patch removed leaves the scene with it.
+    // A zone on an object the patch removed leaves the scene with it; a removed marker is unnamed.
     ...(surfaces && {
       surfaces: {
         ...surfaces,
-        zones: surfaces.zones.filter(
-          (zone) => zone.host.kind === "region" || entities.has(zone.host.objectId),
-        ),
+        zones: surfaces.zones
+          .filter((zone) => zone.host.kind === "region" || entities.has(zone.host.objectId))
+          .map((zone) => ({
+            ...zone,
+            marks: zone.marks.map((mark) =>
+              mark.actorId === null || entities.has(mark.actorId)
+                ? mark
+                : { ...mark, actorId: null },
+            ),
+          })),
       },
     }),
     revision: patch.toRevision,

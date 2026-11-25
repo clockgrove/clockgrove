@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 import { executeWorldCommand } from "@clockgrove/application";
 import {
   decodeFlashback,
+  decodeObserverSceneMessage,
   decodeOpaqueId,
+  decodeSceneConnectionControl,
+  decodeSceneSurfaces,
   type SceneConnectionAttachment,
 } from "@clockgrove/contracts";
 import { PostgreSqlArtifactStore, PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
@@ -17,7 +20,14 @@ import {
 import { PostgreSqlFlashbackReader } from "../src/flashback.js";
 import { PostgreSqlCausalInspector } from "../src/inspector.js";
 import { PostgreSqlSceneStreamReader } from "../src/observation.js";
-import { decodeScenePresentations } from "../src/scene-presentation.js";
+import type { SceneAuthorityFacts } from "../src/scene-audience.js";
+import { SceneDelivery, type SceneSocket } from "../src/scene-delivery.js";
+import {
+  decodeScenePresentations,
+  type ScenePresentationInput,
+  SurfaceDecalBudgetRefusedError,
+  sceneSurfaces,
+} from "../src/scene-presentation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { livingHallAuthentication } from "./living-hall-fixture.js";
 import {
@@ -30,7 +40,9 @@ import {
 } from "./world-fixture.js";
 
 // Issue 267: the scene draws a zone's band through the world's per-tier treatment, its recent marks
-// and the text path's sentence, all from state, the same live and in a flashback of the moment.
+// and the text path's sentence, all from state, the same live, in a patch to an open scene and in a
+// flashback of the moment; an unprojected marker is never named, and a decal budget too small for
+// the pack's marks is refused with its stable code on the socket and the flashback route.
 it("projects a scratched zone's treatment, marks and sentence from state, the same live and replayed", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
@@ -42,28 +54,6 @@ it("projects a scratched zone's treatment, marks and sentence from state, the sa
     );
     const presentations = decodeScenePresentations(JSON.stringify(runtime.presentations));
     await withClient(fixture.environment, async (client) => {
-      const scratch = {
-        ...advanceCommand(world, "surface-scratch", 0n, world.birth.state.revision),
-        type: "surface.interact",
-        attribution: { effectiveActorId: "fixture.keeper", causalRootActionId: "action-scratch" },
-        payload: {
-          schemaVersion: 1,
-          actorId: "fixture.keeper",
-          zoneId: "cedar-bark",
-          interactionId: "scratch",
-          intensity: 10000,
-          point: { u: 3000, v: 7000 },
-        },
-      } as unknown as ReturnType<typeof advanceCommand>;
-      expect(
-        (
-          await executeWorldCommand(commandRequest(provisioned, scratch), {
-            journal: new PostgreSqlWorldCommandJournal(client),
-            behavior: provisioned.behavior,
-          })
-        ).outcome,
-      ).toBe("committed");
-
       const context = await auth.authenticator
         .identify(
           new Request("http://local.test/v1/runtime/scene", {
@@ -92,11 +82,83 @@ it("projects a scratched zone's treatment, marks and sentence from state, the sa
           interest: { selection: null, conversation: false, operator: false },
         },
       } as SceneConnectionAttachment;
+      const facts: SceneAuthorityFacts = {
+        categories: ["public_scene"],
+        command: false,
+        inspect: false,
+      };
+      // A scene the real delivery opened before the scratch: the scratch reaches it as a patch.
+      const socketOf = () => {
+        let stored: unknown = attachment;
+        const sent: string[] = [];
+        const closed: [number, string][] = [];
+        const socket: SceneSocket = {
+          deserializeAttachment: () => stored,
+          serializeAttachment: (value) => {
+            stored = value;
+          },
+          send: (message) => sent.push(message),
+          close: (code, reason) => closed.push([code, reason]),
+        };
+        return { socket, sent, closed };
+      };
+      const deliveryOf = (inputs: readonly ScenePresentationInput[]) =>
+        new SceneDelivery(
+          async () => ({ key: "surfaces" }),
+          (opened, _authority, from) =>
+            new PostgreSqlSceneStreamReader(client, inputs).read(opened, from, context, facts),
+          (error) => {
+            throw error;
+          },
+        );
+      const resume = {
+        protocolVersion: 1,
+        type: "resume",
+        lastAppliedRevision: null,
+        assetManifestVersion: 2,
+      } as const;
+      const delivery = deliveryOf(presentations);
+      const open = socketOf();
+      await delivery.resume(open.socket, resume);
+      // A fresh resume is told a snapshot is coming, then sent it.
+      const projections = () =>
+        open.sent
+          .map((wire) => JSON.parse(wire))
+          .filter((message) => message.lane === "projection")
+          .map(decodeObserverSceneMessage);
+      const opened = projections()[0]!;
+      if (opened.type !== "snapshot") throw new Error("expected the opening snapshot");
+      expect(
+        opened.payload.surfaces?.zones.find((zone) => zone.zoneId === "cedar-bark")?.sentence,
+      ).toBeNull();
+
+      const scratch = {
+        ...advanceCommand(world, "surface-scratch", 0n, world.birth.state.revision),
+        type: "surface.interact",
+        attribution: { effectiveActorId: "fixture.keeper", causalRootActionId: "action-scratch" },
+        payload: {
+          schemaVersion: 1,
+          actorId: "fixture.keeper",
+          zoneId: "cedar-bark",
+          interactionId: "scratch",
+          intensity: 10000,
+          point: { u: 3000, v: 7000 },
+        },
+      } as unknown as ReturnType<typeof advanceCommand>;
+      expect(
+        (
+          await executeWorldCommand(commandRequest(provisioned, scratch), {
+            journal: new PostgreSqlWorldCommandJournal(client),
+            behavior: provisioned.behavior,
+          })
+        ).outcome,
+      ).toBe("committed");
+
       const live = await new PostgreSqlSceneStreamReader(client, presentations).read(
         attachment,
         null,
         context,
-        { categories: ["public_scene"], command: false, inspect: false },
+        facts,
       );
       const at = world.birth.state.simulationTime;
       const tiers = (low: number, medium: number, high: number) => ({
@@ -151,6 +213,125 @@ it("projects a scratched zone's treatment, marks and sentence from state, the sa
       const flashback = decodeFlashback(await response.json());
       const moment = flashback.frames.find((frame) => frame.moment);
       expect(moment?.projection.surfaces).toEqual(surfaces);
+
+      // The open scene receives the scratch as a patch whose `set_surfaces` is the snapshot's.
+      await delivery.publish(open.socket);
+      const patched = projections()[1]!;
+      if (patched.type !== "patch") throw new Error("expected a patch");
+      expect(patched.payload.fromRevision).toBe(opened.payload.revision);
+      expect(patched.payload.toRevision).toBe(live.projection.revision);
+      expect(patched.payload.operations.filter((op) => op.op === "set_surfaces")).toEqual([
+        { op: "set_surfaces", surfaces },
+      ]);
+
+      // A marker the scene does not project is never named there: no actor id, no "by" clause.
+      const birth = world.birth.state;
+      const marked = {
+        ...birth,
+        surfaces: {
+          ...birth.surfaces!,
+          zones: birth.surfaces!.zones.map((zone) =>
+            zone.zoneId !== "cedar-bark"
+              ? zone
+              : {
+                  ...zone,
+                  channels: zone.channels.map((entry) =>
+                    entry.channel === "wear" ? { ...entry, value: 300 } : entry,
+                  ),
+                  marks: [
+                    {
+                      actorId: decodeOpaqueId("fixture.keeper", "ObjectId"),
+                      interactionId: "scratch",
+                      at: birth.simulationTime,
+                      intensity: 10000,
+                      point: { u: 3000, v: 7000 },
+                    },
+                  ],
+                },
+          ),
+        },
+      };
+      const cedar = decodeOpaqueId("fixture.cedar", "ObjectId");
+      const keeper = decodeOpaqueId("fixture.keeper", "ObjectId");
+      const bark = (projected: ReadonlySet<typeof cedar>) =>
+        sceneSurfaces(
+          { packId: world.behavior.packId },
+          world.behavior.policy,
+          marked,
+          [],
+          projected,
+          () => "Keeper, a resident",
+          presentations,
+        )?.zones.find((zone) => zone.zoneId === "cedar-bark");
+      expect(bark(new Set([cedar, keeper]))).toMatchObject({
+        marks: [{ actorId: "fixture.keeper" }],
+        sentence: "The cedar's bark is scratched; most recently by Keeper, a resident.",
+      });
+      const unseen = bark(new Set([cedar]));
+      expect(unseen).toMatchObject({
+        marks: [{ actorId: null, intensity: 10000, point: { u: 3000, v: 7000 } }],
+        sentence: "The cedar's bark is scratched.",
+      });
+      // The decoder refuses a scene that names an actor it does not project.
+      expect(() =>
+        decodeSceneSurfaces(
+          {
+            decals: surfaces?.decals,
+            zones: [
+              { ...unseen, marks: [{ ...unseen?.marks[0], actorId: "fixture.keeper", at: "0" }] },
+            ],
+          },
+          "surfaces",
+          new Set([cedar]),
+        ),
+      ).toThrow("entity is not projected");
+
+      // A runtime presentation too small for the pack's marks is refused with its code on the
+      // scene socket and the flashback route, never as an anonymous internal error.
+      const [entry] = runtime.presentations;
+      const small = decodeScenePresentations(
+        JSON.stringify([
+          {
+            ...entry,
+            presentation: {
+              ...entry.presentation,
+              surfaces: {
+                ...entry.presentation.surfaces,
+                decals: { ...entry.presentation.surfaces.decals, medium: 10 },
+              },
+            },
+          },
+        ]),
+      );
+      const refused = socketOf();
+      await expect(deliveryOf(small).resume(refused.socket, resume)).rejects.toBeInstanceOf(
+        SurfaceDecalBudgetRefusedError,
+      );
+      expect(refused.sent.map((wire) => decodeSceneConnectionControl(JSON.parse(wire)))).toEqual([
+        { protocolVersion: 1, type: "disconnect", reason: "surface_decal_budget_exceeded" },
+      ]);
+      expect(refused.closed).toEqual([[1011, "surface_decal_budget_exceeded"]]);
+      const smallWorker = new RuntimeWorker(auth.authenticator, {
+        getSpace: () => {
+          throw new Error("a flashback cannot route a command");
+        },
+        flashback: new PostgreSqlFlashbackReader(client, new PostgreSqlCausalInspector(client), {
+          artifacts: new PostgreSqlArtifactStore(client),
+          decodeResource,
+          presentations: small,
+        }),
+      });
+      const refusedFlashback = await smallWorker.fetch(
+        new Request("http://local.test/v1/runtime/flashback", {
+          method: "POST",
+          headers: { authorization: "Bearer hall-inspect", "content-type": "application/json" },
+          body: JSON.stringify({ version: 1, ...auth.scope, commandId: "surface-scratch" }),
+        }),
+      );
+      expect(refusedFlashback.status).toBe(500);
+      expect(await refusedFlashback.json()).toMatchObject({
+        error: "surface_decal_budget_exceeded",
+      });
     });
   });
 });

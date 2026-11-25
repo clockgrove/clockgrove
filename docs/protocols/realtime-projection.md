@@ -131,9 +131,12 @@ The optional `surfaces` field carries the installed pack's graded surfaces as th
 (issue 267): the presentation's per-tier decal budgets and each labelled zone whose host is in the
 scene, with its settled channels and bands, the treatments of its current bands, its recent marks and
 its text-path sentence ([surface treatments](world-presentation.md#surface-treatments-267)). It is
-absent when the installed presentation binds no surface, names only projected objects as hosts, and
-is projection version 2 like `effects`. `set_surfaces` replaces it whole (`null` removes it); a patch
-carries it only when the projection has the field or had it.
+absent when the installed presentation binds no surface, names only projected objects as hosts and
+as mark actors (a mark left by an actor the scene does not project carries `actorId: null`, and the
+sentence then names no one), and is projection version 2 like `effects`. `set_surfaces` replaces it
+whole (`null` removes it); a patch carries it only when the projection has the field or had it. A
+client applying a patch drops a zone whose host object the patch removed and nulls a removed mark
+actor, so the applied scene still names only projected entities until the next `set_surfaces`.
 
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
@@ -483,8 +486,9 @@ connection. Admission alone delivers no projection and therefore cannot establis
 
 Server `recovery` reasons are `snapshot_required`, `revision_unavailable`,
 `asset_manifest_changed`, `backpressure` and `runtime_restarted`. Server `disconnect` reasons
-are `malformed_control`, `unsupported_protocol`, `unauthorized`, `stale_authority_epoch` and
-`internal_error`. Notices contain typed reasons, never exception details. Strict codecs reject
+are `malformed_control`, `unsupported_protocol`, `unauthorized`, `stale_authority_epoch`,
+`surface_decal_budget_exceeded` (the runtime's presentation cannot hold the installed pack's marks,
+`SURFACE_DECAL_BUDGET_EXCEEDED`; closed 1011 like `internal_error`) and `internal_error`. Notices contain typed reasons, never exception details. Strict codecs reject
 unknown fields, wrong directions, unsupported versions and malformed revisions. Revisions use
 bigint internally and decimal strings on the wire. Parsing catches JSON syntax failures;
 unexpected internal exceptions remain internal failures.

@@ -339,7 +339,11 @@ presentation that names a zone, channel or band its pack does not declare, and, 
 must fit that tier's `decals` (`surfaceDecalRefusal` in `@clockgrove/contracts`). The runtime reads
 its own copy of the presentation, so it applies the same check where it binds that copy to the
 installed policy: a scene or flashback projection over a budget too small is refused with
-`SurfaceDecalBudgetRefusedError`, code `SURFACE_DECAL_BUDGET_EXCEEDED`, and draws nothing. The zone and mark
+`SurfaceDecalBudgetRefusedError`, code `SURFACE_DECAL_BUDGET_EXCEEDED`, and draws nothing. The code
+reaches the client: the scene socket sends the `disconnect` control with reason
+`surface_decal_budget_exceeded` and closes 1011 ([realtime projection](realtime-projection.md)), and
+the flashback route answers 500 `surface_decal_budget_exceeded`
+([flashback](living-yard-observation.md)), so a client tells this refusal from a crash. The zone and mark
 budgets are the pack's own (`SURFACE_BUDGET_EXCEEDED`, [SDK refusal codes](../../packages/world-pack-sdk/docs/refusal-codes.md)).
 No budget is met by dropping a mark.
 
@@ -349,11 +353,14 @@ frame: for each labelled zone in the policy's declaration order whose host is in
 projected object, or a region in a projected frame, given by its frame and two-axis bounds), each
 channel is settled at the scene's simulation time under the rain the world holds, with its band set;
 `treatments` lists the treatment of each current band that has one, in channel then band order; and
-`marks` copies the zone's ring, oldest first (who, when, where, how hard). The text path's
-`sentence` is null when no current band has a treatment, else `<label> <phrase>, <phrase>.`, or
-`<label> <phrases>; most recently by <actor>.` when the zone has a mark, the actor named by its
-presentation binding's accessibility label, else its scene label, else its id, for example "The cedar's bark is scratched; most recently
-by Keeper, a resident." Every value is a function of state and these records, so replay and catch-up
+`marks` copies the zone's ring, oldest first (who, when, where, how hard). A mark's `actorId` is the
+marking actor when the scene projects it and null otherwise: a scene never names an entity it does
+not project. The text path's `sentence` is null when no current band has a treatment, else
+`<label> <phrase>, <phrase>.`, or `<label> <phrases>; most recently by <actor>.` when the zone's
+newest mark was left by a projected actor, named by its presentation binding's accessibility label,
+else its scene label, for example "The cedar's bark is scratched; most recently by Keeper, a
+resident." When that actor is not projected the sentence names no one; who left the mark is the
+journal's answer under its own authority. Every value is a function of state and these records, so replay and catch-up
 draw the same picture. The scene reader loads the installed behaviour policy only when the pack's
 presentation binds surfaces. The reference fixture binds its cedar bark, fence path, porch boards
 and garden bed in `presentation.json` and `runtime.json`.

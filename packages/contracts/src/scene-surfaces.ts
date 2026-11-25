@@ -164,7 +164,8 @@ export type SceneSurfaceHost =
       readonly max: readonly string[];
     };
 export interface SceneSurfaceMark {
-  readonly actorId: ObjectId;
+  /** The marking actor; null when the scene does not project it (it is never named there). */
+  readonly actorId: ObjectId | null;
   readonly at: bigint;
   readonly intensity: number;
   readonly point: { readonly u: number; readonly v: number };
@@ -262,7 +263,7 @@ function decodeSceneSurfaceZone(value: unknown, path: string): SceneSurfaceZone 
       const point = record(m.point, `${p}.point`);
       exactKeys(point, ["u", "v"], [], `${p}.point`);
       return {
-        actorId: decodeOpaqueId(m.actorId, "ObjectId", `${p}.actorId`),
+        actorId: m.actorId === null ? null : decodeOpaqueId(m.actorId, "ObjectId", `${p}.actorId`),
         at: unsignedDecimal(m.at, `${p}.at`),
         intensity: boundedInteger(m.intensity, `${p}.intensity`, 1, 10_000),
         point: {
@@ -276,8 +277,8 @@ function decodeSceneSurfaceZone(value: unknown, path: string): SceneSurfaceZone 
 }
 
 /**
- * Distinct zones; given the projected entities, an object host must be one of them, never a hidden
- * one (a patch's surfaces are checked where the patch is applied).
+ * Distinct zones; given the projected entities, an object host and a named mark actor must be among
+ * them, never a hidden one (a patch's surfaces are checked where the patch is applied).
  */
 export function decodeSceneSurfaces(
   value: unknown,
@@ -293,6 +294,10 @@ export function decodeSceneSurfaces(
     seen.add(zone.zoneId);
     if (zone.host.kind === "object" && projected && !projected.has(zone.host.objectId))
       throw new ContractDecodeError(`${p}.host.objectId`, "entity is not projected");
+    zone.marks.forEach((mark, i) => {
+      if (mark.actorId !== null && projected && !projected.has(mark.actorId))
+        throw new ContractDecodeError(`${p}.marks[${i}].actorId`, "entity is not projected");
+    });
     return zone;
   });
   return { decals: decodeDecalBudgets(v.decals, `${path}.decals`), zones };

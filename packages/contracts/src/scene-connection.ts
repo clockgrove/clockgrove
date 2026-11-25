@@ -159,6 +159,8 @@ export type SceneDisconnectReason =
   | "unsupported_protocol"
   | "unauthorized"
   | "stale_authority_epoch"
+  /** The runtime's presentation cannot hold the installed pack's marks (SURFACE_DECAL_BUDGET_EXCEEDED). */
+  | "surface_decal_budget_exceeded"
   | "internal_error";
 
 export interface SceneRecoveryControl {
@@ -253,6 +255,7 @@ export function decodeSceneConnectionControl(
             "unsupported_protocol",
             "unauthorized",
             "stale_authority_epoch",
+            "surface_decal_budget_exceeded",
             "internal_error",
           ],
           `${path}.reason`,

@@ -22,6 +22,7 @@ import {
 } from "@clockgrove/contracts";
 import { OwnerMailboxError } from "./mailbox.js";
 import type { SceneAudienceDecision } from "./scene-audience.js";
+import { SurfaceDecalBudgetRefusedError } from "./scene-presentation.js";
 
 /** Engineering budgets.
  * `unacknowledged` is one existing four-command owner activation's worth of outstanding frames
@@ -93,8 +94,10 @@ export function sceneReads(): SceneReads {
 
 /** Typed reasons only: an unexpected failure is internal, and its detail stays in the log. */
 function refusal(error: unknown): SceneDisconnectReason {
-  return error instanceof AuthorizationRefusedError || error instanceof JournalRouteNotFoundError
-    ? "unauthorized"
+  if (error instanceof AuthorizationRefusedError || error instanceof JournalRouteNotFoundError)
+    return "unauthorized";
+  return error instanceof SurfaceDecalBudgetRefusedError
+    ? "surface_decal_budget_exceeded"
     : "internal_error";
 }
 /** Replace visible fields, removing obsolete public identities when a live baseline exists. */
@@ -736,7 +739,11 @@ export class SceneDelivery<A extends SceneAuthority = SceneAuthority> {
   disconnect(socket: SceneSocket, reason: SceneDisconnectReason): void {
     this.forget(socket);
     socket.send(encodeSceneConnectionControl({ protocolVersion: 1, type: "disconnect", reason }));
-    socket.close(reason === "internal_error" ? 1011 : 1008, reason);
+    // A server-side failure, the runtime's own presentation refused included, closes 1011.
+    socket.close(
+      reason === "internal_error" || reason === "surface_decal_budget_exceeded" ? 1011 : 1008,
+      reason,
+    );
   }
   forget(socket: SceneSocket): void {
     this.intents.delete(socket);

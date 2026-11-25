@@ -323,14 +323,17 @@ export function sceneSurfaces(
         return treatment === undefined ? [] : [treatment];
       }),
     );
+    // A marker the scene does not project is never named there: its marks carry no actor and the
+    // sentence names no one (who left them is the why walk's answer, under its own authority).
     const last = zoneState.marks.at(-1);
+    const marker = last !== undefined && projected.has(last.actorId) ? last.actorId : undefined;
     const phrases = treatments.map((treatment) => treatment.phrase).join(", ");
     const sentence =
       treatments.length === 0
         ? null
-        : last === undefined
+        : marker === undefined
           ? `${label} ${phrases}.`
-          : `${label} ${phrases}; most recently by ${labelOf(last.actorId)}.`;
+          : `${label} ${phrases}; most recently by ${labelOf(marker)}.`;
     zones.push({
       zoneId: zone.id,
       label,
@@ -338,7 +341,7 @@ export function sceneSurfaces(
       channels: settled,
       treatments: treatments.map(({ channel, band, tiers }) => ({ channel, band, tiers })),
       marks: zoneState.marks.map(({ actorId, at: markedAt, intensity, point }) => ({
-        actorId,
+        actorId: projected.has(actorId) ? actorId : null,
         at: markedAt,
         intensity,
         point: { u: point.u, v: point.v },
