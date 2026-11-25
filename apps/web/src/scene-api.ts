@@ -10,6 +10,7 @@ import {
   decodeConversationTranscript,
   decodeEntitySelection,
   decodeFlashback,
+  decodeFlashbackMarks,
   decodeFollowDisposition,
   decodeInfluenceReceipt,
   decodeRecordedWhy,
@@ -26,6 +27,8 @@ import {
   type EventId,
   type Flashback,
   type FlashbackEntry,
+  type FlashbackMarks,
+  type FlashbackMarksRequest,
   type FlashbackRequest,
   type FollowDisposition,
   type InfluenceReceipt,
@@ -63,6 +66,8 @@ import {
   type EntityQueryKey,
   type FlashbackQueryKey,
   flashbackProjection,
+  type MarksQueryKey,
+  marksProjection,
   sceneProjectionKey,
   selectionProjection,
   type ViewTraceQueryKey,
@@ -337,6 +342,8 @@ export class SceneSession {
     undefined,
   ];
   private flashbackObserver: QueryObserver<Flashback> | undefined;
+  private marksKey: MarksQueryKey = ["living-scene", "marks", 0, undefined, 0, undefined];
+  private marksObserver: QueryObserver<FlashbackMarks> | undefined;
   constructor(
     private readonly origin: string,
     private readonly resetView: () => void,
@@ -419,6 +426,7 @@ export class SceneSession {
   readonly getSelectionKey = (): EntityQueryKey => this.selectionKey;
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;
   readonly getViewTraceKey = (): ViewTraceQueryKey => this.viewKey;
+  readonly getMarksKey = (): MarksQueryKey => this.marksKey;
   readonly getFlashbackKey = (): FlashbackQueryKey => this.flashbackKey;
   /** The observation intent fences world-status results: a replaced observation changes it. */
   readonly getIntent = (): number => this.intent;
@@ -495,6 +503,8 @@ export class SceneSession {
       this.selected,
       this.queries.getQueryState<EntitySelection>(this.selectionKey),
     );
+  readonly getMarksSnapshot = () =>
+    marksProjection(this.selected, this.queries.getQueryState<FlashbackMarks>(this.marksKey));
   readonly getWhySnapshot = () =>
     whyProjection(this.entry, this.queries.getQueryState<RecordedWhy>(this.whyKey));
   readonly getFlashbackSnapshot = () =>
@@ -725,6 +735,7 @@ export class SceneSession {
     endpoint:
       | "/v1/runtime/entity"
       | "/v1/runtime/flashback"
+      | "/v1/runtime/flashback/marks"
       | "/v1/runtime/view-trace"
       | "/v1/runtime/why"
       | "/v1/runtime/world-directory"
@@ -754,6 +765,7 @@ export class SceneSession {
     endpoint:
       | "/v1/runtime/entity"
       | "/v1/runtime/flashback"
+      | "/v1/runtime/flashback/marks"
       | "/v1/runtime/view-trace"
       | "/v1/runtime/why"
       | "/v1/runtime/world-status",
@@ -1403,6 +1415,10 @@ export class SceneSession {
     this.selectionObserver = undefined;
     void this.queries.cancelQueries({ queryKey: this.selectionKey, exact: true });
     this.queries.removeQueries({ queryKey: this.selectionKey, exact: true });
+    this.marksObserver?.destroy();
+    this.marksObserver = undefined;
+    void this.queries.cancelQueries({ queryKey: this.marksKey, exact: true });
+    this.queries.removeQueries({ queryKey: this.marksKey, exact: true });
     const state = this.getSnapshot();
     const projectable = state.scene?.entities.some((entity) => entity.objectId === objectId);
     this.selected =
@@ -1416,6 +1432,14 @@ export class SceneSession {
       this.selected,
       cursor,
     ];
+    this.marksKey = [
+      "living-scene",
+      "marks",
+      this.intent,
+      state.scope,
+      this.selectionIntent,
+      this.selected,
+    ];
     if (this.selected && this.credential && state.scope) {
       this.selectionObserver = new QueryObserver<EntitySelection>(this.queries, {
         queryKey: this.selectionKey,
@@ -1428,6 +1452,11 @@ export class SceneSession {
         objectId: this.selected,
         ...(cursor ? { cursor } : {}),
       });
+      this.marksObserver = new QueryObserver<FlashbackMarks>(this.queries, {
+        queryKey: this.marksKey,
+        queryFn: skipToken,
+      });
+      this.marksObserver.subscribe(() => this.notify());
     }
     this.notify();
   }
@@ -1476,6 +1505,53 @@ export class SceneSession {
         new AbortController().signal,
         decodeEntitySelection,
       );
+    }
+  }
+  /**
+   * Issue 273: reads the selected entity's marks once per selection key, when the selection panel
+   * shows them (so a session without that panel sends no extra request).
+   */
+  loadMarks(): void {
+    const scope = this.getSnapshot().scope;
+    if (
+      !this.selected ||
+      !this.credential ||
+      !scope ||
+      this.queries.getQueryState(this.marksKey) !== undefined
+    )
+      return;
+    void this.readMarks(this.selectionIntent, this.intent, this.credential, {
+      version: 1,
+      ...scope,
+      objectId: this.selected,
+    });
+  }
+  private async readMarks(
+    selectionIntent: number,
+    intent: number,
+    credential: string,
+    request: FlashbackMarksRequest & { readonly objectId: ObjectId },
+  ): Promise<void> {
+    try {
+      await this.queries.fetchQuery({
+        queryKey: this.marksKey,
+        staleTime: 0,
+        queryFn: async ({ signal }) => {
+          const value = await this.readObservation(
+            "/v1/runtime/flashback/marks",
+            credential,
+            request,
+            signal,
+            decodeFlashbackMarks,
+          );
+          if (!("objectId" in value.target) || value.target.objectId !== request.objectId)
+            throw new ApiRefusal(403);
+          return value;
+        },
+      });
+    } catch (error) {
+      if (selectionIntent !== this.selectionIntent || intent !== this.intent) return;
+      this.refuseAuthorization(error);
     }
   }
   private async readSelection(

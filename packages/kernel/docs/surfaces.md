@@ -114,4 +114,6 @@ repair, the budget refusal and scenario decoding.
 ## Not yet here
 
 The why path from a zone to its cause, the presentation binding, and the runtime's owner repair
-route are later parts of issue #267.
+route are later parts of issue #267. A zone's moments (the events above that changed it) are
+already listed for flashbacks by `POST /v1/runtime/flashback/marks`
+([observation protocol](../../../docs/protocols/living-yard-observation.md#flashback-marks)).
