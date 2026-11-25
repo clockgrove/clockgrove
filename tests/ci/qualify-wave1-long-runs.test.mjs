@@ -65,7 +65,7 @@ beforeAll(async () => {
     concurrency: 4,
     log: () => {},
   });
-  const residents = result.runs.find((run) => run.pack === "clockgrove.fixture-hall@1.5.0");
+  const residents = result.runs.find((run) => run.pack === "clockgrove.fixture-hall@1.6.0");
   const bytes = await readFile(
     path.join(directory, "evidence", residents.runtimes.node.bundle.path),
   );
@@ -77,7 +77,7 @@ afterAll(async () => {
 
 it("short horizons pass every observable check with identical Node and workerd bundles", async () => {
   expect(result.runs.map((run) => [run.pack, run.horizonMs])).toEqual([
-    ["clockgrove.fixture-hall@1.5.0", String(72n * HOUR)],
+    ["clockgrove.fixture-hall@1.6.0", String(72n * HOUR)],
     ["clockgrove.test-world@1.2.0", String(HOUR)],
   ]);
   for (const run of result.runs) {

@@ -1,0 +1,1 @@
+{"archetype":{"id":"playground.cube-kind","version":1},"capabilities":[],"id":"playground.cube","overrides":[],"placement":{"coordinates":[{"$bigint":"10"},{"$bigint":"20"}],"space":{"id":"playground.plane","version":1}},"traits":[]}

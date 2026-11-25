@@ -6,6 +6,7 @@ import {
   decodePrivacyCeiling,
   decodeRecordedWhy,
   decodeSayReceipt,
+  INTERACTION_DISCLOSURES,
   type SceneConnectionAttachment,
 } from "@clockgrove/contracts";
 import { PostgreSqlWorldCommandJournal } from "@clockgrove/persistence";
@@ -198,9 +199,11 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
             ),
           );
       // Talk follows the declared Conversation mode (issue 354), not needs: the cedar declares one.
+      // The card's mode is that declared mode (issue 396): Keeper's archetype declares `cognitive`
+      // and the cedar's `interpreted`; the undeclared dish and den keep reactive and inspectable.
       expect(await scene({ categories: ["public_scene", "conversation"], command: true })).toEqual({
         "fixture.cedar": [
-          "reactive",
+          "interpreted",
           [
             { kind: "inspect", availability: "enabled" },
             { kind: "history", availability: "enabled" },
@@ -223,7 +226,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           ],
         ],
         "fixture.keeper": [
-          "reactive",
+          "cognitive",
           [
             { kind: "inspect", availability: "enabled" },
             { kind: "history", availability: "enabled" },
@@ -233,7 +236,7 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
         ],
       });
       // Needs alone no longer make an entity talkable: the same canonical Keeper without its
-      // declared Conversation mode keeps Why and loses Talk.
+      // declared Conversation mode keeps Why, loses Talk and discloses today's reactive mode.
       const canonical = (
         await new PostgreSqlCommandOwner(client).reader.hydrate(authorization, scope)
       ).document.state;
@@ -254,6 +257,32 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           ],
         },
       ]);
+      // A declared `canonical` mode is disclosed in that voice, with the same actions as cognitive.
+      const canonicalVoice = {
+        ...canonical,
+        entities: canonical.entities.map((entity) =>
+          entity.objectId === "fixture.keeper"
+            ? { ...entity, conversationMode: "canonical" as const }
+            : entity,
+        ),
+      };
+      const [canonicalCard] = interactionsOf(canonicalVoice, new Set(["fixture.keeper"]), {
+        talk: true,
+        influence: true,
+      });
+      expect(canonicalCard).toEqual({
+        entityId: "fixture.keeper",
+        mode: "canonical",
+        actions: [
+          { kind: "inspect", availability: "enabled" },
+          { kind: "history", availability: "enabled" },
+          { kind: "why", availability: "enabled" },
+          { kind: "talk", availability: "enabled" },
+        ],
+      });
+      expect(INTERACTION_DISCLOSURES[canonicalCard?.mode ?? "inspectable"]).toBe(
+        "Authorized explanation from world evidence",
+      );
       const observerOnly = await scene({ categories: ["public_scene"], command: false });
       expect([
         observerOnly["fixture.keeper"]?.[1]?.[3],

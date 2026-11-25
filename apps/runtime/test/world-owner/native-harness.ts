@@ -301,6 +301,8 @@ export async function withNativeWorldOwner(
     mcp = false,
     /** The world's context settings (`WORLD_MODEL_CONFIG`'s `context`), over the pack's model. */
     context = undefined as object | undefined,
+    /** The world's approver (`WORLD_APPROVER`) over its `runtime.json`; `null` configures none. */
+    approver = undefined as object | null | undefined,
   } = {},
 ): Promise<void> {
   const inherited = process.env[fixtureVariable];
@@ -316,8 +318,10 @@ export async function withNativeWorldOwner(
       throw error;
     }),
   );
+  const worldApprover = approver === undefined ? presentationSource.approver : approver;
   const worldBindings = {
     WORLD_PRESENTATION: JSON.stringify(presentationSource.presentations ?? []),
+    ...(worldApprover == null ? {} : { WORLD_APPROVER: JSON.stringify(worldApprover) }),
     ...(presentationSource.model === undefined
       ? {}
       : {

@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -180,7 +181,22 @@ it("shows queued research, the cited answer and its canonical tool evidence", as
       const approvalResponse = page.waitForResponse((response) =>
         response.url().endsWith("/effects/decide"),
       );
-      await approvals.getByRole("button", { name: "Approve exact call", exact: true }).click();
+      // The approval panel passes axe and is operable by keyboard.
+      await page.addScriptTag({
+        content: await (await import("node:fs/promises")).readFile(
+          createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
+          "utf8",
+        ),
+      });
+      expect(
+        await page.evaluate(async () =>
+          (
+            await globalThis.axe.run(document.querySelector('[aria-label="Call approvals"]'))
+          ).violations.map((violation) => violation.id),
+        ),
+      ).toEqual([]);
+      await approvals.getByRole("button", { name: "Approve exact call", exact: true }).focus();
+      await page.keyboard.press("Enter");
       expect((await approvalResponse).status()).toBe(200);
       await expect
         .poll(

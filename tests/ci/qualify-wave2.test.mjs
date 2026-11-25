@@ -18,6 +18,7 @@ import {
   TEST_DB_REPORT,
   validateWave2Manifest,
 } from "../../scripts/ci/qualify-wave2-manifest.mjs";
+import { worldPackDirectories } from "../../scripts/ci/world-packs.mjs";
 import { decode } from "./decode-once.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -61,7 +62,7 @@ const build = () =>
     decode,
   });
 
-/** A passing journal result: every golden run and every declared long run. */
+/** A passing journal result: every committed pack's golden runs and every declared long run. */
 async function writeJournal(edit = (runs) => runs) {
   const run = (set, pack, scenario, name, finalStateHash) => ({
     set,
@@ -82,7 +83,7 @@ async function writeJournal(edit = (runs) => runs) {
     replay: { events: 12, ms: 3 },
   });
   const runs = [];
-  for (const pack of ["fixture", "fixture/reference"])
+  for (const pack of await worldPackDirectories(root))
     for (const name of await readdir(path.join(root, "worlds", pack, "goldens"))) {
       const golden = decode(await readFile(path.join(root, "worlds", pack, "goldens", name)));
       for (const entry of golden.runs)

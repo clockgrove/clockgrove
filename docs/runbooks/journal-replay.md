@@ -429,6 +429,12 @@ there is no CLI.
 
 `apps/runtime/test/causal-inspector.postgres.test.ts` runs in `test:db`.
 
+**Flashbacks** (issue 273) are the observer's read of one past moment through these same parts: one
+`flashbackEvidence` access (the public Why plus the entry command's readable events), then a bounded
+`replayPartition` from the latest compatible snapshot at or below the window, or from birth within
+the catch-up bound. One public scene frame is taken per journaled command. Nothing is written. The
+bounds, statuses and codes are in [the observation protocol](../protocols/living-yard-observation.md#flashback).
+
 ## Replay and acceleration metadata
 
 Replay reads `event_bytes` in increasing journal position and calls the accepted pure

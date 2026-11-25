@@ -125,8 +125,25 @@ committed data. Legacy projections without lighting retain their existing enviro
   The fixture allows up to 96×: its 390×844 portrait view has logical height about 1385,
   requiring about 74× for that same half-metre subject to occupy one third of the viewport. Zoom changes the
   orthographic projection continuously; geometry stays at its native rendering resolution.
+- **Real depth (#266).** The 2:1 mapping is read as a 30° camera pitch, so the scene has real
+  world-space depth: a metre of `x − y` toward the viewer is 6.25 px down the screen and
+  6.25√3 scene units nearer the camera, and a metre of elevation is 12.5 px up and 12.5/√3 nearer
+  (`sceneDepth` in `renderer-content.ts`). The floor is a real plane through the origin with normal
+  (0, sin 60°, cos 60°): at elevation 0 its depth is −√3 times the scene Y. The ground mesh lies on
+  it; the orthographic camera stays 10,000 units from the floor under the view centre (near 0.1, far
+  20,000), so screen positions, picking and pan are unchanged and only depth is real. Linear fog
+  from 0 to 90,000 keeps the 11% veil at the view centre and varies a few percent with depth across
+  the view. Every projected body's anchor sits at its real depth on every path. A sprite's quad keeps
+  every pixel row and gains a row at its anchor; the rows below the anchor lie on the floor, so the
+  floor never clips them. A body without a sprite (the fallback circle or ellipse) stands with its
+  bottom at the anchor. Contact shapes, puddles and puddle reflections lie on the floor. Sprites and
+  these decals sit 0.5 units toward the camera off the floor, about 400 steps of a 24-bit depth
+  buffer over the 20,000-unit range but only 46 mm of world depth, so they never share the ground's
+  depth. A projected lamp's point light sits 12 units up the screen from the lamp and 35 units in
+  front of its real depth. Labels, selection, cues and rain draw without depth testing.
+  Contact shapes, shadow maps and later ambient occlusion can therefore read real distances.
 - **Visual entity.** Each drawn entity has explicit geometry:
-  - **Footprint** in millimetres, drawn as a ground shadow.
+  - **Footprint** in millimetres, drawn as the body's contact shape (see Grounding and one picture).
   - **Anchor**, the frame pixel that stands on the pose.
   - **Elevation**, the z coordinate of a 3D frame, else 0.
   - **Occlusion group**: `ground` < `standing` < `weather` < `emphasis`. Every projected entity is
@@ -321,10 +338,12 @@ updates adapt detail to the selected tier rather than choosing another light rig
 The configured GLTF loader converts decoded materials to lit node materials before attachment.
 
 `place` uses the existing fixed camera: scene X is `(x + y) * 12.5`, scene Y is
-`-(x - y) * 6.25 + elevation * 12.5`, and depth is `(x - y) * 0.01 + elevation * 0.005`.
-It sets local scale to `(12.5, 12.5, 0.01)`. Local content geometry therefore uses screen-aligned
-metres, Y upward and shallow local Z depth; rotate model geometry within an anchor group when
-needed. Local Y zero is the feet/ground anchor, not a separate physical ground simulation.
+`-(x - y) * 6.25 + elevation * 12.5`, and depth is the real depth
+`(x - y) * 6.25√3 + elevation * 12.5/√3` (see Real depth above). It sets local scale to
+`(12.5, 12.5, 12.5)`. Local content geometry therefore uses screen-aligned metres on all three
+axes, Y upward and Z toward the camera, with no depth compression (#266 removed the earlier 0.01
+local depth scale); rotate model geometry within an anchor group when needed. Local Y zero is the
+feet/ground anchor, not a separate physical ground simulation.
 With content attached, projected bodies write anchor depth too, so opaque and alpha-tested
 content interleaves with projected sprites through the same depth buffer. Normal maps affect the
 shared lighting; a TSL `depthNode` can apply a world-supplied per-fragment depth map. Content is
@@ -374,7 +393,7 @@ the renderer owns the actual lights, tier selection and GPU resource retirement.
 
 The instance's optional `lights` array contains `{ position: [x, y, z], colour,
 intensity, rangeMetres }` descriptors. Positions are screen-aligned metres relative to the scene
-origin, with all three axes scaled by 12.5; unlike `place`, their depth is not compressed.
+origin, with all three axes scaled by 12.5, the same real depth as `place`.
 `colour` is `#rrggbb`, intensity is nonnegative, and range is positive. All numbers must be
 finite. Admission uses array order, up to the active tier's cap; extra valid descriptors remain
 inactive. At most 64 descriptors are accepted. Absolute position components and intensity are
@@ -382,8 +401,18 @@ bounded by 1,000,000, and range by 100,000 metres. These defensive #184 presenta
 bound validation work and avoid overflow; invalid values fail the content contract.
 Descriptors can change during `update`; the renderer revalidates them before rendering.
 
+The instance's optional `contacts` array grounds content the same way projected bodies are
+grounded: `{ x, y, elevation?, widthMetres, depthMetres }` in frame metres, as `place`: the shape lies at the
+point's real depth, elevation included, so it grounds content on a raised surface too. Projected
+bodies' contact shapes likewise lie at their placement's real depth. A contact moves only when its
+descriptor changes. At most 64 are accepted. Coordinates and elevation are bounded by 1,000,000, and widths and depths are positive
+and at most 1000 m. The renderer revalidates them on every update, like `lights`; invalid values fail
+`content_contract`. Each draws the contact shape below on every tier and retires on content failure.
+`metrics.contactShadows` counts the projected bodies' and content's contact shapes. The fixture
+content grounds its model and sprite this way.
+
 The instance's optional `shadows: true` enables content mesh `castShadow` and `receiveShadow`
-flags and ground shadow reception. Meshes choose their flags individually; the renderer bounds
+flags and floor shadow reception. Meshes choose their flags individually; the renderer bounds
 scene directional shadow maps by tier. Omission or `false` disables participation. Point lights
 from descriptors illuminate surfaces but do not allocate point-light shadow cube maps.
 The standalone fixture opts in with `?lighting`.
@@ -398,8 +427,9 @@ Shadow storage conservatively reserves 12 bytes per map pixel before choosing vi
 and counts in `textureBytes`: 3,145,728 bytes at medium and 25,165,824 at high when both scene
 directional sources are present. `metrics.contentLights`, `shadowMaps` and `shadowTextureBytes`
 report active admission and reserved storage. Shadow coverage follows the fixed camera and zoom
-using the visible rectangle’s diagonal radius and 128 logical pixels of caster margin. The light
-target sits at depth -50 between content and ground (-100); the source distance is the larger of
+using the radius of the visible floor (the visible rectangle's half-width and twice its half-height,
+since the tilted floor adds √3 of depth per unit of height) and 128 logical pixels of caster margin.
+The light target sits on the floor under the view centre; the source distance is the larger of
 1000 or coverage radius plus 128, with near 0.1 and far distance plus radius plus 128. Bias is -0.0001.
 These are explicit renderer presentation choices for #184, bounding coverage while limiting acne.
 Tier changes, content failure and destruction retire unused light and shadow resources. The
@@ -408,6 +438,46 @@ backend fixtures establish correctness and bounded allocation. Per the owner’s
 decision in #184, software-GPU traversal plus these tier budgets as policy close this Objective.
 Physical desktop/recent-phone timing comes from the owner’s quality-lab runs in raccoon-world#45
 and the Clockgrove-renderer follow-up filed when it closes.
+
+### Grounding and one picture (#266)
+
+Every projected body has one renderer-drawn analytic contact shape on the floor under its anchor,
+the same on every tier including the low phone floor. It replaces the flat canvas ellipse, which
+ignored fog, tone mapping and depth. The radius comes from the footprint (span = width + depth).
+Opacity is a core of 0.3 fading out by 45% of the radius plus an ambient halo of 0.22 fading from
+25% of the radius to the rim, so 0.52 at the centre (`CONTACT` in `renderer.ts`). It is drawn with
+the scene's lit node material in black (Lambert at low, Standard above), so fog, tone mapping, the
+grade and the depth buffer treat it as they treat the set. Content in front hides it.
+
+| Tier | Grounding | Key-light shadow maps for cast and set | Per-body draws |
+| --- | --- | --- | --- |
+| low | contact shape | none | 1 contact shape |
+| medium | contact shape + key-light map | 1 × 512 when active | contact shape + 1 shadow pass |
+| high | contact shape + key-light maps | 2 × 1024 when active | contact shape + 2 shadow passes |
+
+Maps are active only when content opts in with `shadows: true`. Then every projected body casts into
+and receives the same key-light maps as the set. Its silhouette casts through the alpha-tested
+sprite, double-sided (`shadowSide`) so a camera-facing card casts from either side. A card
+stands for a body of its footprint depth, so its received-shadow lookup moves toward the key light
+(the brightest shadow-casting light) by half that depth, at least 0.5 m
+(`BODY_SHADOW_MIN_LIFT_METRES`), in scene units. The lift is the same on every tier and zoom, and
+moving along the light keeps the lookup over the body's own floor point, so a shadow crossing the
+floor at its feet falls on it while its own card does not shadow it. Floor and content keep bias -0.0001. With no active maps, neither cast nor set gets
+shadow maps. No tier treats them differently.
+
+Cast and set share ambient, directional and point lights, fog and the grade. The post pass (bloom,
+grade, low-tier label composite) applies to the whole scene, never to the set alone. Rim light is
+presentation data with a per-tier budget. The budget is none on every tier today, the renderer draws
+none, and content code may not add one, because the projection does not tell cast from set.
+Painterly worlds carry painterliness in their textures. No screen-space filter applies to the set
+and not the cast. The contract is in
+[one picture](../../../docs/protocols/world-presentation.md#one-picture).
+
+Later parts of #266 bring top-tier screen-space contact shadows, ambient occlusion and probe-lit
+indirect light (with #242's AO and probe pieces), and lamp (content light) character shadows.
+
+Deterministic captures change with grounding. They are re-approved through the capture review
+workflow (`tests/visual/approved-captures.json`), not by CI.
 
 ## Budgets (§9.3)
 
@@ -456,9 +526,12 @@ the latest retained reducer projection. The text scene remains available through
 retrying does not reconnect the observation or issue a world command. A retry that presents
 returns the boot to `scene_ready`; one that fails leaves it at `text_ready`.
 
-The right rail shows a cognitive actor's private conversation as chat bubbles under its portrait,
-a Talk / Observe / Remember / Why? grid drawn only from the actions the interaction card reports,
-and a message box. Below 1200 px the rail is the bottom sheet; it works without the canvas.
+The right rail shows a talkable entity's private conversation as chat bubbles under its portrait
+and a message box, below the interaction card. The card names the entity's declared voice
+(`INTERACTION_DISCLOSURES[mode]`, so a cognitive actor reads "Actor's subjective perspective") and
+keeps the same action list whatever that voice is (issue 396); the rail adds Why? for the newest
+command the conversation proposed. Below 1200 px the rail is the bottom sheet; it works without the
+canvas.
 
 Atlas animation uses per-mesh UVs on one shared Texture per atlas page; each animation's frames index
 the page it was loaded from, one rectangle per frame. A frame that names another page's `atlasId`

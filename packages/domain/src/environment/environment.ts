@@ -1,6 +1,7 @@
 import type { ObjectId, SimTimeMs } from "@clockgrove/contracts";
 
 import { DomainValidationError } from "../actor-process.js";
+import type { SurfaceRainSettlement } from "../surface.js";
 
 /** Versioned, optional world-behavior policy record; both cycles are anchored at simulation time 0. */
 export interface EnvironmentPhase {
@@ -61,6 +62,8 @@ export type EnvironmentEventData =
         temperatureBand: string;
         nextWeatherBoundary: SimTimeMs;
         rainChange: RainChange;
+        /** Rain-driven surfaces settled as a held rain ends; present only when non-empty. */
+        surfaces?: readonly SurfaceRainSettlement[];
       }>;
     }>
   | Readonly<{
@@ -81,9 +84,12 @@ const MAX_BOUNDARY = 1n << 64n;
 
 /** Validation failure whose `path` is the full canonical path (`policy.environment...` or `state.environment...`). */
 export class EnvironmentValidationError extends DomainValidationError {
-  constructor(path: string, message: string) {
+  /** The stable `name@version` of the rule refused, when the refusal has one (a declared budget). */
+  readonly check: string | undefined;
+  constructor(path: string, message: string, check?: string) {
     super(path, message);
     this.name = "EnvironmentValidationError";
+    this.check = check;
   }
 }
 

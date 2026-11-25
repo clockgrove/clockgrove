@@ -147,7 +147,7 @@ describe("autonomous native parity representative", () => {
           `${owner.packName}/${scenario}:main:headless revision ${first.revision} != journal ${extra}`,
         ]);
         if (owner.packName === "fixture/reference") {
-          const commandId = "commandid_c2aa5b2540305623";
+          const commandId = "commandid_f86e39bcaf7a6ad0";
           // Caught up through the first delivery (an environment boundary) and run at earned
           // time, the scenario's first consume is accepted in every mode.
           expect(

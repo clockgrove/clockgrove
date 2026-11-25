@@ -15,3 +15,4 @@ simulation, scheduling, route search, placement, persistence, rendering, or proc
 - [Components](docs/components.md): components and the physical world adapter.
 - [Component catalog](docs/component-catalog.md): the bounded component catalog.
 - [Component composition](docs/component-composition.md): versioned components and pinned composition.
+- [Surfaces](docs/surfaces.md): surface zones, channels, bands, marks and carried matter.

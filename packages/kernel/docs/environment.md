@@ -41,7 +41,7 @@ derived time. Only bigints and integers are used.
 | Event | Payload | Reducer effect |
 | --- | --- | --- |
 | `environment.phase-changed` | `phase`, `lightBand`, `nextPhaseBoundary` | updates `environment.phase`, `lightBand`, `nextPhaseBoundary`; the event time must equal the record's boundary |
-| `weather.transitioned` | `segmentIndex`, `rainIntensity`, `temperatureBand`, `nextWeatherBoundary`, `rainChange` (`began`, `ended`, `changed` or `unchanged`) | updates the record and sets `weather.rainIntensity`; `rainChange` must describe the intensity in force against the new one (`began` from 0, `ended` to 0, `changed`, `unchanged`) |
+| `weather.transitioned` | `segmentIndex`, `rainIntensity`, `temperatureBand`, `nextWeatherBoundary`, `rainChange` (`began`, `ended`, `changed` or `unchanged`) | updates the record and sets `weather.rainIntensity`; `rainChange` must describe the intensity in force against the new one (`began` from 0, `ended` to 0, `changed`, `unchanged`); an optional `surfaces` field settles rain-driven surfaces when it ends a held override ([surfaces](surfaces.md)) |
 | `exposure.threshold-crossed` | `objectId`, `threshold` (`wet` or `uncomfortable`), `direction` (`entered` or `left`), `wetness` | changes no physical field; continuous wetness stays in the needs projection |
 
 **Exposure crossing rule.** An `entered` crossing is emitted at the first millisecond at which the
@@ -86,7 +86,8 @@ next indivisible time group is refused with `invalid-input` at `payload.maxEvent
 **`world.weather.set` override.** With an environment the command emits its existing
 `weather.changed` event. The intensity it sets holds until the next weather boundary, where
 the authored segment's intensity takes over (the exposure systems model the held intensity until
-the record's `nextWeatherBoundary`).
+the record's `nextWeatherBoundary`, and rain-driven surfaces heal under it, settled on the event in
+an optional `surfaces` field; see [surfaces](surfaces.md)).
 
 **`material-threshold` equivalence.** Compares the ordered `environment.phase-changed`,
 `weather.transitioned`, `exposure.threshold-crossed` and `routine.selected` events by type,

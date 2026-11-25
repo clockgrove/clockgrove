@@ -108,6 +108,7 @@ import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflar
 import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
 import { handleEffectEndpoint, isEffectRoute } from "./effect-endpoint.js";
+import { PostgreSqlFlashbackReader } from "./flashback.js";
 import {
   HyperdrivePostgreSqlClient,
   withHyperdrivePostgreSqlClient,
@@ -139,15 +140,18 @@ import {
   composeResearch,
   type ResearchConfiguration,
   type ResearchResumeTarget,
+  worldApprover,
 } from "./research.js";
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
+import { decodeScenePresentations } from "./scene-presentation.js";
 import {
   type RuntimeAuthenticationDependencies,
   TrustedRuntimeRequestAuthenticator,
 } from "./trusted-composition.js";
 import type { RuntimeScope } from "./types.js";
+import { PostgreSqlUsageInspector } from "./usage.js";
 import { PostgreSqlClientViewInspector } from "./view-trace.js";
 import { type RuntimeOwnerBindings, RuntimeWorker } from "./worker.js";
 import type { WorkflowShellInput } from "./workflows.js";
@@ -558,6 +562,21 @@ export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO"
   };
 }
 
+/** Usage events by player and time window (0076); needs no artifact store. */
+export function composeUsageInspector(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+): RuntimeOwnerBindings["usage"] {
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) => inspector((usage) => usage.query(input, context)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
+  };
+}
+
 /**
  * Run walks and search (0036) under the conversations' keyring: a walk decrypts a protected
  * payload for a reader whose ceiling holds its class. Absent without the keyring, so they fail
@@ -771,6 +790,8 @@ export async function cancelWorldProvisioning(env: RuntimeEnvironment, input: un
 export interface RuntimeEnvironment {
   readonly WORLD_PRESENTATION?: string;
   readonly WORLD_MODEL_CONFIG?: string;
+  /** The world owner's approver of protected writes, `{"principal":…}` or `{"role":…}` (issue 359). */
+  readonly WORLD_APPROVER?: string;
   readonly WAKE_TRIAGE_CONFIG?: string;
   /** The world owner's pack size raises, JSON such as `{"resources":2048}`; absent, the defaults. */
   readonly WORLD_PACK_LIMITS?: string;
@@ -1120,6 +1141,7 @@ function composeGuardedResearch(
     },
     adapter: { execute, executeWrite: execute },
     internalRead: composeResearchInternalRead(env, supplied.authentication),
+    approver: worldApprover(env.WORLD_APPROVER),
     // The retry's turn assembles under the world's context settings, as the actor's own turns do.
     context: () =>
       actorContextSettings(
@@ -1471,6 +1493,7 @@ export default {
     const connection = env.HYPERDRIVE?.connectionString ?? "";
     const conversations = composeConversations(env);
     const runs = composeRunInspector(env);
+    const usage = composeUsageInspector(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1532,6 +1555,7 @@ export default {
               activations: composeActivationOwners(env),
             }),
         ...(runs === undefined ? {} : { runs }),
+        ...(usage === undefined ? {} : { usage }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
@@ -1572,6 +1596,18 @@ export default {
           return withHyperdrivePostgreSqlClient(connection, (client) =>
             readWorldReadiness(client, principalId, scope),
           );
+        },
+        flashback: {
+          inspect: (input, context) =>
+            withHyperdrivePostgreSqlClient(connection, (client) =>
+              new PostgreSqlFlashbackReader(client, new PostgreSqlCausalInspector(client), {
+                artifacts: composeArtifactStore(env, client),
+                decodeResource,
+                presentations: decodeScenePresentations(env.WORLD_PRESENTATION),
+              }).inspect(input, context),
+            ),
+          deny: (input, principalId, denial) =>
+            inspector((owner) => owner.deny(input, principalId, denial)),
         },
         inspector: {
           inspect: (input, context) => inspector((owner) => owner.inspect(input, context)),

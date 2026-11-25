@@ -135,6 +135,45 @@ command refusal or successful transfer are journaled under the declared principa
 application grant; the native command validations still apply. Absent process lists keep the existing
 encoding. See [kernel ecology](../../kernel/docs/ecology.md) for scheduling and attribution.
 
+### Surface authoring
+
+A behavior policy may add `surfaces`: named surface zones on objects or regions, bounded channels
+on them (wear, mud, wet…) with named, overlapping bands, the interactions that change them and a
+declared budget. It is validated by the domain like every other section, so a malformed entry is
+`INVALID_POLICY` at `manifest.policies[i]#policy.surfaces...`; bigints (`recovery.periodMs`) are
+written as `{"$bigint": "n"}`. A channel heals by `time`, by `rain` or by `growth` (the last two
+need the policy's `environment`), and a region zone may name a `traffic` interaction that every
+entering object applies, wearing a path or tracking mud.
+
+```json
+{
+  "surfaces": {
+    "schemaVersion": 1,
+    "budgets": { "zones": 8, "marksPerZone": 4 },
+    "channels": [
+      { "id": "wear", "max": 100, "carried": false,
+        "bands": [ { "name": "fresh", "min": 0, "max": 9 }, { "name": "scuffed", "min": 10, "max": 59 },
+                   { "name": "scarred", "min": 40, "max": 100 } ],
+        "recovery": { "driver": "time", "amount": 1, "periodMs": { "$bigint": "3600000" } } }
+    ],
+    "zones": [
+      { "id": "post-bark", "host": { "kind": "object", "objectId": "post" },
+        "channels": [ { "channel": "wear", "initial": 0 } ], "markCapacity": 4 }
+    ],
+    "interactions": [
+      { "id": "scratch", "effects": [ { "channel": "wear", "kind": "add", "amount": 30 } ], "leavesMark": true }
+    ]
+  }
+}
+```
+
+The numbers are an example's authored choices: healing speed is pack data. More zones than
+`budgets.zones`, or a zone whose `markCapacity` exceeds `budgets.marksPerZone`, is refused as
+`INVALID_POLICY` at `#policy.surfaces.zones` or `#policy.surfaces.zones[i].markCapacity`, with a
+message naming `surface.budget@1`; nothing is dropped. Genesis seeds each zone at its `initial`
+values. See [domain surfaces](../../domain/docs/surfaces.md) for the full declaration and
+[kernel surfaces](../../kernel/docs/surfaces.md) for the commands and healing.
+
 ### Closed-world authoring
 
 Declare all initial inventory in genesis actor components. Ecology no longer accepts `sources`,

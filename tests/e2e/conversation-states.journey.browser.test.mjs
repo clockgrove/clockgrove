@@ -109,11 +109,11 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       browser = await chromium.launch({ headless: true, args: ARGS });
       const page = await browser.newPage();
       const route = `/worlds/${Object.values(native.scope).map(encodeURIComponent).join("/")}`;
-      const openTalk = async () => {
+      const openTalk = async (entity = "fixture.keeper") => {
         await page.goto(`${browserOrigin}${route}`);
         await page.getByLabel("Local session credential").fill("local-reader-session");
         await page.getByRole("button", { name: "Sign in", exact: true }).click();
-        await page.getByRole("button", { name: "fixture.keeper", exact: true }).press("Enter");
+        await page.getByRole("button", { name: entity, exact: true }).press("Enter");
         await page.getByRole("button", { name: "Talk", exact: true }).click();
       };
       await openTalk();
@@ -124,6 +124,22 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       const send = async (text) => {
         await page.getByLabel("Message Keeper…", { exact: true }).fill(text);
         await page.getByRole("button", { name: "Send", exact: true }).click();
+      };
+      const scanAxe = async (label) => {
+        if (!(await page.evaluate(() => Boolean(globalThis.axe))))
+          await page.addScriptTag({
+            content: await (await import("node:fs/promises")).readFile(
+              require.resolve("axe-core/axe.min.js"),
+              "utf8",
+            ),
+          });
+        return page.evaluate(
+          async (name) =>
+            (
+              await globalThis.axe.run(document.querySelector(`[aria-label="${name}"]`))
+            ).violations.map((violation) => violation.id),
+          label,
+        );
       };
       const state = (label) => panel.getByText(label, { exact: true });
       const sessionId = () =>
@@ -420,7 +436,17 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await send("fixture:use perception.list {}");
       await expect.poll(perceptionSteps).toBe("succeeded/none");
       await state("Completed").waitFor();
-      await grantsView.getByRole("button", { name: "Revoke perception.list", exact: true }).click();
+      // The internal-grants view passes axe and is operable by keyboard.
+      expect(await scanAxe("Internal grants")).toEqual([]);
+      const revoke = grantsView.getByRole("button", {
+        name: "Revoke perception.list",
+        exact: true,
+      });
+      await revoke.focus();
+      await expect
+        .poll(() => revoke.evaluate((node) => node === document.activeElement))
+        .toBe(true);
+      await page.keyboard.press("Enter");
       await capabilities
         .getByRole("listitem")
         .filter({ hasText: /^perception\.list · read · 1 call per turn · revoked$/u })
@@ -435,18 +461,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
       await state("Completed").waitFor();
 
       // 7. The open conversation panel has no accessibility violations.
-      await page.addScriptTag({
-        content: await (await import("node:fs/promises")).readFile(
-          require.resolve("axe-core/axe.min.js"),
-          "utf8",
-        ),
-      });
-      const violations = await page.evaluate(async () =>
-        (
-          await globalThis.axe.run(document.querySelector('[aria-label="Private conversation"]'))
-        ).violations.map((violation) => violation.id),
-      );
-      expect(violations).toEqual([]);
+      expect(await scanAxe("Private conversation")).toEqual([]);
 
       // An operator who does not own the actor's policy sees the canonical revocations, but neither
       // a budget it cannot read nor a revoke it would be refused.
@@ -499,6 +514,20 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) { globalThis.
           "SELECT array_to_string(revoked_capabilities, ',') FROM clockgrove.actor_activation_policies WHERE actor_id='fixture.keeper'",
         ),
       ).toBe("perception.list");
+
+      // Each voice mode's disclosure shows in the browser: Keeper cognitive, the cedar interpreted, the gate canonical.
+      const disclosures = {};
+      for (const entity of ["fixture.keeper", "fixture.cedar", "fixture.fence-gate"]) {
+        await openTalk(entity);
+        await page.getByRole("button", { name: "New conversation", exact: true }).click();
+        await panel.getByText("Manage conversation", { exact: true }).click();
+        disclosures[entity] = await panel.locator("details .rw-disclosure").textContent();
+      }
+      expect(disclosures).toEqual({
+        "fixture.keeper": "Actor's subjective communication",
+        "fixture.cedar": "Narrated interpretation of modeled state; the object is not sentient",
+        "fixture.fence-gate": "Authorized explanation from world evidence",
+      });
     } finally {
       await browser?.close();
       await server.close();

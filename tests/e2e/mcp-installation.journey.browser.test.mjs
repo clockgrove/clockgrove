@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer as httpServer } from "node:http";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -334,7 +335,22 @@ it("connects, inspects, reviews, binds, detects drift and revokes through the op
         }
         await lookup.getByLabel("Actor ID").fill("actor-browser");
         await lookup.getByLabel("Allowed input fields (comma separated)").fill("query");
-        await lookup.getByRole("button", { name: "Bind actor", exact: true }).click();
+        // The MCP operator screen passes axe and is operable by keyboard.
+        await page.addScriptTag({
+          content: await (await import("node:fs/promises")).readFile(
+            createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
+            "utf8",
+          ),
+        });
+        expect(
+          await page.evaluate(async () =>
+            (
+              await globalThis.axe.run(document.querySelector('[aria-label="Capabilities"]'))
+            ).violations.map((violation) => violation.id),
+          ),
+        ).toEqual([]);
+        await lookup.getByRole("button", { name: "Bind actor", exact: true }).focus();
+        await page.keyboard.press("Enter");
         await screen
           .getByRole("status")
           .getByText("Canonical capability state updated.", { exact: true })

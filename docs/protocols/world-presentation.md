@@ -295,6 +295,15 @@ capture and enable reduced motion for repeatable stills. Use ordinary animation 
 capturing motion. A canvas screenshot captures the product camera, lights, grade, bloom and tier;
 it does not need the authenticated local-session command above.
 
+### One picture
+
+A scene is one picture. The cast and the set share lights, shadows, indirect light, fog and the grade
+on every quality tier. Rim light is presentation data with a per-tier budget, which is none on every
+tier today. No screen-space filter applies to the set and not the cast: painterly worlds carry
+painterliness in their textures. The rule is world-agnostic and names no cast or species. The
+renderer's grounding, shadow and budget rules are in
+[Grounding and one picture](../../apps/web/docs/scene.md#grounding-and-one-picture-266).
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.
@@ -315,10 +324,16 @@ default). A value out of range refuses the configuration
 ([context settings](context-assembly.md#world-context-settings)).
 Omitted model configuration uses the generic actor defaults.
 
-The reference world's `runtime.json` groups these as `presentations` and `model` and carries
-`presentationVersion: 1`. Deployment tooling serializes the two fields into their corresponding
+`WORLD_APPROVER` binds the world owner's approver of protected external writes that route to an
+operator, `{"principal":"<id>"}` or `{"role":"<role>"}`; absent, such a write is refused
+`approver_unconfigured` ([runtime runbook](../runbooks/runtime.md)). Any other value refuses the
+composition.
+
+The reference world's `runtime.json` groups these as `presentations`, `model` and `approver` and
+carries `presentationVersion: 1`. Deployment tooling serializes the three fields into their corresponding
 bindings; the platform does not discover or import this file. The native test composition does
-this for the explicitly selected pack. The fixture intentionally needs no runtime presentation
+this for the explicitly selected pack; the reference world's `approver` names `principal-runtime`,
+the operator that composition provisions. The fixture intentionally needs no runtime presentation
 configuration, proving that a world can use neutral geometry and ordinary projection labels.
 An atlas-free scene still draws geometry, renders frames and supports canvas picking; readiness
 does not require an atlas texture when `scene.atlases` is `false`.
@@ -339,4 +354,7 @@ scene clock convention), normalized for negative times, smooth daylight transiti
 The two-hour transition and colour palette are visual policy decisions for #184, not simulation
 rules or hardware performance claims. Callers may supply their own validated lighting/environment.
 Content shares the scene's continuous ambient and directional lights through its attached root,
-without a per-world renderer branch. Its `update` frame retains the existing time/weather fields.
+without a per-world renderer branch. It also shares the scene's real depth (#266): `place` anchors
+content at the floor's real world-space depth and scales its local axes 12.5 on all three, so a
+pinned world whose models were authored against the earlier 0.01 local depth scale rechecks them
+on updating its pin ([scene: real depth](../../apps/web/docs/scene.md#isometric-rules-92)). Its `update` frame retains the existing time/weather fields.

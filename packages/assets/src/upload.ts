@@ -1,5 +1,6 @@
 import type { AssetStyleProfile } from "@clockgrove/contracts";
 import { type AssetManifest, assetDeployRefusals } from "@clockgrove/contracts/asset-manifest";
+import { type ApproverRegistry, approverRefusal, type GoldenApprover } from "./approval.js";
 import { type AssetEntry, buildAtlases, canonicalJson, reviewedFiles } from "./atlas.js";
 import { sha256Hex } from "./validate.js";
 
@@ -32,26 +33,28 @@ export function r2AssetStore(binding: R2BucketLike): ContentAddressedAssetStore 
 }
 
 export interface GoldenApproval {
+  /** The golden record's file, named in every refusal. */
+  readonly file: string;
   readonly sceneSha256: string;
   readonly approval: {
     readonly status: "pending" | "approved";
-    readonly reviewer: string | null;
+    readonly approver: GoldenApprover | null;
     readonly approvedSceneSha256: string | null;
   };
 }
 
 /**
- * Why a golden scene may not ship; null when a human approved its current hash. A null, blank or
- * GitHub `[bot]` reviewer is not a human approval.
+ * Why a golden scene may not ship; null when it is approved for its current hash by a person the
+ * registry lists, or by an agent citing a delegation the registry records (`approverRefusal`).
  */
-export function goldenApprovalRefusal(golden: GoldenApproval): string | null {
-  const { approval, sceneSha256 } = golden;
+export function goldenApprovalRefusal(
+  golden: GoldenApproval,
+  approvers: ApproverRegistry,
+): string | null {
+  const { approval, sceneSha256, file } = golden;
   if (approval.status !== "approved" || approval.approvedSceneSha256 !== sceneSha256)
-    return `GOLDEN_NOT_APPROVED: not human-approved for sceneSha256 ${sceneSha256}`;
-  const reviewer: unknown = approval.reviewer;
-  if (typeof reviewer !== "string" || reviewer.trim() === "" || reviewer.endsWith("[bot]"))
-    return `GOLDEN_REVIEWER_NOT_HUMAN: reviewer ${JSON.stringify(reviewer ?? null)} is not a human login`;
-  return null;
+    return `GOLDEN_NOT_APPROVED: ${file}: not approved for sceneSha256 ${sceneSha256}`;
+  return approverRefusal(approval.approver, approvers, file);
 }
 
 /** The store object that names each reviewed file's content key: `{ files: { <name>: "sha256/<hex>" } }`. */
@@ -61,7 +64,7 @@ export interface ReviewedDirectory {
 
 /**
  * Refuses (uploading nothing) unless every manifest may deploy and the golden scene is approved as
- * it stands. Stores every reviewed file at its content key, then the directory that maps each
+ * it stands by an approver `approvers` recognises. Stores every reviewed file at its content key, then the directory that maps each
  * file's name (`atlases.json`, `<page>.png`, ...) to that key; `directory` is the directory's key.
  */
 export async function uploadReviewedAssets(
@@ -69,11 +72,13 @@ export async function uploadReviewedAssets(
   input: {
     entries: readonly AssetEntry[];
     golden: GoldenApproval;
+    /** The repository's approver registry (`readApprovers`). */
+    approvers: ApproverRegistry;
     layout?: readonly AssetManifest[];
     profile?: AssetStyleProfile;
   },
 ): Promise<{ uploaded: string[]; skipped: string[]; directory: string }> {
-  const golden = goldenApprovalRefusal(input.golden);
+  const golden = goldenApprovalRefusal(input.golden, input.approvers);
   const refusals = [
     ...input.entries.flatMap((e) =>
       assetDeployRefusals(e.manifest).map((r) => `${r.code} ${r.asset}: ${r.detail}`),

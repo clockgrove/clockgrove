@@ -8,7 +8,7 @@ import type {
 } from "@clockgrove/contracts";
 import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { pass, uniform, vec4 } from "three/tsl";
+import { float, pass, positionWorld, smoothstep, uniform, uv, vec4 } from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
   type DeviceProfile,
@@ -23,15 +23,16 @@ import {
   type AtlasTextureFormat,
   atlasTextureLoader,
   type ContentFailure,
-  contentDepth,
   contentLoaders,
   disposeContent,
+  floorDepth,
   loadModel,
   materialTextures,
   type RendererContent,
   type RendererContentInstance,
   rendererLibrary,
   rendererNodes,
+  sceneDepth,
   validateContent,
   validateContentLighting,
 } from "./renderer-content.js";
@@ -122,6 +123,8 @@ export interface SceneMetrics {
   contentLights: number;
   shadowMaps: number;
   shadowTextureBytes: number;
+  /** Contact shapes drawn: one per projected body and one per content contact descriptor (#266). */
+  contactShadows: number;
 }
 export type RendererMeasurement =
   | {
@@ -203,7 +206,81 @@ const ATLASES = worldShell.scene.atlases;
 const ATLAS_INDEX = "atlases.json";
 const WIDTH = 640,
   HEIGHT = 400;
+const CAMERA_DISTANCE = 10000;
+const FLOOR_TILT = Math.PI / 3;
+/**
+ * Decals and a sprite's floor-lying pixels sit this far toward the camera so they never share the
+ * depth-writing ground's plane. Orthographic depth is linear: a 24-bit buffer over the camera's
+ * 20,000-unit near/far span resolves 0.0012 units, so 0.5 is about 400 steps, while it is only
+ * 46 mm of world depth (0.5 / 6.25√3 m), under one 80 mm sprite pixel.
+ */
+const FLOOR_DECAL_LIFT = 0.5;
+/**
+ * A sprite's quad: 4×4 cells as before, plus a row at its anchor (y = 0) when the anchor falls
+ * inside it. Every pixel row is kept; rows below the anchor lie on the tilted floor (√3 of depth
+ * per unit down the screen), and the whole quad is lifted FLOOR_DECAL_LIFT off the floor.
+ */
+function spriteGeometry(
+  width: number,
+  height: number,
+  anchor: { x: number; y: number },
+): THREE.BufferGeometry {
+  const top = anchor.y,
+    bottom = anchor.y - height,
+    columns = 5;
+  const rows = Array.from({ length: 5 }, (_, i) => top - (i * height) / 4);
+  if (bottom < 0 && top > 0 && !rows.includes(0)) rows.push(0);
+  rows.sort((a, b) => b - a);
+  const position: number[] = [],
+    normal: number[] = [],
+    uv: number[] = [],
+    index: number[] = [];
+  for (const y of rows)
+    for (let c = 0; c < columns; c++) {
+      position.push(
+        -anchor.x + (c * width) / 4,
+        y,
+        Math.max(0, -y) * Math.sqrt(3) + FLOOR_DECAL_LIFT,
+      );
+      normal.push(0, 0, 1);
+      uv.push(c / 4, (y - bottom) / height);
+    }
+  for (let r = 0; r < rows.length - 1; r++)
+    for (let c = 0; c < columns - 1; c++) {
+      const a = r * columns + c,
+        b = a + columns;
+      index.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normal, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  return geometry;
+}
 const PX_PER_METRE = 12.5; // Issue 813: reviewed sprites use 80 mm per pixel.
+/**
+ * #266 grounding, the same on every tier: an analytic contact shape on the floor under each body,
+ * a tight core where the body meets the floor (opacity 0.3 fading out by 45% of the radius) over a
+ * wider ambient halo (0.22 fading from 25% of the radius to the rim), so the centre reaches 0.52.
+ * Presentation decisions; the footprint sets the radius as before.
+ */
+const CONTACT = { core: 0.3, coreRadius: 0.45, halo: 0.22, haloStart: 0.25 } as const;
+const contactRadius = uv().sub(0.5).mul(2).length();
+const CONTACT_OPACITY = float(CONTACT.core)
+  .mul(smoothstep(0, CONTACT.coreRadius, contactRadius).oneMinus())
+  .add(float(CONTACT.halo).mul(smoothstep(CONTACT.haloStart, 1, contactRadius).oneMinus()));
+/**
+ * #266: a body is a card standing for a body of footprint depth D, so its own silhouette in the set's
+ * shadow map lies within D/2 of the card. Its received-shadow lookup moves toward the key light (the
+ * brightest shadow-casting light) by D/2, at least this many metres, in scene units, so it is the
+ * same on every tier and zoom. Moving along the light keeps the lookup over the body's own floor
+ * point: a shadow crossing the floor at its feet falls on it. 0.5 m is 6.25 units, at least 1.4
+ * medium texels at the widest view (#184 sizes: 512 px over the view's diagonal + 128), covering the
+ * PCF kernel's own-card depth step for a light within about 45 degrees of the card's normal.
+ */
+const BODY_SHADOW_MIN_LIFT_METRES = 0.5;
+const NO_CONTACTS: readonly never[] = [];
 const ZOOM = {
   min: worldShell.scene.camera?.minZoom ?? 0.75,
   max: worldShell.scene.camera?.maxZoom ?? 2,
@@ -256,6 +333,8 @@ interface Motion {
   readonly x: number;
   readonly y: number;
   readonly start: number;
+  /** Depth above the floor under the mesh; z follows the floor as the mesh moves. */
+  readonly lift?: number;
 }
 interface Cue {
   readonly mesh: Native;
@@ -284,12 +363,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     contentLights: 0,
     shadowMaps: 0,
     shadowTextureBytes: 0,
+    contactShadows: 0,
   };
   private content: RendererContentInstance | undefined;
   private readonly contentAbort = new AbortController();
   private readonly contentLoaderDisposers = new Set<() => void>();
   private contentTime = 0;
   private contentLights: THREE.PointLight[] = [];
+  private contentContacts: Native[] = [];
+  /** Unit direction toward the key light; bodies' received-shadow lookups move along it (#266). */
+  private readonly bodyShadowToLight = uniform(new THREE.Vector3(0, 0, 1));
+  /** Whether drawn bodies are in the set's shadow maps; flags change only when this does (#266). */
+  private bodyShadows = false;
   private restoreContentErrors: (() => void) | undefined;
   private readonly contentRoughness = new WeakMap<THREE.Material, number>();
   private readonly started = performance.now();
@@ -476,17 +561,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.renderer.toneMappingExposure = 1;
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color(0x3f6b3a);
-      // Decision: camera distance 1000 lies inside 900–1800 fog, a subtle 11% veil on standing quads.
-      this.scene.fog = new THREE.Fog(0x43534b, 900, 1800);
+      // Decision: the camera sits CAMERA_DISTANCE from the floor under the view centre, so linear fog
+      // 0–90000 keeps the documented subtle 11% veil there on standing quads.
+      this.scene.fog = new THREE.Fog(0x43534b, 0, 90000);
       this.camera = new THREE.OrthographicCamera(
         -WIDTH / 2,
         WIDTH / 2,
         HEIGHT / 2,
         -HEIGHT / 2,
         0.1,
-        3000,
+        2 * CAMERA_DISTANCE,
       );
-      this.camera.position.set(0, 0, 1000);
+      this.camera.position.set(0, 0, floorDepth(0) + CAMERA_DISTANCE);
       this.camera.layers.enable(LABEL_LAYER);
       this.ambient = new THREE.AmbientLight(0xffffff, Math.PI);
       this.scene.add(this.ambient);
@@ -495,10 +581,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.scene.add(sky);
       this.sky.push(sky);
       this.ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(10000, 10000),
+        new THREE.PlaneGeometry(20000, 40000),
         this.litMaterial({ color: 0x3f6b3a, roughness: 1 }),
       );
-      this.ground.position.z = -100;
+      this.ground.rotation.x = -FLOOR_TILT;
       this.scene.add(this.ground);
       this.canvas = canvas;
       parent.appendChild(canvas);
@@ -640,9 +726,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
             object.position.set(
               (at.x + at.y) * PX_PER_METRE,
               (-(at.x - at.y) * PX_PER_METRE) / 2 + elevation * PX_PER_METRE,
-              contentDepth(at.x, at.y, elevation),
+              sceneDepth(at.x, at.y, elevation),
             );
-            object.scale.set(PX_PER_METRE, PX_PER_METRE, 0.01);
+            object.scale.set(PX_PER_METRE, PX_PER_METRE, PX_PER_METRE);
           },
           loaders: async (paths: { basis: string; draco: string }) => {
             const loaders = await contentLoaders(this.renderer, paths);
@@ -1178,7 +1264,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.reducedMotion = enabled;
     if (enabled) {
       for (const [mesh, motion] of this.motions)
-        mesh.position.set(motion.x, motion.y, mesh.position.z);
+        mesh.position.set(motion.x, motion.y, floorDepth(motion.y) + (motion.lift ?? 0));
       this.motions.clear();
       if (this.focusMotion)
         this.setCamera({ x: this.focusMotion.x, y: this.focusMotion.y, zoom: this.camera.zoom });
@@ -1307,7 +1393,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       halfY = this.viewHeight / (2 * zoom);
     x = Math.max(this.bounds.x + halfX, Math.min(this.bounds.x + this.bounds.width - halfX, x));
     y = Math.max(this.bounds.y + halfY, Math.min(this.bounds.y + this.bounds.height - halfY, y));
-    this.camera.position.set(x, -y, 1000);
+    this.camera.position.set(x, -y, floorDepth(-y) + CAMERA_DISTANCE);
     this.camera.zoom = zoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
@@ -1383,7 +1469,12 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private sprite(key: string, name = ""): Native {
     const animation = this.atlas.get(key);
     const frame = animation?.frames[0];
-    if (!animation || !frame) return this.ellipse(16, 16, 0xe3ce8b, 1, name);
+    if (!animation || !frame) {
+      // #266: the stand-in's bottom meets the anchor, so the floor in front of it never hides it.
+      const standIn = this.ellipse(16, 16, 0xe3ce8b, 1, name);
+      standIn.geometry.translate(0, 8, FLOOR_DECAL_LIFT);
+      return standIn;
+    }
     const material = this.litMaterial({
       map: frame.texture,
       transparent: true,
@@ -1394,12 +1485,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     const density = animation.density ?? 1;
     const logicalWidth = frame.width / density,
       logicalHeight = frame.height / density;
-    const geometry = new THREE.PlaneGeometry(logicalWidth, logicalHeight, 4, 4);
-    geometry.translate(
-      logicalWidth / 2 - animation.anchor.x,
-      animation.anchor.y - logicalHeight / 2,
-      0,
-    );
+    const geometry = spriteGeometry(logicalWidth, logicalHeight, animation.anchor);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
     mesh.frustumCulled = false;
@@ -1438,19 +1524,56 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     mesh.userData.frame = index;
     return true;
   }
-  private spawn(visual: Visual, x: number, y: number, key: string | undefined): Drawn {
+  private spawn(
+    visual: Visual,
+    x: number,
+    y: number,
+    depth: number,
+    key: string | undefined,
+  ): Drawn {
     const span = ((visual.footprint.width + visual.footprint.depth) / 1000) * PX_PER_METRE;
-    const shadow = this.ellipse(span, span / 2, 0x000000, 0.22, "shadow");
+    const shadow = this.contact(span);
     const body = key
       ? this.sprite(key, String(visual.placement.objectId))
       : new THREE.Mesh(
-          new THREE.CircleGeometry(8, 32),
+          // #266: the circle's bottom meets the anchor, so the floor in front of it never hides it.
+          new THREE.CircleGeometry(8, 32).translate(0, 8, FLOOR_DECAL_LIFT),
           this.litMaterial({ color: 0xe3ce8b, roughness: 1 }),
         );
-    body.position.set(x, -y, 0);
-    shadow.position.set(x, -y, -40);
+    body.position.set(x, -y, depth);
+    // #266: the contact lies on the surface the body stands on, at its real (elevated) depth.
+    shadow.position.set(x, -y, depth + FLOOR_DECAL_LIFT);
+    // #266: one picture. A body joins the set's shadow maps, cast by its silhouette from either side.
+    if (body.material instanceof THREE.NodeMaterial && body.material.lights) {
+      body.material.shadowSide = THREE.DoubleSide;
+      const lift =
+        Math.max(visual.footprint.depth / 2000, BODY_SHADOW_MIN_LIFT_METRES) * PX_PER_METRE;
+      body.material.receivedShadowPositionNode = positionWorld.add(
+        this.bodyShadowToLight.mul(lift),
+      );
+    }
+    body.castShadow = body.receiveShadow = this.bodyShadows;
     this.scene.add(body, shadow);
     return { visual, body, shadow, key };
+  }
+  /**
+   * #266: the contact shape, `span` units across, lying on the floor. It uses the scene's lit
+   * material in black, so fog, tone mapping, grade and depth treat it as they treat the set.
+   */
+  private contact(span: number): Native {
+    const material = this.litMaterial({
+      color: 0x000000,
+      transparent: true,
+      depthWrite: false,
+      roughness: 1,
+    });
+    material.opacityNode = CONTACT_OPACITY;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(span, span), material);
+    mesh.name = "contact";
+    mesh.rotation.x = -FLOOR_TILT;
+    mesh.frustumCulled = false;
+    mesh.userData.span = span;
+    return mesh;
   }
   private draw(kind: "snapshot" | "patch" = "snapshot"): void {
     const projection = this.projection;
@@ -1486,33 +1609,36 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const bound = binding && `${binding.assetId}/${binding.animationFamily}`;
       const key = bound && this.atlas.has(bound) ? bound : undefined;
       const visual = this.visual(placement, key),
-        [x, y] = iso(placement);
+        [x, y] = iso(placement),
+        depth = sceneDepth(placement.x, placement.y, placement.elevation);
       let drawn = this.drawn.get(placement.objectId);
       if (drawn && drawn.key !== key) {
         this.release(drawn);
         drawn = undefined;
       }
       if (!drawn) {
-        drawn = this.spawn(visual, x, y, key);
+        drawn = this.spawn(visual, x, y, depth, key);
         this.drawn.set(placement.objectId, drawn);
       } else {
         const move = movement(drawn.visual.placement, placement);
         for (const mesh of [drawn.body, drawn.shadow]) {
           const motion = this.motions.get(mesh);
+          const lift = depth - floorDepth(-y) + (mesh === drawn.body ? 0 : FLOOR_DECAL_LIFT);
           if (
             move === "snap" ||
             this.reducedMotion ||
             (mesh.position.x === x && mesh.position.y === -y)
           ) {
             this.motions.delete(mesh);
-            mesh.position.set(x, -y, mesh.position.z);
-          } else if (motion?.x !== x || motion.y !== -y) {
+            mesh.position.set(x, -y, floorDepth(-y) + lift);
+          } else if (motion?.x !== x || motion.y !== -y || motion.lift !== lift) {
             this.motions.set(mesh, {
               fromX: mesh.position.x,
               fromY: mesh.position.y,
               x,
               y: -y,
               start: performance.now(),
+              lift,
             });
           }
         }
@@ -1520,9 +1646,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
       drawn.body.userData.wind = binding?.sway === true;
       drawn.body.renderOrder = 10000 + index;
-      drawn.body.position.z = this.content
-        ? contentDepth(placement.x, placement.y, placement.elevation)
-        : index * 0.01;
+      if (!this.motions.has(drawn.body)) drawn.body.position.z = depth;
       drawn.body.material.depthWrite = this.content ? true : !drawn.key;
       drawn.shadow.renderOrder = index;
     });
@@ -1532,6 +1656,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.drawEmphasis();
     this.rebuildReflections();
     this.metrics.entityCount = this.drawn.size;
+    this.metrics.contactShadows = this.drawn.size + this.contentContacts.length;
     this.updateTextureBytes();
     this.dirty = true;
     if (!rebuilt)
@@ -1629,7 +1754,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       light.color.set(effect.colour);
       light.intensity = effect.intensity;
       light.distance = effect.rangeMetres * PX_PER_METRE;
-      light.position.set(x, -y + 12, 35);
+      // #266: the offset is from the source's real depth, so the light stays 35 units in front of it.
+      light.position.set(x, -y + 12, sceneDepth(at.x, at.y, at.elevation) + 35);
     }
     while (this.lights.length > lightCount) this.lights.pop()?.removeFromParent();
     this.syncContentLighting();
@@ -1677,6 +1803,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.renderer.shadowMap.enabled = maps > 0;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.ground.receiveShadow = maps > 0;
+    let keyIntensity = -1;
     this.sky.forEach((original, index) => {
       const enabled = index < maps;
       let light = original;
@@ -1706,15 +1833,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       }
       light.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
       const direction = light.userData.shadowDirection ?? light.position.clone().normalize();
-      light.target.position.set(this.camera.position.x, this.camera.position.y, -50);
+      light.target.position.set(
+        this.camera.position.x,
+        this.camera.position.y,
+        floorDepth(this.camera.position.y),
+      );
       light.target.updateMatrixWorld();
       const camera = light.shadow.camera;
       // #184: diagonal radius covers the view for every light direction; 128px includes nearby casters.
       const extent =
         Math.hypot(
           (this.camera.right - this.camera.left) / this.camera.zoom / 2,
-          (this.camera.top - this.camera.bottom) / this.camera.zoom / 2,
-          50,
+          ((this.camera.top - this.camera.bottom) / this.camera.zoom / 2) * 2,
         ) + 128;
       const distance = Math.max(1000, extent + 128);
       light.position.copy(light.target.position).addScaledVector(direction, distance);
@@ -1724,10 +1854,54 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       camera.far = distance + extent + 128;
       camera.updateProjectionMatrix();
       light.shadow.bias = -0.0001;
+      // The brightest shadow-casting light is the key; bodies lift toward it.
+      if (light.intensity > keyIntensity) {
+        keyIntensity = light.intensity;
+        this.bodyShadowToLight.value.copy(direction).normalize();
+      }
     });
     this.metrics.shadowMaps = maps;
+    if (this.bodyShadows !== maps > 0) {
+      this.bodyShadows = maps > 0;
+      for (const drawn of this.drawn.values())
+        drawn.body.castShadow = drawn.body.receiveShadow = this.bodyShadows;
+    }
+    this.syncContentContacts();
     // Three r187 ShadowNode: reserve 12 B/px conservatively for RGBA, depth and backend overhead.
     this.metrics.shadowTextureBytes = maps * quality.shadowMapSize ** 2 * 12;
+  }
+  /**
+   * #266: content's contact descriptors draw the projected bodies' contact shape, on every tier.
+   * Runs with every content update; a contact is rebuilt or moved only when its descriptor changes.
+   */
+  private syncContentContacts(): void {
+    const contacts = this.content?.contacts ?? NO_CONTACTS;
+    while (this.contentContacts.length > contacts.length) this.remove(this.contentContacts.pop()!);
+    for (let index = 0; index < contacts.length; index++) {
+      const at = contacts[index]!;
+      const span = (at.widthMetres + at.depthMetres) * PX_PER_METRE;
+      let mesh = this.contentContacts[index];
+      if (mesh?.userData.span !== span) {
+        if (mesh) this.remove(mesh);
+        mesh = this.contact(span);
+        mesh.renderOrder = 0;
+        this.contentContacts[index] = mesh;
+        this.scene.add(mesh);
+      }
+      const placed = mesh!.userData,
+        elevation = at.elevation ?? 0;
+      if (placed.x === at.x && placed.y === at.y && placed.elevation === elevation) continue;
+      placed.x = at.x;
+      placed.y = at.y;
+      placed.elevation = elevation;
+      // The scene's iso() mapping, inline; the shape lies at the point's real (elevated) depth.
+      mesh!.position.set(
+        (at.x + at.y) * PX_PER_METRE,
+        -(at.x - at.y) * (PX_PER_METRE / 2) + elevation * PX_PER_METRE,
+        sceneDepth(at.x, at.y, elevation) + FLOOR_DECAL_LIFT,
+      );
+    }
+    this.metrics.contactShadows = this.drawn.size + this.contentContacts.length;
   }
   private drawEffects(projection: SceneProjection): void {
     const effects = projection.effects ?? [];
@@ -1744,7 +1918,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         if (!this.atlas.has(key) || !at) return;
         const [x, y] = iso(at),
           sprite = this.sprite(key, effect.role);
-        sprite.position.set(x, -y, effect.role === "puddle" ? -20 : 10);
+        sprite.position.set(
+          x,
+          -y,
+          effect.role === "puddle"
+            ? floorDepth(-y) + FLOOR_DECAL_LIFT
+            : sceneDepth(at.x, at.y, at.elevation ?? 0),
+        );
         sprite.renderOrder = effect.role === "puddle" ? 5000 + index : 20000 + index;
         sprite.visible = false;
         if (effect.role !== "puddle") {
@@ -1825,6 +2005,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       return;
     for (const drawn of this.drawn.values()) {
       const mirror = new THREE.Mesh(drawn.body.geometry.clone(), drawn.body.material.clone());
+      // The mirrored image (scale.y -0.5) lies on the floor in front of the body, as its sprite's
+      // below-anchor pixels do, so the tilted floor never hides it.
+      const vertices = mirror.geometry.getAttribute("position");
+      for (let i = 0; i < vertices.count; i++)
+        vertices.setZ(i, Math.max(0, vertices.getY(i)) * 0.5 * Math.sqrt(3));
       mirror.userData.ownsTexture = false;
       mirror.material.transparent = true;
       mirror.material.opacity = 0.22;
@@ -1839,7 +2024,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       mirror.renderOrder = 9000;
       mirror.userData.source = drawn.body;
       mirror.position.copy(drawn.body.position);
-      mirror.position.z = -10;
+      mirror.position.z = drawn.body.position.z + FLOOR_DECAL_LIFT;
       this.scene.add(mirror);
       this.reflections.push(mirror);
     }
@@ -1970,7 +2155,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       if (!drawn) continue;
       const mesh = this.ellipse(width, width / 2, color, 1, name, 1, 0);
       mesh.position.copy(drawn.body.position);
-      mesh.position.z = 30;
+      mesh.position.z += 30;
       this.scene.add(mesh);
       this.overlay.push(mesh);
     }
@@ -2007,7 +2192,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       mesh.position.set(
         hovered.body.position.x + 12 + mesh.userData.width / 2,
         hovered.body.position.y + hovered.visual.height + 10 - mesh.userData.height / 2,
-        30,
+        hovered.body.position.z + 30,
       );
       this.scene.add(mesh);
       this.overlay.push(mesh);
@@ -2017,7 +2202,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   }
   private moveSelection(selected: Drawn): void {
     for (const { item, dy } of this.selection?.items ?? [])
-      item.position.set(selected.body.position.x, selected.body.position.y - dy, 30);
+      item.position.set(
+        selected.body.position.x,
+        selected.body.position.y - dy,
+        selected.body.position.z + 30,
+      );
   }
   emitCue(cue: SceneTransientCue): void {
     const drawn = this.drawn.get(cue.objectId);
@@ -2031,7 +2220,11 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.cueKeys.push(cue.dedupeKey);
     if (this.cueKeys.length > CUE_KEYS) this.cueKeys.shift();
     const mesh = this.ellipse(8, 8, 0xffe9a8, 1, "cue");
-    mesh.position.set(drawn.body.position.x, drawn.body.position.y + drawn.visual.height, 40);
+    mesh.position.set(
+      drawn.body.position.x,
+      drawn.body.position.y + drawn.visual.height,
+      drawn.body.position.z + 40,
+    );
     const now = performance.now();
     this.cues.push({
       mesh,
@@ -2094,14 +2287,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       for (let i = 0; i < array.length / 6; i++) {
         const x = this.camera.position.x + (((i * 73.17) % width) - width / 2);
         const y = this.camera.position.y + height / 2 - ((i * 41.71 + t * 0.2) % height);
-        array.set([x, y, 50, x - 2, y + 9, 50], i * 6);
+        array.set([x, y, floorDepth(y) + 50, x - 2, y + 9, floorDepth(y + 9) + 50], i * 6);
       }
       this.rain.geometry.getAttribute("position").needsUpdate = true;
       changed = !this.reducedMotion || changed;
     }
     for (const mirror of this.reflections) {
       const source = mirror.userData.source;
-      mirror.position.set(source.position.x, source.position.y, -10);
+      mirror.position.set(
+        source.position.x,
+        source.position.y,
+        source.position.z + FLOOR_DECAL_LIFT,
+      );
       if (mirror.userData.frame !== source.userData.frame) {
         const uv = mirror.geometry.getAttribute("uv");
         uv.array.set(source.geometry.getAttribute("uv").array);
@@ -2161,6 +2358,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       const progress = Math.min(1, (time - motion.start) / INTERPOLATION_MS);
       mesh.position.x = motion.fromX + (motion.x - motion.fromX) * progress;
       mesh.position.y = motion.fromY + (motion.y - motion.fromY) * progress;
+      mesh.position.z = floorDepth(mesh.position.y) + (motion.lift ?? 0);
       if (progress >= 1) this.motions.delete(mesh);
       changed = true;
     }
@@ -2366,6 +2564,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.motions.clear();
     this.effectFades.clear();
     this.lights = [];
+    this.contentContacts = [];
     this.reflections = [];
     this.metrics.textureBytes = 0;
     this.metrics.atlasTextureBytes = 0;

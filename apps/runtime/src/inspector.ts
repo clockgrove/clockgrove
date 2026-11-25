@@ -239,6 +239,17 @@ export class PostgreSqlCausalInspector {
     input: CausalEntryInput,
     context: TrustedExecutionContext,
   ): Promise<RecordedWhy> {
+    return (await this.flashbackEvidence(input, context)).why;
+  }
+
+  /**
+   * `recordedWhy`'s one audited access, also returning the entry command's events readable under
+   * the narrowed `public_scene` ceiling: the moment a flashback replays (issue 273).
+   */
+  async flashbackEvidence(
+    input: CausalEntryInput,
+    context: TrustedExecutionContext,
+  ): Promise<{ readonly why: RecordedWhy; readonly events: CausalCommandView["events"] }> {
     await this.authorize(input, context, OBSERVE_GRANT);
     const narrowed = narrowTrustedExecutionContext(context, {
       ...context,
@@ -281,13 +292,16 @@ export class PostgreSqlCausalInspector {
     }
     const commandInput = { scope: input.scope, commandId: command.receipt.commandId };
     return {
-      ...(await publicRecordedWhy(
-        commandInput,
-        command,
-        linked,
-        input.includeResourceCauses === true,
-      )),
-      entry,
+      why: {
+        ...(await publicRecordedWhy(
+          commandInput,
+          command,
+          linked,
+          input.includeResourceCauses === true,
+        )),
+        entry,
+      },
+      events: command.events,
     };
   }
 

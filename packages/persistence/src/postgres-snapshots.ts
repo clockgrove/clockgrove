@@ -194,6 +194,38 @@ export class PostgreSqlSnapshotStore implements PartitionSnapshotStore {
   }
 
   /**
+   * At most `limit` snapshot refs covering `since` through `through`, newest first: a bounded read
+   * for a reader that wants the latest compatible start near one sequence (the flashback, issue 273).
+   */
+  async listRecent(
+    authorization: RuntimeAuthorizationContext,
+    scope: WorldPartitionScope,
+    through: bigint,
+    since: bigint,
+    limit: number,
+  ): Promise<readonly SnapshotRef[]> {
+    return this.transaction(authorization, "BEGIN", async () => {
+      const result = await this.client.query(
+        `SELECT ${REF_COLUMNS} FROM clockgrove.snapshots
+          WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND partition_id = $4
+            AND covered_partition_sequence BETWEEN $5::bigint AND $6::bigint
+          ORDER BY snapshots.covered_partition_sequence DESC
+          LIMIT $7`,
+        [
+          scope.tenantId,
+          scope.worldId,
+          scope.timelineId,
+          scope.partitionId,
+          since.toString(),
+          through.toString(),
+          limit,
+        ],
+      );
+      return result.rows.map((row) => decodeRef(row as Row));
+    });
+  }
+
+  /**
    * Up to `limit` partitions due for a snapshot (migration 0030): no compatible one yet, or the head
    * at least `interval` events past the latest compatible one; least recently attempted first, then
    * most behind. Listing them stamps each as attempted. Each comes with its world's system principal

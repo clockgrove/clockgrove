@@ -202,6 +202,14 @@ it("completes every Wave 4 journey without the canvas", async () => {
       expect(await row("fixture.water-bowl").locator("span").nth(1).textContent()).toBe(
         "; Interactions: reactive, Deterministic/reactive object; available actions Inspect, History, Influence",
       );
+      // A declared Conversation mode is disclosed in its voice (issue 396): Keeper declares
+      // `cognitive` and the cedar `interpreted`; their actions are the ones they had before.
+      expect(await row("fixture.keeper").locator("span").nth(1).textContent()).toBe(
+        "; Interactions: cognitive, Actor's subjective perspective; available actions Inspect, History, Why",
+      );
+      expect(await row("fixture.cedar").locator("span").nth(1).textContent()).toBe(
+        "; Interactions: interpreted, Interpretation; object is not sentient; available actions Inspect, History",
+      );
       expect(await axe()).toEqual([]);
 
       // Select: arrow keys, Home and End move between entities; Enter selects and is announced.

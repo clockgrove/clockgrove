@@ -203,5 +203,5 @@ does not carry it, so packs without it keep their canonical encoding). A child b
 a mode takes the parent's mode, as it takes the parent's archetype. An entity is talkable only when
 it declares a mode, and a conversation session with it opens in that voice
 ([conversations](../../../docs/protocols/conversations.md)). The reference fixture pack declares
-`cognitive` on its resident and dependent archetypes and `interpreted` on the cedar's; the beacon
+`cognitive` on its resident and dependent archetypes and `interpreted` on the cedar's and `canonical` on the fence gate's; the beacon
 fixture pack declares `cognitive` on `beacon.keeper-kind`.

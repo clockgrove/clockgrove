@@ -116,6 +116,11 @@ export interface RouteAttempt {
   /** `null` means unknown, not zero. */
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
+  /** Parts of `inputTokens`: read from and written to the provider's prompt cache. */
+  readonly cachedInputTokens?: number | null;
+  readonly cacheWriteInputTokens?: number | null;
+  /** A part of `outputTokens`. */
+  readonly reasoningTokens?: number | null;
   readonly costMicrousd: number | null;
   /** Cost the gateway itself reported, in USD, when it reported one. */
   readonly reportedCostUsd: number | null;

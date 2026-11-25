@@ -1,0 +1,296 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+import { expect, it, onTestFailed } from "vitest";
+import { decodeCanonicalNode } from "../../packages/application/src/index.ts";
+import { journeyThenShutdown, namedSteps } from "./journey-steps.mjs";
+
+const root = fileURLToPath(new URL("../../", import.meta.url));
+
+// Issue 327: `pnpm playground` serves the neutral playground pack on localhost with no cloud account
+// and no model key, prints how to open it as the world's owner, signs that owner in with the
+// owner-only inspection the dev:world observer lacks, and Ctrl-C removes its database. The 720 s
+// bound is dev:world's (#401): it is the same session.
+async function servesToItsOwner({ args, pack, spaceId: expectedSpace, title, owner, worlds = 1 }) {
+  const at = namedSteps(onTestFailed);
+  at.step = "playground prints its URL and owner credential";
+  // No model key and no cloud account reach the command.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/API_KEY|CLOUDFLARE|NEON/u.test(name)),
+  );
+  const playground = spawn(process.execPath, ["scripts/playground.mjs", ...args], {
+    cwd: root,
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
+  let output = "";
+  const exited = new Promise((resolve) => playground.on("exit", (code) => resolve(code)));
+  const printed = new Promise((resolve) => {
+    const read = (chunk) => {
+      output += chunk;
+      const url = /Open: +(\S+)/u.exec(output)?.[1];
+      const credential = /credential "([^"]+)"/u.exec(output)?.[1];
+      if (url && credential) resolve({ url: new URL(url), credential });
+    };
+    playground.stdout.setEncoding("utf8").on("data", read);
+    playground.stderr.setEncoding("utf8").on("data", read);
+  });
+  let browser;
+  await journeyThenShutdown(
+    at,
+    async () => {
+      const { url, credential } = await Promise.race([
+        printed,
+        exited.then((code) => Promise.reject(new Error(`playground exited ${code}\n${output}`))),
+      ]);
+      expect(output).toContain(`Playground: ${pack} (`);
+      expect(output).toContain(`credential "${credential}" (the world's owner)`);
+      at.step = "the owner's world and inspection";
+      const post = (route, body) =>
+        fetch(new URL(route, url), {
+          method: "POST",
+          headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const directory = await post("/v1/runtime/world-directory", { version: 1 }).then((response) =>
+        response.json(),
+      );
+      const [{ tenantId, worldId, timelineId, spaceId }] = directory.entries;
+      expect([directory.entries.length, url.pathname, credential, spaceId]).toEqual([
+        1,
+        `/worlds/${tenantId}/${worldId}/${timelineId}/${spaceId}`,
+        "playground-owner",
+        expectedSpace,
+      ]);
+      // The runtime-state inspector needs runtime:world-inspect, which dev:world's observer lacks.
+      const inspected = await post("/v1/runtime/runtime-state", {
+        schemaVersion: 1,
+        tenantId,
+        worldId,
+        timelineId,
+        spaceId,
+      });
+      expect(inspected.status).toBe(200);
+      at.step = "browser signs in and the scene arrives";
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(url.toString());
+      expect(await page.title()).toBe(title);
+      await page.getByLabel("Local session credential").fill(credential);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+      expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
+        "Arrival: scene ready at revision 0.",
+      );
+      await owner?.({ at, page, url, credential, post, entry: directory.entries[0] });
+    },
+    "Ctrl-C stops the playground",
+    async () => {
+      await browser?.close();
+      process.kill(-playground.pid, "SIGINT");
+    },
+  );
+  // Every hosted world had its own database, and each is removed.
+  const databases = [...output.matchAll(/creating directory (\S+)\/data/gu)].map(([, at]) => at);
+  expect([
+    await exited,
+    new Set(databases).size,
+    databases.length,
+    databases.filter((at) => existsSync(at)),
+  ]).toEqual([0, worlds, worlds, []]);
+}
+
+// Part 2: the owner's Pack panel. Its API answers the owner only; it shows the pack's metadata and
+// conformance checks, previews a newer version's migration, and loads another pack from a local
+// directory as a fresh world beside this one, which the owner switches to and back from. The owner
+// also Talks to the rock in its disclosed object voice, answered by the scripted fixture (no key).
+async function ownsThePlayground({ at, page, url, credential, post, entry }, scratch) {
+  at.step = "the playground API answers its owner only";
+  const pack = (token) =>
+    fetch(new URL("/playground/v1/pack", url), {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+  const outsider = await pack("outsider-session-token");
+  expect([outsider.status, await outsider.json()]).toEqual([403, { error: "playground_refused" }]);
+  expect((await pack(credential).then((response) => response.json())).metadata).toEqual({
+    name: "clockgrove.playground",
+    version: "1.0.0",
+    content: { entities: 3, places: 1, rules: 1, scenarios: 1, art: 0 },
+  });
+  at.step = "the Pack panel shows the checks";
+  const openPanel = async () => {
+    await page.locator("summary", { hasText: /^Pack$/u }).click();
+    return page.getByRole("region", { name: "Hosted worlds", exact: true });
+  };
+  const worlds = await openPanel();
+  const checks = page.getByRole("region", { name: "Pack checks", exact: true });
+  await checks.getByText("Checks: passed", { exact: true }).waitFor({ timeout: 60_000 });
+  expect(await checks.getByRole("listitem").allTextContents()).toEqual([
+    "artifact-integrity: passed",
+    "seed-genesis: passed",
+    "scenario-assertions (weathered-rock): passed",
+    "golden-match (weathered-rock): passed",
+  ]);
+  at.step = "a migration preview from a newer version";
+  const newer = path.join(scratch, "playground-1.1.0");
+  await cp(path.join(root, "worlds/playground"), newer, { recursive: true });
+  const migration = JSON.stringify({
+    fromPackVersion: "1.0.0",
+    id: "playground.weather-upgrade",
+    steps: [
+      {
+        key: "playground.clear-sky",
+        payload: { weather: "clear" },
+        type: "world.weather.set",
+        version: 2,
+      },
+    ],
+    toPackVersion: "1.1.0",
+    version: 1,
+  });
+  await mkdir(path.join(newer, "resources/migrations"));
+  await writeFile(path.join(newer, "resources/migrations/clear-sky.json"), migration);
+  const manifest = JSON.parse(await readFile(path.join(newer, "manifest.json"), "utf8"));
+  manifest.version = "1.1.0";
+  manifest.migrations = [
+    {
+      id: "playground.weather-upgrade",
+      path: "migrations/clear-sky.json",
+      sha256: createHash("sha256").update(migration).digest("hex"),
+      version: 1,
+    },
+  ];
+  await writeFile(path.join(newer, "manifest.json"), JSON.stringify(manifest));
+  const preview = page.getByRole("region", { name: "Migration preview", exact: true });
+  await preview.getByLabel("Newer pack directory").fill(newer);
+  await preview.getByRole("button", { name: "Preview migration", exact: true }).click();
+  await preview.getByText("From 1.0.0 to 1.1.0: 1 steps", { exact: true }).waitFor();
+  expect(await preview.getByRole("listitem").allTextContents()).toEqual([
+    "playground.weather-upgrade@1/playground.clear-sky (world.weather.set v2)",
+  ]);
+  at.step = "Talk to the rock";
+  await page.getByRole("button", { name: "playground.rock", exact: true }).press("Enter");
+  await page.getByRole("button", { name: "Talk", exact: true }).click();
+  await page.getByRole("button", { name: "New conversation", exact: true }).click();
+  await page.getByLabel(/^Message .+…$/u).fill("hello rock");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const history = page.getByRole("list", { name: "Conversation history" });
+  await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
+  expect(await history.getByRole("listitem").count()).toBe(2);
+  // The playground world's identity, metadata and clock before another pack is loaded.
+  const state = async () => {
+    const { tenantId, worldId, timelineId, spaceId } = entry;
+    const response = await post("/v1/runtime/runtime-state", {
+      schemaVersion: 1,
+      tenantId,
+      worldId,
+      timelineId,
+      spaceId,
+    });
+    expect(response.status).toBe(200);
+    // The runtime-state view is a kernel canonical node (bigints preserved).
+    const { scope, clock } = decodeCanonicalNode(await response.json());
+    const [directory, metadata] = await Promise.all([
+      post("/v1/runtime/world-directory", { version: 1 }).then((answer) => answer.json()),
+      pack(credential)
+        .then((answer) => answer.json())
+        .then((answer) => answer.metadata),
+    ]);
+    return {
+      scope,
+      entries: directory.entries,
+      metadata,
+      time: clock.value.simulationTime,
+    };
+  };
+  const before = await state();
+  at.step = "load another pack as a fresh world and switch to it";
+  const other = path.join(scratch, "fixture");
+  await cp(path.join(root, "worlds/fixture"), other, { recursive: true });
+  await worlds.getByLabel("Pack directory").fill(other);
+  await worlds.getByRole("button", { name: "Load pack", exact: true }).click();
+  const open = worlds.getByRole("link", { name: "Open clockgrove.test-world@1.1.0", exact: true });
+  await open.waitFor({ timeout: 600_000 });
+  await open.click();
+  const signIn = async () => {
+    await page.getByLabel("Local session credential").fill(credential);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+  };
+  await signIn();
+  // A fresh world from that pack's declared seed.
+  expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
+    "Arrival: scene ready at revision 0.",
+  );
+  await openPanel();
+  await page
+    .getByRole("region", { name: "Pack metadata", exact: true })
+    .getByText("clockgrove.test-world 1.1.0", { exact: true })
+    .waitFor();
+  at.step = "switch back to the playground world";
+  await worlds.getByRole("link", { name: "Open clockgrove.playground@1.1.0", exact: true }).click();
+  await signIn();
+  await openPanel();
+  await page
+    .getByRole("region", { name: "Pack metadata", exact: true })
+    .getByText("clockgrove.playground 1.1.0", { exact: true })
+    .waitFor();
+  // Loading the other pack left this world as it was: the same world, pack and content, and a clock
+  // that only went on.
+  const after = await state();
+  expect([after.scope, after.entries, after.metadata, after.time >= before.time]).toEqual([
+    before.scope,
+    before.entries,
+    before.metadata,
+    true,
+  ]);
+}
+
+// Two hosted worlds, each within dev:world's 720 s bound (#401).
+it("serves the playground pack to its owner and removes it on Ctrl-C", async () => {
+  const shell = JSON.parse(await readFile(path.join(root, "worlds/playground/shell.json"), "utf8"));
+  const scratch = await mkdtemp(path.join(tmpdir(), "playground-owner-"));
+  try {
+    await servesToItsOwner({
+      args: [],
+      pack: "clockgrove.playground@1.1.0",
+      spaceId: "playground.plane",
+      title: shell.name,
+      owner: (journey) => ownsThePlayground(journey, scratch),
+      worlds: 2,
+    });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}, 1_440_000);
+
+// `--pack <dir>` serves the named pack in the playground's place as a fresh world from its declared
+// seed (revision 0) in its own database. The pack here is a copy of worlds/fixture without its
+// shell.json, so the neutral shell ("Clockgrove") is used, and `--assets` names its static directory.
+it("serves a pack named with --pack, without a shell of its own, as a fresh world", async () => {
+  const scratch = await mkdtemp(path.join(tmpdir(), "playground-pack-"));
+  try {
+    const pack = path.join(scratch, "pack");
+    await cp(path.join(root, "worlds/fixture"), pack, {
+      recursive: true,
+      filter: (source) => source !== path.join(root, "worlds/fixture/shell.json"),
+    });
+    expect(existsSync(path.join(pack, "shell.json"))).toBe(false);
+    await servesToItsOwner({
+      args: ["--pack", pack, "--assets", path.join(pack, "assets/reviewed")],
+      pack: "clockgrove.test-world@1.1.0",
+      spaceId: "beacon.hall",
+      title: "Clockgrove",
+    });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}, 720_000);

@@ -7,7 +7,6 @@ import {
   type ConversationResponder,
   type ConversationResponse,
   contextTokenBudget,
-  type ModelUsage,
   minimumInputLimitTokens,
 } from "@clockgrove/application";
 import {
@@ -21,11 +20,11 @@ import {
 import { CONTAINMENT_PAYLOAD_SCHEMAS, compareUtf16, type WorldState } from "@clockgrove/domain";
 import {
   AiSdkRouteAdapter,
+  callUsage,
   createModelGateway,
   InMemoryModelBudget,
   inputTokenBound,
   type ModelAliasDefinition,
-  type ModelCallRecord,
   type ModelGateway,
   type ModelRequest,
   PRODUCTION_ALIASES,
@@ -355,15 +354,6 @@ export interface SelfCapabilityResult {
   readonly result: unknown;
 }
 
-function usageOf(record: ModelCallRecord): ModelUsage {
-  const attempt = record.attempts.at(-1);
-  return {
-    inputTokens: attempt?.inputTokens ?? null,
-    outputTokens: attempt?.outputTokens ?? null,
-    costMicrousd: record.costMicrousd,
-  };
-}
-
 /** A model step built and measured before it is sent, so the turn can reserve its worst case. */
 export interface PreparedModelStep {
   /** The primary route's worst case for this request's measured input and a full reply. */
@@ -511,19 +501,19 @@ async function sendActorStep(
       return {
         text: "Research stopped: cost_budget_exhausted. No further action was taken.",
         outcomeCode: "cost_budget_exhausted",
-        usage: usageOf(outcome.record),
+        usage: callUsage(outcome.record),
       };
     if (!deps.researchEnabled) {
       if (outcome.retryable) throw new Error(`model_${outcome.code}`);
       return {
         text: `I could not form an answer just now, so I have not done anything in the ${deps.configuration?.sceneLabel ?? "scene"}.`,
-        usage: usageOf(outcome.record),
+        usage: callUsage(outcome.record),
       };
     }
     return {
       text: "Model unavailable. I could not finish this turn.",
       outcomeCode: "model_unavailable",
-      usage: usageOf(outcome.record),
+      usage: callUsage(outcome.record),
     };
   }
   const { reply, command } = outcome.value;
@@ -538,7 +528,7 @@ async function sendActorStep(
   return {
     text: reply,
     ...(call === undefined ? {} : { command: call }),
-    usage: usageOf(outcome.record),
+    usage: callUsage(outcome.record),
   };
 }
 

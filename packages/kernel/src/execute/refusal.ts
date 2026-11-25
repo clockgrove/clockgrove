@@ -47,8 +47,8 @@ export class RefusalSignal extends Error {
 }
 
 /** Throws an `invalid-input` signal for the executor to convert into a returned refusal. */
-export function invalid(path: string): never {
-  throw new RefusalSignal(refusal("invalid-input", path));
+export function invalid(path: string, check?: string): never {
+  throw new RefusalSignal(refusal("invalid-input", path, check));
 }
 
 export type RegistrationResult = Readonly<{ ok: true }> | Readonly<{ ok: false; error: Refusal }>;

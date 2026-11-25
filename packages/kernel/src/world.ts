@@ -25,6 +25,7 @@ import {
   type DecisionTrace,
   deriveComfort,
   deriveEnvironmentState,
+  dueSurfaceCrossings,
   type EcologyPolicy,
   EnvironmentValidationError,
   ecologyDisagreement,
@@ -49,18 +50,30 @@ import {
   type PortalTogglePayload,
   parsePortalPayload,
   pendingPortalSteps,
+  planSurfaceCrossing,
+  planSurfaceInteraction,
+  planSurfaceRainSettlement,
+  planSurfaceRepair,
+  planSurfaceTraffic,
   plantStageIndex,
   portalIsOpen,
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceSurfaceTraffic,
   reduceWorldEvent,
   regionsContaining,
   removableLifecycleDead,
+  type SurfaceInteractPayload,
+  type SurfaceRainHold,
+  type SurfaceRainSettlement,
+  type SurfaceRepairPayload,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
   shelterReflexThreshold,
+  surfaceDisagreement,
+  surfaceRainHold,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -269,6 +282,8 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.spoiled",
   "resource.appeared",
   "resource.weather-integrated",
+  "surface.band-crossed",
+  "surface.carried-drained",
   "process.command-attempted",
   "resource.transferred",
   "growth.integrated",
@@ -375,6 +390,7 @@ const MAX_INPUTS_PER_CALL = 1024;
 
 const ENVIRONMENT_CHECK = "environment.state-matches-policy";
 const ECOLOGY_CHECK = "ecology.state-matches-policy";
+const SURFACE_CHECK = "surface.state-matches-policy";
 const WELLBEING_CHECK = "wellbeing.state-matches-policy";
 const LIFECYCLE_CHECK = "lifecycle.state-matches-policy";
 const FIRST_DUE_CHECK = "world.decision.first-due";
@@ -526,9 +542,9 @@ function decodeScheduledInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -609,9 +625,9 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -1162,7 +1178,33 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent, reconcileShelter = true): void {
+  /** The rain the world holds over its schedule, which rain-driven surfaces heal under. */
+  function hold(): SurfaceRainHold | undefined {
+    return surfaceRainHold(current(), policy.environment);
+  }
+  /** Rain-driven surfaces settled where the rain in force changes; nothing when none are. */
+  function rainSettlement(
+    at: SimTimeMs,
+    changes: boolean,
+  ): { surfaces?: readonly SurfaceRainSettlement[] } {
+    if (!changes || policy.surfaces === undefined) return {};
+    const surfaces = planSurfaceRainSettlement(policy.surfaces, current(), at, policy.environment);
+    return surfaces.length === 0 ? {} : { surfaces };
+  }
+  function withTraffic(event: WorldEvent): WorldEvent {
+    if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
+    const surfaces = planSurfaceTraffic(
+      policy.surfaces,
+      current(),
+      event.payload.objectId,
+      event.payload.regionId,
+      event.simulationTime,
+      policy.environment,
+    );
+    return surfaces.length === 0 ? event : { ...event, payload: { ...event.payload, surfaces } };
+  }
+  function emit(planned: WorldEvent, reconcileShelter = true): void {
+    const event = withTraffic(planned);
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
@@ -1270,6 +1312,25 @@ function runWorld(
       });
       if (nested.ok) for (const inner of nested.result.events) emit(inner);
     }
+    return true;
+  }
+  function fireSurface(at: SimTimeMs): boolean {
+    const surfaces = policy.surfaces;
+    const state = current().surfaces;
+    const due =
+      surfaces === undefined || state === undefined
+        ? null
+        : dueSurfaceCrossings(surfaces, state, policy.environment, hold());
+    if (surfaces === undefined || state === undefined || due === null || due.time !== at)
+      return true;
+    if (context.eventCount() + due.crossings.length > payload.maxEvents) {
+      if (context.eventCount() === 0) invalid("payload.maxEvents");
+      return false;
+    }
+    const planned = due.crossings.map((c) =>
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment, hold()),
+    );
+    for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
   }
   function event<T extends WorldEvent["type"]>(
@@ -2014,12 +2075,41 @@ function runWorld(
       if (action.kind !== "died") continue;
       if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
-      if (movement !== undefined && movement.status === "active")
-        // Terminal interruptions do not reconcile shelter arrivals before the following death.
-        total += pendingCrossings(movement, at).length + 1;
+      const crossings =
+        movement !== undefined && movement.status === "active"
+          ? pendingCrossings(movement, at)
+          : [];
+      // Terminal interruptions do not reconcile shelter arrivals before the following death.
+      if (movement !== undefined && movement.status === "active") total += crossings.length + 1;
+      if (carriesAtDeath(action.objectId, crossings)) total += 1;
     }
     return total;
   };
+  /** Whether a dying actor still carries matter once its pending crossings' traffic applies. */
+  function carriesAtDeath(objectId: string, crossings: readonly CrossingRecord[]): boolean {
+    let state = current();
+    if (policy.surfaces !== undefined)
+      for (const crossing of crossings) {
+        if (crossing.kind !== "entered") continue;
+        const surfaces = planSurfaceTraffic(
+          policy.surfaces,
+          state,
+          objectId as ObjectId,
+          crossing.regionId,
+          crossing.time as SimTimeMs,
+          policy.environment,
+        );
+        if (surfaces.length > 0)
+          state = {
+            ...state,
+            surfaces: reduceSurfaceTraffic(state, {
+              simulationTime: crossing.time as SimTimeMs,
+              payload: { objectId: objectId as ObjectId, surfaces },
+            }),
+          };
+      }
+    return (state.surfaces?.carried ?? []).some((row) => row.objectId === objectId);
+  }
   let lifecycleChanged = false;
   /** Emits one environment time group; returns false, emitting nothing, when it does not fit. */
   function emitGroup(group: EnvironmentGroup): boolean {
@@ -2167,8 +2257,18 @@ function runWorld(
           arrivalEventCount(plan);
       }
     }
+    // A crossing due as a held rain ends is journaled under that rain, before the weather settles it.
+    const heldDue =
+      group.weather &&
+      hold() !== undefined &&
+      policy.surfaces !== undefined &&
+      current().surfaces !== undefined
+        ? dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold())
+        : null;
+    const heldCrossings = heldDue?.time === at ? heldDue.crossings : [];
     const size =
       processesAt(at).length * 2 +
+      heldCrossings.length +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -2203,6 +2303,19 @@ function runWorld(
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
+      const surfacesNow = current().surfaces;
+      const planned = heldCrossings.map((c) =>
+        planSurfaceCrossing(
+          policy.surfaces!,
+          surfacesNow!,
+          c.zoneId,
+          c.channel,
+          at,
+          policy.environment,
+          hold(),
+        ),
+      );
+      for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
       emit(
         event("weather.transitioned", at, {
           segmentIndex: derived.segmentIndex,
@@ -2210,6 +2323,7 @@ function runWorld(
           temperatureBand: derived.temperatureBand,
           nextWeatherBoundary: derived.nextWeatherBoundary,
           rainChange: classifyRainChange(current().weather.rainIntensity, segment.rainIntensity),
+          ...rainSettlement(at, hold() !== undefined),
         }),
       );
     }
@@ -2376,6 +2490,17 @@ function runWorld(
               health: entry.health,
             }),
           );
+          const carried = (current().surfaces?.carried ?? []).filter(
+            (row) => row.objectId === action.objectId,
+          );
+          if (carried.length > 0)
+            emit(
+              event("surface.carried-drained", at, {
+                actorId: action.objectId,
+                removed: carried.map(({ channel, amount }) => ({ channel, amount })),
+                cause: "died",
+              }),
+            );
           const queued = decisionsOf(schedules).find(
             (candidate) => candidate.payload.objectId === action.objectId,
           );
@@ -2553,15 +2678,26 @@ function runWorld(
             : earliest,
         undefined,
       );
+      const surfaceDue =
+        policy.surfaces === undefined || current().surfaces === undefined
+          ? null
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold());
+      const surfaceTime =
+        surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
+      // Surface crossings run after the instant's physical causes and before its processes.
+      const heldTime =
+        surfaceTime !== undefined && (processTime === undefined || surfaceTime <= processTime)
+          ? surfaceTime
+          : processTime;
       const nextBarrier =
-        processTime !== undefined && (lifeTime === undefined || processTime < lifeTime)
-          ? processTime
+        heldTime !== undefined && (lifeTime === undefined || heldTime < lifeTime)
+          ? heldTime
           : lifeTime;
       const barrier =
         nextBarrier !== undefined && nextBarrier <= target ? (nextBarrier as SimTimeMs) : undefined;
       // Processes run after the instant's physical causes and before its actor decisions.
       const processQueue = () =>
-        dispatchable().filter((item) => processTime === undefined || item.dueAt < processTime);
+        dispatchable().filter((item) => heldTime === undefined || item.dueAt < heldTime);
       // A queued dwell is a barrier like a lifecycle time: the drain stops there to fire it.
       const dwellAt = schedules.find(isDwellItem)?.dueAt;
       const dwellBarrier = dwellAt !== undefined && dwellAt <= dwellsThrough ? dwellAt : undefined;
@@ -2678,6 +2814,13 @@ function runWorld(
           ? undefined
           : schedules.find((candidate) => candidate.id === drain.dispatched?.scheduleId);
       if (item === undefined) {
+        if (surfaceTime !== undefined && drain.time === surfaceTime) {
+          if (!fireSurface(surfaceTime)) {
+            complete = false;
+            break;
+          }
+          continue;
+        }
         if (processTime !== undefined && drain.time === processTime) {
           if (!fireProcesses(processTime)) {
             complete = false;
@@ -2984,6 +3127,10 @@ function runWorld(
     emit(
       event("weather.changed", current().simulationTime, {
         rainIntensity: payload.rainIntensity as number,
+        ...rainSettlement(
+          current().simulationTime,
+          payload.rainIntensity !== current().weather.rainIntensity,
+        ),
       }),
     );
     for (const item of decisionsOf(schedules)) reschedule(item, current().simulationTime);
@@ -3090,6 +3237,22 @@ function registerWorldChecks(
         activePolicy === undefined
           ? undefined
           : processJournalDisagreement(activePolicy, initial, state, events),
+    }),
+    preconditions.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state, input }) => surfaceDisagreement(input.pack.pack.policy, state),
+    }),
+    invariants.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state }) =>
+        activePolicy === undefined ? undefined : surfaceDisagreement(activePolicy, state),
+    }),
+    invariants.register({
+      name: "surface.journaled",
+      version: 1,
+      check: ({ initial, events }) => surfaceJournalDisagreement(initial, events),
     }),
     preconditions.register({
       name: ENVIRONMENT_CHECK,
@@ -4360,6 +4523,31 @@ function runContainmentCommand(
     case "resource.consume":
       emit({ type: "resource.consumed", payload: withoutVersion(payload) });
       break;
+    case "surface.interact": {
+      const p = payload as SurfaceInteractPayload;
+      const planned = planSurfaceInteraction(
+        input.pack.pack.policy.surfaces!,
+        state,
+        { ...p, actorId: p.actorId as ObjectId },
+        state.simulationTime,
+        input.pack.pack.policy.environment,
+      );
+      if (!planned.ok) throw new RangeError("surface interaction was not validated");
+      emit({ type: "surface.interacted", payload: planned.payload });
+      break;
+    }
+    case "surface.repair": {
+      const planned = planSurfaceRepair(
+        input.pack.pack.policy.surfaces!,
+        state,
+        payload as SurfaceRepairPayload,
+        state.simulationTime,
+        input.pack.pack.policy.environment,
+      );
+      if (!planned.ok) throw new RangeError("surface repair was not validated");
+      emit({ type: "surface.repaired", payload: planned.payload });
+      break;
+    }
     case "boundary.exchange": {
       const p = payload as BoundaryExchangePayload;
       const source = input.pack.pack.policy.boundaryExchanges!.find(
@@ -4813,6 +5001,181 @@ function withoutVersion(payload: ContainmentPayload): unknown {
   return rest;
 }
 
+function surfaceRefusal(
+  state: WorldState,
+  policy: WorldBehaviorPolicy,
+  type: "surface.interact" | "surface.repair",
+  payload: SurfaceInteractPayload | SurfaceRepairPayload,
+  effectiveActorId: string | undefined,
+): { readonly path: string; readonly check: string } | undefined {
+  const surfaces = policy.surfaces;
+  if (surfaces === undefined) return { path: "payload.zoneId", check: "surface.zone@1" };
+  if (type === "surface.repair") {
+    const planned = planSurfaceRepair(
+      surfaces,
+      state,
+      payload as SurfaceRepairPayload,
+      state.simulationTime,
+      policy.environment,
+    );
+    return planned.ok ? undefined : planned;
+  }
+  const p = payload as SurfaceInteractPayload;
+  const planned = planSurfaceInteraction(
+    surfaces,
+    state,
+    { ...p, actorId: p.actorId as ObjectId },
+    state.simulationTime,
+    policy.environment,
+  );
+  if (!planned.ok && planned.check !== "surface.reach@1") return planned;
+  const actor = state.entities.find((entry) => entry.objectId === p.actorId);
+  if (actor === undefined || !active(actor) || effectiveActorId !== p.actorId)
+    return { path: "payload.actorId", check: "surface.actor@1" };
+  return planned.ok ? undefined : planned;
+}
+
+function surfaceJournalDisagreement(
+  initial: WorldState,
+  events: readonly WorldSemanticEvent[],
+): string | undefined {
+  const surfaces = activePolicy?.surfaces;
+  const first = events.findIndex(
+    (event) =>
+      event.type.startsWith("surface.") ||
+      ((event.type === "movement.region-entered" ||
+        event.type === "weather.changed" ||
+        event.type === "weather.transitioned") &&
+        event.payload.surfaces !== undefined),
+  );
+  if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
+  let state = initial;
+  for (const [index, event] of events.entries()) {
+    try {
+      if (event.type === "surface.interacted") {
+        const planned = planSurfaceInteraction(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.repaired") {
+        const planned = planSurfaceRepair(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.carried-drained") {
+        const held = (state.surfaces?.carried ?? [])
+          .filter((row) => row.objectId === event.payload.actorId)
+          .map(({ channel, amount }) => ({ channel, amount }));
+        // The drain follows its actor's death at the same instant (a shelter change may sit between).
+        const died = events
+          .slice(0, index)
+          .some(
+            (prior) =>
+              prior.type === "lifecycle.died" &&
+              prior.simulationTime === event.simulationTime &&
+              prior.payload.objectId === event.payload.actorId,
+          );
+        if (
+          held.length === 0 ||
+          event.payload.cause !== "died" ||
+          canonicalSerialize(held) !== canonicalSerialize(event.payload.removed) ||
+          !died
+        )
+          return `events[${index}]`;
+      } else if (event.type === "lifecycle.died") {
+        const drained = events
+          .slice(index + 1)
+          .some(
+            (later) =>
+              later.type === "surface.carried-drained" &&
+              later.simulationTime === event.simulationTime &&
+              later.payload.actorId === event.payload.objectId,
+          );
+        if (
+          state.surfaces?.carried.some((row) => row.objectId === event.payload.objectId) === true &&
+          !drained
+        )
+          return `events[${index}]`;
+      } else if (event.type === "weather.changed" || event.type === "weather.transitioned") {
+        const environment = activePolicy?.environment;
+        const changes =
+          event.type === "weather.changed"
+            ? event.payload.rainIntensity !== state.weather.rainIntensity
+            : surfaceRainHold(state, environment) !== undefined;
+        const planned = changes
+          ? planSurfaceRainSettlement(surfaces, state, event.simulationTime, environment)
+          : [];
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "movement.region-entered") {
+        const planned = planSurfaceTraffic(
+          surfaces,
+          state,
+          event.payload.objectId,
+          event.payload.regionId,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.band-crossed") {
+        const { zoneId, channel } = event.payload;
+        const due =
+          state.surfaces === undefined
+            ? null
+            : dueSurfaceCrossings(
+                surfaces,
+                state.surfaces,
+                activePolicy?.environment,
+                surfaceRainHold(state, activePolicy?.environment),
+              );
+        if (
+          due?.time !== event.simulationTime ||
+          !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
+          canonicalSerialize(
+            planSurfaceCrossing(
+              surfaces,
+              state.surfaces!,
+              zoneId,
+              channel,
+              event.simulationTime,
+              activePolicy?.environment,
+              surfaceRainHold(state, activePolicy?.environment),
+            ),
+          ) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      }
+      state = reduceWorldEvent(state, event);
+    } catch {
+      return `events[${index}]`;
+    }
+  }
+  return undefined;
+}
+
 function boundaryExchangeRefusal(
   state: WorldState,
   policy: WorldBehaviorPolicy,
@@ -4966,6 +5329,8 @@ function registerContainmentChecks(
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
   const authority: Record<ContainmentCommandType, readonly string[]> = {
     "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
+    "surface.interact": ["surface.interacted"],
+    "surface.repair": ["surface.repaired"],
     "object.create": [
       "object.created",
       "needs.changed",
@@ -5009,6 +5374,8 @@ function registerContainmentChecks(
                 "weather.transitioned",
                 "exposure.threshold-crossed",
                 "resource.weather-integrated",
+                "surface.band-crossed",
+                "surface.carried-drained",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",
@@ -5054,6 +5421,20 @@ function registerContainmentChecks(
       version: 1,
       check: ({ state, input }) => boundaryExchangeDisagreement(input.pack.pack.policy, state),
     }),
+    ...["surface.zone", "surface.interaction", "surface.actor", "surface.reach"].map((name) =>
+      registerPre(name, ({ state, payload, input, command }) => {
+        if (command.type !== "surface.interact" && command.type !== "surface.repair")
+          return undefined;
+        const refused = surfaceRefusal(
+          state,
+          input.pack.pack.policy,
+          command.type,
+          payload as SurfaceInteractPayload | SurfaceRepairPayload,
+          input.attribution.effectiveActorId,
+        );
+        return refused?.check === `${name}@1` ? refused.path : undefined;
+      }),
+    ),
     registerPre("boundary.exchange", ({ state, payload, input, command }) =>
       command.type === "boundary.exchange"
         ? boundaryExchangeRefusal(

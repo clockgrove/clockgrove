@@ -7,6 +7,7 @@ import {
   type InfluenceRequest,
   type InteractionAction,
   type InteractionAttribution,
+  type InteractionMode,
   type InteractionSummary,
   type PrincipalId,
   type SayReceipt,
@@ -31,7 +32,10 @@ export interface InteractionAuthority {
  * so a missing capability is absent and a denied one carries its reason. Talk is offered for an
  * entity that declares a Conversation mode (`clockgrove.conversation-mode`), whatever else it
  * carries; Why stays an actor's (an entity with needs), since it explains a routine choice. The
- * card's `mode` is unchanged: actors still decide by deterministic utility.
+ * card's `mode` is that declared Conversation mode (`cognitive`, `interpreted` or `canonical`), so
+ * the card discloses the voice the entity answers in; it never comes from needs, resources or a
+ * name. An entity that declares none is `reactive` when it is an actor, holds a resource or is a
+ * plant, and `inspectable` otherwise.
  */
 export function interactionsOf(
   state: WorldState,
@@ -62,9 +66,11 @@ export function interactionsOf(
             : { kind: "influence", availability: "disabled", reason: "command_grant_required" },
         );
       const reactive = actor || entity.resource !== undefined || plants.has(entity.objectId);
+      const mode: InteractionMode =
+        entity.conversationMode ?? (reactive ? "reactive" : "inspectable");
       return {
         entityId: entity.objectId,
-        mode: reactive ? ("reactive" as const) : ("inspectable" as const),
+        mode,
         actions,
       };
     })

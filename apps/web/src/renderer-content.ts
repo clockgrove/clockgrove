@@ -152,12 +152,23 @@ export interface RendererContentLight {
   readonly intensity: number;
   readonly rangeMetres: number;
 }
+/** #266: a renderer-drawn contact shape on the floor under a content anchor, in frame metres. */
+export interface RendererContentContact {
+  readonly x: number;
+  readonly y: number;
+  readonly elevation?: number;
+  /** The footprint the shape grounds, as an atlas footprint's width and depth. */
+  readonly widthMetres: number;
+  readonly depthMetres: number;
+}
 export interface RendererContentInstance {
   readonly root: THREE.Group;
   /** Renderer-owned, unshadowed point lights, admitted in array order within the tier cap. */
   readonly lights?: readonly RendererContentLight[];
   /** Opt into scene directional shadows; meshes still choose castShadow and receiveShadow. */
   readonly shadows?: boolean;
+  /** Ground content with the projected bodies' contact shape, on every tier (#266). */
+  readonly contacts?: readonly RendererContentContact[];
   /** Register textures hidden inside deferred shader callbacks for accounting and retirement. */
   readonly textures?: readonly THREE.Texture[];
   /** Update only owned objects. Use absolute time, including zero when motion is reduced. */
@@ -181,13 +192,20 @@ export function placeContent(
   object.position.set(
     (at.x + at.y) * 12.5,
     -(at.x - at.y) * 6.25 + elevation * 12.5,
-    contentDepth(at.x, at.y, elevation),
+    sceneDepth(at.x, at.y, elevation),
   );
-  // Match the existing 80 mm/pixel camera. Compress local depth to coexist with atlas billboards.
-  object.scale.set(12.5, 12.5, 0.01);
+  // Match the existing 80 mm/pixel camera. Local axes stay screen-aligned, so depth is real and uncompressed.
+  object.scale.set(12.5, 12.5, 12.5);
 }
-export function contentDepth(x: number, y: number, elevation: number): number {
-  return (x - y) * 0.01 + elevation * 0.005;
+// The 2:1 isometric mapping is a 30 degree camera pitch: ground distance d spans d/2 on screen
+// (sin 30) and sqrt(3)/2 d in depth, so depth = sqrt(3) * screen-vertical distance. The floor is the
+// plane through the origin with normal (0, sin 60, cos 60); a metre of elevation lifts depth by 12.5/sqrt(3).
+export function sceneDepth(x: number, y: number, elevation: number): number {
+  return (x - y) * 6.25 * Math.sqrt(3) + (elevation * 12.5) / Math.sqrt(3);
+}
+/** Depth of the floor beneath scene-space vertical position `sceneY`. */
+export function floorDepth(sceneY: number): number {
+  return -Math.sqrt(3) * sceneY;
 }
 
 export function validateContent(root: THREE.Group): boolean {
@@ -243,6 +261,7 @@ export function validateContent(root: THREE.Group): boolean {
 
 export function validateContentLighting(instance: RendererContentInstance): boolean {
   if (instance.shadows !== undefined && typeof instance.shadows !== "boolean") return false;
+  if (!validContacts(instance.contacts)) return false;
   if (instance.lights === undefined) return true;
   // #184: bound validation work even when a content producer supplies more lights than a tier admits.
   if (!Array.isArray(instance.lights) || instance.lights.length > 64) return false;
@@ -266,18 +285,37 @@ export function validateContentLighting(instance: RendererContentInstance): bool
   );
 }
 
+type ValueNode = { value?: unknown };
+/**
+ * A node graph's value-holding nodes, found by one traversal per graph. The scene counts texture
+ * bytes on every draw, and #266 gives every body and contact shape a node graph, so walking each
+ * graph per draw put patches over their budget. Values are read fresh, so a swapped texture counts.
+ */
+const graphValueNodes = new WeakMap<object, readonly ValueNode[]>();
+function valueNodes(node: {
+  traverse: (callback: (child: ValueNode) => void) => void;
+}): readonly ValueNode[] {
+  let found = graphValueNodes.get(node);
+  if (!found) {
+    const nodes: ValueNode[] = [];
+    node.traverse((child) => {
+      if ("value" in child) nodes.push(child);
+    });
+    graphValueNodes.set(node, (found = nodes));
+  }
+  return found;
+}
 export function materialTextures(material: THREE.Material): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
   for (const value of Object.values(material)) {
     if (value instanceof THREE.Texture) textures.add(value);
     const node = value as {
       isNode?: boolean;
-      traverse?: (callback: (child: { value?: unknown }) => void) => void;
+      traverse?: (callback: (child: ValueNode) => void) => void;
     } | null;
     if (node?.isNode && node.traverse)
-      node.traverse((child) => {
+      for (const child of valueNodes(node as Parameters<typeof valueNodes>[0]))
         if (child.value instanceof THREE.Texture) textures.add(child.value);
-      });
   }
   return textures;
 }
@@ -525,4 +563,23 @@ export async function atlasTextureLoader(
     return undefined;
   }
   return { ktx2, format, release };
+}
+
+/** #266: at most 64 contact shapes, bounded like light descriptors; a footprint side is at most 1 km. */
+function validContacts(contacts: RendererContentInstance["contacts"]): boolean {
+  if (contacts === undefined) return true;
+  if (!Array.isArray(contacts) || contacts.length > 64) return false;
+  const bounded = (value: unknown, limit: number) =>
+    typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit;
+  return Array.from(contacts).every(
+    (contact) =>
+      contact &&
+      bounded(contact.x, 1_000_000) &&
+      bounded(contact.y, 1_000_000) &&
+      (contact.elevation === undefined || bounded(contact.elevation, 1_000_000)) &&
+      bounded(contact.widthMetres, 1000) &&
+      contact.widthMetres > 0 &&
+      bounded(contact.depthMetres, 1000) &&
+      contact.depthMetres > 0,
+  );
 }

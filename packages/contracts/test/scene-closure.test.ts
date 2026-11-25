@@ -50,7 +50,7 @@ it("accepts exactly each closed scene vocabulary, and each boot state only its o
       (status) => decodeSceneAsset({ ...asset, reviewStatus: status }),
     ],
     [
-      ["inspectable", "reactive", "cognitive", "interpreted"],
+      ["inspectable", "reactive", "cognitive", "interpreted", "canonical"],
       (mode) => decodeInteractionSummary({ ...interaction, mode }),
     ],
     [

@@ -86,12 +86,12 @@ export function InteractionCard({
   };
 
   const has = (kind: InteractionActionKind) => summary.actions.some((a) => a.kind === kind);
-  // A cognitive actor's Talk is the private rail conversation; its grid replaces the action list.
-  const privateRail = summary.mode === "cognitive" && enabled(summary, "talk");
+  // The mode only chooses the disclosure (issue 396): the actions the card offers are the same
+  // whichever voice the entity declares.
   return (
     <section aria-label="Interactions">
       <p className="rw-disclosure">{INTERACTION_DISCLOSURES[summary.mode]}</p>
-      <ul hidden={privateRail}>
+      <ul>
         {summary.actions.map((action) => {
           const reasonId = `${idBase}-${action.kind}`;
           return (
@@ -125,27 +125,24 @@ export function InteractionCard({
             key={entityId}
             session={session}
             actorId={entityId}
-            summary={privateRail ? summary : undefined}
             onAction={(kind, opener) => void run(kind, opener)}
           />
-          {!privateRail && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void say();
-              }}
-            >
-              <label>
-                Public line
-                <input value={draft} onChange={(event) => setDraft(event.target.value)} />
-              </label>
-              <button type="submit">Say aloud</button>
-              {talkRefusal && <p role="status">Say refused: {talkRefusal}</p>}
-            </form>
-          )}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void say();
+            }}
+          >
+            <label>
+              Public line
+              <input value={draft} onChange={(event) => setDraft(event.target.value)} />
+            </label>
+            <button type="submit">Say aloud</button>
+            {talkRefusal && <p role="status">Say refused: {talkRefusal}</p>}
+          </form>
         </>
       )}
-      {has("talk") && !privateRail && (
+      {has("talk") && (
         <>
           <div aria-label="Public speech" aria-live="polite" role="log">
             {speech.map((line, i) => (

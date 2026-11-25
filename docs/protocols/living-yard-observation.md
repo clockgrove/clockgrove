@@ -434,3 +434,90 @@ through the authorized operator causal inspector; new execution cannot emit them
 
 Material transfers bind their feed history link to the receiving holder, whose quantity increased.
 The destination's ordinary selection authorization still applies when opening that history.
+
+## Flashback
+
+`POST /v1/runtime/flashback` answers when and why something happened: the moment of one journal
+event or command, rebuilt from the journal by deterministic replay, with its recorded context and
+causes (issue 273). It accepts exactly `FlashbackRequest` (`@clockgrove/contracts`, `flashback.ts`):
+version 1, the four scope IDs and one entry, `eventId` (a feed item's `sourceEventIds`, a recorded
+action) or `commandId` (a Why's `links.parents`). A `commandId` entry may also carry `objectId`,
+the entity the flashback follows, so "and before that…" stays with the same actor. It has Why's authority and admission: the scoped
+`runtime:world-observe` grant, the ceiling narrowed to `public_scene`, one audited inspector access
+under the inspector rate limit (`PostgreSqlCausalInspector.flashbackEvidence`, the same access as
+`recordedWhy`), and the same codes: 400 `invalid_inspection_request`, 401 `authentication_refused`,
+403 `authorization_refused`, 404 `event_not_found` or `command_not_found` (also for an entry with
+no readable event in the space), 409 `world_not_ready`, 429 `inspection_rate_limited`, 500
+`inspection_failed` and 503 `inspector_unavailable`. A decode error after the request has decoded
+(reading the recorded evidence, projecting a frame or encoding the answer) is the server's defect:
+500 `inspection_failed`, logged, never 400. It writes nothing but the audit row, sends no
+command and runs no model.
+
+`Flashback` decodes only through `decodeFlashback`, which refuses unknown and missing fields at
+every level, and `encodeFlashback` writes its JSON form. It contains the scope, `privacyClass:
+"public_scene"`, the `entry`, and:
+
+- `moment`: the entry command, its readable events in the space, the moment's partition sequence
+  and simulation time (the entry event's, else the command's last event's) and the entity it
+  concerns (`objectId`: the request's, else the entry event's as the feed names it, else the
+  command's first event's, or null).
+- `bounds`: `FLASHBACK_BOUNDS`, echoed in every response. Up to 8 frames before and 8 after the
+  moment's command; a window read of at most 2,000 partition events (one replay page; one advance
+  of the reference fixture journals about 70); a catch-up of at most 4,000 events between the
+  replay start and the first frame shown (twice the snapshot sweep's 2,000-event cadence); and at
+  most 16 snapshot refs read, newest first and only within the catch-up bound, to find that start
+  (the sweep leaves about two there; the rest is room for manual snapshots). The start never lies
+  past the first frame shown: a moment event inside a cut command bounds it too. A
+  command longer than the window's half after it is read from its tail, so the read never exceeds
+  2,000 events, and `truncated` says so. Past the start, replay stops 2,000 events after the
+  first frame shown (or the moment event, when it lies before it): a later frame, such as the end
+  of a command longer than the window after an early moment event, is left out and `truncated`
+  says so. One flashback therefore replays at most `catchUpEvents + windowEvents` (6,000) events.
+- `replay`: `replayed` with its `start` (`birth` or the snapshot ID), `eventsReplayed`, `truncated`
+  (the window read or the replay bound cut the frames short) and `positionsBetweenFrames: "not-recorded"`. Two other
+  statuses carry no frames and no context. `beyond-catch-up-bound`: the latest compatible snapshot
+  at or below the first frame shown, else the birth, is more than `catchUpEvents` before it, so a distant
+  moment is never replayed from genesis. `not-visible`: a window event is outside the observer's
+  ceiling, so nothing is replayed under a wider authority.
+- `frames`: one public `SceneProjection` per journal command in the window, in partition order,
+  each the state after the command's last event. For an event entry, the frame at that event's own
+  sequence comes before its command's end. Exactly one frame has `moment: true`. Each frame is
+  projected by the scene stream's own `sceneProjectionOf` from the replayed state, for the closed
+  public audience: no selection, private cognition or interaction actions. Nothing between frames
+  is recorded, and nothing is interpolated.
+- `context`: from the moment frame's replayed state. It holds the revision, the simulation time, the
+  pack's `day` and `timeOfDayMs` (null without a day length), `rainIntensity`, the entities present
+  in the space, and the concerned actor's needs, wellbeing and selected action as recorded then.
+- `why`: the moment command's `RecordedWhy` with `resourceCauses`, exactly as `POST /v1/runtime/why`
+  answers it.
+- `before`: the Why's admitted `links.parents`. Each one is the `commandId` of the next "and before
+  that…" flashback, requested with this flashback's `moment.objectId` to follow the same entity.
+  An empty list means the record goes back no further.
+- `summary`: lines of kind `context`, `cause`, `influence`, `unknown` or `limit`. The server fills
+  closed sentence templates from the moment's events (the feed's sentences, at most 8), the
+  replayed context, the moment entity's recorded routine drafts at or before the moment's simulation
+  time (the chosen action, its score and the number of other candidates, then the features it
+  weighed; the latest 8, and a `limit` line counts the earlier ones left out and the ones recorded
+  after the moment, which are not its causes) and the resource causes
+  that name that entity. Another actor's decision in the same step is never given as the cause.
+  Every line cites what it used: `event:<id>`, `command:<id>`, `draft:<commandId>#<draftIndex>` or
+  `frame:<partitionSequence>`. With no recorded decision or resource cause of the moment's entity,
+  the summary says the cause is unknown. It never infers one.
+
+`apps/runtime/test/flashback.journey.postgres.test.ts` checks the read through the Worker route and
+PostgreSQL:
+
+- the replay starts from a snapshot;
+- each frame equals an independent replay from the stored birth;
+- the last frame is the stored head;
+- every citation resolves to a journal event, receipt or retained draft;
+- causes are the moment entity's own; an entity that decided nothing in the step gets `unknown`;
+- chaining follows the same actor and reaches the provisioning record, where the cause is unknown;
+- no canonical row changes;
+- the context and the cause and influence lines equal, value for value, the independently
+  replayed moment state and the actor's retained draft read from the receipt;
+- a decode error after the request decoded answers 500 `inspection_failed`;
+- unknown entries and a revoked grant are refused;
+- for an early event of a command longer than the window, the replay stays within
+  `catchUpEvents + windowEvents`, and the actor's decisions recorded after the moment are not
+  given as its causes.
