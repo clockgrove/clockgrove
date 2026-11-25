@@ -347,6 +347,10 @@ the flashback route answers 500 `surface_decal_budget_exceeded`
 budgets are the pack's own (`SURFACE_BUDGET_EXCEEDED`, [SDK refusal codes](../../packages/world-pack-sdk/docs/refusal-codes.md)).
 No budget is met by dropping a mark.
 
+The web client draws the derived look as floor-lying tint layers and, at close camera zoom, mark
+decals within the tier's budget, and lists each zone's sentence in the text path
+([web scene, surfaces](../../apps/web/docs/scene.md#surfaces-267)).
+
 The runtime projects them into the scene's optional `surfaces` field
 ([realtime projection](realtime-projection.md)), the same way for the live scene and a flashback
 frame: for each labelled zone in the policy's declaration order whose host is in the scene (a

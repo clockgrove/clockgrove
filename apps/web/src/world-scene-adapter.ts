@@ -9,8 +9,11 @@ import {
   type SceneMaterialDelivery,
   type ScenePatch,
   type SceneProjection,
+  type SceneSurfaceHost,
+  type SceneSurfaces,
   type SceneSurfaceZone,
   type SceneTransientCue,
+  type SurfaceTier,
   type WorldObjectId,
 } from "@clockgrove/contracts";
 
@@ -444,4 +447,110 @@ export function selectMaterialRendition(
       [...pages.values()].reduce((n, cost) => n + cost.textureBytes, 0) <= budget.textureBytes
     );
   });
+}
+
+/** Decision (plan assumption 35, issue 267): decals show at camera zoom >= 1.5, between default 1 and default max 2. */
+export const CLOSE_RANGE_ZOOM = 1.5;
+
+/** One close-range mark decal (issue 267), derived from a projected mark and never stored. */
+export interface SurfaceDecal {
+  readonly actorId: ObjectId | null;
+  readonly at: bigint;
+  readonly u: number;
+  readonly v: number;
+  /** Fraction of the zone's shorter side. */
+  readonly length: number;
+  /** Radians in [0, π), derived from the seed, zone and mark so replays draw the same scratch. */
+  readonly angle: number;
+  readonly opacity: number;
+  readonly tint: string;
+}
+
+/** One band's tint over a zone at a tier (issue 267). */
+export interface SurfaceLayer {
+  readonly channel: string;
+  readonly band: string;
+  readonly tint: string;
+  readonly opacity: number;
+}
+
+/** One zone's derived look (issue 267): its tint layers and its decals, newest mark first. */
+export interface SurfaceZoneLook {
+  readonly zoneId: string;
+  readonly host: SceneSurfaceHost;
+  readonly layers: readonly SurfaceLayer[];
+  readonly decals: readonly SurfaceDecal[];
+}
+
+/** A scene's derived surface look at a tier (issue 267); withheld decals are counted, never dropped silently. */
+export interface SurfaceLook {
+  readonly tier: SurfaceTier;
+  readonly zones: readonly SurfaceZoneLook[];
+  readonly budget: number;
+  readonly withheld: number;
+}
+
+/** FNV-1a 32-bit over the string's UTF-16 code units. */
+function fnv1a32(text: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619) >>> 0;
+  return hash;
+}
+
+/**
+ * The look of a scene's surfaces at a tier (issue 267): derived from the projection, the tier and the
+ * scope seed alone, never stored, so any renderer replaying the same projection draws the same look.
+ */
+export function surfaceLook(surfaces: SceneSurfaces, tier: SurfaceTier, seed: string): SurfaceLook {
+  const budget = surfaces.decals[tier];
+  let drawn = 0;
+  let withheld = 0;
+  const zones: SurfaceZoneLook[] = [];
+  for (const zone of surfaces.zones) {
+    const layers = zone.treatments
+      .filter((t) => t.tiers[tier].opacity > 0)
+      .map((t) => ({
+        channel: t.channel,
+        band: t.band,
+        tint: t.tiers[tier].tint,
+        opacity: t.tiers[tier].opacity,
+      }));
+    const marking = zone.treatments.filter((t) => t.tiers[tier].marks).at(-1);
+    const decals: SurfaceDecal[] = [];
+    if (marking) {
+      const tint = marking.tiers[tier].tint;
+      for (const mark of [...zone.marks].reverse()) {
+        if (drawn >= budget) {
+          withheld++;
+          continue;
+        }
+        drawn++;
+        const { u, v } = mark.point;
+        decals.push({
+          actorId: mark.actorId,
+          at: mark.at,
+          u: u / 10000,
+          v: v / 10000,
+          length: 0.04 + (0.08 * mark.intensity) / 10000,
+          angle:
+            (fnv1a32(`${seed}\u0000${zone.zoneId}\u0000${mark.at}\u0000${u}\u0000${v}`) / 2 ** 32) *
+            Math.PI,
+          opacity: 0.35 + (0.65 * mark.intensity) / 10000,
+          tint,
+        });
+      }
+    }
+    if (layers.length > 0 || decals.length > 0)
+      zones.push({ zoneId: zone.zoneId, host: zone.host, layers, decals });
+  }
+  return { tier, zones, budget, withheld };
+}
+
+/** Each zone's non-null text-path sentence (issue 267), in zone order. */
+export function surfaceSentences(
+  surfaces: SceneSurfaces | undefined,
+): readonly { readonly zoneId: string; readonly sentence: string }[] {
+  return (surfaces?.zones ?? []).flatMap((zone) =>
+    zone.sentence === null ? [] : [{ zoneId: zone.zoneId, sentence: zone.sentence }],
+  );
 }

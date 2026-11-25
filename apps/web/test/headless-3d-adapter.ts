@@ -6,6 +6,7 @@ import type {
   ScenePatch,
   SceneProjection,
   SceneTransientCue,
+  SurfaceTier,
 } from "@clockgrove/contracts";
 import {
   emptyScene,
@@ -21,6 +22,8 @@ import {
   framePosition,
   type SceneEmphasis,
   type SceneIntent,
+  type SurfaceLook,
+  surfaceLook,
   type Unsubscribe,
   type WorldSceneAdapter,
 } from "../src/world-scene-adapter.js";
@@ -55,12 +58,19 @@ export class Headless3DAdapter implements WorldSceneAdapter {
   /** Dedupe keys of the unexpired cues drawn so far, oldest first, at most 64. */
   cues: string[] = [];
   reducedMotion = false;
+  /** The surface quality tier the look is derived at (issue 267). */
+  tier: SurfaceTier = "high";
   private emphasis: SceneEmphasis = this.emphasized;
   private projection: SceneStateProjection = emptyScene;
   private committed: SceneProjection | undefined;
   private handlers = new Set<(intent: SceneIntent) => void>();
   get scene(): LivingScene | undefined {
     return this.projection.scene;
+  }
+  /** The committed projection's surface look at `tier`, seeded by its world and timeline (issue 267). */
+  get surfaceLook(): SurfaceLook | undefined {
+    const { surfaces, worldId, timelineId } = this.committed ?? {};
+    return surfaces && surfaceLook(surfaces, this.tier, `${worldId}/${timelineId}`);
   }
   loadSnapshot(snapshot: SceneProjection): void {
     const scene = livingSceneOf(snapshot);

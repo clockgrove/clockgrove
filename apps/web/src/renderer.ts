@@ -6,7 +6,7 @@ import type {
   SceneTransientCue,
   WorldObjectId,
 } from "@clockgrove/contracts";
-import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
+import { decodeSceneMaterialDelivery, metresPerUnit } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import {
   float,
@@ -51,7 +51,9 @@ import { clearsSilhouette, type OcclusionMetrics, SceneOcclusion } from "./scene
 import { worldShell } from "./shell.js";
 import {
   applyScenePatch,
+  CLOSE_RANGE_ZOOM,
   cyclePick,
+  framePosition,
   INTERPOLATION_MS,
   isNight,
   MATERIAL_DELIVERY_BUDGET,
@@ -65,6 +67,7 @@ import {
   type ScenePlacement,
   selectMaterialRendition,
   shownEffects,
+  surfaceLook,
   type WorldSceneAdapter,
 } from "./world-scene-adapter.js";
 
@@ -142,6 +145,10 @@ export interface SceneMetrics {
   lampStandIns: number;
   /** Contact shapes drawn: one per projected body and one per content contact descriptor (#266). */
   contactShadows: number;
+  /** #267: surface zones drawn, close-range decals drawn, and decals the tier's budget withheld. */
+  surfaceZones: number;
+  surfaceDecals: number;
+  surfaceDecalsWithheld: number;
   /** #266: the selected character's occlusion and reveal. */
   readonly occlusion: OcclusionMetrics;
 }
@@ -435,6 +442,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     lampShadowMaps: 0,
     lampStandIns: 0,
     contactShadows: 0,
+    surfaceZones: 0,
+    surfaceDecals: 0,
+    surfaceDecalsWithheld: 0,
     occlusion: this.occlusion.metrics,
   };
   private content: RendererContentInstance | undefined;
@@ -486,6 +496,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private scope: string | undefined;
   private atlas = new Map<string, AtlasEntry>();
   private drawn = new Map<ObjectId, Drawn>();
+  private surfaceMeshes: THREE.Mesh[] = [];
+  private surfaceDecalGroup: THREE.Group | undefined;
+  private surfaceKey = "";
   private order: ObjectId[] = [];
   effects: { role: string; key: string; sprite: Native; index: number }[] = [];
   private effectsKey = "";
@@ -1382,6 +1395,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
     this.tier = tier;
+    if (this.projection) this.drawSurfaces(this.projection);
     // Shader compilation and target allocation for the new tier are one-time work.
     this.governor?.restart();
     this.syncContentLighting();
@@ -1506,6 +1520,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.camera.zoom = zoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
+    if (this.surfaceDecalGroup) this.surfaceDecalGroup.visible = zoom >= CLOSE_RANGE_ZOOM;
     this.syncContentLighting();
     this.dirty = true;
   }
@@ -1706,6 +1721,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       for (const drawn of this.drawn.values()) this.release(drawn);
       this.drawn.clear();
       this.releaseEffects();
+      this.releaseSurfaces();
       this.scope = scope;
       this.frameCamera(placements);
     }
@@ -1765,6 +1781,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     });
     this.order = placements.map((at) => at.objectId);
     this.drawEffects(projection);
+    this.drawSurfaces(projection);
     this.drawEnvironment(projection);
     this.drawEmphasis();
     this.rebuildReflections();
@@ -2151,6 +2168,146 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       );
     }
     this.metrics.contactShadows = this.drawn.size + this.contentContacts.length;
+  }
+  private releaseSurfaces(): void {
+    for (const mesh of this.surfaceMeshes) {
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+    this.surfaceMeshes = [];
+    this.surfaceDecalGroup?.removeFromParent();
+    this.surfaceDecalGroup = undefined;
+    this.surfaceKey = "";
+    this.metrics.surfaceZones = this.metrics.surfaceDecals = this.metrics.surfaceDecalsWithheld = 0;
+  }
+  /**
+   * #267: the derived look of the projected surfaces, lying on the floor. A region is a quad over its
+   * rectangle, an object a floor ellipse at its foot; decals show only at close range.
+   */
+  private drawSurfaces(projection: SceneProjection): void {
+    if (!projection.surfaces) {
+      if (this.surfaceKey) this.releaseSurfaces();
+      return;
+    }
+    const look = surfaceLook(
+      projection.surfaces,
+      this.tier,
+      `${projection.worldId}/${projection.timelineId}`,
+    );
+    const frames = new Map(projection.frames.map((frame) => [String(frame.frameId), frame]));
+    // Each zone's floor shape in scene units: a polygon (region) or an ellipse (object foot).
+    const shapes = look.zones.map(({ host }) => {
+      if (host.kind === "object") {
+        const drawn = this.drawn.get(host.objectId);
+        if (!drawn) return undefined;
+        const [x, y] = iso(drawn.visual.placement),
+          span = Number(drawn.shadow.userData.span);
+        return {
+          x,
+          y,
+          z: sceneDepth(
+            drawn.visual.placement.x,
+            drawn.visual.placement.y,
+            drawn.visual.placement.elevation,
+          ),
+          span,
+        };
+      }
+      const frame = frames.get(host.frameId),
+        metres = frame && metresPerUnit(frame.unit.name);
+      if (!frame || frame.version !== host.frameVersion || metres === undefined) return undefined;
+      const [x0 = 0, y0 = 0] = framePosition(frame, host.min).map((v) => v * metres),
+        [x1 = 0, y1 = 0] = framePosition(frame, host.max).map((v) => v * metres);
+      return {
+        corners: [x0, y0, x1, y1],
+        span: Math.min(Math.abs(x1 - x0), Math.abs(y1 - y0)) * PX_PER_METRE,
+      };
+    });
+    const key = JSON.stringify([look, shapes], (_, v) =>
+      typeof v === "bigint" ? v.toString() : v,
+    );
+    if (key === this.surfaceKey) return;
+    this.releaseSurfaces();
+    this.surfaceKey = key;
+    const group = new THREE.Group();
+    this.surfaceDecalGroup = group;
+    group.visible = (this.camera?.zoom ?? 1) >= CLOSE_RANGE_ZOOM;
+    const add = (
+      parent: THREE.Object3D,
+      geometry: THREE.BufferGeometry,
+      tint: string,
+      opacity: number,
+      order: number,
+    ) => {
+      const material = this.litMaterial({
+        color: new THREE.Color(tint).getHex(),
+        transparent: true,
+        depthWrite: false,
+        roughness: 1,
+      });
+      material.opacity = opacity;
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = order;
+      parent.add(mesh);
+      this.surfaceMeshes.push(mesh);
+      return mesh;
+    };
+    let zones = 0,
+      decals = 0;
+    look.zones.forEach((zone, index) => {
+      const shape = shapes[index];
+      if (!shape) return;
+      zones++;
+      decals += zone.decals.length;
+      const at = (u: number, v: number): [number, number, number] => {
+        if (!shape.corners)
+          return [
+            shape.x + (u - 0.5) * shape.span,
+            -shape.y - (v - 0.5) * shape.span * 0.5,
+            (shape.z ?? 0) + FLOOR_DECAL_LIFT,
+          ];
+        const [x0, y0, x1, y1] = shape.corners as [number, number, number, number];
+        const [sx, sy] = iso({ x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * v, elevation: 0 });
+        return [sx, -sy, floorDepth(-sy) + FLOOR_DECAL_LIFT];
+      };
+      for (const layer of zone.layers) {
+        let geometry: THREE.BufferGeometry;
+        if (shape.corners) {
+          const quad = [at(0, 0), at(1, 0), at(1, 1), at(0, 1)];
+          geometry = new THREE.BufferGeometry()
+            .setAttribute("position", new THREE.Float32BufferAttribute(quad.flat(), 3))
+            .setAttribute(
+              "normal",
+              new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3),
+            )
+            .setIndex([0, 1, 2, 0, 2, 3]);
+        } else geometry = new THREE.CircleGeometry(shape.span / 2, 32);
+        const mesh = add(this.scene, geometry, layer.tint, layer.opacity, -2);
+        if (!shape.corners) {
+          mesh.position.set(...at(0.5, 0.5));
+          mesh.rotation.x = -FLOOR_TILT;
+        }
+      }
+      for (const decal of zone.decals) {
+        const length = decal.length * shape.span;
+        const mesh = add(
+          group,
+          new THREE.PlaneGeometry(length, length / 6),
+          decal.tint,
+          decal.opacity,
+          -1,
+        );
+        mesh.position.set(...at(decal.u, decal.v));
+        mesh.rotation.set(-FLOOR_TILT, 0, decal.angle, "XYZ");
+      }
+    });
+    this.scene.add(group);
+    this.metrics.surfaceZones = zones;
+    this.metrics.surfaceDecals = decals;
+    this.metrics.surfaceDecalsWithheld = look.withheld;
+    this.dirty = true;
   }
   private drawEffects(projection: SceneProjection): void {
     const effects = projection.effects ?? [];
@@ -2786,6 +2943,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.restoreContentErrors = undefined;
     this.contentAbort.abort();
     this.occlusion.dispose();
+    this.releaseSurfaces();
     if (this.content) this.disposeInstance(this.content);
     this.content = undefined;
     this.syncContentLighting();
