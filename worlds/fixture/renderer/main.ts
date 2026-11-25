@@ -32,7 +32,7 @@ const adapter = new ThreeWorldSceneAdapter(parent, () => {
 
 // #266: the page offers selection and writes the text path's line naming who is hidden, as the shell does.
 const occlusion = document.querySelector<HTMLElement>("#occlusion")!;
-adapter.onIntent(({ objectId }) => adapter.setSelection(objectId));
+if (params.has("occlusion")) adapter.onIntent(({ objectId }) => adapter.setSelection(objectId));
 adapter.onOcclusion((reveal) => {
   const entity = reveal && snapshot.entities.find((candidate) => candidate.objectId === reveal.objectId);
   occlusion.textContent = reveal && entity ? occlusionText(entity.presentation.label, reveal.behind) : "";

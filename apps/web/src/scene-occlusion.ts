@@ -170,7 +170,7 @@ export class SceneOcclusion {
     camera: THREE.OrthographicCamera,
     occluders: readonly RendererContentOccluder[],
   ): RendererContentOccluder[][] {
-    body.updateMatrixWorld();
+    body.updateWorldMatrix(true, false);
     const geometry = body.geometry;
     if (!geometry.boundingBox) geometry.computeBoundingBox();
     const box = geometry.boundingBox!;
@@ -179,7 +179,8 @@ export class SceneOcclusion {
         if (!object.visible) return false;
       return true;
     });
-    for (const occluder of visible) occluder.object.updateMatrixWorld();
+    // Content may have moved an anchor above the occluder since the last render.
+    for (const occluder of visible) occluder.object.updateWorldMatrix(true, true);
     const cameraZ = camera.position.z;
     return SAMPLE_UV.map(([u, v]) => {
       this.point
@@ -293,7 +294,7 @@ export class SceneOcclusion {
     const mesh = this.silhouette;
     const map = bodyMap(body);
     if (map) this.silhouetteMap.value = map;
-    body.updateMatrixWorld();
+    body.updateWorldMatrix(true, false);
     mesh.matrix.copy(body.matrixWorld);
     mesh.matrixWorldNeedsUpdate = true;
     const target = show ? OCCLUSION.silhouetteOpacity : 0;
