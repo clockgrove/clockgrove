@@ -70,6 +70,7 @@ import {
   type TalkStreamFrame,
   type TurnRequest,
   type TurnStatus,
+  type UsageAdmissionSource,
 } from "@clockgrove/contracts";
 import {
   constructTrustedExecutionContext,
@@ -192,7 +193,7 @@ import type {
   RuntimeScope,
 } from "./types.js";
 import { RuntimeRouteKeyMismatchError } from "./types.js";
-import { askAdmissionHook } from "./usage-admission.js";
+import { admitSpend, admittedShadowDecider } from "./usage-admission.js";
 import { shadowActorWake, wakeTriageDecider, wakeTriagePolicy } from "./wake-triage.js";
 import * as workflows from "./workflows.js";
 import {
@@ -1380,7 +1381,11 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     console.log(JSON.stringify({ event: "actor-reply-shadow", ...record }));
   }
   /** Judges a committed reply beside the turn; the platform keeps the object alive for it. */
-  private judgeActorReply(fiber: TurnFiber, reply: string): void {
+  private judgeActorReply(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    reply: string,
+  ): void {
     let policy: ModerationShadowPolicy | undefined;
     try {
       policy = actorReplyShadowPolicy(this.environment.ACTOR_REPLY_SHADOW_CONFIG);
@@ -1390,8 +1395,17 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     }
     if (policy === undefined) return;
     this.objectState.waitUntil(
-      shadowActorReply(fiber, reply, policy, this.actorReplyDecider(policy, fiber), (record) =>
-        this.recordActorReply(record),
+      shadowActorReply(
+        fiber,
+        reply,
+        policy,
+        this.admittedShadow(
+          participant,
+          fiber,
+          "actor_reply_shadow",
+          this.actorReplyDecider(policy, fiber),
+        ),
+        (record) => this.recordActorReply(record),
       ).catch(() => {
         console.warn(
           JSON.stringify({
@@ -2625,23 +2639,34 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return globalThis.fetch;
   }
 
-  private async admit(
+  private admit(
     participant: ConversationParticipant,
     fiber: TurnFiber,
     category: "model_call" | "tool_call",
     resource?: string,
+    source: UsageAdmissionSource = "run_step",
   ): Promise<{ readonly admitted: true } | { readonly admitted: false; readonly cause: string }> {
-    const grant = await this.stores()(async (store) =>
-      store.admitUsage?.(participant, fiber, category, resource),
-    );
-    if (grant === undefined) return { admitted: true };
-    if (grant.decision === "refused") return { admitted: false, cause: String(grant.cause) };
-    if (grant.hook === null) return { admitted: true };
-    return askAdmissionHook(
+    return admitSpend(
+      this.stores(),
       this.admissionFetch(),
       this.environment.USAGE_WEBHOOK_SECRET,
-      grant.hook,
-      grant.admission,
+      participant,
+      fiber,
+      category,
+      resource,
+      source,
+    );
+  }
+
+  /** A shadow's decider asks admission before its model call, as the turn's own calls do. */
+  private admittedShadow(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    source: Exclude<UsageAdmissionSource, "run_step">,
+    decider: ShadowDecider | undefined,
+  ): ShadowDecider | undefined {
+    return admittedShadowDecider(decider, () =>
+      this.admit(participant, fiber, "model_call", undefined, source),
     );
   }
 
@@ -2663,7 +2688,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       admit: (participant, fiber, category, resource) =>
         this.admit(participant, fiber, category, resource),
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
-      afterReply: (_participant, fiber, reply) => this.judgeActorReply(fiber, reply),
+      afterReply: (participant, fiber, reply) => this.judgeActorReply(participant, fiber, reply),
       beforeModel: async (participant, fiber, input) => {
         let autonomous = false;
         if (fiber.messageId.startsWith("activation:")) {
@@ -2688,7 +2713,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
                   fiber,
                   input,
                   policy,
-                  this.moderationDecider(policy, fiber),
+                  this.admittedShadow(
+                    participant,
+                    fiber,
+                    "moderation_shadow",
+                    this.moderationDecider(policy, fiber),
+                  ),
                 ),
               );
           } catch {
@@ -2712,7 +2742,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
                 fiber,
                 input,
                 policy,
-                this.triageDecider(policy, fiber),
+                this.admittedShadow(
+                  participant,
+                  fiber,
+                  "wake_triage",
+                  this.triageDecider(policy, fiber),
+                ),
               ),
             );
         } catch {

@@ -198,23 +198,28 @@ twice counts once.
 
 Issue 329, part 3. A developer limits spend before it happens, with durable budgets, an admission
 hook, or both. Before every model call and every tool execution of a turn (a Talk turn or an
-autonomous activation, both turn fibers) the engine asks: first the space's budgets, then the hook.
-The wake-triage and moderation shadows, operator-configured evaluation with their own `over_budget`
-cap, are not asked.
+autonomous activation, both turn fibers), and before the model call of each shadow beside a turn
+(the wake triage and the moderation shadow before the reply, the actor-reply shadow after it), the
+engine asks: first the space's budgets, then the hook. A tool call is asked once, before its effect
+intent is recorded; a later pass of the same call only reads its recorded result.
 
 A refused model call is never sent: the turn ends with the service outcome `usage_refused`, shown to
 the player as a service disposition, never as the character refusing; the run's model step ends
 `failed` with outcome code `usage_refused` and a summary naming the cause, which the run inspector
 shows; and the step's usage event reads `outcomeCode: "usage_refused"` with zero quantities. A
 refused tool call is not executed: it is recorded `refused` with code `usage_refused`, the model
-reads that as the tool's result, and its usage event reads `status: "refused"` and `calls` 0.
+reads that as the tool's result, its run step's summary names the cause (`Usage refused: <cause>`),
+and its usage event reads `status: "refused"` and `calls` 0. A refused shadow makes no call: its
+decision fails with the code `usage_refused:<cause>`, and its usage event (the wake triage's and the
+moderation shadow's) reads `calls` 0. A turn refused this way is found by the run inspector's turn
+entry, as the other service outcomes are.
 
 | Cause                          | When                                                               |
 | ------------------------------ | ------------------------------------------------------------------ |
 | `usage_budget_exhausted`       | a budget would be passed by one more call (or its tokens are used up) |
-| `usage_budget_unknown`         | a budget's tally met an unknown quantity this period               |
+| `usage_budget_unknown`         | a budget's tally met an unknown quantity since the budget was last set |
 | `usage_admission_refused`      | the hook answered `{ "admit": false, "reason": … }`; the reason follows the cause |
-| `usage_admission_unavailable`  | the hook did not answer a valid 2xx within 2 s                    |
+| `usage_admission_unavailable`  | the hook did not answer a valid 2xx within 2 s, or its registrar no longer holds the authority to register it |
 
 ### Budgets
 
@@ -228,7 +233,10 @@ reads that as the tool's result, and its usage event reads `status: "refused"` a
 
 `{ "budgets": [ { "scope": "player", "category": "model_call", "quantity": "calls", "period": "day", "limit": 200 } ] }`
 
-- `scope`: `world` (the whole space), `player` (each player apart) or `session` (each session apart).
+- `scope`: `world` (the whole world), `player` (each player apart, across the world) or `session`
+  (each session apart). A `world` or `player` budget counts the use of every space and timeline of
+  the world; it is set in a space and refuses calls in that space, so a world-wide limit is set in
+  each space it should hold in.
 - `category` and `quantity`: `model_call` with `calls`, `inputTokens` or `outputTokens`; `tool_call`
   with `calls`. Native quantities only: no price, cost or currency.
 - `period`: `day`, the UTC calendar day of the usage event's `occurredAt`, or `total`.
@@ -240,22 +248,29 @@ beside the usage reader's `runtime:world-inspect` and `operator_evidence` ceilin
 world's spend and sends nothing outside. It is audited as subject `usage-budget`, the entry
 `<scope>:<category>:<quantity>:<period>`.
 
-A budget counts usage events from the time its scope and period were first budgeted in the space
-(earlier usage is read with the query), and keeps counting while it is off, so turning it on again
-holds what was used meanwhile.
+A budget counts usage events from the time its scope and period were first budgeted in any space of
+the world (in the space, for a session; earlier usage is read with the query), and keeps counting
+while it is off, so turning it on again holds what was used meanwhile.
 
-**Reserve, execute, then capture or release.** Admission takes a lock per space, checks every budget
-of the call's category, and, when all admit, reserves one call for the session and category. The
-call runs. When its step's usage event commits, in the same transaction, the tally gains the event's
-real quantities and the reservation goes (capture); a refused or failed step's event captures what
-it used, often nothing. A reservation never captured (an owner that died mid-call) lapses after
-300 s, the recovery cron's cadence. A `calls` budget counts the tally, the other sessions' held
-reservations and the call asked for, so concurrent sessions never pass it. Tokens are known only
+**Reserve, execute, then capture or release.** Admission takes a lock per world, checks every budget
+of the call's category, and, when all admit, reserves one call for the session, category and
+asking source (the turn's run step, the wake triage or the moderation shadow). The call runs. When
+its usage event commits, in the same transaction and under the same lock, the tally gains the
+event's real quantities and the reservation of the event's own source goes (capture): a shadow's
+event never releases the turn's call. A refused or failed call's event captures what it used, often
+nothing. A reservation never captured (an owner that died mid-call) lapses after 300 s, the
+recovery cron's cadence. A `calls` budget counts the tally, every other reservation held in its
+scope and the call asked for, so concurrent calls never pass it. The actor-reply shadow writes no
+usage event, so it is asked and reserves nothing. Tokens are known only
 after a call, so a token budget admits while its tally is below the limit, and the call it admits
 may pass it.
 
-**Unknown stays unknown.** A tally that meets an unknown (`null`) quantity is unknown for the rest of
-its period, and a budget on it refuses (`usage_budget_unknown`) rather than count it as zero.
+**Unknown stays unknown.** A tally sums known quantities and records when an unknown (`null`) one
+entered it (a model step that ended without usage, an interrupted shadow decision). A budget whose
+tally met an unknown quantity since the budget was last set refuses (`usage_budget_unknown`) rather
+than count it as zero. Its operator ends that by setting the budget again, which is audited: from
+then it counts the known part, and a later unknown refuses again. A `day` budget's tally starts
+fresh each UTC day.
 
 ### Admission hook
 
@@ -272,20 +287,23 @@ space's player usage requests to a host outside the deployment, the egress of a 
 registering takes the same authority: `runtime:usage-webhook` (a world's owner by default,
 delegable) beside the usage reader's grant and ceiling, with the same URL rules, and it is audited
 as subject `usage-admission-hook`, the entry the URL's origin or `disabled`. The hook is asked only
-while its registrar still holds that authority; without `USAGE_WEBHOOK_SECRET` the route answers
-503 `inspector_unavailable`.
+while its registrar still holds that authority; while they do not, every call of the space is
+refused (`usage_admission_unavailable`) rather than lose the limit, until a holder registers or
+disables it. Without `USAGE_WEBHOOK_SECRET` the route answers 503 `inspector_unavailable`.
 
 Each admission the budgets let through is posted to it, signed per Standard Webhooks with the
 signing secret (derived from `USAGE_WEBHOOK_SECRET` and the hook ID, as a webhook's):
 
 ```json
 { "type": "usage.admission",
-  "admission": { "category": "model_call", "resource": "…", "worldId": "…", "timelineId": "…",
+  "admission": { "category": "model_call", "source": "run_step", "resource": "…",
+                 "worldId": "…", "timelineId": "…",
                  "spaceId": "…", "principalId": "…", "personaId": "…", "actorId": "…",
                  "sessionId": "…", "runId": "…" } }
 ```
 
-The hook answers 2xx with `{ "admit": true }`, or `{ "admit": false, "reason": "subscription_lapsed" }`
+`source` is what asks: `run_step` (the turn's model or tool call), `wake_triage`,
+`moderation_shadow` or `actor_reply_shadow`. The hook answers 2xx with `{ "admit": true }`, or `{ "admit": false, "reason": "subscription_lapsed" }`
 (a reason of 1 to 64 `a-z`, `0-9` or `_`). Any other answer, no answer within 2 s (decision: the hook
 sits before each model call, in the player's wait), or a network failure refuses the spend
 (`usage_admission_unavailable`): the hook exists to stop spend, so its silence never admits it.
@@ -300,6 +318,6 @@ the usage path reads telemetry, and telemetry is never reconciled against usage.
 
 One immutable row per ended model or tool step, per delivery receipt and per finished shadow
 decision, kept for the world's life; one webhook row per registrar and space; at most 24 budgets
-and one admission hook per space, and a budget tally per budgeted scope, subject and day, kept for
-the world's life; one reservation per session and category, gone when captured
+and one admission hook per space, and a budget tally per world, budgeted scope, subject and day, kept
+for the world's life; one reservation per session, category and asking source, gone when captured
 (`db/retention.json`).

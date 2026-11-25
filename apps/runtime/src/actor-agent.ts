@@ -82,6 +82,15 @@ export interface TurnResearchHost {
     | "revoked"
     | "approver_unconfigured"
   >;
+  /**
+   * Whether the call already has its effect intent: admission is asked once per call, before the
+   * intent; a later pass of the same call only reads its recorded result.
+   */
+  toolIntended?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: TurnToolCall,
+  ): Promise<boolean>;
   /** Presentation only: observes the canonical attempt without dispatching or invoking cognition. */
   waitForToolStart?(
     participant: ConversationParticipant,
@@ -633,12 +642,12 @@ export class TurnFibers {
             }
             if (call.approvalRequired && approval !== "approved")
               return { refused: "conversation_busy" };
-            const admission = await this.host.admit?.(
-              participant,
-              current,
-              "tool_call",
-              call.capability,
-            );
+            // A call re-entered after its intent was recorded was admitted on its first pass.
+            const admission =
+              this.host.admit === undefined ||
+              (await this.host.research.toolIntended?.(participant, current, call))
+                ? undefined
+                : await this.host.admit(participant, current, "tool_call", call.capability);
             if (admission?.admitted === false) {
               next = await this.store((store) =>
                 store.completeTool!(participant, current, {
@@ -647,6 +656,7 @@ export class TurnFibers {
                   code: "usage_refused",
                   text: `Tool refused: usage_refused (${admission.cause})`,
                   costMicrousd: 0,
+                  refusalCause: admission.cause,
                 }),
               );
               break;

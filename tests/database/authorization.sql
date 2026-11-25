@@ -2942,7 +2942,8 @@ BEGIN
   PERFORM pg_temp.act_as('tenant-a', 'principal-b',
     '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
   BEGIN
-    PERFORM * FROM clockgrove.admit_usage('tenant-a', 'session-f', 'message-f', 'model_call', NULL);
+    PERFORM * FROM clockgrove.admit_usage('tenant-a', 'session-f', 'message-f', 'model_call', NULL,
+      'run_step');
     RAISE EXCEPTION 'another principal was admitted on a turn' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END

@@ -150,6 +150,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           type: "usage.admission",
           admission: {
             category: "model_call",
+            source: "run_step",
             resource: "scripted-fixture-v1",
             worldId: owner.scope.worldId,
             timelineId: owner.scope.timelineId,

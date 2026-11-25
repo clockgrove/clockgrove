@@ -54,6 +54,7 @@ import {
   type TurnPhase,
   type TurnRequest,
   type TurnStatus,
+  type UsageAdmissionSource,
   VOICE_DISCLOSURES,
   type VoiceMode,
 } from "@clockgrove/contracts";
@@ -868,11 +869,19 @@ export class PostgreSqlConversationStore implements ConversationStore {
     fiber: TurnFiber,
     category: "model_call" | "tool_call",
     resource?: string,
+    source: UsageAdmissionSource = "run_step",
   ): Promise<UsageAdmissionGrant> {
     return this.transaction(participant, async () => {
       const result = await this.client.query(
-        "SELECT * FROM clockgrove.admit_usage($1,$2,$3,$4,$5)",
-        [fiber.scope.tenantId, fiber.sessionId, fiber.messageId, category, resource ?? null],
+        "SELECT * FROM clockgrove.admit_usage($1,$2,$3,$4,$5,$6)",
+        [
+          fiber.scope.tenantId,
+          fiber.sessionId,
+          fiber.messageId,
+          category,
+          resource ?? null,
+          source,
+        ],
       );
       const row = result.rows[0] as Row;
       return {
@@ -884,6 +893,7 @@ export class PostgreSqlConversationStore implements ConversationStore {
             : { hookId: String(row.hook_id), url: String(row.hook_url) },
         admission: {
           category,
+          source,
           resource: nullable(row.resource),
           worldId: String(row.world_id),
           timelineId: String(row.timeline_id),

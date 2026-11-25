@@ -1,4 +1,14 @@
-import { decodeUsageAdmissionAnswer, type UsageAdmissionRequestBody } from "@clockgrove/contracts";
+import type {
+  ConversationParticipant,
+  ConversationStore,
+  ShadowDecider,
+  TurnFiber,
+} from "@clockgrove/application";
+import {
+  decodeUsageAdmissionAnswer,
+  type UsageAdmissionRequestBody,
+  type UsageAdmissionSource,
+} from "@clockgrove/contracts";
 import { Webhook } from "standardwebhooks";
 import { usageWebhookSecret } from "./usage-webhooks.js";
 
@@ -12,6 +22,55 @@ export type AdmissionAnswer =
   | { readonly admitted: false; readonly cause: string };
 
 const UNAVAILABLE: AdmissionAnswer = { admitted: false, cause: "usage_admission_unavailable" };
+
+/**
+ * Asks the space's budgets, then its hook, before a call (`docs/protocols/usage.md`, "Admission
+ * before spend"). A store without admission admits.
+ */
+export async function admitSpend(
+  stores: <T>(operation: (store: ConversationStore) => Promise<T>) => Promise<T>,
+  send: typeof fetch,
+  deploymentSecret: string | undefined,
+  participant: ConversationParticipant,
+  fiber: TurnFiber,
+  category: "model_call" | "tool_call",
+  resource?: string,
+  source: UsageAdmissionSource = "run_step",
+): Promise<AdmissionAnswer> {
+  const grant = await stores(async (store) =>
+    store.admitUsage?.(participant, fiber, category, resource, source),
+  );
+  if (grant === undefined) return { admitted: true };
+  if (grant.decision === "refused") return { admitted: false, cause: String(grant.cause) };
+  if (grant.hook === null) return { admitted: true };
+  return askAdmissionHook(send, deploymentSecret, grant.hook, grant.admission);
+}
+
+/**
+ * A shadow's decider that asks admission right before its model call. A refusal is the decision's
+ * failure `usage_refused:<cause>` with no call made, so its record and usage event show it; an
+ * admission that cannot be asked refuses too.
+ */
+export function admittedShadowDecider(
+  decider: ShadowDecider | undefined,
+  admit: () => Promise<AdmissionAnswer>,
+): ShadowDecider | undefined {
+  if (decider === undefined) return undefined;
+  return {
+    async pick(request) {
+      const admission = await admit().catch(() => UNAVAILABLE);
+      if (admission.admitted) return decider.pick(request);
+      return {
+        status: "failed",
+        code: `usage_refused:${admission.cause}`,
+        model: "none",
+        latencyMs: 0,
+        costMicrousd: 0,
+        usage: { calls: 0, inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+}
 
 /**
  * Asks the developer's hook whether a call may be made (`docs/protocols/usage.md`). The post is

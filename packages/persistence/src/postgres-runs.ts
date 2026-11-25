@@ -283,7 +283,9 @@ export class PostgreSqlRunRecorder {
           ? "Awaiting human approval"
           : kind === "tool_proposal"
             ? "Tool proposal checkpointed"
-            : "Tool result recorded as untrusted evidence",
+            : call.refusalCause !== undefined
+              ? `Usage refused: ${call.refusalCause}`.slice(0, 256)
+              : "Tool result recorded as untrusted evidence",
         JSON.stringify({
           callId: call.callId,
           effectId: call.effectId,
@@ -626,7 +628,7 @@ function entryMatch(entry: RunEntry): readonly [string, readonly unknown[]] {
          SELECT candidate.input_message_id FROM clockgrove.agent_runs candidate
           WHERE candidate.tenant_id=$1 AND candidate.session_id=$5 AND (
             candidate.turn=$6 OR candidate.turn IS NULL
-              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')
+              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted','usage_refused')
               AND candidate.input_revision=($6::integer-1)*2 AND EXISTS (
                 SELECT 1 FROM clockgrove.run_steps committed WHERE committed.tenant_id=candidate.tenant_id
                   AND committed.run_id=candidate.run_id AND committed.kind='commit' AND committed.status='succeeded')))`,

@@ -11,6 +11,7 @@ import type {
   TurnRequest,
   TurnStatus,
   UsageAdmissionRequestBody,
+  UsageAdmissionSource,
   UsageRefusalCause,
   VoiceMode,
   WorldPersonaId,
@@ -136,6 +137,8 @@ export interface TurnToolCall {
   readonly grantId: string | null;
   readonly queueLatencyMs?: number | null;
   readonly costMicrousd?: number | null;
+  /** Why admission refused the call (`code` is `usage_refused`); named in the run's tool step. */
+  readonly refusalCause?: string;
 }
 export interface TurnResearchState {
   readonly modelSteps: number;
@@ -264,6 +267,7 @@ export interface ConversationStore {
     fiber: TurnFiber,
     category: "model_call" | "tool_call",
     resource?: string,
+    source?: UsageAdmissionSource,
   ): Promise<UsageAdmissionGrant>;
   reserveModelStep?(
     participant: ConversationParticipant,

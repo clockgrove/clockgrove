@@ -58,11 +58,24 @@ export interface UsageAdmissionHookRegistration {
   readonly signingSecret: string | null;
 }
 
+/**
+ * What asks admission: a turn's model or tool step, or a shadow's model call beside the turn (the
+ * wake triage and moderation shadows before the reply, the actor-reply shadow after it).
+ */
+export const USAGE_ADMISSION_SOURCES = [
+  "run_step",
+  "wake_triage",
+  "moderation_shadow",
+  "actor_reply_shadow",
+] as const;
+export type UsageAdmissionSource = (typeof USAGE_ADMISSION_SOURCES)[number];
+
 /** The signed JSON body the developer's hook receives before a billable call. */
 export interface UsageAdmissionRequestBody {
   readonly type: "usage.admission";
   readonly admission: {
     readonly category: "model_call" | "tool_call";
+    readonly source: UsageAdmissionSource;
     readonly resource: string | null;
     readonly worldId: string;
     readonly timelineId: string;
