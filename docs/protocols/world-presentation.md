@@ -348,8 +348,8 @@ channel is settled at the scene's simulation time under the rain the world holds
 `treatments` lists the treatment of each current band that has one, in channel then band order; and
 `marks` copies the zone's ring, oldest first (who, when, where, how hard). The text path's
 `sentence` is null when no current band has a treatment, else `<label> <phrase>, <phrase>.`, or
-`<label> <phrases>; most recently by <actor>.` when the zone has a mark, the actor named by its scene
-label (its id when it is not projected), for example "The cedar's bark is scratched; most recently
+`<label> <phrases>; most recently by <actor>.` when the zone has a mark, the actor named by its
+presentation binding's accessibility label, else its scene label, else its id, for example "The cedar's bark is scratched; most recently
 by Keeper, a resident." Every value is a function of state and these records, so replay and catch-up
 draw the same picture. The scene reader loads the installed behaviour policy only when the pack's
 presentation binds surfaces. The reference fixture binds its cedar bark, fence path, porch boards

@@ -557,9 +557,19 @@ export function sceneProjectionOf(
     scene.weather,
     effects,
   );
-  const labels = new Map(
-    scene.entities.map((entity) => [entity.objectId, entity.presentation.label]),
+  const presentationBindings = scenePresentationBindings(
+    stored,
+    state.entities,
+    projected,
+    presentations,
   );
+  // A mark's actor is named as the text path names it: its binding's label, else its scene label.
+  const labels = new Map<ObjectId, string>([
+    ...scene.entities.map((entity) => [entity.objectId, entity.presentation.label] as const),
+    ...presentationBindings.map(
+      (binding) => [binding.objectId, binding.accessibilityLabel] as const,
+    ),
+  ]);
   const surfaces = sceneSurfaces(
     stored,
     policy,
@@ -587,12 +597,7 @@ export function sceneProjectionOf(
     hierarchy: sceneHierarchyOf(scene.spaceId, state),
     frames: scene.frames,
     entities: scene.entities,
-    presentationBindings: scenePresentationBindings(
-      stored,
-      state.entities,
-      projected,
-      presentations,
-    ),
+    presentationBindings,
     interactions: interactionsOf(
       state,
       projected,
