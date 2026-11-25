@@ -30,6 +30,13 @@ CREATE TABLE clockgrove.usage_webhooks (
     REFERENCES clockgrove.timelines (tenant_id, world_id, timeline_id)
 );
 
+-- The due listing's "usage to send" probe, the feed after the cursor and the registration's newest
+-- event all read one space's events in sequence order. 0076's feed index has no space, so for an
+-- idle webhook on a timeline with other spaces' usage each probe would walk every event after the
+-- cursor; with the space in the key it is one index probe.
+CREATE INDEX usage_events_space_feed
+  ON clockgrove.usage_events (tenant_id, world_id, timeline_id, space_id, sequence);
+
 -- Pointing a webhook at a host makes the deployment send the space's usage outside it on a
 -- schedule, the egress an outbound MCP server has, so setting a URL takes the same narrow,
 -- owner-held authority (the owner's decision of 2026-11-25): `runtime:usage-webhook`, which a

@@ -82,6 +82,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
         INSPECTOR,
       );
       expect(unauthorized.status).toBe(403);
+      // The due listing's per-space probe, the feed and the newest-event read have an index keyed
+      // by space and sequence, so an idle webhook's probe is one index probe, not a walk of the
+      // timeline's other spaces' usage.
+      expect(
+        await owner.sql(
+          `SELECT indexdef FROM pg_indexes
+            WHERE schemaname = 'clockgrove' AND indexname = 'usage_events_space_feed'`,
+        ),
+      ).toContain("(tenant_id, world_id, timeline_id, space_id, sequence)");
       // A world's owner holds `runtime:usage-webhook` by default: made an owner, with no explicit
       // webhook grant, the same principal registers through the route.
       await owner.sql(
