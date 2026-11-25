@@ -396,7 +396,9 @@ it("heals by rain and by growing light in closed form, journaling only crossings
       },
     } as never),
   ).toThrow("policy.surfaces.channels[1].recovery.lightBands[0]:");
-});
+  // Its bounded shape is ~1,700 kernel calls, more than the healing journey's above: about 2 s on
+  // an idle machine and past the 30 s default on a loaded CI runner, so declare its cost the same way.
+}, 120_000);
 
 it("heals rain channels under the rain the world holds, not the schedule, through a weather override", async () => {
   const policy: SurfacePolicy = {
