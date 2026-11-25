@@ -63,6 +63,26 @@ it("mutes an actor or one conversation at once: no turn, delivery or model call 
       status: 404,
       body: { error: "conversation_not_found" },
     });
+    // An actor with no conversation is no target, and an unmute of what was never muted writes
+    // nothing: the table keeps at most one row per actor with a session and one per session.
+    expect(
+      await post(
+        "/v1/runtime/actor-mute",
+        { actorId: "fixture.nobody", sessionId: null, muted: true },
+        OPERATOR,
+      ),
+    ).toEqual({ status: 404, body: { error: "conversation_not_found" } });
+    expect((await mute(b, false)).body).toMatchObject({ sessionId: b, muted: false, version: 0 });
+    expect(await owner.sql("SELECT count(*) FROM clockgrove.actor_mutes")).toBe("0");
+
+    // The mute has its own budget: an operator who spent the inspector's 300 an hour (0028)
+    // reading during an incident still mutes at once.
+    await owner.sql(`INSERT INTO clockgrove.inspector_accesses (tenant_id, principal_id, world_id,
+        timeline_id, space_id, decision, reason_code, subject)
+      SELECT m.tenant_id, m.principal_id, m.world_id, m.timeline_id, m.space_id, 'allow', 'served',
+             'runtime-state'
+        FROM clockgrove.world_memberships m, generate_series(1, 300)
+       WHERE m.principal_id = 'principal-outsider'`);
     const muted = await mute(a.sessionId, true);
     expect(muted.status).toBe(200);
     expect(muted.body).toMatchObject({
@@ -87,6 +107,13 @@ it("mutes an actor or one conversation at once: no turn, delivery or model call 
     expect(await talk(b, "b1")).toBe(200);
     expect((await mute(a.sessionId, false)).body).toMatchObject({ muted: false, version: 2 });
     expect(await talk(a.sessionId, "a1")).toBe(200);
+    // Each change is kept with who made it, after the next change has replaced the current row.
+    expect(
+      await owner.sql(
+        `SELECT string_agg(principal_id||':'||muted||':'||version, ',' ORDER BY change_id)
+           FROM clockgrove.actor_mute_changes WHERE session_id = '${a.sessionId}'`,
+      ),
+    ).toBe("principal-outsider:true:1,principal-outsider:false:2");
 
     // A delivery held for quiet hours, then the whole actor is muted.
     const participant: ConversationParticipant = {

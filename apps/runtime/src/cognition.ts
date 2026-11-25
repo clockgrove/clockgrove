@@ -173,32 +173,38 @@ export class PostgreSqlCognitionInspector {
   /**
    * An operator mutes or unmutes an actor or one conversation of it (issue 374, G8), under the
    * change set's grant and ceiling (`runtime:actor-govern`, `private_cognition`). It takes effect
-   * at its commit: every later start of a turn, delivery or effect reads it.
+   * at its commit: every later start of a turn, delivery or effect reads it. It is admitted and
+   * recorded by its own change log (`actor_mute_changes`), not the inspector budget, so reading
+   * inspectors never holds a mute back; a refusal is audited in `inspector_accesses`.
    */
-  muteActor(input: ActorMuteRequest, context: TrustedExecutionContext): Promise<ActorMuteView> {
-    return this.read(
-      input,
-      context,
-      "actor-mute",
-      GOVERN_GRANT,
-      "private_cognition",
-      async (authorization) => {
-        try {
-          return await this.mutes.set(
-            authorization,
-            input.scope,
-            input.actorId,
-            input.sessionId,
-            input.muted,
-          );
-        } catch (error) {
-          // The database holds the caller to a live actor-govern membership of the space too.
-          if (error instanceof ActorMuteRefusedError)
-            throw new AuthorizationRefusedError("actor mute refused");
-          throw error;
-        }
-      },
-    );
+  async muteActor(
+    input: ActorMuteRequest,
+    context: TrustedExecutionContext,
+  ): Promise<ActorMuteView> {
+    try {
+      assertWorldCommandContext(context, input.scope, GOVERN_GRANT);
+      if (!context.privacyCeiling.allowedCategories.includes("private_cognition"))
+        throw new AuthorizationRefusedError("actor-mute ceiling refused");
+    } catch (error) {
+      await this.deny(input, "actor-mute", context.principalId, undefined);
+      throw error;
+    }
+    try {
+      return await this.mutes.set(
+        worldAuthorization(context),
+        input.scope,
+        input.actorId,
+        input.sessionId,
+        input.muted,
+      );
+    } catch (error) {
+      // The database holds the caller to a live actor-govern membership of the space too.
+      if (error instanceof ActorMuteRefusedError) {
+        await this.deny(input, "actor-mute", context.principalId, undefined);
+        throw new AuthorizationRefusedError("actor mute refused");
+      }
+      throw error;
+    }
   }
 
   /** Records a refused access under the requested tenant, whether or not the principal is a member. */
@@ -238,11 +244,7 @@ export class PostgreSqlCognitionInspector {
       reasonCode = "served";
       return output;
     } catch (error) {
-      if (
-        error instanceof ManifestNotFoundError ||
-        error instanceof DocumentNotFoundError ||
-        error instanceof ActorMuteTargetNotFoundError
-      )
+      if (error instanceof ManifestNotFoundError || error instanceof DocumentNotFoundError)
         reasonCode = "not-found";
       throw error;
     } finally {

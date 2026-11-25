@@ -195,7 +195,9 @@ audited with subject `context-manifest`. `/v1/runtime/actor-documents/read` (und
 `runtime:world-inspect` and `private_cognition`) and `/v1/runtime/actor-documents/change` (under
 `runtime:actor-govern` and `private_cognition`) read and govern an actor's documents, audited with
 subject `actor-documents`. `/v1/runtime/actor-mute` (under the same governing grant and ceiling)
-mutes or unmutes an actor or one conversation of it, audited with subject `actor-mute`. See
+mutes or unmutes an actor or one conversation of it. Each change is recorded in
+`actor_mute_changes` with its principal, under its own budget of 300 an hour rather than the
+inspector's; a refusal is audited with subject `actor-mute`. See
 [context assembly](../protocols/context-assembly.md).
 
 - **Scope:** only a command of the requested world, timeline and space is found. The space is the

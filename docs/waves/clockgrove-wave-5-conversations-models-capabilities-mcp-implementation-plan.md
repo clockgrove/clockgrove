@@ -838,7 +838,8 @@ delivers three:
 Its second part delivers the fourth:
 
 - **§18 mute (G8).** An operator mutes an actor, or one conversation of it, with
-  `POST /v1/runtime/actor-mute` under `runtime:actor-govern`. From its commit the actor or
+  `POST /v1/runtime/actor-mute` under `runtime:actor-govern`, apart from the inspector rate limit
+  and recorded change by change in `actor_mute_changes`. From its commit the actor or
   conversation starts no turn (`409 conversation_muted`, no run, so no model call), no delivery
   (`rejected`, `actor_muted`) and no effect (`refused`, `actor_muted`); withdrawn delivery consent
   stops a held delivery the same way (`consent_required`)

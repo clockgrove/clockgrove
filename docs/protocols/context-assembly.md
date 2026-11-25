@@ -71,11 +71,19 @@ application does.
 
 `POST /v1/runtime/actor-mute` (issue 374, G8) takes version 1, the flat authorized scope, `actorId`,
 `sessionId` (a conversation of that actor, or `null` for the whole actor) and `muted`. It needs the
-change set's authority: the `runtime:actor-govern` grant and a `private_cognition` ceiling, under
-the inspector rate limit, and each request is audited in `inspector_accesses` as `actor-mute`. It
+change set's authority: the `runtime:actor-govern` grant and a `private_cognition` ceiling. It
 answers the mute as it now stands, `{ actorId, sessionId, muted, version, changedBy, changedAt }`;
-`version` counts every change. A session that is not the actor's answers `404
-conversation_not_found`; a caller without the grant `403 authorization_refused`.
+`version` counts every change. An actor with no conversation session in the world timeline, or a
+session that is not the actor's, answers `404 conversation_not_found`; a caller without the grant
+`403 authorization_refused`. An unmute of what was never muted changes nothing and answers
+`muted: false` with `version: 0`.
+
+The mute is not held to the inspector rate limit, so an operator who has spent it reading
+inspectors during an incident can still mute at once. Each change is appended to
+`actor_mute_changes` in its transaction: the principal, the actor, the session (empty for the whole
+actor), muted or unmuted, the version and the time. That log has its own budget, 300 changes per
+principal per hour (`429 inspection_rate_limited` beyond it), and the operator action audit's
+90-day retention. A refused request is audited in `inspector_accesses` as `actor-mute`.
 
 A mute takes effect when it commits (`actor_mutes`, migration 0078). Each start reads it in its own
 transaction through `clockgrove.actor_muted`, so nothing waits for a model call:

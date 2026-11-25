@@ -136,6 +136,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'effect_resolutions', 'operator_read'),
   ('clockgrove', 'usage_events', 'operator_read'),
   ('clockgrove', 'actor_mutes', 'operator_read'),
+  ('clockgrove', 'actor_mute_changes', 'operator_read'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -298,7 +299,7 @@ BEGIN
         'clockgrove.actor_activation_policies', 'clockgrove.actor_activations',
         'clockgrove.effect_intents', 'clockgrove.effect_attempts', 'clockgrove.effect_approvals', 'clockgrove.effect_resolutions',
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
-        'clockgrove.usage_events', 'clockgrove.actor_mutes'
+        'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2797,18 +2798,31 @@ END $$;
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;
 
--- Actor mutes (0078): the runtime role writes no row itself; set_actor_mute refuses a caller
--- without a live `runtime:actor-govern` membership of the world (the attack suite installs none),
--- and actor_muted answers nothing about another tenant's actors.
+-- Actor mutes (0078): the runtime role writes no mute or change row itself; set_actor_mute refuses
+-- a caller without a live `runtime:actor-govern` membership of the world (the attack suite installs
+-- none), and actor_muted answers nothing about another tenant's actors: tenant-b's `muted-b` is
+-- muted (hostile-fixture.sql), which its own tenant sees and tenant-a does not.
 BEGIN;
-SELECT pg_temp.act_as('tenant-a', 'principal-a');
+SELECT pg_temp.act_as('tenant-b', 'principal-b');
 DO $$
 BEGIN
-  IF NOT has_table_privilege('clockgrove_runtime', 'clockgrove.actor_mutes', 'SELECT')
-     OR has_table_privilege('clockgrove_runtime', 'clockgrove.actor_mutes',
-       'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
-    RAISE EXCEPTION 'actor_mutes is not read-only for the runtime role';
+  IF NOT clockgrove.actor_muted('tenant-b', 'world-b', 'timeline-b', 'muted-b', 'session-b') THEN
+    RAISE EXCEPTION 'tenant-b does not see its own actor mute';
   END IF;
+END;
+$$;
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+DO $$
+DECLARE
+  mute_table text;
+BEGIN
+  FOREACH mute_table IN ARRAY ARRAY['clockgrove.actor_mutes', 'clockgrove.actor_mute_changes'] LOOP
+    IF NOT has_table_privilege('clockgrove_runtime', mute_table, 'SELECT')
+       OR has_table_privilege('clockgrove_runtime', mute_table,
+         'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+      RAISE EXCEPTION '% is not read-only for the runtime role', mute_table;
+    END IF;
+  END LOOP;
   BEGIN
     INSERT INTO clockgrove.actor_mutes (tenant_id, world_id, timeline_id, actor_id, session_id,
       muted, principal_id, version, changed_at)
@@ -2817,13 +2831,22 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
+    INSERT INTO clockgrove.actor_mute_changes (tenant_id, world_id, timeline_id, space_id,
+      actor_id, session_id, muted, version, principal_id, changed_at)
+    VALUES ('tenant-a', 'world-a', 'timeline-a', 'space-a', 'keeper', '', true, 1, 'principal-a',
+      now());
+    RAISE EXCEPTION 'actor mute change written directly' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
     PERFORM clockgrove.set_actor_mute('world-a', 'timeline-a', 'space-a', 'keeper', '', true);
     RAISE EXCEPTION 'actor muted without actor-govern membership' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   IF clockgrove.actor_muted('tenant-a', 'world-a', 'timeline-a', 'keeper', 'session-a')
-     OR clockgrove.actor_muted('tenant-b', 'world-b', 'timeline-b', 'keeper', 'session-b')
-     OR (SELECT count(*) FROM clockgrove.actor_mutes) <> 0 THEN
+     OR clockgrove.actor_muted('tenant-b', 'world-b', 'timeline-b', 'muted-b', 'session-b')
+     OR (SELECT count(*) FROM clockgrove.actor_mutes) <> 0
+     OR (SELECT count(*) FROM clockgrove.actor_mute_changes) <> 0 THEN
     RAISE EXCEPTION 'actor mute state leaked or forged';
   END IF;
 END;

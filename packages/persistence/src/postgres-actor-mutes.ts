@@ -1,8 +1,14 @@
-import type { RuntimeAuthorizationContext } from "@clockgrove/application";
+import {
+  InspectorRateLimitedError,
+  type RuntimeAuthorizationContext,
+} from "@clockgrove/application";
 import type { ActorMuteView, BrowserScope } from "@clockgrove/contracts";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
-/** The mute names a conversation that is not one of the actor's in the world timeline. */
+/**
+ * The mute names an actor with no conversation session in the world timeline, or a conversation
+ * that is not one of the actor's.
+ */
 export class ActorMuteTargetNotFoundError extends Error {
   constructor() {
     super("conversation not found");
@@ -44,7 +50,11 @@ export async function actorMuted(
   return (result.rows[0] as { muted?: boolean } | undefined)?.muted === true;
 }
 
-/** Operator mutes (issue 374, G8), written only through `clockgrove.set_actor_mute`. */
+/**
+ * Operator mutes (issue 374, G8), written only through `clockgrove.set_actor_mute`, which appends
+ * each change to `actor_mute_changes` and admits at most 300 changes per principal an hour (0078),
+ * apart from the inspector's budget.
+ */
 export class PostgreSqlActorMutes {
   constructor(private readonly client: PostgreSqlClient) {}
 
@@ -82,6 +92,7 @@ export class PostgreSqlActorMutes {
       const code = (error as { code?: unknown }).code;
       if (code === "P0002") throw new ActorMuteTargetNotFoundError();
       if (code === "42501") throw new ActorMuteRefusedError();
+      if (code === "CG013") throw new InspectorRateLimitedError();
       throw error;
     }
   }
