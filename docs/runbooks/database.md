@@ -652,6 +652,8 @@ See [run and step evidence](../protocols/runs.md).
 
 ## Actor documents and context manifests
 
+Migration `0080_inspector_journal.sql` (issue 327) adds the inspector access subject `journal`: one read of the world debugger's journal window or replay (`/v1/runtime/journal`, see the observation protocol), audited and rate-limited like a runtime-state read and naming no command or entry.
+
 Migration `0037_actor_documents.sql` (Wave 5 RW-0505, issue 17) holds `actor_documents`,
 `actor_document_versions`, `document_change_sets` and `context_manifests`. See
 [context assembly](../protocols/context-assembly.md).

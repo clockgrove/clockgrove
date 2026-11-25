@@ -33,6 +33,7 @@ export type InspectorAccess = {
         | "client-view"
         | "agent-runs"
         | "usage-events"
+        | "journal"
         | "context-manifest"
         | "actor-documents"
         | "actor-mute";

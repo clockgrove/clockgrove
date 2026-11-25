@@ -43,6 +43,7 @@ import {
 import { Timeline } from "./timeline.js";
 import { RecordedWhyPanel } from "./why.js";
 import { bootStatusText } from "./world-boot.js";
+import { WorldDebugger } from "./world-debugger.js";
 import { parseWorldRoute, worldRoutePath } from "./world-route.js";
 import {
   effectsText,
@@ -658,6 +659,13 @@ export function WorldApp({
           <LiveChanges scene={scene} feed={typeof status === "object" ? status.feed : undefined} />
         )}
         {scene && shown && <Timeline session={session} scene={scene} status={status} />}
+        {scene && shown && signedIn && entry && (
+          <WorldDebugger
+            key={`debugger:${worldRoutePath(entry)}`}
+            session={session}
+            scene={scene}
+          />
+        )}
         {scene && shown && <RecordedWhyPanel session={session} />}
         {scene && shown && (
           <FlashbackPanel

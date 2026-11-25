@@ -332,6 +332,25 @@ receive 403 `authorization_refused` from `/v1/runtime/causal-chain` and `/v1/run
 with denial records under the existing inspector audit rules. Inspect-only callers receive the
 same refusal code for public scene, entity and Why reads and scene admission.
 
+`POST /v1/runtime/journal` (issue 327, `apps/runtime/src/journal-inspector.ts`) is the world
+debugger's journal: `{ schemaVersion: 1, tenantId, worldId, timelineId, spaceId }` with optional
+`beforeSequence` and `replayTo`, each a positive decimal string. It answers one window of the space's
+journal (100 partition positions, newest first, `PostgreSqlObjectHistoryReader.read`): every event
+type the caller's ceiling may read, not only the feed's, each with its envelope's recorded cause
+(command, causation, effective actor, root action, rule firing, decision trace) and no payload, plus
+`journalHead` and the `beforeSequence` cursor of the next older window (`null` at the start). With
+`replayTo` it also replays the partition to that position from the latest compatible snapshot or the
+stored birth (`replayToSequence`) and answers the rebuilt revision, simulation time, rain, state hash,
+each entity's location and selected action, and `matchesLive` when the position is the projection's
+covered head. Replay reads under the caller's own authority, so a journal holding a row above its
+ceiling answers `{ status: "unavailable" }` rather than a replay, as does a position more than
+2,000 events past its start (the snapshot interval; a host that runs no snapshot sweep starts from
+birth); nothing is written but the audit
+row. It needs `runtime:world-inspect` and an `operator_evidence` ceiling, like the causal chain,
+and is audited with subject `journal` (migration 0080); observation-only callers receive 403
+`authorization_refused`, an unknown space 404 `space_not_found` and an exhausted inspector limit 429
+`inspection_rate_limited`.
+
 The Why panel requests `includeResourceCauses: true` to receive optional
 `RecordedWhy.resourceCauses`, projected solely from already-readable `public_scene` events retained
 on that command. Requests without the flag retain their previous response shape, and older
