@@ -815,6 +815,9 @@ remaining execution boundary.
 Migration `0055_boundary_exchange_birth.sql` admits the optional `boundaryExchanges` birth
 section. Its finite balance records are stored and reconstructed with the existing versioned
 sections; no new table or permission is introduced.
+Migration `0080_surface_birth.sql` admits the optional `surfaces` birth section the same way, so
+a world whose pack declares graded surfaces (issue 267) provisions and replays from its stored
+birth.
 
 Migration `0004_world_birth.sql` adds schema `clockgrove_birth` (runtime role has `USAGE`). Worlds,
 timelines, partitions, streams and events stay in `clockgrove`; after migrations alone every new

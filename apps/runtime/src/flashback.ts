@@ -528,12 +528,15 @@ function summaryOf(input: {
   const lines: FlashbackLine[] = [];
   const sentence = (event: StoredEvent): FlashbackLine => {
     const category = worldEventFeedCategory(event.type);
+    const payload = kernelPayloadOf(event) as Record<string, unknown> | undefined;
     return {
       kind: "context",
       text:
-        category === undefined
-          ? `A ${words(event.type.replaceAll(".", " "))} event was recorded.`
-          : feedSentence(event.type, kernelPayloadOf(event), FEED_FALLBACKS[category], nameOf),
+        event.type === "surface.interacted" && payload !== undefined
+          ? `${nameOf(String(payload.actorId))} ${words(String(payload.interactionId))} on ${String(payload.zoneId)}${payload.mark === null ? "" : ", leaving a mark"}.`
+          : category === undefined
+            ? `A ${words(event.type.replaceAll(".", " "))} event was recorded.`
+            : feedSentence(event.type, payload, FEED_FALLBACKS[category], nameOf),
       cites: [`event:${event.eventId}`],
     };
   };

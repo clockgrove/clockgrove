@@ -281,21 +281,23 @@ export function concernedObjectId(event: StoredEvent): ObjectId | null {
   const id =
     payload === undefined
       ? undefined
-      : event.type === "lifecycle.born" && "childId" in payload
-        ? payload.childId
-        : event.type === "object.created" &&
-            "object" in payload &&
-            typeof payload.object === "object" &&
-            payload.object !== null &&
-            "objectId" in payload.object
-          ? payload.object.objectId
-          : "objectId" in payload
-            ? payload.objectId
-            : "toObjectId" in payload
-              ? payload.toObjectId
-              : "portalId" in payload
-                ? payload.portalId
-                : undefined;
+      : event.type.startsWith("surface.") && "actorId" in payload
+        ? payload.actorId
+        : event.type === "lifecycle.born" && "childId" in payload
+          ? payload.childId
+          : event.type === "object.created" &&
+              "object" in payload &&
+              typeof payload.object === "object" &&
+              payload.object !== null &&
+              "objectId" in payload.object
+            ? payload.object.objectId
+            : "objectId" in payload
+              ? payload.objectId
+              : "toObjectId" in payload
+                ? payload.toObjectId
+                : "portalId" in payload
+                  ? payload.portalId
+                  : undefined;
   return typeof id === "string" ? decodeOpaqueId(id, "ObjectId") : null;
 }
 

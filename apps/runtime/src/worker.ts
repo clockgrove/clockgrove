@@ -50,6 +50,7 @@ import {
   decodeDocumentChangeRequest,
   decodeDocumentReadRequest,
   decodeEntitySelectionRequest,
+  decodeFlashbackMarksRequest,
   decodeFlashbackRequest,
   decodeInfluenceRequest,
   decodeObservationRequest,
@@ -67,6 +68,8 @@ import {
   encodeFlashback,
   encodeWorldStatus,
   type Flashback,
+  type FlashbackMarks,
+  type FlashbackMarksRequest,
   type FollowDisposition,
   type InfluenceRequest,
   type LivingScene,
@@ -201,6 +204,8 @@ export interface RuntimeOwnerBindings {
     status?(scope: BrowserScope, context: TrustedContext): Promise<WorldStatus>;
     /** The canonical state a public Say's audience is resolved over. */
     state?(scope: BrowserScope, context: TrustedContext): Promise<WorldState>;
+    /** The journaled moments that changed a surface's zones, for flashback entry points. */
+    marks?(request: FlashbackMarksRequest, context: TrustedContext): Promise<FlashbackMarks>;
   };
   /** Decides a viewed-space change; null answers success without a selection. */
   readonly changeViewedSpace?: (
@@ -489,6 +494,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/flashback")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.flashback(request, note),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/flashback/marks")
+      return this.answer("scene_observation_answered", (note) =>
+        this.flashbackMarks(request, note),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/view-trace")
       return this.answer("scene_observation_answered", (note) => this.viewTrace(request, note));
@@ -1033,6 +1042,31 @@ export class RuntimeWorker {
       if (scene === undefined) return refusal(note, "inspector_unavailable", 503);
       note.outcome = "read";
       return jsonResponse(scene);
+    } catch (error) {
+      return this.observationRefusal(note, error);
+    }
+  }
+
+  /** The moments that changed a surface's zones, under the observe grant. */
+  private async flashbackMarks(request: Request, note: RequestNote): Promise<Response> {
+    try {
+      const identified = await this.authenticator.identify(request.clone());
+      const call = decodeFlashbackMarksRequest(await request.json());
+      const metadata = readMetadata(identified.correlationHeader);
+      note.ids = {
+        tenantId: call.tenantId,
+        worldId: call.worldId,
+        timelineId: call.timelineId,
+        spaceId: call.spaceId,
+        ...metadata,
+      };
+      const context = await this.authenticator.authorize(identified, metadata, OBSERVE_GRANT);
+      note.authorization = "authorized";
+      const marks = this.bindings.observation?.marks;
+      if (marks === undefined) return refusal(note, "inspector_unavailable", 503);
+      const read = await marks(call, context);
+      note.outcome = "read";
+      return jsonResponse(read);
     } catch (error) {
       return this.observationRefusal(note, error);
     }
