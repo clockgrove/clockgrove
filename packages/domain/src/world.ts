@@ -164,7 +164,10 @@ export interface WorldEntity {
   readonly resource?: ResourceState;
   readonly lifecycle?: LifecycleComponentState;
   readonly needs?: WorldNeeds;
-  readonly shelter?: Readonly<{ rainProtection: number }>;
+  /** This object is a shelter; `coverRadius` (fixed point) extends it from its own coordinates to everything within that distance. */
+  readonly shelter?: Readonly<{ rainProtection: number; coverRadius?: bigint }>;
+  /** Protection this object carries itself (a coat); it never makes the object a shelter. */
+  readonly weatherProtection?: Readonly<{ rainProtection: number }>;
   /** Current physical location; choosing a target never changes this field or the pose. */
   readonly locationId?: ObjectId;
   readonly selectedAction?: RoutineAction;
@@ -524,6 +527,16 @@ export function validateWorldState(state: WorldState): void {
     }
     if (entity.shelter !== undefined)
       requireBasisPoints(entity.shelter.rainProtection, "entity.shelter.rainProtection");
+    if (entity.shelter?.coverRadius !== undefined && entity.shelter.coverRadius < 0n)
+      throw new DomainValidationError(
+        "entity.shelter.coverRadius",
+        "must be a nonnegative fixed-point distance",
+      );
+    if (entity.weatherProtection !== undefined)
+      requireBasisPoints(
+        entity.weatherProtection.rainProtection,
+        "entity.weatherProtection.rainProtection",
+      );
     if (entity.locationId !== undefined) requireShelter(state, entity, entity.locationId);
     if (entity.selectedAction !== undefined) validateAction(state, entity, entity.selectedAction);
     validateEntityMovement(state, entity, `state.entities[${entityIndex}]`);
@@ -1515,7 +1528,10 @@ function requireEntity(state: WorldState, objectId: ObjectId): WorldEntity {
   return entity;
 }
 
-/** Whether a shelter is standing at an object's position, rather than protecting itself. */
+/**
+ * Whether a shelter covers an object's position, rather than protecting itself: exact coordinates,
+ * or anywhere within `coverRadius` (squared Euclidean distance) when the shelter declares one.
+ */
 export function shelterMatches(
   entity: WorldEntity,
   shelter: WorldEntity,
@@ -1529,8 +1545,21 @@ export function shelterMatches(
     shelter.spaceId === entity.spaceId &&
     shelter.pose.frameId === entity.pose.frameId &&
     shelter.pose.frameVersion === entity.pose.frameVersion &&
-    sameCoordinates(shelter.pose.coordinates, position)
+    covers(shelter, position)
   );
+}
+
+function covers(shelter: WorldEntity, position: readonly bigint[]): boolean {
+  const radius = shelter.shelter?.coverRadius;
+  if (radius === undefined) return sameCoordinates(shelter.pose.coordinates, position);
+  const centre = shelter.pose.coordinates;
+  if (centre.length !== position.length) return false;
+  let squared = 0n;
+  for (const [index, value] of centre.entries()) {
+    const delta = position[index]! - value;
+    squared += delta * delta;
+  }
+  return squared <= radius * radius;
 }
 
 function requireShelter(state: WorldState, entity: WorldEntity, objectId: ObjectId): void {

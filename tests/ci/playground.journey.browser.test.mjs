@@ -122,7 +122,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   expect([outsider.status, await outsider.json()]).toEqual([403, { error: "playground_refused" }]);
   expect((await pack(credential).then((response) => response.json())).metadata).toEqual({
     name: "clockgrove.playground",
-    version: "1.0.0",
+    version: "1.1.0",
     content: { entities: 3, places: 1, rules: 1, scenarios: 1, art: 0 },
   });
   at.step = "the Pack panel shows the checks";
@@ -140,10 +140,10 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
     "golden-match (weathered-rock): passed",
   ]);
   at.step = "a migration preview from a newer version";
-  const newer = path.join(scratch, "playground-1.1.0");
+  const newer = path.join(scratch, "playground-1.2.0");
   await cp(path.join(root, "worlds/playground"), newer, { recursive: true });
   const migration = JSON.stringify({
-    fromPackVersion: "1.0.0",
+    fromPackVersion: "1.1.0",
     id: "playground.weather-upgrade",
     steps: [
       {
@@ -153,13 +153,13 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
         version: 2,
       },
     ],
-    toPackVersion: "1.1.0",
+    toPackVersion: "1.2.0",
     version: 1,
   });
   await mkdir(path.join(newer, "resources/migrations"));
   await writeFile(path.join(newer, "resources/migrations/clear-sky.json"), migration);
   const manifest = JSON.parse(await readFile(path.join(newer, "manifest.json"), "utf8"));
-  manifest.version = "1.1.0";
+  manifest.version = "1.2.0";
   manifest.migrations = [
     {
       id: "playground.weather-upgrade",
@@ -172,7 +172,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   const preview = page.getByRole("region", { name: "Migration preview", exact: true });
   await preview.getByLabel("Newer pack directory").fill(newer);
   await preview.getByRole("button", { name: "Preview migration", exact: true }).click();
-  await preview.getByText("From 1.0.0 to 1.1.0: 1 steps", { exact: true }).waitFor();
+  await preview.getByText("From 1.1.0 to 1.2.0: 1 steps", { exact: true }).waitFor();
   expect(await preview.getByRole("listitem").allTextContents()).toEqual([
     "playground.weather-upgrade@1/playground.clear-sky (world.weather.set v2)",
   ]);
@@ -217,7 +217,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   await cp(path.join(root, "worlds/fixture"), other, { recursive: true });
   await worlds.getByLabel("Pack directory").fill(other);
   await worlds.getByRole("button", { name: "Load pack", exact: true }).click();
-  const open = worlds.getByRole("link", { name: "Open clockgrove.test-world@1.1.0", exact: true });
+  const open = worlds.getByRole("link", { name: "Open clockgrove.test-world@1.2.0", exact: true });
   await open.waitFor({ timeout: 600_000 });
   await open.click();
   const signIn = async () => {
@@ -233,15 +233,15 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   await openPanel();
   await page
     .getByRole("region", { name: "Pack metadata", exact: true })
-    .getByText("clockgrove.test-world 1.1.0", { exact: true })
+    .getByText("clockgrove.test-world 1.2.0", { exact: true })
     .waitFor();
   at.step = "switch back to the playground world";
-  await worlds.getByRole("link", { name: "Open clockgrove.playground@1.0.0", exact: true }).click();
+  await worlds.getByRole("link", { name: "Open clockgrove.playground@1.1.0", exact: true }).click();
   await signIn();
   await openPanel();
   await page
     .getByRole("region", { name: "Pack metadata", exact: true })
-    .getByText("clockgrove.playground 1.0.0", { exact: true })
+    .getByText("clockgrove.playground 1.1.0", { exact: true })
     .waitFor();
   // Loading the other pack left this world as it was: the same world, pack and content, and a clock
   // that only went on.
@@ -261,7 +261,7 @@ it("serves the playground pack to its owner and removes it on Ctrl-C", async () 
   try {
     await servesToItsOwner({
       args: [],
-      pack: "clockgrove.playground@1.0.0",
+      pack: "clockgrove.playground@1.1.0",
       spaceId: "playground.plane",
       title: shell.name,
       owner: (journey) => ownsThePlayground(journey, scratch),
@@ -286,7 +286,7 @@ it("serves a pack named with --pack, without a shell of its own, as a fresh worl
     expect(existsSync(path.join(pack, "shell.json"))).toBe(false);
     await servesToItsOwner({
       args: ["--pack", pack, "--assets", path.join(pack, "assets/reviewed")],
-      pack: "clockgrove.test-world@1.1.0",
+      pack: "clockgrove.test-world@1.2.0",
       spaceId: "beacon.hall",
       title: "Clockgrove",
     });

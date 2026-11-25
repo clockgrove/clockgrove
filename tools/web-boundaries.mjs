@@ -260,7 +260,7 @@ export function assertProjectionContracts(sources) {
     },
   };
   const literals = {
-    PublicRoutineFeatureName: ["hunger", "wetness", "rain", "protection", "thirst", "health", "uncomfortable", "U", "travelMs", "perceived", "expectation", "freshness"],
+    PublicRoutineFeatureName: ["hunger", "wetness", "rain", "protection", "thirst", "health", "uncomfortable", "U", "travelMs", "perceived", "remembered", "expectation", "freshness"],
     PublicRoutineExclusion: ["outside-current-space-or-frame", "no-rain-protection", "not-perceived", "unavailable", "unreachable"],
     WorldFeedCategory: [
       "weather",

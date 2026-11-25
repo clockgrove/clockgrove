@@ -94,7 +94,7 @@ export async function buildFixtureSource(
       `${spec.prefix}.secondary-cover`,
       "actors/secondary-cover.json",
       cover,
-      [snapshot("clockgrove.weather-exposure", { rainProtection: 7500 })],
+      [snapshot("clockgrove.shelter", { rainProtection: 7500 })],
     ],
   ];
   const documents: Record<string, unknown> = {
@@ -117,7 +117,7 @@ export async function buildFixtureSource(
       version: 1,
       traits: [],
       components: {
-        "clockgrove.weather-exposure": snapshot("clockgrove.weather-exposure", {
+        "clockgrove.shelter": snapshot("clockgrove.shelter", {
           rainProtection: 10000,
         }),
       },
@@ -161,7 +161,7 @@ export async function buildFixtureSource(
     dependencies: [...(options.dependencies ?? [])],
     components: [
       { type: "clockgrove.needs", version: 1 },
-      { type: "clockgrove.weather-exposure", version: 1 },
+      { type: "clockgrove.shelter", version: 1 },
     ],
     archetypes: [
       await entry(resident, "archetypes/resident.json"),

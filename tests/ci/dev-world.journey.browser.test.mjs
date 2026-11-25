@@ -175,7 +175,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
       "presentationVersion": 1,
       "presentations": [{
         "presentation": {"presentationVersion": 1, "assetManifestVersion": 2,
-          "pack": {"id": "clockgrove.test-world", "version": "1.1.0"},
+          "pack": {"id": "clockgrove.test-world", "version": "1.2.0"},
           "bindings": [{"objectId": "beacon.master", "assetId": "walker",
             "animationFamily": "walk", "accessibilityLabel": "External keeper"},
             {"objectId": "beacon.lamp", "assetId": "tall-a", "animationFamily": "idle", "accessibilityLabel": "Lamp"},
@@ -239,7 +239,7 @@ it("serves an external pack with its shell and every reviewed atlas page, and cl
           Promise.reject(new Error(`external session exited ${code}\n${output}`)),
         ),
       ]);
-      expect(output).toContain("Living world: clockgrove.test-world@1.1.0");
+      expect(output).toContain("Living world: clockgrove.test-world@1.2.0");
       expect(await fetch(new URL("/fixture.txt", url)).then((response) => response.text())).toBe(
         "external fixture asset\n",
       );
@@ -439,7 +439,7 @@ it("captures an external world's full matrix and retains digest-specific approva
             presentation: {
               presentationVersion: 1,
               assetManifestVersion: 2,
-              pack: { id: "clockgrove.fixture-hall", version: "1.5.0" },
+              pack: { id: "clockgrove.fixture-hall", version: "1.6.0" },
               bindings: [
                 {
                   objectId: "fixture.keeper",

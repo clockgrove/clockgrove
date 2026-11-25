@@ -222,28 +222,53 @@ Three things differ from `world.advance`:
   The handler's later events are dropped, and nothing after that time is emitted.
 
 A moving command keeps its mover's location (`locationId`) where it stands, as a decision's move
-does. A location is a shelter's pose in the mover's space and frame; regions are not locations, so
+does. A location is a shelter covering the mover in its space and frame: at the shelter's exact
+coordinates or, when it declares `coverRadius`, anywhere within that Euclidean distance of them
+([containment](containment.md)); regions are not locations, so
 crossings do not change it. An active movement is not a standing shelter: its persisted starting pose does not protect
 objects left behind. Shelter creation, departure, stopping and retirement apply the same
 space, frame, pose, active-component and self-exclusion rule to affected occupants. On departure
 they stay at their own poses and select another shelter there or open ground; on arrival or
-creation objects already at the shelter’s pose enter it, preserving an existing matching shelter.
+creation objects it covers enter it, preserving an existing matching shelter.
+A walker caught mid-walk by one of these is placed at that millisecond by the crossing rule below:
+a followed walker is in the shelter whose declared cover its path is under then (the one it is in,
+else the first by object id) or on open ground, so a cover created over it locates it and a shelter
+that sets out or is retired leaves it; any other walker keeps its shelter only while that shelter,
+still standing, covers its walk.
 Every affected occupant is integrated under its old protection before its location changes,
 including a shelter that is itself a needs actor or a plant.
 
-Two rules, applied to every active mover (a needs actor, a plant or any
-other object):
+Three rules. Leaving and stopping apply to every active mover (a needs actor, a plant or any
+other object); crossing a cover applies to a mover the world time follows, a needs actor under a
+utility policy, whose walk `world.advance` carries past its command's events:
 
 - **Leaving.** When the movement it starts or replans leaves its starting point, a located mover
   journals `location.changed` to null just before `movement.started` or `movement.replanned`. A
-  zero-length movement does not leave.
+  zero-length movement does not leave. A followed mover whose walk starts within a declared cover
+  (`coverRadius`) is instead in that shelter as it sets out (the one it is in, else the first by
+  object id), journaling `location.changed` to it there when it was elsewhere or on open ground.
+  Any other mover keeps its shelter only when every waypoint of its path lies within that
+  shelter's cover, and otherwise leaves it as it sets out.
+- **Crossing a cover.** While a followed mover walks, its location follows the declared covers its path
+  passes through. The path is the exact straight line between waypoints, and at each whole
+  millisecond the mover is under a cover when that point is within `coverRadius` of the shelter
+  (edge inclusive; domain `coverIntervals`). At the first millisecond it is outside the cover of
+  the shelter it is in, or inside a cover while on open ground, it journals `location.changed` to
+  the shelter whose cover it is under (the one it is in, else the first by object id) or to null.
+  So a walk kept within its shelter's cover stays in that shelter throughout, and one that leaves
+  it is on open ground from the boundary on, getting wet there and not before. Only active,
+  standing shelters in the walk's space and frame count, and a walk through a portal follows no
+  cover. A shelter without `coverRadius` is still left as the walk sets out and entered only where
+  it stops. While a mover walks its pose stays where the walk began, so its rain protection is
+  that of the shelter its location names when that shelter's cover counts for the walk.
 - **Stopping.** Where it stops (`movement.completed` or `movement.interrupted`), it journals
-  `location.changed` to the active shelter standing there (the one it is in, else the first by
+  `location.changed` to the active shelter covering that point (the one it is in, else the first by
   object id) or to null on open ground, unless that is where it already is.
 
 So a located mover that leaves and stops where it began (replanned back, or interrupted before it
-has moved) journals two changes: to null as it leaves, back to the shelter where it stops. A
-zero-length move by an unlocated mover standing at a shelter's pose enters that shelter; a located
+has moved) journals two changes: to null as it leaves, back to the shelter where it stops; under a
+declared cover the same changes come where it crosses the cover's boundary. A
+zero-length move by an unlocated mover a shelter covers enters that shelter; a located
 mover's zero-length move changes nothing. Whatever shelter protects is integrated under the old
 location first: a needs actor's needs and wellbeing (its exposure is then re-seeded under the new
 one) and a plant's growth (the world time then continues under the new protection). The change's

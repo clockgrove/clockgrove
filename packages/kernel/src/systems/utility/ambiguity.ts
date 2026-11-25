@@ -41,6 +41,11 @@ export interface PlanningRequest {
   readonly fallbackAction: RoutineAction;
 }
 
+/** A seek target the actor neither perceives nor remembers: it has never confirmed it. */
+function isNovel(candidate: RoutineCandidate): boolean {
+  return candidate.features.perceived === 0n && candidate.features.remembered !== 10000n;
+}
+
 /** `planning_<fnv1a64>` of the dispatched decision command: one request at most per decision. */
 export function planningRequestId(commandId: CommandId): string {
   return `planning_${fnv1a64Hex(canonicalSerialize(["clockgrove-planning-request-v1", commandId]))}`;
@@ -66,7 +71,7 @@ export function planningRequestFor(
       const margin = second === undefined ? undefined : best.score - second.score;
       if (margin !== undefined && margin <= declared.maxMargin)
         condition = Object.freeze({ kind: "score-margin", maxMargin: declared.maxMargin, margin });
-    } else if (best.action.targetObjectId !== undefined && best.features.perceived === 0n) {
+    } else if (best.action.targetObjectId !== undefined && isNovel(best)) {
       condition = Object.freeze({
         kind: "unperceived-target",
         targetObjectId: best.action.targetObjectId,

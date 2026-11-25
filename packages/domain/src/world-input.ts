@@ -1037,6 +1037,7 @@ function entity(input: unknown, path: string): WorldEntity {
   const raw = object(input, ["objectId", "spaceId", "archetypeId", "pose"], path, [
     "needs",
     "shelter",
+    "weatherProtection",
     "locationId",
     "containment",
     "resource",
@@ -1062,6 +1063,11 @@ function entity(input: unknown, path: string): WorldEntity {
     ...(raw.lifecycle === undefined ? {} : { lifecycle: lifecycleSchema.parse(raw.lifecycle) }),
     ...(raw.needs === undefined ? {} : { needs: needs(raw.needs, `${path}.needs`) }),
     ...(raw.shelter === undefined ? {} : { shelter: shelter(raw.shelter, `${path}.shelter`) }),
+    ...(raw.weatherProtection === undefined
+      ? {}
+      : {
+          weatherProtection: weatherProtection(raw.weatherProtection, `${path}.weatherProtection`),
+        }),
   };
   return result;
 }
@@ -1082,6 +1088,19 @@ function needs(input: unknown, path: string): NonNullable<WorldEntity["needs"]> 
 }
 
 function shelter(input: unknown, path: string): NonNullable<WorldEntity["shelter"]> {
+  const raw = object(input, ["rainProtection"], path, ["coverRadius"]);
+  return {
+    rainProtection: integer(raw.rainProtection, `${path}.rainProtection`),
+    ...(raw.coverRadius === undefined
+      ? {}
+      : { coverRadius: decimal(raw.coverRadius, `${path}.coverRadius`) }),
+  };
+}
+
+function weatherProtection(
+  input: unknown,
+  path: string,
+): NonNullable<WorldEntity["weatherProtection"]> {
   const raw = object(input, ["rainProtection"], path);
   return { rainProtection: integer(raw.rainProtection, `${path}.rainProtection`) };
 }

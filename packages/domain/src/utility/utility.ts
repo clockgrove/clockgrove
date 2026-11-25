@@ -35,7 +35,8 @@ export type AmbiguityConditionKind = (typeof AMBIGUITY_CONDITION_KINDS)[number];
 /**
  * One declared ambiguity condition: `score-margin` holds when the two best eligible candidates'
  * scores differ by at most `maxMargin`; `unperceived-target` (a novelty condition) holds when the
- * selected seek's target is not perceived, so the choice rests on scripted evidence alone.
+ * selected seek's target is neither perceived nor remembered by the actor (never confirmed), so
+ * the choice rests on belief alone; a familiar target out of view, such as the actor's own den, is not novel.
  */
 export type AmbiguityCondition =
   | Readonly<{ kind: "score-margin"; maxMargin: bigint }>

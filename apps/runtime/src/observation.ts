@@ -870,7 +870,8 @@ export class PostgreSqlEntitySelectionReader {
         wellbeing: wellbeing(canonicalWellbeing),
         plant: plant(canonicalPlant),
         resource: entity.resource ?? null,
-        shelter: entity.shelter ?? null,
+        shelter:
+          entity.shelter === undefined ? null : { rainProtection: entity.shelter.rainProtection },
         locationId: entity.locationId ?? null,
         selectedAction:
           entity.selectedAction === undefined

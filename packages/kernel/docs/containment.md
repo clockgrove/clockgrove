@@ -27,8 +27,13 @@ Object IDs/archetype identifiers are nonempty strings of at most 512 UTF-16 unit
 outer whitespace. Pose is the catalog's versioned two/three-dimensional bigint fixed-point
 pose in a declared frame. Fixture creation permits only absent or zero-quantity resources and requires a pinned archetype already in the pack,
 a distinct identity, a supported space/frame binding, and fewer than 128 existing entities.
-It may create Shelter (`{rainProtection}` in basis points). Creation locates active objects already
-standing at that shelter’s pose, integrating needs, wellbeing and growth under their previous
+It may create Shelter (`{rainProtection}` in basis points, optional fixed-point `coverRadius`) and an
+object's own `weatherProtection` (`{rainProtection}`, which never makes it a shelter). An object is under a
+shelter at the shelter's exact coordinates or, when the shelter declares `coverRadius`, anywhere within
+that exact Euclidean distance in its space and frame, and a walker stays under a cover until its path crosses
+the cover's boundary ([spatial movement](spatial-movement.md), "Crossing a cover"); an object in rain gets the larger of its own and its
+shelter's protection. Creation locates active objects already
+covered by that shelter, integrating needs, wellbeing and growth under their previous
 protection first. It cannot create Needs, selected actions, schedules or explicit `locationId`; fixture retirement
 refuses Needs actors. This avoids adding later lifecycle/scheduling systems. Containment and
 Resource shapes/bounds/redaction are defined in the domain catalog; Lifecycle becomes active
