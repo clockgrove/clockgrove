@@ -13,4 +13,3 @@ allowBuilds:
 overrides:
   "zod@<4.6.7": "4.6.7"
   "ajv@8.20.0>fast-uri": "3.1.9"
-  "cloudevents@10.0.0>uuid": "11.1.1"
