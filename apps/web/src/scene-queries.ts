@@ -75,7 +75,8 @@ export interface WhyProjection {
 }
 export interface FlashbackProjection {
   readonly entry: FlashbackEntry | undefined;
-  readonly status: "none" | "loading" | "ready" | "unavailable" | "refused";
+  /** `not-found`: the runtime has no such event or command in this space (404), not a failure. */
+  readonly status: "none" | "loading" | "ready" | "unavailable" | "refused" | "not-found";
   readonly value: Flashback | undefined;
 }
 export interface ViewTraceProjection {
@@ -147,7 +148,9 @@ export function flashbackProjection(
         : state?.status === "error"
           ? state.error instanceof ApiRefusal && state.error.status === 429
             ? "refused"
-            : "unavailable"
+            : state.error instanceof ApiRefusal && state.error.status === 404
+              ? "not-found"
+              : "unavailable"
           : "loading",
     value: state?.status === "success" ? state.data : undefined,
   };

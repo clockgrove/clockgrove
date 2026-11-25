@@ -506,8 +506,10 @@ every level, and `encodeFlashback` writes its JSON form. It contains the scope, 
 
 The web shell's Flashback panel and picture-in-picture replay show this answer as it is ([web
 README](../../apps/web/README.md), [scene contract](../../apps/web/docs/scene.md#flashback-picture-in-picture)).
-The living-hall browser journey opens one from a Why, checks the panel against this route's own
-answer, plays and scrubs its frames, follows "and before that…" and closes it with nothing written.
+The living-hall browser journey opens one from a Why, the feed, the timeline and a selected
+entity's actions, checks the panel against this route's own answer, plays and scrubs its frames
+(picture-in-picture at a forced medium tier), follows "and before that…" through a 404 and a 429,
+and closes it with nothing written.
 
 `apps/runtime/test/flashback.journey.postgres.test.ts` checks the read through the Worker route and
 PostgreSQL:

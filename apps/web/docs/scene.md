@@ -330,8 +330,10 @@ loads its own copy of the content's atlas and material textures, which the mater
 budget holds to 32 MiB, and runs one more animation-frame loop.
 
 On a wide shell the PiP sits over the rail's lower corner and the rail reserves its height at its
-foot, so the rail's last rows scroll clear of it. Below 1200 px the flashback panel is an overlay
-above the Why overlay and the rail and feed sheets, and the PiP flows inside the panel.
+foot, so the rail's last rows scroll clear of it. Below 1200 px the flashback panel is a sheet
+over the lower half of the viewport (at most 50vh), above the rail and feed sheets, with the PiP
+inside it; the live scene stays in view above it, and an open Why overlay steps aside until the
+flashback closes.
 
 ## World scene content v1
 

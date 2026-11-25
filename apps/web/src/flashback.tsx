@@ -2,9 +2,11 @@ import type {
   Flashback,
   FlashbackActorState,
   FlashbackContext,
+  FlashbackEntry,
   FlashbackLineKind,
+  ObjectId,
 } from "@clockgrove/contracts";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlashbackReplay } from "./flashback-pip.js";
 import type { RendererContent } from "./renderer-content.js";
 import type { SceneSession } from "./scene-api.js";
@@ -32,13 +34,26 @@ function replayText(value: Flashback): string {
   return `Replayed read-only from ${start}: ${replay.eventsReplayed} journaled events, ${value.frames.length} frames${replay.truncated ? "; the window was cut at its declared bound" : ""}.`;
 }
 
-function timeText(context: FlashbackContext, dayLengthMs: bigint | undefined): string {
-  if (context.day === null || context.timeOfDayMs === null || dayLengthMs === undefined)
-    return `Simulation time ${context.simulationTime} ms`;
-  const minutes = (BigInt(context.timeOfDayMs) * 1440n) / dayLengthMs;
-  const pad = (value: bigint) => value.toString().padStart(2, "0");
-  return `Day ${context.day}, ${pad(minutes / 60n)}:${pad(minutes % 60n)}`;
+/**
+ * The moment's time as the runtime's own context line gives it (elapsed hours and minutes into the
+ * recorded day), so the panel shows one time for one moment whatever the pack's day length.
+ */
+export function timeText(context: FlashbackContext): string {
+  if (context.day === null || context.timeOfDayMs === null)
+    return `${context.simulationTime} ms into the world`;
+  const minutes = BigInt(context.timeOfDayMs) / 60_000n;
+  return `Day ${context.day}, ${minutes / 60n}:${(minutes % 60n).toString().padStart(2, "0")} into the day`;
 }
+
+/** One step of an "and before that…" chain: the entry asked for and the entity it followed. */
+interface ChainStep {
+  readonly key: string;
+  readonly entry: FlashbackEntry;
+  readonly objectId: ObjectId | undefined;
+}
+
+const entryKeyOf = (entry: FlashbackEntry): string =>
+  "eventId" in entry ? `event ${entry.eventId}` : `command ${entry.commandId}`;
 
 function ActorState({ actor }: { readonly actor: FlashbackActorState }) {
   return (
@@ -85,22 +100,44 @@ export function FlashbackPanel({
   const heading = useRef<HTMLHeadingElement>(null);
   const open = flashback.status !== "none";
   const entry = flashback.entry;
-  const entryKey = entry === undefined ? "" : "eventId" in entry ? entry.eventId : entry.commandId;
+  const entryKey = entry === undefined ? "" : entryKeyOf(entry);
+  // The chain walked so far, ending at the open moment. A failed step keeps it, so the human can
+  // retry that step or go back to the moment just left rather than re-walk from the first opener.
+  const [chain, setChain] = useState<readonly ChainStep[]>([]);
+  // Focus returns to the opener once the panel has gone, so a layout that hid it can show it again.
+  const refocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (entryKey !== "") heading.current?.focus();
   }, [entryKey]);
+  useEffect(() => {
+    if (open) return;
+    setChain([]);
+    refocus.current?.focus();
+    refocus.current = null;
+  }, [open]);
   if (!open || entry === undefined) return null;
+  const path: readonly ChainStep[] =
+    chain.at(-1)?.key === entryKey ? chain : [{ key: entryKey, entry, objectId: undefined }];
+  const current = path[path.length - 1] as ChainStep;
+  const previous = path.length > 1 ? path[path.length - 2] : undefined;
+  const failed =
+    flashback.status === "refused" ||
+    flashback.status === "unavailable" ||
+    flashback.status === "not-found";
   const value = flashback.value;
+  const step = (next: FlashbackEntry, objectId: ObjectId | undefined) => {
+    setChain([...path, { key: entryKeyOf(next), entry: next, objectId }]);
+    session.flashback(next, objectId);
+  };
   const onClose = () => {
-    session.flashback(undefined);
     const opener = flashbackOpener.current;
     const key = opener?.dataset.flashbackOpener;
-    const target = opener?.isConnected
+    refocus.current = opener?.isConnected
       ? opener
       : key === undefined
         ? null
         : document.querySelector<HTMLElement>(`[data-flashback-opener="${CSS.escape(key)}"]`);
-    target?.focus();
+    session.flashback(undefined);
   };
   return (
     <section
@@ -122,10 +159,28 @@ export function FlashbackPanel({
           ? "Loading flashback."
           : flashback.status === "refused"
             ? "Flashback request refused. Try again later."
-            : flashback.status === "unavailable"
-              ? "Flashback unavailable."
-              : "Flashback loaded."}
+            : flashback.status === "not-found"
+              ? `Flashback not found: the journal holds no ${entryKey} in this space.`
+              : flashback.status === "unavailable"
+                ? "Flashback unavailable."
+                : "Flashback loaded."}
       </p>
+      {failed && (
+        <button type="button" onClick={() => session.flashback(current.entry, current.objectId)}>
+          Retry flashback
+        </button>
+      )}
+      {failed && previous && (
+        <button
+          type="button"
+          onClick={() => {
+            setChain(path.slice(0, -1));
+            session.flashback(previous.entry, previous.objectId);
+          }}
+        >
+          {`Back to ${previous.key}`}
+        </button>
+      )}
       <button type="button" onClick={onClose}>
         Close flashback
       </button>
@@ -153,7 +208,7 @@ export function FlashbackPanel({
               <>
                 <dl>
                   <dt>Time</dt>
-                  <dd>{timeText(value.context, dayLengthMs)}</dd>
+                  <dd>{timeText(value.context)}</dd>
                   <dt>Weather</dt>
                   <dd>
                     {value.context.rainIntensity === 0
@@ -198,9 +253,7 @@ export function FlashbackPanel({
                     <button
                       type="button"
                       // Closing a chain returns focus to the control that opened its first flashback.
-                      onClick={() =>
-                        session.flashback({ commandId }, value.moment.objectId ?? undefined)
-                      }
+                      onClick={() => step({ commandId }, value.moment.objectId ?? undefined)}
                     >
                       {`And before that: command ${commandId}`}
                     </button>

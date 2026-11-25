@@ -216,8 +216,22 @@ body {
 }
 
 .rw-feed li {
+  display: flex;
+  align-items: center;
+  gap: var(--cg-v1-space-1);
   padding: var(--cg-v1-space-1) 0;
   border-top: 1px solid var(--cg-v1-border);
+}
+
+.rw-feed li > .rw-feed-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Issue 273: each feed entry's flashback sits beside it, a control of its own. */
+.rw-feed-flashback {
+  flex: none;
+  font-size: 0.8rem;
 }
 
 .rw-feed .rw-panel-title {
@@ -455,18 +469,28 @@ body {
   }
 
   /*
-   * Issue 273: a flashback opens above the Why overlay (50) and the rail and feed sheets (40, 30),
-   * so the heading it focuses is visible; its PiP flows inside it rather than under a sheet.
+   * Issue 273: a flashback is a sheet over the lower part of the viewport, above the Why overlay
+   * (50) and the rail and feed sheets (40, 30), so the heading it focuses is visible and the live
+   * scene keeps running in view above it. Its PiP flows inside it rather than under a sheet. While
+   * it is open the Why overlay steps aside, so the main view is not covered.
    */
   #rw-flashback {
     position: fixed;
-    inset: var(--cg-v1-space-3);
+    left: var(--cg-v1-space-3);
+    right: var(--cg-v1-space-3);
+    bottom: var(--cg-v1-space-3);
+    max-height: 50vh;
     z-index: 60;
     overflow: auto;
     padding: var(--cg-v1-space-3);
     background: var(--cg-v1-panel-solid);
     border: 1px solid var(--cg-v1-border);
     border-radius: var(--cg-v1-radius-md);
+    box-sizing: border-box;
+  }
+
+  .rw-shell:has(#rw-flashback) #rw-recorded-why {
+    display: none;
   }
 
   #rw-flashback .rw-flashback-pip {
