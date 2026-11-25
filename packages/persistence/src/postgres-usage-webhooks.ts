@@ -41,7 +41,7 @@ export function usageWebhookAuthorization(key: UsageWebhookKey): RuntimeAuthoriz
 }
 
 /**
- * Usage webhooks (0079): registration, the due-webhook scan, and the cursor and retry state of a
+ * Usage webhooks (0080): registration, the due-webhook scan, and the cursor and retry state of a
  * delivery. Every read and write runs as the registrar under row-level security.
  */
 export class PostgreSqlUsageWebhooks {
