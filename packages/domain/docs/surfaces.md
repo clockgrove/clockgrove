@@ -45,7 +45,9 @@ containing it, in declaration order, and may be empty. `carried: true` marks mat
 `amount` is a positive safe integer and `periodMs` a positive bigint of at most 2^53 milliseconds
 unless stated. A `rain` or `growth` channel needs the policy's `environment`
 ([environment](environment.md)); without one the world policy is refused at
-`policy.surfaces.channels[i].recovery.driver`. The speed is pack data: a pack chooses whether a
+`policy.surfaces.channels[i].recovery.driver`. Each `growth` light band must be the `lightBand` of
+one of the environment's phases, else the policy is refused at
+`policy.surfaces.channels[i].recovery.lightBands[k]`. The speed is pack data: a pack chooses whether a
 scratch weathers in hours or in weeks.
 
 **Zones.** A zone is hosted on an object (`{kind: "object", objectId}`) or a spatial region
@@ -92,20 +94,33 @@ Each driver is a clock: a cumulative weight `F(t)` over `[0, t)` and a divisor `
 weather segments and `D = periodMs × 10000`; for `growth`, `F` counts the milliseconds spent in a
 listed light band over the environment's day phases and `D = periodMs`. Both environment cycles
 are anchored at time 0 and repeat, so `F` is closed-form (whole cycles plus a walk of at most 64
-segments), and no weather or phase event needs to settle a channel.
+segments), and no phase event needs to settle a channel.
 
-`surfaceValueAt(channel, entry, at, environment?)` evaluates a channel lazily:
+**Held rain.** Rain heals under the rain the world models, `state.weather.rainIntensity`, which a
+`world.weather.set` override holds until the next weather boundary. `surfaceRainHold(state,
+environment?)` returns `{rainIntensity, until}` while that intensity differs from the current
+segment's authored one (`until` is the record's `nextWeatherBoundary`), else nothing. Under a hold,
+`F` has slope `rainIntensity` before `until` and follows the schedule from `until`. So that this is
+exact, every rain channel with a value settles where a hold begins or ends: a `weather.changed` that
+changes the rain, and the `weather.transitioned` that ends a hold, carry an optional `surfaces` field
+of `{zoneId, channel, value, remainder}` rows settled at the event under the rain in force before it
+(`planSurfaceRainSettlement`); `reduceWorldEvent` applies them through
+`reduceSurfaceRainSettlement`, setting `settledAt` to the event time. Without a rain channel with a
+value the field is absent and the event encodes as before. Exposure and water collection read the
+same held intensity, so surfaces, wetness and collectors agree in one world.
+
+`surfaceValueAt(channel, entry, at, environment?, hold?)` evaluates a channel lazily:
 `total = (F(at) - F(settledAt)) × amount + remainder`, the value falls by `total / D` (never below
 zero) and the new remainder is `total % D` (zero once the value is zero). Settling at any
 intermediate instant and continuing gives the same value and remainder as one evaluation, so the
 result does not depend on how time was advanced. A `rain` or `growth` channel evaluated without
 an environment throws.
 
-`nextSurfaceCrossing(channel, entry, environment?)` is the first instant at which the channel's
+`nextSurfaceCrossing(channel, entry, environment?, hold?)` is the first instant at which the channel's
 band set changes as it heals (the value drops below a band's `min` or to a band's `max`): the
 smallest `t` at which `F(t)` reaches the weight that drop needs, or `null` when it never will (no
 band left to cross, or a cycle with no rain or no listed light). `dueSurfaceCrossings(policy,
-state, environment?)` returns the earliest such instant over every zone and the zone channels
+state, environment?, hold?)` returns the earliest such instant over every zone and the zone channels
 crossing then. `planSurfaceCrossing` settles one channel at that instant and returns the
 `surface.band-crossed` payload. Only those crossings are journaled while time passes; there are
 no per-tick events. The planners below take the same optional trailing `environment`.

@@ -50,8 +50,13 @@ Because the math is closed-form and the barrier is the same at every step size, 
 a chain of advances and many small advances journal identical events and reach the same state.
 
 Rain and growth channels heal the same way: their clocks are closed-form over the environment's
-own cycles, so weather transitions and phase changes settle nothing and journal no surface event;
-the barrier only ever fires at a band crossing.
+own cycles, so phase changes settle nothing and journal no surface event, and the barrier only ever
+fires at a band crossing. Rain heals under the rain the world holds: while a `world.weather.set`
+override differs from the schedule, crossings are computed under it until the next weather
+boundary. Its `weather.changed`, and the `weather.transitioned` that ends it, carry the rain
+channels settled at that instant in an optional `surfaces` field (no new event). A crossing due
+exactly as a hold ends is journaled under the held rain just before that `weather.transitioned`, and
+counts in its environment group under `maxEvents`.
 
 ## Wear by movement
 
@@ -66,7 +71,9 @@ exactly the entry events the route already implies and no event per step.
 When an actor dies holding carried matter, one `surface.carried-drained` with `cause: "died"`
 follows its `lifecycle.died` at the same instant and removes every row it held, so lifecycle
 compaction can later remove the actor without leaving matter behind. A retired actor keeps its
-rows.
+rows. The drain counts toward the death's lifecycle group under `maxEvents`, including rows the
+actor's pending crossings pick up through traffic just before it dies, so a chained catch-up with
+the same budget passes the death exactly as one unbounded call does.
 
 ## Invariants
 
@@ -77,7 +84,8 @@ rows.
 - `surface.journaled@1` replays every `surface.*` event a command emits from the policy and the
   prior state: each interaction and repair must equal its plan, and each crossing must be due at its
   instant with the planned payload. Every `movement.region-entered` must carry exactly the
-  planned traffic (or none). A drain must remove exactly the actor's rows and follow its death at
+  planned traffic (or none), and every `weather.changed` or `weather.transitioned` exactly the
+  planned rain settlement (or none). A drain must remove exactly the actor's rows and follow its death at
   the same instant, and a death of an actor holding matter must be followed by its drain. A forged,
   missing or reordered surface effect is `invariant-violated` at `events[i]`.
 
@@ -85,7 +93,8 @@ Replaying the journal through `reduceWorldEvent` reproduces the surface state ex
 journey test (`packages/kernel/test/surface.journey.test.ts`) proves the mark ring, attribution,
 every refusal above (reach for an object host in another space and for a ground region the actor
 stands outside, and a retired host), a scratch on a ground-region zone, healing in every advance
-shape, rain and growth healing at hand-computed instants in every advance shape, a walk that wears
+shape, rain and growth healing at hand-computed instants in every advance shape, rain healing under a
+dry and a wet `world.weather.set` override with a crossing at the hold's end, a walk that wears
 a porch and tracks mud onto it, the drain of a dying actor's mud, carried-matter conservation,
 repair, the budget refusal and scenario decoding.
 

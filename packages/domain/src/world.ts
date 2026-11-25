@@ -81,9 +81,11 @@ import {
 } from "./spatial.js";
 import {
   reduceSurfaceEvent,
+  reduceSurfaceRainSettlement,
   reduceSurfaceTraffic,
   type SurfaceEventData,
   type SurfacePolicy,
+  type SurfaceRainSettlement,
   type SurfaceState,
   validateSurfacePolicy,
   validateSurfaceState,
@@ -262,7 +264,14 @@ export type WorldEvent = WorldEventScope &
   (
     | (Readonly<{ schemaVersion: 1 }> &
         (
-          | Readonly<{ type: "weather.changed"; payload: Readonly<{ rainIntensity: number }> }>
+          | Readonly<{
+              type: "weather.changed";
+              payload: Readonly<{
+                rainIntensity: number;
+                /** Rain-driven surfaces settled as the rain changes; present only when non-empty. */
+                surfaces?: readonly SurfaceRainSettlement[];
+              }>;
+            }>
           | Readonly<{
               type: "needs.changed";
               payload: Readonly<{ objectId: ObjectId }> & WorldNeeds;
@@ -362,18 +371,28 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   if (Object.hasOwn(policy, "boundaryExchanges"))
     validateBoundaryExchanges(policy.boundaryExchanges);
   if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
-  if (Object.hasOwn(policy, "surfaces")) {
-    validateSurfacePolicy(policy.surfaces);
-    if (!Object.hasOwn(policy, "environment"))
-      policy.surfaces!.channels.forEach((channel, i) => {
-        if (channel.recovery.driver === "rain" || channel.recovery.driver === "growth")
-          throw new EnvironmentValidationError(
-            `policy.surfaces.channels[${i}].recovery.driver`,
-            "surface driver requires an environment",
-          );
-      });
-  }
+  if (Object.hasOwn(policy, "surfaces")) validateSurfacePolicy(policy.surfaces);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
+  if (Object.hasOwn(policy, "surfaces")) {
+    const lightBands = new Set(policy.environment?.phases.map((phase) => phase.lightBand));
+    policy.surfaces!.channels.forEach((channel, i) => {
+      const recovery = channel.recovery;
+      if (recovery.driver !== "rain" && recovery.driver !== "growth") return;
+      if (policy.environment === undefined)
+        throw new EnvironmentValidationError(
+          `policy.surfaces.channels[${i}].recovery.driver`,
+          "surface driver requires an environment",
+        );
+      if (recovery.driver === "growth")
+        recovery.lightBands.forEach((band, k) => {
+          if (!lightBands.has(band))
+            throw new EnvironmentValidationError(
+              `policy.surfaces.channels[${i}].recovery.lightBands[${k}]`,
+              "growth light band is not a phase light band of the environment",
+            );
+        });
+    });
+  }
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))
     validateWellbeingPolicy(policy.wellbeing, policy.environment);
@@ -636,6 +655,15 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       return createWorldState({
         ...advanced,
         weather: { rainIntensity: event.payload.rainIntensity },
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : {
+              surfaces: reduceSurfaceRainSettlement(
+                state,
+                event.simulationTime,
+                event.payload.surfaces,
+              ),
+            }),
       });
     case "needs.changed": {
       const entity = requireEntity(state, event.payload.objectId);
@@ -1057,6 +1085,15 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         ...advanced,
         weather: { rainIntensity: event.payload.rainIntensity },
         environment: next,
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : {
+              surfaces: reduceSurfaceRainSettlement(
+                state,
+                event.simulationTime,
+                event.payload.surfaces,
+              ),
+            }),
       });
     }
     case "exposure.threshold-crossed": {

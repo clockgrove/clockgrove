@@ -51,6 +51,7 @@ import {
   pendingPortalSteps,
   planSurfaceCrossing,
   planSurfaceInteraction,
+  planSurfaceRainSettlement,
   planSurfaceRepair,
   planSurfaceTraffic,
   plantStageIndex,
@@ -58,16 +59,20 @@ import {
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceSurfaceTraffic,
   reduceWorldEvent,
   regionsContaining,
   removableLifecycleDead,
   type SurfaceInteractPayload,
+  type SurfaceRainHold,
+  type SurfaceRainSettlement,
   type SurfaceRepairPayload,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
   shelterReflexThreshold,
   surfaceDisagreement,
+  surfaceRainHold,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -1156,6 +1161,19 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
+  /** The rain the world holds over its schedule, which rain-driven surfaces heal under. */
+  function hold(): SurfaceRainHold | undefined {
+    return surfaceRainHold(current(), policy.environment);
+  }
+  /** Rain-driven surfaces settled where the rain in force changes; nothing when none are. */
+  function rainSettlement(
+    at: SimTimeMs,
+    changes: boolean,
+  ): { surfaces?: readonly SurfaceRainSettlement[] } {
+    if (!changes || policy.surfaces === undefined) return {};
+    const surfaces = planSurfaceRainSettlement(policy.surfaces, current(), at, policy.environment);
+    return surfaces.length === 0 ? {} : { surfaces };
+  }
   function withTraffic(event: WorldEvent): WorldEvent {
     if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
     const surfaces = planSurfaceTraffic(
@@ -1285,7 +1303,7 @@ function runWorld(
     const due =
       surfaces === undefined || state === undefined
         ? null
-        : dueSurfaceCrossings(surfaces, state, policy.environment);
+        : dueSurfaceCrossings(surfaces, state, policy.environment, hold());
     if (surfaces === undefined || state === undefined || due === null || due.time !== at)
       return true;
     if (context.eventCount() + due.crossings.length > payload.maxEvents) {
@@ -1293,7 +1311,7 @@ function runWorld(
       return false;
     }
     const planned = due.crossings.map((c) =>
-      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment),
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment, hold()),
     );
     for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
@@ -2007,12 +2025,41 @@ function runWorld(
       if (action.kind !== "died") continue;
       if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
-      if (movement !== undefined && movement.status === "active")
-        // Terminal interruptions do not reconcile shelter arrivals before the following death.
-        total += pendingCrossings(movement, at).length + 1;
+      const crossings =
+        movement !== undefined && movement.status === "active"
+          ? pendingCrossings(movement, at)
+          : [];
+      // Terminal interruptions do not reconcile shelter arrivals before the following death.
+      if (movement !== undefined && movement.status === "active") total += crossings.length + 1;
+      if (carriesAtDeath(action.objectId, crossings)) total += 1;
     }
     return total;
   };
+  /** Whether a dying actor still carries matter once its pending crossings' traffic applies. */
+  function carriesAtDeath(objectId: string, crossings: readonly CrossingRecord[]): boolean {
+    let state = current();
+    if (policy.surfaces !== undefined)
+      for (const crossing of crossings) {
+        if (crossing.kind !== "entered") continue;
+        const surfaces = planSurfaceTraffic(
+          policy.surfaces,
+          state,
+          objectId as ObjectId,
+          crossing.regionId,
+          crossing.time as SimTimeMs,
+          policy.environment,
+        );
+        if (surfaces.length > 0)
+          state = {
+            ...state,
+            surfaces: reduceSurfaceTraffic(state, {
+              simulationTime: crossing.time as SimTimeMs,
+              payload: { objectId: objectId as ObjectId, surfaces },
+            }),
+          };
+      }
+    return (state.surfaces?.carried ?? []).some((row) => row.objectId === objectId);
+  }
   let lifecycleChanged = false;
   /** Emits one environment time group; returns false, emitting nothing, when it does not fit. */
   function emitGroup(group: EnvironmentGroup): boolean {
@@ -2144,8 +2191,18 @@ function runWorld(
           arrivalEventCount(plan);
       }
     }
+    // A crossing due as a held rain ends is journaled under that rain, before the weather settles it.
+    const heldDue =
+      group.weather &&
+      hold() !== undefined &&
+      policy.surfaces !== undefined &&
+      current().surfaces !== undefined
+        ? dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold())
+        : null;
+    const heldCrossings = heldDue?.time === at ? heldDue.crossings : [];
     const size =
       processesAt(at).length * 2 +
+      heldCrossings.length +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -2180,6 +2237,19 @@ function runWorld(
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
+      const surfacesNow = current().surfaces;
+      const planned = heldCrossings.map((c) =>
+        planSurfaceCrossing(
+          policy.surfaces!,
+          surfacesNow!,
+          c.zoneId,
+          c.channel,
+          at,
+          policy.environment,
+          hold(),
+        ),
+      );
+      for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
       emit(
         event("weather.transitioned", at, {
           segmentIndex: derived.segmentIndex,
@@ -2187,6 +2257,7 @@ function runWorld(
           temperatureBand: derived.temperatureBand,
           nextWeatherBoundary: derived.nextWeatherBoundary,
           rainChange: classifyRainChange(current().weather.rainIntensity, segment.rainIntensity),
+          ...rainSettlement(at, hold() !== undefined),
         }),
       );
     }
@@ -2532,7 +2603,7 @@ function runWorld(
       const surfaceDue =
         policy.surfaces === undefined || current().surfaces === undefined
           ? null
-          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment);
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold());
       const surfaceTime =
         surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
       // Surface crossings run after the instant's physical causes and before its processes.
@@ -2947,6 +3018,10 @@ function runWorld(
     emit(
       event("weather.changed", current().simulationTime, {
         rainIntensity: payload.rainIntensity as number,
+        ...rainSettlement(
+          current().simulationTime,
+          payload.rainIntensity !== current().weather.rainIntensity,
+        ),
       }),
     );
     for (const item of decisionsOf(schedules)) reschedule(item, current().simulationTime);
@@ -4701,7 +4776,10 @@ function surfaceJournalDisagreement(
   const first = events.findIndex(
     (event) =>
       event.type.startsWith("surface.") ||
-      (event.type === "movement.region-entered" && event.payload.surfaces !== undefined),
+      ((event.type === "movement.region-entered" ||
+        event.type === "weather.changed" ||
+        event.type === "weather.transitioned") &&
+        event.payload.surfaces !== undefined),
   );
   if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
   let state = initial;
@@ -4767,6 +4845,20 @@ function surfaceJournalDisagreement(
           !drained
         )
           return `events[${index}]`;
+      } else if (event.type === "weather.changed" || event.type === "weather.transitioned") {
+        const environment = activePolicy?.environment;
+        const changes =
+          event.type === "weather.changed"
+            ? event.payload.rainIntensity !== state.weather.rainIntensity
+            : surfaceRainHold(state, environment) !== undefined;
+        const planned = changes
+          ? planSurfaceRainSettlement(surfaces, state, event.simulationTime, environment)
+          : [];
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
       } else if (event.type === "movement.region-entered") {
         const planned = planSurfaceTraffic(
           surfaces,
@@ -4786,7 +4878,12 @@ function surfaceJournalDisagreement(
         const due =
           state.surfaces === undefined
             ? null
-            : dueSurfaceCrossings(surfaces, state.surfaces, activePolicy?.environment);
+            : dueSurfaceCrossings(
+                surfaces,
+                state.surfaces,
+                activePolicy?.environment,
+                surfaceRainHold(state, activePolicy?.environment),
+              );
         if (
           due?.time !== event.simulationTime ||
           !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
@@ -4798,6 +4895,7 @@ function surfaceJournalDisagreement(
               channel,
               event.simulationTime,
               activePolicy?.environment,
+              surfaceRainHold(state, activePolicy?.environment),
             ),
           ) !== canonicalSerialize(event.payload)
         )
