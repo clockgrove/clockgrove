@@ -54,21 +54,36 @@ describe("production world-reactions native Queue lifecycle", () => {
               .join(":"),
           );
         };
+        // A gate holds a trigger's transaction until the test opens it. Sequences are not
+        // transactional: the test sees `<gate>_reached` before the held transaction commits, and
+        // the held transaction sees `<gate>_open` the moment the test calls it. Waiting on the
+        // reached row, rather than sampling a timed sleep, cannot miss the hold (#459).
+        const gate = (name: string) => ({
+          create: `CREATE SEQUENCE clockgrove.${name}_reached; CREATE SEQUENCE clockgrove.${name}_open; GRANT USAGE, SELECT ON SEQUENCE clockgrove.${name}_reached, clockgrove.${name}_open TO clockgrove_runtime, clockgrove_migrator`,
+          hold: `PERFORM nextval('clockgrove.${name}_reached'); WHILE NOT (SELECT is_called FROM clockgrove.${name}_open) LOOP PERFORM pg_sleep(0.01); END LOOP;`,
+          reached: () =>
+            waitForOwnerSql(
+              sql,
+              `SELECT is_called::text FROM clockgrove.${name}_reached`,
+              "true",
+              1000,
+            ),
+          open: () => sql(`SELECT nextval('clockgrove.${name}_open')`),
+          drop: `DROP SEQUENCE clockgrove.${name}_reached, clockgrove.${name}_open`,
+        });
         // A transaction blocked before commit cannot expose its outbox or publish a message.
+        const pause = gate("queue_pause");
         await sql(
-          "CREATE FUNCTION clockgrove.queue_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.5); RETURN NEW; END $$; CREATE TRIGGER queue_pause BEFORE UPDATE ON clockgrove.partition_states FOR EACH ROW EXECUTE FUNCTION clockgrove.queue_pause()",
+          `${pause.create}; CREATE FUNCTION clockgrove.queue_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN ${pause.hold} RETURN NEW; END $$; CREATE TRIGGER queue_pause BEFORE UPDATE ON clockgrove.partition_states FOR EACH ROW EXECUTE FUNCTION clockgrove.queue_pause()`,
         );
         const command = advanceCommand(world, "queue-first", 120_000n, null);
         const pending = owner.submit(command);
-        const sleeping =
-          "SELECT count(*) FROM pg_stat_activity WHERE usename='clockgrove_runtime' AND wait_event='PgSleep'";
-        // The first command after start-up can take seconds to reach its UPDATE on a loaded
-        // runner; the paused UPDATE then holds its sleep, which a 10ms poll cannot miss.
-        await waitForOwnerSql(sql, sleeping, "1", 1000);
+        await pause.reached();
         expect(await dispatchValue("queue-first", "count(*)")).toBe("0");
+        await pause.open();
         expect((await pending).status).toBe(200);
         await sql(
-          "DROP TRIGGER queue_pause ON clockgrove.partition_states; DROP FUNCTION clockgrove.queue_pause()",
+          `DROP TRIGGER queue_pause ON clockgrove.partition_states; DROP FUNCTION clockgrove.queue_pause(); ${pause.drop}`,
         );
         const successful =
           "SELECT count(*) FROM clockgrove.event_dispatches WHERE dispatch_id='queue-first:dispatch:world-reactions' AND status='delivered' AND consumed_at IS NOT NULL";
@@ -216,12 +231,15 @@ describe("production world-reactions native Queue lifecycle", () => {
         ).toBe("4");
         // A failed postcommit claim loses only the hint. Scheduled reconciliation on a fresh
         // isolate recovers it without a browser command or injected dispatch composition.
+        const hintLoss = gate("queue_hint_loss");
         await sql(
-          "CREATE FUNCTION clockgrove.queue_hint_loss() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.dispatch_id='queue-lost-hint:dispatch:world-reactions' THEN PERFORM pg_sleep(1); RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='native hint interruption'; END IF; RETURN NEW; END $$; CREATE TRIGGER queue_hint_loss BEFORE UPDATE ON clockgrove.event_dispatches FOR EACH ROW EXECUTE FUNCTION clockgrove.queue_hint_loss()",
+          `${hintLoss.create}; CREATE FUNCTION clockgrove.queue_hint_loss() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.dispatch_id='queue-lost-hint:dispatch:world-reactions' THEN ${hintLoss.hold} RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='native hint interruption'; END IF; RETURN NEW; END $$; CREATE TRIGGER queue_hint_loss BEFORE UPDATE ON clockgrove.event_dispatches FOR EACH ROW EXECUTE FUNCTION clockgrove.queue_hint_loss()`,
         );
         expect(await advance("queue-lost-hint", 600_000n)).toBe(200);
-        // The command returned while its hint is still blocked in the claim: it never awaits it.
-        await waitForOwnerSql(sql, sleeping, "1", 1000);
+        // The command returned while its hint is held in the claim, which only the test releases:
+        // it never awaits the hint.
+        await hintLoss.reached();
+        await hintLoss.open();
         expect(await sweepFailures(2)).toEqual(["hint:transient", "hint:transient"]);
         // A failing principal is logged and counted; the scheduled run itself still succeeds.
         expect(await owner.reconcileDispatches()).toEqual({ outcome: "ok", noRetry: false });
@@ -237,7 +255,7 @@ describe("production world-reactions native Queue lifecycle", () => {
           ),
         ).toBe("pending|0|true");
         await sql(
-          "DROP TRIGGER queue_hint_loss ON clockgrove.event_dispatches; DROP FUNCTION clockgrove.queue_hint_loss()",
+          `DROP TRIGGER queue_hint_loss ON clockgrove.event_dispatches; DROP FUNCTION clockgrove.queue_hint_loss(); ${hintLoss.drop}`,
         );
         await owner.replace(true);
         expect(await owner.reconcileDispatches()).toEqual({
