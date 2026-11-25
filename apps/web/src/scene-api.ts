@@ -1642,16 +1642,19 @@ export class SceneSession {
   }
   /**
    * Issue 273: reads the selected entity's marks once per selection key (`key`, if still current), when the selection panel
-   * shows them (so a session without that panel sends no extra request).
+   * shows them (so a session without that panel sends no extra request). The selection's observer
+   * creates the query idle and empty, so only a fetch already started or a settled answer skips it.
    */
   loadMarks(key: MarksQueryKey): void {
     const scope = this.getSnapshot().scope;
+    const state = this.queries.getQueryState(this.marksKey);
     if (
       key !== this.marksKey ||
       !this.selected ||
       !this.credential ||
       !scope ||
-      this.queries.getQueryState(this.marksKey) !== undefined
+      (state !== undefined &&
+        (state.fetchStatus !== "idle" || state.dataUpdatedAt > 0 || state.errorUpdatedAt > 0))
     )
       return;
     void this.readMarks(this.selectionIntent, this.intent, this.credential, {

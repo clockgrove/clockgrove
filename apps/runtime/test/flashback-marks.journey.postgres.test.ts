@@ -65,10 +65,19 @@ const surfaces = {
       host: { kind: "region", regionId: "den" },
       channels: [{ channel: "wear", initial: 0 }],
       markCapacity: 0,
+      traffic: "tread",
+    },
+    // Hosted by an object in the household store, a space this observer's scene does not hold.
+    {
+      id: "pantry-shelf",
+      host: { kind: "object", objectId: "fixture.household-food" },
+      channels: [{ channel: "wear", initial: 0 }],
+      markCapacity: 0,
     },
   ],
   interactions: [
     { id: "scratch", effects: [{ channel: "wear", kind: "add", amount: 30 }], leavesMark: true },
+    { id: "tread", effects: [{ channel: "wear", kind: "add", amount: 5 }], leavesMark: false },
   ],
 };
 
@@ -164,6 +173,35 @@ it("lists the journaled moments of a surface's zones newest first, bounded, read
           );
       }
 
+      // Keeper walks into the den, wearing its floor, and the floor is swept.
+      const now = world.birth.state.simulationTime + step * 3n;
+      const command = async (key: string, type: string, payload: object) =>
+        run({
+          ...advanceCommand(
+            world,
+            key,
+            0n,
+            BigInt(await truth("SELECT revision FROM clockgrove.partition_states")),
+          ),
+          type,
+          payload,
+        } as CommandEnvelope<string, unknown>);
+      await command("walk-den", "movement.start", {
+        schemaVersion: 1,
+        objectId: "fixture.keeper",
+        destination: {
+          kind: "pose",
+          pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [8000n, 22000n] },
+        },
+        unitsPerSecond: 1000n,
+      });
+      await run(advanceCommand(world, "walked-den", now + 60_000n, null));
+      await command("sweep-den", "surface.repair", {
+        schemaVersion: 1,
+        zoneId: "den-floor",
+        reason: "sweep",
+      });
+
       const artifacts = new PostgreSqlArtifactStore(client);
       const flashbackReader = new PostgreSqlFlashbackReader(
         client,
@@ -257,14 +295,49 @@ it("lists the journaled moments of a surface's zones newest first, bounded, read
           .every((moment) => moment.interactionId === "scratch"),
       ).toBe(true);
 
-      // A region host is listed; an unknown or zoneless object lists nothing.
+      // A region host is listed with its traffic (worn) and its repair, from the journaled payloads.
+      const keeperEntered = (
+        await truth(
+          "SELECT string_agg(event_id, ',' ORDER BY partition_sequence DESC) FROM clockgrove.events WHERE event_type = 'movement.region-entered' AND payload::text LIKE '%\"den-floor\"%' AND payload::text LIKE '%\"fixture.keeper\"%'",
+        )
+      ).split(",");
+      expect(keeperEntered).toHaveLength(1);
+      const swept = await truth(
+        "SELECT event_id FROM clockgrove.events WHERE event_type = 'surface.repaired' AND command_id = 'sweep-den'",
+      );
+      const den = await marks({ regionId: "den" });
+      expect(den.zones.map(({ zoneId, host, marks: count }) => [zoneId, host, count])).toEqual([
+        ["den-floor", { kind: "region", regionId: "den" }, 0],
+      ]);
+      const denMoments = den.zones[0]!.moments;
+      expect(denMoments[0]).toMatchObject({
+        eventId: swept,
+        commandId: "sweep-den",
+        kind: "repaired",
+        actorId: null,
+        interactionId: null,
+        leftMark: false,
+      });
+      expect(denMoments.filter((moment) => moment.eventId === keeperEntered[0])).toEqual([
+        expect.objectContaining({
+          kind: "worn",
+          actorId: "fixture.keeper",
+          interactionId: "tread",
+          leftMark: false,
+        }),
+      ]);
+      expect(denMoments.filter((moment) => moment.kind === "worn").length).toBeGreaterThan(0);
       expect(
-        (await marks({ regionId: "den" })).zones.map((item) => [
-          item.zoneId,
-          item.marks,
-          item.moments,
-        ]),
-      ).toEqual([["den-floor", 0, []]]);
+        denMoments.every(
+          (moment, index) =>
+            index === 0 ||
+            BigInt(denMoments[index - 1]!.partitionSequence) > BigInt(moment.partitionSequence),
+        ),
+      ).toBe(true);
+      // An object-hosted zone whose host is outside the observed space lists nothing, by object or zone.
+      for (const target of [{ objectId: "fixture.household-food" }, { zoneId: "pantry-shelf" }])
+        expect(await marks(target)).toMatchObject({ zones: [], scanned: null, reachesStart: true });
+      // An unknown or zoneless object lists nothing.
       expect((await marks({ zoneId: "cedar-bark" })).zones.map((item) => item.zoneId)).toEqual([
         "cedar-bark",
       ]);
@@ -292,6 +365,14 @@ it("lists the journaled moments of a surface's zones newest first, bounded, read
       });
 
       expect(await truth(canonical)).toBe(before);
+      // An event in the scanned range above the observer's ceiling leaves a gap: no moment is listed.
+      await truth(
+        `UPDATE clockgrove.events SET privacy_class = 'private_cognition' WHERE event_id = '${newest.eventId}'`,
+      );
+      expect(await marks({ objectId: "fixture.cedar" })).toMatchObject({
+        status: "not-visible",
+        zones: [{ zoneId: "cedar-bark", marks: 4, moments: [], more: 0 }],
+      });
       auth.revoke();
       const refused = await post("flashback/marks", { objectId: "fixture.cedar" });
       expect([refused.status, await refused.json()]).toEqual([
