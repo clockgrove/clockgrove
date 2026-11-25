@@ -142,7 +142,8 @@ resume a paused clock.
 ## Authority and readiness
 
 Execution requires committed participation in the requested world and `runtime:world-command`;
-clock controls require `runtime:world-clock` instead. Neither grant implies the other.
+clock controls require `runtime:world-clock` instead, and an owner's surface repair
+(`surface.repair`) `runtime:world-repair`. No one of these grants implies another.
 Workspace administration, workspace grants and `runtime:no-op` never grant physical mutation.
 Authentication failures return HTTP 401. Principals outside the named tenant receive no world data
 or readiness disclosure. An authenticated tenant member receives HTTP 409 with

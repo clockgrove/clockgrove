@@ -9,6 +9,9 @@ import {
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { weatherText } from "./hud.js";
 import { ACTION_LABELS } from "./interaction-card.js";
+import type { SceneSession } from "./scene-api.js";
+import { useZoneMarksQuery } from "./scene-queries.js";
+import { MarksSection } from "./selection.js";
 import { surfaceSentences } from "./world-scene-adapter.js";
 
 /** Follows `value` at most once per interval: the first value at once, then only the latest. */
@@ -122,8 +125,18 @@ export function spaceSummary(
   return `${world}, space ${space}, viewing ${viewing}. Weather: ${weatherText(scene)}. ${count} perceivable ${count === 1 ? "entity" : "entities"}.`;
 }
 
-/** The text path's surface sentences (issue 267), one per zone with a current band treatment. */
-export function TextSceneSurfaces({ surfaces }: { readonly surfaces: SceneSurfaces | undefined }) {
+/**
+ * The text path's surface sentences (issue 267), one per zone with a current band treatment. With
+ * a session, each zone's button opens its journaled moments (who, when, which interaction), each
+ * opening its flashback: the why of any zone, region-hosted or on an object.
+ */
+export function TextSceneSurfaces({
+  surfaces,
+  session,
+}: {
+  readonly surfaces: SceneSurfaces | undefined;
+  readonly session?: SceneSession | undefined;
+}) {
   const sentences = surfaceSentences(surfaces);
   if (sentences.length === 0) return null;
   return (
@@ -131,10 +144,60 @@ export function TextSceneSurfaces({ surfaces }: { readonly surfaces: SceneSurfac
       <h3>Surfaces</h3>
       <ul aria-label="Surfaces">
         {sentences.map((entry) => (
-          <li key={entry.zoneId}>{entry.sentence}</li>
+          <li key={entry.zoneId}>
+            {entry.sentence}
+            {session && <ZoneMomentsButton session={session} zoneId={entry.zoneId} />}
+          </li>
         ))}
       </ul>
+      {session && <ZoneMoments session={session} />}
     </>
+  );
+}
+
+function ZoneMomentsButton({
+  session,
+  zoneId,
+}: {
+  readonly session: SceneSession;
+  readonly zoneId: string;
+}) {
+  const open =
+    useZoneMarksQuery(session).status !== "none" && session.getZoneMarksKey()[5] === zoneId;
+  return (
+    <>
+      {" "}
+      <button
+        type="button"
+        data-zone-moments={zoneId}
+        aria-pressed={open}
+        onClick={() => session.openZoneMarks(open ? undefined : zoneId)}
+      >
+        Why: moments of {zoneId}
+      </button>
+    </>
+  );
+}
+
+function ZoneMoments({ session }: { readonly session: SceneSession }) {
+  const marks = useZoneMarksQuery(session);
+  const zoneId = session.getZoneMarksKey()[5];
+  if (marks.status === "none" || zoneId === undefined) return null;
+  return (
+    <section aria-label={`Moments of ${zoneId}`} aria-busy={marks.status === "loading"}>
+      <p role="status" aria-live="polite">
+        {marks.status === "loading"
+          ? `Loading moments of ${zoneId}.`
+          : marks.status === "ready"
+            ? `Moments of ${zoneId}.`
+            : marks.status === "refused"
+              ? "Too many reads; try again shortly."
+              : `Moments of ${zoneId} unavailable.`}
+      </p>
+      {marks.value && (
+        <MarksSection session={session} marks={marks.value} title={`Moments of ${zoneId}`} />
+      )}
+    </section>
   );
 }
 

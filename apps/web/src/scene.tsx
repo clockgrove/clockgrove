@@ -626,7 +626,7 @@ export function WorldApp({
               select={select}
               focus={focus}
             />
-            <TextSceneSurfaces surfaces={state.projection?.surfaces} />
+            <TextSceneSurfaces surfaces={state.projection?.surfaces} session={session} />
             {(state.projection?.privateCognition?.length ?? 0) > 0 && (
               <>
                 <h3>Private memories</h3>

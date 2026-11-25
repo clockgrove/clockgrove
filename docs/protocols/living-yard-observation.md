@@ -586,7 +586,10 @@ read's: 400 `invalid_inspection_request`, 401 `authentication_refused`, 403
 A flashback of a `surface.*` event follows its acting actor, if it has one, and its summary tells
 the moment in a closed sentence citing the event: an interaction (`<actor> <interaction> on <zone>,
 leaving a mark.`), a repair (`<zone> was repaired (<reason>), removing <amount> <channel>.`) or a
-band crossing (`<zone>'s <channel> moved into <band>.`, or `left every band.`). The web shell lists a selected entity's marks under
-**Marks** in its selection panel, each moment with its own flashback.
+band crossing (`<zone>'s <channel> moved into <bands entered> and left <bands left>.`, naming only
+the bands that changed, with `, now in no band` when none holds). The web shell lists a selected
+entity's marks under **Marks** in its selection panel, each moment with its own flashback, and the
+text path's **Surfaces** list opens any zone's moments, on an object or on a region, by `zoneId`
+(**Why: moments of `<zone>`**).
 `apps/runtime/test/flashback-marks.journey.postgres.test.ts` checks the list against the
 `clockgrove.events` rows of the zone and plays one moment through the flashback route.

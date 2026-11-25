@@ -252,17 +252,26 @@ it("remembers a scratched cedar, heals it by band crossings, is repaired by its 
       ]);
       expect(await barkSentence()).toBeNull();
 
-      // 5. The owner repairs the bark under its own principal; a membership without the grant is refused.
+      // 5. The owner repairs the bark under its own principal and `runtime:world-repair`; a member
+      // with only `runtime:world-command`, or only observing, is refused and changes nothing.
       const repair = { schemaVersion: 1, zoneId: "cedar-bark", reason: "owner-sweep" };
-      expect((await issue("owner-repair", "surface.repair", repair)).outcome).toBe("committed");
+      const unrepaired = await truth(head);
+      for (const [key, ctx] of [
+        ["commander-repair", commander],
+        ["observer-repair", observer],
+      ] as const)
+        await expect(issue(key, "surface.repair", repair, "owner", ctx)).rejects.toBeInstanceOf(
+          AuthorizationRefusedError,
+        );
+      expect(await truth(head)).toBe(unrepaired);
+      auth.grant("runtime:world-repair");
+      const repairer = await authorize("runtime:world-repair");
+      expect(
+        (await issue("owner-repair", "surface.repair", repair, "owner", repairer)).outcome,
+      ).toBe("committed");
       const [repaired] = await events("surface.repaired");
       expect(repaired.payload).toMatchObject({ zoneId: "cedar-bark", reason: "owner-sweep" });
       expect(repaired.attribution.principalId).toBe(authorization.principalId);
-      const before = await truth(head);
-      await expect(
-        issue("refused-repair", "surface.repair", repair, "owner", observer),
-      ).rejects.toBeInstanceOf(AuthorizationRefusedError);
-      expect(await truth(head)).toBe(before);
 
       // 6. The repair is listed and read as a sentence, and so is a crossing.
       expect((await barkMoments())[0]).toMatchObject({
@@ -273,7 +282,11 @@ it("remembers a scratched cedar, heals it by band crossings, is repaired by its 
       expect(await sentenceOf(repaired.eventId)).toBe(
         "cedar-bark was repaired (owner sweep), removing 173 wear.",
       );
-      expect(await sentenceOf(crossings[2].eventId)).toBe("cedar-bark's wear moved into scuffed.");
+      expect(await sentenceOf(crossings[1].eventId)).toBe("cedar-bark's wear moved into scuffed.");
+      expect(await sentenceOf(crossings[2].eventId)).toBe("cedar-bark's wear left scratched.");
+      expect(await sentenceOf(crossings[0].eventId)).toBe(
+        "cedar-bark's scent left marked, now in no band.",
+      );
 
       // 7. The journal replays to the live state exactly.
       const ports = {

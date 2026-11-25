@@ -115,8 +115,10 @@ repair, the budget refusal and scenario decoding.
 
 The owner cleans or repairs a zone with `surface.repair@1` on the runtime's ordinary world-command
 route (`POST /v1/runtime/commands`, run by the space owner's `PostgreSqlCommandOwner.submit`), under
-the member's `runtime:world-command` grant like every owner world command; a member without it is
-refused and nothing changes. The stated `reason` is the repair's journaled cause and the owner's
+its own grant, `runtime:world-repair` (`worldCommandGrant` in `apps/runtime/src/world-commands.ts`),
+the world owner's right: `runtime:world-command` alone does not allow it, so a member or MCP persona
+that may act in the world cannot erase what was done to it. A member without the grant is refused
+and nothing changes. The stated `reason` is the repair's journaled cause and the owner's
 principal is in the command's sealed attribution. A future world steward issues repairs through the
 same route.
 

@@ -75,6 +75,7 @@ import {
   viewTraceProjection,
   type WhyQueryKey,
   whyProjection,
+  type ZoneMarksQueryKey,
 } from "./scene-queries.js";
 import { browserSceneSocket, type SceneSocketFactory } from "./socket.js";
 
@@ -383,6 +384,16 @@ export class SceneSession {
   private flashbackObserver: QueryObserver<Flashback> | undefined;
   private marksKey: MarksQueryKey = ["living-scene", "marks", 0, undefined, 0, undefined];
   private marksObserver: QueryObserver<FlashbackMarks> | undefined;
+  private zoneMarksIntent = 0;
+  private zoneMarksKey: ZoneMarksQueryKey = [
+    "living-scene",
+    "zone-marks",
+    0,
+    undefined,
+    0,
+    undefined,
+  ];
+  private zoneMarksObserver: QueryObserver<FlashbackMarks> | undefined;
   constructor(
     private readonly origin: string,
     private readonly resetView: () => void,
@@ -466,6 +477,7 @@ export class SceneSession {
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;
   readonly getViewTraceKey = (): ViewTraceQueryKey => this.viewKey;
   readonly getMarksKey = (): MarksQueryKey => this.marksKey;
+  readonly getZoneMarksKey = (): ZoneMarksQueryKey => this.zoneMarksKey;
   readonly getFlashbackKey = (): FlashbackQueryKey => this.flashbackKey;
   /** The observation intent fences world-status results: a replaced observation changes it. */
   readonly getIntent = (): number => this.intent;
@@ -544,6 +556,11 @@ export class SceneSession {
     );
   readonly getMarksSnapshot = () =>
     marksProjection(this.selected, this.queries.getQueryState<FlashbackMarks>(this.marksKey));
+  readonly getZoneMarksSnapshot = () =>
+    marksProjection(
+      this.zoneMarksKey[5],
+      this.queries.getQueryState<FlashbackMarks>(this.zoneMarksKey),
+    );
   readonly getWhySnapshot = () =>
     whyProjection(this.entry, this.queries.getQueryState<RecordedWhy>(this.whyKey));
   readonly getFlashbackSnapshot = () =>
@@ -1663,6 +1680,61 @@ export class SceneSession {
       objectId: this.selected,
     });
   }
+  /**
+   * Issue 267: opens one surface zone's moments (`POST /v1/runtime/flashback/marks` by `zoneId`),
+   * so a region-hosted zone's why is reachable from the text path; `undefined` closes them. A
+   * superseded zone or world discards a late answer.
+   */
+  openZoneMarks(zoneId: string | undefined): void {
+    const intent = ++this.zoneMarksIntent;
+    this.zoneMarksObserver?.destroy();
+    this.zoneMarksObserver = undefined;
+    void this.queries.cancelQueries({ queryKey: this.zoneMarksKey, exact: true });
+    this.queries.removeQueries({ queryKey: this.zoneMarksKey, exact: true });
+    const { scope } = this.getSnapshot();
+    const credential = this.credential;
+    const open = zoneId !== undefined && credential !== undefined && scope !== undefined;
+    this.zoneMarksKey = [
+      "living-scene",
+      "zone-marks",
+      this.intent,
+      scope,
+      intent,
+      open ? zoneId : undefined,
+    ];
+    if (zoneId !== undefined && credential !== undefined && scope !== undefined) {
+      const key = this.zoneMarksKey;
+      const request: FlashbackMarksRequest = { version: 1, ...scope, zoneId };
+      const observation = this.intent;
+      this.zoneMarksObserver = new QueryObserver<FlashbackMarks>(this.queries, {
+        queryKey: key,
+        queryFn: skipToken,
+      });
+      this.zoneMarksObserver.subscribe(() => this.notify());
+      void this.queries
+        .fetchQuery({
+          queryKey: key,
+          staleTime: 0,
+          queryFn: async ({ signal }) => {
+            const value = await this.readObservation(
+              "/v1/runtime/flashback/marks",
+              credential,
+              request,
+              signal,
+              decodeFlashbackMarks,
+            );
+            if (!("zoneId" in value.target) || value.target.zoneId !== zoneId)
+              throw new ApiRefusal(403);
+            return value;
+          },
+        })
+        .catch((error: unknown) => {
+          if (intent !== this.zoneMarksIntent || observation !== this.intent) return;
+          this.refuseAuthorization(error);
+        });
+    }
+    this.notify();
+  }
   private async readMarks(
     selectionIntent: number,
     intent: number,
@@ -1753,6 +1825,7 @@ export class SceneSession {
     this.traceView(false);
     this.flashback(undefined);
     this.select(undefined);
+    this.openZoneMarks(undefined);
     const observation = this.observation;
     this.observation = undefined;
     if (observation) this.retirement = observation.disconnect();

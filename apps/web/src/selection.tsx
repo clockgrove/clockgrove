@@ -244,16 +244,19 @@ const MARK_KIND_WORDS = {
   repaired: "repaired",
 } as const;
 
-function MarksSection({
+/** A marks read's zones and moments, each moment opening its flashback (issues 273 and 267). */
+export function MarksSection({
   session,
   marks,
+  title = "Marks",
 }: {
   readonly session: SceneSession;
   readonly marks: FlashbackMarks;
+  readonly title?: string;
 }) {
   return (
     <>
-      <h3>Marks</h3>
+      <h3>{title}</h3>
       {marks.zones.map((zone) => (
         <div key={zone.zoneId}>
           <p>

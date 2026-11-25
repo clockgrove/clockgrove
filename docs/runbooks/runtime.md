@@ -70,7 +70,9 @@ codes in the protocol; `durable_state_corrupt` means stored state failed verific
 Committed world participation and `runtime:world-command` authorize physical execution. Clock
 controls (`PauseWorld`, `ResumeWorld`, `SetClockPolicy`) require `runtime:world-clock` instead;
 `runtime:world-command` alone cannot pause or re-speed a world. Grant `runtime:world-clock` in the
-member's `clockgrove.world_memberships.grants` to allow clock control. Workspace
+member's `clockgrove.world_memberships.grants` to allow clock control. A surface repair
+(`surface.repair`) likewise requires `runtime:world-repair`, the world owner's right to clean or
+repair a zone. Workspace
 administration, `runtime:no-op` and caller authority fields cannot substitute. Authenticated tenant
 members receive `409 world_not_ready` before readiness without projection or execution. Unauthenticated
 callers and principals outside the tenant cannot discover readiness or world data through this endpoint.

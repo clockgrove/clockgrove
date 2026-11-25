@@ -516,7 +516,7 @@ const words = (kind: string): string => kind.replaceAll("-", " ");
 
 /**
  * A closed sentence for an actorless surface moment (issue 267): a repair names its stated reason
- * and what it removed, a band crossing the bands its channel moved into.
+ * and what it removed, a band crossing the bands its channel entered and left.
  */
 function surfaceSentence(type: string, payload: Record<string, unknown>): string | undefined {
   const zone = String(payload.zoneId);
@@ -526,9 +526,21 @@ function surfaceSentence(type: string, payload: Record<string, unknown>): string
       .map((item: { channel?: unknown; amount?: unknown }) => `${item.amount} ${item.channel}`);
     return `${zone} was repaired (${words(String(payload.reason))})${removed.length === 0 ? "" : `, removing ${removed.join(" and ")}`}.`;
   }
-  if (type === "surface.band-crossed" && Array.isArray(payload.bands)) {
+  if (
+    type === "surface.band-crossed" &&
+    Array.isArray(payload.bands) &&
+    Array.isArray(payload.previousBands)
+  ) {
+    // The bands entered and left, from the difference: a band the channel stays in is neither.
     const bands = payload.bands.map(String);
-    return `${zone}'s ${String(payload.channel)} ${bands.length === 0 ? "left every band" : `moved into ${bands.join(" and ")}`}.`;
+    const previous = payload.previousBands.map(String);
+    const entered = bands.filter((band) => !previous.includes(band));
+    const left = previous.filter((band) => !bands.includes(band));
+    const moves = [
+      ...(entered.length === 0 ? [] : [`moved into ${entered.join(" and ")}`]),
+      ...(left.length === 0 ? [] : [`left ${left.join(" and ")}`]),
+    ];
+    return `${zone}'s ${String(payload.channel)} ${moves.join(" and ")}${bands.length === 0 ? ", now in no band" : ""}.`;
   }
   return undefined;
 }

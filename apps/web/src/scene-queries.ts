@@ -61,6 +61,15 @@ export type MarksQueryKey = readonly [
   number,
   ObjectId | undefined,
 ];
+/** Issue 267: one surface zone's moments, opened from the text path's Surfaces list. */
+export type ZoneMarksQueryKey = readonly [
+  "living-scene",
+  "zone-marks",
+  number,
+  BrowserScope | undefined,
+  number,
+  string | undefined,
+];
 export type ViewTraceQueryKey = readonly [
   "living-scene",
   "view-trace",
@@ -170,7 +179,7 @@ export function flashbackProjection(
   };
 }
 export function marksProjection(
-  objectId: ObjectId | undefined,
+  objectId: ObjectId | string | undefined,
   state: Pick<QueryState<FlashbackMarks>, "status" | "data" | "error"> | undefined,
 ): MarksProjection {
   return {
@@ -276,6 +285,11 @@ export function useFlashbackQuery(session: SceneSession): FlashbackProjection {
 }
 export function useFlashbackMarksQuery(session: SceneSession): MarksProjection {
   const queryKey = useReadKey(session, session.getMarksKey);
+  const query = useQuery<FlashbackMarks>({ queryKey, queryFn: skipToken }, session.queries);
+  return marksProjection(queryKey[5], query);
+}
+export function useZoneMarksQuery(session: SceneSession): MarksProjection {
+  const queryKey = useReadKey(session, session.getZoneMarksKey);
   const query = useQuery<FlashbackMarks>({ queryKey, queryFn: skipToken }, session.queries);
   return marksProjection(queryKey[5], query);
 }
