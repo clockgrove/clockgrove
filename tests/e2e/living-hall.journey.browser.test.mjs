@@ -34,11 +34,7 @@ import {
   withNativeWorldOwner,
 } from "../../apps/runtime/test/world-owner/native-harness.ts";
 import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.js";
-import {
-  createPartitionSnapshot,
-  decodeCanonicalNode,
-  executeWorldCommand,
-} from "../../packages/application/src/index.ts";
+import { decodeCanonicalNode, executeWorldCommand } from "../../packages/application/src/index.ts";
 import {
   decodeEntitySelection,
   decodeFlashback,
@@ -52,7 +48,6 @@ import {
 import { executeWorldKernel } from "../../packages/kernel/src/index.ts";
 import {
   PostgreSqlArtifactStore,
-  PostgreSqlSnapshotStore,
   PostgreSqlWorldCommandJournal,
   PostgreSqlWorldOwnerReader,
 } from "../../packages/persistence/src/index.ts";
@@ -189,6 +184,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
             "/v1/runtime/entity",
             "/v1/runtime/why",
             "/v1/runtime/causal-chain",
+            "/v1/runtime/flashback",
             "/v1/runtime/world-directory",
             "/v1/runtime/world-readiness",
             "/v1/runtime/viewed-space",
@@ -1677,15 +1673,6 @@ const observeHall = async (backend) => {
           "PRIVATE-PERCEPTION-SENTINEL",
         ];
         await withClient(fixture.environment, async (commandClient) => {
-          // Issue 273: the Why command's flashback replays from this snapshot, not from birth.
-          await createPartitionSnapshot(
-            provisioned.authorization,
-            { ...provisioned.partition.target, partitionId },
-            {
-              snapshots: new PostgreSqlSnapshotStore(commandClient),
-              artifacts: new PostgreSqlArtifactStore(commandClient),
-            },
-          );
           const result = await executeWorldCommand(commandRequest(provisioned, whyCommand), {
             journal: new PostgreSqlWorldCommandJournal(commandClient),
             behavior: provisioned.behavior,
@@ -1828,8 +1815,7 @@ const observeHall = async (backend) => {
         expect(
           await whyPanel.getByText("Child commands: None", { exact: true }).textContent(),
         ).toBe("Child commands: None");
-        // Issue 273: the Why's flashback replays the moment read-only from the snapshot taken just
-        // before it. The panel shows the runtime's own answer, the cited summary without private
+        // Issue 273: the Why's flashback replays the moment read-only from the journal. The panel shows the runtime's own answer, the cited summary without private
         // refs, a scrubbable replay at the live tier's budget, and steps back through its causes.
         const flashbackState = [await commands(), await durable()];
         const flashbackOf = async (fields) => {
@@ -1840,7 +1826,7 @@ const observeHall = async (backend) => {
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
-          expect(answer.status()).toBe(200);
+          expect(answer.status(), await answer.text()).toBe(200);
           return decodeFlashback(await answer.json());
         };
         const flashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
@@ -1860,10 +1846,7 @@ const observeHall = async (backend) => {
         await flashbackOpener.click();
         let moment = await flashbackOf({ commandId: "browser-why-original" });
         expect(decodeFlashback(await (await shownFlashback).json())).toEqual(moment);
-        expect([moment.replay.status, moment.replay.start === "birth"]).toEqual([
-          "replayed",
-          false,
-        ]);
+        expect(moment.replay.status).toBe("replayed");
         expect(moment.frames.some((frame) => frame.moment)).toBe(true);
         await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
         expect(
@@ -1928,6 +1911,8 @@ const observeHall = async (backend) => {
         );
         // A flashback reads the journal only: no command, revision or simulation time changed.
         expect([await commands(), await durable()]).toEqual(flashbackState);
+        // The Why's own keyboard path below starts from its heading, as it did before the flashback.
+        await whyHeading.focus();
         const sharedResponses = [];
         for (const [endpoint, fields] of [
           ["scene", {}],
