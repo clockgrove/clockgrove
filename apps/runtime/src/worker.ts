@@ -47,6 +47,7 @@ import {
   decodeDocumentChangeRequest,
   decodeDocumentReadRequest,
   decodeEntitySelectionRequest,
+  decodeFlashbackRequest,
   decodeInfluenceRequest,
   decodeObservationRequest,
   decodeOpaqueId,
@@ -60,7 +61,9 @@ import {
   decodeWorldDirectoryRequest,
   type EntitySelection,
   type EntitySelectionRequest,
+  encodeFlashback,
   encodeWorldStatus,
+  type Flashback,
   type FollowDisposition,
   type InfluenceRequest,
   type LivingScene,
@@ -108,6 +111,7 @@ import {
   type TurnOwners,
 } from "./conversations.js";
 import { type DeliveryStores, deliveryConsentCall } from "./delivery-routes.js";
+import type { FlashbackInput } from "./flashback.js";
 import {
   type CausalEntryInput,
   type CausalEntryView,
@@ -249,6 +253,11 @@ export interface RuntimeOwnerBindings {
   readonly deliveries?: DeliveryStores;
   /** The viewer's own client view traced, under the observe grant and the inspector audit. */
   readonly viewTrace?: AuditedPort<ClientViewInput, ClientViewTrace>;
+  /**
+   * Flashbacks (issue 273): an entry's moment replayed read-only from the journal with its recorded
+   * context and causes, under the observe grant and the inspector's audit and rate limit.
+   */
+  readonly flashback?: AuditedPort<FlashbackInput, Flashback>;
   /** Run walks and metadata search, under the inspector's grant, limit and audit (0036). */
   readonly runs?: {
     readonly walk: AuditedPort<RunInspectRequest, RunWalk>;
@@ -378,6 +387,24 @@ function entryLogIds(input: CausalEntryInput): RuntimeLogIds {
 }
 
 /** An entry's stable refusals: each unknown entry kind has its own code. */
+/**
+ * Input decoding has already finished when an audited port runs or its answer is encoded, so a
+ * decode error then is a producer defect: a server failure (500, logged), never the caller's 400.
+ */
+async function producerDefectsFail<T>(work: () => T | Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (
+      error instanceof ContractDecodeError ||
+      error instanceof CanonicalNodeError ||
+      error instanceof SyntaxError
+    )
+      throw new Error("recorded evidence decoding failed", { cause: error });
+    throw error;
+  }
+}
+
 function entryRefusal(note: RequestNote, error: unknown): Response | undefined {
   if (error instanceof InspectedCommandNotFoundError)
     return refusal(note, "command_not_found", 404);
@@ -447,6 +474,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/why")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.recordedWhy(request, note),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/flashback")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.flashback(request, note),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/view-trace")
       return this.answer("scene_observation_answered", (note) => this.viewTrace(request, note));
@@ -1397,7 +1428,7 @@ export class RuntimeWorker {
   private recordedWhy(request: Request, note: RequestNote): Promise<Response> {
     const inspector = this.bindings.inspector;
     return this.audited(request, note, {
-      decode: (value): CausalEntryInput => {
+      decode: (value): FlashbackInput => {
         const {
           version: _version,
           tenantId,
@@ -1414,20 +1445,8 @@ export class RuntimeWorker {
           ? undefined
           : {
               deny: (input, principalId, denial) => inspector.deny(input, principalId, denial),
-              inspect: async (input, context) => {
-                try {
-                  return await inspector.recordedWhy(input, context);
-                } catch (error) {
-                  // Input decoding has already finished; producer defects are server failures.
-                  if (
-                    error instanceof ContractDecodeError ||
-                    error instanceof CanonicalNodeError ||
-                    error instanceof SyntaxError
-                  )
-                    throw new Error("recorded evidence decoding failed", { cause: error });
-                  throw error;
-                }
-              },
+              inspect: (input, context) =>
+                producerDefectsFail(() => inspector.recordedWhy(input, context)),
             },
       grant: OBSERVE_GRANT,
       seed: entryIdentity,
@@ -1437,6 +1456,52 @@ export class RuntimeWorker {
         return jsonResponse(view);
       },
       refuse: (error) => entryRefusal(note, error),
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "causal_chain_inspection_failed"],
+    });
+  }
+
+  /** A flashback: the entry's moment replayed from the journal, its context and recorded causes. */
+  private flashback(request: Request, note: RequestNote): Promise<Response> {
+    const flashback = this.bindings.flashback;
+    return this.audited(request, note, {
+      decode: (value): FlashbackInput => {
+        const {
+          version: _version,
+          tenantId,
+          worldId,
+          timelineId,
+          spaceId,
+          ...entry
+        } = decodeFlashbackRequest(value);
+        return { scope: { tenantId, worldId, timelineId, spaceId }, ...entry };
+      },
+      invalid: "invalid_inspection_request",
+      port:
+        flashback === undefined
+          ? undefined
+          : {
+              deny: (input, principalId, denial) => flashback.deny(input, principalId, denial),
+              inspect: (input, context) =>
+                // Encoded inside the port, so an encoder defect is a server failure too.
+                producerDefectsFail(async () =>
+                  encodeFlashback(await flashback.inspect(input, context)),
+                ),
+            },
+      grant: OBSERVE_GRANT,
+      seed: entryIdentity,
+      ids: entryLogIds,
+      answer: (body) => {
+        note.outcome = "read";
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+      refuse: (error) =>
+        error instanceof JournalRouteNotFoundError
+          ? refusal(note, "world_not_ready", 409)
+          : entryRefusal(note, error),
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "causal_chain_inspection_failed"],
     });

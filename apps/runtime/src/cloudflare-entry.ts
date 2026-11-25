@@ -108,6 +108,7 @@ import { type AnalyticsEngineDataset, analyticsEngineMetrics } from "./cloudflar
 import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
 import { handleEffectEndpoint, isEffectRoute } from "./effect-endpoint.js";
+import { PostgreSqlFlashbackReader } from "./flashback.js";
 import {
   HyperdrivePostgreSqlClient,
   withHyperdrivePostgreSqlClient,
@@ -144,6 +145,7 @@ import {
 import { runtimeRouteName, stableWorkflowInstanceId } from "./routing.js";
 import { PostgreSqlRunInspector } from "./runs.js";
 import { SCENE_JOIN_HEADER, signSceneJoin } from "./scene-connections.js";
+import { decodeScenePresentations } from "./scene-presentation.js";
 import {
   type RuntimeAuthenticationDependencies,
   TrustedRuntimeRequestAuthenticator,
@@ -1594,6 +1596,18 @@ export default {
           return withHyperdrivePostgreSqlClient(connection, (client) =>
             readWorldReadiness(client, principalId, scope),
           );
+        },
+        flashback: {
+          inspect: (input, context) =>
+            withHyperdrivePostgreSqlClient(connection, (client) =>
+              new PostgreSqlFlashbackReader(client, new PostgreSqlCausalInspector(client), {
+                artifacts: composeArtifactStore(env, client),
+                decodeResource,
+                presentations: decodeScenePresentations(env.WORLD_PRESENTATION),
+              }).inspect(input, context),
+            ),
+          deny: (input, principalId, denial) =>
+            inspector((owner) => owner.deny(input, principalId, denial)),
         },
         inspector: {
           inspect: (input, context) => inspector((owner) => owner.inspect(input, context)),

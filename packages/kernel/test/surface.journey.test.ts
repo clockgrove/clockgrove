@@ -275,7 +275,9 @@ it("journals only band crossings while a scratched surface heals, identically in
   });
   const replayed = [...aggregate.events].reduce(reduceWorldEvent, world.state);
   expect(replayed.surfaces).toEqual(aggregate.world.state.surfaces);
-});
+  // The bounded shape alone is ~1,500 kernel calls, each hashing its whole input: about 2 s on
+  // an idle machine and past the 30 s default on a loaded 4-CPU CI runner, so declare its cost.
+}, 120_000);
 
 const bands = (...names: [string, number, number][]) =>
   names.map(([name, min, max]) => ({ name, min, max }));
