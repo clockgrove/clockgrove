@@ -65,7 +65,8 @@ any other pairing is refused. `leavesMark` says whether an interaction pushes a 
 `budgets.marksPerZone`, is refused with an `EnvironmentValidationError` whose `check` is
 `surface.budget@1` (message `surface budget exceeded (surface.budget@1)`) at `policy.surfaces.zones`
 or `policy.surfaces.zones[i].markCapacity`; a malformed declaration at those paths carries no
-`check`. Nothing is dropped. The
+`check`. The pack SDK refuses the budget case as `SURFACE_BUDGET_EXCEEDED`
+([SDK refusal codes](../../world-pack-sdk/docs/refusal-codes.md)). Nothing is dropped. The
 engine ceilings above (`MAX_SURFACE_ZONES`, `MAX_SURFACE_CHANNELS`, `MAX_SURFACE_BANDS`,
 `MAX_SURFACE_INTERACTIONS`, `MAX_SURFACE_MARKS`, `MAX_SURFACE_EFFECTS`) bound per-instant work.
 

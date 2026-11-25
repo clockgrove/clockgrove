@@ -250,6 +250,33 @@ function addActorCommandPolicy(
 
 const cases: Case[] = [
   [
+    "SURFACE_BUDGET_EXCEEDED",
+    "manifest.policies[1]#policy.surfaces.zones",
+    (c) => {
+      const zone = (id: string) => ({
+        id,
+        host: { kind: "object", objectId: "unit.resident" },
+        channels: [{ channel: "wear", initial: 0 }],
+        markCapacity: 0,
+      });
+      behaviorPolicy(c).surfaces = {
+        schemaVersion: 1,
+        budgets: { zones: 1, marksPerZone: 0 },
+        channels: [
+          {
+            id: "wear",
+            max: 10,
+            carried: false,
+            bands: [{ name: "worn", min: 1, max: 10 }],
+            recovery: { driver: "none" },
+          },
+        ],
+        zones: [zone("unit.a"), zone("unit.b")],
+        interactions: [],
+      };
+    },
+  ],
+  [
     "INVALID_POLICY",
     "manifest.policies[1]#policy.ecology.sources",
     (c) => {
