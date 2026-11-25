@@ -295,6 +295,22 @@ capture and enable reduced motion for repeatable stills. Use ordinary animation 
 capturing motion. A canvas screenshot captures the product camera, lights, grade, bloom and tier;
 it does not need the authenticated local-session command above.
 
+### One picture
+
+A scene is one picture. The cast and the set share lights, shadows, indirect light, fog and the grade
+on every quality tier. Rim light is presentation data with a per-tier budget, which is none on every
+tier today. No screen-space filter applies to the set and not the cast: painterly worlds carry
+painterliness in their textures. The rule is world-agnostic and names no cast or species. The
+renderer's grounding, shadow and budget rules are in
+[Grounding and one picture](../../apps/web/docs/scene.md#grounding-and-one-picture-266).
+
+Occlusion is part of the same picture: it is depth-true by default, so a character behind a trunk
+is hidden like anything else behind it. Only the selected (or followed) character is revealed, after
+a short dwell. World content says what may fade (canopies, roofs: `kind: "fade"`) and what never
+does (trunks, posts, walls: `kind: "solid"`) through its `occluders`, each with the plain-text label
+the text path uses ("Ada is behind the cedar."). The rules are in
+[Occlusion and reveal](../../apps/web/docs/scene.md#occlusion-and-reveal-266).
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.
@@ -345,4 +361,7 @@ scene clock convention), normalized for negative times, smooth daylight transiti
 The two-hour transition and colour palette are visual policy decisions for #184, not simulation
 rules or hardware performance claims. Callers may supply their own validated lighting/environment.
 Content shares the scene's continuous ambient and directional lights through its attached root,
-without a per-world renderer branch. Its `update` frame retains the existing time/weather fields.
+without a per-world renderer branch. It also shares the scene's real depth (#266): `place` anchors
+content at the floor's real world-space depth and scales its local axes 12.5 on all three, so a
+pinned world whose models were authored against the earlier 0.01 local depth scale rechecks them
+on updating its pin ([scene: real depth](../../apps/web/docs/scene.md#isometric-rules-92)). Its `update` frame retains the existing time/weather fields.

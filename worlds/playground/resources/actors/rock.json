@@ -1,0 +1,1 @@
+{"archetype":{"id":"playground.rock-kind","version":1},"capabilities":[{"id":"playground.voice","version":1}],"id":"playground.rock","overrides":[],"placement":{"coordinates":[{"$bigint":"300"},{"$bigint":"100"}],"space":{"id":"playground.plane","version":1}},"traits":[]}

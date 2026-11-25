@@ -12,6 +12,8 @@ import {
   needsSchema,
   portalSchema,
   resourceSchema,
+  type ShelterState,
+  shelterSchema,
   spatialTransformSchema,
   weatherExposureSchema,
 } from "./components/catalog/index.js";
@@ -59,6 +61,7 @@ export function createInitialComponentRegistry(): ComponentRegistry {
     portal,
     presentation,
     conversationMode,
+    shelter,
   ] = createInitialComponentCatalog();
   components.register(registration(identity));
   components.register(registration(archetype));
@@ -71,7 +74,14 @@ export function createInitialComponentRegistry(): ComponentRegistry {
   components.register(registration(portal));
   components.register(registration(presentation));
   components.register(registration(conversationMode));
+  components.register(registration(shelter));
   return components;
+}
+
+/** A shelter without declared cover has no `coverRadius` key, so its canonical bytes are unchanged. */
+function shelterOf(state: ShelterState): NonNullable<WorldEntity["shelter"]> {
+  const { rainProtection, coverRadius } = state;
+  return coverRadius === undefined ? { rainProtection } : { rainProtection, coverRadius };
 }
 
 function refuse(path: string, message: string): never {
@@ -162,6 +172,7 @@ export function projectEffectiveObjectsToWorldState(
       refuse(`${path}.definition.owner`, "definition and Identity ownership must match");
     const needs = snapshots["clockgrove.needs"];
     const weather = snapshots["clockgrove.weather-exposure"];
+    const shelter = snapshots["clockgrove.shelter"];
     const portal = snapshots["clockgrove.portal"];
     const conversation = snapshots["clockgrove.conversation-mode"];
     return {
@@ -178,7 +189,10 @@ export function projectEffectiveObjectsToWorldState(
         ? {}
         : { resource: resourceSchema.parse(snapshots["clockgrove.resource"].state) }),
       ...(needs === undefined ? {} : { needs: needsSchema.parse(needs.state) }),
-      ...(weather === undefined ? {} : { shelter: weatherExposureSchema.parse(weather.state) }),
+      ...(shelter === undefined ? {} : { shelter: shelterOf(shelterSchema.parse(shelter.state)) }),
+      ...(weather === undefined
+        ? {}
+        : { weatherProtection: weatherExposureSchema.parse(weather.state) }),
       ...(portal === undefined ? {} : { portal: portalSchema.parse(portal.state) }),
       ...(conversation === undefined
         ? {}

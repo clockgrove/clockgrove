@@ -32,6 +32,7 @@ export type InspectorAccess = {
         | "runtime-state"
         | "client-view"
         | "agent-runs"
+        | "usage-events"
         | "context-manifest"
         | "actor-documents";
       readonly commandId?: undefined;

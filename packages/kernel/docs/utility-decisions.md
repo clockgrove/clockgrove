@@ -26,7 +26,8 @@ registry (`stay@1`, `seek-food@1`, `seek-water@1`, `seek-shelter@1`, scorer `clo
 instead of `chooseRoutine`. Candidates are `stay`, then one seek per active food holder, water holder and
 shelter, in object-id order. Features are bigints: `hunger`, `thirst`, `wetness`, `rain`, `health`,
 `uncomfortable` (10000 or 0) and `U` (10000 when comfortable, else `20000 - health`); a seek adds `travelMs`,
-`perceived` (10000 or 0) and `expectation` (the sum of the effective scripted values for the actor and target,
+`perceived` (10000 or 0), `remembered` (10000 when an effective scripted entry for the target is a `memory`,
+else 0) and `expectation` (the sum of the effective scripted values for the actor and target,
 capped at 10000); food adds `freshness`, shelter `protection`. `UTILITY_FEATURE_SCALES` gives each
 feature's unit (basis points with a range, flag or milliseconds), its `level` (`actor` for the features recorded on every candidate, `candidate` for the rest; required, so a new feature must declare it) and meaning, for readers outside the
 kernel such as the decision-shadow prompt. `utilityFeatureBand(name, value)` gives the quarter (`0` to `3`) of a
@@ -51,8 +52,8 @@ only for policy-declared ambiguity or novelty (Wave 1 plan §5.7). Under `policy
 decision is checked after its trace is final; a `reflex` decision never is. The declared conditions are tried
 in kind order and the first that holds is recorded: `score-margin` when at least two candidates are eligible
 and the best score minus the second best (in selection order) is at most `maxMargin`; `unperceived-target`
-when the selected action is a seek whose target's `perceived` feature is 0, so the choice rests on scripted
-evidence alone. The decision then pushes a second decision draft, kind `planning-request`, directly after its
+when the selected action is a seek whose target's `perceived` feature is 0 and `remembered` feature is not 10000, so the target was never
+confirmed and the choice rests on belief alone; a remembered target out of view is not novel. The decision then pushes a second decision draft, kind `planning-request`, directly after its
 `routine` draft, with the decision `{schemaVersion: 1, requestId, status: "recorded", objectId,
 simulationTime, commandId, policyVersion, ambiguityVersion: 1, condition, candidates, fallbackAction}`:
 `commandId` is the dispatched `world.decision` command of the trace it belongs to and `requestId` is
@@ -77,21 +78,28 @@ bytes in Node and workerd. Opting in changed no raccoon golden's events, schedul
 state, only its artifact hashes and recorded decisions.
 The malformed declarations are named refusal cases of the decisions evidence.
 
-**Plans and arrival.** An actor already at the target's coordinates arrives immediately. Otherwise the
-decision emits `location.changed` to null when the actor is located, then `movement.started` through
+**Plans and arrival.** An actor already at the target's coordinates, or seeking a shelter whose declared cover already covers its position (`shelterMatches`), arrives immediately where it stands; such a seek's `travelMs` is 0. Otherwise the
+decision emits the set-out `location.changed` when the shelter the actor is in as it sets out differs from its
+location (spatial-movement.md's Leaving rule: the declared cover around its start, its own first, else the first by
+object id, else null), so a located actor leaving cover goes to null and an unlocated one starting under a declared
+cover goes to that shelter; then `movement.started` through
 `planMovement` (anchor-at-target destination, else the target pose; `unitsPerSecond`; `movementIdFor` of the
 dispatch command id). The same action continues silently, a different seek replans
 (`movement.replanned`) and `stay` interrupts (`movement.interrupted`). `world.advance` registers one movement
-system per moving actor and emits region crossings and `movement.completed` at the exact times, reusing
-`expectedCrossings` and `movementCompletionTime`. `utility.plan-matches-action@1` is a precondition and a
+system per moving actor and emits region crossings, `movement.completed` and the `location.changed` of a
+walk crossing a declared cover at the exact times, reusing `expectedCrossings`, `movementCompletionTime` and
+`coverIntervals`. `utility.plan-matches-action@1` is a precondition and a
 post-state invariant of every command. A decision that stops a walk applies the stopping rule of
 [spatial movement](spatial-movement.md#world-time-a-move-passes): after a `stay` interrupt the actor
-is in the active shelter standing where it stopped, or on open ground, and a walk stopped at the
+is in the active shelter covering where it stopped, or on open ground, and a walk stopped at the
 new target's coordinates arrives as a completed move does. Arrival effects: food and water take `q = min(biteQuantity, holder
 quantity)`, emit `resource.consumed {objectId: holder, kind, quantity, consumerId: actor}` then `needs.relieved` with
 `value = max(0, current - q*reliefPerUnit)`, and emit neither when `q` is 0. A move ends in the active shelter
-standing at the target, the sought one first (so walking to food inside a shelter enters it), and on open
-ground otherwise; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
+covering the target (at its exact coordinates or within its `coverRadius`), the sought one first (so walking to
+food under a shelter's cover enters it), and on open ground otherwise. While it walks, its location follows the
+declared covers it passes through, changing at the millisecond it crosses a cover's boundary (the "Crossing a cover"
+rule of [spatial movement](spatial-movement.md#world-time-a-move-passes)), so a walk kept within the cover of the shelter
+the actor is in keeps that location throughout; an immediate arrival of an actor that was not walking enters only a sought shelter. Either emits
 `location.changed`, before any consumption, unless the actor is already there. Arrival events name the decision's
 plan (`plan:<objectId>@<time>`); when `world.advance` completes a movement no decision started (a moving command's,
 observed only up to `observeUntil`), they name that movement id. The two are told apart by structure: a decision's
@@ -161,14 +169,17 @@ emitted. Decision group at time t for due actor a: 0 for an unchanged decision, 
 `integrationEvents(a, t) + pendingPlants(t) + 1 + planEvents`.
 `integrationEvents(a, t)` is 0 to `perActor` for the due actor only (`needs.changed` when its needs change, plus
 `wellbeing.integrated` when its entry is not already integrated at t); `pendingPlants(t)` counts the active plants
-not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the unlocate (1 when a seek
-starts and the actor has a location, else 0) plus the movement event (1 for `movement.started`,
+not yet integrated at t (at most `plants`); the 1 is `routine.selected`; `planEvents` is the set-out location event (1 when a seek
+starts or replans a walk that leaves its start and the shelter covering that start, its location's first, else the
+first by object id, else open ground, differs from the actor's location, else 0) plus the movement event (1 for `movement.started`,
 `movement.replanned` or `movement.interrupted`; 0 for a silent continue or a stay without movement) plus the
-stopping location (1 when a `stay` interrupts a walk where the shelter standing there, or open ground, differs
+stopping location (1 when a `stay` interrupts a walk where the shelter covering that point, or open ground, differs
 from the actor's location, else 0) plus the immediate-arrival events (a walk stopped at its target counts its
 arrival's `location.changed` here). Arrival or crossing group at time t: `RW-0108a group size + routineCrossings + the sum
 over arriving actors b of (integrationEvents(b, t) when b is not already integrated in the group, else 0, plus 1 +
-arrivalEvents(b))`, where the 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
+arrivalEvents(b))` + the sum over actors c whose walk crosses a declared cover at t without completing there of
+(integrationEvents(c, t) when c is not already integrated in the group, else 0, plus 1 for its `location.changed`),
+where the arrival's 1 is `movement.completed`; `arrivalEvents(b)` is `location.changed` when the move
 ends in a shelter (0 when already there), plus, for food or water, `resource.consumed` + `needs.relieved` + any
 `comfort.changed` the relief causes, with consume and relieve both 0 when `q` is 0. Final group: unchanged
 `perActor*actors + plants + 1`. New events count toward `maxEvents` in indivisible

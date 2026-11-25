@@ -146,7 +146,7 @@ function run(value: unknown, path: string): RunView {
     endedAt: nullable(v.endedAt, `${path}.endedAt`, string),
     prompt: nullable(v.prompt, `${path}.prompt`, payload),
     steps: list(v.steps, `${path}.steps`, 32, step),
-    // At most 512 per run: 32 steps x 16 transitions a call (guard_breaker_transition, 0076).
+    // At most 512 per run: 32 steps x 16 transitions a call (guard_breaker_transition, 0077).
     ...(v.breakerTransitions === undefined
       ? {}
       : {

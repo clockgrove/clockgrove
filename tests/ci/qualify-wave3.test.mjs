@@ -16,6 +16,7 @@ import {
   RECEIPTS,
   validateWave3Manifest,
 } from "../../scripts/ci/qualify-wave3-manifest.mjs";
+import { worldPackDirectories } from "../../scripts/ci/world-packs.mjs";
 import { decode } from "./decode-once.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -41,7 +42,7 @@ async function writeReceipt(
 /** The test:long-run log lines native-parity.long-run.test.ts prints through Turbo, per golden and soak run. */
 async function nativeLog(hash = (golden) => golden) {
   const lines = [];
-  for (const pack of ["fixture", "fixture/reference"]) {
+  for (const pack of await worldPackDirectories(root)) {
     for (const name of await readdir(path.join(root, "worlds", pack, "goldens")))
       for (const run of decode(await readFile(path.join(root, "worlds", pack, "goldens", name)))
         .runs)

@@ -19,6 +19,9 @@ export type ProviderEvent =
       finishReason: string;
       inputTokens: number | null;
       outputTokens: number | null;
+      cachedInputTokens?: number | null;
+      cacheWriteInputTokens?: number | null;
+      reasoningTokens?: number | null;
       reportedCostUsd: number | null;
       responseModel: string | null;
     }>;
@@ -40,6 +43,9 @@ export type ProviderBilling =
       kind: "usage";
       inputTokens: number | null;
       outputTokens: number | null;
+      cachedInputTokens?: number | null;
+      cacheWriteInputTokens?: number | null;
+      reasoningTokens?: number | null;
       reportedCostUsd: number | null;
     }>;
 

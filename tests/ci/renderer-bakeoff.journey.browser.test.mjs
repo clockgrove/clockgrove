@@ -194,8 +194,9 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
 }, 900_000);
 
 // Product content uses the actual adapter, with no world runtime, database or authentication.
-// Decision: 360 s per backend bounds software shader compilation and two 90 s tier step downs
-// inside the existing browser job; these are correctness checks, never hardware timing claims.
+// Decision: 420 s per backend bounds software shader compilation, two 90 s tier step downs and
+// #266's occlusion pass at three tiers inside the existing browser job; these are correctness
+// checks, never hardware timing claims.
 it.each(["webgpu", "webgl2"])(
   "world content shares the product look, content lights and shadows, and contains failures (%s)",
   async (backend) => {
@@ -360,27 +361,6 @@ it.each(["webgpu", "webgl2"])(
           await new Promise(requestAnimationFrame);
           return f.capture();
         };
-        const counts = [];
-        for (const tier of ["low", "medium", "high"]) {
-          f.setQuality(tier);
-          adapter.updateContent(0);
-          await capture();
-          counts.push([
-            adapter.metrics.contentLights,
-            adapter.metrics.shadowMaps,
-            adapter.metrics.shadowTextureBytes,
-            adapter.metrics.textureBytes,
-          ]);
-        }
-        f.setContentShadows(false);
-        f.setContentLights(false);
-        const unlit = await capture();
-        f.setContentLights(true);
-        const local = await capture();
-        f.setContentLights(false);
-        const noShadow = await capture();
-        f.setContentShadows(true);
-        const shadow = await capture();
         const pixels = async (url) => {
           const image = new Image();
           image.src = url;
@@ -392,6 +372,159 @@ it.each(["webgpu", "webgl2"])(
           context.drawImage(image, 0, 0);
           return context.getImageData(0, 0, canvas.width, canvas.height).data;
         };
+        // Contact proof samples a floor point 40% of the radius toward the viewer: the model and sprite
+        // stand on the anchor and rise up the screen, so the floor in front of it is never covered by them.
+        const toward = Math.sqrt(3) / 2;
+        const darkening = (shown, hidden, mesh) => {
+          const point = mesh.getWorldPosition(adapter.camera.position.clone());
+          mesh.geometry.computeBoundingBox();
+          const box = mesh.geometry.boundingBox;
+          const offset = 0.4 * ((box.max.x - box.min.x) / 2) * mesh.getWorldScale(point.clone()).x;
+          point.y -= offset / 2;
+          point.z += offset * toward;
+          point.project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          const cx = Math.round(((point.x + 1) * width) / 2),
+            cy = Math.round(((1 - point.y) * height) / 2);
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum +=
+                hidden[at] +
+                hidden[at + 1] +
+                hidden[at + 2] -
+                shown[at] -
+                shown[at + 1] -
+                shown[at + 2];
+            }
+          return sum / 9;
+        };
+        // #266 one picture: a body casts into and receives the set's key-light map, through the real
+        // shadow pass. A side key light (37 degrees off the card's normal) throws the body's shadow
+        // beside it; a caster on a layer only the shadow camera sees shades the body from the light.
+        const pixelAt = (point) => {
+          const at = point.clone().project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          return [Math.round(((at.x + 1) * width) / 2), Math.round(((1 - at.y) * height) / 2)];
+        };
+        const meanDarkening = (from, to, [cx, cy]) => {
+          const width = adapter.renderer.domElement.width;
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum += from[at] + from[at + 1] + from[at + 2] - to[at] - to[at + 1] - to[at + 2];
+            }
+          return sum / 9;
+        };
+        // The key is the brightest shadow-casting light, as the renderer chooses it.
+        const keyIndex = () =>
+          adapter.sky.reduce(
+            (best, light, index) =>
+              light.castShadow && light.intensity > (adapter.sky[best]?.intensity ?? -1)
+                ? index
+                : best,
+            -1,
+          );
+        const sharedShadows = async (body) => {
+          // The marker shares the frame origin with the content sprite, which stands in front of it;
+          // content is hidden here so the samples read the body, not the sprite.
+          f.diagnostics.root.visible = false;
+          // The fixture's content lamps (60000 each) saturate the marker; the key light is measured alone.
+          f.setContentLights(false);
+          const index = keyIndex();
+          const original = adapter.sky[index].userData.shadowDirection;
+          adapter.sky[index].userData.shadowDirection = original
+            .clone()
+            .set(0.6, 0.1, 0.8)
+            .normalize();
+          await capture();
+          body.geometry.computeBoundingBox();
+          const box = body.geometry.boundingBox;
+          const centre = body.localToWorld(box.getCenter(original.clone()));
+          const corners = [];
+          for (const x of [box.min.x, box.max.x])
+            for (const y of [box.min.y, box.max.y])
+              for (const z of [box.min.z, box.max.z])
+                corners.push(pixelAt(body.localToWorld(original.clone().set(x, y, z))));
+          const left = Math.min(...corners.map(([x]) => x)) - 1,
+            right = Math.max(...corners.map(([x]) => x)) + 1,
+            top = Math.min(...corners.map(([, y]) => y)) - 1,
+            bottom = Math.max(...corners.map(([, y]) => y)) + 1;
+          body.castShadow = false;
+          const uncast = await pixels(await capture());
+          body.castShadow = true;
+          const cast = await pixels(await capture());
+          const width = adapter.renderer.domElement.width;
+          let beside = 0;
+          for (let at = 0; at < cast.length; at += 4) {
+            const px = (at / 4) % width,
+              py = Math.floor(at / 4 / width);
+            if (px >= left && px <= right && py >= top && py <= bottom) continue;
+            const delta =
+              cast[at] + cast[at + 1] + cast[at + 2] - uncast[at] - uncast[at + 1] - uncast[at + 2];
+            if (delta < -10) beside++;
+          }
+          const sky = adapter.sky[index];
+          const toLight = sky.position.clone().sub(sky.target.position).normalize();
+          const blocker = f.diagnostics.shadowCaster.clone();
+          blocker.layers.set(1);
+          blocker.rotation.set(0, 0, 0);
+          blocker.position.copy(centre).addScaledVector(toLight, 60);
+          blocker.castShadow = true;
+          adapter.scene.add(blocker);
+          sky.shadow.camera.layers.enable(1);
+          const shaded = await pixels(await capture());
+          blocker.removeFromParent();
+          sky.shadow.camera.layers.disable(1);
+          sky.userData.shadowDirection = original;
+          f.diagnostics.root.visible = true;
+          f.setContentLights(true);
+          await capture();
+          return {
+            beside,
+            self: meanDarkening(uncast, cast, pixelAt(centre)),
+            received: meanDarkening(cast, shaded, pixelAt(centre)),
+          };
+        };
+        const counts = [];
+        const grounding = [];
+        for (const tier of ["low", "medium", "high"]) {
+          f.setQuality(tier);
+          adapter.updateContent(0);
+          await capture();
+          counts.push([
+            adapter.metrics.contentLights,
+            adapter.metrics.shadowMaps,
+            adapter.metrics.shadowTextureBytes,
+            adapter.metrics.textureBytes,
+          ]);
+          const body = adapter.drawn.get("object-fixture");
+          const meshes = [body.shadow, ...adapter.contentContacts];
+          const shown = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = false;
+          const hidden = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = true;
+          grounding.push({
+            contacts: adapter.metrics.contactShadows,
+            flags: [body.body.castShadow, body.body.receiveShadow],
+            shadowSides: [].concat(body.body.material).map((material) => material.shadowSide),
+            darkening: meshes.map((mesh) => darkening(shown, hidden, mesh)),
+            shared: tier === "low" ? null : await sharedShadows(body.body),
+          });
+        }
+        f.setContentShadows(false);
+        f.setContentLights(false);
+        const unlit = await capture();
+        f.setContentLights(true);
+        const local = await capture();
+        f.setContentLights(false);
+        const noShadow = await capture();
+        f.setContentShadows(true);
+        const shadow = await capture();
         const dark = await pixels(unlit),
           bright = await pixels(local);
         const before = await pixels(noShadow),
@@ -424,7 +557,8 @@ it.each(["webgpu", "webgl2"])(
           changed(dark, bright, -150, 120, -30),
           changed(dark, bright, 70, -40, -100),
           changed(before, after, -50, 80, -30, true),
-          changed(before, after, 10, 80, -100, true),
+          // #266: the receiver lies on the real floor, so the caster's shadow runs off it onto the ground.
+          changed(before, after, -25, 112, -Math.sqrt(3) * 112, true),
         ];
         const oldMaps = adapter.sky.map((light) => light.shadow.map);
         let retired = 0;
@@ -465,10 +599,39 @@ it.each(["webgpu", "webgl2"])(
           f.diagnostics.root.parent === null,
           document.querySelector("#status").textContent,
         ];
+        // #266: the unkeyed marker's bottom meets its anchor, and a placed lamp's light stays 35
+        // units in front of the lamp's real depth (floor depth -√3·y at 12 units below the light).
+        const marker = adapter.drawn.get("object-fixture");
+        marker.body.geometry.computeBoundingBox();
+        const projection = adapter.projection;
+        const [entity] = projection.entities;
+        adapter.drawEnvironment({
+          ...projection,
+          lighting: {
+            ...projection.lighting,
+            placed: [
+              {
+                pose: { ...entity.pose, coordinates: ["400", "800", "0"] },
+                colour: "#ffb966",
+                intensity: 1500,
+                rangeMetres: 14.4,
+              },
+            ],
+          },
+        });
+        const [lamp] = adapter.lights;
+        const projected = {
+          key: marker.key ?? null,
+          markerBottom: marker.body.geometry.boundingBox.min.y,
+          markerDepth: marker.body.position.z + Math.sqrt(3) * marker.body.position.y,
+          lampOffset: Math.abs(lamp.position.y - 12) > 10,
+          lampDepth: lamp.position.z - 35 + Math.sqrt(3) * (lamp.position.y - 12),
+        };
         f.destroy();
         return {
           status,
           counts,
+          grounding,
           surfaceChanges,
           retired,
           low,
@@ -476,8 +639,14 @@ it.each(["webgpu", "webgl2"])(
           failureRetired,
           failure,
           disposed: adapter.contentLights.length === 0,
+          projected,
         };
       });
+      expect(lighting.projected.key).toBeNull();
+      expect(lighting.projected.markerBottom).toBeCloseTo(0, 4);
+      expect(lighting.projected.markerDepth).toBeCloseTo(0, 3);
+      expect(lighting.projected.lampOffset).toBe(true);
+      expect(lighting.projected.lampDepth).toBeCloseTo(0, 3);
       expect(lighting.counts.map((row) => row.slice(0, 3))).toEqual([
         [2, 0, 0],
         [4, 1, 3_145_728],
@@ -485,6 +654,25 @@ it.each(["webgpu", "webgl2"])(
       ]);
       for (let i = 0; i < 3; i++)
         expect(lighting.counts[i][3]).toBeLessThanOrEqual([16, 64, 192][i] * 1024 * 1024);
+      expect(lighting.grounding.map((row) => row.contacts)).toEqual([3, 3, 3]);
+      expect(lighting.grounding.map((row) => row.flags)).toEqual([
+        [false, false],
+        [true, true],
+        [true, true],
+      ]);
+      for (const row of lighting.grounding) {
+        expect(row.shadowSides.every((side) => side === 2)).toBe(true);
+        expect(row.darkening).toHaveLength(3);
+        for (const darker of row.darkening) expect(darker).toBeGreaterThan(10);
+      }
+      // #266 one picture, at the tiers with active maps: the body's silhouette darkens the floor
+      // beside it, a caster between it and the light darkens it, and its own card does not.
+      expect(lighting.grounding[0].shared).toBeNull();
+      for (const { shared } of lighting.grounding.slice(1)) {
+        expect(shared.beside).toBeGreaterThan(8);
+        expect(shared.received).toBeGreaterThan(10);
+        expect(shared.self).toBeLessThan(10);
+      }
       expect(lighting.status).toBe("ready");
       for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);
       expect(lighting.retired).toBeGreaterThanOrEqual(2);
@@ -502,6 +690,213 @@ it.each(["webgpu", "webgl2"])(
       expect(lighting.failureRetired).toBeGreaterThanOrEqual(2);
       expect(lighting.disposed).toBe(true);
       await lit.close();
+      // #266 occlusion policy, at every tier: the fixture model is a solid occluder (a post) and the
+      // mapped sprite a fade occluder (a canopy). Each in turn stands half a metre nearer the viewer
+      // than the projected marker, on its screen position, so it covers the marker.
+      const occluded = await open("?occlusion");
+      await occluded.waitForFunction(
+        () => globalThis.fixtureRenderer.adapter.metrics.contentStatus === "ready",
+      );
+      const occlusion = [];
+      for (const tier of ["low", "medium", "high"])
+        occlusion.push(
+          await occluded.evaluate(async (tier) => {
+            const f = globalThis.fixtureRenderer;
+            const adapter = f.adapter;
+            const frame = () => new Promise(requestAnimationFrame);
+            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const pixels = async (url) => {
+              const image = new Image();
+              image.src = url;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = image.width;
+              canvas.height = image.height;
+              const context = canvas.getContext("2d");
+              context.drawImage(image, 0, 0);
+              return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            };
+            const capture = async () => {
+              await frame();
+              return pixels(f.capture());
+            };
+            const differing = (a, b) => {
+              let count = 0;
+              for (let at = 0; at < a.length; at += 4)
+                if (
+                  Math.abs(a[at] - b[at]) +
+                    Math.abs(a[at + 1] - b[at + 1]) +
+                    Math.abs(a[at + 2] - b[at + 2]) >
+                  6
+                )
+                  count++;
+              return count;
+            };
+            const body = () => adapter.drawn.get("object-fixture").body;
+            const silhouette = () => adapter.scene.getObjectByName("occlusion-silhouette");
+            const text = () => document.querySelector("#occlusion").textContent;
+            const until = async (done) => {
+              const started = performance.now();
+              while (!done() && performance.now() - started < 20_000) await frame();
+              await frame();
+            };
+            f.setReducedMotion(true);
+            f.setQuality(tier);
+            f.select(undefined);
+            f.moveMarker(0, 0);
+            f.setContentAnchor(4, 4);
+            f.setModelAnchor(0.5, -0.5);
+            const reveals = [];
+            const stop = adapter.onOcclusion((reveal) =>
+              reveals.push({ behind: reveal?.behind, at: performance.now() }),
+            );
+            // Depth-true by default: behind the post, the marker draws nothing.
+            const shown = await capture();
+            body().visible = false;
+            const hiddenBody = await capture();
+            body().visible = true;
+            const depthHidden = differing(shown, hiddenBody);
+            // Unselected, nobody is revealed, however long it stands there.
+            await wait(700);
+            await frame();
+            const unselected = [adapter.metrics.occlusion.revealed, !!silhouette(), text()];
+            const selectedAt = performance.now();
+            f.select("object-fixture");
+            await frame();
+            const early = [adapter.metrics.occlusion.hidden, adapter.metrics.occlusion.revealed];
+            await until(() => adapter.metrics.occlusion.revealed);
+            const revealedPost = await capture();
+            silhouette().visible = false;
+            const withoutSilhouette = await capture();
+            silhouette().visible = true;
+            const model = f.diagnostics.model.material;
+            const post = {
+              dwell: (reveals[0]?.at ?? 0) - selectedAt,
+              behind: adapter.metrics.occlusion.behind,
+              silhouette: adapter.metrics.occlusion.silhouette,
+              silhouettePixels: differing(revealedPost, withoutSilhouette),
+              faded: adapter.metrics.occlusion.faded,
+              untouched: [model.opacity, model.alphaHash],
+              text: text(),
+            };
+            // The canopy in front instead: it fades and the marker shows through, with no silhouette.
+            f.setModelAnchor(-2, -2);
+            f.setContentAnchor(0.5, -0.5);
+            await until(() => adapter.metrics.occlusion.behind === "the fixture canopy");
+            const revealedCanopy = await capture();
+            body().visible = false;
+            const canopyWithoutBody = await capture();
+            body().visible = true;
+            const sprite = f.diagnostics.sprite.material;
+            const canopy = {
+              silhouette: adapter.metrics.occlusion.silhouette,
+              silhouetteMesh: !!silhouette(),
+              faded: adapter.metrics.occlusion.faded,
+              seenThrough: differing(revealedCanopy, canopyWithoutBody),
+              sprite: [sprite.opacity, sprite.alphaHash],
+              text: text(),
+            };
+            // Behind a tree: the post and, nearer still, the canopy both cover the marker. The canopy
+            // fades, the post never changes, and the silhouette draws only inside the post's own
+            // pixels, never over the canopy's surviving pixels or the yard around them.
+            f.setModelAnchor(0.5, -0.5);
+            f.setContentAnchor(0.6, -0.6);
+            await until(
+              () =>
+                adapter.metrics.occlusion.silhouette === 0.35 &&
+                adapter.metrics.occlusion.faded === 1,
+            );
+            const tree = await capture();
+            silhouette().visible = false;
+            const treeWithoutSilhouette = await capture();
+            f.diagnostics.model.visible = false;
+            const treeWithoutPost = await capture();
+            f.diagnostics.model.visible = true;
+            await until(() => adapter.metrics.occlusion.silhouette === 0.35 && !!silhouette());
+            let drawn = 0;
+            let outsidePost = 0;
+            for (let at = 0; at < tree.length; at += 4) {
+              const differs = (a, b) =>
+                Math.abs(a[at] - b[at]) +
+                  Math.abs(a[at + 1] - b[at + 1]) +
+                  Math.abs(a[at + 2] - b[at + 2]) >
+                6;
+              if (!differs(tree, treeWithoutSilhouette)) continue;
+              drawn++;
+              if (!differs(treeWithoutSilhouette, treeWithoutPost)) outsidePost++;
+            }
+            // Standing still re-tests nothing: the rays run again only when something moves.
+            const tests = adapter.metrics.occlusion.rayTests;
+            for (let i = 0; i < 5; i++) await frame();
+            const both = {
+              behind: adapter.metrics.occlusion.behind,
+              faded: adapter.metrics.occlusion.faded,
+              drawn,
+              outsidePost,
+              post: [model.opacity, model.alphaHash],
+              sprite: [sprite.opacity, sprite.alphaHash],
+              stillTests: adapter.metrics.occlusion.rayTests - tests,
+            };
+            f.setModelAnchor(-2, -2);
+            f.setContentAnchor(0.5, -0.5);
+            await until(() => adapter.metrics.occlusion.silhouette === 0);
+            // Walking out of cover ends the reveal and restores the canopy.
+            f.moveMarker(2, -2);
+            await until(() => !adapter.metrics.occlusion.revealed);
+            await frame();
+            const out = {
+              revealed: adapter.metrics.occlusion.revealed,
+              faded: adapter.metrics.occlusion.faded,
+              sprite: [
+                f.diagnostics.sprite.material.opacity,
+                f.diagnostics.sprite.material.alphaHash,
+              ],
+              last: reveals.at(-1)?.behind ?? null,
+              text: text(),
+            };
+            stop();
+            f.select(undefined);
+            f.moveMarker(0, 0);
+            f.setContentAnchor(0, 0);
+            return { tier, depthHidden, unselected, early, post, canopy, both, out };
+          }, tier),
+        );
+      for (const row of occlusion) {
+        expect(row.depthHidden, row.tier).toBe(0);
+        expect(row.unselected, row.tier).toEqual([false, false, ""]);
+        expect(row.early, row.tier).toEqual([true, false]);
+        expect(row.post.dwell, row.tier).toBeGreaterThanOrEqual(500);
+        expect(row.post.behind, row.tier).toBe("the fixture post");
+        expect(row.post.silhouette, row.tier).toBe(0.35);
+        expect(row.post.silhouettePixels, row.tier).toBeGreaterThan(20);
+        expect(row.post.faded, row.tier).toBe(0);
+        expect(row.post.untouched, row.tier).toEqual([1, false]);
+        expect(row.post.text, row.tier).toBe("Projected marker is behind the fixture post.");
+        expect(row.canopy.silhouette, row.tier).toBe(0);
+        expect(row.canopy.silhouetteMesh, row.tier).toBe(false);
+        expect(row.canopy.faded, row.tier).toBe(1);
+        expect(row.canopy.sprite, row.tier).toEqual([0.25, true]);
+        expect(row.canopy.seenThrough, row.tier).toBeGreaterThan(20);
+        expect(row.canopy.text, row.tier).toBe("Projected marker is behind the fixture canopy.");
+        expect(["the fixture post", "the fixture canopy"], row.tier).toContain(row.both.behind);
+        expect(row.both.faded, row.tier).toBe(1);
+        expect(row.both.drawn, row.tier).toBeGreaterThan(20);
+        // Edge pixels may blend; a silhouette over the canopy would add hundreds outside the post.
+        expect(row.both.outsidePost, row.tier).toBeLessThanOrEqual(
+          Math.max(4, row.both.drawn * 0.05),
+        );
+        expect(row.both.post, row.tier).toEqual([1, false]);
+        expect(row.both.sprite, row.tier).toEqual([0.25, true]);
+        expect(row.both.stillTests, row.tier).toBe(0);
+        expect(row.out, row.tier).toEqual({
+          revealed: false,
+          faded: 0,
+          sprite: [1, false],
+          last: null,
+          text: "",
+        });
+      }
+      await occluded.close();
       const page = await open();
       await page.waitForFunction(
         () => globalThis.fixtureRenderer.adapter.metrics.contentStatus !== "loading",
@@ -638,10 +1033,29 @@ it.each(["webgpu", "webgl2"])(
         f.setDepthEnabled(false);
         f.setContentAnchor(0, 0);
         f.setModelAnchor(-0.8, 0.8);
+        // #266: the marker now stands on its anchor and reaches y = 184; this pair compares content
+        // with content, so the marker steps aside for it.
+        f.adapter.drawn.get("object-fixture").body.visible = false;
       });
       const spriteFront = await sample(184);
       await page.evaluate(() => globalThis.fixtureRenderer.setModelAnchor(0.2, -0.2));
       const modelFront = await sample(184);
+      // #266: content sits in real depth: its anchor is unscaled in depth, and a nearer anchor is
+      // nearer the camera by the floor's slope (6.25√3 scene units per metre of x - y).
+      const depth = await page.evaluate(() => {
+        const f = globalThis.fixtureRenderer;
+        const anchor = f.diagnostics.model.parent;
+        const front = anchor.position.z;
+        f.setModelAnchor(-0.8, 0.8);
+        const back = anchor.position.z;
+        f.setModelAnchor(0.2, -0.2);
+        return { scale: anchor.scale.toArray(), front, back };
+      });
+      await page.evaluate(() => {
+        globalThis.fixtureRenderer.adapter.drawn.get("object-fixture").body.visible = true;
+      });
+      expect(depth.scale).toEqual([12.5, 12.5, 12.5]);
+      expect(depth.front - depth.back).toBeCloseTo(2 * 6.25 * Math.sqrt(3), 5);
       expect(spriteFront[2]).toBeGreaterThan(spriteFront[0]);
       expect(modelFront[0]).toBeGreaterThan(modelFront[2]);
       expect(
@@ -746,7 +1160,7 @@ it.each(["webgpu", "webgl2"])(
       await rm(world, { recursive: true, force: true });
     }
   },
-  360_000,
+  420_000,
 );
 
 // Issue 281: generate, validate and render the same rigged GLB; no binary fixture is retained.

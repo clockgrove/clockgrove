@@ -4,6 +4,7 @@ import {
   containmentSchema,
   materialQuantitySchema,
   resourceSchema,
+  shelterSchema,
   spatialTransformSchema,
   weatherExposureSchema,
 } from "../components/catalog/index.js";
@@ -23,7 +24,8 @@ export const fixtureObjectSchema = z
     spatial: spatialTransformSchema,
     containment: containmentSchema.optional(),
     resource: resourceSchema.optional(),
-    shelter: weatherExposureSchema.optional(),
+    shelter: shelterSchema.optional(),
+    weatherProtection: weatherExposureSchema.optional(),
   })
   .readonly();
 export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({
@@ -36,6 +38,26 @@ export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({
       kind: z.enum(["food", "water"]),
       direction: z.enum(["import", "export"]),
       quantity: positive,
+    })
+    .readonly(),
+  "surface.interact": z
+    .strictObject({
+      schemaVersion: version,
+      actorId: objectId,
+      zoneId: objectId,
+      interactionId: objectId,
+      intensity: z.number().int().min(1).max(10000),
+      point: z.strictObject({
+        u: z.number().int().min(0).max(10000),
+        v: z.number().int().min(0).max(10000),
+      }),
+    })
+    .readonly(),
+  "surface.repair": z
+    .strictObject({
+      schemaVersion: version,
+      zoneId: objectId,
+      reason: objectId,
     })
     .readonly(),
   "object.create": z

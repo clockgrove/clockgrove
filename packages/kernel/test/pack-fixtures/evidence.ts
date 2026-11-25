@@ -116,7 +116,7 @@ export const expectedPackRefusals: Record<string, readonly [string, string]> = {
   "engine-incompatible": ["ENGINE_INCOMPATIBLE", "manifest.engineCompatibility"],
   "undeclared-component": [
     "UNDECLARED_COMPONENT",
-    'manifest.traits[1]#components["clockgrove.weather-exposure"]',
+    'manifest.traits[1]#components["clockgrove.shelter"]',
   ],
   "invalid-clock-ratio": [
     "INVALID_CLOCK_POLICY",
@@ -137,7 +137,7 @@ export const expectedPackRefusals: Record<string, readonly [string, string]> = {
   "definition-cycle": ["DEFINITION_CYCLE", 'manifest.archetypes[0]#traits[["routine.needs",1]]'],
   "invalid-override": [
     "INVALID_OVERRIDE",
-    'manifest.actors[2]#definition.overrides["clockgrove.weather-exposure"].state.rainProtection',
+    'manifest.actors[2]#definition.overrides["clockgrove.shelter"].state.rainProtection',
   ],
   "malformed-source": ["MALFORMED_SOURCE", "manifest"],
   "malformed-resource-bytes": ["MALFORMED_RESOURCE", "manifest.cognitiveSeeds[0]"],
@@ -273,7 +273,7 @@ export const refusalMutations: readonly (readonly [string, Mutation])[] = [
     "invalid-override",
     actor("secondary-cover", (document) => {
       document.overrides = [
-        { type: "clockgrove.weather-exposure", version: 1, state: { rainProtection: 20000 } },
+        { type: "clockgrove.shelter", version: 1, state: { rainProtection: 20000 } },
       ];
     }),
   ],

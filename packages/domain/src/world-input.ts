@@ -16,6 +16,17 @@ import {
   type SemanticPose,
   type SpatialFrame,
 } from "./spatial.js";
+import {
+  type SurfaceCarried,
+  type SurfaceChannel,
+  type SurfaceEffect,
+  type SurfaceMark,
+  type SurfacePolicy,
+  type SurfaceState,
+  type SurfaceZone,
+  validateSurfacePolicy,
+  validateSurfaceState,
+} from "./surface.js";
 import type {
   AmbiguityCondition,
   AmbiguityDeclaration,
@@ -72,6 +83,7 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "lifecycle",
       "processes",
       "boundaryExchanges",
+      "surfaces",
     ],
   );
   version(rawPolicy, "policy");
@@ -133,6 +145,9 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
     ...(rawPolicy.lifecycle === undefined
       ? {}
       : { lifecycle: lifecyclePolicy(rawPolicy.lifecycle, "policy.lifecycle") }),
+    ...(rawPolicy.surfaces === undefined
+      ? {}
+      : { surfaces: surfacePolicy(rawPolicy.surfaces, "policy.surfaces") }),
   };
   const pack: WorldBehaviorPack = {
     schemaVersion: 1,
@@ -165,6 +180,7 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
       "lifecycle",
       "processes",
       "boundaryExchanges",
+      "surfaces",
     ],
   );
   version(raw, "initialState");
@@ -173,6 +189,9 @@ export function decodeWorldScenario(input: unknown, contentHash: string): WorldS
   const initialState: WorldState = {
     ...(raw.boundaryExchanges === undefined ? {} : { boundaryExchanges: raw.boundaryExchanges }),
     schemaVersion: 1,
+    ...(raw.surfaces === undefined
+      ? {}
+      : { surfaces: surfaceState(raw.surfaces, "initialState.surfaces") }),
     ...(raw.processes === undefined
       ? {}
       : {
@@ -670,6 +689,148 @@ function lifecycleState(input: unknown, path: string): LifecycleState {
   } as LifecycleState;
 }
 
+function surfacePolicy(input: unknown, path: string): SurfacePolicy {
+  const raw = object(
+    input,
+    ["schemaVersion", "budgets", "channels", "zones", "interactions"],
+    path,
+  );
+  version(raw, path);
+  const budgets = object(raw.budgets, ["zones", "marksPerZone"], `${path}.budgets`);
+  const policy: SurfacePolicy = {
+    schemaVersion: 1,
+    budgets: {
+      zones: integer(budgets.zones, `${path}.budgets.zones`),
+      marksPerZone: integer(budgets.marksPerZone, `${path}.budgets.marksPerZone`),
+    },
+    channels: list(raw.channels, `${path}.channels`, (value, at): SurfaceChannel => {
+      const channel = object(value, ["id", "max", "carried", "bands", "recovery"], at);
+      const recovery = object(channel.recovery, ["driver"], `${at}.recovery`, [
+        "amount",
+        "periodMs",
+        "lightBands",
+      ]);
+      if (typeof channel.carried !== "boolean") fail(`${at}.carried`, "expected a boolean");
+      return {
+        id: text(channel.id, `${at}.id`),
+        max: integer(channel.max, `${at}.max`),
+        carried: channel.carried,
+        bands: list(channel.bands, `${at}.bands`, (band, bandAt) => {
+          const raw = object(band, ["name", "min", "max"], bandAt);
+          return {
+            name: text(raw.name, `${bandAt}.name`),
+            min: integer(raw.min, `${bandAt}.min`),
+            max: integer(raw.max, `${bandAt}.max`),
+          };
+        }),
+        recovery:
+          recovery.driver === "time" || recovery.driver === "rain"
+            ? {
+                driver: recovery.driver,
+                amount: integer(recovery.amount, `${at}.recovery.amount`),
+                periodMs: decimal(recovery.periodMs, `${at}.recovery.periodMs`),
+              }
+            : recovery.driver === "growth"
+              ? {
+                  driver: "growth",
+                  amount: integer(recovery.amount, `${at}.recovery.amount`),
+                  periodMs: decimal(recovery.periodMs, `${at}.recovery.periodMs`),
+                  lightBands: list(recovery.lightBands, `${at}.recovery.lightBands`, text),
+                }
+              : { driver: "none" },
+      };
+    }),
+    zones: list(raw.zones, `${path}.zones`, (value, at): SurfaceZone => {
+      const zone = object(value, ["id", "host", "channels", "markCapacity"], at, ["traffic"]);
+      const host = object(zone.host, ["kind"], `${at}.host`, ["objectId", "regionId"]);
+      return {
+        id: text(zone.id, `${at}.id`),
+        host:
+          host.kind === "object"
+            ? {
+                kind: "object",
+                objectId: decodeOpaqueId(host.objectId, "ObjectId", `${at}.host.objectId`),
+              }
+            : { kind: "region", regionId: text(host.regionId, `${at}.host.regionId`) },
+        channels: list(zone.channels, `${at}.channels`, (entry, entryAt) => {
+          const raw = object(entry, ["channel", "initial"], entryAt);
+          return {
+            channel: text(raw.channel, `${entryAt}.channel`),
+            initial: integer(raw.initial, `${entryAt}.initial`),
+          };
+        }),
+        markCapacity: integer(zone.markCapacity, `${at}.markCapacity`),
+        ...(zone.traffic === undefined ? {} : { traffic: text(zone.traffic, `${at}.traffic`) }),
+      };
+    }),
+    interactions: list(raw.interactions, `${path}.interactions`, (value, at) => {
+      const interaction = object(value, ["id", "effects", "leavesMark"], at);
+      if (typeof interaction.leavesMark !== "boolean")
+        fail(`${at}.leavesMark`, "expected a boolean");
+      return {
+        id: text(interaction.id, `${at}.id`),
+        leavesMark: interaction.leavesMark,
+        effects: list(interaction.effects, `${at}.effects`, (effect, effectAt): SurfaceEffect => {
+          const raw = object(effect, ["channel", "kind", "amount"], effectAt);
+          if (raw.kind !== "add" && raw.kind !== "pickup" && raw.kind !== "deposit")
+            fail(`${effectAt}.kind`, "expected add, pickup or deposit");
+          return {
+            channel: text(raw.channel, `${effectAt}.channel`),
+            kind: raw.kind,
+            amount: integer(raw.amount, `${effectAt}.amount`),
+          };
+        }),
+      };
+    }),
+  };
+  validateSurfacePolicy(policy);
+  return policy;
+}
+
+function surfaceMark(input: unknown, path: string): SurfaceMark {
+  const raw = object(input, ["actorId", "interactionId", "at", "intensity", "point"], path);
+  const point = object(raw.point, ["u", "v"], `${path}.point`);
+  return {
+    actorId: decodeOpaqueId(raw.actorId, "ObjectId", `${path}.actorId`),
+    interactionId: text(raw.interactionId, `${path}.interactionId`),
+    at: decimal(raw.at, `${path}.at`) as SimTimeMs,
+    intensity: integer(raw.intensity, `${path}.intensity`),
+    point: { u: integer(point.u, `${path}.point.u`), v: integer(point.v, `${path}.point.v`) },
+  };
+}
+
+function surfaceState(input: unknown, path: string): SurfaceState {
+  const raw = object(input, ["zones", "carried"], path);
+  const state: SurfaceState = {
+    zones: list(raw.zones, `${path}.zones`, (value, at) => {
+      const zone = object(value, ["zoneId", "channels", "marks"], at);
+      return {
+        zoneId: text(zone.zoneId, `${at}.zoneId`),
+        channels: list(zone.channels, `${at}.channels`, (entry, entryAt) => {
+          const channel = object(entry, ["channel", "value", "remainder", "settledAt"], entryAt);
+          return {
+            channel: text(channel.channel, `${entryAt}.channel`),
+            value: integer(channel.value, `${entryAt}.value`),
+            remainder: decimal(channel.remainder, `${entryAt}.remainder`),
+            settledAt: decimal(channel.settledAt, `${entryAt}.settledAt`) as SimTimeMs,
+          };
+        }),
+        marks: list(zone.marks, `${at}.marks`, surfaceMark),
+      };
+    }),
+    carried: list(raw.carried, `${path}.carried`, (value, at): SurfaceCarried => {
+      const entry = object(value, ["objectId", "channel", "amount"], at);
+      return {
+        objectId: decodeOpaqueId(entry.objectId, "ObjectId", `${at}.objectId`),
+        channel: text(entry.channel, `${at}.channel`),
+        amount: integer(entry.amount, `${at}.amount`),
+      };
+    }),
+  };
+  validateSurfaceState(state);
+  return state;
+}
+
 function utilityPolicy(input: unknown, path: string): UtilityPolicy {
   const raw = object(
     input,
@@ -876,6 +1037,7 @@ function entity(input: unknown, path: string): WorldEntity {
   const raw = object(input, ["objectId", "spaceId", "archetypeId", "pose"], path, [
     "needs",
     "shelter",
+    "weatherProtection",
     "locationId",
     "containment",
     "resource",
@@ -901,6 +1063,11 @@ function entity(input: unknown, path: string): WorldEntity {
     ...(raw.lifecycle === undefined ? {} : { lifecycle: lifecycleSchema.parse(raw.lifecycle) }),
     ...(raw.needs === undefined ? {} : { needs: needs(raw.needs, `${path}.needs`) }),
     ...(raw.shelter === undefined ? {} : { shelter: shelter(raw.shelter, `${path}.shelter`) }),
+    ...(raw.weatherProtection === undefined
+      ? {}
+      : {
+          weatherProtection: weatherProtection(raw.weatherProtection, `${path}.weatherProtection`),
+        }),
   };
   return result;
 }
@@ -921,6 +1088,19 @@ function needs(input: unknown, path: string): NonNullable<WorldEntity["needs"]> 
 }
 
 function shelter(input: unknown, path: string): NonNullable<WorldEntity["shelter"]> {
+  const raw = object(input, ["rainProtection"], path, ["coverRadius"]);
+  return {
+    rainProtection: integer(raw.rainProtection, `${path}.rainProtection`),
+    ...(raw.coverRadius === undefined
+      ? {}
+      : { coverRadius: decimal(raw.coverRadius, `${path}.coverRadius`) }),
+  };
+}
+
+function weatherProtection(
+  input: unknown,
+  path: string,
+): NonNullable<WorldEntity["weatherProtection"]> {
   const raw = object(input, ["rainProtection"], path);
   return { rainProtection: integer(raw.rainProtection, `${path}.rainProtection`) };
 }

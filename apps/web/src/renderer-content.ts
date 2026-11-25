@@ -152,12 +152,38 @@ export interface RendererContentLight {
   readonly intensity: number;
   readonly rangeMetres: number;
 }
+/** #266: a renderer-drawn contact shape on the floor under a content anchor, in frame metres. */
+export interface RendererContentContact {
+  readonly x: number;
+  readonly y: number;
+  readonly elevation?: number;
+  /** The footprint the shape grounds, as an atlas footprint's width and depth. */
+  readonly widthMetres: number;
+  readonly depthMetres: number;
+}
+/**
+ * #266: world presentation data for the occlusion policy. A `fade` occluder (a canopy, a roof) may
+ * fade to reveal the selected character behind it; a `solid` one (a trunk, a post, a wall) never
+ * changes, and the character shows as a faint silhouette through it. `label` names it on the text
+ * path ("Ada is behind the cedar."), so it reads after "behind".
+ */
+export interface RendererContentOccluder {
+  /** An object inside the content root; its meshes are tested and, for `fade`, faded. */
+  readonly object: THREE.Object3D;
+  readonly kind: "fade" | "solid";
+  /** Plain text, 1 to 80 characters. */
+  readonly label: string;
+}
 export interface RendererContentInstance {
   readonly root: THREE.Group;
   /** Renderer-owned, unshadowed point lights, admitted in array order within the tier cap. */
   readonly lights?: readonly RendererContentLight[];
   /** Opt into scene directional shadows; meshes still choose castShadow and receiveShadow. */
   readonly shadows?: boolean;
+  /** Ground content with the projected bodies' contact shape, on every tier (#266). */
+  readonly contacts?: readonly RendererContentContact[];
+  /** Content a character can stand behind; others are depth-true and never fade (#266). */
+  readonly occluders?: readonly RendererContentOccluder[];
   /** Register textures hidden inside deferred shader callbacks for accounting and retirement. */
   readonly textures?: readonly THREE.Texture[];
   /** Update only owned objects. Use absolute time, including zero when motion is reduced. */
@@ -181,13 +207,20 @@ export function placeContent(
   object.position.set(
     (at.x + at.y) * 12.5,
     -(at.x - at.y) * 6.25 + elevation * 12.5,
-    contentDepth(at.x, at.y, elevation),
+    sceneDepth(at.x, at.y, elevation),
   );
-  // Match the existing 80 mm/pixel camera. Compress local depth to coexist with atlas billboards.
-  object.scale.set(12.5, 12.5, 0.01);
+  // Match the existing 80 mm/pixel camera. Local axes stay screen-aligned, so depth is real and uncompressed.
+  object.scale.set(12.5, 12.5, 12.5);
 }
-export function contentDepth(x: number, y: number, elevation: number): number {
-  return (x - y) * 0.01 + elevation * 0.005;
+// The 2:1 isometric mapping is a 30 degree camera pitch: ground distance d spans d/2 on screen
+// (sin 30) and sqrt(3)/2 d in depth, so depth = sqrt(3) * screen-vertical distance. The floor is the
+// plane through the origin with normal (0, sin 60, cos 60); a metre of elevation lifts depth by 12.5/sqrt(3).
+export function sceneDepth(x: number, y: number, elevation: number): number {
+  return (x - y) * 6.25 * Math.sqrt(3) + (elevation * 12.5) / Math.sqrt(3);
+}
+/** Depth of the floor beneath scene-space vertical position `sceneY`. */
+export function floorDepth(sceneY: number): number {
+  return -Math.sqrt(3) * sceneY;
 }
 
 export function validateContent(root: THREE.Group): boolean {
@@ -243,6 +276,8 @@ export function validateContent(root: THREE.Group): boolean {
 
 export function validateContentLighting(instance: RendererContentInstance): boolean {
   if (instance.shadows !== undefined && typeof instance.shadows !== "boolean") return false;
+  if (!validContacts(instance.contacts)) return false;
+  if (!validOccluders(instance)) return false;
   if (instance.lights === undefined) return true;
   // #184: bound validation work even when a content producer supplies more lights than a tier admits.
   if (!Array.isArray(instance.lights) || instance.lights.length > 64) return false;
@@ -266,18 +301,37 @@ export function validateContentLighting(instance: RendererContentInstance): bool
   );
 }
 
+type ValueNode = { value?: unknown };
+/**
+ * A node graph's value-holding nodes, found by one traversal per graph. The scene counts texture
+ * bytes on every draw, and #266 gives every body and contact shape a node graph, so walking each
+ * graph per draw put patches over their budget. Values are read fresh, so a swapped texture counts.
+ */
+const graphValueNodes = new WeakMap<object, readonly ValueNode[]>();
+function valueNodes(node: {
+  traverse: (callback: (child: ValueNode) => void) => void;
+}): readonly ValueNode[] {
+  let found = graphValueNodes.get(node);
+  if (!found) {
+    const nodes: ValueNode[] = [];
+    node.traverse((child) => {
+      if ("value" in child) nodes.push(child);
+    });
+    graphValueNodes.set(node, (found = nodes));
+  }
+  return found;
+}
 export function materialTextures(material: THREE.Material): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
   for (const value of Object.values(material)) {
     if (value instanceof THREE.Texture) textures.add(value);
     const node = value as {
       isNode?: boolean;
-      traverse?: (callback: (child: { value?: unknown }) => void) => void;
+      traverse?: (callback: (child: ValueNode) => void) => void;
     } | null;
     if (node?.isNode && node.traverse)
-      node.traverse((child) => {
+      for (const child of valueNodes(node as Parameters<typeof valueNodes>[0]))
         if (child.value instanceof THREE.Texture) textures.add(child.value);
-      });
   }
   return textures;
 }
@@ -525,4 +579,78 @@ export async function atlasTextureLoader(
     return undefined;
   }
   return { ktx2, format, release };
+}
+
+/** #266: at most 64 contact shapes, bounded like light descriptors; a footprint side is at most 1 km. */
+function validContacts(contacts: RendererContentInstance["contacts"]): boolean {
+  if (contacts === undefined) return true;
+  if (!Array.isArray(contacts) || contacts.length > 64) return false;
+  const bounded = (value: unknown, limit: number) =>
+    typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit;
+  return Array.from(contacts).every(
+    (contact) =>
+      contact &&
+      bounded(contact.x, 1_000_000) &&
+      bounded(contact.y, 1_000_000) &&
+      (contact.elevation === undefined || bounded(contact.elevation, 1_000_000)) &&
+      bounded(contact.widthMetres, 1000) &&
+      contact.widthMetres > 0 &&
+      bounded(contact.depthMetres, 1000) &&
+      contact.depthMetres > 0,
+  );
+}
+
+/** #266: the occluders' meshes hold at most this many triangles in all; the reveal's rays walk them. */
+export const OCCLUDER_TRIANGLES = 65_536;
+/**
+ * #266: at most 64 occluders, each an object inside the content root with a plain-text label, with
+ * at most `OCCLUDER_TRIANGLES` triangles in all, and no fade occluder's material drawn by a mesh
+ * outside the fade occluders, so fading a canopy never fades a trunk or anything undeclared.
+ */
+function validOccluders(instance: RendererContentInstance): boolean {
+  const occluders = instance.occluders;
+  if (occluders === undefined) return true;
+  if (!Array.isArray(occluders) || occluders.length > 64) return false;
+  const kinds = new Map<THREE.Material, "fade" | "solid">();
+  const fading = new Set<THREE.Object3D>();
+  let triangles = 0;
+  for (const occluder of Array.from(occluders)) {
+    if (
+      !occluder ||
+      !(occluder.object instanceof THREE.Object3D) ||
+      (occluder.kind !== "fade" && occluder.kind !== "solid") ||
+      typeof occluder.label !== "string" ||
+      occluder.label.trim().length === 0 ||
+      occluder.label.length > 80 ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: labels are plain text.
+      /[\u0000-\u001f\u007f<>]/u.test(occluder.label)
+    )
+      return false;
+    let inside = false;
+    for (let object: THREE.Object3D | null = occluder.object; object; object = object.parent)
+      if (object === instance.root) inside = true;
+    if (!inside) return false;
+    let shared = false;
+    occluder.object.traverse((child: THREE.Object3D) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      if (occluder.kind === "fade") fading.add(child);
+      const geometry: THREE.BufferGeometry | undefined = child.geometry;
+      const vertices = geometry?.index?.count ?? geometry?.getAttribute?.("position")?.count ?? 0;
+      triangles += Math.ceil(vertices / 3);
+      for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+        const kind = kinds.get(material);
+        if (kind !== undefined && kind !== occluder.kind) shared = true;
+        kinds.set(material, occluder.kind);
+      }
+    });
+    if (shared || triangles > OCCLUDER_TRIANGLES) return false;
+  }
+  if (!Array.from(kinds.values()).includes("fade")) return true;
+  let outside = false;
+  instance.root.traverse((child: THREE.Object3D) => {
+    if (outside || !(child instanceof THREE.Mesh) || fading.has(child)) return;
+    for (const material of Array.isArray(child.material) ? child.material : [child.material])
+      if (kinds.get(material) === "fade") outside = true;
+  });
+  return !outside;
 }

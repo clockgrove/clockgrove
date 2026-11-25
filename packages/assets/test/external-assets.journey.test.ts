@@ -251,7 +251,12 @@ it.each(["pixel", "cartoon", "painterly"])(
         writeFileSync(goldenPath, record);
         // Malformed world data is a coded input refusal (exit 1), not an internal error (70).
         const actors = join(world, "reference/resources/actors");
-        const actorPath = join(actors, readdirSync(actors).sort()[0] as string);
+        const actorPath = join(
+          actors,
+          readdirSync(actors)
+            .filter((name) => name.endsWith(".json"))
+            .sort()[0] as string,
+        );
         const actor = readFileSync(actorPath, "utf8");
         writeFileSync(actorPath, JSON.stringify({ ...JSON.parse(actor), placement: {} }));
         const bad = run("check");

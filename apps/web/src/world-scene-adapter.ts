@@ -25,6 +25,18 @@ export interface SceneEmphasis {
   readonly focused: ObjectId | undefined;
 }
 /**
+ * #266: the selected character is hidden behind world content and the reveal has started; `behind`
+ * is the label of the content covering most of it, as world presentation data names it.
+ */
+export interface SceneOcclusionReveal {
+  readonly objectId: ObjectId;
+  readonly behind: string;
+}
+/** #266: the text path's line naming who is hidden, for example "Ada is behind the cedar." */
+export function occlusionText(label: string, behind: string): string {
+  return `${label} is behind ${behind}.`;
+}
+/**
  * The only React/renderer bridge (Wave 4 plan §9.1). It receives committed reducer output only, so a
  * renderer never draws state the projection reducer has not accepted (§8).
  */
@@ -45,6 +57,11 @@ export interface WorldSceneAdapter {
    */
   setDayLength(dayLengthMs: bigint | undefined): void;
   onIntent(handler: (intent: SceneIntent) => void): Unsubscribe;
+  /**
+   * #266: reports when the selected character's occlusion reveal starts (after the dwell), changes
+   * occluder, and ends (undefined). Optional: a renderer without world content never reveals.
+   */
+  onOcclusion?(handler: (reveal: SceneOcclusionReveal | undefined) => void): Unsubscribe;
   destroy(): void;
 }
 

@@ -9,3 +9,4 @@ docs/design/reference/*.jpg filter=lfs diff=lfs merge=lfs -text
 docs/design/reference/*.jpeg filter=lfs diff=lfs merge=lfs -text
 docs/design/reference/*.webp filter=lfs diff=lfs merge=lfs -text
 worlds/**/goldens/*.json pendulum-generated
+scripts/contracts.generated.json pendulum-generated

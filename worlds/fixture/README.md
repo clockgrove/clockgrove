@@ -1,4 +1,4 @@
-# Test-world fixture pack (`clockgrove.test-world@1.1.0`)
+# Test-world fixture pack (`clockgrove.test-world@1.2.0`)
 
 ## Purpose
 

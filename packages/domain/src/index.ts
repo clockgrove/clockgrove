@@ -31,7 +31,9 @@ export {
   RESOURCE_KINDS,
   type ResourceState,
   resourceSchema,
+  type ShelterState,
   type SpatialTransformState,
+  shelterSchema,
   spatialTransformSchema,
   type WeatherExposureState,
   weatherExposureSchema,
@@ -48,6 +50,7 @@ export * from "./random.js";
 export * from "./rules/index.js";
 export * from "./spatial/index.js";
 export * from "./spatial.js";
+export * from "./surface.js";
 export * from "./utility/index.js";
 export * from "./wellbeing/index.js";
 export * from "./world.js";

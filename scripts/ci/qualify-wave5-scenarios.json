@@ -1098,7 +1098,7 @@
           "marker": "opens the breaker after three overloads and routes around it visibly"
         }
       ],
-      "note": "Scripted overloads through a real ModelGateway in the native owner, no real model call: three overloaded turns open the route's breaker, a later turn after the cooldown is the half-open trial that closes it, and each transition is a clockgrove.model_breaker_transitions row (migration 0076) the run inspector returns and the §18 sample measures."
+      "note": "Scripted overloads through a real ModelGateway in the native owner, no real model call: three overloaded turns open the route's breaker, a later turn after the cooldown is the half-open trial that closes it, and each transition is a clockgrove.model_breaker_transitions row (migration 0077) the run inspector returns and the §18 sample measures."
     }
   ],
   "exitItems": [

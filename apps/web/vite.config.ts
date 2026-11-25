@@ -18,7 +18,11 @@ if (assets !== undefined && (!assets.trim() || !statSync(publicDir).isDirectory(
 
 export default defineConfig({
   esbuild: { jsx: "automatic" },
-  define: { __WORLD_SHELL__: JSON.stringify(shell) },
+  define: {
+    __WORLD_SHELL__: JSON.stringify(shell),
+    // Only a `pnpm playground` session names its host (issue 327); every other shell omits the panel.
+    __PLAYGROUND__: JSON.stringify(process.env.CLOCKGROVE_PLAYGROUND_HOST !== undefined),
+  },
   publicDir,
   plugins: [
     {

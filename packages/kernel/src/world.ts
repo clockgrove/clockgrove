@@ -19,11 +19,13 @@ import {
   type CrossingRecord,
   classifyRainChange,
   closedWorldRefusal,
+  coverIntervals,
   createWorldState,
   currentInside,
   type DecisionTrace,
   deriveComfort,
   deriveEnvironmentState,
+  dueSurfaceCrossings,
   type EcologyPolicy,
   EnvironmentValidationError,
   ecologyDisagreement,
@@ -48,18 +50,30 @@ import {
   type PortalTogglePayload,
   parsePortalPayload,
   pendingPortalSteps,
+  planSurfaceCrossing,
+  planSurfaceInteraction,
+  planSurfaceRainSettlement,
+  planSurfaceRepair,
+  planSurfaceTraffic,
   plantStageIndex,
   portalIsOpen,
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceSurfaceTraffic,
   reduceWorldEvent,
   regionsContaining,
   removableLifecycleDead,
+  type SurfaceInteractPayload,
+  type SurfaceRainHold,
+  type SurfaceRainSettlement,
+  type SurfaceRepairPayload,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
   shelterReflexThreshold,
+  surfaceDisagreement,
+  surfaceRainHold,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -168,6 +182,7 @@ import {
   type PlanningRequest,
   planFor,
   planningRequestFor,
+  reachedInPlace,
   scoreUtility,
   utilityPlanDisagreement,
   utilityRegistryIdentity,
@@ -268,6 +283,8 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.spoiled",
   "resource.appeared",
   "resource.weather-integrated",
+  "surface.band-crossed",
+  "surface.carried-drained",
   "process.command-attempted",
   "resource.transferred",
   "growth.integrated",
@@ -374,6 +391,7 @@ const MAX_INPUTS_PER_CALL = 1024;
 
 const ENVIRONMENT_CHECK = "environment.state-matches-policy";
 const ECOLOGY_CHECK = "ecology.state-matches-policy";
+const SURFACE_CHECK = "surface.state-matches-policy";
 const WELLBEING_CHECK = "wellbeing.state-matches-policy";
 const LIFECYCLE_CHECK = "lifecycle.state-matches-policy";
 const FIRST_DUE_CHECK = "world.decision.first-due";
@@ -525,9 +543,9 @@ function decodeScheduledInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -608,9 +626,9 @@ function decodeWorldInput(input: WorldKernelInput): WorldState {
   try {
     validateWorldBehaviorPack(pack);
   } catch (error) {
-    return invalid(
-      error instanceof EnvironmentValidationError ? `pack.pack.${error.path}` : "pack.pack",
-    );
+    return error instanceof EnvironmentValidationError
+      ? invalid(`pack.pack.${error.path}`, error.check)
+      : invalid("pack.pack");
   }
   const scriptedProblem = scriptedCognitionDisagreement(policy, state);
   if (scriptedProblem !== undefined) return invalid(`partition.${scriptedProblem}`);
@@ -1087,16 +1105,32 @@ function runWorld(
                 },
           ),
         };
+    // A walker is placed by the cover rule at this millisecond (`walkLocationAt`): one the world
+    // time follows may come under the stopped shelter's cover, and any walker in a departing one
+    // leaves it.
     const changes = before.entities
       .filter(
         (entity) =>
           active(entity) &&
-          entity.movement?.status !== "active" &&
           entity.objectId !== shelter.objectId &&
-          (entity.locationId === shelter.objectId ||
-            (!departing && shelterMatches(entity, objectsOf(after, shelter.objectId)!))),
+          (entity.movement?.status === "active"
+            ? follows(entity) || entity.locationId === shelter.objectId
+            : entity.locationId === shelter.objectId ||
+              (!departing && shelterMatches(entity, objectsOf(after, shelter.objectId)!))),
       )
-      .map((entity) => ({ entity, locationId: shelterAt(after, entity, entity.pose.coordinates) }))
+      .map((entity) => ({
+        entity,
+        locationId:
+          entity.movement?.status === "active"
+            ? walkLocationAt(
+                after,
+                entity,
+                entity.movement,
+                changing.simulationTime,
+                follows(entity),
+              )
+            : shelterAt(after, entity, entity.pose.coordinates),
+      }))
       .filter(({ entity, locationId }) => (entity.locationId ?? null) !== locationId);
     return { after, departing, changes, planId: data.movement?.movementId ?? data.movementId! };
   }
@@ -1145,7 +1179,33 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent, reconcileShelter = true): void {
+  /** The rain the world holds over its schedule, which rain-driven surfaces heal under. */
+  function hold(): SurfaceRainHold | undefined {
+    return surfaceRainHold(current(), policy.environment);
+  }
+  /** Rain-driven surfaces settled where the rain in force changes; nothing when none are. */
+  function rainSettlement(
+    at: SimTimeMs,
+    changes: boolean,
+  ): { surfaces?: readonly SurfaceRainSettlement[] } {
+    if (!changes || policy.surfaces === undefined) return {};
+    const surfaces = planSurfaceRainSettlement(policy.surfaces, current(), at, policy.environment);
+    return surfaces.length === 0 ? {} : { surfaces };
+  }
+  function withTraffic(event: WorldEvent): WorldEvent {
+    if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
+    const surfaces = planSurfaceTraffic(
+      policy.surfaces,
+      current(),
+      event.payload.objectId,
+      event.payload.regionId,
+      event.simulationTime,
+      policy.environment,
+    );
+    return surfaces.length === 0 ? event : { ...event, payload: { ...event.payload, surfaces } };
+  }
+  function emit(planned: WorldEvent, reconcileShelter = true): void {
+    const event = withTraffic(planned);
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
@@ -1253,6 +1313,25 @@ function runWorld(
       });
       if (nested.ok) for (const inner of nested.result.events) emit(inner);
     }
+    return true;
+  }
+  function fireSurface(at: SimTimeMs): boolean {
+    const surfaces = policy.surfaces;
+    const state = current().surfaces;
+    const due =
+      surfaces === undefined || state === undefined
+        ? null
+        : dueSurfaceCrossings(surfaces, state, policy.environment, hold());
+    if (surfaces === undefined || state === undefined || due === null || due.time !== at)
+      return true;
+    if (context.eventCount() + due.crossings.length > payload.maxEvents) {
+      if (context.eventCount() === 0) invalid("payload.maxEvents");
+      return false;
+    }
+    const planned = due.crossings.map((c) =>
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment, hold()),
+    );
+    for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
   }
   function event<T extends WorldEvent["type"]>(
@@ -1527,6 +1606,25 @@ function runWorld(
           }),
     } as unknown as WorldState;
   }
+  /**
+   * Whether the world time follows an object's walk past its command's events (its cover changes,
+   * arrival and crossings): a needs actor under a utility policy.
+   */
+  const follows = (actor: WorldEntity): boolean =>
+    utilityPolicy !== undefined && actor.needs !== undefined;
+  /** Where a walking actor's location changes under declared covers at exactly `at`, if it does. */
+  function coverChangeAt(
+    state: WorldState,
+    objectId: string,
+    at: bigint,
+  ): string | null | undefined {
+    const actor = objectsOf(state, objectId);
+    const movement = actor?.movement;
+    if (actor === undefined || movement === undefined || movement.status !== "active")
+      return undefined;
+    const change = coverChanges(state, actor, movement, at - 1n, follows(actor))[0];
+    return change?.time === at ? change.locationId : undefined;
+  }
   function pendingCrossings(movement: MovementRecord, upTo: bigint) {
     return expectedCrossings(movement, startState.spatialRegions ?? [])
       .slice(movement.emitted.length)
@@ -1723,7 +1821,8 @@ function runWorld(
       return { steps, links };
     const planId = `plan:${actor.objectId}@${t}`;
     const position = actorPosition(actor, t);
-    if (sameCoordinates(position, target.pose.coordinates)) {
+    // At the target, or under the declared cover of the shelter it seeks, the actor arrives in place.
+    if (reachedInPlace(actor, selected.kind, target, position)) {
       if (prior !== undefined) {
         stopPrior();
         steps.push({
@@ -1766,6 +1865,11 @@ function runWorld(
         },
       );
       if (record === undefined) throw new RangeError("selected seek is not plannable");
+      // The actor is where the walk's first millisecond puts it: under a declared cover it stays in
+      // (or enters) that shelter, and the world time moves it where the walk crosses a cover's
+      // boundary; otherwise it leaves its shelter as it sets out.
+      const setOut = startLocation(state, actor, record, true);
+      if (setOut !== undefined) steps.push({ kind: "locate", locationId: setOut });
       steps.push({ kind: "replan", priorMovementId: prior.movementId, position, record });
       links.push(record.movementId);
       const first = pendingCrossings(record, t);
@@ -1773,8 +1877,6 @@ function runWorld(
         steps.push({ kind: "crossings", movementId: record.movementId, crossings: first });
       return { steps, links };
     }
-    if (actor.locationId !== undefined && actor.locationId !== null)
-      steps.push({ kind: "unlocate" });
     const record = planFor(
       state,
       actor,
@@ -1794,6 +1896,10 @@ function runWorld(
       },
     );
     if (record === undefined) throw new RangeError("selected seek is not plannable");
+    // A move off the spot leaves the shelter it is in as it sets out; under a declared cover it
+    // stays in (or enters) that shelter, and leaves where the walk crosses the cover's boundary.
+    const setOut = startLocation(state, actor, record, true);
+    if (setOut !== undefined) steps.push({ kind: "locate", locationId: setOut });
     steps.push({ kind: "start", record });
     links.push(record.movementId);
     const first = pendingCrossings(record, t);
@@ -1886,6 +1992,13 @@ function runWorld(
             entity.objectId,
             entity.movement as MovementRecord,
             state.spatialRegions ?? [],
+            coverChanges(
+              state,
+              entity,
+              entity.movement as MovementRecord,
+              state.simulationTime,
+              follows(entity),
+            ).map((change) => change.time),
           ),
         })),
     );
@@ -1964,12 +2077,41 @@ function runWorld(
       if (action.kind !== "died") continue;
       if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
-      if (movement !== undefined && movement.status === "active")
-        // Terminal interruptions do not reconcile shelter arrivals before the following death.
-        total += pendingCrossings(movement, at).length + 1;
+      const crossings =
+        movement !== undefined && movement.status === "active"
+          ? pendingCrossings(movement, at)
+          : [];
+      // Terminal interruptions do not reconcile shelter arrivals before the following death.
+      if (movement !== undefined && movement.status === "active") total += crossings.length + 1;
+      if (carriesAtDeath(action.objectId, crossings)) total += 1;
     }
     return total;
   };
+  /** Whether a dying actor still carries matter once its pending crossings' traffic applies. */
+  function carriesAtDeath(objectId: string, crossings: readonly CrossingRecord[]): boolean {
+    let state = current();
+    if (policy.surfaces !== undefined)
+      for (const crossing of crossings) {
+        if (crossing.kind !== "entered") continue;
+        const surfaces = planSurfaceTraffic(
+          policy.surfaces,
+          state,
+          objectId as ObjectId,
+          crossing.regionId,
+          crossing.time as SimTimeMs,
+          policy.environment,
+        );
+        if (surfaces.length > 0)
+          state = {
+            ...state,
+            surfaces: reduceSurfaceTraffic(state, {
+              simulationTime: crossing.time as SimTimeMs,
+              payload: { objectId: objectId as ObjectId, surfaces },
+            }),
+          };
+      }
+    return (state.surfaces?.carried ?? []).some((row) => row.objectId === objectId);
+  }
   let lifecycleChanged = false;
   /** Emits one environment time group; returns false, emitting nothing, when it does not fit. */
   function emitGroup(group: EnvironmentGroup): boolean {
@@ -2015,6 +2157,11 @@ function runWorld(
       crossings: readonly CrossingRecord[];
     }[] = [];
     const arrivalIds: string[] = [];
+    const coverMoves: {
+      objectId: string;
+      movement: MovementRecord;
+      locationId: string | null;
+    }[] = [];
     let movementSize = 0;
     if (utilityPolicy !== undefined && group.movers.length > 0) {
       const before = current();
@@ -2031,6 +2178,17 @@ function runWorld(
         const crossings = pendingCrossings(movement, at);
         moverCrossings.push({ objectId, movement, crossings });
         movementSize += crossings.length;
+        // A walk crossing a declared cover's boundary here changes its location (`coverChanges`;
+        // its arrival, which never coincides with one, relocates it by the stopping rule).
+        const change = coverChangeAt(before, objectId, at);
+        if (change !== undefined) {
+          coverMoves.push({ objectId, movement, locationId: change });
+          movementSize +=
+            1 +
+            (integratedHere.has(objectId)
+              ? 0
+              : integrationEvents(objectsOf(before, objectId) as WorldEntity, at));
+        }
       }
       let arrivalState = before;
       for (const { objectId, movement } of moverCrossings) {
@@ -2101,8 +2259,18 @@ function runWorld(
           arrivalEventCount(plan);
       }
     }
+    // A crossing due as a held rain ends is journaled under that rain, before the weather settles it.
+    const heldDue =
+      group.weather &&
+      hold() !== undefined &&
+      policy.surfaces !== undefined &&
+      current().surfaces !== undefined
+        ? dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold())
+        : null;
+    const heldCrossings = heldDue?.time === at ? heldDue.crossings : [];
     const size =
       processesAt(at).length * 2 +
+      heldCrossings.length +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -2137,6 +2305,19 @@ function runWorld(
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
+      const surfacesNow = current().surfaces;
+      const planned = heldCrossings.map((c) =>
+        planSurfaceCrossing(
+          policy.surfaces!,
+          surfacesNow!,
+          c.zoneId,
+          c.channel,
+          at,
+          policy.environment,
+          hold(),
+        ),
+      );
+      for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
       emit(
         event("weather.transitioned", at, {
           segmentIndex: derived.segmentIndex,
@@ -2144,6 +2325,7 @@ function runWorld(
           temperatureBand: derived.temperatureBand,
           nextWeatherBoundary: derived.nextWeatherBoundary,
           rainChange: classifyRainChange(current().weather.rainIntensity, segment.rainIntensity),
+          ...rainSettlement(at, hold() !== undefined),
         }),
       );
     }
@@ -2310,6 +2492,17 @@ function runWorld(
               health: entry.health,
             }),
           );
+          const carried = (current().surfaces?.carried ?? []).filter(
+            (row) => row.objectId === action.objectId,
+          );
+          if (carried.length > 0)
+            emit(
+              event("surface.carried-drained", at, {
+                actorId: action.objectId,
+                removed: carried.map(({ channel, amount }) => ({ channel, amount })),
+                cause: "died",
+              }),
+            );
           const queued = decisionsOf(schedules).find(
             (candidate) => candidate.payload.objectId === action.objectId,
           );
@@ -2389,6 +2582,18 @@ function runWorld(
     }
     for (const { objectId, movement, crossings } of moverCrossings)
       emitCrossings(objectId, movement.movementId, crossings);
+    for (const { objectId, movement, locationId } of coverMoves) {
+      integrateActor(objectsOf(current(), objectId) as WorldEntity, at);
+      emit(
+        event("location.changed", at, {
+          objectId: objectId as ObjectId,
+          locationId: locationId as ObjectId | null,
+          planId: completedPlanId(objectId, movement),
+        }),
+      );
+      // Its protection changed: the run is rebuilt from here.
+      shelterChanged = true;
+    }
     for (const objectId of arrivalIds) {
       const actor = objectsOf(current(), objectId) as WorldEntity;
       integrateActor(actor, at);
@@ -2475,15 +2680,26 @@ function runWorld(
             : earliest,
         undefined,
       );
+      const surfaceDue =
+        policy.surfaces === undefined || current().surfaces === undefined
+          ? null
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold());
+      const surfaceTime =
+        surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
+      // Surface crossings run after the instant's physical causes and before its processes.
+      const heldTime =
+        surfaceTime !== undefined && (processTime === undefined || surfaceTime <= processTime)
+          ? surfaceTime
+          : processTime;
       const nextBarrier =
-        processTime !== undefined && (lifeTime === undefined || processTime < lifeTime)
-          ? processTime
+        heldTime !== undefined && (lifeTime === undefined || heldTime < lifeTime)
+          ? heldTime
           : lifeTime;
       const barrier =
         nextBarrier !== undefined && nextBarrier <= target ? (nextBarrier as SimTimeMs) : undefined;
       // Processes run after the instant's physical causes and before its actor decisions.
       const processQueue = () =>
-        dispatchable().filter((item) => processTime === undefined || item.dueAt < processTime);
+        dispatchable().filter((item) => heldTime === undefined || item.dueAt < heldTime);
       // A queued dwell is a barrier like a lifecycle time: the drain stops there to fire it.
       const dwellAt = schedules.find(isDwellItem)?.dueAt;
       const dwellBarrier = dwellAt !== undefined && dwellAt <= dwellsThrough ? dwellAt : undefined;
@@ -2521,13 +2737,15 @@ function runWorld(
             pulled = true;
             break;
           }
-          // Arrival re-seeds physiology; thresholds beyond it are speculative and may disappear.
+          // Arrival, or crossing a declared cover's boundary, re-seeds physiology; thresholds
+          // beyond it are speculative and may disappear.
           if (
             group.movers.some((objectId) => {
               const movement = objectsOf(current(), objectId)?.movement;
               return (
                 movement?.status === "active" &&
-                movementCompletionTime(movement.segment) === group.time
+                (movementCompletionTime(movement.segment) === group.time ||
+                  coverChangeAt(current(), objectId, group.time) !== undefined)
               );
             })
           )
@@ -2598,6 +2816,13 @@ function runWorld(
           ? undefined
           : schedules.find((candidate) => candidate.id === drain.dispatched?.scheduleId);
       if (item === undefined) {
+        if (surfaceTime !== undefined && drain.time === surfaceTime) {
+          if (!fireSurface(surfaceTime)) {
+            complete = false;
+            break;
+          }
+          continue;
+        }
         if (processTime !== undefined && drain.time === processTime) {
           if (!fireProcesses(processTime)) {
             complete = false;
@@ -2834,6 +3059,28 @@ function runWorld(
           throw new RangeError("a movement handler emitted an event its command does not own");
         if (ended) return;
         if (time - start > policy.decisionIntervalMs) passedTime("state.simulationTime");
+        // Where the walk enters or leaves a shelter's declared cover by this event's time, its
+        // location changes there, after the world time up to that millisecond.
+        for (;;) {
+          const walking = objectsOf(current(), mover as string);
+          const walk = walking?.movement?.status === "active" ? walking.movement : undefined;
+          const change =
+            walk === undefined
+              ? undefined
+              : coverChanges(
+                  current(),
+                  walking!,
+                  walk,
+                  current().simulationTime,
+                  follows(walking!),
+                )[0];
+          if (walk === undefined || change === undefined || change.time > time) break;
+          const changeAt = change.time as SimTimeMs;
+          if (!advanceTo(changeAt, (changeAt - 1n) as SimTimeMs)) passedTime("events");
+          ended = moverDied();
+          if (ended) return;
+          relocate(changeAt, change.locationId, walk.movementId, 1);
+        }
         // Dwells due at `time` fall due after the command's events at that time.
         if (!advanceTo(time as SimTimeMs, (time - 1n) as SimTimeMs)) passedTime("events");
         ended = moverDied();
@@ -2842,10 +3089,17 @@ function runWorld(
           passedTime("events");
         integrateWaters(time as SimTimeMs);
         const at = time as SimTimeMs;
-        // A move off the spot leaves the mover's location as it sets out.
+        // A move off the spot leaves the mover's location as it sets out, unless a mover the world
+        // time follows starts under a declared cover: then it is in that shelter, and leaves where
+        // the walk crosses the cover's boundary (above), if it ever does (`startLocation`).
         if (type === "movement.started" || type === "movement.replanned") {
           const movement = (data as { readonly movement: MovementRecord }).movement;
-          if (leavesStart(movement)) relocate(at, null, movement.movementId, 1);
+          const moving = objectsOf(current(), mover as string);
+          const setOut =
+            moving === undefined
+              ? undefined
+              : startLocation(current(), moving, movement, follows(moving));
+          if (setOut !== undefined) relocate(at, setOut, movement.movementId, 1);
         }
         const changing = event(type as WorldEvent["type"], at, data as never);
         if (context.eventCount() + 1 + shelterEventCount(changing) > payload.maxEvents)
@@ -2875,6 +3129,10 @@ function runWorld(
     emit(
       event("weather.changed", current().simulationTime, {
         rainIntensity: payload.rainIntensity as number,
+        ...rainSettlement(
+          current().simulationTime,
+          payload.rainIntensity !== current().weather.rainIntensity,
+        ),
       }),
     );
     for (const item of decisionsOf(schedules)) reschedule(item, current().simulationTime);
@@ -2981,6 +3239,22 @@ function registerWorldChecks(
         activePolicy === undefined
           ? undefined
           : processJournalDisagreement(activePolicy, initial, state, events),
+    }),
+    preconditions.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state, input }) => surfaceDisagreement(input.pack.pack.policy, state),
+    }),
+    invariants.register({
+      name: SURFACE_CHECK,
+      version: 1,
+      check: ({ state }) =>
+        activePolicy === undefined ? undefined : surfaceDisagreement(activePolicy, state),
+    }),
+    invariants.register({
+      name: "surface.journaled",
+      version: 1,
+      check: ({ initial, events }) => surfaceJournalDisagreement(initial, events),
     }),
     preconditions.register({
       name: ENVIRONMENT_CHECK,
@@ -3795,9 +4069,17 @@ function waterAt(
 /** The rain protection of the shelter an object is in: none once that shelter is retired. */
 function rainProtectionOf(state: WorldState, actor: WorldEntity): number {
   const location = state.entities.find((entity) => entity.objectId === actor.locationId);
-  return location !== undefined && shelterMatches(actor, location)
-    ? (location.shelter?.rainProtection ?? 0)
-    : 0;
+  // A walker's pose is where its walk began; under a declared cover the walk keeps its location
+  // to the cover's boundary (`coverChanges`), so that location is what covers it.
+  const walk = actor.movement?.status === "active" ? actor.movement : undefined;
+  const sheltered =
+    location !== undefined &&
+    (walk !== undefined && coversWalk(actor, location, walk)
+      ? true
+      : shelterMatches(actor, location))
+      ? (location.shelter?.rainProtection ?? 0)
+      : 0;
+  return Math.max(actor.weatherProtection?.rainProtection ?? 0, sheltered);
 }
 /**
  * The world's single needs/wetness arithmetic, given the rain intensity and shelter protection in
@@ -3967,6 +4249,141 @@ function shelterAt(
     if (kept !== undefined && kept !== null && here.includes(kept)) return kept;
   return here[0] ?? null;
 }
+/**
+ * Whether a walking actor can be under a shelter's declared cover mid-walk: the shelter declares
+ * `coverRadius`, is active, is not itself moving, and stands in the walk's space and frame, and
+ * the walk takes no portal.
+ */
+function coversWalk(actor: WorldEntity, shelter: WorldEntity, movement: MovementRecord): boolean {
+  return (
+    shelter.shelter?.coverRadius !== undefined &&
+    shelter.objectId !== actor.objectId &&
+    (shelter.lifecycle === undefined || shelter.lifecycle.status === "active") &&
+    shelter.movement?.status !== "active" &&
+    shelter.spaceId === actor.spaceId &&
+    shelter.pose.frameId === movement.frameId &&
+    shelter.pose.frameVersion === movement.frameVersion &&
+    movement.portalSteps === undefined
+  );
+}
+/** The whole milliseconds of a walk that a shelter's declared cover covers (`coverIntervals`). */
+function walkCover(shelter: WorldEntity, movement: MovementRecord) {
+  return coverIntervals(
+    movement.segment,
+    shelter.pose.coordinates,
+    shelter.shelter?.coverRadius as bigint,
+  );
+}
+/**
+ * Where a movement puts its mover as it sets out, or `undefined` when its location does not change
+ * then. A zero-length movement never changes it. A mover the world time follows (`followed`: a
+ * needs actor under a utility policy) is, at the walk's first millisecond, in the shelter whose
+ * declared cover it is under (`coversWalk`; the one it is in, else the first by object id) or on
+ * open ground. Any other mover's walk is not followed past its command's events, so it keeps its
+ * shelter only when every waypoint stays within that shelter's cover (a ball, so the straight legs
+ * between them do too), and is otherwise unlocated as it sets out.
+ */
+function startLocation(
+  state: WorldState,
+  actor: WorldEntity,
+  movement: MovementRecord,
+  followed: boolean,
+): string | null | undefined {
+  if (!leavesStart(movement)) return undefined;
+  const here = actor.locationId ?? null;
+  const location =
+    here === null ? undefined : state.entities.find((entity) => entity.objectId === here);
+  if (!followed) {
+    if (here === null) return undefined;
+    return location?.shelter?.coverRadius !== undefined &&
+      movement.segment.waypoints.every((point) => shelterMatches(actor, location, point))
+      ? undefined
+      : null;
+  }
+  const start = movement.segment.startTime;
+  const under = (shelter: WorldEntity): boolean =>
+    coversWalk(actor, shelter, movement) && walkCover(shelter, movement)[0]?.[0] === start;
+  if (location !== undefined && under(location)) return undefined;
+  const next =
+    state.entities
+      .filter(under)
+      .map((entity) => entity.objectId as string)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))[0] ?? null;
+  return next === here ? undefined : next;
+}
+/**
+ * The location changes of a walk under declared covers after `from` and before it completes. At
+ * each whole millisecond its exact path enters or leaves a shelter's cover (`coverIntervals`), the
+ * walker is in the shelter whose cover it is under (the one it is in, else the first by object
+ * id) or on open ground; a change is listed where that differs from where it is. Where it stops,
+ * the stopping rule places it as before.
+ */
+function coverChanges(
+  state: WorldState,
+  actor: WorldEntity,
+  movement: MovementRecord,
+  from: bigint,
+  followed: boolean,
+): readonly { readonly time: bigint; readonly locationId: string | null }[] {
+  if (!followed || !leavesStart(movement)) return [];
+  const end = movementCompletionTime(movement.segment);
+  const covers = state.entities
+    .filter((entity) => coversWalk(actor, entity, movement))
+    .map((entity) => ({ objectId: entity.objectId as string, spans: walkCover(entity, movement) }))
+    .filter((cover) => cover.spans.length > 0)
+    .sort((left, right) =>
+      left.objectId < right.objectId ? -1 : left.objectId > right.objectId ? 1 : 0,
+    );
+  const times = [
+    ...new Set(
+      covers.flatMap((cover) => cover.spans.flatMap(([enter, leave]) => [enter, leave + 1n])),
+    ),
+  ]
+    .filter((time) => time > from && time < end)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const changes: { time: bigint; locationId: string | null }[] = [];
+  let where: string | null = actor.locationId ?? null;
+  for (const time of times) {
+    const under = covers
+      .filter((cover) => cover.spans.some(([enter, leave]) => enter <= time && time <= leave))
+      .map((cover) => cover.objectId);
+    const next = where !== null && under.includes(where) ? where : (under[0] ?? null);
+    if (next === where) continue;
+    changes.push({ time, locationId: next });
+    where = next;
+  }
+  return changes;
+}
+/**
+ * Where a walker is at `at` when a shelter is created, retired, sets out or stops mid-walk. A
+ * zero-length walk is placed by the stopping rule at its pose. A walker the world time follows is
+ * in the shelter whose declared cover its path is under at that millisecond (`coversWalk`; the one
+ * it is in, else the first by object id) or on open ground, as `coverChanges` places it at a
+ * boundary. Any other walker keeps its shelter only while that shelter still covers the walk.
+ */
+function walkLocationAt(
+  state: WorldState,
+  actor: WorldEntity,
+  movement: MovementRecord,
+  at: bigint,
+  followed: boolean,
+): string | null {
+  if (!leavesStart(movement)) return shelterAt(state, actor, actor.pose.coordinates);
+  const here = actor.locationId ?? null;
+  if (!followed) {
+    const location = state.entities.find((entity) => entity.objectId === here);
+    return location !== undefined && coversWalk(actor, location, movement) ? here : null;
+  }
+  const under = state.entities
+    .filter(
+      (entity) =>
+        coversWalk(actor, entity, movement) &&
+        walkCover(entity, movement).some(([enter, leave]) => enter <= at && at <= leave),
+    )
+    .map((entity) => entity.objectId as string)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return here !== null && under.includes(here) ? here : (under[0] ?? null);
+}
 /** Whether a movement takes its mover off the point it starts from (a zero-length one does not). */
 function leavesStart(movement: MovementRecord): boolean {
   const [first, ...rest] = movement.segment.waypoints;
@@ -4001,18 +4418,33 @@ function runContainmentCommand(
   };
   const reconcile = (after: WorldState, shelterId: string, created = false): void => {
     const shelter = after.entities.find((entity) => entity.objectId === shelterId);
+    // A walker the world time follows (a needs actor under a utility policy) is placed by the
+    // cover rule at this millisecond, so a cover created over it locates it; any walker in a
+    // retired shelter leaves it (`walkLocationAt`).
+    const followed = (entity: WorldEntity): boolean =>
+      input.pack.pack.policy.utility !== undefined && entity.needs !== undefined;
     const changes = (created ? after.entities : state.entities)
       .filter(
         (entity) =>
           active(entity) &&
-          entity.movement?.status !== "active" &&
-          (entity.objectId === shelterId ||
-            entity.locationId === shelterId ||
-            (shelter !== undefined && shelterMatches(entity, shelter))),
+          (entity.movement?.status === "active"
+            ? entity.objectId !== shelterId && (followed(entity) || entity.locationId === shelterId)
+            : entity.objectId === shelterId ||
+              entity.locationId === shelterId ||
+              (shelter !== undefined && shelterMatches(entity, shelter))),
       )
       .map((occupant) => ({
         occupant,
-        locationId: shelterAt(after, occupant, occupant.pose.coordinates),
+        locationId:
+          occupant.movement?.status === "active"
+            ? walkLocationAt(
+                after,
+                occupant,
+                occupant.movement,
+                state.simulationTime,
+                followed(occupant),
+              )
+            : shelterAt(after, occupant, occupant.pose.coordinates),
       }))
       .filter(({ occupant, locationId }) => (occupant.locationId ?? null) !== locationId);
     const at = state.simulationTime;
@@ -4093,6 +4525,31 @@ function runContainmentCommand(
     case "resource.consume":
       emit({ type: "resource.consumed", payload: withoutVersion(payload) });
       break;
+    case "surface.interact": {
+      const p = payload as SurfaceInteractPayload;
+      const planned = planSurfaceInteraction(
+        input.pack.pack.policy.surfaces!,
+        state,
+        { ...p, actorId: p.actorId as ObjectId },
+        state.simulationTime,
+        input.pack.pack.policy.environment,
+      );
+      if (!planned.ok) throw new RangeError("surface interaction was not validated");
+      emit({ type: "surface.interacted", payload: planned.payload });
+      break;
+    }
+    case "surface.repair": {
+      const planned = planSurfaceRepair(
+        input.pack.pack.policy.surfaces!,
+        state,
+        payload as SurfaceRepairPayload,
+        state.simulationTime,
+        input.pack.pack.policy.environment,
+      );
+      if (!planned.ok) throw new RangeError("surface repair was not validated");
+      emit({ type: "surface.repaired", payload: planned.payload });
+      break;
+    }
     case "boundary.exchange": {
       const p = payload as BoundaryExchangePayload;
       const source = input.pack.pack.policy.boundaryExchanges!.find(
@@ -4546,6 +5003,181 @@ function withoutVersion(payload: ContainmentPayload): unknown {
   return rest;
 }
 
+function surfaceRefusal(
+  state: WorldState,
+  policy: WorldBehaviorPolicy,
+  type: "surface.interact" | "surface.repair",
+  payload: SurfaceInteractPayload | SurfaceRepairPayload,
+  effectiveActorId: string | undefined,
+): { readonly path: string; readonly check: string } | undefined {
+  const surfaces = policy.surfaces;
+  if (surfaces === undefined) return { path: "payload.zoneId", check: "surface.zone@1" };
+  if (type === "surface.repair") {
+    const planned = planSurfaceRepair(
+      surfaces,
+      state,
+      payload as SurfaceRepairPayload,
+      state.simulationTime,
+      policy.environment,
+    );
+    return planned.ok ? undefined : planned;
+  }
+  const p = payload as SurfaceInteractPayload;
+  const planned = planSurfaceInteraction(
+    surfaces,
+    state,
+    { ...p, actorId: p.actorId as ObjectId },
+    state.simulationTime,
+    policy.environment,
+  );
+  if (!planned.ok && planned.check !== "surface.reach@1") return planned;
+  const actor = state.entities.find((entry) => entry.objectId === p.actorId);
+  if (actor === undefined || !active(actor) || effectiveActorId !== p.actorId)
+    return { path: "payload.actorId", check: "surface.actor@1" };
+  return planned.ok ? undefined : planned;
+}
+
+function surfaceJournalDisagreement(
+  initial: WorldState,
+  events: readonly WorldSemanticEvent[],
+): string | undefined {
+  const surfaces = activePolicy?.surfaces;
+  const first = events.findIndex(
+    (event) =>
+      event.type.startsWith("surface.") ||
+      ((event.type === "movement.region-entered" ||
+        event.type === "weather.changed" ||
+        event.type === "weather.transitioned") &&
+        event.payload.surfaces !== undefined),
+  );
+  if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
+  let state = initial;
+  for (const [index, event] of events.entries()) {
+    try {
+      if (event.type === "surface.interacted") {
+        const planned = planSurfaceInteraction(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.repaired") {
+        const planned = planSurfaceRepair(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          !planned.ok ||
+          canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.carried-drained") {
+        const held = (state.surfaces?.carried ?? [])
+          .filter((row) => row.objectId === event.payload.actorId)
+          .map(({ channel, amount }) => ({ channel, amount }));
+        // The drain follows its actor's death at the same instant (a shelter change may sit between).
+        const died = events
+          .slice(0, index)
+          .some(
+            (prior) =>
+              prior.type === "lifecycle.died" &&
+              prior.simulationTime === event.simulationTime &&
+              prior.payload.objectId === event.payload.actorId,
+          );
+        if (
+          held.length === 0 ||
+          event.payload.cause !== "died" ||
+          canonicalSerialize(held) !== canonicalSerialize(event.payload.removed) ||
+          !died
+        )
+          return `events[${index}]`;
+      } else if (event.type === "lifecycle.died") {
+        const drained = events
+          .slice(index + 1)
+          .some(
+            (later) =>
+              later.type === "surface.carried-drained" &&
+              later.simulationTime === event.simulationTime &&
+              later.payload.actorId === event.payload.objectId,
+          );
+        if (
+          state.surfaces?.carried.some((row) => row.objectId === event.payload.objectId) === true &&
+          !drained
+        )
+          return `events[${index}]`;
+      } else if (event.type === "weather.changed" || event.type === "weather.transitioned") {
+        const environment = activePolicy?.environment;
+        const changes =
+          event.type === "weather.changed"
+            ? event.payload.rainIntensity !== state.weather.rainIntensity
+            : surfaceRainHold(state, environment) !== undefined;
+        const planned = changes
+          ? planSurfaceRainSettlement(surfaces, state, event.simulationTime, environment)
+          : [];
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "movement.region-entered") {
+        const planned = planSurfaceTraffic(
+          surfaces,
+          state,
+          event.payload.objectId,
+          event.payload.regionId,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "surface.band-crossed") {
+        const { zoneId, channel } = event.payload;
+        const due =
+          state.surfaces === undefined
+            ? null
+            : dueSurfaceCrossings(
+                surfaces,
+                state.surfaces,
+                activePolicy?.environment,
+                surfaceRainHold(state, activePolicy?.environment),
+              );
+        if (
+          due?.time !== event.simulationTime ||
+          !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
+          canonicalSerialize(
+            planSurfaceCrossing(
+              surfaces,
+              state.surfaces!,
+              zoneId,
+              channel,
+              event.simulationTime,
+              activePolicy?.environment,
+              surfaceRainHold(state, activePolicy?.environment),
+            ),
+          ) !== canonicalSerialize(event.payload)
+        )
+          return `events[${index}]`;
+      }
+      state = reduceWorldEvent(state, event);
+    } catch {
+      return `events[${index}]`;
+    }
+  }
+  return undefined;
+}
+
 function boundaryExchangeRefusal(
   state: WorldState,
   policy: WorldBehaviorPolicy,
@@ -4699,6 +5331,8 @@ function registerContainmentChecks(
     preconditions.register({ name, version: 1, commands: CONTAINMENT_COMMAND_TYPES, check });
   const authority: Record<ContainmentCommandType, readonly string[]> = {
     "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
+    "surface.interact": ["surface.interacted"],
+    "surface.repair": ["surface.repaired"],
     "object.create": [
       "object.created",
       "needs.changed",
@@ -4742,6 +5376,8 @@ function registerContainmentChecks(
                 "weather.transitioned",
                 "exposure.threshold-crossed",
                 "resource.weather-integrated",
+                "surface.band-crossed",
+                "surface.carried-drained",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",
@@ -4787,6 +5423,20 @@ function registerContainmentChecks(
       version: 1,
       check: ({ state, input }) => boundaryExchangeDisagreement(input.pack.pack.policy, state),
     }),
+    ...["surface.zone", "surface.interaction", "surface.actor", "surface.reach"].map((name) =>
+      registerPre(name, ({ state, payload, input, command }) => {
+        if (command.type !== "surface.interact" && command.type !== "surface.repair")
+          return undefined;
+        const refused = surfaceRefusal(
+          state,
+          input.pack.pack.policy,
+          command.type,
+          payload as SurfaceInteractPayload | SurfaceRepairPayload,
+          input.attribution.effectiveActorId,
+        );
+        return refused?.check === `${name}@1` ? refused.path : undefined;
+      }),
+    ),
     registerPre("boundary.exchange", ({ state, payload, input, command }) =>
       command.type === "boundary.exchange"
         ? boundaryExchangeRefusal(

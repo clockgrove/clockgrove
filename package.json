@@ -33,7 +33,7 @@
     "test:visual": "vitest run --config tests/ci/vitest.browser.config.ts tests/visual",
     "test:a11y": "vitest run --config tests/ci/vitest.browser.config.ts tests/accessibility",
     "test:realtime:load": "vitest run --config tests/ci/vitest.browser.config.ts tests/load/realtime",
-    "test:conversations": "vitest run --config apps/runtime/vitest.runtime.config.ts --no-file-parallelism apps/runtime/test/conversations.journey.postgres.test.ts apps/runtime/test/context.journey.postgres.test.ts apps/runtime/test/runs.journey.postgres.test.ts apps/runtime/test/keeper-command.journey.postgres.test.ts apps/runtime/test/interaction-card.journey.postgres.test.ts",
+    "test:conversations": "vitest run --config apps/runtime/vitest.runtime.config.ts --no-file-parallelism apps/runtime/test/conversations.journey.postgres.test.ts apps/runtime/test/context.journey.postgres.test.ts apps/runtime/test/runs.journey.postgres.test.ts apps/runtime/test/usage.journey.postgres.test.ts apps/runtime/test/keeper-command.journey.postgres.test.ts apps/runtime/test/interaction-card.journey.postgres.test.ts",
     "test:cognition:fibers": "vitest run --config apps/runtime/vitest.runtime.config.ts --no-file-parallelism apps/runtime/test/turn-fibers.journey.postgres.test.ts apps/runtime/test/turn-research.postgres.test.ts apps/runtime/test/activations.journey.postgres.test.ts apps/runtime/test/activation-cursor.postgres.test.ts apps/runtime/test/approved-write.journey.postgres.test.ts apps/runtime/test/research.journey.postgres.test.ts apps/runtime/test/autonomous-parity.postgres.test.ts apps/runtime/test/decision-evidence/shadow.postgres.test.ts apps/runtime/test/decision-evidence/wake-triage.postgres.test.ts apps/runtime/test/decision-evidence/wake-triage-material.postgres.test.ts",
     "test:model-gateway": "vitest run --root packages/model-gateway --config vitest.config.ts",
     "test:capabilities": "vitest run --config apps/runtime/vitest.runtime.config.ts --no-file-parallelism apps/runtime/test/actor-self-capabilities.journey.postgres.test.ts apps/runtime/test/approval-waiting.postgres.test.ts apps/runtime/test/approved-research.postgres.test.ts apps/runtime/test/effect-approvals.postgres.test.ts apps/runtime/test/effect-reservation.postgres.test.ts && vitest run --root packages/application --config vitest.config.ts test/world-command-authorization.test.ts",
@@ -58,6 +58,7 @@
     "qualify:wave4": "node scripts/ci/qualify-wave4.mjs",
     "qualify:wave5": "node scripts/ci/qualify-wave5.mjs",
     "dev:world": "node scripts/dev-world.mjs",
+    "playground": "node scripts/playground.mjs",
     "shadow:decision": "node scripts/decision-shadow.mjs"
   },
   "devDependencies": {

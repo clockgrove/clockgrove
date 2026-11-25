@@ -13,6 +13,7 @@ export {
   type ExecutionContext,
   type ExecutionContextRef,
 } from "./execution-context.js";
+export * from "./flashback.js";
 export * from "./ids.js";
 export * from "./journal-records.js";
 export * from "./material.js";
@@ -27,4 +28,5 @@ export * from "./scene-interactions.js";
 export * from "./scene-protocol.js";
 export * from "./spatial-units.js";
 export * from "./turn-fibers.js";
+export * from "./usage.js";
 export { ContractDecodeError, exactKeys, nonNegativeInteger, record } from "./validation.js";

@@ -250,6 +250,19 @@ function tryDecode<T>(decode: (value: unknown) => T, value: unknown): T | undefi
   }
 }
 
+/** A refused playground request carrying the API's own message and refusal code. */
+export class PlaygroundRefusal extends ApiRefusal {
+  readonly detail: string;
+  constructor(status: number, body: unknown) {
+    super(status);
+    const record =
+      typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    const refusal = record.refusal as { code?: unknown } | undefined;
+    const message = typeof record.message === "string" ? record.message : "Request refused";
+    this.detail = typeof refusal?.code === "string" ? `${message} (${refusal.code})` : message;
+  }
+}
+
 /** Coordinates authorized transport and transient intents; all read data/status live in Query. */
 export class SceneSession {
   private intent = 0;
@@ -342,6 +355,23 @@ export class SceneSession {
         typeof code === "string" && /^[a-z_]+$/.test(code) ? code : "MCP request refused",
       );
     }
+    return result as T;
+  }
+  async playgroundRequest<T>(route: string, payload: object = {}): Promise<T> {
+    const credential = this.account?.credential;
+    if (!credential) throw new ApiRefusal(401);
+    const response = await fetch(new URL(`/playground/v1/${route}`, this.origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      throw new ApiRefusal(response.ok ? 502 : response.status);
+    }
+    if (!response.ok) throw new PlaygroundRefusal(response.status, result);
     return result as T;
   }
   async effectRequest<T>(operation: string, payload: object = {}): Promise<T> {
