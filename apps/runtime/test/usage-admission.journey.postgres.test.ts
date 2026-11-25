@@ -53,7 +53,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
   "refuses a model call before it is sent when a budget is spent or the developer's hook says no",
   async () => {
     const requests: { body: string; headers: Record<string, string> }[] = [];
-    let secret = "";
+    let signing = "";
     const hook = createServer((request, response) => {
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -61,7 +61,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         const body = Buffer.concat(chunks).toString();
         const headers = request.headers as Record<string, string>;
         try {
-          new Webhook(secret).verify(body, headers);
+          new Webhook(signing).verify(body, headers);
           requests.push({ body, headers });
           response.end(JSON.stringify({ admit: false, reason: "subscription_lapsed" }));
         } catch {
@@ -137,7 +137,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         const registered = (await register()).body as UsageAdmissionHookRegistration;
         expect(registered.url).toBe(url);
         expect(registered.signingSecret).toMatch(/^whsec_/u);
-        secret = registered.signingSecret ?? "";
+        signing = registered.signingSecret ?? "";
 
         const lapsed = await talk("m3");
         expect([lapsed.serviceOutcome, lapsed.text]).toEqual([
