@@ -393,3 +393,207 @@ export function encodeFlashback(value: Flashback): string {
     decimalBigints,
   );
 }
+
+/**
+ * The declared bounds of one marks read (issue 273, part 3), echoed in every response. Decisions:
+ * `moments`: at most sixteen per zone, newest first (twice a flashback's eight frames either side,
+ * half the 32-mark ring ceiling `MAX_SURFACE_MARKS`); `scanEvents`: the partition events read back
+ * from the head, the flashback's own `catchUpEvents`, so a listed moment is one a flashback can still
+ * replay from a sweep snapshot. Earlier moments are not guessed: the response says the scan stopped.
+ */
+export const FLASHBACK_MARK_BOUNDS = Object.freeze({ moments: 16, scanEvents: 4_000 });
+export type FlashbackMarkBounds = typeof FLASHBACK_MARK_BOUNDS;
+
+/** What a marks read is about: one surface zone, or every zone an object or a region hosts. */
+export type FlashbackMarksTarget =
+  | { readonly objectId: ObjectId }
+  | { readonly regionId: string }
+  | { readonly zoneId: string };
+
+export type FlashbackMarksRequest = BrowserScope & { readonly version: 1 } & FlashbackMarksTarget;
+
+export const FLASHBACK_MARK_KINDS = ["interacted", "worn", "band-crossed", "repaired"] as const;
+export type FlashbackMarkKind = (typeof FLASHBACK_MARK_KINDS)[number];
+
+/**
+ * One journaled event that changed a zone: `interacted` (`surface.interacted`), `worn` (a
+ * `movement.region-entered` whose traffic touched it), `band-crossed` or `repaired`. Its `eventId`
+ * is a flashback entry. `actorId` is null when the event names no actor (a crossing or a repair).
+ */
+export interface FlashbackMarkMoment {
+  readonly eventId: EventId;
+  readonly commandId: CommandId;
+  readonly partitionSequence: string;
+  readonly simulationTime: string;
+  readonly kind: FlashbackMarkKind;
+  readonly actorId: ObjectId | null;
+  readonly interactionId: string | null;
+  /** True when the event pushed a mark onto the zone's ring. */
+  readonly leftMark: boolean;
+}
+
+export interface FlashbackMarkZone {
+  readonly zoneId: string;
+  readonly host:
+    | { readonly kind: "object"; readonly objectId: ObjectId }
+    | { readonly kind: "region"; readonly regionId: string };
+  /** How many marks the zone's ring holds in the current canonical state. */
+  readonly marks: number;
+  /** Newest first, at most `moments`. */
+  readonly moments: readonly FlashbackMarkMoment[];
+  /** Moments found in the scan beyond the `moments` shown. */
+  readonly more: number;
+}
+
+/**
+ * A surface's moments (issue 273, part 3), read from the journal under the observer's own
+ * `public_scene` authority. `scanned` is the partition range read; `reachesStart` is false when
+ * earlier events exist that were not scanned, so earlier moments are not listed. `not-visible`: an
+ * event in the range is not readable by the observer, so no moment is listed.
+ */
+export interface FlashbackMarks extends BrowserScope {
+  readonly version: 1;
+  readonly privacyClass: "public_scene";
+  readonly target: FlashbackMarksTarget;
+  readonly bounds: FlashbackMarkBounds;
+  readonly status: "read" | "not-visible";
+  readonly scanned: { readonly from: string; readonly to: string } | null;
+  readonly reachesStart: boolean;
+  readonly zones: readonly FlashbackMarkZone[];
+}
+
+const TARGET_KEYS = ["objectId", "regionId", "zoneId"] as const;
+
+function decodeMarksTarget(v: Record<string, unknown>, path: string): FlashbackMarksTarget {
+  const present = TARGET_KEYS.filter((key) => key in v);
+  if (present.length !== 1) throw new ContractDecodeError(path, "exactly one target required");
+  const key = present[0]!;
+  if (key === "objectId") return { objectId: objectId(v.objectId) };
+  const id = string(v[key], `${path}.${key}`);
+  if (id.trim() !== id || new TextEncoder().encode(id).length > 512)
+    throw new ContractDecodeError(`${path}.${key}`, "invalid identifier");
+  return key === "regionId" ? { regionId: id } : { zoneId: id };
+}
+
+/** Exactly one target: `objectId`, `regionId` or `zoneId`. */
+export function decodeFlashbackMarksRequest(value: unknown): FlashbackMarksRequest {
+  const v = record(value, "flashbackMarks");
+  const target = decodeMarksTarget(v, "flashbackMarks");
+  exactKeys(v, [...SCOPE_KEYS, Object.keys(target)[0]!], [], "flashbackMarks");
+  const scope = decodeObservationRequest({
+    version: v.version,
+    tenantId: v.tenantId,
+    worldId: v.worldId,
+    timelineId: v.timelineId,
+    spaceId: v.spaceId,
+  });
+  return { ...scope, ...target };
+}
+
+function decodeMarkMoment(value: unknown, path: string): FlashbackMarkMoment {
+  const v = record(value, path);
+  exactKeys(
+    v,
+    [
+      "eventId",
+      "commandId",
+      "partitionSequence",
+      "simulationTime",
+      "kind",
+      "actorId",
+      "interactionId",
+      "leftMark",
+    ],
+    [],
+    path,
+  );
+  if (typeof v.leftMark !== "boolean")
+    throw new ContractDecodeError(`${path}.leftMark`, "expected a boolean");
+  return {
+    eventId: decodeOpaqueId(v.eventId, "EventId"),
+    commandId: decodeOpaqueId(v.commandId, "CommandId"),
+    partitionSequence: decimal(v.partitionSequence, `${path}.partitionSequence`),
+    simulationTime: decimal(v.simulationTime, `${path}.simulationTime`),
+    kind: literal(v.kind, FLASHBACK_MARK_KINDS, `${path}.kind`),
+    actorId: nullable(v.actorId, objectId),
+    interactionId: nullable(v.interactionId, (id) => string(id, `${path}.interactionId`)),
+    leftMark: v.leftMark,
+  };
+}
+
+function decodeMarkZone(value: unknown, path: string): FlashbackMarkZone {
+  const v = record(value, path);
+  exactKeys(v, ["zoneId", "host", "marks", "moments", "more"], [], path);
+  const host = record(v.host, `${path}.host`);
+  const kind = literal(host.kind, ["object", "region"] as const, `${path}.host.kind`);
+  exactKeys(host, ["kind", kind === "object" ? "objectId" : "regionId"], [], `${path}.host`);
+  const moments = array(v.moments, `${path}.moments`, decodeMarkMoment);
+  if (moments.length > FLASHBACK_MARK_BOUNDS.moments)
+    throw new ContractDecodeError(`${path}.moments`, "more moments than the declared bound");
+  return {
+    zoneId: string(v.zoneId, `${path}.zoneId`),
+    host:
+      kind === "object"
+        ? { kind, objectId: objectId(host.objectId) }
+        : { kind, regionId: string(host.regionId, `${path}.host.regionId`) },
+    marks: nonNegativeInteger(v.marks, `${path}.marks`),
+    moments,
+    more: nonNegativeInteger(v.more, `${path}.more`),
+  };
+}
+
+/** Strict decoding at every level; unknown and missing fields are refused. */
+export function decodeFlashbackMarks(value: unknown): FlashbackMarks {
+  const v = record(value, "flashbackMarks");
+  exactKeys(
+    v,
+    [
+      ...SCOPE_KEYS,
+      "privacyClass",
+      "target",
+      "bounds",
+      "status",
+      "scanned",
+      "reachesStart",
+      "zones",
+    ],
+    [],
+    "flashbackMarks",
+  );
+  const scope = decodeObservationRequest({
+    version: v.version,
+    tenantId: v.tenantId,
+    worldId: v.worldId,
+    timelineId: v.timelineId,
+    spaceId: v.spaceId,
+  });
+  if (v.privacyClass !== "public_scene")
+    throw new ContractDecodeError("flashbackMarks.privacyClass", "expected public_scene");
+  const target = record(v.target, "flashbackMarks.target");
+  const decodedTarget = decodeMarksTarget(target, "flashbackMarks.target");
+  exactKeys(target, [Object.keys(decodedTarget)[0]!], [], "flashbackMarks.target");
+  const bounds = record(v.bounds, "flashbackMarks.bounds");
+  exactKeys(bounds, Object.keys(FLASHBACK_MARK_BOUNDS), [], "flashbackMarks.bounds");
+  for (const [key, expected] of Object.entries(FLASHBACK_MARK_BOUNDS))
+    if (bounds[key] !== expected)
+      throw new ContractDecodeError(`flashbackMarks.bounds.${key}`, "expected the declared bound");
+  if (typeof v.reachesStart !== "boolean")
+    throw new ContractDecodeError("flashbackMarks.reachesStart", "expected a boolean");
+  return {
+    ...scope,
+    privacyClass: "public_scene",
+    target: decodedTarget,
+    bounds: FLASHBACK_MARK_BOUNDS,
+    status: literal(v.status, ["read", "not-visible"] as const, "flashbackMarks.status"),
+    scanned: nullable(v.scanned, (scanned) => {
+      const s = record(scanned, "flashbackMarks.scanned");
+      exactKeys(s, ["from", "to"], [], "flashbackMarks.scanned");
+      return {
+        from: decimal(s.from, "flashbackMarks.scanned.from"),
+        to: decimal(s.to, "flashbackMarks.scanned.to"),
+      };
+    }),
+    reachesStart: v.reachesStart,
+    zones: array(v.zones, "flashbackMarks.zones", decodeMarkZone),
+  };
+}
