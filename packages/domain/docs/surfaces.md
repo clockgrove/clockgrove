@@ -178,7 +178,9 @@ before.
 entering `regionId` perceives, as `SurfaceNotice` entries `{zoneId, signals, mark}`. It returns none
 when the policy has no `senses`, the world has no surface state, the observer is not an entity or
 its archetype has no entry. A zone is a candidate when it is hosted by `regionId`, or by an active
-object other than the observer whose pose lies inside that region. For each candidate zone, in
+object other than the observer that is in the observer's space, is not put inside a container
+(`containment.containerId` unset) and whose pose lies inside that region. There is no range or
+occlusion beyond that: the region is the range. For each candidate zone, in
 declaration order, each channel is settled at `at` (under the rain the world holds), and each band
 containing the value that declares `senses` gives one signal `{channel, band, modality}`, with the
 first of the band's modalities the observer has. A zone with at least one signal is a notice, whose

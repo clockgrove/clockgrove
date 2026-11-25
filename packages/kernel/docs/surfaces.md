@@ -73,7 +73,9 @@ the entry's traffic applies, and attaches it as an optional `notices` field on t
 `movement.region-entered`, only when non-empty. A zone's band is a standing signal to the
 modalities the band and the observer's archetype share, so a scratched post is noticed by sight,
 or a muddy yard by smell, on entering, journaled like any other event, with no event of its own and
-no state. Once the zone heals below the signalling band, a new entry carries no notice.
+no state. A zone on an object is noticed only while that object stands in the region, in the
+observer's space and not put inside a container. Once the zone heals below the signalling band, a
+new entry carries no notice.
 
 ## Carried matter on death
 
@@ -104,8 +106,9 @@ every refusal above (reach for an object host in another space and for a ground 
 stands outside, and a retired host), a scratch on a ground-region zone, healing in every advance
 shape, rain and growth healing at hand-computed instants in every advance shape, rain healing under a
 dry and a wet `world.weather.set` override with a crossing at the hold's end, a walk that wears
-a porch and tracks mud onto it, another actor's scratch on a post noticed by sight on entering, and
-not once healed or by an actor that cannot see, the drain of a dying actor's mud, carried-matter conservation,
+a porch and tracks mud onto it, another actor's scratch on a post noticed by sight or by smell on entering
+(the band's first modality the observer shares named), and not once healed, by an actor without
+that sense, or with the post in a container or another space, the drain of a dying actor's mud, carried-matter conservation,
 repair, the budget refusal and scenario decoding.
 
 ## Not yet here

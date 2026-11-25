@@ -980,6 +980,9 @@ export function planSurfaceNotices(
         host === undefined ||
         host === observer ||
         (host.lifecycle !== undefined && host.lifecycle.status !== "active") ||
+        // A host put inside a container, or standing in another space, is out of sight and scent.
+        host.containment?.containerId !== undefined ||
+        host.spaceId !== observer.spaceId ||
         region === undefined ||
         region.frameId !== host.pose.frameId ||
         region.frameVersion !== host.pose.frameVersion ||

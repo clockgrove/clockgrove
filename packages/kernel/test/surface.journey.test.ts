@@ -760,7 +760,7 @@ it("drains what a dying actor carries in the same instant, right after its death
   }
 });
 
-it("notices another actor's scratch on a post by sight on walking in, only while it is worn and only if it can see", async () => {
+it("notices another actor's scratch on a post by sight or scent on walking in, only while it is worn, only with that sense and only when the post is in the open", async () => {
   const archetypeId = (await surfaceWorld()).state.entities.find(
     (e) => e.objectId === "subject",
   )!.archetypeId;
@@ -781,10 +781,17 @@ it("notices another actor's scratch on a post by sight on walking in, only while
     ],
     senses: [{ archetypeId, modalities }],
   });
-  const walkIn = async (modalities: readonly ("sight" | "smell")[], waitMs = 0n) => {
+  const walkIn = async (
+    modalities: readonly ("sight" | "smell")[],
+    waitMs = 0n,
+    bandSenses: readonly ("sight" | "smell")[] = ["sight"],
+    gateExtra: object = {},
+    extraHosts: readonly object[] = [],
+  ) => {
     const gate = {
       objectId: "gate-object",
       pose: { frameId: "zone-ground", frameVersion: 1, coordinates: [7000n, 0n] },
+      ...gateExtra,
     };
     const porch = {
       regionId: "porch",
@@ -794,8 +801,12 @@ it("notices another actor's scratch on a post by sight on walking in, only while
       shape: { kind: "rectangle", min: [6000n, -1000n], max: [8000n, 1000n] },
     };
     const scratched = run(
-      await surfaceWorld(policy(modalities) as SurfacePolicy, {
-        hosts: [gate, { objectId: "visitor" }],
+      await surfaceWorld(policy(modalities, bandSenses as never) as SurfacePolicy, {
+        hosts: [
+          gate,
+          { objectId: "visitor", ...("spaceId" in gateExtra && { spaceId: gateExtra.spaceId }) },
+          ...extraHosts,
+        ],
         regions: [porch],
       }),
       "surface.interact",
@@ -840,4 +851,30 @@ it("notices another actor's scratch on a post by sight on walking in, only while
     expect.not.objectContaining({ notices: expect.anything() }),
   ]);
   expect((await walkIn(["sight"], 21n * HOUR)).map((p) => "notices" in p)).toEqual([false]);
+  // Scent: a band that signals only smell is noticed by smell, and not by an actor with only sight.
+  const scented = await walkIn(["smell"], 0n, ["smell"]);
+  expect(scented.map((p) => p.notices?.[0]?.signals)).toEqual([
+    [{ channel: "wear", band: "scuffed", modality: "smell" }],
+  ]);
+  expect((await walkIn(["sight"], 0n, ["smell"])).map((p) => "notices" in p)).toEqual([false]);
+  // Band and observer share both: the band's first listed modality the observer has is named.
+  expect(
+    (await walkIn(["sight", "smell"], 0n, ["smell", "sight"])).map((p) => p.notices?.[0]?.signals),
+  ).toEqual([[{ channel: "wear", band: "scuffed", modality: "smell" }]]);
+  expect(
+    (await walkIn(["smell", "sight"], 0n, ["sight", "smell"])).map((p) => p.notices?.[0]?.signals),
+  ).toEqual([[{ channel: "wear", band: "scuffed", modality: "sight" }]]);
+  // A host put inside a container, or standing in another space, is neither seen nor smelt.
+  const crate = { objectId: "crate", containment: { kind: "object", capacity: 4 } };
+  const contained = { containment: { kind: "object", capacity: 1, containerId: "crate" } };
+  expect(
+    (await walkIn(["sight", "smell"], 0n, ["sight", "smell"], contained, [crate])).map(
+      (p) => "notices" in p,
+    ),
+  ).toEqual([false]);
+  expect(
+    (await walkIn(["sight", "smell"], 0n, ["sight", "smell"], { spaceId: "elsewhere" })).map(
+      (p) => "notices" in p,
+    ),
+  ).toEqual([false]);
 });
