@@ -35,20 +35,40 @@ export function decodeUsageWebhookRequest(value: unknown): UsageWebhookRequest {
   const scope = decodeBrowserScope({ tenantId, worldId, timelineId, spaceId });
   let url: string | null = null;
   if (v.url !== null) {
-    url = string(v.url, `${path}.url`);
+    const raw = string(v.url, `${path}.url`);
     let parsed: URL | undefined;
     try {
-      parsed = new URL(url);
+      parsed = new URL(raw);
     } catch {
       parsed = undefined;
     }
+    // The normalised form is what is stored, posted to and audited, so `HTTPS://x.example` and
+    // `https:x.example` are the same webhook as `https://x.example/`.
     if (
       parsed?.protocol !== "https:" ||
       parsed.username !== "" ||
       parsed.password !== "" ||
-      new TextEncoder().encode(url).length > MAX_URL_BYTES
+      !publicHostName(parsed.hostname) ||
+      new TextEncoder().encode(parsed.href).length > MAX_URL_BYTES
     )
-      throw new ContractDecodeError(`${path}.url`, "expected an https URL of at most 2048 bytes");
+      throw new ContractDecodeError(
+        `${path}.url`,
+        "expected an https URL to a public host name, of at most 2048 bytes",
+      );
+    url = parsed.href;
   }
   return Object.freeze({ version: 1, scope, url });
+}
+
+/**
+ * A webhook posts from the deployment, so its host is a public DNS name: not an IP address, not a
+ * single label and not a name reserved for local or internal networks.
+ */
+function publicHostName(hostname: string): boolean {
+  const name = hostname.toLowerCase().replace(/\.$/u, "");
+  if (name.startsWith("[") || /^[0-9.]+$/u.test(name) || !name.includes(".")) return false;
+  const top = name.slice(name.lastIndexOf(".") + 1);
+  return !["localhost", "local", "internal", "home", "lan", "arpa", "test", "invalid"].includes(
+    top,
+  );
 }

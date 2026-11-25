@@ -22,7 +22,8 @@ it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
     await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
-      // The member talks; a second principal holds the inspect grant and operator evidence.
+      // The member talks; a second principal holds the inspect and operate grants and operator
+      // evidence.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -38,7 +39,11 @@ it.skipIf(isNativeWorldOwnerChild())(
                     'membership-outsider', 'persona-outsider', roles,
                     array_append(grants, 'runtime:world-inspect'),
                     '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}', now()
-               FROM clockgrove.world_memberships WHERE principal_id = 'principal-runtime'`,
+               FROM clockgrove.world_memberships WHERE principal_id = 'principal-runtime';
+           UPDATE clockgrove.world_memberships
+              SET grants = array_append(grants, 'runtime:world-operate')
+            WHERE principal_id = 'principal-outsider'
+              AND NOT 'runtime:world-operate' = ANY(grants);`,
         );
       },
     });
@@ -72,6 +77,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
         INSPECTOR,
       );
       expect(registered.status).toBe(200);
+      // The registration commits with its audit row, naming where the export now goes.
+      expect(
+        await owner.sql(
+          `SELECT string_agg(concat_ws('|', principal_id, subject, entry_id, decision, reason_code), ',')
+             FROM clockgrove.inspector_accesses WHERE subject = 'usage-webhook'`,
+        ),
+      ).toBe("principal-outsider|usage-webhook|https://hooks.example|allow|served");
       const { webhookId, signingSecret } = registered.body as UsageWebhookRegistration;
       const secret = await usageWebhookSecret(NATIVE_USAGE_WEBHOOK_SECRET, webhookId);
       expect(signingSecret).toBe(secret);

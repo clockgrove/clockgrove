@@ -59,6 +59,8 @@ it("maps one usage event to Stripe, CloudEvents and Lago bodies without inventin
   expect(toLagoEvent(event, { externalSubscriptionId: "sub_1", codes: {} })).toBeNull();
 
   const mapped = toCloudEvent(event);
+  // The unknown reasoning tokens are left out, never sent as null.
+  expect(mapped.data.quantities).toEqual({ inputTokens: 120, outputTokens: 30, calls: 1 });
   const official = new CloudEvent(mapped as never, true);
   // The SDK normalises `time` to millisecond precision.
   expect(JSON.parse(JSON.stringify(official.toJSON()))).toEqual({

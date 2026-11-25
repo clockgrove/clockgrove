@@ -28,6 +28,21 @@ CREATE TABLE clockgrove.usage_webhooks (
     REFERENCES clockgrove.timelines (tenant_id, world_id, timeline_id)
 );
 
+-- Pointing a webhook at a host makes the deployment post there, so setting a URL is an operator
+-- mutation: it needs `runtime:world-operate` beside the usage reader's grant and ceiling.
+-- Disabling (a NULL URL) and the sweep's cursor and retry updates need only the reader's.
+CREATE FUNCTION clockgrove.runtime_usage_webhook_operator(t text, w text, tl text, s text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM clockgrove.world_memberships m
+     WHERE m.tenant_id = t AND m.world_id = w AND m.timeline_id = tl AND m.space_id = s
+       AND m.principal_id = clockgrove.runtime_principal_id() AND m.revoked_at IS NULL
+       AND 'runtime:world-operate' = ANY(m.grants))
+$$;
+REVOKE ALL ON FUNCTION clockgrove.runtime_usage_webhook_operator(text, text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clockgrove.runtime_usage_webhook_operator(text, text, text, text)
+  TO clockgrove_runtime;
+
 ALTER TABLE clockgrove.usage_webhooks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clockgrove.usage_webhooks FORCE ROW LEVEL SECURITY;
 CREATE POLICY usage_webhooks_registrar_select ON clockgrove.usage_webhooks FOR SELECT USING (
@@ -35,13 +50,17 @@ CREATE POLICY usage_webhooks_registrar_select ON clockgrove.usage_webhooks FOR S
   AND principal_id = clockgrove.runtime_principal_id());
 CREATE POLICY usage_webhooks_registrar_insert ON clockgrove.usage_webhooks FOR INSERT WITH CHECK (
   clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
-  AND principal_id = clockgrove.runtime_principal_id());
+  AND principal_id = clockgrove.runtime_principal_id()
+  AND (url IS NULL
+       OR clockgrove.runtime_usage_webhook_operator(tenant_id, world_id, timeline_id, space_id)));
 CREATE POLICY usage_webhooks_registrar_update ON clockgrove.usage_webhooks FOR UPDATE USING (
   clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
   AND principal_id = clockgrove.runtime_principal_id())
   WITH CHECK (
   clockgrove.runtime_usage_reader(tenant_id, world_id, timeline_id, space_id)
-  AND principal_id = clockgrove.runtime_principal_id());
+  AND principal_id = clockgrove.runtime_principal_id()
+  AND (url IS NULL
+       OR clockgrove.runtime_usage_webhook_operator(tenant_id, world_id, timeline_id, space_id)));
 REVOKE ALL ON clockgrove.usage_webhooks FROM PUBLIC;
 GRANT SELECT, INSERT ON clockgrove.usage_webhooks TO clockgrove_runtime;
 GRANT UPDATE (url, delivered_through, attempts, next_attempt_at, lease_until, last_status,
@@ -62,13 +81,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS
    WHERE w.url IS NOT NULL AND w.next_attempt_at <= statement_timestamp()
      AND (w.lease_until IS NULL OR w.lease_until <= statement_timestamp())
      -- Only while the registrar may still read the usage (`runtime_usage_reader`'s grant and
-     -- ceiling): a webhook whose registrar lost them is not due, so it never crowds out the rest.
+     -- ceiling) and still operates the world: a webhook whose registrar lost any of them is not
+     -- due, so it never crowds out the rest.
      AND EXISTS (
        SELECT 1 FROM clockgrove.world_memberships m
         WHERE m.tenant_id = w.tenant_id AND m.world_id = w.world_id
           AND m.timeline_id = w.timeline_id AND m.space_id = w.space_id
           AND m.principal_id = w.principal_id AND m.revoked_at IS NULL
           AND 'runtime:world-inspect' = ANY(m.grants)
+          AND 'runtime:world-operate' = ANY(m.grants)
           AND m.privacy_ceiling->'allowedCategories' ? 'operator_evidence')
    ORDER BY w.next_attempt_at
    LIMIT greatest(lim, 0)

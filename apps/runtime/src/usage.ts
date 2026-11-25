@@ -18,7 +18,7 @@ import {
   PostgreSqlUsageReader,
   PostgreSqlUsageWebhooks,
 } from "@clockgrove/persistence";
-import { INSPECT_GRANT } from "./inspector.js";
+import { INSPECT_GRANT, OPERATE_GRANT } from "./inspector.js";
 import { usageWebhookSecret } from "./usage-webhooks.js";
 import { assertWorldCommandContext, worldAuthorization } from "./world-commands.js";
 
@@ -47,37 +47,46 @@ export class PostgreSqlUsageInspector {
 
   /**
    * Registers, replaces or disables the caller's webhook for the space. The reply carries the
-   * signing secret, derived from the deployment secret and the webhook's ID.
+   * signing secret, derived from the deployment secret and the webhook's ID. A webhook makes the
+   * deployment post to a host the caller names, so registering is an operator mutation: it needs
+   * `runtime:world-operate` beside the query's grant and ceiling. The `usage-webhook` audit row,
+   * naming where the export now goes, commits with the registration; a failure is audited apart.
    */
-  register(
+  async register(
     input: UsageWebhookRequest,
     context: TrustedExecutionContext,
     deploymentSecret: string,
   ): Promise<UsageWebhookRegistration> {
-    // Audited as a registration, naming where the export now goes; a refusal is a usage access.
-    const target: AuditTarget = {
-      subject: "usage-webhook",
-      entryId: input.url === null ? "disabled" : new URL(input.url).origin,
-    };
-    return this.audited(input, target, context, async (authorization) => {
-      const webhookId = await this.webhooks.register(authorization, input.scope, input.url);
+    const entryId = input.url === null ? "disabled" : new URL(input.url).origin;
+    const target: AuditTarget = { subject: "usage-webhook", entryId };
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    try {
+      const webhookId = await this.webhooks.register(
+        authorization,
+        input.scope,
+        input.url,
+        entryId,
+      );
       return {
         webhookId,
         url: input.url,
         signingSecret:
           input.url === null ? null : await usageWebhookSecret(deploymentSecret, webhookId),
       };
-    });
+    } catch (error) {
+      await this.audit.record(authorization, access(input, "allow", "failed", target));
+      throw error;
+    }
   }
 
-  private async audited<T>(
+  /** Checks the grants and the ceiling, auditing a refusal, then applies the rate limit. */
+  private async admitted(
     input: { readonly scope: UsageQueryRequest["scope"] },
-    target: AuditTarget,
     context: TrustedExecutionContext,
-    operation: (authorization: ReturnType<typeof worldAuthorization>) => Promise<T>,
-  ): Promise<T> {
+    grants: readonly string[],
+  ): Promise<ReturnType<typeof worldAuthorization>> {
     try {
-      assertWorldCommandContext(context, input.scope, INSPECT_GRANT);
+      for (const grant of grants) assertWorldCommandContext(context, input.scope, grant);
       if (!context.privacyCeiling.allowedCategories.includes("operator_evidence"))
         throw new AuthorizationRefusedError("inspection ceiling refused");
     } catch (error) {
@@ -86,6 +95,16 @@ export class PostgreSqlUsageInspector {
     }
     const authorization = worldAuthorization(context);
     await this.audit.admit(authorization);
+    return authorization;
+  }
+
+  private async audited<T>(
+    input: { readonly scope: UsageQueryRequest["scope"] },
+    target: AuditTarget,
+    context: TrustedExecutionContext,
+    operation: (authorization: ReturnType<typeof worldAuthorization>) => Promise<T>,
+  ): Promise<T> {
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT]);
     let reasonCode: InspectorAccess["reasonCode"] = "failed";
     try {
       const output = await operation(authorization);

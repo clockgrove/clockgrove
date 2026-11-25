@@ -1,4 +1,7 @@
-import type { RuntimeAuthorizationContext } from "@clockgrove/application";
+import {
+  InspectorRateLimitedError,
+  type RuntimeAuthorizationContext,
+} from "@clockgrove/application";
 import type { BrowserScope, PrincipalId, TenantId, UsageEvent } from "@clockgrove/contracts";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
@@ -44,14 +47,19 @@ export function usageWebhookAuthorization(key: UsageWebhookKey): RuntimeAuthoriz
 export class PostgreSqlUsageWebhooks {
   constructor(private readonly client: PostgreSqlClient) {}
 
-  /** Registers or replaces the webhook, keeping its ID and cursor; `null` disables it. */
+  /**
+   * Registers or replaces the webhook, keeping its ID and cursor; `null` disables it. The
+   * `usage-webhook` audit row (`auditEntry`: the URL's origin or `disabled`) is written in the same
+   * transaction, so a standing export never exists without its audit row.
+   */
   async register(
     authorization: RuntimeAuthorizationContext,
     scope: BrowserScope,
     url: string | null,
+    auditEntry: string,
   ): Promise<string> {
-    const found = await this.within(authorization, (query) =>
-      query(
+    const found = await this.within(authorization, async (query) => {
+      const rows = await query(
         `INSERT INTO clockgrove.usage_webhooks
            (tenant_id, world_id, timeline_id, space_id, principal_id, webhook_id, url)
          VALUES ($1, $2, $3, $4, $5, gen_random_uuid()::text, $6)
@@ -67,8 +75,16 @@ export class PostgreSqlUsageWebhooks {
           authorization.principalId,
           url,
         ],
-      ),
-    );
+      );
+      await query(
+        "SELECT clockgrove.record_inspector_access($1, $2, $3, NULL, 'allow', 'served', 'usage-webhook', $4)",
+        [scope.worldId, scope.timelineId, scope.spaceId, auditEntry],
+      );
+      return rows;
+    }).catch((error: unknown) => {
+      if ((error as { code?: unknown }).code === "CG013") throw new InspectorRateLimitedError();
+      throw error;
+    });
     return String(found[0]?.webhook_id);
   }
 

@@ -88,14 +88,16 @@ builds each platform's request body from an event; the developer's own client se
   twice.
 - OpenMeter, `toCloudEvent(event)`: a CloudEvents 1.0 structured event, `id` = `eventId`,
   `source` = `clockgrove/<worldId>/<timelineId>`, `type` = `clockgrove.usage.<category>`,
-  `subject` = `principalId`, `time` = `occurredAt`, `data` = the quantities and attribution.
+  `subject` = `principalId`, `time` = `occurredAt`, `data` = the known quantities and the
+  attribution; an unknown quantity is left out of `data.quantities`, so a meter reading
+  `$.quantities.<name>` never meets a JSON null.
   OpenMeter dedupes on `source` and `id`.
 - Lago, `toLagoEvent(event, { externalSubscriptionId, codes })`: `transaction_id` = `eventId`,
   `external_subscription_id` = the developer's subscription for `principalId`, `code` = the
   billable metric for the category, `timestamp` = `occurredAt` in Unix seconds, `properties` = the
   known quantities. Lago takes them one by one or in batches.
 
-None of them carries an unknown (`null`) quantity as a value: unknown is never billed as zero.
+None of them carries an unknown (`null`) quantity: it is left out, never billed as zero.
 
 ## Query
 
@@ -137,23 +139,31 @@ never skips an event, and a reader that re-reads a page sees the same `eventId`s
   "url": "https://billing.example/clockgrove" }
 ```
 
-It answers `{ "webhookId": "…", "url": "…", "signingSecret": "whsec_…" }`. The caller needs the
-usage reader's grant and ceiling (as the query) and holds one webhook per space: registering again
-replaces its URL and keeps its ID, cursor and secret; `"url": null` disables it. The URL is
-`https`. A webhook posts only what its registrar may read, as the registrar: once they lose the
-grant or the ceiling, it stops. Registering, replacing or disabling is audited as subject
+It answers `{ "webhookId": "…", "url": "…", "signingSecret": "whsec_…" }`. A webhook makes the
+deployment post to a host the caller names, so registering is an operator mutation: the caller
+needs the operator grant `runtime:world-operate` beside the usage reader's grant and ceiling (as
+the query), and holds one webhook per space: registering again replaces its URL and keeps its ID,
+cursor and secret; `"url": null` disables it. The URL is `https` to a public host name (no IP
+address, single label, or `localhost`, `.local`, `.internal`, `.home`, `.lan`, `.arpa`, `.test` or
+`.invalid` name), without credentials, at most 2048 bytes; it is stored, posted to and answered in
+its normalised form (`HTTPS://Billing.Example` is `https://billing.example/`), and any other is a
+400 `invalid_inspection_request`. A webhook posts only what its registrar may read, as the
+registrar: once they lose either grant or the ceiling, it stops. Registering, replacing or disabling is audited as subject
 `usage-webhook`, its entry the URL's origin or `disabled` (never the path or query, which may carry
-the receiver's own credential); a refused registration is audited as a `usage-events` denial.
+the receiver's own credential), in the registration's own transaction, so a webhook never exists
+without its audit row; a registration that fails is audited `failed`, and a refused one as a
+`usage-events` denial.
 
 The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 503 `inspector_unavailable` and nothing is posted.
 Each webhook's signing secret is derived from it and the webhook ID (`whsec_` and the base64 of
 HMAC-SHA256), so Clockgrove stores none; registering again returns the same secret.
 
-Every 5 minutes (the runtime's recovery cron) each due webhook gets its next events after its
-cursor, at most 100 per post. A webhook that is behind is drained in the same run: each full page
-delivered is followed by the next, until a short page, a failed post, or 60 s of the run have passed
-(each due webhook still gets its first page). At 1 s per post that is 6,000 events per run, 1,728,000
-a day:
+Every 5 minutes (the runtime's recovery cron) the due webhooks, at most 100, take turns: each gets
+its next events after its cursor, at most 100 per post, and one whose full page was delivered goes
+to the back for its next page, so every due webhook gets its first page before any gets a second.
+The run starts no post after 60 s, a fifth of the cron interval, so with the 10 s post timeout it
+ends within about 75 s however many webhooks are due; one not reached stays due and is first in the
+next run. At 1 s per post that is 6,000 events per run, 1,728,000 a day:
 
 ```json
 { "type": "usage.events", "events": [ { "eventId": "…", "sequence": "42", … } ] }

@@ -33,7 +33,8 @@ export interface CloudEvent {
   readonly time: string;
   readonly datacontenttype: "application/json";
   readonly data: {
-    readonly quantities: Readonly<Record<string, number | null>>;
+    /** Known quantities only: an unknown one is left out, never sent as null or zero. */
+    readonly quantities: Readonly<Record<string, number>>;
     readonly resource: string | null;
     readonly status: string;
     readonly personaId: string | null;
@@ -79,7 +80,10 @@ export async function toStripeMeterEvents(
   return out;
 }
 
-/** CloudEvents 1.0 structured JSON; OpenMeter deduplicates on `source` and `id`. */
+/**
+ * CloudEvents 1.0 structured JSON; OpenMeter deduplicates on `source` and `id`. An unknown quantity
+ * is left out, so a meter reading `$.quantities.<name>` never meets a JSON null.
+ */
 export function toCloudEvent(event: UsageEvent): CloudEvent {
   return {
     specversion: "1.0",
@@ -90,7 +94,7 @@ export function toCloudEvent(event: UsageEvent): CloudEvent {
     time: event.occurredAt,
     datacontenttype: "application/json",
     data: {
-      quantities: event.quantities,
+      quantities: knownQuantities(event),
       resource: event.resource,
       status: event.status,
       personaId: event.personaId,
@@ -108,16 +112,21 @@ export function toCloudEvent(event: UsageEvent): CloudEvent {
 export function toLagoEvent(event: UsageEvent, options: LagoEventOptions): LagoEvent | null {
   const code = options.codes[event.category];
   if (code === undefined) return null;
-  const properties: Record<string, number> = {};
-  for (const [name, value] of Object.entries(event.quantities))
-    if (value !== null) properties[name] = value;
   return {
     transaction_id: event.eventId,
     external_subscription_id: options.externalSubscriptionId,
     code,
     timestamp: unixSeconds(event.occurredAt),
-    properties,
+    properties: knownQuantities(event),
   };
+}
+
+/** The event's quantities without the unknown (null) ones. */
+function knownQuantities(event: UsageEvent): Record<string, number> {
+  const known: Record<string, number> = {};
+  for (const [name, value] of Object.entries(event.quantities))
+    if (value !== null && value !== undefined) known[name] = value;
+  return known;
 }
 
 function unixSeconds(iso: string): number {
