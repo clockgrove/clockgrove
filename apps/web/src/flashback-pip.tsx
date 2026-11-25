@@ -1,6 +1,12 @@
 import type { Flashback } from "@clockgrove/contracts";
 import { useEffect, useRef, useState } from "react";
-import { FLASHBACK_FRAME_MS, FLASHBACK_PIP_BUDGET, type QualityTier } from "./quality-tier.js";
+import {
+  FLASHBACK_FRAME_MS,
+  FLASHBACK_PIP_BUDGET,
+  FLASHBACK_PIP_LIMITS,
+  type QualityTier,
+  TIERS,
+} from "./quality-tier.js";
 import type { RendererContent } from "./renderer-content.js";
 import type { WorldSceneAdapter } from "./world-scene-adapter.js";
 
@@ -35,7 +41,15 @@ export function FlashbackReplay({
   shown.current = index;
   const dayLength = useRef(dayLengthMs);
   dayLength.current = dayLengthMs;
-  const budget = tier === undefined ? null : FLASHBACK_PIP_BUDGET[tier];
+  // The lowest live tier seen while this flashback is open: a live step down that removes the PiP
+  // keeps it removed until the flashback closes, so a recovering live tier cannot recreate it.
+  const [lowest, setLowest] = useState(tier);
+  const held =
+    tier === undefined || lowest === undefined || TIERS.indexOf(tier) < TIERS.indexOf(lowest)
+      ? tier
+      : lowest;
+  if (held !== lowest) setLowest(held);
+  const budget = held === undefined ? null : FLASHBACK_PIP_BUDGET[held];
   const hasBudget = budget !== null;
 
   useEffect(() => {
@@ -79,6 +93,7 @@ export function FlashbackReplay({
           lose,
           () => {},
           content,
+          FLASHBACK_PIP_LIMITS,
         );
         created = renderer;
       })
@@ -115,12 +130,17 @@ export function FlashbackReplay({
           className="rw-flashback-pip"
           aria-hidden="true"
           style={{ width: budget.width, height: budget.height }}
-          data-pip-tier={tier}
+          data-pip-tier={held}
         />
       ) : failed && budget ? (
         <p>Replay canvas unavailable. The frame captions and summary remain.</p>
-      ) : tier === undefined ? (
+      ) : held === undefined ? (
         <p>Picture-in-picture needs the live canvas; the frame captions and summary remain.</p>
+      ) : held !== tier ? (
+        <p>
+          Picture-in-picture stopped when the live view slowed; the frame captions and summary
+          remain.
+        </p>
       ) : (
         <p>
           Picture-in-picture is off at this quality tier; the frame captions and summary remain.

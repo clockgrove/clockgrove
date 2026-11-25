@@ -382,6 +382,18 @@ body {
     border-width: 0 0 0 1px;
   }
 
+  /*
+   * Issue 273: the PiP sits over the rail's lower corner, so an open replay reserves its height
+   * (plus its 16px inset and a gap) at the rail's foot and the rail's last rows scroll clear of it.
+   */
+  .rw-shell:has(.rw-flashback-pip[data-pip-tier="medium"]) .rw-rail {
+    padding-bottom: calc(200px + 2 * 16px);
+  }
+
+  .rw-shell:has(.rw-flashback-pip[data-pip-tier="high"]) .rw-rail {
+    padding-bottom: calc(300px + 2 * 16px);
+  }
+
   .rw-feed-dock {
     position: fixed;
     left: 16px;
@@ -440,6 +452,26 @@ body {
     background: var(--cg-v1-panel-solid);
     border: 1px solid var(--cg-v1-border);
     border-radius: var(--cg-v1-radius-md);
+  }
+
+  /*
+   * Issue 273: a flashback opens above the Why overlay (50) and the rail and feed sheets (40, 30),
+   * so the heading it focuses is visible; its PiP flows inside it rather than under a sheet.
+   */
+  #rw-flashback {
+    position: fixed;
+    inset: var(--cg-v1-space-3);
+    z-index: 60;
+    overflow: auto;
+    padding: var(--cg-v1-space-3);
+    background: var(--cg-v1-panel-solid);
+    border: 1px solid var(--cg-v1-border);
+    border-radius: var(--cg-v1-radius-md);
+  }
+
+  #rw-flashback .rw-flashback-pip {
+    position: static;
+    max-width: 100%;
   }
 
   .rw-rail {

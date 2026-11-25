@@ -319,12 +319,26 @@ renderer would cost the live view; the sizes are a half and three-quarters of th
 640 × 400 logical view. With no live canvas (text fallback, canvas unavailable) there is no PiP
 canvas either. The frame captions and the flashback's text summary remain at every tier. A PiP
 that loses its device or refuses a frame is destroyed and says so; the live scene is unaffected.
+The PiP keeps the lowest live tier seen while it is open: a live step down to low removes it until
+the flashback closes, so a live tier that recovers cannot recreate it mid-replay.
+
+What the PiP itself adds is `FLASHBACK_PIP_LIMITS`, passed as the adapter's optional sixth
+argument (`RendererLimits`): its own governor's ceiling is low, so it renders at low quality (no
+bloom, a quarter of its fragments shaded, low's 512,000-pixel output cap and 16 MiB render-target
+ceiling) whatever the live tier, at a pixel ratio of at most 1, so its output is its CSS size. It
+loads its own copy of the content's atlas and material textures, which the material delivery
+budget holds to 32 MiB, and runs one more animation-frame loop.
+
+On a wide shell the PiP sits over the rail's lower corner and the rail reserves its height at its
+foot, so the rail's last rows scroll clear of it. Below 1200 px the flashback panel is an overlay
+above the Why overlay and the rail and feed sheets, and the PiP flows inside the panel.
 
 ## World scene content v1
 
 [`RendererContent`](../src/renderer-content.ts) is a separate, versioned renderer contract, outside
 world presentation v1. Supply an optional fifth argument to `new ThreeWorldSceneAdapter(parent,
-ready, unavailable, report, content)`. Omit it for the existing rendering path, including its existing
+ready, unavailable, report, content)` (a sixth, `limits`, caps a second renderer's tier and pixel
+ratio; see [Flashback picture-in-picture](#flashback-picture-in-picture)). Omit it for the existing rendering path, including its existing
 sprite ordering. Packs do not declare models; the platform never discovers content from pack data.
 A composition root explicitly imports trusted world code. This is a visual extension, not a sandbox
 for hostile JavaScript.

@@ -1623,6 +1623,52 @@ const observeHall = async (backend) => {
           ]);
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
         await page.unroute("**/v1/runtime/why");
+        // Issue 273: a recorded action's flashback starts from its event, as the runtime answers
+        // that event directly, and closing it returns focus to the action's control.
+        const flashbackOf = async (fields) => {
+          const answer = await page.request.post(
+            `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
+            {
+              headers: { authorization: "Bearer hall-inspect" },
+              data: { version: 1, ...auth.scope, ...fields },
+            },
+          );
+          expect(answer.status(), await answer.text()).toBe(200);
+          return decodeFlashback(await answer.json());
+        };
+        const flashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
+        const flashbackLines = (value) =>
+          value.summary.map(
+            (line) =>
+              `${line.kind[0].toUpperCase()}${line.kind.slice(1)}: ${line.text}${line.cites.length > 0 ? ` Cites ${line.cites.join(", ")}.` : ""}`,
+          );
+        const actionFlashback = actionRows.first().getByRole("button", {
+          name: `Flashback action ${recorded[0].actionId}`,
+          exact: true,
+        });
+        const actionShown = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await actionFlashback.click();
+        const actionMoment = await flashbackOf({ eventId: recorded[0].eventId });
+        expect(decodeFlashback(await (await actionShown).json())).toEqual(actionMoment);
+        expect(actionMoment.moment.commandId).toBe(recorded[0].commandId);
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: event ${recorded[0].eventId}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(actionMoment));
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await flashbackPanel.count()).toBe(0);
+        expect(await actionFlashback.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
         // Each action now has Why and Flashback buttons before the earlier-history control in tab order.
         await actionRows.last().getByRole("button").last().focus();
         await page.keyboard.press("Tab");
@@ -1819,23 +1865,6 @@ const observeHall = async (backend) => {
         // shows the runtime's own answer, the cited summary without private refs, a scrubbable
         // replay at the live tier's budget, and steps back through its causes.
         const flashbackState = [await commands(), await durable()];
-        const flashbackOf = async (fields) => {
-          const answer = await page.request.post(
-            `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
-            {
-              headers: { authorization: "Bearer hall-inspect" },
-              data: { version: 1, ...auth.scope, ...fields },
-            },
-          );
-          expect(answer.status(), await answer.text()).toBe(200);
-          return decodeFlashback(await answer.json());
-        };
-        const flashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
-        const flashbackLines = (value) =>
-          value.summary.map(
-            (line) =>
-              `${line.kind[0].toUpperCase()}${line.kind.slice(1)}: ${line.text}${line.cites.length > 0 ? ` Cites ${line.cites.join(", ")}.` : ""}`,
-          );
         const flashbackOpener = whyPanel.getByRole("button", {
           name: "Flashback to this moment",
           exact: true,
@@ -1873,10 +1902,33 @@ const observeHall = async (backend) => {
           return `Frame ${index + 1} of ${moment.frames.length}: after command ${frame.commandId}, partition sequence ${frame.partitionSequence}${frame.moment ? ", the moment" : ""}.`;
         };
         const frameCaption = replay.locator("[data-flashback-frame]");
-        // Playback steps through every journaled frame, then stops on the last.
+        // Playback steps through every journaled frame in order, then stops on the last: each
+        // caption the replay shows while it plays is recorded and compared with the runtime's frames.
+        expect(moment.frames.length).toBeGreaterThan(1);
+        await replay.evaluate((region) => {
+          const seen = [];
+          const record = () => {
+            const text = region.querySelector("[data-flashback-frame]")?.textContent ?? "";
+            if (seen.at(-1) !== text) seen.push(text);
+          };
+          const observer = new MutationObserver(record);
+          observer.observe(region, { subtree: true, childList: true, characterData: true });
+          // The caption shown before the click counts too: the replay may already be at frame 1.
+          record();
+          globalThis.hallFlashbackCaptions = { seen, observer };
+        });
         await replay.getByRole("button", { name: "Replay from start", exact: true }).click();
         await expect.poll(() => frameCaption.textContent()).toBe(caption(moment.frames.length - 1));
         await replay.getByRole("button", { name: "Play replay", exact: true }).waitFor();
+        const played = await page.evaluate(() => {
+          const { seen, observer } = globalThis.hallFlashbackCaptions;
+          observer.disconnect();
+          return seen;
+        });
+        // Captions before frame 1 belong to the opening autoplay; the replay starts at frame 1.
+        expect(played.slice(played.lastIndexOf(caption(0))), JSON.stringify(played)).toEqual(
+          moment.frames.map((_, index) => caption(index)),
+        );
         const scrubber = replay.getByRole("slider", { name: "Flashback frame", exact: true });
         await scrubber.press("Home");
         await expect.poll(() => frameCaption.textContent()).toBe(caption(0));
@@ -1910,6 +1962,56 @@ const observeHall = async (backend) => {
         expect(await flashbackOpener.evaluate((button) => button === document.activeElement)).toBe(
           true,
         );
+        // A Why parent command's flashback answers that command, and closing returns focus to it.
+        const parentFlashback = whyPanel.getByRole("button", {
+          name: `Flashback to parent command ${causalParents[0]}`,
+          exact: true,
+        });
+        await parentFlashback.click();
+        const parentMoment = await flashbackOf({ commandId: causalParents[0] });
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: command ${causalParents[0]}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(parentMoment));
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await parentFlashback.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
+        // The timeline's flashback starts from its event's id, as the runtime answers that event.
+        const timelineFlashback = page
+          .getByRole("region", { name: "Timeline", exact: true })
+          .getByRole("button", { name: /^Flashback event /u });
+        await timelineFlashback.waitFor();
+        const timelineEvent = (await timelineFlashback.getAttribute("data-flashback-opener")).slice(
+          "timeline:".length,
+        );
+        const timelineShown = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await timelineFlashback.click();
+        const timelineMoment = await flashbackOf({ eventId: timelineEvent });
+        expect(decodeFlashback(await (await timelineShown).json())).toEqual(timelineMoment);
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: event ${timelineEvent}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(timelineMoment));
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(
+          await timelineFlashback.evaluate((button) => button === document.activeElement),
+        ).toBe(true);
         // A flashback reads the journal only: no command, revision or simulation time changed.
         expect([await commands(), await durable()]).toEqual(flashbackState);
         // The Why's own keyboard path below starts from its heading, as it did before the flashback.

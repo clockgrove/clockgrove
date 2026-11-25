@@ -26,6 +26,7 @@ import {
   softwareIdentity,
   startingTier,
   TARGET_FLOOR,
+  TIERS,
   TierGovernor,
   tierCeiling,
 } from "./quality-tier.js";
@@ -174,6 +175,15 @@ export type RendererMeasurement =
     };
 export type RendererReport = (point: RendererMeasurement) => void;
 export type { QualityTier } from "./quality-tier.js";
+/**
+ * Issue 273: what a second renderer (the flashback's picture-in-picture) is held to, so it adds no
+ * more than its declared budget: a tier ceiling for its own governor and a cap on its pixel ratio.
+ */
+export interface RendererLimits {
+  readonly tierCeiling?: QualityTier;
+  readonly maxPixelRatio?: number;
+}
+
 /** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
  * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
@@ -605,6 +615,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void,
     report: RendererReport = () => {},
     private readonly suppliedContent?: RendererContent,
+    private readonly limits: RendererLimits = {},
   ) {
     this.parent = parent;
     this.ready = ready;
@@ -677,6 +688,15 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       });
     }
   }
+  /** Issue 273: the device's tier, held at or under the caller's ceiling when it gave one. */
+  private capped(tier: QualityTier): QualityTier {
+    const ceiling = this.limits.tierCeiling;
+    return ceiling !== undefined && TIERS.indexOf(ceiling) < TIERS.indexOf(tier) ? ceiling : tier;
+  }
+  /** Issue 273: the device pixel ratio, held at or under the caller's cap when it gave one. */
+  private pixelRatio(): number {
+    return Math.min(globalThis.devicePixelRatio || 1, this.limits.maxPixelRatio ?? Infinity);
+  }
   private async initialize(): Promise<void> {
     try {
       await this.renderer.init();
@@ -685,8 +705,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.observeContentErrors();
       this.device = this.readDevice();
       this.maxDimension = this.device.maxDimension;
-      this.governor = new TierGovernor(tierCeiling(this.device), FRAME_BUDGET_MS);
-      this.setQuality(startingTier(this.device));
+      this.governor = new TierGovernor(this.capped(tierCeiling(this.device)), FRAME_BUDGET_MS);
+      this.setQuality(this.capped(startingTier(this.device)));
       this.frame = requestAnimationFrame(this.step);
       await this.create();
       void this.initializeContent();
@@ -935,7 +955,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         Math.floor((quality.textureBytes - this.resourceTextureBytes) / bytesPerPixel),
       ),
     );
-    const dpr = globalThis.devicePixelRatio || 1;
+    const dpr = this.pixelRatio();
     const scale = Math.min(dpr, Math.sqrt(pixelBudget / (width * height)));
     // Keep the low scene target and every bloom mip at least 1×1.
     // Clamp area and each axis to the 4096 target floor and the device's reported maximum side (#356).
@@ -1081,7 +1101,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     };
     const rendition = selectMaterialRendition(
       material,
-      globalThis.devicePixelRatio ?? 1,
+      this.pixelRatio(),
       remaining(),
       ["albedo"],
       loader !== undefined,
@@ -2564,7 +2584,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
-    if (this.devicePixelRatio !== (globalThis.devicePixelRatio || 1)) this.resizeViewport();
+    if (this.devicePixelRatio !== this.pixelRatio()) this.resizeViewport();
     if (!this.initialized || (ATLASES && this.atlasTextures.length === 0) || !this.projection)
       return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
