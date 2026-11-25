@@ -13,8 +13,11 @@ durable principal admission and ordinary `RuntimeWorker` application dispatch.
 `world-mcp-server.ts` uses the current Agents `createMcpHandler` from
 `agents/mcp/server`, constructing a fresh MCP server for every request. No actor
 memory, conversation, credential cache, subscription or MCP session is retained.
-The current SDK stateless protocol returns finite JSON; legacy stateful transport
-is refused. OAuth protocol records are durable credential state, not MCP connection memory.
+The current SDK stateless protocol (`2026-07-28`) returns finite JSON. A 2025-era
+client (`2025-11-25`) is served through the SDK's stateless legacy lane: each exchange
+authenticates anew, gets the same tools, grants and envelopes, returns one finite JSON
+message and no `mcp-session-id`, and server-to-client requests and the GET stream are
+refused; no legacy session is retained. OAuth protocol records are durable credential state, not MCP connection memory.
 
 | Tool | Ordinary use case and authority |
 | --- | --- |

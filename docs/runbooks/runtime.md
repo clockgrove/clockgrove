@@ -16,7 +16,9 @@ it does not issue credentials or add a public runtime route. Each protocol reque
 supplies a bearer credential and authenticates through the ordinary directory use case;
 tool reads apply their existing application authorization. Request bodies are bounded
 at 128 KiB and tool arguments at 64 KiB. Responses are finite JSON under the current
-SDK stateless protocol; legacy protocol requests are rejected.
+SDK stateless protocol (`2026-07-28`); a 2025-era (`2025-11-25`) handshake is served
+statelessly through the SDK's legacy lane, with the same authentication, grants and tool
+envelopes and no session id.
 
 The internal catalog also includes `runtime_state` (`runtime:world-inspect` with the existing privacy-ceiling
 redaction and RLS) and `runtime_action` (`runtime:world-operate` under the existing
@@ -2234,8 +2236,9 @@ await client.close();
 
 `resourceURL` and `memberToken` above come from the operator's configuration and
 secret store; the example deliberately prints neither credential nor private results.
-Use a current client with the SDK's stateless protocol; legacy stateful connections
-are refused. Tool calls need strict application envelopes, and `command_submit`
+A current client negotiates the SDK's stateless protocol (`2026-07-28`); a 2025-era
+client (`2025-11-25`) is served statelessly too, with no session id, so it must not rely
+on a retained session, the GET stream or server-to-client requests. Tool calls need strict application envelopes, and `command_submit`
 uses the canonical typed command envelope documented in
 [world commands](../protocols/runtime-world-commands.md). Why shows the credential-derived
 MCP channel; inspector grants still govern command and run receipts.

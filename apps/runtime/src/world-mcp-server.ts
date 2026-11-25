@@ -274,7 +274,10 @@ export async function handleWorldMcpRequest(
       {
         route: new URL(request.url).pathname,
         corsOptions: false,
-        legacy: "reject",
+        // Owner decision (#327, 2026-11-25): 2025-era clients connect through the SDK's
+        // stateless legacy lane, which retains no session; authentication, grants and
+        // tool envelopes are the same on both protocols.
+        legacy: "stateless",
         responseMode: "json",
         maxRequestBodySize: WORLD_MCP_MAX_REQUEST_BYTES,
       },
@@ -288,7 +291,18 @@ export async function handleWorldMcpRequest(
       }),
     );
     if (!response.body) return response;
-    const result = (await response.json()) as Record<string, unknown>;
+    const headers = new Headers(response.headers);
+    let result: Record<string, unknown>;
+    if (headers.get("content-type")?.includes("text/event-stream")) {
+      // The legacy lane answers one finite event stream; return its single message as JSON.
+      const data = (await response.text())
+        .split(/\r?\n/u)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim());
+      if (data.length !== 1) return refusal(400, "mcp_request_refused");
+      result = JSON.parse(data[0]!) as Record<string, unknown>;
+      headers.set("content-type", "application/json");
+    } else result = (await response.json()) as Record<string, unknown>;
     if ("error" in result) {
       const error = result.error as { code?: unknown } | null;
       result.error = {
@@ -313,7 +327,7 @@ export async function handleWorldMcpRequest(
         ],
       };
     }
-    return Response.json(result, { status: response.status, headers: response.headers });
+    return Response.json(result, { status: response.status, headers });
   } catch {
     return refusal(400, "mcp_request_refused");
   }
