@@ -144,8 +144,9 @@ deployment send the space's player usage to a host outside it on a schedule, the
 outbound MCP server has, so registering takes the same narrow, owner-held authority: the grant
 `runtime:usage-webhook`, beside the usage reader's grant `runtime:world-inspect` and the
 `operator_evidence` ceiling (as the query). A world's owner holds `runtime:usage-webhook` by
-default and may delegate it by adding it to a member's grants, as `runtime:mcp-install`; an actor
-or `system:` identity gets no owner default, and `runtime:world-operate` does not imply it. A
+default and may delegate it by adding it to a member's grants, as `runtime:mcp-install`; as for
+that grant, an actor or `system:` identity never qualifies, even holding it explicitly, and
+`runtime:world-operate` does not imply it. A
 caller without it is refused (403). The caller holds one
 webhook per space: registering again replaces its URL and keeps its ID,
 cursor and secret; `"url": null` disables it. The URL is `https` to a public host name (no IP
