@@ -22,10 +22,20 @@ is refused. OAuth protocol records are durable credential state, not MCP connect
 | `world_status`, `entity_inspect` | Existing authorized observation and entity inspection, scoped to tenant/world/timeline/space. |
 | `command_receipt` | Existing causal inspector, `runtime:world-inspect` and privacy ceiling. |
 | `run_receipt`, `run_search` | Existing [run inspector](runs.md#inspector-api), including participant-only payload access, audit and rate limits. |
+| `world_journal` | Existing journal inspection, `runtime:world-inspect` and the `operator_evidence` privacy ceiling, with audit and rate limits. |
+| `event_why` | Existing Recorded Why for an event, command or schedule; public decision evidence only. |
 | `command_submit` | Typed ordinary [world commands](runtime-world-commands.md), validator and Journal. Requires `runtime:world-command`, or the distinct clock grant for clock controls. |
 | `runtime_state` | Existing runtime inspector under `runtime:world-inspect`, including privacy redaction and RLS. |
 | `runtime_action` | Ordinary `repair-publication` and `replay-message`, requiring scoped `runtime:world-operate`, audit and operator limits. |
 | `changeset_prepare`, `changeset_apply` | Declared Wave 7 placeholders. Strict versioned scope only; always `changesets_unavailable_until_wave_7`, without mutation. |
+
+Debugger links: a successful read of a single world carries a `debugger` field, a path
+into the owner-only world debugger on the origin serving this endpoint; it opens after
+signing in. It is `/worlds/{tenantId}/{worldId}/{timelineId}/{spaceId}` plus `?debugger`
+(`world_status`), `?debugger=journal` (`world_journal`, `command_receipt`, `event_why`,
+adding `&event=<eventId>` for an event), `?debugger=actors&actor=<objectId>`
+(`entity_inspect`) or `?debugger=runs` (`run_search`, `run_receipt`, adding `&run=<runId>`).
+`world_directory` and refusals carry none.
 
 There is no Talk tool. Conversation remains on the channel-neutral session path.
 MCP adapters issue no SQL and supply no grants. Each exchange authenticates anew;

@@ -62,6 +62,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "command_receipt",
           "run_receipt",
           "run_search",
+          "world_journal",
+          "event_why",
           "runtime_state",
           "runtime_action",
           "changeset_prepare",
@@ -79,13 +81,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ok: true,
           value: { version: 1, entries: [{ ...owner.scope }] },
         });
+        const world = `/worlds/${owner.scope.tenantId}/${owner.scope.worldId}/${owner.scope.timelineId}/${owner.scope.spaceId}`;
         expect(await call("world_status", scope)).toMatchObject({
           ok: true,
           value: { ...scope, revision: "0", privacyClass: "public_scene" },
+          debugger: `${world}?debugger`,
         });
         expect(
           await call("entity_inspect", { ...scope, objectId: "fixture.keeper" }),
-        ).toMatchObject({ ok: true, value: { entity: { objectId: "fixture.keeper" } } });
+        ).toMatchObject({
+          ok: true,
+          value: { entity: { objectId: "fixture.keeper" } },
+          debugger: `${world}?debugger=actors&actor=fixture.keeper`,
+        });
         const commandId = await owner.sql(
           "SELECT command_id FROM clockgrove.events WHERE event_type='WorldReady'",
         );
@@ -95,6 +103,19 @@ it.skipIf(!isNativeWorldOwnerChild())(
         await owner.sql(
           "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-inspect')",
         );
+        const journal = await call("world_journal", { schemaVersion: 1, ...owner.scope });
+        expect(journal).toMatchObject({ ok: true, debugger: `${world}?debugger=journal` });
+        expect(journal.value.events.map((event: { type: string }) => event.type)).toContain(
+          "WorldReady",
+        );
+        const eventId = await owner.sql(
+          "SELECT event_id FROM clockgrove.events WHERE event_type='WorldReady'",
+        );
+        expect(await call("event_why", { ...scope, eventId })).toMatchObject({
+          ok: true,
+          value: { commandId },
+          debugger: `${world}?debugger=journal&event=${encodeURIComponent(eventId)}`,
+        });
         const receipt = await call("command_receipt", {
           schemaVersion: 1,
           ...owner.scope,
@@ -133,6 +154,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         );
         const run = await call("run_receipt", { ...scope, runId });
         expect(run.status).toBe(200);
+        expect(run.debugger).toBe(`${world}?debugger=runs&run=${encodeURIComponent(runId)}`);
         expect(
           (run.value as RunWalk).runs.map((item) => [item.runId, item.status, item.prompt?.text]),
         ).toEqual([[runId, "completed", null]]);
@@ -141,6 +163,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           ok: true,
           status: 200,
           value: { runs: expect.arrayContaining([expect.objectContaining({ runId })]) },
+          debugger: `${world}?debugger=runs`,
         });
         credential = "outsider-session-token";
         expect(await call("world_directory", { version: 1 })).toEqual({
@@ -149,6 +172,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           value: { version: 1, entries: [] },
         });
         expect(await call("world_status", scope)).toEqual({
+          ok: false,
+          status: 403,
+          code: "authorization_refused",
+        });
+        expect(await call("world_journal", { schemaVersion: 1, ...owner.scope })).toEqual({
           ok: false,
           status: 403,
           code: "authorization_refused",

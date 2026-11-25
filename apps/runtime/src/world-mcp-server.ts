@@ -11,6 +11,7 @@ import {
   readWorldMcpTool,
   WORLD_MCP_READ_TOOLS,
   type WorldMcpReadTool,
+  worldDebuggerLink,
 } from "./world-mcp-reads.js";
 
 // Engineering decision: 64 KiB application arguments plus room for the protocol envelope.
@@ -74,6 +75,42 @@ const schemas: Record<WorldMcpReadTool, JsonSchemaType> = {
     },
     Object.keys(scoped),
   ),
+  world_journal: envelope(
+    {
+      schemaVersion: version,
+      ...scope,
+      beforeSequence: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+      replayTo: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+    },
+    ["schemaVersion", ...Object.keys(scope)],
+  ),
+  event_why: {
+    ...envelope(
+      {
+        ...scoped,
+        eventId: id,
+        commandId: id,
+        scheduleId: id,
+        idempotencyKey: id,
+        includeResourceCauses: { type: "boolean", const: true },
+      },
+      Object.keys(scoped),
+    ),
+    oneOf: [["eventId"], ["commandId"], ["scheduleId", "idempotencyKey"]].map((required) => ({
+      required,
+      not: {
+        anyOf: ["eventId", "commandId", "scheduleId", "idempotencyKey"]
+          .filter((key) => !required.includes(key))
+          .map((key) => ({ required: [key] })),
+      },
+    })),
+  },
+};
+const readDescriptions: Partial<Record<WorldMcpReadTool, string>> = {
+  world_journal:
+    "Read a page of the world journal under the existing inspector authority (runtime:world-inspect).",
+  event_why:
+    "Explain why a recorded event, command or schedule happened, from public decision evidence only.",
 };
 const commandSchema = envelope({
   schemaVersion: version,
@@ -164,18 +201,31 @@ export async function handleWorldMcpRequest(
     let applicationErrorText: string | undefined;
     const handler = createMcpHandler(
       () => {
-        const server = new McpServer({ name: "clockgrove-world", version: "1.0.0" });
+        const server = new McpServer(
+          { name: "clockgrove-world", version: "1.0.0" },
+          {
+            instructions:
+              "Successful world reads carry `debugger`, a path into the world debugger on the origin serving this MCP endpoint. The debugger is owner-only and opens after signing in.",
+          },
+        );
         for (const name of WORLD_MCP_READ_TOOLS) {
           server.registerTool(
             name,
-            { inputSchema: fromJsonSchema(schemas[name]), annotations: { readOnlyHint: true } },
+            {
+              inputSchema: fromJsonSchema(schemas[name]),
+              annotations: { readOnlyHint: true },
+              ...(readDescriptions[name] && { description: readDescriptions[name] }),
+            },
             async (args) => {
               const result = await readWorldMcpTool(
                 application,
                 { name, arguments: args },
                 credential,
               );
-              const text = JSON.stringify(result);
+              const link = result.ok ? worldDebuggerLink(name, args) : undefined;
+              const text = JSON.stringify(
+                link === undefined ? result : { ...result, debugger: link },
+              );
               if (!result.ok) applicationErrorText = text;
               return { content: [{ type: "text", text }], ...(!result.ok && { isError: true }) };
             },

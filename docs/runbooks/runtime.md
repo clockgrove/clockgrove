@@ -11,7 +11,7 @@ an isolated PostgreSQL 18.6 database. This is not a cloud deployment or qualific
 There is currently no deployed first-party MCP endpoint to configure in a client.
 Issue 167 parts 1–4 supply an internal read adapter and stateless transport over
 the authenticated runtime APIs. The transport declares `world_directory`,
-`world_status`, `entity_inspect`, `command_receipt`, `run_receipt` and `run_search`;
+`world_status`, `entity_inspect`, `command_receipt`, `run_receipt`, `run_search`, `world_journal` and `event_why`;
 it does not issue credentials or add a public runtime route. Each protocol request
 supplies a bearer credential and authenticates through the ordinary directory use case;
 tool reads apply their existing application authorization. Request bodies are bounded

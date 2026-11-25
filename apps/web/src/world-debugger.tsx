@@ -70,6 +70,30 @@ function requested(): boolean {
   return playgroundHosted || new URLSearchParams(location.search).has("debugger");
 }
 
+interface DebuggerLink {
+  readonly section?: "journal" | "runs" | "actors";
+  readonly event?: string;
+  readonly run?: string;
+  readonly actor?: string;
+}
+
+/** The deep link in `location.search`; a hint for what to open, never authority: reads still pass the gate. */
+function linkOf(): DebuggerLink {
+  const params = new URLSearchParams(location.search);
+  const section = params.get("debugger");
+  if (section !== "journal" && section !== "runs" && section !== "actors") return {};
+  const value = (name: string) => params.get(name) || undefined;
+  const event = section === "journal" ? value("event") : undefined;
+  const run = section === "runs" ? value("run") : undefined;
+  const actor = section === "actors" ? value("actor") : undefined;
+  return {
+    section,
+    ...(event === undefined ? {} : { event }),
+    ...(run === undefined ? {} : { run }),
+    ...(actor === undefined ? {} : { actor }),
+  };
+}
+
 type JournalEvent = DebuggerJournalPage["events"][number];
 interface JournalState {
   readonly head: string;
@@ -91,6 +115,7 @@ export function WorldDebugger({
 }) {
   const [access, setAccess] = useState<"allowed" | "denied" | { readonly unavailable: string }>();
   const [journal, setJournal] = useState<JournalState | Refused>();
+  const [link] = useState(linkOf);
   useEffect(() => {
     if (!requested()) return;
     let live = true;
@@ -131,17 +156,17 @@ export function WorldDebugger({
       });
   };
   return (
-    <details>
+    <details open={link.section !== undefined ? true : undefined}>
       <summary>World debugger</summary>
       <p>
         Owner-only and read-only: every value here is recorded evidence read with your credential;
         nothing here changes the world.
       </p>
-      <DebuggerJournal session={session} journal={journal} load={loadJournal} />
+      <DebuggerJournal session={session} journal={journal} load={loadJournal} link={link} />
       <DebuggerTimeline session={session} journal={journal} />
-      <DebuggerRuns session={session} />
+      <DebuggerRuns session={session} link={link} />
       <DebuggerChecks session={session} />
-      <DebuggerActors session={session} scene={scene} />
+      <DebuggerActors session={session} scene={scene} link={link} />
     </details>
   );
 }
@@ -161,10 +186,12 @@ function DebuggerJournal({
   session,
   journal,
   load,
+  link,
 }: {
   readonly session: SceneSession;
   readonly journal: JournalState | Refused | undefined;
   readonly load: (older: boolean) => void;
+  readonly link: DebuggerLink;
 }) {
   const [causes, setCauses] = useState<Readonly<Record<string, string>>>({});
   const read = (eventId: EventId) => {
@@ -178,9 +205,36 @@ function DebuggerJournal({
       () => setCauses((current) => ({ ...current, [eventId]: "Recorded Why unavailable." })),
     );
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per mount, from the link
+  useEffect(() => {
+    if (link.section !== "journal") return;
+    load(false);
+    if (link.event !== undefined) read(link.event as EventId);
+    // Once per mount: the link is read once and the debugger mounts only when access is allowed.
+  }, []);
+  const openWhy = (eventId: EventId) =>
+    causes[eventId]?.startsWith("Caused by") && (
+      <button
+        type="button"
+        data-why-opener={`debugger:${eventId}`}
+        onClick={(click) => {
+          whyOpener.current = click.currentTarget;
+          session.explainEvent(eventId);
+        }}
+      >
+        {`Open Why for event ${eventId}`}
+      </button>
+    );
   return (
     <section aria-label="Debugger journal">
       <h3>Debugger journal</h3>
+      {link.event !== undefined && (
+        <section aria-label="Linked event">
+          <p>{`Linked event ${link.event}`}</p>
+          {causes[link.event] !== undefined && <p>{causes[link.event]}</p>}
+          {openWhy(link.event as EventId)}
+        </section>
+      )}
       <button type="button" onClick={() => load(false)}>
         Load journal
       </button>
@@ -201,18 +255,7 @@ function DebuggerJournal({
                       {`Cause of event ${event.eventId}`}
                     </button>
                     {causes[event.eventId] !== undefined && <p>{causes[event.eventId]}</p>}
-                    {causes[event.eventId]?.startsWith("Caused by") && (
-                      <button
-                        type="button"
-                        data-why-opener={`debugger:${event.eventId}`}
-                        onClick={(click) => {
-                          whyOpener.current = click.currentTarget;
-                          session.explainEvent(event.eventId);
-                        }}
-                      >
-                        {`Open Why for event ${event.eventId}`}
-                      </button>
-                    )}
+                    {openWhy(event.eventId)}
                   </>
                 )}
               </li>
@@ -315,7 +358,13 @@ function DebuggerTimeline({
   );
 }
 
-function DebuggerRuns({ session }: { readonly session: SceneSession }) {
+function DebuggerRuns({
+  session,
+  link,
+}: {
+  readonly session: SceneSession;
+  readonly link: DebuggerLink;
+}) {
   const [runs, setRuns] = useState<readonly RunSummary[] | Refused>();
   const [walks, setWalks] = useState<Readonly<Record<string, RunWalk | Refused>>>({});
   const load = () => {
@@ -326,9 +375,27 @@ function DebuggerRuns({ session }: { readonly session: SceneSession }) {
       .inspectRun(runId)
       .then((walk) => setWalks((current) => ({ ...current, [runId]: walk })));
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per mount, from the link
+  useEffect(() => {
+    if (link.section !== "runs") return;
+    load();
+    if (link.run !== undefined) inspect(link.run);
+  }, []);
+  const linked = link.run === undefined ? undefined : walks[link.run];
   return (
     <section aria-label="Debugger runs">
       <h3>Debugger runs</h3>
+      {link.run !== undefined && (
+        <section aria-label="Linked run">
+          <p>{`Linked run ${link.run}`}</p>
+          {linked !== undefined && "refused" in linked && <p>Runs refused: {linked.refused}</p>}
+          {linked !== undefined &&
+            !("refused" in linked) &&
+            linked.runs
+              .filter((view) => view.runId === link.run)
+              .map((view) => <RunDetail key={view.runId} run={view} />)}
+        </section>
+      )}
       <button type="button" onClick={load}>
         Load runs
       </button>
@@ -511,11 +578,16 @@ export async function recentDecisions(
 function DebuggerActors({
   session,
   scene,
+  link,
 }: {
   readonly session: SceneSession;
   readonly scene: LivingScene;
+  readonly link: DebuggerLink;
 }) {
-  const [actor, setActor] = useState<ObjectId | undefined>(scene.entities[0]?.objectId);
+  const [actor, setActor] = useState<ObjectId | undefined>(
+    scene.entities.find((entity) => entity.objectId === link.actor)?.objectId ??
+      scene.entities[0]?.objectId,
+  );
   const [result, setResult] = useState<Decisions>();
   const show = async () => {
     const objectId = actor ?? scene.entities[0]?.objectId;
@@ -537,6 +609,10 @@ function DebuggerActors({
       setResult({ kind: "failed" });
     }
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per mount, from the link
+  useEffect(() => {
+    if (link.section === "actors") void show();
+  }, []);
   const physical = result?.kind === "read" ? result.selection.physical : undefined;
   const derived = result?.kind === "read" ? result.selection.derived : undefined;
   const values = [
