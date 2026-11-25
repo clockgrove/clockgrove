@@ -821,6 +821,10 @@ Migration `0081_surface_birth.sql` admits the optional `surfaces` birth section 
 a world whose pack declares graded surfaces (issue 267) provisions and replays from its stored
 birth.
 
+Migration `0081_surface_birth.sql` (issue 267) admits the optional `surfaces` birth section the
+same way: a world's graded surface state is stored and reconstructed with the existing versioned
+sections; no new table or permission is introduced.
+
 Migration `0004_world_birth.sql` adds schema `clockgrove_birth` (runtime role has `USAGE`). Worlds,
 timelines, partitions, streams and events stay in `clockgrove`; after migrations alone every new
 table and `clockgrove.worlds` are empty. PostgreSQL CHECK constraints restrict
