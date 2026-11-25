@@ -26,6 +26,7 @@ export * from "./scene-arrival.js";
 export * from "./scene-connection.js";
 export * from "./scene-interactions.js";
 export * from "./scene-protocol.js";
+export * from "./scene-surfaces.js";
 export * from "./spatial-units.js";
 export * from "./turn-fibers.js";
 export * from "./usage.js";

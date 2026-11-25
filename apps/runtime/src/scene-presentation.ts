@@ -10,8 +10,20 @@ import {
   type SceneLighting,
   type SceneMaterialDelivery,
   type ScenePresentationBinding,
+  type SceneSurfaceHost,
+  type SceneSurfaces,
+  type SceneSurfaceZone,
 } from "@clockgrove/contracts";
-import { presentationSchema, type WorldEntity, type WorldState } from "@clockgrove/domain";
+import {
+  presentationSchema,
+  type RegionShape,
+  surfaceBands,
+  surfaceRainHold,
+  surfaceValueAt,
+  type WorldBehaviorPolicy,
+  type WorldEntity,
+  type WorldState,
+} from "@clockgrove/domain";
 export interface ScenePresentationInput {
   readonly presentation: PackPresentation;
   readonly drawable: readonly string[];
@@ -185,6 +197,128 @@ export function sceneEffects(
     }
   }
   return effects;
+}
+
+/** Whether the installed pack's presentation binds surfaces, so a reader loads the policy for them. */
+export function presentsSurfaces(
+  pack: { readonly packId?: string },
+  inputs: readonly ScenePresentationInput[] = [],
+): boolean {
+  return inputs.some(
+    (item) => item.presentation.pack.id === pack.packId && item.presentation.surfaces,
+  );
+}
+
+/** A region's two-axis bounds in its frame, as decimal strings. */
+function regionBounds(shape: RegionShape): { min: string[]; max: string[] } {
+  const points: readonly (readonly bigint[])[] =
+    shape.kind === "circle"
+      ? [
+          [shape.center[0] - shape.radius, shape.center[1] - shape.radius],
+          [shape.center[0] + shape.radius, shape.center[1] + shape.radius],
+        ]
+      : shape.kind === "polygon"
+        ? shape.vertices
+        : [shape.min, shape.max];
+  const axis = (i: number, pick: (a: bigint, b: bigint) => bigint) =>
+    String(points.map((point) => point[i] as bigint).reduce(pick));
+  const lower = (a: bigint, b: bigint) => (a < b ? a : b);
+  const upper = (a: bigint, b: bigint) => (a > b ? a : b);
+  return { min: [axis(0, lower), axis(1, lower)], max: [axis(0, upper), axis(1, upper)] };
+}
+
+/**
+ * The installed pack's surfaces as the projected scene shows them (issue 267): each labelled zone
+ * whose host is in the scene, its channels settled at the scene's time under the rain the world
+ * holds, the treatments of its current bands, its recent marks and the text path's sentence. A
+ * pure function of state, policy and presentation, so a replayed state draws the same; undefined
+ * when the presentation binds no surface or the world has none.
+ */
+export function sceneSurfaces(
+  pack: { readonly packId?: string },
+  policy: WorldBehaviorPolicy | undefined,
+  state: Pick<
+    WorldState,
+    "simulationTime" | "surfaces" | "spatialRegions" | "weather" | "environment"
+  >,
+  frames: readonly LivingSpatialFrame[],
+  projected: ReadonlySet<ObjectId>,
+  labelOf: (objectId: ObjectId) => string,
+  inputs: readonly ScenePresentationInput[] = [],
+): SceneSurfaces | undefined {
+  const presented = inputs.find((item) => item.presentation.pack.id === pack.packId)?.presentation
+    .surfaces;
+  const declared = policy?.surfaces;
+  if (presented === undefined || declared === undefined || state.surfaces === undefined)
+    return undefined;
+  const shown = new Set(frames.map((frame) => `${frame.frameId}@${frame.version}`));
+  const labels = new Map(presented.zones.map((zone) => [zone.zoneId, zone.label]));
+  const channels = new Map(declared.channels.map((channel) => [channel.id, channel]));
+  const zoneStates = new Map(state.surfaces.zones.map((zone) => [zone.zoneId, zone]));
+  const hold = surfaceRainHold(state, policy?.environment);
+  const at = state.simulationTime;
+  const zones: SceneSurfaceZone[] = [];
+  for (const zone of declared.zones) {
+    const label = labels.get(zone.id);
+    const zoneState = zoneStates.get(zone.id);
+    if (label === undefined || zoneState === undefined) continue;
+    let host: SceneSurfaceHost;
+    if (zone.host.kind === "object") {
+      if (!projected.has(zone.host.objectId)) continue;
+      host = { kind: "object", objectId: zone.host.objectId };
+    } else {
+      const { regionId } = zone.host;
+      const region = state.spatialRegions?.find((item) => item.regionId === regionId);
+      if (region === undefined || !shown.has(`${region.frameId}@${region.frameVersion}`)) continue;
+      host = {
+        kind: "region",
+        regionId,
+        frameId: region.frameId,
+        frameVersion: region.frameVersion,
+        ...regionBounds(region.shape),
+      };
+    }
+    const settled = zoneState.channels.flatMap((entry) => {
+      const channel = channels.get(entry.channel);
+      if (channel === undefined) return [];
+      const { value } = surfaceValueAt(channel, entry, at, policy?.environment, hold);
+      return [
+        { channel: channel.id, value, max: channel.max, bands: surfaceBands(channel, value) },
+      ];
+    });
+    // Treatments in channel order, then in the channel's band declaration order.
+    const treatments = settled.flatMap(({ channel, bands }) =>
+      bands.flatMap((band) => {
+        const treatment = presented.treatments.find(
+          (item) => item.channel === channel && item.band === band,
+        );
+        return treatment === undefined ? [] : [treatment];
+      }),
+    );
+    const last = zoneState.marks.at(-1);
+    const phrases = treatments.map((treatment) => treatment.phrase).join(", ");
+    const sentence =
+      treatments.length === 0
+        ? null
+        : last === undefined
+          ? `${label} ${phrases}.`
+          : `${label} ${phrases}; most recently by ${labelOf(last.actorId)}.`;
+    zones.push({
+      zoneId: zone.id,
+      label,
+      host,
+      channels: settled,
+      treatments: treatments.map(({ channel, band, tiers }) => ({ channel, band, tiers })),
+      marks: zoneState.marks.map(({ actorId, at: markedAt, intensity, point }) => ({
+        actorId,
+        at: markedAt,
+        intensity,
+        point: { u: point.u, v: point.v },
+      })),
+      sentence,
+    });
+  }
+  return { decals: presented.decals, zones };
 }
 
 /** Compatibility export: the default presentation rig is shared with offline compositions. */

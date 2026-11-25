@@ -16,6 +16,7 @@ import {
 import type { EventId, ObjectId, PrincipalId, SpaceId } from "./ids.js";
 import { decodeOpaqueId } from "./ids.js";
 import { decodeMaterialChannels } from "./material.js";
+import { decodeSceneSurfaces, type SceneSurfaces } from "./scene-surfaces.js";
 import type { InteractionSummary } from "./scene-interactions.js";
 import { decodeInteractionSummary } from "./scene-interactions.js";
 import {
@@ -626,6 +627,8 @@ export interface SceneProjection extends BrowserScope {
   readonly lighting?: SceneLighting;
   /** Absent when no projected entity has a movement record. */
   readonly movements?: readonly SceneMovement[];
+  /** Absent when the installed presentation binds no surface (issue 267). */
+  readonly surfaces?: SceneSurfaces;
 }
 export function decodeVisibleSpace(value: unknown, path = "space"): VisibleSpace {
   const v = record(value, path);
@@ -726,7 +729,7 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
       "feedCursor",
       "audienceHash",
     ],
-    ["privateCognition", "effects", "lighting", "movements"],
+    ["privateCognition", "effects", "lighting", "movements", "surfaces"],
     path,
   );
   if (compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION && v.effects !== undefined)
@@ -741,6 +744,11 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
     v.movements !== undefined
   )
     throw new ContractDecodeError(`${path}.movements`, "absent from projection version 1");
+  if (
+    compatibility.projectionVersion === SCENE_PRIOR_PROJECTION_VERSION &&
+    v.surfaces !== undefined
+  )
+    throw new ContractDecodeError(`${path}.surfaces`, "absent from projection version 1");
   const revision = unsignedDecimal(v.revision, `${path}.revision`);
   const simulationTime = unsignedDecimal(v.simulationTime, `${path}.simulationTime`);
   const living = decodeLivingScene({
@@ -808,6 +816,15 @@ export function decodeSceneProjection(value: unknown, path = "projection"): Scen
             `${path}.movements`,
           ),
         }),
+    ...(v.surfaces === undefined
+      ? {}
+      : {
+          surfaces: decodeSceneSurfaces(
+            v.surfaces,
+            `${path}.surfaces`,
+            new Set(living.entities.map((entity) => entity.objectId)),
+          ),
+        }),
   };
 }
 export type ScenePatchOperation =
@@ -831,6 +848,7 @@ export type ScenePatchOperation =
     }
   | { readonly op: "set_effects"; readonly effects: readonly SceneEffect[] }
   | { readonly op: "set_movements"; readonly movements: readonly SceneMovement[] }
+  | { readonly op: "set_surfaces"; readonly surfaces: SceneSurfaces | null }
   | { readonly op: "set_lighting"; readonly lighting: SceneLighting | null };
 export interface ScenePatch {
   readonly fromRevision: bigint;
@@ -910,6 +928,12 @@ export function decodeScenePatchOperation(value: unknown, path = "operation"): S
         op: v.op,
         movements: array(v.movements, `${path}.movements`, decodeSceneMovement),
       };
+    case "set_surfaces":
+      exactKeys(v, ["op", "surfaces"], [], path);
+      return {
+        op: v.op,
+        surfaces: v.surfaces === null ? null : decodeSceneSurfaces(v.surfaces, `${path}.surfaces`),
+      };
     default:
       throw new ContractDecodeError(`${path}.op`, "unknown operation");
   }
@@ -955,7 +979,8 @@ export function decodeScenePatch(value: unknown, path = "patch"): ScenePatch {
       if (
         operation.op === "set_effects" ||
         operation.op === "set_lighting" ||
-        operation.op === "set_movements"
+        operation.op === "set_movements" ||
+        operation.op === "set_surfaces"
       )
         throw new ContractDecodeError(
           `${path}.operations[${index}].op`,

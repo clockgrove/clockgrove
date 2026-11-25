@@ -318,6 +318,43 @@ does (trunks, posts, walls: `kind: "solid"`) through its `occluders`, each with 
 the text path uses ("Ada is behind the cedar."). The rules are in
 [Occlusion and reveal](../../apps/web/docs/scene.md#occlusion-and-reveal-266).
 
+## Surface treatments (#267)
+
+A world remembers what its actors do to it as graded surface state: pack-declared zones whose
+channels (wear, mud, depth…) sit in named, overlapping bands and keep a short ring of recent marks
+([surfaces](../../packages/domain/docs/surfaces.md)). That state is canonical; its look is a *derived
+look*, computed from state and presentation data, never stored. A presentation binds it through its
+optional `surfaces` field:
+
+| Field | Contract |
+| --- | --- |
+| `decals` | `{low, medium, high}`: the most close-range mark decals the world draws at each quality tier, integers 0–256 |
+| `zones` | `[{zoneId, label}]`: the zones the world shows, each with the plain-text label the text path names it by ("The cedar's bark"); unique ids |
+| `treatments` | `[{channel, band, phrase, tiers}]`: one per channel band the world draws, unique per pair. `phrase` completes a zone's label into a sentence ("is scratched"); `tiers` holds `low`, `medium` and `high`, each `{tint, opacity, marks}`: an RGB hex tint, its opacity from 0 to 1, and whether the zone's recent marks show as decals at close range on that tier |
+
+Omitting the field keeps the presentation's encoding and draws no surface. Pack conformance refuses a
+presentation that names a zone, channel or band its pack does not declare, and, with
+`SURFACE_DECAL_BUDGET_EXCEEDED`, one whose decals cannot hold every mark: at each tier, the summed
+`markCapacity` of the labelled zones having a channel with a treatment that draws marks on that tier
+must fit that tier's `decals` (`surfaceDecalRefusal` in `@clockgrove/contracts`). The zone and mark
+budgets are the pack's own (`SURFACE_BUDGET_EXCEEDED`, [SDK refusal codes](../../packages/world-pack-sdk/docs/refusal-codes.md)).
+No budget is met by dropping a mark.
+
+The runtime projects them into the scene's optional `surfaces` field
+([realtime projection](realtime-projection.md)), the same way for the live scene and a flashback
+frame: for each labelled zone in the policy's declaration order whose host is in the scene (a
+projected object, or a region in a projected frame, given by its frame and two-axis bounds), each
+channel is settled at the scene's simulation time under the rain the world holds, with its band set;
+`treatments` lists the treatment of each current band that has one, in channel then band order; and
+`marks` copies the zone's ring, oldest first (who, when, where, how hard). The text path's
+`sentence` is null when no current band has a treatment, else `<label> <phrase>, <phrase>.`, or
+`<label> <phrases>; most recently by <actor>.` when the zone has a mark, the actor named by its scene
+label (its id when it is not projected), for example "The cedar's bark is scratched; most recently
+by Keeper, a resident." Every value is a function of state and these records, so replay and catch-up
+draw the same picture. The scene reader loads the installed behaviour policy only when the pack's
+presentation binds surfaces. The reference fixture binds its cedar bark, fence path, porch boards
+and garden bed in `presentation.json` and `runtime.json`.
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.

@@ -248,6 +248,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let effects = scene.effects;
   let lighting = scene.lighting;
   let movements = scene.movements;
+  let surfaces = scene.surfaces;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -304,6 +305,9 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_movements":
         movements = operation.movements;
         break;
+      case "set_surfaces":
+        surfaces = operation.surfaces ?? undefined;
+        break;
     }
   }
   const {
@@ -311,6 +315,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     effects: _effects,
     lighting: _lighting,
     movements: _movements,
+    surfaces: _surfaces,
     ...rest
   } = scene;
   const moving = movements?.filter((movement) => entities.has(movement.objectId));
@@ -322,6 +327,15 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     ...(effects && { effects }),
     ...(lighting && { lighting }),
     ...(moving && moving.length > 0 && { movements: moving }),
+    // A zone on an object the patch removed leaves the scene with it.
+    ...(surfaces && {
+      surfaces: {
+        ...surfaces,
+        zones: surfaces.zones.filter(
+          (zone) => zone.host.kind === "region" || entities.has(zone.host.objectId),
+        ),
+      },
+    }),
     revision: patch.toRevision,
     simulationTime,
     weather,

@@ -31,7 +31,11 @@ import {
   type RecordedWhy,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
-import { type WorldState, worldEventFeedCategory } from "@clockgrove/domain";
+import {
+  type WorldBehaviorPolicy,
+  type WorldState,
+  worldEventFeedCategory,
+} from "@clockgrove/domain";
 import {
   type HydratedWorldOwner,
   type PostgreSqlClient,
@@ -233,6 +237,7 @@ export class PostgreSqlFlashbackReader {
                 block.commandId,
                 [momentEvent.eventId],
                 true,
+                policy,
               ),
             );
           }
@@ -251,6 +256,7 @@ export class PostgreSqlFlashbackReader {
               block.commandId,
               block.events.map((event) => event.eventId),
               moment,
+              policy,
             ),
           );
         }
@@ -398,6 +404,7 @@ export class PostgreSqlFlashbackReader {
     commandId: CommandId,
     eventIds: readonly StoredEvent["eventId"][],
     moment: boolean,
+    policy: WorldBehaviorPolicy,
   ): FlashbackFrame {
     const scope = {
       tenantId: state.tenantId,
@@ -426,6 +433,7 @@ export class PostgreSqlFlashbackReader {
         decision,
         this.options.presentations ?? [],
         sequence,
+        policy,
       ),
     };
   }

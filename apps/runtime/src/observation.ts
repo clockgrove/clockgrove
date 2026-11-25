@@ -41,6 +41,7 @@ import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
   isWorldDecisionEvent,
   WORLD_FEED_EVENT_TYPES,
+  type WorldBehaviorPolicy,
   type WorldState,
   worldEventFeedCategory,
 } from "@clockgrove/domain";
@@ -69,9 +70,11 @@ import {
 } from "./scene-navigation.js";
 import {
   materialSceneLighting,
+  presentsSurfaces,
   type ScenePresentationInput,
   sceneEffects,
   scenePresentationBindings,
+  sceneSurfaces,
 } from "./scene-presentation.js";
 import { assertWorldCommandContext, PostgreSqlCommandOwner } from "./world-commands.js";
 
@@ -529,6 +532,8 @@ export function sceneProjectionOf(
   decision: SceneAudienceDecision,
   presentations: readonly ScenePresentationInput[],
   feedCursor: bigint,
+  /** The installed behaviour policy; needed only when the presentation binds surfaces. */
+  policy?: WorldBehaviorPolicy,
 ): SceneProjection {
   const projected = new Set(scene.entities.map((entity) => entity.objectId));
   const privateCognition = privateCognitionOf(state, decision, projected);
@@ -551,6 +556,18 @@ export function sceneProjectionOf(
     BigInt(scene.simulationTime),
     scene.weather,
     effects,
+  );
+  const labels = new Map(
+    scene.entities.map((entity) => [entity.objectId, entity.presentation.label]),
+  );
+  const surfaces = sceneSurfaces(
+    stored,
+    policy,
+    state,
+    scene.frames,
+    projected,
+    (objectId) => labels.get(objectId) ?? objectId,
+    presentations,
   );
   return decodeSceneProjection({
     tenantId: scene.tenantId,
@@ -586,6 +603,7 @@ export function sceneProjectionOf(
     ...(privateCognition === undefined ? {} : { privateCognition }),
     ...(effects.length === 0 ? {} : { effects }),
     ...(movements.length === 0 ? {} : { movements }),
+    ...(surfaces === undefined ? {} : { surfaces }),
   });
 }
 
@@ -610,6 +628,11 @@ export class PostgreSqlSceneStreamReader {
     // Decided before serialization: the projection holds only what this audience allows.
     const decision = decideSceneAudience(stored.document.state, attachment.audience, facts);
     const audienceHash = decision.hash;
+    // Only a pack whose presentation binds surfaces needs its installed policy to draw them.
+    const policy = presentsSurfaces(stored, this.presentations)
+      ? (await new PostgreSqlCommandOwner(this.client).behavior(authorization, attachment.audience))
+          .policy
+      : undefined;
     const projection = sceneProjectionOf(
       stored,
       stored.document.state,
@@ -617,6 +640,7 @@ export class PostgreSqlSceneStreamReader {
       decision,
       this.presentations,
       stored.coveredHeadSequence,
+      policy,
     );
     const snapshot = { projection, patch: null, authorityEpoch: stored.routingEpoch, decision };
     if (fromRevision === null || fromRevision < 0n || fromRevision >= projection.revision)

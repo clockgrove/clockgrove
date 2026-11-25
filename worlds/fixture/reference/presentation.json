@@ -94,5 +94,186 @@
       "animationFamily": "loop",
       "objectId": null
     }
-  ]
+  ],
+  "surfaces": {
+    "decals": {
+      "low": 0,
+      "medium": 12,
+      "high": 24
+    },
+    "zones": [
+      {
+        "zoneId": "cedar-bark",
+        "label": "The cedar's bark"
+      },
+      {
+        "zoneId": "fence-path",
+        "label": "The path along the fence"
+      },
+      {
+        "zoneId": "porch-boards",
+        "label": "The porch boards"
+      },
+      {
+        "zoneId": "garden-bed",
+        "label": "The garden bed"
+      }
+    ],
+    "treatments": [
+      {
+        "channel": "wear",
+        "band": "scratched",
+        "phrase": "is scratched",
+        "tiers": {
+          "low": {
+            "tint": "#c9a27a",
+            "opacity": 0.35,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#c9a27a",
+            "opacity": 0.45,
+            "marks": true
+          },
+          "high": {
+            "tint": "#c9a27a",
+            "opacity": 0.5,
+            "marks": true
+          }
+        }
+      },
+      {
+        "channel": "wear",
+        "band": "stripped",
+        "phrase": "is stripped bare",
+        "tiers": {
+          "low": {
+            "tint": "#e3c9a4",
+            "opacity": 0.6,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#e3c9a4",
+            "opacity": 0.7,
+            "marks": true
+          },
+          "high": {
+            "tint": "#e3c9a4",
+            "opacity": 0.75,
+            "marks": true
+          }
+        }
+      },
+      {
+        "channel": "trodden",
+        "band": "worn",
+        "phrase": "is worn bare",
+        "tiers": {
+          "low": {
+            "tint": "#8a7a5c",
+            "opacity": 0.4,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#8a7a5c",
+            "opacity": 0.5,
+            "marks": false
+          },
+          "high": {
+            "tint": "#8a7a5c",
+            "opacity": 0.55,
+            "marks": false
+          }
+        }
+      },
+      {
+        "channel": "mud",
+        "band": "smudged",
+        "phrase": "is smudged with mud",
+        "tiers": {
+          "low": {
+            "tint": "#5a4430",
+            "opacity": 0.15,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#5a4430",
+            "opacity": 0.2,
+            "marks": true
+          },
+          "high": {
+            "tint": "#5a4430",
+            "opacity": 0.25,
+            "marks": true
+          }
+        }
+      },
+      {
+        "channel": "mud",
+        "band": "muddy",
+        "phrase": "is muddy",
+        "tiers": {
+          "low": {
+            "tint": "#4a3626",
+            "opacity": 0.4,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#4a3626",
+            "opacity": 0.5,
+            "marks": true
+          },
+          "high": {
+            "tint": "#4a3626",
+            "opacity": 0.55,
+            "marks": true
+          }
+        }
+      },
+      {
+        "channel": "depth",
+        "band": "shallow",
+        "phrase": "has a shallow hole dug in it",
+        "tiers": {
+          "low": {
+            "tint": "#3b2a1c",
+            "opacity": 0.5,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#3b2a1c",
+            "opacity": 0.6,
+            "marks": true
+          },
+          "high": {
+            "tint": "#3b2a1c",
+            "opacity": 0.65,
+            "marks": true
+          }
+        }
+      },
+      {
+        "channel": "depth",
+        "band": "deep",
+        "phrase": "has a deep hole dug in it",
+        "tiers": {
+          "low": {
+            "tint": "#2a1d12",
+            "opacity": 0.7,
+            "marks": false
+          },
+          "medium": {
+            "tint": "#2a1d12",
+            "opacity": 0.8,
+            "marks": true
+          },
+          "high": {
+            "tint": "#2a1d12",
+            "opacity": 0.85,
+            "marks": true
+          }
+        }
+      }
+    ]
+  }
 }

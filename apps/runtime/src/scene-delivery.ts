@@ -129,6 +129,15 @@ export function scenePatchOperations(
             movements: projection.movements ?? [],
           } satisfies ScenePatchOperation,
         ]),
+    // Like movements: only a projection that has, or had, surfaces carries the operation.
+    ...(projection.surfaces === undefined && previous?.surfaces === undefined
+      ? []
+      : [
+          {
+            op: "set_surfaces",
+            surfaces: projection.surfaces ?? null,
+          } satisfies ScenePatchOperation,
+        ]),
     { op: "set_feed_cursor", feedCursor: projection.feedCursor },
     { op: "set_compatibility", compatibility: projection.compatibility },
     ...(projection.privateCognition === undefined
