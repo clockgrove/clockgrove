@@ -23,7 +23,7 @@ import {
   PostgreSqlRuntimeStateReader,
   PostgreSqlSnapshotStore,
 } from "@clockgrove/persistence";
-import { INSPECT_GRANT } from "./inspector.js";
+import { assertIdLengths, INSPECT_GRANT } from "./inspector.js";
 import type { RuntimeScope } from "./types.js";
 import { assertWorldCommandContext, worldAuthorization } from "./world-commands.js";
 
@@ -122,6 +122,7 @@ export function decodeJournalInput(value: unknown): JournalInput {
     timelineId: input.timelineId,
     spaceId: input.spaceId,
   });
+  assertIdLengths(Object.values(scope));
   return {
     scope,
     ...(input.beforeSequence === undefined

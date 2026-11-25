@@ -274,7 +274,7 @@ export interface RuntimeOwnerBindings {
   };
   /** Usage events by player and time window (0076), under the inspector's grant, limit and audit. */
   readonly usage?: AuditedPort<UsageQueryRequest, UsagePage>;
-  /** The world debugger's journal window and replay (0079), under the inspector's grant and audit. */
+  /** The world debugger's journal window and replay (0080), under the inspector's grant and audit. */
   readonly journalPages?: AuditedPort<JournalInput, JournalPage>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {

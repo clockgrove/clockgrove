@@ -267,6 +267,68 @@ describe("runtime-state inspector and operator actions", () => {
             )
             .join(","),
         );
+
+        // Issue 327: the journal reads under the caller's ceiling. A row above it (private
+        // cognition) is absent from the window, and a replay across it is unavailable as a gap.
+        type Page = {
+          journalHead: string;
+          events: { eventId: string; partitionSequence: string }[];
+          replay?: { status: string; to: string; reason?: string; matchesLive?: boolean };
+        };
+        const page = async (extra: Record<string, string>) => {
+          const response = await owner.request("/v1/runtime/journal", {
+            schemaVersion: 1,
+            ...scope,
+            ...extra,
+          });
+          expect(response.status).toBe(200);
+          return response.body as Page;
+        };
+        const covered = await sql(
+          `SELECT covered_head_sequence::text FROM clockgrove.partition_states WHERE partition_id='${partitionId}'`,
+        );
+        const visible = await page({ replayTo: covered });
+        expect(visible.replay?.status).toBe("replayed");
+        expect(visible.replay?.matchesLive).toBe(true);
+        expect(visible.events.map((event) => event.partitionSequence)).toContain("2");
+        const hidden = await sql(
+          `UPDATE clockgrove.events SET privacy_class='private_cognition' WHERE partition_id='${partitionId}' AND partition_sequence=2 RETURNING event_id`,
+        );
+        const ceiling = await page({ replayTo: covered });
+        const sequences = ceiling.events.map((event) => event.partitionSequence);
+        expect(sequences).toEqual(
+          visible.events.map((event) => event.partitionSequence).filter((value) => value !== "2"),
+        );
+        expect(ceiling.events.map((event) => event.eventId)).not.toContain(hidden);
+        expect(ceiling.replay).toEqual({
+          status: "unavailable",
+          to: covered,
+          reason: "journal sequence-gap: an event above your privacy ceiling, or a missing one",
+        });
+        // Below the hidden row, a replay folds only what the caller may read.
+        expect((await page({ replayTo: "1" })).replay?.status).toBe("replayed");
+
+        // A replay folds at most 2,000 events past its start: the projection's covered head moved
+        // 2,050 past where it stood, a position there is refused before any event is read.
+        const far = (BigInt(covered) + 2_050n).toString();
+        await sql(
+          `UPDATE clockgrove.partition_states SET covered_head_sequence=${far} WHERE partition_id='${partitionId}'`,
+        );
+        const bounded = (await page({ replayTo: far })).replay;
+        expect(bounded?.status).toBe("unavailable");
+        expect(bounded?.reason).toMatch(
+          /^\d{4,} events past (the world's birth|the snapshot at #\d+); a replay folds at most 2000 events and no snapshot is nearer$/u,
+        );
+
+        // Scope IDs are bounded like the runtime-state view's: 1 to 1024 octets, so an oversized
+        // ID is refused as invalid before any read, and no audit row is attempted.
+        const audited = () => sql("SELECT count(*) FROM clockgrove.inspector_accesses");
+        const rows = await audited();
+        for (const path of ["/v1/runtime/journal", "/v1/runtime/runtime-state"])
+          expect(
+            await owner.request(path, { schemaVersion: 1, ...scope, spaceId: "s".repeat(2_000) }),
+          ).toEqual({ status: 400, body: { error: "invalid_inspection_request" } });
+        expect(await audited()).toBe(rows);
       });
     },
     110_000,

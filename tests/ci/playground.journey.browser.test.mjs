@@ -314,6 +314,41 @@ async function debugsThePlayground(page, post, entry) {
     "Choice",
   ]);
   expect(await decision.getByText(/^Chose (stay|seek-[a-z]+) → \S+ \(tier /u).count()).toBe(1);
+  // The recorded trace's features, read through: the cube perceives the rock (300 units away, in
+  // a 5,000-unit perception range); `stay` records no `perceived` feature; it holds no memory of
+  // the rock (expectation 0, no food freshness); and its goals are the actor-level needs.
+  const lists = decision.getByRole("list");
+  const perception = await lists.nth(0).getByRole("listitem").allTextContents();
+  expect(perception).toContain("stay → None: not recorded");
+  expect(perception).toContain("seek-shelter → playground.rock: perceived");
+  expect(
+    perception.filter(
+      (line) =>
+        !/^seek-water → playground\.puddle: perceived$/u.test(line) &&
+        line !== "stay → None: not recorded" &&
+        line !== "seek-shelter → playground.rock: perceived",
+    ),
+  ).toEqual([]);
+  const beliefs = await lists.nth(1).getByRole("listitem").allTextContents();
+  expect(beliefs).toContain(
+    "seek-shelter → playground.rock: expectation 0, freshness not recorded",
+  );
+  expect(
+    beliefs.filter(
+      (line) =>
+        !/^seek-water → playground\.puddle: expectation \d+, freshness not recorded$/u.test(line) &&
+        line !== "seek-shelter → playground.rock: expectation 0, freshness not recorded",
+    ),
+  ).toEqual([]);
+  const goals = await decision
+    .getByText(/^hunger \d+|^thirst \d+|^wetness \d+|^U \d+|^rain \d+|^health \d+/u)
+    .textContent();
+  expect(
+    goals
+      .split(", ")
+      .map((pair) => /^(\S+) -?\d+$/u.exec(pair)?.[1])
+      .sort(),
+  ).toEqual(["U", "health", "hunger", "rain", "thirst", "uncomfortable", "wetness"]);
   // Paused, the journal head stays put, so a replay to it can be compared with the live projection.
   await clock("PauseWorld", { schemaVersion: 1 });
   const journal = page.getByRole("region", { name: "Debugger journal", exact: true });

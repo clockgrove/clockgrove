@@ -136,7 +136,8 @@ function decodeScopedRequest(
   return { scope, input };
 }
 
-function assertIdLengths(ids: readonly string[]): void {
+/** Each ID 1 to 1024 octets, the `inspector_accesses` CHECK, so a refusal's audit row is writable. */
+export function assertIdLengths(ids: readonly string[]): void {
   for (const id of ids)
     if (id === "" || new TextEncoder().encode(id).length > MAX_ID_OCTETS)
       throw new ContractDecodeError("request", "ID length out of range");

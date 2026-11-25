@@ -564,7 +564,7 @@ export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO"
   };
 }
 
-/** The world debugger's journal window and replay (0079); replay reads snapshots and the birth. */
+/** The world debugger's journal window and replay (0080); replay reads snapshots and the birth. */
 export function composeJournalInspector(
   env: RuntimeEnvironment,
 ): RuntimeOwnerBindings["journalPages"] {
